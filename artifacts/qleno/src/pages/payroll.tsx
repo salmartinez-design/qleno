@@ -252,11 +252,103 @@ const qualityColor = (q: number | null | undefined) =>
 // [period-sync 2026-06-12] Period state lives in PayrollPage now (shared with
 // the Summary tab, banners, and the top-right label) — this view just reads
 // and reports changes up.
+// [hours-override-ui 2026-06-22] Inline office control to flip ONE job's pay
+// from its default basis (commercial allowed-hours / residential pool) to HOURLY
+// on a chosen number of hours — the per-job "this one ran over, pay the actual"
+// lever Sal needs to match MaidCentral's hand-adjusted overage jobs. Writes
+// payroll_hours_overrides via PUT; Clear reverts to default. Pre-fills with the
+// clocked hours since "pay on actual" is the common case. Office-only (the
+// caller gates rendering on role).
+function HoursOverrideControl({ userId, jobId, clockedHours, overridden, onChanged }: {
+  userId: number; jobId: number; clockedHours: number; overridden: boolean; onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [val, setVal] = useState(clockedHours > 0 ? clockedHours.toFixed(2) : '');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function save() {
+    const h = Number(val);
+    if (!Number.isFinite(h) || h <= 0 || h > 24) { setErr('Enter hours between 0 and 24'); return; }
+    setBusy(true); setErr(null);
+    try {
+      await apiFetch('/payroll/job-hours-override', {
+        method: 'PUT',
+        body: JSON.stringify({ user_id: userId, job_id: jobId, paid_hours: h }),
+      });
+      setOpen(false); onChanged();
+    } catch { setErr('Save failed'); } finally { setBusy(false); }
+  }
+  async function clear() {
+    setBusy(true); setErr(null);
+    try {
+      await apiFetch(`/payroll/job-hours-override?user_id=${userId}&job_id=${jobId}`, { method: 'DELETE' });
+      setOpen(false); onChanged();
+    } catch { setErr('Clear failed'); } finally { setBusy(false); }
+  }
+
+  return (
+    <span style={{ position: 'relative', display: 'inline-block', marginTop: 4 }}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        style={{
+          fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
+          color: overridden ? '#B45309' : '#6B6860',
+          background: overridden ? '#FEF3C7' : '#F4F2EE',
+          border: '1px solid ' + (overridden ? '#F2D08A' : '#E5E2DC'),
+          borderRadius: 6, padding: '2px 8px',
+        }}>
+        {overridden ? 'Edit hourly override' : 'Pay hourly'}
+      </button>
+      {open && (
+        <>
+          <div onClick={(e) => { e.stopPropagation(); setOpen(false); }} style={{ position: 'fixed', inset: 0, zIndex: 50 }} />
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ position: 'absolute', zIndex: 51, top: 'calc(100% + 6px)', left: 0, width: 234, background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, boxShadow: '0 12px 34px rgba(10,14,26,.16)', padding: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: '#0A0E1A', marginBottom: 2 }}>Pay this job hourly</div>
+            <div style={{ fontSize: 10.5, color: '#9B9890', marginBottom: 8, lineHeight: 1.35 }}>Overrides the default basis — pays the company hourly rate × these hours for this one job.</div>
+            <label style={{ fontSize: 10.5, fontWeight: 700, color: '#9B9890', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Paid hours</label>
+            <input type="number" step="0.25" min="0" value={val} autoFocus
+              onChange={(e) => setVal(e.target.value)}
+              style={{ display: 'block', width: '100%', marginTop: 4, padding: '7px 9px', border: '1px solid #E5E2DC', borderRadius: 8, fontFamily: 'inherit', fontSize: 13, boxSizing: 'border-box' }} />
+            {clockedHours > 0 && (
+              <button onClick={() => setVal(clockedHours.toFixed(2))}
+                style={{ marginTop: 6, fontSize: 11, color: '#00A383', background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontFamily: 'inherit' }}>
+                Use clocked: {clockedHours.toFixed(2)}h
+              </button>
+            )}
+            {err && <div style={{ fontSize: 11, color: '#DC2626', marginTop: 6 }}>{err}</div>}
+            <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+              <button disabled={busy} onClick={save}
+                style={{ flex: 1, padding: '7px 0', background: '#0A0E1A', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: busy ? 'default' : 'pointer', fontFamily: 'inherit', opacity: busy ? 0.6 : 1 }}>
+                {busy ? '…' : 'Save'}
+              </button>
+              {overridden && (
+                <button disabled={busy} onClick={clear}
+                  style={{ padding: '7px 12px', background: '#fff', color: '#B45309', border: '1px solid #E5E2DC', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: busy ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                  Clear
+                </button>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </span>
+  );
+}
+
 function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string; end: string }; onPeriodChange: (p: { start: string; end: string }) => void }) {
   const [expanded, setExpanded] = useState<number[]>([]);
   const FF = "inherit";
   const { activeBranchId } = useBranch();
   const branchQ = activeBranchId !== "all" ? `&branch_id=${activeBranchId}` : "";
+  const qc = useQueryClient();
+  // [hours-override-ui 2026-06-22] Office-only: the per-job "pay hourly" lever.
+  const canManage = ['owner', 'admin', 'office'].includes(getTokenRole() || '');
+  const onOverrideChanged = () => {
+    qc.invalidateQueries({ queryKey: ['payroll-detail'] });
+    qc.invalidateQueries({ queryKey: ['payroll-overview'] });
+  };
 
   const { data, isLoading } = useQuery({
     queryKey: ['payroll-detail', period.start, period.end, activeBranchId],
@@ -513,6 +605,15 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                       {fmtScope(job.scope)}
                                       {job.pay_basis ? <> · {String(job.pay_basis).split('(override)').map((part: string, i: number, arr: string[]) => <Fragment key={i}>{part}{i < arr.length - 1 && <span style={{ color: '#B45309', fontWeight: 600 }}>(override)</span>}</Fragment>)}</> : ''}
                                     </div>
+                                    {canManage && (
+                                      <HoursOverrideControl
+                                        userId={emp.user_id}
+                                        jobId={job.job_id}
+                                        clockedHours={Number(job.hrs_actual ?? job.hrs_worked ?? 0)}
+                                        overridden={!!job.hours_overridden}
+                                        onChanged={onOverrideChanged}
+                                      />
+                                    )}
                                   </td>
                                   <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', fontSize: 14, fontWeight: 400, color: '#0A0E1A', whiteSpace: 'nowrap' }}>{billed > 0 ? money(billed) : '—'}</td>
                                   <td style={{ ...td, borderTop: '0.5px solid #F0EEE8', textAlign: 'right', fontSize: 14, fontWeight: 400, whiteSpace: 'nowrap' }}>

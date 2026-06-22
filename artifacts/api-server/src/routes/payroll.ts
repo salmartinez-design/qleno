@@ -952,6 +952,66 @@ router.get("/detail", requireAuth, async (req, res) => {
   }
 });
 
+// ── Per-job paid-hours override (the "pay this overage job hourly" lever) ─────
+// [hours-override-ui 2026-06-22] Writes payroll_hours_overrides — the table the
+// /detail + snapshot engines already READ but nothing wrote. This is Sal's
+// "sometimes hourly, sometimes allowed" toggle: commercial defaults to allowed
+// hours, but when a job runs over the office flips THAT job to hourly on the
+// actual clocked hours (e.g. Juliana 9.58 actual vs 9.50 allowed → 9.58 × $20).
+// HOURS only, never dollars — dollar overrides stay on job_technicians.final_pay.
+// Office-only. Upsert keyed on (company_id, user_id, job_id) to match the table's
+// unique constraint, so re-saving the same line edits in place.
+router.put("/job-hours-override", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const userId = parseInt(String(req.body?.user_id));
+    const jobId = parseInt(String(req.body?.job_id));
+    const paidHours = Number(req.body?.paid_hours);
+    const note = req.body?.note != null ? String(req.body.note).slice(0, 500) : null;
+    if (!Number.isFinite(userId) || !Number.isFinite(jobId)) {
+      return res.status(400).json({ error: "Bad Request", message: "user_id and job_id are required" });
+    }
+    if (!Number.isFinite(paidHours) || paidHours <= 0 || paidHours > 24) {
+      return res.status(400).json({ error: "Bad Request", message: "paid_hours must be between 0 and 24" });
+    }
+    // Scope guard: the job must belong to this company. Stops a cross-tenant
+    // job_id from ever landing in this company's overrides.
+    const jc = await db.execute(sql`SELECT 1 FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+    if (!jc.rows.length) return res.status(404).json({ error: "Not Found", message: "Job not found for this company" });
+
+    await db.execute(sql`
+      INSERT INTO payroll_hours_overrides (company_id, user_id, job_id, paid_hours, note, created_by_user_id)
+      VALUES (${companyId}, ${userId}, ${jobId}, ${paidHours}, ${note}, ${req.auth!.userId})
+      ON CONFLICT (company_id, user_id, job_id)
+      DO UPDATE SET paid_hours = EXCLUDED.paid_hours, note = EXCLUDED.note,
+                    created_by_user_id = EXCLUDED.created_by_user_id, created_at = now()`);
+    return res.json({ ok: true, user_id: userId, job_id: jobId, paid_hours: paidHours });
+  } catch (err) {
+    console.error("Payroll hours-override upsert error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to save hours override" });
+  }
+});
+
+// Clear a per-job paid-hours override → the line reverts to its default basis
+// (commercial allowed-hours, residential pool, or the tenant hours_basis).
+router.delete("/job-hours-override", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const userId = parseInt(String(req.query.user_id ?? req.body?.user_id));
+    const jobId = parseInt(String(req.query.job_id ?? req.body?.job_id));
+    if (!Number.isFinite(userId) || !Number.isFinite(jobId)) {
+      return res.status(400).json({ error: "Bad Request", message: "user_id and job_id are required" });
+    }
+    await db.execute(sql`
+      DELETE FROM payroll_hours_overrides
+      WHERE company_id = ${companyId} AND user_id = ${userId} AND job_id = ${jobId}`);
+    return res.json({ ok: true, user_id: userId, job_id: jobId, cleared: true });
+  } catch (err) {
+    console.error("Payroll hours-override delete error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to clear hours override" });
+  }
+});
+
 // ── Reconciliation audit (MC transition) ─────────────────────────────────────
 // [recon-audit 2026-06-12] One screen instead of tab-flipping into MaidCentral.
 // For a pay window, surfaces every job/day whose pay inputs look wrong, in the
