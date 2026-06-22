@@ -612,10 +612,16 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
         carryover_allowed, documentation_required, requestable,
         exempt_from_blackout
       )
+      -- PLAWA: 40h FRONT-LOADED after 90 days, NO carryover (reset to 40
+      -- each calendar year). This is Phes's actual policy per the handbook
+      -- ("40 paid hours per Benefit Year, front-loaded after 90 days …
+      -- unused PLAWA hours … do not carry over"), confirmed by Sal
+      -- 2026-06-20. NOT accrue_per_hours — that earlier seed encoded the
+      -- IL statutory MINIMUM (1hr/40 worked), which Phes exceeds.
       VALUES
         (1, 'plawa', 'PLAWA', true, 40,
-         'accrue_per_hours', 0.025, 90,
-         true, false, true, true),
+         'flat_grant', 0, 90,
+         false, false, true, true),
         (1, 'pto_phes', 'PTO', true, 40,
          'flat_grant', 0, 365,
          true, false, true, false),
@@ -627,6 +633,17 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
          false, false, false, false)
       ON CONFLICT DO NOTHING;
 
+      -- Correct any pre-existing Phes PLAWA row (deployed before the fix
+      -- above) to the front-loaded policy. ON CONFLICT DO NOTHING leaves
+      -- existing rows untouched, so this UPDATE is the path that fixes
+      -- prod. Idempotent.
+      UPDATE leave_types
+      SET accrual_mode = 'flat_grant',
+          accrual_rate = 0,
+          carryover_allowed = false
+      WHERE company_id = 1
+        AND slug = 'plawa';
+
       -- The default-seeded "pto" row for company_id=1 collides with
       -- the Phes-specific PTO (slug 'pto_phes' is intentional to keep
       -- both rows distinguishable). If the default 'pto' row was
@@ -637,6 +654,14 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
       WHERE company_id = 1
         AND slug = 'pto';
 
+      -- Likewise deactivate the generic default 'sick' bucket for Phes —
+      -- PLAWA is the single sick bucket for co1. Two active sick-like
+      -- buckets (generic 'sick' + 'plawa') is a seeding leftover.
+      UPDATE leave_types
+      SET active = false
+      WHERE company_id = 1
+        AND slug = 'sick';
+
       RAISE NOTICE 'cutover-migration: seeded leave_types per tenant';
     END
     $$;
@@ -646,9 +671,11 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
 
 /**
  * Cutover 3A — seed the Phes company_leave_policy with the
- * anniversary-based reset + ceiling + lead-days. Idempotent: only
- * writes when the column has the schema default (NULL/zero) and the
- * tenant hasn't customized.
+ * WORK-ANNIVERSARY reset (per-employee benefit year) + ceiling +
+ * lead-days. Each employee's buckets (PLAWA, PTO, Unpaid) reset on their
+ * own hire anniversary — matches the handbook's individualized "Benefit
+ * Year" (confirmed by Sal 2026-06-20: NOT a Jan-1 calendar reset).
+ * Idempotent: COALESCE-preserves any tenant customization.
  */
 async function seedPhesLeavePolicy3A(): Promise<void> {
   await db.execute(
@@ -671,7 +698,7 @@ async function seedPhesLeavePolicy3A(): Promise<void> {
         leave_reset_basis = COALESCE(EXCLUDED.leave_reset_basis, company_leave_policy.leave_reset_basis),
         use_it_or_lose_it_alert_lead_days = COALESCE(EXCLUDED.use_it_or_lose_it_alert_lead_days, company_leave_policy.use_it_or_lose_it_alert_lead_days),
         balance_ceiling_hours = COALESCE(EXCLUDED.balance_ceiling_hours, company_leave_policy.balance_ceiling_hours);
-      RAISE NOTICE 'cutover-migration: ensured Phes 3A leave policy';
+      RAISE NOTICE 'cutover-migration: ensured Phes 3A leave policy (work-anniversary reset)';
     END
     $$;
   `),

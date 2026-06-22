@@ -163,7 +163,10 @@ export default function LeaveRequestPage() {
 
         {/* Request form */}
         <div style={{ backgroundColor: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 14, marginBottom: 20 }}>
-          <div style={{ fontSize: 14, fontWeight: 800, color: INK, marginBottom: 10 }}>Submit a request</div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: INK, marginBottom: 4 }}>Submit a request</div>
+          <div style={{ fontSize: 11, color: MUTED, marginBottom: 10 }}>
+            PTO and Unpaid Personal require 7 days' advance notice. Sick time can be requested for the same day.
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
             <FormField label="Bucket">
               <select

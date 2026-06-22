@@ -15,6 +15,7 @@ import {
   FEDERAL_DEFAULT_RULES,
   type OvertimeRules,
 } from "../lib/overtime.js";
+import { computeLeavePayPreview } from "../lib/leave-pay-preview.js";
 
 const router = Router();
 
@@ -129,8 +130,9 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
       const sick_pay = additional.sick_pay || 0;
       const holiday_pay = additional.holiday_pay || 0;
       const vacation_pay = additional.vacation_pay || 0;
+      const pto = additional.pto || 0; // auto-paid PTO leave (type 'pto')
       const deductions = additional.amount_owed || 0;
-      const gross_pay = base_pay + tips + bonuses + sick_pay + holiday_pay + vacation_pay - deductions;
+      const gross_pay = base_pay + tips + bonuses + sick_pay + holiday_pay + vacation_pay + pto - deductions;
 
       return {
         user_id: emp.id,
@@ -145,6 +147,7 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
         sick_pay,
         holiday_pay,
         vacation_pay,
+        pto,
         deductions,
         gross_pay: Math.round(gross_pay * 100) / 100,
       };
@@ -165,6 +168,31 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
   } catch (err) {
     console.error("Payroll summary error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to get payroll summary" });
+  }
+});
+
+// ── Paid-leave preview (review-gated) ──────────────────────────────────────────
+// [time-off-accrual 2026-06-20] Surfaces the dollar value of APPROVED paid
+// leave (PLAWA / PTO) for a pay window as hours × rate — a non-binding review
+// signal, NOT auto-pay. Same philosophy as the overtime/mileage banners: the
+// office sees the estimate and pays via the normal additional-pay flow. Does
+// not modify gross_pay. Office-only.
+router.get("/leave-pay-preview", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const { from, to } = req.query;
+    if (!from || !to) {
+      return res.status(400).json({ error: "from and to (YYYY-MM-DD) required" });
+    }
+    const preview = await computeLeavePayPreview(
+      companyId,
+      String(from),
+      String(to),
+    );
+    return res.json(preview);
+  } catch (err) {
+    console.error("leave-pay-preview error:", err);
+    return res.status(500).json({ error: "Failed to compute leave pay preview" });
   }
 });
 

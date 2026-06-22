@@ -8,6 +8,22 @@ import {
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 
+/**
+ * DEPRECATED (time-off-accrual 2026-06-20) — legacy single-bucket leave.
+ *
+ * Superseded by the 3A engine at /api/leave (per-bucket
+ * employee_leave_balances + grant/reset jobs). The single-bucket columns
+ * users.{leave,pto,sick}_balance_hours this router reads/writes are NO
+ * LONGER the source of truth. The employee-profile Leave Balance tab now
+ * reads /api/leave/balances; nothing in the UI calls POST /use anymore.
+ *
+ * Kept ONLY so the GET /balance `usage` array (employee_leave_usage,
+ * which the 3A approval flow still populates) keeps rendering the history
+ * list. Do NOT build new features on this router. The deprecated columns
+ * and the write endpoints (PUT /balance, POST /use, POST /activate) are
+ * slated for removal in a follow-up AFTER the migration sign-off — left
+ * in place now to avoid a destructive schema change in this PR.
+ */
 const router = Router();
 
 router.get("/balance/:employee_id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {

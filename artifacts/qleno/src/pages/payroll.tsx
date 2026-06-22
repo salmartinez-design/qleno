@@ -32,14 +32,14 @@ function empRate(emp: any): number {
 
 const PAY_TYPE_LABELS: Record<string, string> = {
   bonus: 'Bonus', tips: 'Tips', mileage: 'Mileage', mileage_reimbursement: 'Mileage',
-  sick_pay: 'Sick Pay', holiday_pay: 'Holiday Pay', vacation_pay: 'Vacation Pay',
+  sick_pay: 'Sick Pay', holiday_pay: 'Holiday Pay', vacation_pay: 'Vacation Pay', pto: 'PTO',
   compliment: 'Compliment', amount_owed: 'Amount Owed',
 };
 
 const PAY_GROUPS = [
   { label: 'Earnings',  types: ['bonus','tips'] },
   { label: 'Reimbursements', types: ['mileage','mileage_reimbursement'] },
-  { label: 'Time Off',  types: ['sick_pay','holiday_pay','vacation_pay'] },
+  { label: 'Time Off',  types: ['sick_pay','holiday_pay','vacation_pay','pto'] },
   { label: 'Other',     types: ['compliment','amount_owed'] },
 ];
 
@@ -418,7 +418,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
         const sumK = (...ks: string[]) => ks.reduce((s, k) => s + (Number(ap[k]) || 0), 0);
         const tipsAmt = sumK('tips');
         const mileageAmt = sumK('mileage', 'mileage_reimbursement');
-        const timeOffAmt = sumK('sick_pay', 'holiday_pay', 'vacation_pay');
+        const timeOffAmt = sumK('sick_pay', 'holiday_pay', 'vacation_pay', 'pto');
         const hoursWorked = Number(emp.totals?.hrs_worked ?? 0);
         const allowedHrs = Number(emp.totals?.hrs_scheduled ?? 0);
         const money = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
