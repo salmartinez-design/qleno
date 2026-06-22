@@ -963,3 +963,71 @@ they do not recompute the authoritative balances** (those come from the balance
 upsert). Norma's non-usage rows (PTO audit correction, 80h cash-out) will be
 inserted verbatim with descriptive notes for the audit trail, not as "leave used."
 Paste the arrays when ready and I'll fold them into the loader for a history pass.
+
+---
+
+# Phase 2g — FINAL, sign-off-ready (2026-06-22)
+
+Sal's decisions locked: (2) **Katia Gonzalez removed** — no longer employed, not
+loaded (already inactive in Qleno; leave as-is). (3) **Guadalupe** treated the same
+despite Part-Time. (4) **1099 list locked at exactly Rosa Gallegos + Alma Salinas**;
+no one else. (5) **History = second pass** (balances + dates now). (1) over-cap =
+load as-is after the explanation below.
+
+**Final dry-run: 9 employees, 27 balance upserts, 1 hire-date fix (Alejandra
+2023-05-11 → 2025-08-01), 0 history.** Loaded: Ardila, Castillo, Cuervo, Estevez,
+Hilda Gallegos, Loredo, Mejia, Puga, Vasquez. Excluded (5): Generic Cleaner, Sal,
+Rosa, Alma, Katia.
+
+## The over-cap explanation (flag #1)
+
+Three rows show a `granted`/`used` total above the Qleno cap, yet `available` is
+within policy:
+
+| Who | Bucket | granted | used | **available** | cap |
+|---|---|---|---|---|---|
+| Alejandra | PLAWA | 46 | 46 | **0** | 40 |
+| Juliana | PLAWA | 45 | 24 | **21** | 40 |
+| Norma | PTO | 112 | 112 | **0** | 80 |
+
+**Why granted/used can exceed the cap while available stays in policy:**
+- `granted` = the *cumulative* hours added to the bucket over the year (the
+  front-load **plus** any mid-year re-grants, top-ups, or audit corrections MC
+  recorded). `used` = the *cumulative* hours drawn down. `available` = `granted −
+  used` = what's actually left to spend right now.
+- The Qleno **cap is a ceiling on the spendable balance / the annual front-load —
+  not on lifetime cumulative grants.** Within one year an employee can be granted
+  40, use 40, then be re-granted more. Alejandra's history shows exactly that: 40
+  granted 2025-12-10, drawn to 0 by 2026-06-05, then topped up — so cumulative
+  granted = 46, used = 46, **available = 0**. Norma was granted/accrued 112 PTO
+  over the period (incl. a PTO audit correction) and used/cashed-out all of it
+  (incl. an 80h cash-out on 2026-06-06) → **available = 0**.
+- **The spendable available (0 / 21 / 0) is what matters** — it's what the
+  employee can request, what the field-app shows, and what gates new requests.
+  All three are within policy.
+
+**Why clamping `granted` to the cap would be wrong:** if we forced Alejandra's
+`granted` down to 40 while `used` stays 46, then `available = 40 − 46 = −6`
+(nonsense). Clamping available to 0 would then leave `granted (40) < used (46)`,
+which violates the invariant that you can't use more than was ever granted — it
+corrupts the audit trail. Loading the true cumulative (`granted 46 / used 46`)
+keeps `available = 0` (correct) and the record honest.
+
+**Self-correcting:** at each employee's next **anniversary reset**, the engine sets
+`granted = entitlement` (40 PLAWA / 80 PTO) and `used = 0` — so the over-cap
+cumulative is a within-year artifact that normalizes automatically next year.
+
+→ **Recommendation: load as-is.** Awaiting Sal's "go" on this explanation before apply.
+
+## Queued to apply (the moment Sal confirms — still NOT run)
+
+1. **Deploy #581 first** (corrects PLAWA → flat_grant/40/no-carryover, dup-sick off,
+   work_anniversary basis) so live `leave_types` matches the model.
+2. `node scripts/timeoff-mc-loader.mjs --dataset scripts/_mc_timeoff_dataset.json --apply`
+   → writes: 1 hire-date fix, 27 balance rows (PTO + PLAWA from MC, Unpaid 40 each;
+   Unexcused untouched), transactional, idempotent.
+3. Flip `LEAVE_ACCRUAL_ENABLED=true` → cron maintains anniversaries on top of the
+   import (the import's `last_reset_at` prevents mid-year clobber).
+4. **History second pass**: paste the per-row arrays → loader inserts `[MC import]`
+   ledger rows (informational; balances unaffected).
+5. Spot-check (profile + field-app "My Time Off" + payroll).
