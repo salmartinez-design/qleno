@@ -36,7 +36,11 @@ function getPublicBase(req: any): string {
 function getRedirectUri(req: any): string {
   // Prefer env-configured value for production
   if (process.env.QB_REDIRECT_URI) return process.env.QB_REDIRECT_URI;
-  return `${getPublicBase(req)}/qleno/api/integrations/quickbooks/callback`;
+  // The callback route is mounted at /api/integrations/quickbooks/callback
+  // (the main router mounts at /api). The earlier `/qleno` prefix pointed at a
+  // non-existent path, so the Intuit handshake's redirect_uri never matched a
+  // real route. QB_REDIRECT_URI still overrides this for prod.
+  return `${getPublicBase(req)}/api/integrations/quickbooks/callback`;
 }
 
 // ── GET /api/integrations/quickbooks/connect ───────────────────────────────
@@ -55,7 +59,11 @@ router.get("/connect", requireAuth, requireRole("owner", "admin"), async (req, r
     });
 
     const authUrl = `https://appcenter.intuit.com/connect/oauth2?${params.toString()}`;
-    return res.redirect(authUrl);
+    // Return the URL as JSON instead of a 302. The frontend calls this endpoint
+    // with the Bearer token attached (a fetch), then navigates the browser to
+    // authUrl. A direct 302 here can't be reached: a top-level navigation to
+    // /connect carries no Authorization header, so requireAuth would 401.
+    return res.json({ authUrl });
   } catch (err) {
     console.error("[QB] Connect error:", err);
     return res.status(500).json({ error: "Failed to initiate QB connection" });
