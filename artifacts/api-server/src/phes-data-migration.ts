@@ -2804,6 +2804,114 @@ async function runMaryuryColmenaresAccessRepair(): Promise<void> {
 }
 
 /**
+ * Guadalupe ("Lupe") Mejia access repair (2026-06-19, ad-hoc).
+ *
+ * Same pattern as the Diana / Juliana / Alejandra / Maryury repairs.
+ * Sal asked: "Does Lupe have access to qleno with the chicago23
+ * password" — the answer was "probably Chicago23 with a capital C
+ * from the original May 12 bulk reset, but I can't be sure." This
+ * function makes the answer deterministic: every cold start (scoped
+ * to company_id=1) hard-wires her credentials to the canonical
+ * lowercase `chicago23`.
+ *
+ * Sal provided her email directly from MaidCentral
+ * (Beltran1986gm@gmail.com, ID#32094, DOB 12/8/1986, hire 6/11/2025),
+ * so this follows Diana's pattern (overwrite the stored email to the
+ * asserted value) — not Juliana's (only-normalize). Lookup is broad:
+ * name OR email match, so a name-case quirk can't make the function
+ * silently miss her row.
+ *
+ * On every cold start, idempotent, scoped to company_id=1:
+ *   1. Resolve Guadalupe Mejia by name OR by email (LOWER(BTRIM)).
+ *   2. Set email = 'beltran1986gm@gmail.com' (lowercased; the login
+ *      route compares against LOWER(input), so the stored value must
+ *      also be lowercase to match).
+ *   3. Ensure password_hash = bcrypt('chicago23').
+ *   4. Ensure is_active = true and archived_at = NULL.
+ *   5. Stamp password_reset_to_chicago23_at = NOW().
+ *
+ * Once Lupe's stored hash matches and email is lowercased, every
+ * subsequent boot is one SELECT + one bcrypt.compare and then return.
+ */
+async function runGuadalupeMejiaAccessRepair(): Promise<void> {
+  const PHES = 1;
+  const FIRST = "Guadalupe";
+  const LAST = "Mejia";
+  const TARGET_EMAIL = "beltran1986gm@gmail.com";
+  const TARGET_PASSWORD = "chicago23";
+
+  const rows = await db.execute<{
+    id: number;
+    email: string;
+    password_hash: string;
+    is_active: boolean;
+    archived_at: Date | null;
+  }>(sql`
+    SELECT id, email, password_hash, is_active, archived_at
+    FROM users
+    WHERE company_id = ${PHES}
+      AND (
+        (LOWER(first_name) = LOWER(${FIRST}) AND LOWER(last_name) = LOWER(${LAST}))
+        OR LOWER(BTRIM(email)) = LOWER(${TARGET_EMAIL})
+      )
+      AND role != 'owner'
+    ORDER BY id ASC
+    LIMIT 1
+  `);
+  const row = ((rows as any).rows ?? rows)[0] as
+    | {
+        id: number;
+        email: string;
+        password_hash: string;
+        is_active: boolean;
+        archived_at: Date | null;
+      }
+    | undefined;
+
+  if (!row) {
+    console.log(
+      `[guadalupe-mejia-access-repair] no Guadalupe Mejia row in company_id=${PHES}; skipping`,
+    );
+    return;
+  }
+
+  const hashMatches = await bcrypt
+    .compare(TARGET_PASSWORD, row.password_hash)
+    .catch(() => false);
+  const emailMatches = row.email === TARGET_EMAIL;
+  const activeOk = row.is_active === true;
+  const unarchivedOk = row.archived_at === null;
+
+  if (hashMatches && emailMatches && activeOk && unarchivedOk) {
+    console.log(
+      `[guadalupe-mejia-access-repair] user_id=${row.id} already in target state; no-op`,
+    );
+    return;
+  }
+
+  const newHash = hashMatches
+    ? row.password_hash
+    : await bcrypt.hash(TARGET_PASSWORD, 10);
+
+  await db.execute(sql`
+    UPDATE users
+    SET
+      email = ${TARGET_EMAIL},
+      password_hash = ${newHash},
+      is_active = true,
+      archived_at = NULL,
+      password_reset_to_chicago23_at = NOW()
+    WHERE id = ${row.id}
+  `);
+
+  console.log(
+    `[guadalupe-mejia-access-repair] user_id=${row.id} updated: ` +
+      `email_changed=${!emailMatches} hash_rewritten=${!hashMatches} ` +
+      `reactivated=${!activeOk} unarchived=${!unarchivedOk}`,
+  );
+}
+
+/**
  * QA sandbox account repurpose (2026-05-15 sprint, pre-sprint task).
  *
  * Dispatch created an audit fixture user during Phase 6 — repurpose it
@@ -3561,6 +3669,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runMaryuryColmenaresAccessRepair();
   } catch (err: any) {
     console.warn("[phes-migration] maryury-colmenares-access-repair — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runGuadalupeMejiaAccessRepair();
+  } catch (err: any) {
+    console.warn("[phes-migration] guadalupe-mejia-access-repair — non-fatal:", err?.message ?? err);
   }
 
   try {
