@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { BranchProvider } from "@/contexts/branch-context";
 import { EmployeeViewProvider } from "@/contexts/employee-view-context";
-import { useAuthStore } from "@/lib/auth";
+import { useAuthStore, getTokenRole } from "@/lib/auth";
 
 const Login               = lazy(() => import("@/pages/login"));
 const Dashboard           = lazy(() => import("@/pages/dashboard"));
@@ -177,7 +177,12 @@ function isTechAllowedPath(pathname: string): boolean {
 }
 
 function TechRouteGuard({ children }: { children: React.ReactNode }) {
-  const role = useAuthStore((s) => s.user?.role);
+  // The role lives in the JWT, not the auth store (which only holds `token`).
+  // Read it via getTokenRole() — the same source the login redirect and the
+  // rest of the app use. Subscribe to `token` so the guard re-evaluates when
+  // the user logs in / out / switches company.
+  const token = useAuthStore((s) => s.token);
+  const role = token ? getTokenRole() : null;
   const [location, navigate] = useLocation();
   const isTech = role === "technician" || role === "team_lead";
   const blocked = isTech && !isTechAllowedPath(location);
