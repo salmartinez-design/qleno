@@ -789,3 +789,77 @@ benefit year began 2025-08-01 so her 2025-12→2026-06 sick usage = 29h counts.)
 6. From here, approving a request auto-pays at $20/hr as a payroll line; balances
    + pay stay in sync across office and employee views.
 7. Spot-check 3–5 employees (profile + field-app "My Time Off" + payroll).
+
+---
+
+# Phase 2d — MaidCentral loader ready (2026-06-20)
+
+PR #581 **rebased onto current main** (past #601–#605), **marked ready for review**,
+all 4 CI checks green. Still NOT merged/deployed; no writes; accrual cron off.
+
+## Loader status — what existed vs. what was added
+
+- The earlier `_timeoff_migration_dryrun_readonly.mjs` and the engine
+  (`leave-reconcile.ts`) only compute **default grants** from hire dates and
+  *derive* "used" from `additional_pay`. **Neither ingests a real MC dataset**,
+  and neither loads **history**.
+- **NEW: `scripts/timeoff-mc-loader.mjs`** ingests the verified MC dataset and
+  cascades all three things Sal wants:
+  1. **Start dates** → `users.hire_date` corrections (eligibility depends on it).
+  2. **Balances** → `employee_leave_balances` (granted + used), upsert on
+     `(company_id, user_id, leave_type_id)`; `last_reset_at` = the employee's
+     current benefit-year start (work anniversary ≤ as_of) so the cron does NOT
+     immediately re-reset the imported balance.
+  3. **History** → `employee_leave_usage` rows (date_used, hours, notes),
+     deduped, prefixed `[MC import]`.
+- **Dry-run by default** (prints the full diff, writes nothing); `--apply` writes
+  in a transaction. Idempotent (balances upsert, history NOT-EXISTS dedup, hire
+  set) — safe to re-run. Validated against a sample: hire fix, 5 balance upserts,
+  history rows, and an availability-mismatch flag all surfaced correctly.
+
+## Dataset format I need from the MC crawl
+
+JSON (the loader prints this banner when run without `--dataset`):
+
+```json
+{
+  "as_of": "2026-06-20",
+  "company_id": 1,
+  "employees": [
+    {
+      "match": { "qleno_user_id": 41, "name": "Alejandra Cuervo", "email": "..." },
+      "mc_employee_id": 42877,
+      "hire_date": "2025-08-01",
+      "balances": [
+        { "bucket": "plawa",  "granted_hours": 40, "used_hours": 29, "available_hours": 11 },
+        { "bucket": "pto",    "granted_hours": 0,  "used_hours": 0,  "available_hours": 0  },
+        { "bucket": "unpaid", "granted_hours": 40, "used_hours": 0,  "available_hours": 40 }
+      ],
+      "history": [
+        { "bucket": "plawa", "date_used": "2026-01-07", "hours": 7, "notes": "Fever 11am-6pm" }
+      ]
+    }
+  ]
+}
+```
+
+- **match.qleno_user_id** preferred (name/email are fallback + sanity check).
+- **bucket** ∈ `plawa|sick`, `pto|vacation`, `unpaid|personal` → maps to PLAWA /
+  PTO / Unpaid Leave. `unexcused` is office-recorded, not imported here.
+- **hire_date** required per employee (start-date cascade).
+- **balances**: one row per bucket; `available_hours` validated against
+  granted − used (mismatch is flagged, granted/used wins).
+- **history**: optional but wanted — each row becomes a usage-ledger entry.
+- A **CSV** is fine too if easier — same columns (employee, bucket, granted, used,
+  available, hire_date) + a second history sheet (employee, bucket, date, hours,
+  notes); I'll adapt the loader's parser. JSON is the path of least resistance.
+
+## Load sequence when the dataset lands (still HELD for sign-off)
+
+1. `node scripts/timeoff-mc-loader.mjs --dataset mc.json` → **dry-run**; Sal eyeballs
+   the hire fixes + balances + history + flags.
+2. On approval: `--apply` (transactional) writes hire dates + balances + history.
+3. Then merge + deploy #581 and flip `LEAVE_ACCRUAL_ENABLED` so future
+   anniversaries reset on top of the imported balances (the import's
+   `last_reset_at` stops the cron from clobbering imported numbers mid-year).
+4. Spot-check (profile + field-app + payroll).
