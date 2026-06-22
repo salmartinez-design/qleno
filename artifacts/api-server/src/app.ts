@@ -122,13 +122,16 @@ app.get("/s/:code", async (req: Request, res: Response) => {
   return res.redirect(302, target);
 });
 
-// ── Landing Page ────────────────────────────────────────────────────────────
+// ── Marketing Landing Page ───────────────────────────────────────────────────
+// The marketing landing lives at /landing — NOT at the app root. Root "/" is
+// intentionally left to fall through to the SPA below so that an unauthenticated
+// visitor opening the app (field techs especially) lands on the login screen,
+// not the marketing page. The SPA's "/" route redirects unauthenticated users
+// to /login and renders the dashboard for authenticated ones.
+// Marketing visitors reach the page at /landing; its CTAs link to absolute
+// app.qleno.com/login and /register URLs, so they are unaffected by this move.
 const landingDir = path.resolve(__appDir, "../../../landing");
 if (fs.existsSync(landingDir)) {
-  app.get("/", (_req: Request, res: Response) => {
-    res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    res.sendFile(path.join(landingDir, "index.html"));
-  });
   app.use("/landing", express.static(landingDir, { maxAge: "10m" }));
   // Serve privacy.html at /privacy
   app.get("/privacy", (_req: Request, res: Response) => {
