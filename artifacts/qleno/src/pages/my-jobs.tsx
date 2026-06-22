@@ -1580,9 +1580,26 @@ export default function MyJobsPage() {
           {isLoading ? (
             <div style={{ textAlign: "center", padding: 40, color: "#9E9B94", fontSize: 14 }}>Loading your jobs…</div>
           ) : jobs.length === 0 ? (
-            <div style={{ textAlign: "center", padding: 40 }}>
+            // [empty-state 2026-06-21] The date nav + Pay button already live
+            // in the sticky header above this block, so a no-jobs day is NOT a
+            // dead end. Give the tech direct affordances here too — step to the
+            // next day and jump to their pay — so they never feel stranded on
+            // an empty screen (Sal's screenshot report).
+            <div style={{ textAlign: "center", padding: "40px 16px" }}>
               <p style={{ fontSize: 16, fontWeight: 600, color: "#1A1917", margin: "0 0 6px" }}>{isToday ? "No jobs today" : `No jobs on ${selectedLabel}`}</p>
-              <p style={{ fontSize: 13, color: "#9E9B94", margin: 0 }}>Check back or contact your manager</p>
+              <p style={{ fontSize: 13, color: "#9E9B94", margin: "0 0 18px", lineHeight: 1.5 }}>
+                {isToday ? "Use the arrows up top to browse upcoming days, or check your pay below." : "Try another day with the arrows above, or contact your manager."}
+              </p>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 280, margin: "0 auto" }}>
+                <button type="button" onClick={() => shiftDay(1)}
+                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#1A1917", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>
+                  Check the next day ›
+                </button>
+                <button type="button" onClick={() => setShowPay(true)}
+                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: "var(--brand, #00C9A0)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>
+                  <DollarSign size={15} aria-hidden="true" /> View my pay
+                </button>
+              </div>
             </div>
           ) : (
             <>
