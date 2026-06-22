@@ -908,3 +908,58 @@ Flags are computed against the **post-#581 target config** (PLAWA = flat_grant/4
 no-carryover). On current prod PLAWA is still `accrue_per_hours` (the cron skips
 it). So the correct order is **deploy #581 first → re-run this dry-run → apply →
 enable cron**, which makes the live `leave_types` match the flag assumptions.
+
+---
+
+# Phase 2f — LIVE MC crawl dry-run (2026-06-22, SUPERSEDES 2e)
+
+The live MaidCentral crawl is authoritative and replaces the Attendance-Stats
+export. Notable deltas: **Rosa Gallegos now EXCLUDED** (1099), **Alejandra PLAWA is
+46/46/0** (avail 0, not 12), **Norma PTO 112/112/0**, **Juliana PLAWA 45/24/21**.
+
+- **Excluded (4):** Generic Cleaner (test), Salvador Martinez (owner), **Rosa
+  Gallegos + Alma Salinas (1099)**. ⚠️ MC has no 1099 field — the 1099 list is
+  Sal's call and **not yet final** (flag).
+- **Loaded (10):** Ardila(44), Castillo(35), Cuervo(41), Estevez(37), Hilda
+  Gallegos(516), Katia Gonzalez(726), Loredo(42), Mejia(40), Puga(32), Vasquez(38).
+  All name+uid matched. **30 balance upserts**, **1 hire fix** (Alejandra
+  2023-05-11→2025-08-01), **0 history** (loading balances+dates now; history second
+  pass). Dataset: `scripts/_mc_timeoff_dataset.json` (untracked, PII).
+- Rule: `available_hours` is the authoritative live balance; granted/used as given
+  (all rows internally consistent: granted − used = available).
+
+## Flags / decisions for Sal (4)
+
+**Over-cap on the GRANTED/USED columns — but AVAILABLE is within policy:**
+| Employee | Bucket | granted | used | **available** | cap | note |
+|---|---|---|---|---|---|---|
+| Alejandra Cuervo | PLAWA | 46 | 46 | **0** | 40 | re-granted mid-year (history: 40 granted 2025-12-10, drawn to 0) |
+| Juliana Loredo | PLAWA | 45 | 24 | **21** | 40 | |
+| Norma Puga | PTO | 112 | 112 | **0** | 80 | history: PTO audit correction + 2026-06-06 cash-out of 80 |
+
+These exceed the single-period cap only on the **cumulative** granted/used (multiple
+grants / cash-outs / audit corrections during the year — visible in MC history).
+The **spendable available is correct and within cap** (0 / 21 / 0). Recommend
+**loading as-is** (preserves the MC audit trail; available is right); the engine
+normalizes `granted` to the cap at each employee's next anniversary reset. The
+alternative — clamping granted to the cap now — would break the granted ≥ used
+invariant (used already exceeds the cap), so as-is is cleaner.
+
+**Other flags:**
+- **Katia Gonzalez (uid 726)** is INACTIVE in Qleno but active in MC — reactivate
+  or skip.
+- **Guadalupe Mejia** is now **Part Time** per the MC note — confirm PT affects
+  nothing in the benefit grants (currently treated same as full-time).
+
+No sub-entitlement / engine-overwrite flags this round (the prior Alejandra 12→40
+concern is resolved by the live 46/46/0).
+
+## History — recommendation
+Load **balances + hire dates now** (this dry-run); do **history as a second pass**.
+Sal has the full per-row arrays (Maribel 15, Alejandra 10, Estevez 10, Juliana 6,
+Guadalupe 16, Norma 48, Diana 13). The loader inserts them into
+`employee_leave_usage` as `[MC import]`-tagged ledger rows — **informational only;
+they do not recompute the authoritative balances** (those come from the balance
+upsert). Norma's non-usage rows (PTO audit correction, 80h cash-out) will be
+inserted verbatim with descriptive notes for the audit trail, not as "leave used."
+Paste the arrays when ready and I'll fold them into the loader for a history pass.
