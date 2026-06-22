@@ -863,3 +863,48 @@ JSON (the loader prints this banner when run without `--dataset`):
    anniversaries reset on top of the imported balances (the import's
    `last_reset_at` stops the cron from clobbering imported numbers mid-year).
 4. Spot-check (profile + field-app + payroll).
+
+---
+
+# Phase 2e — MC "Employee Attendance Stats" dry-run (2026-06-22)
+
+Sal's MC export = hire dates + balances (PTO + Sick) only, **no line-item
+history** (separate report later). Bucket scheme: PTO ← MC PTO; PLAWA ← MC Sick;
+Unpaid ← default 40 (day-one, all employees); Unexcused ← 0 (not imported).
+Skips: Generic Cleaner (test), Alma Salinas (1099), Salvador Martinez (owner).
+Dataset: `scripts/_mc_timeoff_dataset.json` (untracked — employee PII). Loaded via
+`timeoff-mc-loader.mjs` (dry-run, no writes). granted = used + available.
+
+**All 11 names matched a Qleno user** (none unmatched): Jose Ardila (44), Maribel
+Castillo (35), Alejandra Cuervo (41), Francisco Estevez (37), Hilda Gallegos (516),
+Rosa Gallegos (36), Katia Gonzalez (726), Juliana Loredo (42), Guadalupe Mejia (40),
+Norma Puga (32), Diana Vasquez (38). Hire-date correction: **Alejandra 2023-05-11 →
+2025-08-01** (1 fix). 33 balance upserts (3 buckets × 11). History inserts: 0.
+
+## Decisions for Sal (from the 7 flags)
+
+**A. Balances ABOVE the Qleno cap** — loaded as-is from MC; cap or honor?
+- Rosa Gallegos **PTO 160h** (ceiling is 80) — likely 2 years stacked in MC.
+- Guadalupe Mejia **PLAWA 69.5h**, Diana Vasquez **PLAWA 56h**, Juliana Loredo
+  **PLAWA 42h** (PLAWA front-load is 40) — MC kept availability at 40 after usage,
+  so used+avail exceeds 40.
+
+**B. Balances BELOW the engine front-load** — the accrual cron (once #581 is live
++ enabled) front-loads the full entitlement, so its `tier_topup` would raise these
+on its next run, **overwriting the import** (used preserved):
+- Alejandra **PLAWA 12 → 40** (avail 0 → 28).
+- Norma **PTO 40 → 80** (she's 3 yrs; tier is 80; avail 0 → 40).
+- Decide per employee: **accept** the engine front-load (Qleno policy: 40/80), or
+  **freeze** the imported MC number until the next anniversary.
+
+**C. Katia Gonzalez (uid 726) is INACTIVE in Qleno** but active in the MC export —
+reactivate the Qleno user or skip her?
+
+**D. History** is absent from this MC report (balances + attendance stats only) —
+`employee_leave_usage` stays empty until the separate usage report is loaded.
+
+## Sequencing note (important)
+Flags are computed against the **post-#581 target config** (PLAWA = flat_grant/40/
+no-carryover). On current prod PLAWA is still `accrue_per_hours` (the cron skips
+it). So the correct order is **deploy #581 first → re-run this dry-run → apply →
+enable cron**, which makes the live `leave_types` match the flag assumptions.

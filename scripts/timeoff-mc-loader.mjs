@@ -94,9 +94,21 @@ const url = env.split("\n").find((l) => l.startsWith("DATABASE_URL=")).slice(13)
 const client = new pg.Client({ connectionString: url, ssl: { rejectUnauthorized: false } });
 await client.connect();
 
+// Completed full years of service (for the PTO 40→80 tenure tier).
+function completedYears(hire, asOf) {
+  const h = new Date(`${hire}T00:00:00Z`), a = new Date(`${asOf}T00:00:00Z`);
+  let y = a.getUTCFullYear() - h.getUTCFullYear();
+  const anniv = new Date(Date.UTC(a.getUTCFullYear(), h.getUTCMonth(), h.getUTCDate()));
+  if (a < anniv) y -= 1;
+  return Math.max(0, y);
+}
+const daysBetween = (a, b) => Math.floor((new Date(`${b}T00:00:00Z`) - new Date(`${a}T00:00:00Z`)) / 86400000);
+
 // Resolve leave_types (slug → id) and users for the company.
-const ltRows = (await client.query(`SELECT id, slug, display_name, is_paid FROM leave_types WHERE company_id=$1 AND active=true`, [companyId])).rows;
+const ltRows = (await client.query(`SELECT id, slug, display_name, is_paid, annual_cap_hours, carryover_allowed, waiting_period_days FROM leave_types WHERE company_id=$1 AND active=true`, [companyId])).rows;
 const slugToType = Object.fromEntries(ltRows.map((r) => [r.slug, r]));
+const policyRow = (await client.query(`SELECT balance_ceiling_hours FROM company_leave_policy WHERE company_id=$1`, [companyId])).rows[0];
+const ceiling = policyRow?.balance_ceiling_hours != null ? Number(policyRow.balance_ceiling_hours) : 80;
 const users = (await client.query(`SELECT id, first_name, last_name, lower(email) email, hire_date::text hire, is_active, company_id FROM users WHERE company_id=$1`, [companyId])).rows;
 const byId = new Map(users.map((u) => [u.id, u]));
 const byEmail = new Map(users.filter((u) => u.email).map((u) => [u.email, u]));
@@ -128,6 +140,35 @@ for (const e of ds.employees || []) {
     const avail = r2(granted - used);
     if (b.available_hours != null && r2(b.available_hours) !== avail) {
       flags.push(`${u.first_name} ${u.last_name}/${slug}: available mismatch (dataset ${b.available_hours} vs granted-used ${avail}) — using granted/used`);
+    }
+    // Flags are evaluated against the POST-#581 TARGET leave_types config (not
+    // the current prod seed, where PLAWA is still accrue_per_hours/carryover and
+    // the cron would skip it). This gives an accurate picture of behavior once
+    // #581 is deployed — which is the planned order (deploy #581 → load → enable).
+    const TARGET = {
+      plawa:        { cap: 40, carryover: false, wait: 90,  flat: true },
+      pto_phes:     { cap: 40, carryover: true,  wait: 365, flat: true },
+      unpaid_leave: { cap: 40, carryover: false, wait: 0,   flat: true },
+    };
+    const t = TARGET[slug] || { cap: Number(lt.annual_cap_hours), carryover: lt.carryover_allowed, wait: Number(lt.waiting_period_days), flat: lt.accrual_mode === "flat_grant" };
+
+    // Cap/ceiling: carryover buckets (PTO) cap at the policy ceiling; others at
+    // the annual cap. MC numbers above the cap load as-is per Sal but are flagged.
+    const cap = t.carryover && ceiling > t.cap ? ceiling : t.cap;
+    if (granted > cap) {
+      flags.push(`${u.first_name} ${u.last_name}/${slug}: granted ${granted}h EXCEEDS Qleno cap ${cap}h — loaded as-is from MC; confirm cap policy`);
+    }
+    // ENGINE-OVERRIDE: the accrual cron front-loads the full entitlement. If the
+    // imported granted is BELOW the entitlement for an eligible employee, the
+    // cron's tier_topup raises granted → entitlement on its next run, overwriting
+    // the MC import (used preserved). Surface for a freeze-vs-accept decision.
+    if (t.flat && effHire && daysBetween(effHire, asOf) >= t.wait) {
+      const ent = t.carryover && ceiling > t.cap
+        ? Math.min(ceiling, t.cap * Math.max(1, completedYears(effHire, asOf)))
+        : t.cap;
+      if (ent > granted) {
+        flags.push(`${u.first_name} ${u.last_name}/${slug}: imported granted ${granted}h < post-#581 entitlement ${ent}h → accrual cron would tier_topup to ${ent}h (avail ${r2(ent - used)}), OVERWRITING the MC import. Decide: accept engine front-load vs freeze import.`);
+      }
     }
     balanceUpserts.push({ uid: u.id, name: `${u.first_name} ${u.last_name}`, slug, leave_type_id: lt.id, granted, used, available: avail, last_reset_at: lastReset });
   }
