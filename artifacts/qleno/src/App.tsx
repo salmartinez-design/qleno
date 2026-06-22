@@ -190,12 +190,24 @@ function TechRouteGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+// [login-first-entry] Root "/" entry point. The marketing landing no longer
+// sits at the app root (see api-server app.ts) — "/" is now the app's front
+// door. An unauthenticated visitor (a field tech opening the app especially)
+// is sent straight to the login screen instead of any marketing page.
+// Authenticated users render the dashboard; the TechRouteGuard above then
+// bounces technicians/team_leads to /my-jobs.
+function RootIndex() {
+  const token = useAuthStore((s) => s.token);
+  if (!token) return <Redirect to="/login" />;
+  return <Dashboard />;
+}
+
 function Router() {
   return (
     <Suspense fallback={<PageLoader />}>
       <TechRouteGuard>
       <Switch>
-        <Route path="/" component={Dashboard} />
+        <Route path="/" component={RootIndex} />
         <Route path="/login" component={Login} />
         <Route path="/accept-invite" component={AcceptInvitePage} />
         <Route path="/dashboard" component={Dashboard} />
