@@ -1412,10 +1412,10 @@ export default function MyJobsPage() {
               style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: showPay ? 'var(--brand)' : 'var(--brand-dim)', color: showPay ? '#fff' : 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
               <DollarSign size={13}/> Pay
             </button>
-            <Link href="/training">
-              <a style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#FFFFFF', color: '#1A1917', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none' }}>
-                <GraduationCap size={13}/> Training
-              </a>
+            {/* wouter v3 <Link> renders its own <a>; style goes on Link to
+                avoid a nested <a> inside <a> (invalid markup / hydration warning). */}
+            <Link href="/training" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#FFFFFF', color: '#1A1917', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none' }}>
+              <GraduationCap size={13}/> Training
             </Link>
             {/* Account menu — tap the avatar */}
             <div ref={acctRef} style={{ position: "relative" }}>
