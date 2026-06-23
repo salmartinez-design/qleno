@@ -326,6 +326,9 @@ export default function EmployeesPage() {
           </table>
         </div>
         )}{/* end desktop table ternary */}
+
+        {/* Time off & leave requests — pending requests the office acts on */}
+        <TimeOffRequestsSection />
       </div>
 
       {/* Add Team Member Modal */}
@@ -393,5 +396,90 @@ export default function EmployeesPage() {
         </div>
       )}
     </DashboardLayout>
+  );
+}
+
+// [time-off-ticket 2026-06-22] Office "Time off & leave requests" section at the
+// bottom of the Employees page. Lists pending requests; the office approves or
+// declines inline. Profile-photo avatars (EmployeeAvatar falls back to initials).
+const BUCKET_COLORS: Record<string, { bg: string; fg: string }> = {
+  pto_phes: { bg: '#E9FBF5', fg: '#00876B' },
+  plawa:    { bg: '#FEF3C7', fg: '#92400E' },
+  unpaid_leave: { bg: '#EEF2F7', fg: '#334155' },
+  unexcused: { bg: '#FCE7E7', fg: '#991B1B' },
+};
+function unitLabel(u: string) {
+  return u === 'morning' ? 'Morning' : u === 'afternoon' ? 'Afternoon' : 'Full day';
+}
+function dateLabel(r: any) {
+  const range = r.start_date === r.end_date ? r.start_date : `${r.start_date} – ${r.end_date}`;
+  return `${range} · ${unitLabel(r.day_unit)}`;
+}
+
+function TimeOffRequestsSection() {
+  const role = getTokenRole();
+  const canAct = role === 'owner' || role === 'admin' || role === 'office';
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
+
+  async function load() {
+    try {
+      const r = await fetch(`${API}/api/leave/requests?status=pending`, { headers: getAuthHeaders() as any });
+      const d = await r.json();
+      setRows(d?.data ?? []);
+    } catch { /* leave the list empty on error */ }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { if (canAct) load(); else setLoading(false); }, []);
+
+  async function act(id: number, action: 'approve' | 'deny') {
+    setBusyId(id);
+    try {
+      await fetch(`${API}/api/leave/requests/${id}/${action}`, { method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' } as any, body: '{}' });
+      setRows(prev => prev.filter(x => x.id !== id));
+    } catch { /* keep row on failure */ }
+    finally { setBusyId(null); }
+  }
+
+  if (!canAct) return null;
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#1A1917' }}>Time off &amp; leave requests</h2>
+        {rows.length > 0 && (
+          <span style={{ fontSize: 11, fontWeight: 800, color: '#FFFFFF', background: '#0A0E1A', borderRadius: 999, padding: '2px 9px' }}>{rows.length} pending</span>
+        )}
+      </div>
+      <div style={{ background: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: 10, overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ padding: 24, color: '#9E9B94', fontSize: 13 }}>Loading…</div>
+        ) : rows.length === 0 ? (
+          <div style={{ padding: 24, color: '#9E9B94', fontSize: 13 }}>No pending time-off requests.</div>
+        ) : rows.map((r, i) => {
+          const c = BUCKET_COLORS[r.bucket_slug] ?? { bg: '#F4F3F0', fg: '#6B6860' };
+          return (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+              <EmployeeAvatar name={`${r.first_name ?? ''} ${r.last_name ?? ''}`} avatarUrl={r.avatar_url} size={36} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1917' }}>{r.first_name} {r.last_name}</div>
+                <div style={{ fontSize: 12, color: '#6B6860' }}>{dateLabel(r)}</div>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', borderRadius: 999, padding: '3px 9px', background: c.bg, color: c.fg, whiteSpace: 'nowrap' }}>{r.bucket_name}</span>
+              {r.attachment_url ? (
+                <a href={r.attachment_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 600, color: '#00876B', textDecoration: 'none', whiteSpace: 'nowrap' }}>Dr. note</a>
+              ) : (
+                <span style={{ fontSize: 11, color: '#C9C6BF', whiteSpace: 'nowrap' }}>no file</span>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button disabled={busyId === r.id} onClick={() => act(r.id, 'approve')} style={{ fontSize: 12, fontWeight: 700, color: '#04241d', background: '#00C9A0', border: '1px solid #00C9A0', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1 }}>Approve</button>
+                <button disabled={busyId === r.id} onClick={() => act(r.id, 'deny')} style={{ fontSize: 12, fontWeight: 700, color: '#6B6860', background: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1 }}>Decline</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
