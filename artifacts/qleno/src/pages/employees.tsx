@@ -426,29 +426,26 @@ function TimeOffRequestsSection() {
   const [flash, setFlash] = useState(false);
 
   // [employee-bell fix 2026-06-23] The top-bar staff bell focuses this section.
-  // Two entry paths: navigated here (one-shot sessionStorage flag, read on mount)
-  // or already here (a 'qleno:focus-timeoff' window event). Both scroll the
-  // section into view + briefly highlight it so the bell never feels dead.
+  // Two entry paths:
+  //   navigate-in → one-shot sessionStorage flag, read on mount; this effect
+  //     scrolls the section in (the scroll parent is <main>, overflow:auto, NOT
+  //     window — scrollIntoView bubbles to it correctly).
+  //   already-on-page → the bell scrolled the section directly via its id, then
+  //     fired 'qleno:focus-timeoff'; here we only flash the highlight.
   useEffect(() => {
-    const focus = () => {
-      // The scroll container is <main> (overflow:auto), not window — so do NOT
-      // touch window.scrollY. scrollIntoView drives the real scroll parent.
-      // block:'center' lands the section reliably (block:'start' + sticky bar
-      // only nudged ~19px on prod). Double-rAF so layout is settled first.
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        setFlash(true);
-        window.setTimeout(() => setFlash(false), 1600);
-      }));
-    };
+    const flash = () => { setFlash(true); window.setTimeout(() => setFlash(false), 1600); };
     let t: number | undefined;
     try {
       if (sessionStorage.getItem('qlenoFocusTimeOff')) {
         sessionStorage.removeItem('qlenoFocusTimeOff');
-        t = window.setTimeout(focus, 350);
+        // 350ms lets layout settle after the route change before we scroll.
+        t = window.setTimeout(() => {
+          sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          flash();
+        }, 350);
       }
     } catch { /* private mode */ }
-    const onEvt = () => focus();
+    const onEvt = () => flash();
     window.addEventListener('qleno:focus-timeoff', onEvt);
     return () => { window.removeEventListener('qleno:focus-timeoff', onEvt); if (t) window.clearTimeout(t); };
   }, []);
@@ -475,7 +472,7 @@ function TimeOffRequestsSection() {
   if (!canAct) return null;
 
   return (
-    <div ref={sectionRef} style={{ marginTop: 28, scrollMarginTop: 80, borderRadius: 12, transition: 'box-shadow 0.4s ease', boxShadow: flash ? '0 0 0 3px rgba(0,201,160,0.65)' : 'none' }}>
+    <div ref={sectionRef} id="timeoff-requests-section" style={{ marginTop: 28, scrollMarginTop: 80, borderRadius: 12, transition: 'box-shadow 0.4s ease', boxShadow: flash ? '0 0 0 3px rgba(0,201,160,0.65)' : 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#1A1917' }}>Time off &amp; leave requests</h2>
         {rows.length > 0 && (
