@@ -305,7 +305,12 @@ export default function QuoteBuilderPage() {
 
   // ── Tech suggestions ─────────────────────────────────────────────────────
   const [suggestedTechs, setSuggestedTechs] = useState<SuggestedTech[]>([]);
-  const [selectedTechId, setSelectedTechId] = useState<number | null>(null);
+  // Multi-tech assignment: the office can assign more than one cleaner to a
+  // job at quote time. First selected = primary (mirrored onto
+  // jobs.assigned_user_id); the rest become job_technicians rows on convert.
+  const [selectedTechIds, setSelectedTechIds] = useState<number[]>([]);
+  const toggleTech = (id: number) =>
+    setSelectedTechIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   const [techAvailability, setTechAvailability] = useState<Record<number, number>>({});
   const [techAvailLoading, setTechAvailLoading] = useState(false);
 
@@ -892,7 +897,11 @@ export default function QuoteBuilderPage() {
           body: {
             scheduled_date: selectedDate || undefined,
             scheduled_time: selectedTime || undefined,
-            assigned_user_id: selectedTechId || undefined,
+            // Primary = first selected (mirrored onto jobs.assigned_user_id);
+            // team_user_ids carries the full crew so the convert writes a
+            // job_technicians row per cleaner.
+            assigned_user_id: selectedTechIds[0] || undefined,
+            team_user_ids: selectedTechIds,
           },
         });
         toast.success("Quote converted to job.");
@@ -1069,7 +1078,7 @@ export default function QuoteBuilderPage() {
       await toggleScope(matchedScope, { frequency: service.frequency ?? undefined });
       setFinalScopeId(matchedScope.id);
     }
-    if (preferredTech) setSelectedTechId(preferredTech.id);
+    if (preferredTech) setSelectedTechIds([preferredTech.id]);
     setQuickBookPrice(service.last_price);
     setQuickBookBanner({ scope: service.scope, date: service.last_date });
     setActiveSection(4);
@@ -1728,9 +1737,9 @@ export default function QuoteBuilderPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Zone techs:</span>
                     {suggestedTechs.map(tech => {
-                      const isSel = selectedTechId === tech.id;
+                      const isSel = selectedTechIds.includes(tech.id);
                       return (
-                        <button key={tech.id} onClick={() => setSelectedTechId(isSel ? null : tech.id)}
+                        <button key={tech.id} onClick={() => toggleTech(tech.id)}
                           style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 14, fontSize: 12, fontWeight: isSel ? 600 : 400, border: isSel ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}>
                           <span style={{ width: 18, height: 18, borderRadius: "50%", background: isSel ? "var(--brand)" : "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", color: isSel ? "#FFF" : "#6B6860", fontSize: 9, fontWeight: 700 }}>{tech.name.charAt(0)}</span>
                           {tech.name}
@@ -1774,12 +1783,12 @@ export default function QuoteBuilderPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Preferred:</span>
                     <button
-                      onClick={() => setSelectedTechId(selectedTechId === preferredTech.id ? null : preferredTech.id)}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 14, fontSize: 12, fontWeight: selectedTechId === preferredTech.id ? 600 : 400, border: selectedTechId === preferredTech.id ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: selectedTechId === preferredTech.id ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
+                      onClick={() => toggleTech(preferredTech.id)}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 14, fontSize: 12, fontWeight: selectedTechIds.includes(preferredTech.id) ? 600 : 400, border: selectedTechIds.includes(preferredTech.id) ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: selectedTechIds.includes(preferredTech.id) ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
                     >
-                      <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechId === preferredTech.id ? "var(--brand)" : "#5B9BD5", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
+                      <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechIds.includes(preferredTech.id) ? "var(--brand)" : "#5B9BD5", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
                       {preferredTech.full_name}
-                      {selectedTechId === preferredTech.id && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
+                      {selectedTechIds.includes(preferredTech.id) && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
                     </button>
                   </div>
                 )}
@@ -2045,9 +2054,9 @@ export default function QuoteBuilderPage() {
                     {[...suggestedTechs].sort((a, b) => (techAvailability[a.id] ?? 0) - (techAvailability[b.id] ?? 0)).map(tech => {
                       const count = techAvailability[tech.id];
                       const avail = count !== undefined ? techAvailDot(count) : null;
-                      const isSel = selectedTechId === tech.id;
+                      const isSel = selectedTechIds.includes(tech.id);
                       return (
-                        <div key={tech.id} onClick={() => setSelectedTechId(isSel ? null : tech.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", border: isSel ? "2px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "rgba(0,201,160,0.05)" : "#FFF", opacity: avail?.muted ? 0.55 : 1 }}>
+                        <div key={tech.id} onClick={() => toggleTech(tech.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", border: isSel ? "2px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "rgba(0,201,160,0.05)" : "#FFF", opacity: avail?.muted ? 0.55 : 1 }}>
                           <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 11, fontWeight: 700 }}>{tech.name.charAt(0).toUpperCase()}</div>
                           <div style={{ flex: 1, fontSize: 13, fontWeight: isSel ? 700 : 500, color: "#1A1917" }}>{tech.name}</div>
                           {avail && (
@@ -2506,12 +2515,12 @@ export default function QuoteBuilderPage() {
                       {/* Preferred tech shortcut */}
                       {preferredTech && (
                         <button
-                          onClick={() => setSelectedTechId(selectedTechId === preferredTech.id ? null : preferredTech.id)}
-                          style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: selectedTechId === preferredTech.id ? 600 : 400, border: selectedTechId === preferredTech.id ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: selectedTechId === preferredTech.id ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
+                          onClick={() => toggleTech(preferredTech.id)}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: selectedTechIds.includes(preferredTech.id) ? 600 : 400, border: selectedTechIds.includes(preferredTech.id) ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: selectedTechIds.includes(preferredTech.id) ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
                         >
-                          <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechId === preferredTech.id ? "var(--brand)" : "#5B9BD5", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
+                          <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechIds.includes(preferredTech.id) ? "var(--brand)" : "#5B9BD5", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
                           {preferredTech.full_name}
-                          {selectedTechId === preferredTech.id && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
+                          {selectedTechIds.includes(preferredTech.id) && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
                         </button>
                       )}
                       {/* Tech chips. Prefer the zone-matched techs; if the
@@ -2524,9 +2533,9 @@ export default function QuoteBuilderPage() {
                         return (
                           <>
                             {chips.map(tech => {
-                              const isSel = selectedTechId === tech.id;
+                              const isSel = selectedTechIds.includes(tech.id);
                               return (
-                                <button key={tech.id} onClick={() => setSelectedTechId(isSel ? null : tech.id)}
+                                <button key={tech.id} onClick={() => toggleTech(tech.id)}
                                   style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: isSel ? 600 : 400, border: isSel ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
                                 >
                                   <span style={{ width: 18, height: 18, borderRadius: "50%", background: isSel ? "var(--brand)" : "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", color: isSel ? "#FFF" : "#6B6860", fontSize: 9, fontWeight: 700 }}>{tech.name.charAt(0)}</span>
@@ -2691,7 +2700,7 @@ export default function QuoteBuilderPage() {
                         // hours reflect add-on time (e.g. Oven +45 min) just like the
                         // Est. hours line above.
                         const estHrs = s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0;
-                        const techCount = selectedTechId ? 1 : 0;
+                        const techCount = selectedTechIds.length;
                         const cs = calculateCommissionSplit(total, estHrs, techCount, undefined, "residential", scope?.name);
                         const ratePct = Math.round((cs.commissionRate ?? 0.35) * 100);
                         return (
@@ -2732,7 +2741,7 @@ export default function QuoteBuilderPage() {
               // into the multi-scope grand total (was summing base_hours and dropping
               // Oven/Refrigerator/etc. minutes).
               const totalHours = selectedScopes.reduce((sum, s) => sum + (s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0), 0);
-              const techCount = selectedTechId ? 1 : 0;
+              const techCount = selectedTechIds.length;
               // [tiered-residential] Per-scope commission so a quote
               // with mixed Standard + Deep Clean shows the right total
               // (35% × standard + 32% × deep), not a flat 35%.

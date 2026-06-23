@@ -370,7 +370,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
   try {
     const id = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
-    const { scheduled_date, scheduled_time, assigned_user_id } = req.body || {};
+    const { scheduled_date, scheduled_time, assigned_user_id, team_user_ids } = req.body || {};
 
     // Mark quote as booked
     const [q] = await db.update(quotesTable)
@@ -711,20 +711,38 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // invariant, every code path that assigns a tech MUST write both. Promote
     // the chosen tech to primary (is_primary=true) so the dispatch grid and the
     // per-tech fan-out recognize the assignment.
-    const assignedTechId = assigned_user_id ? parseInt(String(assigned_user_id)) : NaN;
-    if (jobId && !isNaN(assignedTechId)) {
-      await db.execute(sql`
-        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
-        VALUES (${jobId}, ${assignedTechId}, ${companyId}, true)
-        ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
-      `);
-      // [notifications A.2] Alert the assigned tech of the new booking (in-app).
-      import("../lib/notify.js").then(({ notifyUser }) => notifyUser({
-        companyId, userId: assignedTechId, type: "job_assigned",
-        title: "New job assigned",
-        body: `${String(serviceType).replace(/_/g, " ")} on ${jobDate}`,
-        link: "/my-jobs", meta: { job_id: jobId },
-      })).catch(() => {});
+    // Multi-tech assignment. team_user_ids carries the full crew chosen on the
+    // Review step; assigned_user_id is the primary (already mirrored onto
+    // jobs.assigned_user_id by the INSERT above). Write a job_technicians row
+    // per cleaner, flagging ONLY the primary, so the dispatch grid and the
+    // per-tech fan-out recognize every assigned tech and the labor splits.
+    const primaryTechId = assigned_user_id ? parseInt(String(assigned_user_id)) : NaN;
+    const teamIds: number[] = (Array.isArray(team_user_ids) ? team_user_ids : [])
+      .map((t: any) => parseInt(String(t)))
+      .filter((n: number) => !isNaN(n));
+    // Primary first, then the remaining crew (deduped). Falls back to the lone
+    // primary when no team array is sent (older clients / single assignment).
+    const orderedTechIds = [
+      ...(!isNaN(primaryTechId) ? [primaryTechId] : []),
+      ...teamIds.filter(t => t !== primaryTechId),
+    ];
+    if (jobId && orderedTechIds.length) {
+      for (let i = 0; i < orderedTechIds.length; i++) {
+        const techId = orderedTechIds[i];
+        const isPrimary = !isNaN(primaryTechId) ? techId === primaryTechId : i === 0;
+        await db.execute(sql`
+          INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+          VALUES (${jobId}, ${techId}, ${companyId}, ${isPrimary})
+          ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+        `);
+        // [notifications A.2] Alert each assigned tech of the new booking (in-app).
+        import("../lib/notify.js").then(({ notifyUser }) => notifyUser({
+          companyId, userId: techId, type: "job_assigned",
+          title: "New job assigned",
+          body: `${String(serviceType).replace(/_/g, " ")} on ${jobDate}`,
+          link: "/my-jobs", meta: { job_id: jobId },
+        })).catch(() => {});
+      }
     }
 
     logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", total_price: q.total_price, job_id: jobId });
