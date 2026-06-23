@@ -1400,7 +1400,7 @@ export default function MyJobsPage() {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
             {/* Tapping the logo/title returns the tech to today's main screen. */}
-            <button type="button" onClick={() => setSelectedDate(todayYmd)} aria-label="Back to today"
+            <button type="button" onClick={() => { setSelectedDate(todayYmd); navigate("/my-jobs"); window.scrollTo({ top: 0, behavior: "smooth" }); }} aria-label="Back to today"
               style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", minWidth: 0 }}>
               <QlenoMark size={24} />
               <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", letterSpacing: "-0.01em" }}>My Jobs</span>
