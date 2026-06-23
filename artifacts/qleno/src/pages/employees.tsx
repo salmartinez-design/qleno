@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -422,6 +422,30 @@ function TimeOffRequestsSection() {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<number | null>(null);
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const [flash, setFlash] = useState(false);
+
+  // [employee-bell fix 2026-06-23] The top-bar staff bell focuses this section.
+  // Two entry paths: navigated here (one-shot sessionStorage flag, read on mount)
+  // or already here (a 'qleno:focus-timeoff' window event). Both scroll the
+  // section into view + briefly highlight it so the bell never feels dead.
+  useEffect(() => {
+    const focus = () => {
+      sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      setFlash(true);
+      window.setTimeout(() => setFlash(false), 1600);
+    };
+    let t: number | undefined;
+    try {
+      if (sessionStorage.getItem('qlenoFocusTimeOff')) {
+        sessionStorage.removeItem('qlenoFocusTimeOff');
+        t = window.setTimeout(focus, 350);
+      }
+    } catch { /* private mode */ }
+    const onEvt = () => focus();
+    window.addEventListener('qleno:focus-timeoff', onEvt);
+    return () => { window.removeEventListener('qleno:focus-timeoff', onEvt); if (t) window.clearTimeout(t); };
+  }, []);
 
   async function load() {
     try {
@@ -445,7 +469,7 @@ function TimeOffRequestsSection() {
   if (!canAct) return null;
 
   return (
-    <div style={{ marginTop: 28 }}>
+    <div ref={sectionRef} style={{ marginTop: 28, scrollMarginTop: 80, borderRadius: 12, transition: 'box-shadow 0.4s ease', boxShadow: flash ? '0 0 0 3px rgba(0,201,160,0.65)' : 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#1A1917' }}>Time off &amp; leave requests</h2>
         {rows.length > 0 && (
