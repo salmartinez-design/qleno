@@ -1934,6 +1934,13 @@ function InvoicingTab() {
     default_invoice_notes_commercial: '',
     auto_send_invoices: false,
     auto_charge_on_invoice: false,
+    invoice_business_name: '',
+    invoice_tagline: '',
+    invoice_address: '',
+    invoice_footer_message: '',
+    invoice_payment_instructions: '',
+    invoice_guarantee: '',
+    invoice_terms: '',
   });
 
   useEffect(() => {
@@ -1949,6 +1956,13 @@ function InvoicingTab() {
           default_invoice_notes_commercial: c.default_invoice_notes_commercial || '',
           auto_send_invoices: !!c.auto_send_invoices,
           auto_charge_on_invoice: !!c.auto_charge_on_invoice,
+          invoice_business_name: c.invoice_business_name || '',
+          invoice_tagline: c.invoice_tagline || '',
+          invoice_address: c.invoice_address || '',
+          invoice_footer_message: c.invoice_footer_message || '',
+          invoice_payment_instructions: c.invoice_payment_instructions || '',
+          invoice_guarantee: c.invoice_guarantee || '',
+          invoice_terms: c.invoice_terms || '',
         });
       })
       .catch(console.error)
@@ -1991,6 +2005,10 @@ function InvoicingTab() {
     width: '100%', padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
     fontSize: 13, fontFamily: FF, color: '#1A1917', background: '#fff', resize: 'vertical',
     minHeight: 80, boxSizing: 'border-box',
+  };
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
+    fontSize: 14, fontFamily: FF, color: '#1A1917', background: '#fff', boxSizing: 'border-box',
   };
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9E9B94', fontFamily: FF }}>Loading...</div>;
@@ -2075,6 +2093,46 @@ function InvoicingTab() {
               checked={settings.auto_charge_on_invoice}
               onChange={v => setSettings(s => ({ ...s, auto_charge_on_invoice: v }))}
             />
+          </div>
+        </div>
+      </div>
+
+      {/* Invoice Header & Footer (shown on every customer invoice) */}
+      <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' }}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>Invoice Header &amp; Footer</div>
+        <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, fontFamily: FF }}>
+          Shown on every invoice your customers receive. Upload your logo in the Branding tab. Leave a field blank to use a generic default.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Business Name</label>
+              <input value={settings.invoice_business_name} onChange={e => setSettings(s => ({ ...s, invoice_business_name: e.target.value }))} placeholder="Your Company LLC" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Tagline</label>
+              <input value={settings.invoice_tagline} onChange={e => setSettings(s => ({ ...s, invoice_tagline: e.target.value }))} placeholder="Residential & Commercial Cleaning" style={inputStyle} />
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Business Address</label>
+            <input value={settings.invoice_address} onChange={e => setSettings(s => ({ ...s, invoice_address: e.target.value }))} placeholder="123 Main St, Suite 100, City, ST 00000" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Footer Message</label>
+            <textarea value={settings.invoice_footer_message} onChange={e => setSettings(s => ({ ...s, invoice_footer_message: e.target.value }))} placeholder="Thank you for choosing us." style={textareaStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Payment Instructions</label>
+            <textarea value={settings.invoice_payment_instructions} onChange={e => setSettings(s => ({ ...s, invoice_payment_instructions: e.target.value }))} placeholder="Pay securely online using the link on this invoice. Questions? Contact us." style={textareaStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Satisfaction Guarantee</label>
+            <textarea value={settings.invoice_guarantee} onChange={e => setSettings(s => ({ ...s, invoice_guarantee: e.target.value }))} placeholder="Describe your guarantee, insurance, and bonding." style={textareaStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Terms &amp; Cancellation Policy</label>
+            <textarea value={settings.invoice_terms} onChange={e => setSettings(s => ({ ...s, invoice_terms: e.target.value }))} placeholder="Your cancellation and reschedule policy." style={textareaStyle} />
           </div>
         </div>
       </div>

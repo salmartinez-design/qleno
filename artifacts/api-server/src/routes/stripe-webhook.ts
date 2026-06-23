@@ -62,25 +62,33 @@ router.post(
           const invoiceId = pi.metadata?.invoice_id ? parseInt(pi.metadata.invoice_id) : null;
           const jobId     = pi.metadata?.job_id     ? parseInt(pi.metadata.job_id)     : null;
           const amount    = (pi.amount_received / 100).toFixed(2);
+          // ACH bank debit vs card/wallet — label the payment row accordingly.
+          const isAch     = Array.isArray(pi.payment_method_types) && pi.payment_method_types.includes("us_bank_account");
+          const method    = isAch ? "ach" : "card";
 
           if (companyId && clientId) {
-            // Insert payment record
+            // Idempotent insert — the instant /pay path may have already recorded
+            // this PaymentIntent (no UNIQUE index on stripe_payment_id, so guard
+            // with NOT EXISTS rather than ON CONFLICT).
             await db.execute(sql`
               INSERT INTO payments (company_id, client_id, invoice_id, amount, method, status, stripe_payment_id, created_at)
-              VALUES (
-                ${companyId}, ${clientId}, ${invoiceId}, ${amount},
-                'card', 'completed', ${pi.id}, NOW()
-              )
-              ON CONFLICT DO NOTHING
+              SELECT ${companyId}, ${clientId}, ${invoiceId}, ${amount}, ${method}, 'completed', ${pi.id}, NOW()
+              WHERE NOT EXISTS (SELECT 1 FROM payments WHERE stripe_payment_id = ${pi.id})
             `);
 
-            // Mark invoice as paid if linked
+            // Mark invoice paid (preserve an earlier paid_at from the instant path).
             if (invoiceId) {
               await db.execute(sql`
                 UPDATE invoices
-                SET status='paid', paid_at=NOW()
+                SET status='paid', paid_at=COALESCE(paid_at, NOW()),
+                    payment_source='stripe', stripe_payment_intent_id=${pi.id}
                 WHERE id=${invoiceId} AND company_id=${companyId}
               `);
+              await db.execute(sql`
+                UPDATE jobs SET charge_succeeded_at=COALESCE(charge_succeeded_at, NOW())
+                WHERE company_id=${companyId}
+                  AND id=(SELECT job_id FROM invoices WHERE id=${invoiceId})
+              `).catch(() => {});
             }
 
             // Log notification

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable } from "@workspace/db/schema";
+import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable, paymentLinksTable } from "@workspace/db/schema";
+import crypto from "crypto";
 import { eq, and, desc, count, sum, sql, lt, isNull, or, ne, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -34,6 +35,31 @@ function formatInvoice(inv: any) {
     days_overdue: daysOverdue(inv.due_date),
     invoice_number: inv.invoice_number || generateInvoiceNumber(inv.id),
   };
+}
+
+// [invoice-pay-token 2026-06-22] Mint a one-per-invoice payment_links row
+// (purpose 'pay_invoice') so the emailed "View and Pay" button resolves on the
+// public /pay/:token page and charges the invoice total via Stripe. Reuses an
+// existing unused/unexpired link for the invoice so re-sends don't pile up.
+// Falls back to the legacy id-based URL if the insert fails (never blocks send).
+async function mintInvoicePayLink(
+  companyId: number, clientId: number | null, invoiceId: number,
+  amount: string | null, userId?: number,
+): Promise<string> {
+  if (clientId == null) return `${appBaseUrl()}/pay/${invoiceId}`;
+  try {
+    const token = crypto.randomBytes(20).toString("hex");
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30); // 30 days
+    await db.insert(paymentLinksTable).values({
+      company_id: companyId, client_id: clientId, token,
+      purpose: "pay_invoice", invoice_id: invoiceId, amount: amount ?? null,
+      expires_at: expiresAt, created_by: userId ?? null,
+    });
+    return `${appBaseUrl()}/pay/${token}`;
+  } catch (err) {
+    console.error("mintInvoicePayLink failed, falling back to id link:", err);
+    return `${appBaseUrl()}/pay/${invoiceId}`;
+  }
 }
 
 router.get("/", requireAuth, async (req, res) => {
@@ -381,6 +407,14 @@ router.get("/:id", requireAuth, async (req, res) => {
         payment_failed: invoicesTable.payment_failed,
         created_at: invoicesTable.created_at,
         paid_at: invoicesTable.paid_at,
+        // [invoice-redesign 2026-06-22] Billing address for the invoice document.
+        // Client address covers residential; account jobs fall back to account_name.
+        client_address: clientsTable.address,
+        client_city: clientsTable.city,
+        client_state: clientsTable.state,
+        client_zip: clientsTable.zip,
+        client_phone: clientsTable.phone,
+        account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
         // [invoice-service-date 2026-06-20] Live service date from the linked job
         // (see list select). Reschedule-proof; null when job gone/unlinked.
         service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
@@ -511,11 +545,9 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
 
     const companyId = req.auth!.companyId;
     const invNum  = invoice.invoice_number || generateInvoiceNumber(invoiceId);
-    // TODO(invoice-pay-token): the public /pay route resolves a payment_links
-    // token, not a bare invoice id. Wiring invoice-send to mint a payment_links
-    // row (Stripe setup-intent) is a separate task; for now this is on the
-    // correct domain (no more Replit) but still id-based.
-    const invLink = `${appBaseUrl()}/pay/${invoiceId}`;
+    // Mint a Stripe pay-token so the email's "View and Pay" button charges the
+    // invoice total on the public /pay/:token page.
+    const invLink = await mintInvoicePayLink(companyId, invoice.client_id, invoiceId, invoice.total, req.auth!.userId);
     const mergeVars = {
       first_name:       client?.first_name || "",
       invoice_number:   invNum,
@@ -574,7 +606,7 @@ router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"),
       } else {
       const { Resend } = await import("resend");
       const resend = new Resend(process.env.RESEND_API_KEY);
-      const payLink = `${appBaseUrl()}/pay/${invoiceId}`;
+      const payLink = await mintInvoicePayLink(req.auth!.companyId!, invoice.client_id, invoiceId, invoice.total, req.auth!.userId);
       const unsub = await buildEmailUnsubData(req.auth!.companyId!, clientEmail);
       await resend.emails.send({
         from: "notifications@phes.io",

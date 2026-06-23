@@ -3,12 +3,33 @@ import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
-import { ArrowLeft, Send, DollarSign, CreditCard, Clock, AlertCircle } from "lucide-react";
+import { ArrowLeft, Send, DollarSign, CreditCard, Clock, AlertCircle, Printer } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { useTenantBrand } from "@/lib/tenant-brand";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
+
+// [invoice-redesign 2026-06-22] Friendly sub-description per service package so a
+// line reads "Deep Clean · Detailed top-to-bottom service…" instead of a bare slug.
+const SERVICE_INFO: Record<string, string> = {
+  "deep clean": "Detailed top-to-bottom service: baseboards, inside cabinets, appliance exteriors, and full kitchen and bath detail.",
+  "deep clean or move in/out": "Detailed top-to-bottom move-ready service: baseboards, inside cabinets and appliances, full detail.",
+  "standard clean": "Full maintenance cleaning of all living areas, kitchen, and bathrooms.",
+  "recurring standard clean": "Recurring maintenance cleaning of all living areas, kitchen, and bathrooms.",
+  "move in": "Complete pre-occupancy detail clean of an empty home.",
+  "move out": "Move-out detail clean to turnover-ready condition.",
+  "move in/out": "Complete move in / move out detail clean.",
+  "common areas": "Lobbies, hallways, elevators, and shared building spaces.",
+  "carpet cleaning": "Hot-water extraction carpet cleaning.",
+  "ppm turnover": "Full unit turnover clean between residents.",
+  "ppm common areas": "Scheduled common-area maintenance service.",
+  "office cleaning": "Commercial workspace cleaning service.",
+};
+function svcBlurb(desc: string): string {
+  return SERVICE_INFO[(desc || "").toLowerCase().replace(/_/g, " ").trim()] || "";
+}
 
 async function apiFetch(path: string, opts: RequestInit = {}) {
   const r = await fetch(`${API}${path}`, {
@@ -130,6 +151,26 @@ export default function InvoiceDetailPage() {
     queryFn: () => apiFetch(`/api/invoices/${invoiceId}`),
     enabled: !!invoiceId,
   });
+
+  // [invoice-redesign 2026-06-22] Tenant logo + name for the invoice masthead.
+  // logoUrl falls back to the bundled Phes logo (same pattern as estimate-public).
+  const { logoUrl, companyName, company } = useTenantBrand();
+  const logoSrc = logoUrl || `${import.meta.env.BASE_URL}phes-logo.jpeg`;
+  // [invoice-branding 2026-06-23] All header/footer/terms text is per-tenant,
+  // pulled from company settings with generic fallbacks so a company that hasn't
+  // customized anything still gets a clean, correct invoice (no hardcoded Phes).
+  const co: any = company || {};
+  const bizName = co.invoice_business_name || companyName || "Your Company";
+  const bizTagline = co.invoice_tagline || "";
+  const bizAddress = co.invoice_address || co.address || "";
+  const bizPhone = co.phone || "";
+  const bizEmail = co.email || "";
+  const contactLine = [bizPhone, bizEmail].filter(Boolean).join(" · ");
+  const footerMessage = co.invoice_footer_message || `Thank you for choosing ${bizName}.`;
+  const paymentInstructions = co.invoice_payment_instructions
+    || `Pay securely online using the link on this invoice.${contactLine ? ` Questions? Contact us at ${contactLine}.` : ""}`;
+  const guaranteeText = co.invoice_guarantee || "";
+  const termsText = co.invoice_terms || "";
 
   async function handleSendInvoice() {
     setSendingInvoice(true);
@@ -315,35 +356,168 @@ export default function InvoiceDetailPage() {
   const isOverdue = invoice.status === "overdue" || (invoice.status === "sent" && invoice.due_date && new Date(invoice.due_date) < new Date());
   const effectiveStatus = isOverdue ? "overdue" : invoice.status;
   const lineItems: any[] = Array.isArray(invoice.line_items) ? invoice.line_items : [];
+  // [invoice-redesign] "<city>, <state> <zip>" — canonical address second line.
+  const billLine2 = [invoice.client_city, invoice.client_state].filter(Boolean).join(", ")
+    + (invoice.client_zip ? ` ${invoice.client_zip}` : "");
 
   return (
     <DashboardLayout>
       <div style={{ maxWidth: 760, margin: "0 auto", fontFamily: FF }}>
-        <button onClick={() => navigate("/invoices")}
+        <style>{`@media print {
+  body * { visibility: hidden !important; }
+  #invoice-doc, #invoice-doc * { visibility: visible !important; }
+  #invoice-doc { position: absolute; left: 0; top: 0; width: 100%; box-shadow: none !important; border: none !important; }
+  .no-print { display: none !important; }
+}`}</style>
+        <button className="no-print" onClick={() => navigate("/invoices")}
           style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: "#6B7280", fontSize: 13, marginBottom: 20, padding: 0 }}>
           <ArrowLeft size={15} /> Back to Invoices
         </button>
 
-        <div style={{ ...CARD, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 6 }}>
-              <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#1A1917" }}>
-                {invoice.invoice_number || `INV-${String(invoice.id).padStart(4, "0")}`}
-              </h1>
-              <StatusBadge status={effectiveStatus} />
+        <div id="invoice-doc" style={{ ...CARD, padding: 0, overflow: "hidden" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 20, padding: "26px 30px 18px", flexWrap: "wrap" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+              <img src={logoSrc} alt={bizName} style={{ height: 50, width: "auto", objectFit: "contain" }} />
+              <div>
+                <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "#1A1917" }}>{bizName}</p>
+                {bizTagline && <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>{bizTagline}</p>}
+                {bizAddress && <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>{bizAddress}</p>}
+                {contactLine && <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>{contactLine}</p>}
+              </div>
             </div>
-            <p style={{ margin: 0, fontSize: 14, color: "#6B7280" }}>
-              {invoice.client_name}
-              {invoice.client_email && <span style={{ marginLeft: 8, color: "#9E9B94" }}>· {invoice.client_email}</span>}
-            </p>
+            <div style={{ textAlign: "right" }}>
+              <p style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: "0.12em", color: "#1A1917" }}>INVOICE</p>
+              <p style={{ margin: "6px 0 0", fontSize: 13, color: "#6B7280" }}>No. <span style={{ color: "#1A1917", fontWeight: 700 }}>{invoice.invoice_number || `INV-${String(invoice.id).padStart(4, "0")}`}</span></p>
+              <div style={{ marginTop: 8 }}><StatusBadge status={effectiveStatus} /></div>
+            </div>
           </div>
-          <div style={{ textAlign: "right" }}>
-            <p style={{ margin: "0 0 2px", fontSize: 12, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>Total</p>
-            <p style={{ margin: 0, fontSize: 32, fontWeight: 800, color: "#1A1917" }}>${(invoice.total || 0).toLocaleString("en-US", { minimumFractionDigits: 2 })}</p>
+          <div style={{ height: 3, background: "#00C9A0" }} />
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 24, padding: "18px 30px", flexWrap: "wrap" }}>
+            <div>
+              <p style={{ margin: "0 0 6px", fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em" }}>Bill to</p>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#1A1917" }}>{invoice.client_name?.trim() || invoice.account_name || "—"}</p>
+              {invoice.client_address && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#4B4A47", lineHeight: 1.5 }}>{invoice.client_address}{billLine2 ? <><br />{billLine2}</> : null}</p>}
+              {invoice.client_phone && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#4B4A47" }}>{invoice.client_phone}</p>}
+              {invoice.client_email && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#4B4A47" }}>{invoice.client_email}</p>}
+              {!invoice.client_address && !invoice.client_name?.trim() && !invoice.account_name && <p style={{ margin: "3px 0 0", fontSize: 12, color: "#C2410C" }}>No billing address on file</p>}
+            </div>
+            <div style={{ textAlign: "right", fontSize: 13, color: "#4B4A47" }}>
+              <div style={{ marginBottom: 5 }}><span style={{ color: "#9E9B94" }}>Issued </span>{invoice.created_at ? new Date(invoice.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</div>
+              <div style={{ marginBottom: 5 }}><span style={{ color: "#9E9B94" }}>Service </span>{invoice.service_date ? new Date(invoice.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}</div>
+              <div><span style={{ color: "#9E9B94" }}>Due </span>{invoice.due_date ? new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "On receipt"}</div>
+            </div>
+          </div>
+
+          <div style={{ padding: "8px 30px 26px" }}>
+            {editing ? (
+              <div>
+                {editLines.map((l, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                    <input value={l.description} placeholder="Description"
+                      onChange={e => setLine(i, { description: e.target.value })}
+                      style={{ flex: 1, padding: "7px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF }} />
+                    <input type="number" step="0.01" value={l.quantity} title="Qty"
+                      onChange={e => setLine(i, { quantity: e.target.value })}
+                      style={{ width: 60, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
+                    <input type="number" step="0.01" value={l.unit_price} title="Rate (negative = discount)"
+                      onChange={e => setLine(i, { unit_price: e.target.value })}
+                      style={{ width: 90, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
+                    <span style={{ width: 80, textAlign: "right", fontSize: 13, fontWeight: 700, color: l.total < 0 ? "#991B1B" : "#1A1917" }}>${Number(l.total || 0).toFixed(2)}</span>
+                    <button onClick={() => setEditLines(prev => prev.filter((_, idx) => idx !== i))}
+                      title="Remove line" style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 8, marginTop: 4, marginBottom: 14 }}>
+                  <button onClick={() => setEditLines(prev => [...prev, { description: "", quantity: 1, unit_price: 0, total: 0 }])}
+                    style={{ padding: "6px 12px", border: "1px solid #E5E2DC", borderRadius: 6, background: "transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>+ Add line</button>
+                  <button onClick={() => setEditLines(prev => [...prev, { description: "Discount", quantity: 1, unit_price: 0, total: 0 }])}
+                    style={{ padding: "6px 12px", border: "1px solid #E5E2DC", borderRadius: 6, background: "transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>+ Add discount</button>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 6 }}>
+                  <span style={{ fontSize: 13, color: "#6B7280" }}>Tip</span>
+                  <input type="number" step="0.01" value={editTip} onChange={e => setEditTip(Number(e.target.value) || 0)}
+                    style={{ width: 100, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 24, borderTop: "2px solid #EEECE7", paddingTop: 10, marginTop: 6 }}>
+                  <span style={{ fontSize: 13, color: "#6B7280" }}>Subtotal ${editSubtotal.toFixed(2)}</span>
+                  <span style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Total ${editTotal.toFixed(2)}</span>
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
+                  <button onClick={() => setEditing(false)}
+                    style={{ padding: "9px 16px", border: "1px solid #E5E2DC", borderRadius: 8, background: "transparent", color: "#6B7280", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                  <button onClick={handleSaveEdit} disabled={savingEdit}
+                    style={{ padding: "9px 20px", border: "none", borderRadius: 8, backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                    {savingEdit ? "Saving..." : "Save changes"}
+                  </button>
+                </div>
+              </div>
+            ) : lineItems.length === 0 ? (
+              <p style={{ fontSize: 13, color: "#9E9B94", margin: 0 }}>No line items recorded.</p>
+            ) : (
+              <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                <thead>
+                  <tr style={{ borderBottom: "1px solid #EEECE7" }}>
+                    {["Description", "Qty", "Rate", "Amount"].map(h => (
+                      <th key={h} style={{ padding: "8px 0", fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", textAlign: h === "Description" ? "left" : "right" as any }}>
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {lineItems.map((item, i) => (
+                    <tr key={i} style={{ borderBottom: "1px solid #F0EDE8" }}>
+                      <td style={{ padding: "10px 0", fontSize: 13, color: "#1A1917" }}>
+                        <div style={{ fontWeight: 600, textTransform: "capitalize" }}>{(item.description || "").replace(/_/g, " ")}</div>
+                        {i === 0 && svcBlurb(item.description) && (
+                          <div style={{ fontSize: 11.5, color: "#9E9B94", marginTop: 2, lineHeight: 1.4 }}>{svcBlurb(item.description)}</div>
+                        )}
+                      </td>
+                      <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right", verticalAlign: "top" }}>{Number(item.quantity ?? 1)}</td>
+                      <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right", verticalAlign: "top" }}>${Number((item.unit_price ?? item.rate) || 0).toFixed(2)}</td>
+                      <td style={{ padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#1A1917", textAlign: "right", verticalAlign: "top" }}>${Number(item.total || 0).toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  {(invoice.tips || 0) > 0 && (
+                    <tr>
+                      <td colSpan={3} style={{ padding: "12px 0 4px", fontSize: 13, color: "#6B7280", textAlign: "right" }}>Tips</td>
+                      <td style={{ padding: "12px 0 4px", fontSize: 13, fontWeight: 700, color: "#1A1917", textAlign: "right" }}>${(invoice.tips || 0).toFixed(2)}</td>
+                    </tr>
+                  )}
+                  <tr style={{ borderTop: "2px solid #1A1917" }}>
+                    <td colSpan={3} style={{ padding: "12px 0 0", fontSize: 15, fontWeight: 700, color: "#1A1917", textAlign: "right" }}>Total due</td>
+                    <td style={{ padding: "12px 0 0", fontSize: 20, fontWeight: 800, color: "#1A1917", textAlign: "right" }}>${(invoice.total || 0).toFixed(2)}</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+
+            {!editing && (
+              <div style={{ marginTop: 26, borderTop: "1px solid #F0EDE8", paddingTop: 16 }}>
+                <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{footerMessage}</p>
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6B7280", lineHeight: 1.6 }}>{paymentInstructions}</p>
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6B7280", lineHeight: 1.6 }}>Payment terms: due on receipt.</p>
+                {guaranteeText && (
+                  <p style={{ margin: "12px 0 0", fontSize: 11, color: "#9E9B94", lineHeight: 1.6 }}>{guaranteeText}</p>
+                )}
+                {termsText && (
+                  <p style={{ margin: "8px 0 0", fontSize: 11, color: "#9E9B94", lineHeight: 1.6 }}>{termsText}</p>
+                )}
+                {(bizName || bizAddress) && (
+                  <p style={{ margin: "8px 0 0", fontSize: 11, color: "#9E9B94" }}>{[bizName, bizAddress].filter(Boolean).join(", ")}</p>
+                )}
+              </div>
+            )}
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+        <div className="no-print" style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
+          <button onClick={() => window.print()}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#1A1917", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+            <Printer size={14} /> Print / PDF
+          </button>
           {(invoice.status === "draft") && (
             <button onClick={handleSendInvoice} disabled={sendingInvoice}
               style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
@@ -401,12 +575,12 @@ export default function InvoiceDetailPage() {
           )}
         </div>
         {invoice.payment_failed && (effectiveStatus === "sent" || effectiveStatus === "overdue") && (
-          <div style={{ marginBottom: 20, padding: "10px 14px", backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B", display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="no-print" style={{ marginBottom: 20, padding: "10px 14px", backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B", display: "flex", alignItems: "center", gap: 8 }}>
             <AlertCircle size={15} /> Last charge attempt failed — contact the client for a backup payment method. Charges are never auto-retried.
           </div>
         )}
 
-        <div style={CARD}>
+        <div className="no-print" style={CARD}>
           <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Invoice Details</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px" }}>
             {[
@@ -433,95 +607,6 @@ export default function InvoiceDetailPage() {
           )}
         </div>
 
-        <div style={CARD}>
-          <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Line Items</h3>
-
-          {editing ? (
-            <div>
-              {editLines.map((l, i) => (
-                <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-                  <input value={l.description} placeholder="Description"
-                    onChange={e => setLine(i, { description: e.target.value })}
-                    style={{ flex: 1, padding: "7px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF }} />
-                  <input type="number" step="0.01" value={l.quantity} title="Qty"
-                    onChange={e => setLine(i, { quantity: e.target.value })}
-                    style={{ width: 60, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
-                  <input type="number" step="0.01" value={l.unit_price} title="Rate (negative = discount)"
-                    onChange={e => setLine(i, { unit_price: e.target.value })}
-                    style={{ width: 90, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
-                  <span style={{ width: 80, textAlign: "right", fontSize: 13, fontWeight: 700, color: l.total < 0 ? "#991B1B" : "#1A1917" }}>${Number(l.total || 0).toFixed(2)}</span>
-                  <button onClick={() => setEditLines(prev => prev.filter((_, idx) => idx !== i))}
-                    title="Remove line" style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
-                </div>
-              ))}
-              <div style={{ display: "flex", gap: 8, marginTop: 4, marginBottom: 14 }}>
-                <button onClick={() => setEditLines(prev => [...prev, { description: "", quantity: 1, unit_price: 0, total: 0 }])}
-                  style={{ padding: "6px 12px", border: "1px solid #E5E2DC", borderRadius: 6, background: "transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>+ Add line</button>
-                <button onClick={() => setEditLines(prev => [...prev, { description: "Discount", quantity: 1, unit_price: 0, total: 0 }])}
-                  style={{ padding: "6px 12px", border: "1px solid #E5E2DC", borderRadius: 6, background: "transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>+ Add discount</button>
-              </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                <span style={{ fontSize: 13, color: "#6B7280" }}>Tip</span>
-                <input type="number" step="0.01" value={editTip} onChange={e => setEditTip(Number(e.target.value) || 0)}
-                  style={{ width: 100, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
-              </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 24, borderTop: "2px solid #EEECE7", paddingTop: 10, marginTop: 6 }}>
-                <span style={{ fontSize: 13, color: "#6B7280" }}>Subtotal ${editSubtotal.toFixed(2)}</span>
-                <span style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Total ${editTotal.toFixed(2)}</span>
-              </div>
-              <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
-                <button onClick={() => setEditing(false)}
-                  style={{ padding: "9px 16px", border: "1px solid #E5E2DC", borderRadius: 8, background: "transparent", color: "#6B7280", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Cancel</button>
-                <button onClick={handleSaveEdit} disabled={savingEdit}
-                  style={{ padding: "9px 20px", border: "none", borderRadius: 8, backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-                  {savingEdit ? "Saving..." : "Save changes"}
-                </button>
-              </div>
-            </div>
-          ) : lineItems.length === 0 ? (
-            <p style={{ fontSize: 13, color: "#9E9B94", margin: 0 }}>No line items recorded.</p>
-          ) : (
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ borderBottom: "1px solid #EEECE7" }}>
-                  {["Description", "Qty", "Rate", "Total"].map(h => (
-                    <th key={h} style={{ padding: "8px 0", fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", textAlign: h === "Description" ? "left" : "right" as any }}>
-                      {h}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {lineItems.map((item, i) => (
-                  <tr key={i} style={{ borderBottom: "1px solid #F0EDE8" }}>
-                    <td style={{ padding: "10px 0", fontSize: 13, color: "#1A1917", textTransform: "capitalize" }}>
-                      {(item.description || "").replace(/_/g, " ")}
-                    </td>
-                    <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right" }}>{Number(item.quantity ?? 1)}</td>
-                    <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right" }}>${Number((item.unit_price ?? item.rate) || 0).toFixed(2)}</td>
-                    <td style={{ padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#1A1917", textAlign: "right" }}>${Number(item.total || 0).toFixed(2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan={3} style={{ padding: "12px 0 4px", fontSize: 13, color: "#6B7280", textAlign: "right" }}>Subtotal</td>
-                  <td style={{ padding: "12px 0 4px", fontSize: 13, fontWeight: 700, color: "#1A1917", textAlign: "right" }}>${(invoice.subtotal || 0).toFixed(2)}</td>
-                </tr>
-                {(invoice.tips || 0) > 0 && (
-                  <tr>
-                    <td colSpan={3} style={{ padding: "4px 0", fontSize: 13, color: "#6B7280", textAlign: "right" }}>Tips</td>
-                    <td style={{ padding: "4px 0", fontSize: 13, fontWeight: 700, color: "#1A1917", textAlign: "right" }}>${(invoice.tips || 0).toFixed(2)}</td>
-                  </tr>
-                )}
-                <tr style={{ borderTop: "2px solid #EEECE7" }}>
-                  <td colSpan={3} style={{ padding: "10px 0 0", fontSize: 14, fontWeight: 700, color: "#1A1917", textAlign: "right" }}>Total</td>
-                  <td style={{ padding: "10px 0 0", fontSize: 18, fontWeight: 800, color: "#1A1917", textAlign: "right" }}>${(invoice.total || 0).toFixed(2)}</td>
-                </tr>
-              </tfoot>
-            </table>
-          )}
-        </div>
       </div>
 
       {showMarkPaid && (
