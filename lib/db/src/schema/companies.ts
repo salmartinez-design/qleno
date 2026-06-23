@@ -99,6 +99,12 @@ export const companiesTable = pgTable("companies", {
   qb_connected: boolean("qb_connected").notNull().default(false),
   qb_last_sync_at: timestamp("qb_last_sync_at"),
   qb_company_name: text("qb_company_name"),
+  // [qb-cutover] Cutover guard for tenants migrating from another system that
+  // already pushes to the same QB company (e.g. Oak Lawn from MaidCentral).
+  // When set, invoices created BEFORE this timestamp are never synced to QB —
+  // only invoices from the cutover forward — so we don't re-push history the
+  // prior system already sent. NULL = sync everything (clean-slate tenants).
+  qb_sync_start_date: timestamp("qb_sync_start_date", { withTimezone: true }),
   overhead_rate_pct: numeric("overhead_rate_pct", { precision: 5, scale: 2 }).default("10.00"),
   recurring_engine_enabled: boolean("recurring_engine_enabled").notNull().default(true),
   // Cancellation policy — per-tenant defaults. Both expressed as a
