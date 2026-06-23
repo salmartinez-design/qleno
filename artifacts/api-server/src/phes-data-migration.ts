@@ -122,6 +122,7 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "jobs.last_cleaned_response", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_cleaned_response TEXT" },
     { label: "jobs.last_cleaned_flag",     stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_cleaned_flag TEXT" },
     { label: "jobs.overage_disclaimer_acknowledged", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS overage_disclaimer_acknowledged BOOLEAN DEFAULT false" },
+    { label: "jobs.pay_basis",             stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS pay_basis TEXT NOT NULL DEFAULT 'allowed_hours'" },
     { label: "jobs.overage_rate",          stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS overage_rate NUMERIC(10,2)" },
     { label: "jobs.upsell_shown",          stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_shown BOOLEAN DEFAULT false" },
     { label: "jobs.upsell_accepted",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS upsell_accepted BOOLEAN DEFAULT false" },

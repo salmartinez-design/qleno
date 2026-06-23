@@ -657,6 +657,8 @@ router.get("/detail", requireAuth, async (req, res) => {
         // Commercial CLIENTS (no account_id) are still commercial for pay —
         // never a residential %. Routing below keys on account_id OR this.
         client_type: clientsTable.client_type,
+        // [pay-basis 2026-06-20] Per-job Allowed-hours vs Hourly switch.
+        pay_basis: jobsTable.pay_basis,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -848,6 +850,7 @@ router.get("/detail", requireAuth, async (req, res) => {
       service_type: j.service_type, base_fee: j.base_fee, billed_amount: j.billed_amount,
       allowed_hours: j.allowed_hours, actual_hours: j.actual_hours,
       scheduled_date: String(j.scheduled_date), branch_id: (j as any).branch_id ?? null,
+      pay_basis: (j as any).pay_basis ?? "allowed_hours",
     }));
     const payLines = computePayLines({ jobs: jobsForPay, clocks, cellByUser, config: payConfig, paidHoursOverride, finalPayOverride });
 

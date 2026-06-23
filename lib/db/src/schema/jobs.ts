@@ -131,6 +131,14 @@ export const jobsTable = pgTable("jobs", {
   // the edit modal. Cleared when scope/freq/add-ons change AND base_fee is
   // omitted from the patch (recalc pulls a fresh value from pricing engine).
   manual_rate_override: boolean("manual_rate_override").notNull().default(false),
+  // [pay-basis 2026-06-20] Per-job pay control (office switch on the job pay
+  // panel). 'allowed_hours' (default) = pay the budgeted allowed hours, split
+  // across the job's clocked techs by their share — fast OR slow, they earn the
+  // budget (hard cap, not greater-of). 'hourly' = pay each tech their entered/
+  // actual hours × rate (the one-off exception). This is the single source of
+  // truth the payroll engine branches on; it also closes the multi-tech
+  // overpay where each tech was paid the WHOLE job's allowed hours.
+  pay_basis: text("pay_basis").notNull().default("allowed_hours"),
   // ── Cutover 1A (data backbone) — additive columns ───────────────────────
   // Scope flags lifted off the MaidCentral worksheet header. 1B (day
   // view) reads these as chips on the job card; 1C (clock-in) doesn't

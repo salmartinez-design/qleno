@@ -45,6 +45,9 @@ export interface PayrollJob {
   actual_hours: string | number | null;
   scheduled_date: string;
   branch_id: number | null;
+  // [pay-basis 2026-06-20] 'allowed_hours' (default) | 'hourly'. The office's
+  // per-job switch; governs how clocked techs are paid (see computePayLines).
+  pay_basis?: string | null;
 }
 
 /** Per-employee 4-cell pay matrix (the single source of truth for pay type). */
@@ -160,6 +163,7 @@ export function computePayLines(input: {
   for (const [jobId, jobClocks] of clocksByJob) {
     const job = jobById.get(jobId)!;
     const isComm = jobIsCommercial(job);
+    const jobHourly = job.pay_basis === "hourly";
     const pool = jobPool(job, config);
     // [MC-parity] universal hourly/floor rate ($20). Enhancement B: the
     // commission pool is split across ALL clocked techs by ACTUAL clocked hours
@@ -207,20 +211,41 @@ export function computePayLines(input: {
         continue;
       }
 
-      if (pt === "hourly") {
-        const hasOv = paidOv.has(k);
-        const paidHours = hasOv ? paidOv.get(k)! : basisHours(config.hours_basis, c.clocked_hours, allowed);
+      // [pay-basis 2026-06-20] This tech's share of the job, by clocked hours.
+      const share = totalAllHours > 0 ? c.clocked_hours / totalAllHours : 1 / jobClocks.length;
+
+      // HOURLY job mode (the office's one-off exception): pay each tech their
+      // actual clocked hours × $/hr. An explicit per-tech hours entry was already
+      // applied by the paidOv guard above; this is the no-entry default.
+      if (jobHourly) {
+        const hrlyRate = pt === "hourly" ? rate : config.commercial_hourly_rate;
+        const paidHours = round2(c.clocked_hours);
         lines.push({
           user_id: c.user_id, job_id: jobId, scheduled_date: job.scheduled_date, branch_id: job.branch_id,
           is_commercial: isComm, pay_type: "hourly", basis: "hourly",
-          clocked_hours: round2(c.clocked_hours), paid_hours: round2(paidHours), rate,
-          pool_total: null, pool_share: null, hours_overridden: hasOv,
-          amount: round2(paidHours * rate),
-          // [payroll-label 2026-06-20] Drop the internal hours-basis jargon
-          // ("(greater_of)" etc.) from the per-line label — it's noise to the
-          // office. A manual rate override still shows "(override)" since that
-          // flags a deliberate change worth seeing.
-          pay_basis_label: `$${rate.toFixed(2)}/hr × ${round2(paidHours)}h${hasOv ? " (override)" : ""}`,
+          clocked_hours: round2(c.clocked_hours), paid_hours: paidHours, rate: hrlyRate,
+          pool_total: null, pool_share: null, hours_overridden: false,
+          amount: round2(paidHours * hrlyRate),
+          pay_basis_label: `$${hrlyRate.toFixed(2)}/hr × ${paidHours}h`,
+        });
+        continue;
+      }
+
+      if (pt === "hourly") {
+        // ALLOWED-HOURS default for an hourly-paid tech: pay this tech's SHARE of
+        // the job's allowed budget (hard cap — fast OR slow earns the budget).
+        // This fixes the multi-tech overpay where each tech was paid the WHOLE
+        // job's allowed hours via greater-of (e.g. an 8.2h job paid 8.2h to BOTH
+        // cleaners). To pay actual time on an overrun, the office flips the job
+        // to Hourly.
+        const budgetHours = round2(allowed * share);
+        lines.push({
+          user_id: c.user_id, job_id: jobId, scheduled_date: job.scheduled_date, branch_id: job.branch_id,
+          is_commercial: isComm, pay_type: "hourly", basis: isComm ? "commercial_pool" : "hourly",
+          clocked_hours: round2(c.clocked_hours), paid_hours: budgetHours, rate,
+          pool_total: round2(rate * allowed), pool_share: round2(share), hours_overridden: false,
+          amount: round2(budgetHours * rate),
+          pay_basis_label: `${Math.round(share * 100)}% of $${rate.toFixed(0)}/hr × ${allowed.toFixed(1)}h budget`,
         });
       } else {
         // residential commission tech: GREATER-OF(pool share, hourly floor).

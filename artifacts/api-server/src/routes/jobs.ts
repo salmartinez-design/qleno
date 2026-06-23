@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
 import { notifyUserAsync } from "../lib/push.js";
 import { logAudit, logClientActivity } from "../lib/audit.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
@@ -4328,6 +4328,57 @@ router.put("/:id/technicians/:techId/override", requireAuth, async (req, res) =>
     return res.json({ data: result });
   } catch (err) {
     console.error("PUT /jobs/:id/technicians/:techId/override error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// PUT /api/jobs/:id/pay-basis — the office's per-job pay switch.
+//   body: { pay_basis: 'allowed_hours' | 'hourly', hours?: { [user_id]: number } }
+//   - 'allowed_hours' (default): pay the budgeted allowed hours, split across the
+//     job's clocked techs by share. Clears any entered per-tech hours.
+//   - 'hourly': pay each tech the hours in `hours` (blank/omitted → their actual
+//     clocked hours) × rate. Stored as payroll_hours_overrides rows.
+// Owner/admin/office only — it moves money.
+router.put("/:id/pay-basis", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const userId = req.auth!.userId;
+    const { pay_basis, hours } = req.body as { pay_basis?: string; hours?: Record<string, unknown> };
+    const basis = pay_basis === "hourly" ? "hourly" : "allowed_hours";
+
+    const jobRows = await db.execute(sql`SELECT id FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+    if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
+
+    await db.execute(sql`UPDATE jobs SET pay_basis = ${basis} WHERE id = ${jobId} AND company_id = ${companyId}`);
+
+    if (basis === "hourly") {
+      for (const [uidStr, raw] of Object.entries(hours ?? {})) {
+        const uid = parseInt(uidStr);
+        if (!Number.isFinite(uid)) continue;
+        const h = raw == null || raw === "" ? null : parseFloat(String(raw));
+        if (h == null || !Number.isFinite(h) || h < 0) {
+          // Blank → no override row; the tech falls back to actual clocked hours.
+          await db.execute(sql`DELETE FROM payroll_hours_overrides WHERE company_id = ${companyId} AND job_id = ${jobId} AND user_id = ${uid}`);
+          continue;
+        }
+        await db.execute(sql`
+          INSERT INTO payroll_hours_overrides (company_id, user_id, job_id, paid_hours, created_by_user_id)
+          VALUES (${companyId}, ${uid}, ${jobId}, ${h}, ${userId})
+          ON CONFLICT (company_id, user_id, job_id) DO UPDATE SET
+            paid_hours = EXCLUDED.paid_hours, created_by_user_id = EXCLUDED.created_by_user_id`);
+      }
+    } else {
+      // Back to Allowed hours → drop entered hours so pay recomputes from budget.
+      await db.execute(sql`DELETE FROM payroll_hours_overrides WHERE company_id = ${companyId} AND job_id = ${jobId}`);
+    }
+
+    let result: Awaited<ReturnType<typeof calculateTechPay>> = [];
+    try { result = await calculateTechPay(jobId, companyId); }
+    catch (payErr) { console.error("pay-basis pay recompute failed (non-fatal):", payErr); }
+    return res.json({ ok: true, pay_basis: basis, data: result });
+  } catch (err) {
+    console.error("PUT /jobs/:id/pay-basis error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
