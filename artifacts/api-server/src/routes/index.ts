@@ -106,6 +106,7 @@ import lmsOnboardingIntakeRouter from "./lms-onboarding-intake.js";
 import translateRouter from "./translate.js";
 import assistantRouter from "./assistant.js";
 import devicesRouter from "./devices.js";
+import guidesRouter from "./guides.js";
 
 const router: IRouter = Router();
 
@@ -205,6 +206,7 @@ router.use("/pay", payRouter);
 router.use("/ops", opsIntegrityRouter);
 // Cutover 1D — office live view (/api/ops/today/* + /api/ops/jobs/:id/detail)
 router.use("/ops", opsRouter);
+router.use("/guides", guidesRouter);
 router.use("/acquisition-sources", acquisitionSourcesRouter);
 router.use("/bundles", bundlesRouter);
 router.use("/photos", photosRouter);

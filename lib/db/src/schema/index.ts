@@ -19,6 +19,7 @@ export * from "./additional_pay";
 export * from "./loyalty";
 export * from "./audit_log";
 export * from "./articles";
+export * from "./guides";
 export * from "./discounts";
 export * from "./job_discounts";
 export * from "./auto_promos";

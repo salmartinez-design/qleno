@@ -244,6 +244,15 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] runAutoPromosMigration — non-fatal:", err?.message ?? err);
   }
+  // [help-guides 2026-06-21] guides table + placeholder tech guide seed.
+  try {
+    await withBootTimeout("runGuidesMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runGuidesMigration } = await import("./lib/guides-migrate.js");
+      await runGuidesMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runGuidesMigration — non-fatal:", err?.message ?? err);
+  }
   // [comms-opt-out 2026-06-21] clients.sms_opt_out_at / email_opt_out_at /
   // email_unsub_token columns + token backfill + unique index.
   try {
