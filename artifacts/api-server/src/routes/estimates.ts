@@ -335,6 +335,9 @@ router.post("/public/:token/accept", async (req, res) => {
     const token = String(req.params.token || "").trim();
     const name = String(req.body?.name || "").trim().slice(0, 200);
     if (!name) return res.status(400).json({ error: "Bad Request", message: "Please enter your name to accept" });
+    // SMS consent captured on the customer-facing quote-acceptance page (gated
+    // there). Recorded in the lead audit note below for proof of consent.
+    const smsConsent = req.body?.sms_consent === true;
     const rows = await db.execute(sql`
       SELECT id, status, valid_until FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
     `);
@@ -370,7 +373,7 @@ router.post("/public/:token/accept", async (req, res) => {
           if (qt.lead_id) {
             await db.execute(sql`
               INSERT INTO lead_activity_log (lead_id, company_id, action_type, note, performed_by)
-              VALUES (${qt.lead_id}, ${qt.company_id}, 'interested', ${`Customer accepted${planLabel ? " — " + planLabel + " plan" : ""} (${name})`}, NULL)`).catch(() => {});
+              VALUES (${qt.lead_id}, ${qt.company_id}, 'interested', ${`Customer accepted${planLabel ? " — " + planLabel + " plan" : ""} (${name})${smsConsent ? " — SMS consent given" : ""}`}, NULL)`).catch(() => {});
           }
           const { notifyOfficeUsers } = await import("../lib/notify.js");
           await notifyOfficeUsers(qt.company_id, {
