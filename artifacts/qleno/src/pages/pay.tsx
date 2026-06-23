@@ -5,7 +5,7 @@ import { ShieldCheck, AlertCircle, Clock, CheckCircle, CreditCard } from "lucide
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
 
-type State = "loading" | "invalid" | "expired" | "used" | "valid" | "saving" | "success" | "error";
+type State = "loading" | "invalid" | "expired" | "used" | "valid" | "saving" | "success" | "error" | "processing";
 
 interface LinkData {
   link: { id: number; purpose: string; amount: string | null; expires_at: string };
@@ -40,6 +40,9 @@ export default function PayPage() {
         if (res.error === "ALREADY_USED") { setState("used"); return; }
         if (res.error) { setState("invalid"); return; }
         setData(res);
+        // Already-paid invoice → show a paid confirmation, never a charge form
+        // (prevents a double-charge on a link clicked after payment).
+        if (res.invoice_paid) { setState("success"); return; }
         setState("valid");
       })
       .catch(() => setState("invalid"));
@@ -61,18 +64,14 @@ export default function PayPage() {
     const w = window as any;
     if (!w.Stripe || !data?.stripe_publishable_key || !data?.client_secret) return;
     const stripe = w.Stripe(data.stripe_publishable_key);
-    const elements = stripe.elements({ clientSecret: data.client_secret });
-    const cardElement = elements.create("card", {
-      style: {
-        base: {
-          fontFamily: "'Plus Jakarta Sans', Arial, sans-serif",
-          fontSize: "15px",
-          color: "#1A1917",
-          "::placeholder": { color: "#9E9B94" },
-        },
-      },
+    const elements = stripe.elements({
+      clientSecret: data.client_secret,
+      appearance: { variables: { fontFamily: "'Plus Jakarta Sans', Arial, sans-serif", colorPrimary: data?.company?.brand_color || "#5B9BD5", borderRadius: "8px" } },
     });
-    cardElement.mount("#stripe-card-element");
+    // Payment Element renders ALL enabled methods: card/debit, Apple Pay,
+    // Google Pay, Link, and ACH bank debit — chosen in the Stripe Dashboard.
+    const paymentElement = elements.create("payment", { layout: "tabs" });
+    paymentElement.mount("#payment-element");
     setStripeInstance(stripe);
     setStripeElements(elements);
     setStripeLoaded(true);
@@ -84,22 +83,59 @@ export default function PayPage() {
 
     setState("saving");
 
-    // If Stripe is configured, confirm the setup intent
+    // If Stripe is configured, confirm via the Payment Element.
     if (stripeInstance && stripeElements && data.client_secret) {
-      const cardElement = stripeElements.getElement("card");
-      const { error, setupIntent } = await stripeInstance.confirmCardSetup(data.client_secret, {
-        payment_method: { card: cardElement, billing_details: { name: cardName } },
+      const isPay = data.link.purpose === "pay_invoice";
+      const returnUrl = window.location.href.split("?")[0];
+
+      if (isPay) {
+        // CHARGE the invoice. redirect:"if_required" → card/Apple Pay/Google Pay
+        // complete inline; bank methods that need a redirect go to return_url.
+        const { error, paymentIntent } = await stripeInstance.confirmPayment({
+          elements: stripeElements,
+          confirmParams: { return_url: returnUrl },
+          redirect: "if_required",
+        });
+        if (error) {
+          setErrorMsg(error.message || "Payment failed");
+          setState("error");
+          return;
+        }
+        // ACH bank debits settle over a few days → 'processing'. Cards/wallets →
+        // 'succeeded' instantly. Only mark paid server-side when succeeded.
+        if (paymentIntent && paymentIntent.status === "processing") {
+          setState("processing");
+          return;
+        }
+        const res = await fetch(`${BASE}/api/payment-links/public/${token}/pay`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        const result = await res.json();
+        if (!res.ok) {
+          setErrorMsg(result.error || "Payment could not be recorded. Please contact us before retrying.");
+          setState("error");
+          return;
+        }
+        setState("success");
+        return;
+      }
+
+      // SAVE a payment method (setup intent).
+      const { error, setupIntent } = await stripeInstance.confirmSetup({
+        elements: stripeElements,
+        confirmParams: { return_url: returnUrl },
+        redirect: "if_required",
       });
       if (error) {
         setErrorMsg(error.message || "Card error");
         setState("error");
         return;
       }
-      // Notify API
       const res = await fetch(`${BASE}/api/payment-links/public/${token}/save-card`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ payment_method_id: setupIntent.payment_method }),
+        body: JSON.stringify({ payment_method_id: setupIntent?.payment_method }),
       });
       const result = await res.json();
       if (!res.ok) {
@@ -174,10 +210,29 @@ export default function PayPage() {
 
           {/* Success */}
           {state === "success" && (
+            data?.link?.purpose === "pay_invoice" ? (
+              <StatusCard
+                icon={<CheckCircle size={40} color="#059669" />}
+                title="Payment received"
+                body={`Thank you, ${clientName}. Your payment to ${companyName} was successful${data?.invoice_number ? `. Invoice #${data.invoice_number} is now paid` : ""}. A receipt will follow by email.`}
+                accent="#059669"
+              />
+            ) : (
+              <StatusCard
+                icon={<CheckCircle size={40} color="#059669" />}
+                title="Payment method saved"
+                body={`Thank you, ${clientName}. ${companyName} will use this card for future invoices.`}
+                accent="#059669"
+              />
+            )
+          )}
+
+          {/* Processing (ACH bank debit settles over a few business days) */}
+          {state === "processing" && (
             <StatusCard
-              icon={<CheckCircle size={40} color="#059669" />}
-              title="Payment method saved"
-              body={`Thank you, ${clientName}. ${companyName} will use this card for future invoices.`}
+              icon={<Clock size={40} color="#059669" />}
+              title="Payment submitted"
+              body={`Thank you, ${clientName}. Your bank payment is processing and may take a few business days to clear. ${companyName} will email a receipt once it settles.`}
               accent="#059669"
             />
           )}
@@ -206,7 +261,7 @@ export default function PayPage() {
                   <CreditCard size={20} color={brand} />
                   <span style={{ fontWeight: 700, fontSize: 17, color: "#1A1917" }}>
                     {data.link.purpose === "pay_invoice"
-                      ? `Pay Invoice${data.invoice_number ? ` #${data.invoice_number}` : ""} — $${parseFloat(data.link.amount || "0").toFixed(2)}`
+                      ? `Pay Invoice${data.invoice_number ? ` #${data.invoice_number}` : ""} for $${parseFloat(data.link.amount || "0").toFixed(2)}`
                       : "Save Payment Method"}
                   </span>
                 </div>
@@ -217,26 +272,11 @@ export default function PayPage() {
                 </p>
               </div>
 
-              {/* Cardholder name */}
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Cardholder Name</label>
-                <input
-                  value={cardName}
-                  onChange={e => setCardName(e.target.value)}
-                  placeholder="Full name on card"
-                  required
-                  style={{ width: "100%", padding: "11px 14px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 15, fontFamily: FF, color: "#1A1917", background: "#fff", outline: "none", boxSizing: "border-box" }}
-                />
-              </div>
-
-              {/* Stripe Card Element or not-configured notice */}
+              {/* Stripe Payment Element — card / debit, Apple Pay, Google Pay,
+                  and ACH bank debit (whichever are enabled in the Dashboard). */}
               <div style={{ marginBottom: 20 }}>
-                <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B7280", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Card Details</label>
                 {data.stripe_publishable_key ? (
-                  <div
-                    id="stripe-card-element"
-                    style={{ padding: "12px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", minHeight: 44 }}
-                  />
+                  <div id="payment-element" style={{ minHeight: 44 }} />
                 ) : (
                   <div style={{ padding: "12px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#F7F6F3", fontSize: 13, color: "#9E9B94" }}>
                     Payment processing is not yet configured for this company.
@@ -267,7 +307,7 @@ export default function PayPage() {
               {/* Security badge */}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, color: "#9E9B94" }}>
                 <ShieldCheck size={14} />
-                <span>Secured by Stripe — your card details are never stored on our servers</span>
+                <span>Secured by Stripe. Your card details are never stored on our servers.</span>
               </div>
             </form>
           )}

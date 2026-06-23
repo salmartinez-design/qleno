@@ -171,6 +171,18 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (default_invoice_notes_commercial !== undefined) patch.default_invoice_notes_commercial = default_invoice_notes_commercial;
     if (auto_send_invoices !== undefined) patch.auto_send_invoices = auto_send_invoices;
     if (auto_charge_on_invoice !== undefined) patch.auto_charge_on_invoice = auto_charge_on_invoice;
+    // [invoice-branding 2026-06-23] Per-tenant invoice header/footer/terms text.
+    // Empty string clears (falls back to the generic default in the template).
+    {
+      const cleanText = (v: unknown) =>
+        v === undefined ? undefined : (v === null || String(v).trim() === "" ? null : String(v).slice(0, 4000));
+      const fields = ["invoice_business_name", "invoice_tagline", "invoice_address",
+        "invoice_footer_message", "invoice_payment_instructions", "invoice_guarantee", "invoice_terms"];
+      for (const f of fields) {
+        const cv = cleanText(req.body[f]);
+        if (cv !== undefined) patch[f] = cv;
+      }
+    }
     const { online_booking_lead_hours } = req.body;
     if (online_booking_lead_hours !== undefined) patch.online_booking_lead_hours = online_booking_lead_hours;
     const { dispatch_start_hour, dispatch_end_hour } = req.body;
