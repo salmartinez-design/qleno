@@ -608,13 +608,20 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   });
   const empPending: number = empReqData?.pending || 0;
 
-  // [employee-bell fix 2026-06-23] Clicking the staff bell must always DO
-  // something. setLocation('/employees') was a no-op when already on the page,
-  // so the bell felt dead. Now: if already there, fire a focus event the
-  // Employees page listens for (scroll + highlight the requests section);
-  // otherwise set a one-shot flag and navigate (the page focuses on mount).
+  // [employee-bell fix 2026-06-23] Clicking the staff bell focuses the requests
+  // section. Gate on the section element's PRESENCE in the DOM, not on
+  // `location === '/employees'` — that string compare didn't hold on prod, so the
+  // handler fell to a no-op navigate and the scroll stayed at the top.
+  // Element present → already on the page: scroll directly. The real scroll parent
+  //   is <main> (overflow:auto), NOT window; Element.scrollIntoView bubbles to the
+  //   nearest scrollable ancestor, so this drives <main> even though window never
+  //   scrolls. Fire the event too — but only to flash the highlight.
+  // Element absent  → navigate in; the section reads a one-shot flag on mount and
+  //   scrolls itself once laid out.
   const goToEmployeeRequests = () => {
-    if (location === '/employees') {
+    const el = document.getElementById('timeoff-requests-section');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       window.dispatchEvent(new CustomEvent('qleno:focus-timeoff'));
     } else {
       try { sessionStorage.setItem('qlenoFocusTimeOff', '1'); } catch { /* private mode */ }

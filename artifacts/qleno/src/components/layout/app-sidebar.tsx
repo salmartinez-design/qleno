@@ -3,7 +3,7 @@ import {
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, FileText as FileTextIcon,
   BookOpen, Settings, AlertTriangle, HeartPulse, Building2,
-  UserPlus, GraduationCap, Clock, Calculator, MessageSquare, Layers,
+  UserPlus, GraduationCap, Clock, Calculator, MessageSquare, Layers, LifeBuoy,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -119,6 +119,10 @@ const NAV_SECTIONS = [
     items: [
       // Cleancyclopedia + Training are reference / training surfaces —
       // techs DO get these. No roles array → visible to everyone.
+      // [help-guides 2026-06-21] Help & Guides. No roles array → visible to
+      // everyone; the guide LIST is audience-filtered server-side (techs see
+      // tech guides, office sees office guides).
+      { title: "Help & Guides",   url: "/help",            icon: LifeBuoy },
       { title: "Cleancyclopedia", url: "/cleancyclopedia", icon: BookOpen },
       { title: "Training",        url: "/training",        icon: GraduationCap },
       { title: "Training Admin",  url: "/lms/admin",       icon: GraduationCap, roles: ["owner", "admin", "super_admin", "office"] },
