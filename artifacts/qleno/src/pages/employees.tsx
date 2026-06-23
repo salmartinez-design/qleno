@@ -431,9 +431,15 @@ function TimeOffRequestsSection() {
   // section into view + briefly highlight it so the bell never feels dead.
   useEffect(() => {
     const focus = () => {
-      sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setFlash(true);
-      window.setTimeout(() => setFlash(false), 1600);
+      // The scroll container is <main> (overflow:auto), not window — so do NOT
+      // touch window.scrollY. scrollIntoView drives the real scroll parent.
+      // block:'center' lands the section reliably (block:'start' + sticky bar
+      // only nudged ~19px on prod). Double-rAF so layout is settled first.
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setFlash(true);
+        window.setTimeout(() => setFlash(false), 1600);
+      }));
     };
     let t: number | undefined;
     try {
