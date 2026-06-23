@@ -2912,6 +2912,109 @@ async function runGuadalupeMejiaAccessRepair(): Promise<void> {
 }
 
 /**
+ * Hilda Gallegos access repair (2026-06-22, ad-hoc).
+ *
+ * Sal: "can you check hilda. She cannot get into lms". Hilda was added
+ * via the LMS Admin Add Employee flow (the same flow that surfaced the
+ * #205 500 bug) — her temp password should be the documented chicago23
+ * default, but if she ever changed it or the original generator drifted
+ * she's locked out. No per-user repair existed for her until now.
+ *
+ * Sal hasn't shared her canonical email this round, and the LMS Admin
+ * screenshot from her original creation showed
+ * `hildagallegos15@iclcuod.com` — which looks like an iCloud typo
+ * (iclcuod ≠ icloud). I don't want to assume which spelling is real,
+ * so this follows JULIANA'S pattern (not Diana's): lookup by NAME ONLY,
+ * normalize whatever email is stored to lowercase (so the auth route's
+ * LOWER(input) lookup matches), but DO NOT overwrite the email itself.
+ * The boot log line prints her actual stored email so the office can
+ * read the canonical address and send it to her verbatim.
+ *
+ * On every cold start, idempotent, scoped to company_id=1:
+ *   1. Resolve Hilda Gallegos by name.
+ *   2. Lowercase the stored email if it isn't already.
+ *   3. Ensure password_hash = bcrypt('chicago23').
+ *   4. Ensure is_active = true and archived_at = NULL.
+ *   5. Stamp password_reset_to_chicago23_at = NOW().
+ */
+async function runHildaGallegosAccessRepair(): Promise<void> {
+  const PHES = 1;
+  const FIRST = "Hilda";
+  const LAST = "Gallegos";
+  const TARGET_PASSWORD = "chicago23";
+
+  const rows = await db.execute<{
+    id: number;
+    email: string;
+    password_hash: string;
+    is_active: boolean;
+    archived_at: Date | null;
+  }>(sql`
+    SELECT id, email, password_hash, is_active, archived_at
+    FROM users
+    WHERE company_id = ${PHES}
+      AND LOWER(first_name) = LOWER(${FIRST})
+      AND LOWER(last_name) = LOWER(${LAST})
+      AND role != 'owner'
+    ORDER BY id ASC
+    LIMIT 1
+  `);
+  const row = ((rows as any).rows ?? rows)[0] as
+    | {
+        id: number;
+        email: string;
+        password_hash: string;
+        is_active: boolean;
+        archived_at: Date | null;
+      }
+    | undefined;
+
+  if (!row) {
+    console.log(
+      `[hilda-gallegos-access-repair] no Hilda Gallegos row in company_id=${PHES}; skipping`,
+    );
+    return;
+  }
+
+  const lowercasedEmail = row.email.trim().toLowerCase();
+  const emailNeedsNormalize = lowercasedEmail !== row.email;
+
+  const hashMatches = await bcrypt
+    .compare(TARGET_PASSWORD, row.password_hash)
+    .catch(() => false);
+  const activeOk = row.is_active === true;
+  const unarchivedOk = row.archived_at === null;
+
+  if (hashMatches && !emailNeedsNormalize && activeOk && unarchivedOk) {
+    console.log(
+      `[hilda-gallegos-access-repair] user_id=${row.id} email=${lowercasedEmail} already in target state; no-op`,
+    );
+    return;
+  }
+
+  const newHash = hashMatches
+    ? row.password_hash
+    : await bcrypt.hash(TARGET_PASSWORD, 10);
+
+  await db.execute(sql`
+    UPDATE users
+    SET
+      email = ${lowercasedEmail},
+      password_hash = ${newHash},
+      is_active = true,
+      archived_at = NULL,
+      password_reset_to_chicago23_at = NOW()
+    WHERE id = ${row.id}
+  `);
+
+  console.log(
+    `[hilda-gallegos-access-repair] user_id=${row.id} email=${lowercasedEmail} updated: ` +
+      `email_normalized=${emailNeedsNormalize} hash_rewritten=${!hashMatches} ` +
+      `reactivated=${!activeOk} unarchived=${!unarchivedOk}`,
+  );
+}
+
+/**
  * QA sandbox account repurpose (2026-05-15 sprint, pre-sprint task).
  *
  * Dispatch created an audit fixture user during Phase 6 — repurpose it
@@ -3675,6 +3778,12 @@ export async function runPhesDataMigration(): Promise<void> {
     await runGuadalupeMejiaAccessRepair();
   } catch (err: any) {
     console.warn("[phes-migration] guadalupe-mejia-access-repair — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runHildaGallegosAccessRepair();
+  } catch (err: any) {
+    console.warn("[phes-migration] hilda-gallegos-access-repair — non-fatal:", err?.message ?? err);
   }
 
   try {
