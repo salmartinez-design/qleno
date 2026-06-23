@@ -608,6 +608,20 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   });
   const empPending: number = empReqData?.pending || 0;
 
+  // [employee-bell fix 2026-06-23] Clicking the staff bell must always DO
+  // something. setLocation('/employees') was a no-op when already on the page,
+  // so the bell felt dead. Now: if already there, fire a focus event the
+  // Employees page listens for (scroll + highlight the requests section);
+  // otherwise set a one-shot flag and navigate (the page focuses on mount).
+  const goToEmployeeRequests = () => {
+    if (location === '/employees') {
+      window.dispatchEvent(new CustomEvent('qleno:focus-timeoff'));
+    } else {
+      try { sessionStorage.setItem('qlenoFocusTimeOff', '1'); } catch { /* private mode */ }
+      setLocation('/employees');
+    }
+  };
+
   const notifItems: any[] = notifData?.data || [];
   const notifUnread: number = notifData?.unread_count || 0;
 
@@ -717,7 +731,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
 
             {/* Employee notifications bell (office tier) → Employees page */}
             {isOfficeTier && (
-              <button onClick={() => setLocation('/employees')} title="Employee notifications — time off & requests" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <button onClick={goToEmployeeRequests} title="Employee notifications — time off & requests" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
                 <CalendarClock size={19} />
                 {empPending > 0 && (
                   <span style={{ position: 'absolute', top: 0, right: 0, minWidth: 14, height: 14, borderRadius: 7, background: 'var(--brand)', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#04241d', fontWeight: 800, padding: '0 2px' }}>
@@ -982,7 +996,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
 
             {isOfficeTier && (
               <button
-                onClick={() => setLocation('/employees')}
+                onClick={goToEmployeeRequests}
                 title="Employee notifications — time off & requests"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center', position: 'relative' } as any}
               >
