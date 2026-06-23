@@ -165,7 +165,7 @@ interface CalcResult {
   hourly_rate: number; base_price: number; minimum_applied: boolean;
   minimum_bill: number; addons_total: number;
   addon_breakdown: Array<{ id: number; name: string; amount: number; price_type?: string }>;
-  bundle_discount: number; bundle_breakdown: Array<{ name: string; discount: number }>;
+  bundle_discount: number; bundle_breakdown: Array<{ id: number; name: string; discount: number; applied: boolean }>;
   subtotal: number; discount_amount: number; discount_valid?: boolean; final_total: number;
 }
 
@@ -181,6 +181,9 @@ interface SelectedScopeState {
   adjPlusReason: string;
   adjMinus: number;
   adjMinusReason: string;
+  // [combo-optional] Bundle ids the office toggled OFF for this scope. Passed
+  // to the pricing engine so their discount isn't applied to the total.
+  disabledBundleIds: number[];
   frequencies: PricingFrequency[];
   addons: PricingAddon[];
   calc: CalcResult | null;
@@ -643,6 +646,9 @@ export default function QuoteBuilderPage() {
           if (currentSqft > 0) body.sqft = currentSqft;
         }
         if (discountCodeRef.current) body.discount_code = discountCodeRef.current;
+        // [combo-optional] Tell the engine which bundles the office toggled off
+        // so their discount isn't applied (they're still returned for the UI).
+        if (state.disabledBundleIds && state.disabledBundleIds.length > 0) body.disabled_bundle_ids = state.disabledBundleIds;
         const result = await apiFetch("/api/pricing/calculate", { method: "POST", body });
         setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, calc: result, calcLoading: false } : s));
       } catch {
@@ -689,6 +695,7 @@ export default function QuoteBuilderPage() {
         adjPlusReason: "",
         adjMinus: 0,
         adjMinusReason: "",
+        disabledBundleIds: [],
         frequencies: freqs as PricingFrequency[],
         addons: addons as PricingAddon[],
         calc: null,
@@ -702,6 +709,7 @@ export default function QuoteBuilderPage() {
         scope_id: scope.id, frequency: initialState?.frequency ?? "", hours: initialState?.hours ?? 0,
         hoursOverrideSet: false, addon_ids: initialState?.addon_ids ?? [],
         addonQtys: {}, addonRecurring: {}, adjPlus: 0, adjPlusReason: "", adjMinus: 0, adjMinusReason: "",
+        disabledBundleIds: [],
         frequencies: [], addons: [],
         calc: null, calcLoading: false, expanded: true,
       }]);
@@ -751,6 +759,17 @@ export default function QuoteBuilderPage() {
     setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, [field]: val } : s));
   }
 
+  // [combo-optional] Toggle a bundle (e.g. "Appliance Combo") on/off for a
+  // scope, then recalc so the total reflects whether its discount applies.
+  function toggleBundle(scopeId: number, bundleId: number) {
+    setSelectedScopes(prev => prev.map(s => {
+      if (s.scope_id !== scopeId) return s;
+      const off = s.disabledBundleIds.includes(bundleId);
+      return { ...s, disabledBundleIds: off ? s.disabledBundleIds.filter(id => id !== bundleId) : [...s.disabledBundleIds, bundleId] };
+    }));
+    recalcScopeById(scopeId, 0);
+  }
+
   function updateScopeAddon(scopeId: number, addonId: number, checked: boolean) {
     setSelectedScopes(prev => prev.map(s => {
       if (s.scope_id !== scopeId) return s;
@@ -782,7 +801,9 @@ export default function QuoteBuilderPage() {
         scope_name: scopes.find(sc => sc.id === s.scope_id)?.name ?? "",
         frequency: s.frequency,
         addon_ids: s.addon_ids,
-        total: s.calc?.final_total ?? null,
+        // Include this scope's manual price adjustments so the saved total
+        // matches the preview (the engine's final_total excludes them).
+        total: s.calc?.final_total != null ? s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0) : null,
       }));
     return {
       client_id: selectedClientId || null,
@@ -801,7 +822,7 @@ export default function QuoteBuilderPage() {
       base_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.base_price) : null),
       addons_total: cr ? String(cr.addons_total) : "0",
       discount_amount: cr ? String(cr.discount_amount) : "0",
-      total_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.final_total) : null),
+      total_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.final_total + (primaryScopeState?.adjPlus || 0) - (primaryScopeState?.adjMinus || 0)) : null),
       // [addon-hours 2026-06-04] Persist TOTAL hours (base + add-on time-adds)
       // so Hourly/Time-Add add-ons (Oven, Cabinets, Basement, etc.) flow into
       // the booked job's allowed hours. Was base_hours, which silently dropped
@@ -2661,9 +2682,24 @@ export default function QuoteBuilderPage() {
                           items summed to MORE than the Total and it looked like broken
                           addition (Maribel's "the issue is the addition" — a hidden $35).
                           Render each matched bundle so Base + add-ons − bundle = Total. */}
+                      {/* [combo-optional] Each matched bundle is a toggle. Applied
+                          bundles subtract; toggling off keeps the line (greyed,
+                          struck) with an "Add" affordance so the office controls
+                          whether the combo discount applies. */}
                       {(s.calc.bundle_breakdown ?? []).map((b, i) => (
-                        <div key={`bundle-${i}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#16A34A" }}>
-                          <span>{b.name || "Bundle discount"}</span><span>-${b.discount.toFixed(2)}</span>
+                        <div key={`bundle-${b.id ?? i}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: b.applied ? "#16A34A" : "#9E9B94" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => toggleBundle(s.scope_id, b.id)}
+                              title={b.applied ? "Remove this combo discount" : "Apply this combo discount"}
+                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, borderRadius: 4, border: "1px solid #E5E2DC", background: b.applied ? "#16A34A" : "#FFF", color: b.applied ? "#FFF" : "#9E9B94", fontSize: 11, lineHeight: 1, cursor: "pointer", padding: 0, fontFamily: FF }}
+                            >
+                              {b.applied ? "×" : "+"}
+                            </button>
+                            <span style={{ textDecoration: b.applied ? "none" : "line-through" }}>{b.name || "Bundle discount"}</span>
+                          </span>
+                          <span style={{ textDecoration: b.applied ? "none" : "line-through" }}>-${b.discount.toFixed(2)}</span>
                         </div>
                       ))}
                       {s.calc.discount_amount > 0 && (
