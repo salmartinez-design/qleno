@@ -2941,6 +2941,15 @@ async function runHildaGallegosAccessRepair(): Promise<void> {
   const PHES = 1;
   const FIRST = "Hilda";
   const LAST = "Gallegos";
+  // [hilda-fix-typo 2026-06-23] Sal confirmed the canonical email is
+  // hildagallegos15@icloud.com — the previously stored value carried a
+  // typo (iclcuod instead of icloud) from the original LMS Admin Add
+  // Employee modal entry. Switching this function from Juliana's
+  // name-only-lookup-don't-overwrite pattern to Diana's
+  // lookup-by-name-OR-email-and-overwrite pattern so the stored email
+  // is corrected in place. The OR-email lookup also matches her row
+  // even if it currently holds the typo'd address.
+  const TARGET_EMAIL = "hildagallegos15@icloud.com";
   const TARGET_PASSWORD = "chicago23";
 
   const rows = await db.execute<{
@@ -2953,8 +2962,11 @@ async function runHildaGallegosAccessRepair(): Promise<void> {
     SELECT id, email, password_hash, is_active, archived_at
     FROM users
     WHERE company_id = ${PHES}
-      AND LOWER(first_name) = LOWER(${FIRST})
-      AND LOWER(last_name) = LOWER(${LAST})
+      AND (
+        (LOWER(first_name) = LOWER(${FIRST}) AND LOWER(last_name) = LOWER(${LAST}))
+        OR LOWER(BTRIM(email)) = LOWER(${TARGET_EMAIL})
+        OR LOWER(BTRIM(email)) = 'hildagallegos15@iclcuod.com'
+      )
       AND role != 'owner'
     ORDER BY id ASC
     LIMIT 1
@@ -2976,18 +2988,16 @@ async function runHildaGallegosAccessRepair(): Promise<void> {
     return;
   }
 
-  const lowercasedEmail = row.email.trim().toLowerCase();
-  const emailNeedsNormalize = lowercasedEmail !== row.email;
-
   const hashMatches = await bcrypt
     .compare(TARGET_PASSWORD, row.password_hash)
     .catch(() => false);
+  const emailMatches = row.email === TARGET_EMAIL;
   const activeOk = row.is_active === true;
   const unarchivedOk = row.archived_at === null;
 
-  if (hashMatches && !emailNeedsNormalize && activeOk && unarchivedOk) {
+  if (hashMatches && emailMatches && activeOk && unarchivedOk) {
     console.log(
-      `[hilda-gallegos-access-repair] user_id=${row.id} email=${lowercasedEmail} already in target state; no-op`,
+      `[hilda-gallegos-access-repair] user_id=${row.id} already in target state; no-op`,
     );
     return;
   }
@@ -2999,7 +3009,7 @@ async function runHildaGallegosAccessRepair(): Promise<void> {
   await db.execute(sql`
     UPDATE users
     SET
-      email = ${lowercasedEmail},
+      email = ${TARGET_EMAIL},
       password_hash = ${newHash},
       is_active = true,
       archived_at = NULL,
@@ -3008,8 +3018,8 @@ async function runHildaGallegosAccessRepair(): Promise<void> {
   `);
 
   console.log(
-    `[hilda-gallegos-access-repair] user_id=${row.id} email=${lowercasedEmail} updated: ` +
-      `email_normalized=${emailNeedsNormalize} hash_rewritten=${!hashMatches} ` +
+    `[hilda-gallegos-access-repair] user_id=${row.id} updated: ` +
+      `email_changed=${!emailMatches} hash_rewritten=${!hashMatches} ` +
       `reactivated=${!activeOk} unarchived=${!unarchivedOk}`,
   );
 }
