@@ -72,11 +72,11 @@ router.get("/connect", requireAuth, requireRole("owner", "admin"), async (req, r
 
 // ── GET /api/integrations/quickbooks/callback ─────────────────────────────
 router.get("/callback", async (req, res) => {
-  // Derive the frontend base from the request (Railway-safe) instead of the
-  // legacy REPLIT_DEV_DOMAIN — an empty REPLIT_DEV_DOMAIN used to produce a
-  // relative redirect to `/company?...` that resolved under `/api/integrations/
-  // quickbooks/`, giving a broken success URL.
-  const baseFrontend = `${getPublicBase(req)}/qleno`;
+  // Derive the frontend base from the request (Railway-safe). The frontend is
+  // served at the domain root (e.g. app.qleno.com), so redirect straight to
+  // /company. The legacy `/qleno` base-path prefix is a Replit artifact — on
+  // Railway it made every successful connect land on a 404 at /qleno/company.
+  const baseFrontend = getPublicBase(req);
 
   try {
     const { code, state, realmId } = req.query as Record<string, string>;
