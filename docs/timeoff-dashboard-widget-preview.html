@@ -11,7 +11,6 @@
   :root{
     --bg:#F7F6F3; --card:#FFFFFF; --ink:#1A1917; --muted:#9E9B94;
     --border:#E5E2DC; --mint:#00C9A0; --night:#0A0E1A;
-    /* bucket colors — 4 distinct */
     --pto-bg:#E9FBF5; --pto-fg:#00876B;
     --plawa-bg:#FEF3C7; --plawa-fg:#92400E;
     --unpaid-bg:#EEF2F7; --unpaid-fg:#334155;
@@ -25,8 +24,6 @@
   .note{display:inline-block;margin-top:10px;font-size:12px;color:var(--unexcused-fg);background:var(--unexcused-bg);border-radius:6px;padding:4px 10px;font-weight:600}
   .opt{max-width:1180px;margin:0 auto 34px}
   .optlabel{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
-  /* faux dashboard scaffolding */
-  .phcard{background:var(--card);border:1px solid var(--border);border-radius:14px}
   .ph{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;color:var(--muted)}
   .ph .ttl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
   .ph .big{height:14px;width:60%;background:#EFEDE8;border-radius:6px;margin-top:12px}
@@ -36,10 +33,8 @@
   .kpi .n{font-size:22px;font-weight:800}
   .kpi .l{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-top:2px}
   .chart{height:150px}
-  /* layouts */
-  .rail-wrap{display:grid;grid-template-columns:1fr 340px;gap:16px;align-items:start}
+  .rail-wrap{display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start}
   .stack{display:flex;flex-direction:column;gap:14px}
-  /* the widget */
   .widget{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden}
   .whead{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 12px}
   .whead h2{font-size:15px;font-weight:800;margin:0}
@@ -53,29 +48,36 @@
   .chip.plawa{background:var(--plawa-bg);color:var(--plawa-fg)}
   .chip.unpaid{background:var(--unpaid-bg);color:var(--unpaid-fg)}
   .chip.unexcused{background:var(--unexcused-bg);color:var(--unexcused-fg)}
-  .docnote{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--pto-fg);background:var(--pto-bg);border-radius:6px;padding:2px 8px}
+  .docnote{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--pto-fg);background:var(--pto-bg);border-radius:6px;padding:2px 8px;align-self:flex-start}
   .docnote svg{width:11px;height:11px}
-  .actions{display:flex;gap:8px;margin-top:2px}
+  /* half-day board strip */
+  .halfday{display:flex;align-items:center;gap:8px;margin-top:2px;font-size:11px}
+  .halfday .lbl{color:var(--muted);font-weight:600}
+  .daycell{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;width:200px}
+  .daycell .half{flex:1;padding:6px 8px;font-weight:700;text-align:center;font-size:11px}
+  .half.off-plawa{background:var(--plawa-bg);color:var(--plawa-fg)}
+  .half.off-unpaid{background:var(--unpaid-bg);color:var(--unpaid-fg)}
+  .half.avail{background:#fff;color:var(--mint);}
+  .half.avail.b{border-left:1px solid var(--border)}
+  .actions{display:flex;gap:8px;margin-top:4px}
   .btn{font-family:inherit;font-size:12px;font-weight:700;border-radius:8px;padding:7px 14px;cursor:pointer;border:1px solid var(--border)}
   .btn.approve{background:var(--mint);color:#04241d;border-color:var(--mint)}
   .btn.decline{background:#fff;color:#6B6860}
   .legend{display:flex;flex-wrap:wrap;gap:8px;padding:12px 18px;border-top:1px solid var(--border)}
-  .legend .chip{cursor:default}
   .footer{max-width:1180px;margin:0 auto;font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
   <div class="pagehead">
     <h1>Time Off Requests — dashboard widget placement preview</h1>
-    <p>Mockup only (not wired up). Same widget shown two ways so you can pick. All four leave types show distinctly. Brand styling matches the live dashboard.</p>
+    <p>Mockup only (not wired up). Units are Full day / Morning / Afternoon — a half-day leaves the tech available the other half. Every request has a required attachment. All four leave types show distinctly.</p>
     <span class="note">Pick one: Option A (right-hand rail) or Option B (inline card).</span>
   </div>
 
-  <!-- ============ OPTION A — RIGHT-HAND RAIL ============ -->
+  <!-- OPTION A — RIGHT RAIL -->
   <div class="opt">
     <p class="optlabel">Option A — dedicated right-hand rail</p>
     <div class="rail-wrap">
-      <!-- main dashboard column (placeholder) -->
       <div class="stack">
         <div class="kpis">
           <div class="kpi"><div class="n">18</div><div class="l">Today</div></div>
@@ -87,12 +89,11 @@
         <div class="ph chart"><div class="ttl">Revenue — last 14 days</div><div class="big"></div><div class="sm"></div></div>
         <div class="ph"><div class="ttl">Needs attention</div><div class="big"></div><div class="sm"></div></div>
       </div>
-      <!-- right rail with the widget -->
       <div id="widgetA"></div>
     </div>
   </div>
 
-  <!-- ============ OPTION B — INLINE CARD ============ -->
+  <!-- OPTION B — INLINE CARD -->
   <div class="opt">
     <p class="optlabel">Option B — full-width card in the dashboard flow</p>
     <div class="stack">
@@ -108,42 +109,41 @@
     </div>
   </div>
 
-  <div class="footer">Sample data. Bucket colors: PTO (mint), PLAWA/Sick (amber), Unpaid (slate), Unexcused (red). "Dr. note" = an attached file is on the request.</div>
+  <div class="footer">Sample data. Bucket colors: PTO (mint), PLAWA/Sick (amber), Unpaid (slate), Unexcused (red). Half-day rows show how the board keeps the tech available for the half they're working.</div>
 
 <script>
-  const PAPERCLIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3 3 0 0 1 4.24 4.24l-9.2 9.19a1 1 0 0 1-1.41-1.41l8.49-8.49"/></svg>';
+  const CLIP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a5 5 0 0 1-7.07-7.07l9.19-9.19a3 3 0 0 1 4.24 4.24l-9.2 9.19a1 1 0 0 1-1.41-1.41l8.49-8.49"/></svg>';
+  // half: null | 'am-off' | 'pm-off'
   const reqs = [
-    { who:'Maribel Castillo', bucket:'pto',   label:'PTO',     when:'Jun 30 – Jul 2 · 24 hrs', doc:false },
-    { who:'Alejandra Cuervo', bucket:'plawa', label:'PLAWA',   when:'Jun 24 · 8 hrs',          doc:true  },
-    { who:'Juliana Loredo',   bucket:'unpaid',label:'Unpaid',  when:'Jul 5 · 4 hrs (partial day)', doc:false },
-    { who:'Diana Vasquez',    bucket:'pto',   label:'PTO',     when:'Jul 10 · 8 hrs',          doc:true  },
+    { who:'Maribel Castillo', bucket:'pto',   label:'PTO',    when:'Jun 30 – Jul 2 · Full days', att:'Attachment', half:null },
+    { who:'Alejandra Cuervo', bucket:'plawa', label:'PLAWA',  when:'Jun 24 · Morning off',       att:'Dr. note',   half:'am-off' },
+    { who:'Juliana Loredo',   bucket:'unpaid',label:'Unpaid', when:'Jul 5 · Afternoon off',      att:'Attachment', half:'pm-off' },
+    { who:'Diana Vasquez',    bucket:'pto',   label:'PTO',    when:'Jul 10 · Full day',          att:'Attachment', half:null },
   ];
+  function halfStrip(r){
+    if(!r.half) return '';
+    const offCls = r.bucket==='unpaid' ? 'off-unpaid' : 'off-plawa';
+    const am = r.half==='am-off' ? `<div class="half ${offCls}">AM · Off</div><div class="half avail b">PM · Available</div>`
+                                 : `<div class="half avail">AM · Available</div><div class="half ${offCls} b">PM · Off</div>`;
+    return `<div class="halfday"><span class="lbl">On the board:</span><div class="daycell">${am}</div></div>`;
+  }
   function reqRow(r){
     return `<div class="req">
-      <div class="top">
-        <span class="who">${r.who}</span>
-        <span class="chip ${r.bucket}">${r.label}</span>
-      </div>
+      <div class="top"><span class="who">${r.who}</span><span class="chip ${r.bucket}">${r.label}</span></div>
       <div class="when">${r.when}</div>
-      ${r.doc ? `<span class="docnote">${PAPERCLIP} Dr. note</span>` : ''}
-      <div class="actions">
-        <button class="btn approve">Approve</button>
-        <button class="btn decline">Decline</button>
-      </div>
+      <span class="docnote">${CLIP} ${r.att}</span>
+      ${halfStrip(r)}
+      <div class="actions"><button class="btn approve">Approve</button><button class="btn decline">Decline</button></div>
     </div>`;
   }
   const legend = `<div class="legend">
-      <span class="chip pto">PTO</span>
-      <span class="chip plawa">PLAWA / Sick</span>
-      <span class="chip unpaid">Unpaid</span>
-      <span class="chip unexcused">Unexcused</span>
+      <span class="chip pto">PTO</span><span class="chip plawa">PLAWA / Sick</span>
+      <span class="chip unpaid">Unpaid</span><span class="chip unexcused">Unexcused</span>
     </div>`;
   function widget(){
     return `<div class="widget">
       <div class="whead"><h2>Time Off Requests</h2><span class="pill">4 pending</span></div>
-      ${reqs.map(reqRow).join('')}
-      ${legend}
-    </div>`;
+      ${reqs.map(reqRow).join('')}${legend}</div>`;
   }
   document.getElementById('widgetA').innerHTML = widget();
   document.getElementById('widgetB').innerHTML = widget();

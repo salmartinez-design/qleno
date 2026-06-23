@@ -1,8 +1,9 @@
 # Time-Off Request "Ticket" Flow — Spec & Build Plan
 
-**Status:** Spec only. Nothing wired up or merged. Awaiting Sal's preview pick +
-go. This is the flow Sal actually meant by "ticket" — it **supersedes** the
-generic employee-issue spec (PR #611), pending his confirmation to close that one.
+**Status:** Spec only. Nothing wired up or merged. Decisions locked except the
+dashboard-placement pick (Sal is choosing from the preview); build starts on his
+go. PR #611 is **kept** as a separate, lower-priority feature (employee equipment &
+supply requests) — not the same thing as this time-off flow.
 
 Preview mockup for the dashboard widget: `docs/timeoff-dashboard-widget-preview.html`.
 
@@ -33,7 +34,7 @@ board**, and the **audit/profile logging**.
 | 2a | Alert to office team + owner on submit | ✅ built (in-app/push now; email/text on comms switch) |
 | 2b | Request shows as a ticket on the dashboard | ❌ **build** — dashboard widget (see preview) |
 | 3a | Office opens it, populated with the request | ✅ built (the `leave-review` page) — needs a menu link |
-| 3b | Attachments (doctor's notes) | ❌ **build** — see attachments section |
+| 3b | Attachments (doctor's notes) — **required at submit** | ❌ **build** — mandatory employee upload; see attachments section |
 | 4 | Office approves / declines | ✅ built |
 | 5a | Employee notified on decision | ✅ built |
 | 5b | Marked off on the dispatch schedule | ⚠️ **partial** — board already renders time-off; needs full date-range + 4 distinct buckets |
@@ -49,18 +50,26 @@ board**, and the **audit/profile logging**.
   employee emails/texts it in and the office files it against the request).
 - **(c) Both** — employee can attach at submit; office can add or replace on review.
 
-**Recommendation: (c) both.** It costs little extra over doing one, and it covers
-every real case — the employee attaches their note up front, and the office can
-still add one when the employee hands it over later. → **Sal to confirm (c), or
-pick a/b.**
+**DECIDED (Sal): option (a), and MANDATORY.** The employee **must attach a file
+when they submit** — it's a **required field**; the request can't be sent without
+it (they photograph the doctor's note / file from their phone). The **office does
+NOT attach** — there is no office-side upload on the review screen. So every
+request that reaches the office already has its attachment.
+
+*(One-line flag: "required on every request" is spec'd as Sal stated. A doctor's
+note makes obvious sense for PLAWA/sick; if PTO/Unpaid shouldn't force a file, it's
+a one-line change to require it for sick only — flagging, not re-deciding.)*
 
 ## Locked decisions (folded into this spec)
 
-- **#2 — Partial days = hours. CONFIRMED.** Employees can request either full days
-  or a specific number of hours (e.g. 4h), drawn from the chosen bucket. **Multi-day
-  requests block every day in the range** on the schedule (not just day one — that's
-  a current limitation being fixed). The request form offers "full day(s)" or "set
-  hours."
+- **#2 — Full day / Morning / Afternoon (NO free-form hours). UPDATED per Sal.**
+  The request form's unit is **Full day**, **Morning**, or **Afternoon** — there is
+  **no arbitrary-hours entry**. A half-day draws half the bucket's daily hours.
+  **Critically, a half-day leaves the tech AVAILABLE for the half they're working:**
+  morning off → the board shows them **available in the afternoon** (and vice
+  versa) — they are NOT blocked for the whole day. **Multi-day requests block every
+  full day in the range.** So a request carries a per-day unit of
+  full / AM / PM, and the board reflects the worked half.
 - **#3 — All FOUR buckets distinct on the board. LOCKED.** The four active buckets
   are **PTO**, **PLAWA (sick)**, **Unpaid Leave**, and **Unexcused**. Each shows on
   the dispatch board with its **own label + color** (PTO mint / PLAWA amber / Unpaid
@@ -78,15 +87,17 @@ pick a/b.**
    pick (right rail vs. inline card). Add the matching menu link to the full review
    page. ~1 day (either placement).
 2. **Attachments (3b).** New `leave_request_attachments` (file refs), reusing the
-   existing upload/storage plumbing; attach on submit (employee) and/or on review
-   (office) per the decision; show + open on the review screen + the dashboard
-   widget's "Dr. note" indicator. ~1–1.5 days.
-3. **Schedule placement (5b).** On approval, mark the tech off for **every date in
-   the range** (today only the start date is written), and tag the **bucket type** so
-   the board distinguishes all four. The dispatch board already renders time-off, so
-   this is mostly extending what approval writes + the board's color map. ~1–1.5 days
-   (incl. partial-hours display: a 4h request shows the tech as partially off that
-   day — exact half-day vs. all-day display per Sal, see open items).
+   existing upload/storage plumbing. **Required at submit on the employee's phone —
+   the submit button is disabled until a file is attached.** No office-side upload.
+   Show + open the file on the review screen + the dashboard widget's attachment
+   indicator. ~1–1.5 days.
+3. **Schedule placement (5b).** On approval, mark the tech off for **every full day
+   in the range**, tagged by **bucket type** so the board distinguishes all four.
+   For a **half-day** (Morning/Afternoon), the board shows the tech off for that half
+   and **available for the other half** — so the request carries a per-day
+   full/AM/PM unit and the board renders the worked half as still-schedulable. The
+   dispatch board already renders time-off, so this extends what approval writes +
+   the board's color map + an AM/PM split. ~1.5 days.
 4. **Audit + profile logging (6).** Write an audit-log entry on submit/approve/
    decline and surface a richer time-off activity list on the employee profile.
    ~0.5–1 day.
@@ -98,10 +109,13 @@ on top of the already-shipped request/approve/notify/pay/balance engine.
 
 ## Open items before/while building
 
-- **Attachments decision** — confirm "both" (recommended) vs. employee-only / office-only.
-- **Dashboard placement** — pick Option A (right rail) or B (inline card) from the preview.
-- **Partial-hours on the board** — a 4-hour request: show the tech **off all day**
-  with an "AM/PM/4h" tag, or show them **partially available**? (Simpler = off-all-day
-  with the hours noted.)
-- **#611 fate** — confirm the generic employee-issue ticket spec is superseded /
-  should be closed, or kept as a separate future feature.
+- **Dashboard placement (ONLY open blocker)** — pick Option A (right rail) or B
+  (inline card) from the preview. Build starts once Sal picks.
+- ~~Attachments~~ — DECIDED: mandatory employee upload at submit.
+- ~~Partial-day model~~ — DECIDED: Full day / Morning / Afternoon, available the
+  worked half.
+- ~~Logging~~ — DECIDED: company audit log + employee profile.
+- **#611 — KEPT & reframed** (not closed): it's now the separate **employee
+  equipment & supply request** feature (replacement vacuum, parts, uniform shirts/
+  pants, other → routes to office + Sal, same inbox pattern). Lower priority; this
+  time-off flow ships first.
