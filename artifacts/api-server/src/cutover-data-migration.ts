@@ -613,7 +613,8 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
       )
       ON CONFLICT DO NOTHING;
 
-      -- Phes-specific buckets. Only seeded for company_id=1.
+      -- Phes-specific buckets. Seeded for BOTH Phes companies — Oak Lawn (1)
+      -- and Schaumburg (4) — so both branches get the same catalog.
       INSERT INTO leave_types (
         company_id, slug, display_name, is_paid, annual_cap_hours,
         accrual_mode, accrual_rate, waiting_period_days,
@@ -638,6 +639,18 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
          false, false, true, false),
         (1, 'unexcused', 'Unexcused', false, 40,
          'office_recorded', 0, 0,
+         false, false, false, false),
+        (4, 'plawa', 'PLAWA', true, 40,
+         'flat_grant', 0, 90,
+         false, false, true, true),
+        (4, 'pto_phes', 'PTO', true, 40,
+         'flat_grant', 0, 365,
+         true, false, true, false),
+        (4, 'unpaid_leave', 'Unpaid Leave', false, 40,
+         'flat_grant', 0, 0,
+         false, false, true, false),
+        (4, 'unexcused', 'Unexcused', false, 40,
+         'office_recorded', 0, 0,
          false, false, false, false)
       ON CONFLICT DO NOTHING;
 
@@ -649,7 +662,7 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
       SET accrual_mode = 'flat_grant',
           accrual_rate = 0,
           carryover_allowed = false
-      WHERE company_id = 1
+      WHERE company_id IN (1, 4)
         AND slug = 'plawa';
 
       -- The default-seeded "pto" row for company_id=1 collides with
@@ -659,7 +672,7 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
       -- so the Phes-specific row is the only one shown.
       UPDATE leave_types
       SET active = false
-      WHERE company_id = 1
+      WHERE company_id IN (1, 4)
         AND slug = 'pto';
 
       -- Likewise deactivate the generic default 'sick' bucket for Phes —
@@ -667,7 +680,7 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
       -- buckets (generic 'sick' + 'plawa') is a seeding leftover.
       UPDATE leave_types
       SET active = false
-      WHERE company_id = 1
+      WHERE company_id IN (1, 4)
         AND slug = 'sick';
 
       RAISE NOTICE 'cutover-migration: seeded leave_types per tenant';
@@ -733,7 +746,7 @@ async function seedPhesLeavePolicy3A(): Promise<void> {
         company_id, leave_reset_basis,
         use_it_or_lose_it_alert_lead_days, balance_ceiling_hours
       )
-      VALUES (1, 'work_anniversary', 60, 80)
+      VALUES (1, 'work_anniversary', 60, 80), (4, 'work_anniversary', 60, 80)
       ON CONFLICT (company_id) DO UPDATE SET
         leave_reset_basis = COALESCE(EXCLUDED.leave_reset_basis, company_leave_policy.leave_reset_basis),
         use_it_or_lose_it_alert_lead_days = COALESCE(EXCLUDED.use_it_or_lose_it_alert_lead_days, company_leave_policy.use_it_or_lose_it_alert_lead_days),
