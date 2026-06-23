@@ -128,7 +128,6 @@ export default function EstimatePublicPage() {
 
   async function accept() {
     if (!acceptName.trim()) { setActionMsg("Please enter your name."); return; }
-    if (!smsConsent) { setActionMsg("Please agree to the SMS consent to continue."); return; }
     setSubmitting(true);
     setActionMsg(null);
     try {
@@ -412,7 +411,7 @@ export default function EstimatePublicPage() {
             <label style={{ display: "flex", alignItems: "flex-start", gap: 9, cursor: "pointer", margin: "0 0 12px" }}>
               <input type="checkbox" checked={smsConsent} onChange={e => setSmsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: MINT, width: 16, height: 16, flexShrink: 0 }} />
               <span style={{ fontSize: 12, color: MUTE, lineHeight: 1.55 }}>
-                By checking this box, you agree to receive transactional SMS messages from Phes regarding your appointment. Message frequency varies. Message and data rates may apply. Reply STOP to opt out. You must be 18 or older to opt in. View our{" "}
+                By checking this box, you agree to receive recurring automated marketing and transactional text messages (promotions, offers, and appointment updates) from Phes at the number provided. Consent is not a condition of purchase. Message frequency varies. Message and data rates may apply. Reply STOP to unsubscribe or HELP for help. You must be 18 or older. See our{" "}
                 <a href="https://phes.io/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#2199e8", textDecoration: "underline" }}>Terms of Service</a>
                 {" "}and{" "}
                 <a href="https://phes.io/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: "#2199e8", textDecoration: "underline" }}>Privacy Policy</a>.
@@ -424,8 +423,8 @@ export default function EstimatePublicPage() {
                 style={{ flex: 1, height: 44, background: "#fff", color: INK, border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
                 Cancel
               </button>
-              <button onClick={accept} disabled={submitting || !smsConsent}
-                style={{ flex: 1.4, height: 44, background: MINT, color: "#04241d", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: (submitting || !smsConsent) ? "not-allowed" : "pointer", fontFamily: FF, opacity: (submitting || !smsConsent) ? 0.6 : 1 }}>
+              <button onClick={accept} disabled={submitting}
+                style={{ flex: 1.4, height: 44, background: MINT, color: "#04241d", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: submitting ? "not-allowed" : "pointer", fontFamily: FF, opacity: submitting ? 0.7 : 1 }}>
                 {submitting ? "Confirming…" : "Confirm Accept"}
               </button>
             </div>
