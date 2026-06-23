@@ -729,8 +729,25 @@ function IntegrationsTab() {
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
-  const handleConnect = () => {
-    window.location.href = `${API}/api/integrations/quickbooks/connect`;
+  const handleConnect = async () => {
+    // Fetch the Intuit authorize URL WITH the Bearer token (the connect endpoint
+    // requires auth), then navigate the browser to it. A plain navigation to the
+    // connect endpoint can't carry the token and would 401.
+    try {
+      const res = await f("/connect");
+      if (!res.ok) {
+        toast({ title: "Could not start QuickBooks connection", variant: "destructive" });
+        return;
+      }
+      const data = await res.json();
+      if (data?.authUrl) {
+        window.location.href = data.authUrl;
+      } else {
+        toast({ title: "Could not start QuickBooks connection", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Could not start QuickBooks connection", variant: "destructive" });
+    }
   };
 
   const handleDisconnect = async () => {
