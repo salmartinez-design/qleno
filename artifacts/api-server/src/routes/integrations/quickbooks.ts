@@ -211,6 +211,7 @@ router.get("/status", requireAuth, async (req, res) => {
         qb_company_name: companiesTable.qb_company_name,
         qb_last_sync_at: companiesTable.qb_last_sync_at,
         invoice_sequence_start: companiesTable.invoice_sequence_start,
+        qb_sync_start_date: companiesTable.qb_sync_start_date,
       })
       .from(companiesTable)
       .where(eq(companiesTable.id, companyId))
@@ -241,11 +242,75 @@ router.get("/status", requireAuth, async (req, res) => {
       last_sync_at: company.qb_last_sync_at,
       realm_id: company.qb_realm_id,
       invoice_sequence_start: company.invoice_sequence_start,
+      sync_start_date: company.qb_sync_start_date,
       stats,
     });
   } catch (err) {
     console.error("[QB] Status error:", err);
     return res.status(500).json({ error: "Failed to get status" });
+  }
+});
+
+// ── PATCH /api/integrations/quickbooks/cutover ────────────────────────────
+// Configure the migration guardrails for a tenant moving onto QuickBooks from
+// another system that already feeds the same QB company (e.g. Oak Lawn ←
+// MaidCentral). `sync_start_date` makes Qleno push ONLY invoices created on/
+// after that date, so it never re-pushes history the prior system already
+// sent. `invoice_sequence_start` continues the prior system's invoice numbers
+// instead of restarting at 1. Both are owner/admin-only.
+router.patch("/cutover", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const { sync_start_date, invoice_sequence_start } = req.body as {
+      sync_start_date?: string | null;
+      invoice_sequence_start?: number;
+    };
+
+    const updates: Record<string, any> = {};
+
+    if (sync_start_date !== undefined) {
+      if (sync_start_date === null || sync_start_date === "") {
+        updates.qb_sync_start_date = null;
+      } else {
+        const d = new Date(sync_start_date);
+        if (isNaN(d.getTime())) {
+          return res.status(400).json({ error: "Invalid sync_start_date" });
+        }
+        updates.qb_sync_start_date = d;
+      }
+    }
+
+    if (invoice_sequence_start !== undefined) {
+      const n = Number(invoice_sequence_start);
+      if (!Number.isInteger(n) || n < 1) {
+        return res.status(400).json({ error: "invoice_sequence_start must be a positive integer" });
+      }
+      updates.invoice_sequence_start = n;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "Nothing to update" });
+    }
+
+    await db.update(companiesTable).set(updates).where(eq(companiesTable.id, companyId));
+
+    const [company] = await db
+      .select({
+        qb_sync_start_date: companiesTable.qb_sync_start_date,
+        invoice_sequence_start: companiesTable.invoice_sequence_start,
+      })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, companyId))
+      .limit(1);
+
+    return res.json({
+      ok: true,
+      sync_start_date: company?.qb_sync_start_date ?? null,
+      invoice_sequence_start: company?.invoice_sequence_start,
+    });
+  } catch (err) {
+    console.error("[QB] Cutover config error:", err);
+    return res.status(500).json({ error: "Failed to update cutover config" });
   }
 });
 

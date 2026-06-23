@@ -175,6 +175,16 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "companies.default_residential_pay_rate", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
     { label: "companies.default_commercial_pay_type",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_type  TEXT DEFAULT 'hourly'" },
     { label: "companies.default_commercial_pay_rate",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_rate  NUMERIC(8,4) DEFAULT 20.0000" },
+    // [qb-cutover 2026-06-23] Guardrails for tenants migrating onto QuickBooks
+    // from a system that already feeds the same QB company (Oak Lawn ←
+    // MaidCentral, July 1). qb_sync_start_date: when set, Qleno pushes only
+    // invoices created on/after this date — never re-pushing prior history.
+    { label: "companies.qb_sync_start_date", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS qb_sync_start_date TIMESTAMPTZ" },
+    // Dedupe any pre-existing duplicate customer maps (keep lowest id) BEFORE
+    // adding the unique index, then add it so the syncCustomer concurrency race
+    // can no longer create a split-brain (two QB customers for one client).
+    { label: "qb_customer_map dedupe", stmt: "DELETE FROM qb_customer_map a USING qb_customer_map b WHERE a.id > b.id AND a.company_id = b.company_id AND a.qleno_customer_id = b.qleno_customer_id" },
+    { label: "qb_customer_map_company_customer_uq", stmt: "CREATE UNIQUE INDEX IF NOT EXISTS qb_customer_map_company_customer_uq ON qb_customer_map (company_id, qleno_customer_id)" },
     { label: "jobs.property_vacant",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false" },
     { label: "jobs.arrival_window",        stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS arrival_window TEXT" },
     { label: "jobs.first_recurring_discounted", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_recurring_discounted BOOLEAN DEFAULT false" },

@@ -388,11 +388,26 @@ export async function syncCustomer(companyId: number, customerId: number): Promi
         qbCustomerId = createData.Customer?.Id;
       }
 
-      await db.insert(qbCustomerMapTable).values({
-        company_id: companyId,
-        qleno_customer_id: customerId,
-        qb_customer_id: qbCustomerId,
-      });
+      // [qb-cutover] Concurrency guard. Two near-simultaneous syncs for the
+      // same client can both miss the map lookup above and each reach here.
+      // The unique index (company_id, qleno_customer_id) lets the loser's
+      // insert no-op; we then re-read the winner's qb_customer_id so both the
+      // queue row and any invoice CustomerRef point at the single mapped QB
+      // customer instead of a split-brain.
+      const inserted = await db
+        .insert(qbCustomerMapTable)
+        .values({ company_id: companyId, qleno_customer_id: customerId, qb_customer_id: qbCustomerId })
+        .onConflictDoNothing({ target: [qbCustomerMapTable.company_id, qbCustomerMapTable.qleno_customer_id] })
+        .returning({ id: qbCustomerMapTable.id });
+
+      if (inserted.length === 0) {
+        const [winner] = await db
+          .select({ qb_customer_id: qbCustomerMapTable.qb_customer_id })
+          .from(qbCustomerMapTable)
+          .where(and(eq(qbCustomerMapTable.company_id, companyId), eq(qbCustomerMapTable.qleno_customer_id, customerId)))
+          .limit(1);
+        if (winner?.qb_customer_id) qbCustomerId = winner.qb_customer_id;
+      }
     }
 
     await upsertQueue(companyId, "customer", customerId, "synced", qbCustomerId);
@@ -424,6 +439,22 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
       .limit(1);
     if (!invoice) return;
+
+    // [qb-cutover] Cutover guard. Tenants migrating from another system that
+    // already feeds the SAME QuickBooks company (e.g. Oak Lawn ← MaidCentral)
+    // set companies.qb_sync_start_date. Any invoice created before the cutover
+    // is never pushed — only invoices from the cutover forward — so we never
+    // re-push the history the prior system already sent. NULL = sync all
+    // (clean-slate tenants like Schaumburg are unaffected).
+    const [cutoverCo] = await db
+      .select({ cutover: companiesTable.qb_sync_start_date })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, companyId))
+      .limit(1);
+    if (cutoverCo?.cutover && invoice.created_at && new Date(invoice.created_at) < new Date(cutoverCo.cutover)) {
+      await upsertQueue(companyId, "invoice", invoiceId, "skipped", undefined, "before qb_sync_start_date cutover");
+      return;
+    }
 
     const { token, realmId } = auth;
 
