@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, serviceZonesTable, serviceZoneEmployeesTable, accountsTable, accountPropertiesTable, employeeAttendanceLogTable, employeeLeaveUsageTable, branchesTable, recurringSchedulesTable } from "@workspace/db/schema";
+import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, serviceZonesTable, serviceZoneEmployeesTable, accountsTable, accountPropertiesTable, employeeAttendanceLogTable, employeeLeaveUsageTable, leaveRequestsTable, leaveTypesTable, branchesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
@@ -344,15 +344,45 @@ async function buildDispatchPayload(
         sql`${employeeAttendanceLogTable.type} IN ('plawa_leave','protected_leave','absent','ncns')`,
       ));
 
-    const ptoSet = new Set(leaveUsage.map(r => r.employee_id));
-    // sick = plawa_leave / protected_leave; absent = absent / ncns
+    // Approved leave requests overlapping the board date → the FOUR distinct
+    // buckets + the day unit (full/AM/PM). This is the authoritative source so
+    // PTO / PLAWA / Unpaid / Unexcused each show distinctly; a half-day keeps
+    // the tech available the worked half (we surface the unit; the board treats
+    // half-days as still-suggestable).
+    const approvedLeave = await db
+      .select({ user_id: leaveRequestsTable.user_id, slug: leaveTypesTable.slug, day_unit: leaveRequestsTable.day_unit })
+      .from(leaveRequestsTable)
+      .innerJoin(leaveTypesTable, eq(leaveRequestsTable.leave_type_id, leaveTypesTable.id))
+      .where(and(
+        eq(leaveRequestsTable.company_id, companyId),
+        eq(leaveRequestsTable.status, 'approved'),
+        sql`${leaveRequestsTable.start_date} <= ${date} AND ${leaveRequestsTable.end_date} >= ${date}`,
+      ));
+    const SLUG_TO_BUCKET: Record<string, 'pto' | 'plawa' | 'unpaid' | 'unexcused'> = {
+      pto_phes: 'pto', plawa: 'plawa', unpaid_leave: 'unpaid', unexcused: 'unexcused',
+    };
+    const leaveByEmp = new Map<number, { bucket: 'pto' | 'plawa' | 'unpaid' | 'unexcused'; unit: string }>();
+    for (const r of approvedLeave) {
+      const b = SLUG_TO_BUCKET[String(r.slug)];
+      if (b) leaveByEmp.set(r.user_id, { bucket: b, unit: String(r.day_unit) });
+    }
+
+    const ptoSet = new Set(leaveUsage.map(r => r.employee_id)); // legacy fallback
     const sickSet = new Set(attendanceLogs.filter(r => r.type === 'plawa_leave' || r.type === 'protected_leave').map(r => r.employee_id));
     const absentSet = new Set(attendanceLogs.filter(r => r.type === 'absent' || r.type === 'ncns').map(r => r.employee_id));
 
-    function getTimeOff(empId: number): 'pto' | 'sick' | 'absent' | null {
-      if (ptoSet.has(empId)) return 'pto';
-      if (sickSet.has(empId)) return 'sick';
+    function getTimeOff(empId: number): 'pto' | 'plawa' | 'unpaid' | 'unexcused' | 'absent' | null {
+      const lv = leaveByEmp.get(empId);
+      if (lv) return lv.bucket;
       if (absentSet.has(empId)) return 'absent';
+      if (sickSet.has(empId)) return 'plawa';
+      if (ptoSet.has(empId)) return 'pto';
+      return null;
+    }
+    function getTimeOffUnit(empId: number): 'full_day' | 'morning' | 'afternoon' | null {
+      const lv = leaveByEmp.get(empId);
+      if (lv) return lv.unit as 'full_day' | 'morning' | 'afternoon';
+      if (absentSet.has(empId) || sickSet.has(empId) || ptoSet.has(empId)) return 'full_day';
       return null;
     }
 
@@ -365,6 +395,7 @@ async function buildDispatchPayload(
           jobs: [],
           zone: empZoneMap[e.id] ?? null,
           time_off: getTimeOff(e.id),
+          time_off_unit: getTimeOffUnit(e.id),
           commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         })),
         unassigned_jobs: [],
@@ -1050,6 +1081,7 @@ async function buildDispatchPayload(
         jobs: jobsByEmployee.get(e.id) || [],
         zone: empZoneMap[e.id] ?? null,
         time_off: getTimeOff(e.id),
+        time_off_unit: getTimeOffUnit(e.id),
         commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         avatar_url: e.avatar_url ?? null,
       })),

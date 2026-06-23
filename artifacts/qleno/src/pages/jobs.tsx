@@ -79,7 +79,7 @@ interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: str
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; }
 interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
-interface Employee { id: number; name: string; role: string; is_trainee?: boolean; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'sick' | 'absent' | null; commission_rate?: number | null; avatar_url?: string | null; }
+interface Employee { id: number; name: string; role: string; is_trainee?: boolean; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: 'pto' | 'plawa' | 'unpaid' | 'unexcused' | 'absent' | null; time_off_unit?: 'full_day' | 'morning' | 'afternoon' | null; commission_rate?: number | null; avatar_url?: string | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -2665,12 +2665,13 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           if (gap < drive && (tight == null || drive - gap > tight.drive - tight.gap)) tight = { gap, drive };
                         }
                       }
-                      return { t, available, sameZone, jobCount: empJobs.length, freeAt, zoneName: emp?.zone?.zone_name ?? null, timeOff: emp?.time_off ?? null, dist, distScore, pastClose, tight };
+                      return { t, available, sameZone, jobCount: empJobs.length, freeAt, zoneName: emp?.zone?.zone_name ?? null, timeOff: emp?.time_off ?? null, timeOffUnit: emp?.time_off_unit ?? null, dist, distScore, pastClose, tight };
                     });
-                    // SAFEGUARD: never SUGGEST a tech on PTO / sick / absent today.
-                    // Best → ok: free at the job's time → CLOSEST to the job →
-                    // lighter load; if none free, whoever frees up soonest.
-                    const suggested = scored.filter(s => !s.timeOff).sort((a, b) => {
+                    // SAFEGUARD: never SUGGEST a tech who's off the WHOLE day.
+                    // A half-day (morning/afternoon) stays suggestable — they're
+                    // available the half they're working.
+                    const offWholeDay = (s: typeof scored[number]) => !!s.timeOff && (!s.timeOffUnit || s.timeOffUnit === 'full_day');
+                    const suggested = scored.filter(s => !offWholeDay(s)).sort((a, b) => {
                       if (a.available !== b.available) return a.available ? -1 : 1;
                       if (a.available) {
                         // Soft demotion only: a clean pick outranks one carrying a
@@ -5036,10 +5037,16 @@ function CarIconInline({ tint }: { tint: string }) {
 }
 
 // ─── DESKTOP: EMPLOYEE ROW ────────────────────────────────────────────────────
+// Four distinct leave buckets + absent, each its own tint on the dispatch row.
 const TIME_OFF_BG: Record<string, string> = {
-  pto:    "#FFF9C4",
-  sick:   "#FFF176",
-  absent: "#FFEBEE",
+  pto:       "#E9FBF5",
+  plawa:     "#FEF3C7",
+  unpaid:    "#EEF2F7",
+  unexcused: "#FCE7E7",
+  absent:    "#FFEBEE",
+};
+const TIME_OFF_LABEL: Record<string, string> = {
+  pto: "PTO", plawa: "PLAWA", unpaid: "Unpaid", unexcused: "Unexcused", absent: "Absent",
 };
 
 // Time-off band covers the full dispatch timeline (since the board IS business hours)
@@ -5124,6 +5131,11 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
   const pay = payFromJobs > 0 ? payFromJobs : payFromRate;
   const isClockedIn = employee.jobs.some(j => j.clock_entry?.clock_in_at && !j.clock_entry?.clock_out_at);
   const timeOffBg = employee.time_off ? TIME_OFF_BG[employee.time_off] : null;
+  const toUnit = employee.time_off_unit;
+  const isFullDayOff = !!employee.time_off && (!toUnit || toUnit === 'full_day');
+  const timeOffText = employee.time_off
+    ? `${TIME_OFF_LABEL[employee.time_off] ?? 'Off'}${toUnit === 'morning' ? ' · AM off' : toUnit === 'afternoon' ? ' · PM off' : ''}`
+    : null;
   // [overlap-stacking] Stack time-overlapping chips into sub-lanes so none
   // hides another; row grows to fit. One sub-lane → unchanged 72px row.
   const { topById, rowHeight } = packLanes(employee.jobs);
@@ -5166,7 +5178,7 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
             )}
             {employee.zone && <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: employee.zone.zone_color, flexShrink: 0 }} title={employee.zone.zone_name} />}
           </div>
-          <div style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>{employee.is_trainee ? "Trainee" : employee.role}</div>
+          <div style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>{employee.is_trainee ? "Trainee" : employee.role}{timeOffText ? ` · ${timeOffText}` : ""}</div>
           {/* [2026-06-04] Two lines so the two dollar figures don't read as
               one number. Line 1 = the work (jobs · hours · revenue billed).
               Line 2 = what the TECH earns that day (commission/pay), mint +
@@ -5186,7 +5198,7 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
             alternating hour bands so the eye groups each hour. */}
         {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, width: SLOT_W, pointerEvents: "none", backgroundColor: Math.floor(i / 2) % 2 === 1 ? "rgba(120,110,90,0.045)" : "transparent", borderRight: i % 2 === 1 ? "1px solid #CBC7BF" : "1px dotted #E9E7E2" }} />)}
         {/* Time-off band sits behind job chips (zIndex 0) */}
-        {timeOffBg && (
+        {timeOffBg && isFullDayOff && (
           <div style={{ position: "absolute", left: getBandLeft(), width: getBandWidth(), top: 0, bottom: 0, backgroundColor: timeOffBg, zIndex: 0, pointerEvents: "none" }} />
         )}
         {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}

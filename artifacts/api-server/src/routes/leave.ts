@@ -76,6 +76,27 @@ import {
 } from "../lib/leave-notifications.js";
 import { writeApprovedLeavePay } from "../lib/leave-pay.js";
 import { logAudit } from "../lib/audit.js";
+import multer from "multer";
+import path from "node:path";
+import fs from "node:fs";
+
+// Disk-upload for the required leave attachment (doctor's note / file). Mirrors
+// routes/attachments.ts; lands the file in the served uploads dir and returns a
+// canonical /api/uploads/ URL. 10 MB cap; images + PDFs are the expected use.
+const leaveUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = "/tmp/uploads";
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, `leave-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
 
 // Time-off "ticket" flow (Sal 2026-06-22). A standard workday is 8h; a half-day
 // is 4h. HALF_DAY_CUTOFF is the morning/afternoon split shown on the board —
@@ -444,6 +465,23 @@ async function buildBucketForValidation(
     display_name: row.display_name,
   };
 }
+
+// Upload the required attachment, get back a URL to submit with the request.
+router.post("/upload", leaveUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return bad(res, "No file uploaded");
+    const uploadsDir = process.env.UPLOADS_DIR ?? path.join(process.cwd(), "uploads");
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    fs.renameSync(req.file.path, path.join(uploadsDir, req.file.filename));
+    return res.json({
+      file_url: `/api/uploads/${req.file.filename}`,
+      file_name: req.file.originalname,
+    });
+  } catch (err) {
+    console.error("[leave] upload failed:", err);
+    return res.status(500).json({ error: "Upload failed" });
+  }
+});
 
 router.post("/requests", async (req, res) => {
   const companyId = req.auth!.companyId!;

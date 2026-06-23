@@ -51,9 +51,13 @@ export default function LeaveRequestPage() {
   const [selectedBucket, setSelectedBucket] = useState<number | null>(null);
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
-  const [hours, setHours] = useState<string>("8");
+  const [dayUnit, setDayUnit] = useState<"full_day" | "morning" | "afternoon">("full_day");
+  const [attachment, setAttachment] = useState<{ url: string; name: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [note, setNote] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+
+  const multiDay = !!startDate && !!endDate && endDate > startDate;
 
   useEffect(() => {
     load();
@@ -77,11 +81,32 @@ export default function LeaveRequestPage() {
     }
   }
 
+  async function uploadFile(file: File) {
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/leave/upload", { method: "POST", credentials: "include", body: fd });
+      if (!res.ok) throw new Error("upload failed");
+      const j = await res.json();
+      setAttachment({ url: j.file_url, name: j.file_name });
+    } catch {
+      toast({ title: "Upload failed — try again", variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  }
+
   async function submit() {
-    if (!selectedBucket || !startDate || !endDate || !hours) {
+    if (!selectedBucket || !startDate || !endDate) {
       toast({ title: "Pick a bucket and dates", variant: "destructive" });
       return;
     }
+    if (!attachment) {
+      toast({ title: "An attachment (e.g. a doctor's note) is required", variant: "destructive" });
+      return;
+    }
+    const unit = multiDay ? "full_day" : dayUnit;
     setSubmitting(true);
     try {
       const res = await fetch("/api/leave/requests", {
@@ -92,7 +117,9 @@ export default function LeaveRequestPage() {
           leave_type_id: selectedBucket,
           start_date: startDate,
           end_date: endDate,
-          hours: Number(hours),
+          day_unit: unit,
+          attachment_url: attachment.url,
+          attachment_name: attachment.name,
           note: note || null,
         }),
       });
@@ -113,6 +140,8 @@ export default function LeaveRequestPage() {
         toast({ title: "Request submitted" });
       }
       setNote("");
+      setAttachment(null);
+      setDayUnit("full_day");
       await load();
     } finally {
       setSubmitting(false);
@@ -182,15 +211,35 @@ export default function LeaveRequestPage() {
                 ))}
               </select>
             </FormField>
-            <FormField label="Hours">
-              <input
-                type="number"
-                step="0.25"
-                min="0"
-                value={hours}
-                onChange={(e) => setHours(e.target.value)}
-                style={inputStyle}
-              />
+            <FormField label="Amount">
+              {multiDay ? (
+                <div style={{ fontSize: 13, color: MUTED, padding: "6px 0" }}>
+                  Full days (multi-day request)
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 6 }}>
+                  {([
+                    { v: "full_day", l: "Full day" },
+                    { v: "morning", l: "Morning" },
+                    { v: "afternoon", l: "Afternoon" },
+                  ] as const).map((o) => (
+                    <button
+                      key={o.v}
+                      type="button"
+                      onClick={() => setDayUnit(o.v)}
+                      style={{
+                        flex: 1, fontFamily: FF, fontSize: 12, fontWeight: 700,
+                        padding: "8px 6px", borderRadius: 8, cursor: "pointer",
+                        border: `1px solid ${dayUnit === o.v ? BRAND : BORDER}`,
+                        background: dayUnit === o.v ? BRAND : CARD,
+                        color: dayUnit === o.v ? "#04241d" : INK,
+                      }}
+                    >
+                      {o.l}
+                    </button>
+                  ))}
+                </div>
+              )}
             </FormField>
             <FormField label="Start date">
               <CalendarPopover value={startDate} ariaLabel="Start date" onChange={setStartDate} block />
@@ -198,6 +247,28 @@ export default function LeaveRequestPage() {
             <FormField label="End date">
               <CalendarPopover value={endDate} ariaLabel="End date" onChange={setEndDate} block />
             </FormField>
+            <div style={{ gridColumn: "1 / -1" }}>
+              <FormField label="Attachment (required — doctor's note / file)">
+                {attachment ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: INK }}>
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachment.name}</span>
+                    <button type="button" onClick={() => setAttachment(null)} style={{ fontFamily: FF, fontSize: 12, fontWeight: 600, color: DANGER, background: "none", border: "none", cursor: "pointer" }}>Remove</button>
+                  </div>
+                ) : (
+                  <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: BRAND, cursor: "pointer" }}>
+                    {uploading ? "Uploading…" : "Choose / take a photo"}
+                    <input
+                      type="file"
+                      accept="image/*,application/pdf"
+                      capture="environment"
+                      style={{ display: "none" }}
+                      disabled={uploading}
+                      onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadFile(f); }}
+                    />
+                  </label>
+                )}
+              </FormField>
+            </div>
             <div style={{ gridColumn: "1 / -1" }}>
               <FormField label="Note (optional)">
                 <input
@@ -212,12 +283,12 @@ export default function LeaveRequestPage() {
           <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
             <button
               onClick={submit}
-              disabled={submitting}
+              disabled={submitting || uploading || !attachment}
               style={{
                 fontFamily: FF, fontSize: 13, fontWeight: 700,
                 color: "#FFFFFF", backgroundColor: BRAND, border: "none",
                 borderRadius: 8, padding: "8px 14px", cursor: "pointer",
-                opacity: submitting ? 0.4 : 1,
+                opacity: submitting || uploading || !attachment ? 0.4 : 1,
               }}
             >
               Submit request
