@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Qleno — Time-off ticket flow preview (bell · Employees section · board)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#F7F6F3;--card:#FFFFFF;--ink:#1A1917;--muted:#9E9B94;--border:#E5E2DC;--mint:#00C9A0;--night:#0A0E1A;--branddim:#E9FBF5;--brand:#00876B}
+  *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--ink);font-family:'Plus Jakarta Sans',sans-serif;padding:24px}
+  .wrap{max-width:1000px;margin:0 auto} h1{font-size:18px;font-weight:800;margin:0 0 4px} .sub{font-size:13px;color:var(--muted);margin:0 0 18px}
+  .label{font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 0 8px}
+  /* top bar */
+  .topbar{display:flex;align-items:center;justify-content:flex-end;gap:14px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
+  .iconbtn{position:relative;color:#6B7280;display:flex;align-items:center}
+  .badge{position:absolute;top:-4px;right:-6px;min-width:15px;height:15px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:800;border:2px solid #fff}
+  .badge.mint{background:var(--mint);color:#04241d}.badge.red{background:#EF4444;color:#fff}
+  .hint{font-size:11px;color:var(--muted);margin-top:6px}
+  /* avatars + cards */
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+  .av{width:34px;height:34px;border-radius:50%;background:var(--branddim);color:var(--brand);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:12px;flex-shrink:0}
+  .sechead{display:flex;align-items:center;gap:10px;margin-bottom:10px}.sechead h2{margin:0;font-size:16px;font-weight:800}
+  .pill{font-size:11px;font-weight:800;color:#fff;background:var(--night);border-radius:999px;padding:2px 9px}
+  .req{display:flex;align-items:center;gap:12px;padding:14px 18px}.req+.req{border-top:1px solid var(--border)}
+  .who{font-size:14px;font-weight:700}.when{font-size:12px;color:#6B6860}.grow{flex:1;min-width:0}
+  .chip{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;border-radius:999px;padding:3px 9px;white-space:nowrap}
+  .pto{background:#E9FBF5;color:#00876B}.plawa{background:#FEF3C7;color:#92400E}.unpaid{background:#EEF2F7;color:#334155}.unexcused{background:#FCE7E7;color:#991B1B}
+  .file{font-size:11px;font-weight:600;color:#00876B;text-decoration:none}
+  .btn{font-size:12px;font-weight:700;border-radius:8px;padding:7px 14px;cursor:pointer;border:1px solid var(--border)}
+  .approve{background:var(--mint);color:#04241d;border-color:var(--mint)}.decline{background:#fff;color:#6B6860}
+  /* board */
+  .brow{display:flex;align-items:stretch;border-top:1px solid #EEECE7;min-height:54px}
+  .bname{width:190px;flex-shrink:0;border-right:1px solid var(--border);display:flex;align-items:center;gap:9px;padding:0 12px}
+  .brole{font-size:9px;color:var(--muted);text-transform:uppercase;font-weight:700;letter-spacing:.05em}
+  .btime{flex:1;position:relative;background:repeating-linear-gradient(90deg,#fff,#fff 59px,#F1EFEA 59px,#F1EFEA 60px)}
+  .bband{position:absolute;top:0;bottom:0}
+</style></head>
+<body><div class="wrap">
+  <h1>Time-off ticket flow — preview of all three surfaces</h1>
+  <p class="sub">Mockups (not wired). Shows: the new employee-notifications bell, the Employees-page review section, and how the four buckets + half-days render on the dispatch board.</p>
+
+  <div class="label">1 · Top-bar employee-notifications bell (separate from the customer bell)</div>
+  <div class="topbar">
+    <span class="iconbtn" title="Employee notifications — time off & requests">
+      <!-- calendar-clock -->
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 7.5V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h6"/><path d="M16 2v4M8 2v4M3 10h18"/><circle cx="18" cy="18" r="4"/><path d="M18 16.5V18l1 1"/></svg>
+      <span class="badge mint">3</span>
+    </span>
+    <span class="iconbtn" title="Notifications (customer)">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#6B7280" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+      <span class="badge red">5</span>
+    </span>
+  </div>
+  <p class="hint">Left (mint) = staff/time-off requests → lands on the Employees page. Right (red) = the existing customer notifications. Designed to also carry equipment/supply requests later.</p>
+
+  <div class="label">2 · Employees page — "Time off & leave requests" section</div>
+  <div class="sechead"><h2>Time off &amp; leave requests</h2><span class="pill">4 pending</span></div>
+  <div class="card" id="reqs"></div>
+
+  <div class="label">3 · Dispatch board — four distinct buckets + half-day keeps the tech available</div>
+  <div class="card" id="board"></div>
+  <p class="hint">Full-day off tints the whole timeline. A <b>half-day</b> (e.g. Alejandra — PLAWA, AM off) shows the label but leaves the afternoon open — she stays suggestable for the half she's working.</p>
+</div>
+<script>
+  const reqs=[
+    {who:'Maribel Castillo',init:'MC',bucket:'pto',label:'PTO',when:'Jun 30 – Jul 2 · Full day'},
+    {who:'Alejandra Cuervo',init:'AC',bucket:'plawa',label:'PLAWA',when:'Jun 24 · Morning'},
+    {who:'Juliana Loredo',init:'JL',bucket:'unpaid',label:'Unpaid',when:'Jul 5 · Afternoon'},
+    {who:'Diana Vasquez',init:'DV',bucket:'pto',label:'PTO',when:'Jul 10 · Full day'},
+  ];
+  document.getElementById('reqs').innerHTML = reqs.map(r=>`
+    <div class="req"><div class="av">${r.init}</div>
+      <div class="grow"><div class="who">${r.who}</div><div class="when">${r.when}</div></div>
+      <span class="chip ${r.bucket}">${r.label}</span><a class="file" href="#">Dr. note</a>
+      <div style="display:flex;gap:8px"><button class="btn approve">Approve</button><button class="btn decline">Decline</button></div>
+    </div>`).join('');
+
+  const TINT={pto:'#E9FBF5',plawa:'#FEF3C7',unpaid:'#EEF2F7',unexcused:'#FCE7E7'};
+  // bucket, unit(null=working / 'full' / 'am' / 'pm)
+  const board=[
+    {who:'Rosa Gallegos',init:'RG',role:'Technician · PTO',bucket:'pto',band:'full'},
+    {who:'Norma Puga',init:'NP',role:'Technician · Unexcused',bucket:'unexcused',band:'full'},
+    {who:'Alejandra Cuervo',init:'AC',role:'Technician · PLAWA · AM off',bucket:'plawa',band:'am'},
+    {who:'Diana Vasquez',init:'DV',role:'Technician',bucket:null,band:null},
+  ];
+  document.getElementById('board').innerHTML = board.map(b=>{
+    const tint = b.bucket?TINT[b.bucket]:'#fff';
+    let band='';
+    if(b.band==='full') band=`<div class="bband" style="left:0;right:0;background:${tint}"></div>`;
+    else if(b.band==='am') band=`<div class="bband" style="left:0;width:50%;background:${tint}"></div><div class="bband" style="left:50%;right:0;background:#fff;border-left:1px dashed ${'#cdcabf'}"></div>`;
+    return `<div class="brow">
+      <div class="bname" style="background:${b.bucket?tint:'#fff'}"><div class="av">${b.init}</div><div><div style="font-size:13px;font-weight:700">${b.who}</div><div class="brole">${b.role}</div></div></div>
+      <div class="btime">${band}</div>
+    </div>`;
+  }).join('');
+</script>
+</body></html>

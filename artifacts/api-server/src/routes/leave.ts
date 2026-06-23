@@ -75,6 +75,34 @@ import {
   notifyLeaveDecision,
 } from "../lib/leave-notifications.js";
 import { writeApprovedLeavePay } from "../lib/leave-pay.js";
+import { logAudit } from "../lib/audit.js";
+import multer from "multer";
+import path from "node:path";
+import fs from "node:fs";
+
+// Disk-upload for the required leave attachment (doctor's note / file). Mirrors
+// routes/attachments.ts; lands the file in the served uploads dir and returns a
+// canonical /api/uploads/ URL. 10 MB cap; images + PDFs are the expected use.
+const leaveUpload = multer({
+  storage: multer.diskStorage({
+    destination: (_req, _file, cb) => {
+      const dir = "/tmp/uploads";
+      fs.mkdirSync(dir, { recursive: true });
+      cb(null, dir);
+    },
+    filename: (_req, file, cb) => {
+      const ext = path.extname(file.originalname);
+      cb(null, `leave-${Date.now()}-${Math.random().toString(36).slice(2)}${ext}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+});
+
+// Time-off "ticket" flow (Sal 2026-06-22). A standard workday is 8h; a half-day
+// is 4h. HALF_DAY_CUTOFF is the morning/afternoon split shown on the board —
+// noon by default, kept as a constant so it can be made tenant-configurable later.
+const DAILY_HOURS = 8;
+const HALF_DAY_CUTOFF = "12:00"; // morning = off until 12:00; afternoon = off from 12:00
 import { recordUnexcusedEntryAndDriveLadder } from "../lib/unexcused-ladder-writer.js";
 import { evaluateUseItOrLoseItAlert } from "../lib/leave-alerts.js";
 import {
@@ -438,6 +466,23 @@ async function buildBucketForValidation(
   };
 }
 
+// Upload the required attachment, get back a URL to submit with the request.
+router.post("/upload", leaveUpload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) return bad(res, "No file uploaded");
+    const uploadsDir = process.env.UPLOADS_DIR ?? path.join(process.cwd(), "uploads");
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    fs.renameSync(req.file.path, path.join(uploadsDir, req.file.filename));
+    return res.json({
+      file_url: `/api/uploads/${req.file.filename}`,
+      file_name: req.file.originalname,
+    });
+  } catch (err) {
+    console.error("[leave] upload failed:", err);
+    return res.status(500).json({ error: "Upload failed" });
+  }
+});
+
 router.post("/requests", async (req, res) => {
   const companyId = req.auth!.companyId!;
   const userId = req.auth!.userId!;
@@ -445,7 +490,9 @@ router.post("/requests", async (req, res) => {
     leave_type_id?: number;
     start_date?: string;
     end_date?: string;
-    hours?: number | string;
+    day_unit?: "full_day" | "morning" | "afternoon";
+    attachment_url?: string | null;
+    attachment_name?: string | null;
     note?: string | null;
   };
   if (!body?.leave_type_id || !Number.isFinite(Number(body.leave_type_id)))
@@ -456,8 +503,25 @@ router.post("/requests", async (req, res) => {
     return bad(res, "end_date YYYY-MM-DD required");
   if (body.end_date < body.start_date)
     return bad(res, "end_date must be >= start_date");
-  const hours = Number(body.hours);
-  if (!Number.isFinite(hours) || hours <= 0) return bad(res, "hours must be positive");
+
+  // Required attachment at submit (Sal 2026-06-22) — employee-only, mandatory.
+  if (!body.attachment_url) {
+    return bad(res, "An attachment (e.g. a doctor's note) is required to submit a time-off request.", "attachment_required");
+  }
+
+  // Unit: full day / morning / afternoon. No free-form hours. Multi-day must be
+  // full days. Hours are derived (full = 8h × days; half = 4h, single day).
+  const dayUnit: "full_day" | "morning" | "afternoon" =
+    body.day_unit === "morning" || body.day_unit === "afternoon" ? body.day_unit : "full_day";
+  const multiDay = body.end_date > body.start_date;
+  if (multiDay && dayUnit !== "full_day") {
+    return bad(res, "Multi-day requests must be full days (use Morning/Afternoon for a single day).", "multiday_must_be_full");
+  }
+  const dayCount =
+    Math.round(
+      (Date.parse(`${body.end_date}T00:00:00Z`) - Date.parse(`${body.start_date}T00:00:00Z`)) / 86400000,
+    ) + 1;
+  const hours = dayUnit === "full_day" ? DAILY_HOURS * dayCount : DAILY_HOURS / 2;
 
   const bucket = await findBucket(companyId, Number(body.leave_type_id));
   if (!bucket) return notFound(res, "Leave type not found");
@@ -531,6 +595,9 @@ router.post("/requests", async (req, res) => {
       start_date: body.start_date,
       end_date: body.end_date,
       hours: hours.toFixed(2),
+      day_unit: dayUnit,
+      attachment_url: body.attachment_url,
+      attachment_name: body.attachment_name ?? null,
       note: body.note ?? null,
       status: initialStatus,
       blackout_conflict: blackoutConflict,
@@ -546,6 +613,13 @@ router.post("/requests", async (req, res) => {
   // Office/owner "ACTION REQUIRED" + employee "Pending"/"Emergency" (or
   // "Denied" if auto-denied above). Best-effort, never fails the request.
   void notifyLeaveSubmitted(inserted[0]!.id, companyId);
+  // Company-wide audit trail (per-employee profile log reads the same table).
+  try {
+    await logAudit(req, "leave_request_submitted", "leave_request", String(inserted[0]!.id), null, {
+      leave_type_id: bucket.id, start_date: body.start_date, end_date: body.end_date,
+      day_unit: dayUnit, hours, status: initialStatus,
+    });
+  } catch { /* audit is best-effort */ }
 
   return res.json({ data: inserted[0] });
 });
@@ -748,11 +822,16 @@ router.get("/requests", officeReadGate, async (req, res) => {
       user_id: leaveRequestsTable.user_id,
       first_name: usersTable.first_name,
       last_name: usersTable.last_name,
+      avatar_url: usersTable.avatar_url,
       leave_type_id: leaveRequestsTable.leave_type_id,
       bucket_name: leaveTypesTable.display_name,
+      bucket_slug: leaveTypesTable.slug,
       start_date: leaveRequestsTable.start_date,
       end_date: leaveRequestsTable.end_date,
       hours: leaveRequestsTable.hours,
+      day_unit: leaveRequestsTable.day_unit,
+      attachment_url: leaveRequestsTable.attachment_url,
+      attachment_name: leaveRequestsTable.attachment_name,
       note: leaveRequestsTable.note,
       status: leaveRequestsTable.status,
       blackout_conflict: leaveRequestsTable.blackout_conflict,
@@ -831,14 +910,24 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
       updated_at: new Date(),
     })
     .where(eq(employeeLeaveBalancesTable.id, bal.id));
-  await db.insert(employeeLeaveUsageTable).values({
-    company_id: companyId,
-    employee_id: reqRow.user_id,
-    date_used: String(reqRow.start_date),
-    hours: hours.toFixed(2),
-    notes: `leave_request #${reqRow.id} approved`,
-    logged_by: actingUserId,
-  });
+  // Write one usage row PER calendar day in the range (was: only start_date —
+  // that left multi-day requests showing the tech off for just day one on the
+  // board). Full day = 8h/day; a half-day request is a single day at 4h.
+  const dayUnit = ((reqRow as { day_unit?: string }).day_unit ?? "full_day");
+  const perDay = dayUnit === "full_day" ? DAILY_HOURS : DAILY_HOURS / 2;
+  const startMs = Date.parse(`${String(reqRow.start_date)}T00:00:00Z`);
+  const endMs = Date.parse(`${String(reqRow.end_date)}T00:00:00Z`);
+  for (let t = startMs; t <= endMs; t += 86400000) {
+    const d = new Date(t).toISOString().slice(0, 10);
+    await db.insert(employeeLeaveUsageTable).values({
+      company_id: companyId,
+      employee_id: reqRow.user_id,
+      date_used: d,
+      hours: perDay.toFixed(2),
+      notes: `leave_request #${reqRow.id} approved (${dayUnit})`,
+      logged_by: actingUserId,
+    });
+  }
   await db
     .update(leaveRequestsTable)
     .set({
@@ -849,6 +938,11 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
       updated_at: new Date(),
     })
     .where(eq(leaveRequestsTable.id, id));
+  try {
+    await logAudit(req, "leave_request_approved", "leave_request", String(id), null, {
+      decided_by: actingUserId, hours, day_unit: dayUnit, decision_note: decisionNote,
+    });
+  } catch { /* audit best-effort */ }
   // Auto-pay: approval is the gate — a paid bucket cascades into pay as a
   // visible additional_pay line ($20/hr flat). Idempotent; unpaid = no-op.
   try {
@@ -899,7 +993,29 @@ router.post("/requests/:id/deny", adminWriteGate, async (req, res) => {
     .where(eq(leaveRequestsTable.id, id));
   // Employee Denied notification: in-app + push + email + SMS (MC-mirrored).
   void notifyLeaveDecision(id, "denied");
+  try {
+    await logAudit(req, "leave_request_denied", "leave_request", String(id), null, {
+      decided_by: actingUserId, decision_note: decisionNote,
+    });
+  } catch { /* audit best-effort */ }
   return res.json({ data: { id, status: "denied" } });
+});
+
+// Count of pending time-off requests — powers the office "employee notifications"
+// bell badge. Office/owner only. (Equipment/supply requests, when built, add into
+// the same bell count.)
+router.get("/requests/pending-count", officeReadGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const rows = await db
+    .select({ id: leaveRequestsTable.id })
+    .from(leaveRequestsTable)
+    .where(
+      and(
+        eq(leaveRequestsTable.company_id, companyId),
+        eq(leaveRequestsTable.status, "pending"),
+      ),
+    );
+  return res.json({ pending: rows.length });
 });
 
 router.post("/requests/:id/cancel", async (req, res) => {

@@ -21,7 +21,7 @@ import {
   ChevronDown, Eye, LogOut, CircleHelp, KeyRound, Bell,
   CalendarX2, UserMinus, AlertTriangle, Plus, Receipt, Briefcase, UserPlus,
   GraduationCap,
-  Building2,
+  Building2, CalendarClock,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 
@@ -592,6 +592,22 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
     staleTime: 20_000,
   });
 
+  // [time-off-ticket 2026-06-22] Separate STAFF notifications bell — pending
+  // time-off requests (and, later, equipment/supply requests). Office tier only.
+  const isOfficeTier = !!user?.role && ['owner', 'admin', 'office', 'super_admin'].includes(user.role);
+  const { data: empReqData } = useQuery({
+    queryKey: ['employee-pending-count', token],
+    queryFn: async () => {
+      const r = await fetch(`${API}/api/leave/requests/pending-count`, { headers: getAuthHeaders() as any });
+      if (!r.ok) return { pending: 0 };
+      return r.json();
+    },
+    enabled: !!token && isOfficeTier,
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+  });
+  const empPending: number = empReqData?.pending || 0;
+
   const notifItems: any[] = notifData?.data || [];
   const notifUnread: number = notifData?.unread_count || 0;
 
@@ -698,6 +714,18 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               <MessageSquare size={19} />
               {unreadCount > 0 && <span style={{ position: 'absolute', top: 2, right: 2, width: 8, height: 8, borderRadius: 4, background: '#EF4444', border: '1px solid #fff' }} />}
             </button>
+
+            {/* Employee notifications bell (office tier) → Employees page */}
+            {isOfficeTier && (
+              <button onClick={() => setLocation('/employees')} title="Employee notifications — time off & requests" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <CalendarClock size={19} />
+                {empPending > 0 && (
+                  <span style={{ position: 'absolute', top: 0, right: 0, minWidth: 14, height: 14, borderRadius: 7, background: 'var(--brand)', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#04241d', fontWeight: 800, padding: '0 2px' }}>
+                    {empPending > 9 ? '9+' : empPending}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* Notifications bell → full notifications page (all roles) */}
             <button onClick={() => setLocation('/notifications')} title="Notifications" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -949,6 +977,21 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               <button onClick={() => setShortcutsOpen(true)} title="Keyboard Shortcuts"
                 style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9E9B94', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center' }}>
                 <CircleHelp size={18} />
+              </button>
+            )}
+
+            {isOfficeTier && (
+              <button
+                onClick={() => setLocation('/employees')}
+                title="Employee notifications — time off & requests"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center', position: 'relative' } as any}
+              >
+                <CalendarClock size={20} />
+                {empPending > 0 && (
+                  <span style={{ position: 'absolute', top: 2, right: 2, minWidth: 9, height: 9, borderRadius: 5, background: 'var(--brand)', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#04241d', fontWeight: 700, padding: '0 2px' }}>
+                    {empPending > 9 ? '9+' : empPending}
+                  </span>
+                )}
               </button>
             )}
 
