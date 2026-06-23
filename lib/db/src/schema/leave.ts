@@ -231,6 +231,15 @@ export const leaveRequestStatusEnum = pgEnum("leave_request_status", [
   "cancelled",
 ]);
 
+// Sub-day unit (Sal 2026-06-22): no free-form hours. A half-day leaves the tech
+// available the OTHER half on the dispatch board. Multi-day requests are
+// full_day only. Half-day split defaults to noon (see HALF_DAY_CUTOFF).
+export const leaveDayUnitEnum = pgEnum("leave_day_unit", [
+  "full_day",
+  "morning",
+  "afternoon",
+]);
+
 export const leaveRequestsTable = pgTable(
   "leave_requests",
   {
@@ -247,6 +256,13 @@ export const leaveRequestsTable = pgTable(
     start_date: date("start_date").notNull(),
     end_date: date("end_date").notNull(),
     hours: numeric("hours", { precision: 8, scale: 2 }).notNull(),
+    // Full day / morning / afternoon. Hours are derived from this + the bucket's
+    // daily hours; multi-day requests must be full_day.
+    day_unit: leaveDayUnitEnum("day_unit").notNull().default("full_day"),
+    // Required attachment the employee uploads at submit (doctor's note / file).
+    // The office does not attach. Stored as a file ref (R2 url) + display name.
+    attachment_url: text("attachment_url"),
+    attachment_name: text("attachment_name"),
     note: text("note"),
     status: leaveRequestStatusEnum("status").notNull().default("pending"),
     blackout_conflict: boolean("blackout_conflict").notNull().default(false),

@@ -68,6 +68,14 @@ export async function runCutoverDataMigration(): Promise<void> {
     );
   }
   try {
+    await migrateLeaveRequestUnitAttachment();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] leave_requests unit/attachment migrate failed (non-fatal):",
+      err,
+    );
+  }
+  try {
     await runAttendanceProposalsMigration();
   } catch (err) {
     console.error(
@@ -663,6 +671,38 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
         AND slug = 'sick';
 
       RAISE NOTICE 'cutover-migration: seeded leave_types per tenant';
+    END
+    $$;
+  `),
+  );
+}
+
+/**
+ * Time-off "ticket" flow (2026-06-22) — add the day_unit (full/AM/PM) + the
+ * required-attachment columns to leave_requests. Idempotent: creates the enum
+ * type if missing and ADD COLUMN IF NOT EXISTS. Existing rows default to
+ * full_day; attachment columns are nullable (older rows predate the requirement).
+ */
+async function migrateLeaveRequestUnitAttachment(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'leave_requests'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: leave_requests not present yet, skipping unit/attachment';
+        RETURN;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'leave_day_unit') THEN
+        CREATE TYPE leave_day_unit AS ENUM ('full_day', 'morning', 'afternoon');
+      END IF;
+      ALTER TABLE leave_requests
+        ADD COLUMN IF NOT EXISTS day_unit leave_day_unit NOT NULL DEFAULT 'full_day';
+      ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS attachment_url text;
+      ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS attachment_name text;
+      RAISE NOTICE 'cutover-migration: leave_requests day_unit + attachment columns ensured';
     END
     $$;
   `),
