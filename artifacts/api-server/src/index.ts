@@ -15,6 +15,7 @@ import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
 import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./lib/job-history-sync.js";
 import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
 import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
+import { setAppReady } from "./lib/readiness.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -214,7 +215,7 @@ function withBootTimeout<T>(
 // onboarding-password bootstrap, LMS recompute backfills) moved AFTER listen,
 // fire-and-forget. The schema DDL that those data ops depend on
 // (ensureJobHistoryLiveBridgeSchema) STAYS before listen.
-async function startup() {
+async function runStartupMigrations() {
   try {
     await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());
   } catch (err: any) {
@@ -340,8 +341,21 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] ensureJobHistoryLiveBridgeSchema — non-fatal:", err?.message ?? err);
   }
+}
 
-  app.listen(port, "0.0.0.0", () => {
+// [boot-resilience 2026-06-24] Bind the port FIRST, then run the migration
+// chain in the background AFTER the server is listening. Health (/api/health,
+// /api/healthz) answers the instant the port is bound, so Railway's healthcheck
+// passes immediately — ending the chronic deploy-healthcheck failures caused by
+// the migrations-before-listen ordering (the old code ran all 16 guarded
+// migrations before app.listen(); under a slow/locked DB the cumulative
+// withBootTimeout budget exceeded even a 600s healthcheck window). The
+// readiness gate in app.ts holds all OTHER /api routes at 503 until the chain
+// completes, so no request can hit partially-migrated schema (preserves the
+// 2026-05-17 read/write-divergence fix). withBootTimeout still bounds each step,
+// so the gate always opens within a bounded time even on a degraded DB.
+async function startup() {
+  app.listen(port, "0.0.0.0", async () => {
     console.log("Server running on port", process.env.PORT || 3000);
     // [DR runbook 2026-04-30] Static reminder visible on every cold
     // start. Surfaces backup-state in Railway logs without requiring
@@ -351,6 +365,13 @@ async function startup() {
     // backup state changes maybe twice a year.
     // Procedure + RPO/RTO targets: docs/disaster-recovery.md
     console.log("[backup-check] static reminder: Railway Hobby plan provides daily backups, 7-day retention. Verify quarterly via dashboard. Procedure: docs/disaster-recovery.md");
+
+    // Run the schema/data migration chain now that the port is bound. Until
+    // this resolves, the app.ts readiness gate returns 503 for every non-health
+    // /api route. withBootTimeout bounds each step, so the gate always opens.
+    await runStartupMigrations();
+    setAppReady(true);
+    console.log("[startup] migrations complete — API readiness gate opened");
 
     // [boot-resilience 2026-06-19] Heavy NON-schema data work that does not
     // gate request correctness runs here, AFTER the port is bound, so a slow

@@ -7,6 +7,7 @@ import rateLimit from "express-rate-limit";
 import router from "./routes";
 import stripeWebhookRouter from "./routes/stripe-webhook.js";
 import { resolveShortLink } from "./lib/short-link.js";
+import { isAppReady } from "./lib/readiness.js";
 
 const __appDir: string =
   typeof __dirname !== "undefined"
@@ -108,6 +109,25 @@ app.use("/api/clients/:id/communications/sms", messageLimiter);
 app.use("/api/clients/:id/communications/email", messageLimiter);
 app.use("/api/job-sms", messageLimiter);
 app.use("/api", generalLimiter);
+
+// ── Readiness gate (2026-06-24) ───────────────────────────────────────────────
+// The server binds the port and answers health immediately on boot; the
+// migration chain runs in the background AFTER listen (index.ts). Until it
+// finishes, hold every non-health /api route at 503 so no request reads or
+// writes partially-migrated schema (preserves the 2026-05-17 read/write
+// divergence fix). Health stays green so Railway's healthcheck passes the
+// instant the port is bound — ending the chronic migrations-before-listen
+// deploy-healthcheck failures. Static mounts (/api/uploads, /api/pdfs) are
+// matched earlier in the chain, so they're never gated.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (isAppReady()) return next();
+  if (req.path === "/api/health" || req.path === "/api/healthz") return next();
+  res.set("Retry-After", "5");
+  return res.status(503).json({
+    status: "warming_up",
+    message: "Server is starting; migrations in progress. Retry shortly.",
+  });
+});
 app.use("/api", router);
 
 // ── Short-link redirect ───────────────────────────────────────────────────────
