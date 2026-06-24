@@ -521,6 +521,17 @@ export default function EmployeeProfilePage() {
     enabled: activeTab === 'Availability',
   });
 
+  // [view-history 2026-06-23] Attendance-tab PTO/Sick "View History" buttons.
+  // Reuses the leave usage feed (GET /hr-leave/balance/:id → usage[]); the
+  // bucket lives in each row's note tag ("…/pto" vs "…/plawa"), so we filter on it.
+  const [historyBucket, setHistoryBucket] = useState<null | 'pto' | 'plawa'>(null);
+  const { data: leaveBalanceData } = useQuery({
+    queryKey: ['leave-usage', userId],
+    queryFn: () => apiFetch(`/hr-leave/balance/${userId}`),
+    enabled: activeTab === 'Attendance',
+  });
+  const leaveUsage: any[] = leaveBalanceData?.usage || [];
+
   const { data: ticketsData, refetch: refetchTickets } = useQuery({
     queryKey: ['contact-tickets', userId],
     queryFn: () => apiFetch(`/users/${userId}/contact-tickets`),
@@ -1122,7 +1133,7 @@ export default function EmployeeProfilePage() {
                 <div style={{ background:'var(--brand-dim)', borderRadius:10, padding:'14px 16px' }}>
                   <p style={{ fontSize:13,fontWeight:700,color:'var(--brand)',margin:'0 0 4px 0' }}>— PTO hours Available</p>
                   <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                    <button style={{ flex:1,padding:'6px 0',border:'1px solid var(--brand)',borderRadius:6,fontSize:12,color:'var(--brand)',background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
+                    <button onClick={() => setHistoryBucket('pto')} style={{ flex:1,padding:'6px 0',border:'1px solid var(--brand)',borderRadius:6,fontSize:12,color:'var(--brand)',background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
                     <button style={{ flex:1,padding:'6px 0',background:'var(--brand)',border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Update PTO</button>
                   </div>
                 </div>
@@ -1130,10 +1141,40 @@ export default function EmployeeProfilePage() {
                 <div style={{ background:'#FEF3C7', borderRadius:10, padding:'14px 16px' }}>
                   <p style={{ fontSize:13,fontWeight:700,color:'#92400E',margin:'0 0 4px 0' }}>— Sick hours Available</p>
                   <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                    <button style={{ flex:1,padding:'6px 0',border:'1px solid #92400E',borderRadius:6,fontSize:12,color:'#92400E',background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
+                    <button onClick={() => setHistoryBucket('plawa')} style={{ flex:1,padding:'6px 0',border:'1px solid #92400E',borderRadius:6,fontSize:12,color:'#92400E',background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
                     <button style={{ flex:1,padding:'6px 0',background:'#92400E',border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Update Sick</button>
                   </div>
                 </div>
+
+                {/* [view-history 2026-06-23] Per-bucket usage history modal */}
+                {historyBucket && (() => {
+                  const isPto = historyBucket === 'pto';
+                  const tag = isPto ? '/pto' : '/plawa';
+                  const rows = leaveUsage
+                    .filter((u: any) => String(u.notes || '').includes(tag))
+                    .sort((a: any, b: any) => String(b.date_used).localeCompare(String(a.date_used)));
+                  return (
+                    <div onClick={() => setHistoryBucket(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
+                      <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:12,padding:24,width:560,maxWidth:'92vw',maxHeight:'80vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+                        <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
+                          <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>{isPto ? 'PTO' : 'Sick (PLAWA)'} History</h3>
+                          <button onClick={() => setHistoryBucket(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
+                        </div>
+                        {rows.length === 0 ? (
+                          <p style={{ color:'#9E9B94',fontSize:13,margin:0 }}>No {isPto ? 'PTO' : 'sick'} history recorded.</p>
+                        ) : rows.map((u: any, i: number) => (
+                          <div key={i} style={{ display:'flex',justifyContent:'space-between',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+                            <div style={{ minWidth:0 }}>
+                              <div style={{ fontSize:13,fontWeight:600,color:'#1A1917' }}>{String(u.date_used).slice(0,10)}</div>
+                              <div style={{ fontSize:12,color:'#6B6860' }}>{u.notes}</div>
+                            </div>
+                            <div style={{ fontSize:14,fontWeight:700,color:'#1A1917',whiteSpace:'nowrap' }}>{Number(u.hours).toFixed(2)} h</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'14px 16px' }}>
                   <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
