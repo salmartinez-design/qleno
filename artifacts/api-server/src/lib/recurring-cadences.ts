@@ -90,12 +90,29 @@ export function resolveDayOfMonth(year: number, month: number, day: number): num
   return day;
 }
 
+// [commercial-cadence] Nth weekday of a month — "3rd Wednesday", "last Friday".
+// nth: 1..4 = first..fourth; 5 (or anything >=5) = LAST occurrence in the
+// month. weekday: 0=Sun..6=Sat. Used by the monthly_weekday cadence.
+export function nthWeekdayOfMonth(year: number, month: number, nth: number, weekday: number): Date {
+  if (nth >= 5) {
+    const last = new Date(year, month + 1, 0);
+    const back = (last.getDay() - weekday + 7) % 7;
+    return new Date(year, month, last.getDate() - back);
+  }
+  const first = new Date(year, month, 1);
+  const offset = (weekday - first.getDay() + 7) % 7;
+  return new Date(year, month, 1 + offset + (nth - 1) * 7);
+}
+
 export interface CadenceInput {
   frequency: string;
   day_of_week: string | null;
   days_of_week?: number[] | null;
   days_of_month?: number[] | null;
   custom_frequency_weeks?: number | null;
+  // [commercial-cadence] 1..4 = first..fourth, 5 = last. Pairs with
+  // day_of_week for the monthly_weekday cadence ("3rd Wednesday" etc).
+  week_of_month?: number | null;
   // string from a Drizzle typed select; Date from a raw pg `date` column.
   start_date: string | Date;
   end_date?: string | Date | null;
@@ -172,6 +189,19 @@ export function generateCadenceDates(
       if (snapped >= start && snapped >= fromDate && snapped <= effectiveEnd) {
         dates.push(snapped);
       }
+      cursor = addMonths(cursor, 1);
+    }
+    return dates;
+  }
+
+  // ── Nth-weekday path: "3rd Wednesday", "last Friday" ────────────────────
+  // [commercial-cadence] week_of_month (1..4, or 5=last) + day_of_week.
+  if (freq === "monthly_weekday") {
+    const nth = schedule.week_of_month ?? 1;
+    let cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
+    while (cursor <= effectiveEnd) {
+      const d = nthWeekdayOfMonth(cursor.getFullYear(), cursor.getMonth(), nth, targetDow);
+      if (d >= start && d >= fromDate && d <= effectiveEnd) dates.push(d);
       cursor = addMonths(cursor, 1);
     }
     return dates;

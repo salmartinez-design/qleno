@@ -247,6 +247,7 @@ export function generateOccurrences(
     days_of_week?: number[] | null;
     days_of_month?: number[] | null;
     custom_frequency_weeks?: number | null;
+    week_of_month?: number | null;
     start_date: string | Date;
     end_date?: string | Date | null;
   },
@@ -271,6 +272,8 @@ type ScheduleInput = {
   // 0 = "last day of month" — engine resolves per-month.
   days_of_month?: number[] | null;
   custom_frequency_weeks?: number | null;
+  // [commercial-cadence] 1..4 = first..fourth, 5 = last (monthly_weekday).
+  week_of_month?: number | null;
   // string from a Drizzle typed select; Date from a raw pg `date` column.
   start_date: string | Date;
   end_date?: string | Date | null;

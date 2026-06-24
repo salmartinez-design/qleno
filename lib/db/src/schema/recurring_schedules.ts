@@ -44,6 +44,9 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   // Used when jobs.frequency='every_3_weeks' (no matching enum value on
   // recurring_schedules.frequency, which only has weekly/biweekly/monthly/custom).
   custom_frequency_weeks: integer("custom_frequency_weeks"),
+  // [commercial-cadence] For frequency='monthly_weekday' ("3rd Wednesday",
+  // "last Friday"): 1..4 = first..fourth, 5 = last. Pairs with day_of_week.
+  week_of_month: integer("week_of_month"),
   // [AH] Cascade target for commercial hourly rate. When the user picks
   // "this and all future" on a commercial recurring job, this column gets
   // the rate so the engine can re-derive base_fee for spawned jobs.
