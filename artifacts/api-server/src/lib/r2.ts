@@ -14,8 +14,11 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const ACCOUNT_ID = process.env.R2_ACCOUNT_ID || "";
-const BUCKET = process.env.R2_BUCKET || "qleno-photos";
+// [photos-r2 fix] .trim() every value — a stray space/newline pasted into a
+// Railway variable corrupts the S3 SigV4 auth header ("Invalid character in
+// header content [authorization]") and every upload fails.
+const ACCOUNT_ID = (process.env.R2_ACCOUNT_ID || "").trim();
+const BUCKET = (process.env.R2_BUCKET || "qleno-photos").trim();
 
 let _client: S3Client | null = null;
 
@@ -35,8 +38,8 @@ function client(): S3Client {
       region: "auto",
       endpoint: `https://${ACCOUNT_ID}.r2.cloudflarestorage.com`,
       credentials: {
-        accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
-        secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
+        accessKeyId: (process.env.R2_ACCESS_KEY_ID || "").trim(),
+        secretAccessKey: (process.env.R2_SECRET_ACCESS_KEY || "").trim(),
       },
       // [photos-r2 fix] AWS SDK v3 (≥3.729) adds default CRC32 integrity
       // checksums + a streaming trailer that R2 rejects ("not implemented" /
