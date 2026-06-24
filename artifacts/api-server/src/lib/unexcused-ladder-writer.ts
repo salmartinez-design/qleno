@@ -25,14 +25,18 @@ import {
   companyAttendancePolicyTable,
   employeeAttendanceLogTable,
   employeeDisciplineLogTable,
+  usersTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, lte } from "drizzle-orm";
 import {
   evaluateLadder,
+  evaluateOccurrenceLadder,
   type LadderEvaluation,
   type UnexcusedStep,
   type UnexcusedEntry,
+  type OccurrenceStep,
 } from "./unexcused-ladder.js";
+import { benefitYearStartDate } from "./leave-grant-reset.js";
 
 /**
  * `tx` accepts the global db handle OR a transaction handle. Drizzle's
@@ -125,15 +129,28 @@ export async function recordUnexcusedEntryAndDriveLadder(
     .returning({ id: employeeAttendanceLogTable.id });
   const attendance_log_id = insertedLog[0]!.id;
 
-  // Drive the ladder. Pull the policy ladder + entries for the
-  // window-extent we need (max window_days across steps).
+  // Drive the ladder. Pull the policy ladders (occurrence + legacy hours).
   const policyRow = await tx
     .select({
       unexcused_hours_steps: companyAttendancePolicyTable.unexcused_hours_steps,
+      unexcused_occurrence_steps: companyAttendancePolicyTable.unexcused_occurrence_steps,
+      tardy_occurrence_steps: companyAttendancePolicyTable.tardy_occurrence_steps,
     })
     .from(companyAttendancePolicyTable)
     .where(eq(companyAttendancePolicyTable.company_id, args.company_id))
     .limit(1);
+
+  // [PHES occurrence ladder] If occurrence steps are configured for this
+  // incident kind, drive discipline off the per-Benefit-Year OCCURRENCE COUNT
+  // and return. Otherwise fall through to the legacy cumulative-hours ladder
+  // (so any tenant still on hours keeps working, and the 3B hours tests pass).
+  const kind: "tardy" | "unexcused" = args.type === "tardy" ? "tardy" : "unexcused";
+  const occSteps = (((kind === "tardy"
+    ? policyRow[0]?.tardy_occurrence_steps
+    : policyRow[0]?.unexcused_occurrence_steps) as OccurrenceStep[] | null) ?? []) as OccurrenceStep[];
+  if (occSteps.length > 0) {
+    return await driveOccurrenceLadder(tx, args, attendance_log_id, kind, occSteps);
+  }
   const steps = ((policyRow[0]?.unexcused_hours_steps as UnexcusedStep[] | null) ??
     []) as UnexcusedStep[];
   if (steps.length === 0) {
@@ -229,6 +246,115 @@ export async function recordUnexcusedEntryAndDriveLadder(
   return {
     attendance_log_id,
     ladder_eval: evalResult,
+    discipline_log_id: insertedDiscipline[0]?.id ?? null,
+    notification_sent,
+  };
+}
+
+/**
+ * Occurrence-based disciplinary ladder (PHES, Sal 2026-06-24).
+ *
+ * Counts INCIDENTS of one kind (unexcused absence OR tardy) within the
+ * employee's current Benefit Year (work anniversary — the same boundary the
+ * leave engine uses) and fires the matching discipline step. Idempotent per
+ * (kind, benefit-year, occurrence) via a reason marker; a new benefit year
+ * resets the counter so the same step can fire again next year.
+ */
+async function driveOccurrenceLadder(
+  tx: DbOrTx,
+  args: UnexcusedLadderArgs,
+  attendance_log_id: number,
+  kind: "tardy" | "unexcused",
+  steps: OccurrenceStep[],
+): Promise<UnexcusedLadderResult> {
+  const attType = kind === "tardy" ? "tardy" : "absent";
+  const marker = kind === "tardy" ? "tardy-occ" : "unexcused-occ";
+  const nullResult: UnexcusedLadderResult = {
+    attendance_log_id,
+    ladder_eval: { triggered_step: null, cumulative_hours: 0, as_of: args.log_date },
+    discipline_log_id: null,
+    notification_sent: false,
+  };
+
+  // Benefit-year window (work anniversary), reused from the leave engine.
+  const u = await tx
+    .select({ hire_date: usersTable.hire_date })
+    .from(usersTable)
+    .where(eq(usersTable.id, args.employee_id))
+    .limit(1);
+  const hireDate = u[0]?.hire_date ? String(u[0].hire_date).slice(0, 10) : args.log_date;
+  const byStart = benefitYearStartDate(hireDate, args.log_date).toISOString().slice(0, 10);
+
+  // Count this kind's NON-protected occurrences in the current benefit year
+  // (includes the row just inserted).
+  const rows = await tx
+    .select({
+      is_protected: employeeAttendanceLogTable.protected,
+    })
+    .from(employeeAttendanceLogTable)
+    .where(
+      and(
+        eq(employeeAttendanceLogTable.company_id, args.company_id),
+        eq(employeeAttendanceLogTable.employee_id, args.employee_id),
+        eq(employeeAttendanceLogTable.type, attType),
+        gte(employeeAttendanceLogTable.log_date, byStart),
+        lte(employeeAttendanceLogTable.log_date, args.log_date),
+      ),
+    );
+  const occurrenceCount = (rows as Array<{ is_protected: boolean | null }>).filter(
+    (r) => !r.is_protected,
+  ).length;
+
+  // Already-fired steps for THIS kind + THIS benefit year (idempotent).
+  const disc = await tx
+    .select({ reason: employeeDisciplineLogTable.reason })
+    .from(employeeDisciplineLogTable)
+    .where(
+      and(
+        eq(employeeDisciplineLogTable.company_id, args.company_id),
+        eq(employeeDisciplineLogTable.employee_id, args.employee_id),
+      ),
+    );
+  const fired = new Set<number>();
+  const re = new RegExp(`\\b${marker}\\s+s=(\\d+)\\s+by=${byStart}\\b`, "i");
+  for (const d of disc as Array<{ reason: string | null }>) {
+    const m = re.exec(d.reason ?? "");
+    if (m) fired.add(Number(m[1]));
+  }
+
+  const evalResult = evaluateOccurrenceLadder(steps, occurrenceCount, fired);
+  if (!evalResult.triggered_step) return nullResult;
+
+  const step = evalResult.triggered_step;
+  const insertedDiscipline = await tx
+    .insert(employeeDisciplineLogTable)
+    .values({
+      company_id: args.company_id,
+      employee_id: args.employee_id,
+      discipline_type: step.discipline_type,
+      custom_label: step.label ?? null,
+      reason: `${marker} s=${step.occurrence} by=${byStart} count=${occurrenceCount}`,
+      effective_date: args.log_date,
+      issued_by: args.logged_by,
+      pending_review: true,
+    })
+    .returning({ id: employeeDisciplineLogTable.id });
+
+  let notification_sent = false;
+  if (step.notify) {
+    // Reuse the existing (COMMS-gated) office-alert pattern; surface the
+    // occurrence count via the shared shape (window_days unused here).
+    void notifyOfficeOfDisciplineSilent(
+      args.company_id,
+      args.employee_id,
+      { threshold_hours: step.occurrence, window_days: 0, discipline_type: step.discipline_type, label: step.label ?? `${marker} #${step.occurrence}`, notify: true },
+      occurrenceCount,
+    );
+    notification_sent = true;
+  }
+  return {
+    attendance_log_id,
+    ladder_eval: { triggered_step: null, cumulative_hours: 0, as_of: args.log_date },
     discipline_log_id: insertedDiscipline[0]?.id ?? null,
     notification_sent,
   };

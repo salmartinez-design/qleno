@@ -1251,16 +1251,19 @@ export default function EmployeeProfilePage() {
                   let barColor = accent;
                   let barCaption = '';
                   if (officeRecorded) {
-                    const rolling = Number(unex?.rolling_hours || 0);
-                    const nextThresh = Number(unex?.next_step?.threshold || 0);
-                    bigNum = rolling.toFixed(1);
-                    bigLabel = 'hours recorded';
-                    if (nextThresh > 0) {
-                      barPct = Math.min(100, (rolling / nextThresh) * 100);
-                      barColor = barPct >= 100 ? LEAVE_OUT : barPct >= 60 ? LEAVE_LOW : accent;
-                      barCaption = `${rolling.toFixed(1)} of ${nextThresh} h to next discipline step`;
+                    // Occurrence-based disciplinary ladder (PHES): count incidents
+                    // this benefit year toward the next step.
+                    const occ = Number(unex?.occurrences || 0);
+                    const nextOcc = Number(unex?.next_step?.occurrence || 0);
+                    const nextLabel = (unex?.next_step?.label || 'discipline').toLowerCase();
+                    bigNum = String(occ);
+                    bigLabel = occ === 1 ? 'occurrence this year' : 'occurrences this year';
+                    if (nextOcc > 0) {
+                      barPct = Math.min(100, (occ / nextOcc) * 100);
+                      barColor = occ >= nextOcc ? LEAVE_OUT : (nextOcc - occ <= 1 ? LEAVE_LOW : accent);
+                      barCaption = `${occ} of ${nextOcc} occurrences to ${nextLabel}`;
                     } else {
-                      barCaption = 'No disciplinary thresholds set';
+                      barCaption = unex?.current_discipline ? 'At the final disciplinary step' : 'No disciplinary ladder set';
                     }
                   } else {
                     barPct = granted > 0 ? Math.min(100, (used / granted) * 100) : 0;
@@ -1318,6 +1321,37 @@ export default function EmployeeProfilePage() {
                     </div>
                   );
                 })}
+
+                {/* [Occurrence ladder] Tardy/Late disciplinary indicator —
+                    office/owner only (tardies aren't a leave bucket). */}
+                {['owner','admin','office','super_admin'].includes(getTokenRole() || '')
+                  && attnSummary?.tardy && (() => {
+                  const t = attnSummary.tardy;
+                  const occ = Number(t.occurrences || 0);
+                  const nextOcc = Number(t.next_step?.occurrence || 0);
+                  const nextLabel = (t.next_step?.label || 'discipline').toLowerCase();
+                  const accent = '#BA7517'; // tardy = amber accent
+                  const barPct = nextOcc > 0 ? Math.min(100, (occ / nextOcc) * 100) : (occ > 0 ? 100 : 0);
+                  const barColor = nextOcc > 0 ? (occ >= nextOcc ? LEAVE_OUT : (nextOcc - occ <= 1 ? LEAVE_OUT : accent)) : LEAVE_OUT;
+                  const caption = nextOcc > 0 ? `${occ} of ${nextOcc} occurrences to ${nextLabel}` : (occ > 0 ? 'At the final disciplinary step' : 'No disciplinary ladder set');
+                  return (
+                    <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderLeft:`4px solid ${accent}`, borderRadius:10, padding:'14px 16px' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                        <span style={{ width:9, height:9, borderRadius:'50%', background:accent, flexShrink:0 }} />
+                        <span style={{ fontSize:12, fontWeight:700, color:accent, textTransform:'uppercase', letterSpacing:'0.04em' }}>Tardies</span>
+                        <span style={{ marginLeft:'auto', fontSize:10.5, color:'#9E9B94' }}>office only</span>
+                      </div>
+                      <div style={{ display:'flex', alignItems:'baseline', gap:6, marginTop:6 }}>
+                        <span style={{ fontSize:30, fontWeight:800, color:accent, lineHeight:1.1 }}>{occ}</span>
+                        <span style={{ fontSize:12, color:'#6B6860' }}>{occ === 1 ? 'late this year' : 'lates this year'}</span>
+                      </div>
+                      <div style={{ height:6, borderRadius:99, background:'#EEEDEA', marginTop:8, overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${barPct}%`, background:barColor, borderRadius:99, transition:'width 0.3s ease' }} />
+                      </div>
+                      <p style={{ fontSize:11, color:'#6B6860', margin:'5px 0 0 0' }}>{caption}</p>
+                    </div>
+                  );
+                })()}
 
                 {/* Per-bucket usage history modal (data-driven over all buckets) */}
                 {historyBucket && (() => {
