@@ -4,6 +4,6 @@
     "builder": "DOCKERFILE"
   },
   "deploy": {
-    "healthcheckTimeout": 300
+    "healthcheckTimeout": 600
   }
 }
