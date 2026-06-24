@@ -15,6 +15,7 @@ import {
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { HRAttendanceTab, LeaveBalanceTab, DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
+import { parseLeaveNote, leaveBucketLabel, KIND_TONE_STYLE } from "@/lib/leave-note-format";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -107,6 +108,28 @@ function daysUntilYmd(ymd: string): number {
 function shortDate(ymd: string): string {
   const d = new Date(`${ymd}T00:00:00Z`);
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+// [Phase 4] Render a leave/attendance note as clean chips: a colored bucket
+// chip + a status/kind chip + the human remainder. Presentation-only — parses
+// both [MC import] and app-approved formats; falls back to plain text.
+function NoteChips({ note }: { note: string | null | undefined }) {
+  const p = parseLeaveNote(note);
+  if (!p.bucketSlug && !p.kind && !p.clean) {
+    return <span style={{ fontSize: 12, color: '#9E9B94' }}>—</span>;
+  }
+  const toneStyle = KIND_TONE_STYLE[p.kindTone];
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      {p.bucketSlug && (
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: leaveBucketAccent(p.bucketSlug), background: '#FFFFFF', border: `1px solid ${leaveBucketAccent(p.bucketSlug)}`, borderRadius: 99, padding: '1px 7px', whiteSpace: 'nowrap' }}>{leaveBucketLabel(p.bucketSlug)}</span>
+      )}
+      {p.kind && (
+        <span style={{ fontSize: 10.5, fontWeight: 600, color: toneStyle.fg, background: toneStyle.bg, borderRadius: 99, padding: '1px 7px', whiteSpace: 'nowrap' }}>{p.kind}</span>
+      )}
+      {p.clean && <span style={{ fontSize: 12, color: '#6B6860' }}>{p.clean}</span>}
+    </div>
+  );
 }
 
 const PAY_GROUPS: { label: string; types: string[] }[] = [
@@ -1184,6 +1207,29 @@ export default function EmployeeProfilePage() {
               </div>
 
               <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+                {/* [Phase 4] Discipline flags — OFFICE/OWNER ONLY (never the
+                    employee's own self-view). Sourced from employee_discipline_log
+                    (the unexcused-ladder output). */}
+                {['owner','admin','office','super_admin'].includes(getTokenRole() || '')
+                  && Array.isArray(attnSummary?.discipline) && attnSummary.discipline.length > 0 && (
+                  <div style={{ background:'#FFFFFF', border:'1px solid #E24B4A', borderLeft:'4px solid #E24B4A', borderRadius:10, padding:'12px 16px' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:8 }}>
+                      <AlertCircle size={15} color="#E24B4A" />
+                      <span style={{ fontSize:12, fontWeight:700, color:'#E24B4A', textTransform:'uppercase', letterSpacing:'0.04em' }}>Discipline on file</span>
+                      <span style={{ marginLeft:'auto', fontSize:10.5, color:'#9E9B94' }}>office only</span>
+                    </div>
+                    {attnSummary.discipline.map((d: any, i: number) => (
+                      <div key={i} style={{ padding:'6px 0', borderTop: i ? '1px solid #F3F4F6' : 'none' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                          <span style={{ fontSize:11, fontWeight:700, color:'#FFFFFF', background:'#E24B4A', borderRadius:99, padding:'1px 8px' }}>{d.label}</span>
+                          <span style={{ fontSize:11, color:'#6B6860' }}>{shortDate(String(d.effective_date))}</span>
+                          {d.pending_review && <span style={{ fontSize:10, fontWeight:600, color:'#92400E', background:'#FEF3C7', borderRadius:99, padding:'1px 7px' }}>pending review</span>}
+                        </div>
+                        {d.reason && <div style={{ fontSize:11.5, color:'#6B6860', marginTop:2 }}>{d.reason}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {leaveBuckets.length === 0 && (
                   <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'14px 16px', fontSize:13, color:'#9E9B94' }}>
                     No leave buckets configured.
@@ -1291,8 +1337,8 @@ export default function EmployeeProfilePage() {
                         ) : rows.map((u: any, i: number) => (
                           <div key={i} style={{ display:'flex',justifyContent:'space-between',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
                             <div style={{ minWidth:0 }}>
-                              <div style={{ fontSize:13,fontWeight:600,color:'#1A1917' }}>{String(u.date_used).slice(0,10)}</div>
-                              <div style={{ fontSize:12,color:'#6B6860' }}>{u.notes}</div>
+                              <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(u.date_used).slice(0,10))} · {String(u.date_used).slice(0,10)}</div>
+                              <NoteChips note={u.notes} />
                             </div>
                             <div style={{ fontSize:14,fontWeight:700,color:'#1A1917',whiteSpace:'nowrap' }}>{Number(u.hours).toFixed(2)} h</div>
                           </div>
@@ -1349,8 +1395,8 @@ export default function EmployeeProfilePage() {
                       ) : statDrill.days.map((d: any, i: number) => (
                         <div key={i} style={{ display:'flex',justifyContent:'space-between',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
                           <div style={{ minWidth:0 }}>
-                            <div style={{ fontSize:13,fontWeight:600,color:'#1A1917' }}>{shortDate(String(d.date))} · {String(d.date)}</div>
-                            <div style={{ fontSize:12,color:'#6B6860' }}>{d.reason || '—'}</div>
+                            <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(d.date))} · {String(d.date)}</div>
+                            <NoteChips note={d.reason} />
                           </div>
                           {d.hours != null && <div style={{ fontSize:14,fontWeight:700,color:'#1A1917',whiteSpace:'nowrap' }}>{Number(d.hours).toFixed(2)} h</div>}
                         </div>
