@@ -29,6 +29,7 @@ router.post("/migrate-to-r2", requireAuth, async (req: Request, res: Response) =
   try {
     const rows = await db.select().from(jobPhotosTable).where(like(jobPhotosTable.url, "data:%")).limit(limit);
     let migrated = 0, failed = 0;
+    let firstError: string | null = null;
     for (const p of rows) {
       try {
         const m = String(p.url).match(/^data:([^;]+);base64,([\s\S]*)$/);
@@ -42,6 +43,7 @@ router.post("/migrate-to-r2", requireAuth, async (req: Request, res: Response) =
         migrated++;
       } catch (e) {
         console.error("[migrate-to-r2] photo", p.id, e);
+        if (!firstError) firstError = e instanceof Error ? e.message : String(e);
         failed++;
       }
     }
@@ -49,7 +51,7 @@ router.post("/migrate-to-r2", requireAuth, async (req: Request, res: Response) =
       .select({ c: sql<number>`count(*)::int` })
       .from(jobPhotosTable)
       .where(like(jobPhotosTable.url, "data:%"));
-    res.json({ migrated, failed, remaining: Number(row?.c ?? 0) });
+    res.json({ migrated, failed, remaining: Number(row?.c ?? 0), error_sample: firstError });
   } catch (err) {
     console.error("[migrate-to-r2]:", err);
     res.status(500).json({ error: "migration_failed" });
