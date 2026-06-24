@@ -524,14 +524,17 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       let sched: any;
       let allInBase = 0;
       if (prior) {
-        // Reuse the existing schedule. Agreed base + visit length stay exactly
-        // as-is; the only money change is folding any new add-ons into the
-        // all-in base going forward.
+        // Reuse the existing schedule (don't spawn a duplicate). Agreed base +
+        // visit length stay as-is; new add-ons fold into the all-in base. But a
+        // re-book at a DIFFERENT cadence is a deliberate change, so update the
+        // frequency to the quoted one — previously the DB row kept its old
+        // cadence even though the office picked a new one on the quote.
         const agreedBase = prior.base_fee != null ? parseFloat(prior.base_fee) : (recurringFee ?? 0);
         allInBase = Math.round((agreedBase + newAddonSubtotal) * 100) / 100;
         await db.execute(sql`
           UPDATE recurring_schedules
              SET base_fee = ${String(allInBase)},
+                 frequency = ${jobFreq},
                  scheduled_time = COALESCE(${scheduled_time || null}, scheduled_time),
                  assigned_employee_id = COALESCE(${assigned_user_id ? parseInt(String(assigned_user_id)) : null}, assigned_employee_id)
            WHERE id = ${prior.id} AND company_id = ${companyId}
