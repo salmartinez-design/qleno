@@ -689,16 +689,26 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   }
 
   function renderAddOns() {
+    // [commercial-cleanup] Only show add-ons that apply to this client type.
+    // Commercial jobs are rate-card priced, so they should only see Parking Fee
+    // + the adjustments (applies_to commercial/both), never residential extras
+    // like Oven or Fridge. Rows missing the flag default to residential.
+    const visibleAddons = availableAddons.filter(a => {
+      const ap = (a.applies_to as string) || "residential";
+      return clientType === "commercial"
+        ? (ap === "commercial" || ap === "both")
+        : (ap === "residential" || ap === "both");
+    });
     return (
       <div>
         <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Add-ons</p>
         {addonsLoading ? (
           <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>Loading add-ons…</p>
-        ) : availableAddons.length === 0 ? (
+        ) : visibleAddons.length === 0 ? (
           <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>No add-ons configured.</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {availableAddons.map(a => {
+            {visibleAddons.map(a => {
               const checked = selectedAddons.has(a.id);
               const isPct = a.price_type === "percent" || a.price_type === "percentage";
               const catalogPrice = Number(a.price_value ?? a.price ?? 0);

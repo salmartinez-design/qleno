@@ -185,6 +185,13 @@ async function runBookingSchemaGuard(): Promise<void> {
     // can no longer create a split-brain (two QB customers for one client).
     { label: "qb_customer_map dedupe", stmt: "DELETE FROM qb_customer_map a USING qb_customer_map b WHERE a.id > b.id AND a.company_id = b.company_id AND a.qleno_customer_id = b.qleno_customer_id" },
     { label: "qb_customer_map_company_customer_uq", stmt: "CREATE UNIQUE INDEX IF NOT EXISTS qb_customer_map_company_customer_uq ON qb_customer_map (company_id, qleno_customer_id)" },
+    // [commercial-cleanup 2026-06-23] Add-ons are residential by default; the
+    // create-job wizard filters by applies_to so commercial jobs no longer show
+    // Oven/Fridge/etc. Seed Phes's commercial-relevant ones (only while still at
+    // the default, so a later deliberate tenant change isn't clobbered).
+    { label: "pricing_addons.applies_to", stmt: "ALTER TABLE pricing_addons ADD COLUMN IF NOT EXISTS applies_to TEXT NOT NULL DEFAULT 'residential'" },
+    { label: "addons.parking+manual → both", stmt: "UPDATE pricing_addons SET applies_to='both' WHERE company_id=1 AND applies_to='residential' AND (name ILIKE 'Parking Fee' OR name ILIKE 'Manual Adjustment')" },
+    { label: "addons.commercial adjustment → commercial", stmt: "UPDATE pricing_addons SET applies_to='commercial' WHERE company_id=1 AND applies_to='residential' AND name ILIKE 'Commercial Adjustment'" },
     { label: "jobs.property_vacant",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false" },
     { label: "jobs.arrival_window",        stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS arrival_window TEXT" },
     { label: "jobs.first_recurring_discounted", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_recurring_discounted BOOLEAN DEFAULT false" },
