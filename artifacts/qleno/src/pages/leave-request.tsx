@@ -9,6 +9,20 @@ import { useEffect, useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { parseLeaveNote, leaveBucketLabel, KIND_TONE_STYLE } from "@/lib/leave-note-format";
+
+// Smart usage-bar colors (match the office profile cards).
+const LEAVE_LOW = "#BA7517";
+const LEAVE_OUT = "#E24B4A";
+const NEUTRAL_ACCENT = "#374151";
+function daysUntilYmd(ymd: string): number {
+  const t = new Date(`${ymd}T00:00:00Z`).getTime();
+  const today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z").getTime();
+  return Math.round((t - today) / 86400000);
+}
+function shortDate(ymd: string): string {
+  return new Date(`${ymd}T00:00:00Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+}
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const BRAND = "#00C9A0";
@@ -29,7 +43,14 @@ type Balance = {
   annual_cap_hours: number;
   waiting_period_days: number;
   past_waiting_period: boolean;
+  // Phase 3 tenant-dynamic display + Phase 2 reset/eligibility (from balances/me)
+  accent?: string;
+  chip_label?: string;
+  next_reset_date?: string | null;
+  eligible_on?: string | null;
 };
+
+type UsageRow = { date_used: string; hours: string; notes: string | null };
 
 type MyRequest = {
   id: number;
@@ -47,6 +68,8 @@ export default function LeaveRequestPage() {
   const { toast } = useToast();
   const [balances, setBalances] = useState<Balance[]>([]);
   const [requests, setRequests] = useState<MyRequest[]>([]);
+  const [usage, setUsage] = useState<UsageRow[]>([]);
+  const [historyBucket, setHistoryBucket] = useState<null | { slug: string; display_name: string }>(null);
   const [loading, setLoading] = useState(false);
   const [selectedBucket, setSelectedBucket] = useState<number | null>(null);
   const [startDate, setStartDate] = useState<string>("");
@@ -66,14 +89,17 @@ export default function LeaveRequestPage() {
   async function load() {
     setLoading(true);
     try {
-      const [bRes, rRes] = await Promise.all([
+      const [bRes, rRes, uRes] = await Promise.all([
         fetch("/api/leave/balances/me", { credentials: "include" }),
         fetch("/api/leave/requests/mine", { credentials: "include" }),
+        fetch("/api/leave/usage/me", { credentials: "include" }),
       ]);
       const bJson = await bRes.json();
       const rJson = await rRes.json();
+      const uJson = await uRes.json();
       setBalances(bJson.data ?? []);
       setRequests(rJson.data ?? []);
+      setUsage(uJson.data ?? []);
     } catch {
       toast({ title: "Could not load leave data", variant: "destructive" });
     } finally {
@@ -160,35 +186,100 @@ export default function LeaveRequestPage() {
           Submit a request and check your balances.
         </div>
 
-        {/* Balances */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 10, marginBottom: 20 }}>
+        {/* Balances — data-driven cards matching the office profile, MINUS the
+            office-only discipline content (no Tardies card, no discipline
+            standing, no occurrence ladder). The tech sees their balances,
+            usage bar, reset countdown, waiting note, and their own history. */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10, marginBottom: 20 }}>
           {loading ? (
             <div style={{ color: MUTED, fontSize: 13 }}>Loading…</div>
           ) : (
-            balances.map((b) => (
-              <div
-                key={b.leave_type_id}
-                style={{
-                  backgroundColor: CARD, border: `1px solid ${BORDER}`,
-                  borderRadius: 10, padding: 12,
-                }}
-              >
-                <div style={{ fontSize: 12, fontWeight: 800, color: INK }}>{b.display_name}</div>
-                <div style={{ fontSize: 22, fontWeight: 800, color: INK, marginTop: 4 }}>
-                  {b.available.toFixed(2)} <span style={{ fontSize: 12, color: MUTED, fontWeight: 600 }}>hrs</span>
-                </div>
-                <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>
-                  granted {b.granted.toFixed(2)} · used {b.used.toFixed(2)}
-                </div>
-                {!b.past_waiting_period && (
-                  <div style={{ fontSize: 10, fontWeight: 700, color: DANGER, marginTop: 6, padding: "2px 6px", border: `1px solid ${DANGER}`, borderRadius: 3, display: "inline-block" }}>
-                    {b.waiting_period_days}-day wait
+            balances.map((b) => {
+              const accent = b.accent || NEUTRAL_ACCENT;
+              const officeRecorded = b.accrual_mode === "office_recorded";
+              const notVested = !officeRecorded && !b.past_waiting_period;
+              const granted = b.granted, used = b.used, avail = b.available;
+              const barPct = !officeRecorded && granted > 0 ? Math.min(100, (used / granted) * 100) : 0;
+              const barColor = avail <= 0 ? LEAVE_OUT : (granted > 0 && avail <= 0.2 * granted) ? LEAVE_LOW : accent;
+              const resetDays = !officeRecorded && b.next_reset_date ? daysUntilYmd(b.next_reset_date) : null;
+              const eligDays = b.eligible_on ? daysUntilYmd(b.eligible_on) : null;
+              return (
+                <div key={b.leave_type_id} style={{ backgroundColor: CARD, border: `1px solid ${BORDER}`, borderLeft: `4px solid ${accent}`, borderRadius: 10, padding: "12px 14px" }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: accent, flexShrink: 0 }} />
+                      <span style={{ fontSize: 12, fontWeight: 800, color: accent, textTransform: "uppercase", letterSpacing: "0.04em" }}>{b.display_name}</span>
+                    </div>
+                    {resetDays != null && resetDays >= 0 && !notVested && (
+                      <span style={{ fontSize: 10, color: MUTED, whiteSpace: "nowrap" }}>resets {shortDate(b.next_reset_date!)}</span>
+                    )}
                   </div>
-                )}
-              </div>
-            ))
+                  {notVested ? (
+                    <div style={{ marginTop: 8 }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: accent }}>{eligDays != null && eligDays > 0 ? `Unlocks in ${eligDays} day${eligDays === 1 ? "" : "s"}` : "Eligible after waiting period"}</div>
+                      {b.eligible_on && eligDays != null && eligDays > 0 && (
+                        <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>available {shortDate(b.eligible_on)}</div>
+                      )}
+                    </div>
+                  ) : officeRecorded ? (
+                    <div style={{ marginTop: 6 }}>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: accent }}>{used.toFixed(1)} <span style={{ fontSize: 12, color: MUTED, fontWeight: 600 }}>recorded</span></div>
+                      <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>hours this year</div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: accent, marginTop: 6 }}>{avail.toFixed(1)} <span style={{ fontSize: 12, color: MUTED, fontWeight: 600 }}>hrs available</span></div>
+                      <div style={{ height: 6, borderRadius: 99, background: "#EEEDEA", marginTop: 8, overflow: "hidden" }}>
+                        <div style={{ height: "100%", width: `${barPct}%`, background: barColor, borderRadius: 99, transition: "width 0.3s ease" }} />
+                      </div>
+                      <div style={{ fontSize: 11, color: MUTED, marginTop: 5 }}>{used.toFixed(1)} used · {avail.toFixed(1)} left · of {granted.toFixed(1)} granted</div>
+                      <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{used.toFixed(1)} hrs taken this year</div>
+                    </>
+                  )}
+                  <button onClick={() => setHistoryBucket({ slug: b.slug, display_name: b.display_name })} style={{ marginTop: 10, width: "100%", padding: "6px 0", border: `1px solid ${accent}`, borderRadius: 6, fontSize: 12, color: accent, background: "none", cursor: "pointer", fontFamily: FF }}>View History</button>
+                </div>
+              );
+            })
           )}
         </div>
+
+        {/* Per-bucket usage history — clean chips (date · bucket chip · status
+            chip · note), same treatment as the office profile, from /usage/me. */}
+        {historyBucket && (() => {
+          const tag = (() => { const s = historyBucket.slug.toLowerCase(); if (s.includes("plawa") || s.includes("sick")) return "/plawa"; if (s.includes("pto")) return "/pto"; if (s.includes("unpaid")) return "/unpaid"; if (s.includes("unexcused")) return "/unexcused"; return "/" + s; })();
+          const bucketAccent = balances.find((b) => b.slug === historyBucket.slug)?.accent || NEUTRAL_ACCENT;
+          const bucketChipLabel = balances.find((b) => b.slug === historyBucket.slug)?.chip_label || leaveBucketLabel(historyBucket.slug);
+          const rows = usage.filter((u) => String(u.notes || "").includes(tag)).sort((a, b) => String(b.date_used).localeCompare(String(a.date_used)));
+          return (
+            <div onClick={() => setHistoryBucket(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
+              <div onClick={(e) => e.stopPropagation()} style={{ background: CARD, borderRadius: 12, padding: 24, width: 560, maxWidth: "92vw", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+                  <h3 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: INK }}>{historyBucket.display_name} History</h3>
+                  <button onClick={() => setHistoryBucket(null)} style={{ border: "none", background: "none", fontSize: 22, lineHeight: 1, cursor: "pointer", color: MUTED }}>×</button>
+                </div>
+                {rows.length === 0 ? (
+                  <div style={{ color: MUTED, fontSize: 13 }}>No {historyBucket.display_name} history recorded.</div>
+                ) : rows.map((u, i) => {
+                  const p = parseLeaveNote(u.notes);
+                  const tone = KIND_TONE_STYLE[p.kindTone];
+                  return (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", borderTop: i ? `1px solid ${BORDER}` : "none" }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: INK, marginBottom: 3 }}>{shortDate(String(u.date_used).slice(0, 10))} · {String(u.date_used).slice(0, 10)}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                          <span style={{ fontSize: 10.5, fontWeight: 700, color: bucketAccent, background: CARD, border: `1px solid ${bucketAccent}`, borderRadius: 99, padding: "1px 7px" }}>{bucketChipLabel}</span>
+                          {p.kind && <span style={{ fontSize: 10.5, fontWeight: 600, color: tone.fg, background: tone.bg, borderRadius: 99, padding: "1px 7px" }}>{p.kind}</span>}
+                          {p.clean && <span style={{ fontSize: 12, color: "#6B6860" }}>{p.clean}</span>}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: INK, whiteSpace: "nowrap" }}>{Number(u.hours).toFixed(2)} h</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Request form */}
         <div style={{ backgroundColor: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 14, marginBottom: 20 }}>
