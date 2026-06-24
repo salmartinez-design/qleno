@@ -25,21 +25,6 @@ const clean = (s: string | undefined): string =>
 const ACCOUNT_ID = clean(process.env.R2_ACCOUNT_ID);
 const BUCKET = clean(process.env.R2_BUCKET) || "qleno-photos";
 
-// Safe diagnostic — lengths only, never the values. `stripped > 0` means that
-// variable had non-printable paste junk in it.
-export function r2CredFingerprint() {
-  const fp = (k: string) => {
-    const raw = process.env[k] || "";
-    return { raw_len: raw.length, clean_len: clean(raw).length };
-  };
-  return {
-    account: fp("R2_ACCOUNT_ID"),
-    access_key_id: fp("R2_ACCESS_KEY_ID"),
-    secret: fp("R2_SECRET_ACCESS_KEY"),
-    bucket: fp("R2_BUCKET"),
-  };
-}
-
 let _client: S3Client | null = null;
 
 /** True once all R2 env vars are present. Routes fall back to legacy base64
