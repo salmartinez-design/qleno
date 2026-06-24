@@ -300,7 +300,12 @@ export default function EditJobModal({
   // existing add-ons, so an add-on that ISN'T in the current scope's catalog
   // (e.g. a quote-originated add-on from another scope) can still be rendered
   // as a removable row. Without this it had no catalog row and no way to delete.
-  const [existingAddonInfo, setExistingAddonInfo] = useState<Map<number, { name: string; subtotal: number }>>(new Map());
+  // [bug4 2026-06-24] add_on_id carried for "orphan" add-ons that have NO
+  // pricing_addon_id (e.g. hourly "Time Add" add-ons attached without a catalog
+  // link). They load under a negative synthetic key; save persists them by this
+  // real add_on_id. Without it they were silently dropped on load → invisible →
+  // impossible to remove (the stuck-add-on bug).
+  const [existingAddonInfo, setExistingAddonInfo] = useState<Map<number, { name: string; subtotal: number; add_on_id?: number }>>(new Map());
 
   // [W2] Client property sqft. Pre-filled from GET /api/jobs/:id which now
   // joins client_homes and surfaces sq_footage. Operator can edit inline;
@@ -601,7 +606,7 @@ export default function EditJobModal({
         const existing = Array.isArray(d.existing_add_ons) ? d.existing_add_ons : [];
         const addonMap = new Map<number, number>();
         const priceMap = new Map<number, number>();
-        const infoMap = new Map<number, { name: string; subtotal: number }>();
+        const infoMap = new Map<number, { name: string; subtotal: number; add_on_id?: number }>();
         for (const a of existing) {
           if (a.pricing_addon_id != null) {
             const pid = Number(a.pricing_addon_id);
@@ -612,6 +617,16 @@ export default function EditJobModal({
             if (a.unit_price != null) priceMap.set(pid, Number(a.unit_price));
             // (#14B) Keep name/subtotal so a non-catalog add-on still renders.
             infoMap.set(pid, { name: String(a.name ?? "Add-on"), subtotal: Number(a.subtotal ?? 0) });
+          } else if (a.add_on_id != null) {
+            // [bug4 2026-06-24] Add-on with NO pricing_addon_id (e.g. hourly
+            // "Time Add" add-ons attached without a catalog link). Previously
+            // skipped here → never shown → impossible to remove. Load under a
+            // NEGATIVE synthetic key (can't collide with positive catalog ids)
+            // so it renders as a removable orphan row; the save persists it by
+            // its real add_on_id. Removing it just drops it from selectedAddons.
+            const key = -Number(a.add_on_id);
+            addonMap.set(key, Number(a.quantity ?? 1));
+            infoMap.set(key, { name: String(a.name ?? "Add-on"), subtotal: Number(a.subtotal ?? 0), add_on_id: Number(a.add_on_id) });
           }
         }
         setSelectedAddons(addonMap);
@@ -866,9 +881,13 @@ export default function EditJobModal({
             // Nicholas Cooper math gap ($60/hr vs scope ~$71.67/hr).
             hourly_rate_override: clientHourlyRate,
             frequency,
-            addon_ids: Array.from(selectedAddons.keys()),
+            // [bug4 2026-06-24] Exclude orphan add-ons (negative synthetic keys,
+            // no catalog link) from the calc — they carry no catalog price and a
+            // negative id would not resolve server-side. They stay on the job via
+            // the save's orphan branch; they just don't participate in pricing.
+            addon_ids: Array.from(selectedAddons.keys()).filter(k => k >= 0),
             addon_quantities: Object.fromEntries(
-              Array.from(selectedAddons.entries()).map(([k, v]) => [String(k), v])
+              Array.from(selectedAddons.entries()).filter(([k]) => k >= 0).map(([k, v]) => [String(k), v])
             ),
           }),
         });
@@ -1141,6 +1160,21 @@ export default function EditJobModal({
       // permits this since pricing_addons rows have similar shape). A future
       // pass can map distinct addon catalogs.
       const addOnsPayload = Array.from(selectedAddons.entries()).map(([pricingAddonId, qty]) => {
+        // [bug4 2026-06-24] Orphan add-on (negative synthetic key, no catalog
+        // link) — persist by its real add_on_id + stored subtotal, no
+        // pricing_addon_id. Removing one drops it from selectedAddons so it
+        // never reaches this payload and the DELETE-then-reinsert clears it.
+        if (pricingAddonId < 0) {
+          const info = existingAddonInfo.get(pricingAddonId);
+          const sub = info?.subtotal ?? 0;
+          return {
+            add_on_id: info?.add_on_id ?? Math.abs(pricingAddonId),
+            pricing_addon_id: null,
+            qty,
+            unit_price: qty ? Math.round((sub / qty) * 100) / 100 : sub,
+            subtotal: sub,
+          };
+        }
         const detail = calcResult?.addon_breakdown?.find(x => x.id === pricingAddonId);
         // Operator-typed override wins over the calc engine. Catalog price is
         // a fallback only — without an override and without a calc result,
