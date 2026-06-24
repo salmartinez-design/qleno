@@ -4,7 +4,7 @@ import { requireAuth } from "../lib/auth.js";
 import { db } from "@workspace/db";
 import { jobPhotosTable } from "@workspace/db/schema";
 import { eq, like, sql } from "drizzle-orm";
-import { r2Configured, r2Upload, jobPhotoKey } from "../lib/r2.js";
+import { r2Configured, r2Upload, jobPhotoKey, r2CredFingerprint } from "../lib/r2.js";
 import crypto from "node:crypto";
 
 const router = Router();
@@ -51,7 +51,7 @@ router.post("/migrate-to-r2", requireAuth, async (req: Request, res: Response) =
       .select({ c: sql<number>`count(*)::int` })
       .from(jobPhotosTable)
       .where(like(jobPhotosTable.url, "data:%"));
-    res.json({ migrated, failed, remaining: Number(row?.c ?? 0), error_sample: firstError });
+    res.json({ migrated, failed, remaining: Number(row?.c ?? 0), error_sample: firstError, cred_fp: firstError ? r2CredFingerprint() : undefined });
   } catch (err) {
     console.error("[migrate-to-r2]:", err);
     res.status(500).json({ error: "migration_failed" });
