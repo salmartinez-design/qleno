@@ -53,7 +53,7 @@ import {
   companyLeavePolicyTable,
   usersTable,
 } from "@workspace/db/schema";
-import { and, asc, desc, eq, gte, inArray, isNotNull, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNotNull, like, lte, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { notifyUserAsync } from "../lib/push.js";
 import {
@@ -74,7 +74,8 @@ import {
   notifyLeaveSubmitted,
   notifyLeaveDecision,
 } from "../lib/leave-notifications.js";
-import { writeApprovedLeavePay } from "../lib/leave-pay.js";
+import { writeApprovedLeavePay, voidApprovedLeavePay } from "../lib/leave-pay.js";
+import { slugToBucket } from "../lib/leave-bucket.js";
 import { logAudit } from "../lib/audit.js";
 import multer from "multer";
 import path from "node:path";
@@ -917,6 +918,17 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
   const perDay = dayUnit === "full_day" ? DAILY_HOURS : DAILY_HOURS / 2;
   const startMs = Date.parse(`${String(reqRow.start_date)}T00:00:00Z`);
   const endMs = Date.parse(`${String(reqRow.end_date)}T00:00:00Z`);
+  // Bucket tag (Sal 2026-06-24): the per-bucket View History modal filters
+  // usage rows on a "/pto" vs "/plawa" note tag (matching the [MC import]
+  // rows). App-approved rows previously carried no tag and so never showed
+  // in history — tag each one by its leave_type bucket so PTO/Sick history
+  // stays complete for leave approved going forward.
+  const ltRow = await db
+    .select({ slug: leaveTypesTable.slug })
+    .from(leaveTypesTable)
+    .where(eq(leaveTypesTable.id, reqRow.leave_type_id))
+    .limit(1);
+  const bucket = slugToBucket(ltRow[0]?.slug);
   for (let t = startMs; t <= endMs; t += 86400000) {
     const d = new Date(t).toISOString().slice(0, 10);
     await db.insert(employeeLeaveUsageTable).values({
@@ -924,7 +936,9 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
       employee_id: reqRow.user_id,
       date_used: d,
       hours: perDay.toFixed(2),
-      notes: `leave_request #${reqRow.id} approved (${dayUnit})`,
+      // Stable prefix "leave_request #<id> approved" is the key the cancel
+      // path matches on to remove every day of this request.
+      notes: `leave_request #${reqRow.id} approved (${dayUnit}) usage/${bucket}`,
       logged_by: actingUserId,
     });
   }
@@ -1058,19 +1072,26 @@ router.post("/requests/:id/cancel", async (req, res) => {
         updated_at: new Date(),
       })
       .where(eq(employeeLeaveBalancesTable.id, bal.id));
+    // Remove EVERY usage day for this request. The prior code matched only
+    // start_date AND an exact note string without the "(dayUnit) usage/<bucket>"
+    // suffix, so it deleted 0 rows on a multi-day or tagged request, leaving
+    // the days showing as "taken" even though the balance was restored. Key on
+    // the stable "leave_request #<id> approved" prefix instead — covers all
+    // days and both the old and new note formats.
     await db
       .delete(employeeLeaveUsageTable)
       .where(
         and(
           eq(employeeLeaveUsageTable.company_id, companyId),
           eq(employeeLeaveUsageTable.employee_id, reqRow.user_id),
-          eq(employeeLeaveUsageTable.date_used, String(reqRow.start_date)),
-          eq(
+          like(
             employeeLeaveUsageTable.notes,
-            `leave_request #${reqRow.id} approved`,
+            `leave_request #${reqRow.id} approved%`,
           ),
         ),
       );
+    // Reverse the auto-pay so the employee isn't paid for cancelled leave.
+    await voidApprovedLeavePay(companyId, reqRow.id, actingUserId);
   }
   await db
     .update(leaveRequestsTable)

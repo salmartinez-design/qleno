@@ -71,3 +71,32 @@ export async function writeApprovedLeavePay(
 
   return { paid: true, type: payType, hours, amount };
 }
+
+/**
+ * Reverse the auto-pay for a leave request when its approval is cancelled.
+ * Marks any non-voided `additional_pay` row carrying this request's
+ * `leave_req#<id>` marker as 'voided' (payroll excludes 'voided'), so the
+ * employee is not paid for cancelled leave.
+ *
+ * Idempotent + symmetric with writeApprovedLeavePay:
+ *  - re-cancel: only non-voided rows are touched, so it's a no-op the 2nd time
+ *  - re-approve after cancel: the voided row no longer satisfies
+ *    writeApprovedLeavePay's NOT EXISTS (status <> 'voided') guard, so a fresh
+ *    pending row is inserted — never a double-pay, never a stranded one.
+ * Unpaid buckets never created a pay row, so the UPDATE matches nothing.
+ */
+export async function voidApprovedLeavePay(
+  companyId: number,
+  requestId: number,
+  voidedByUserId?: number | null,
+): Promise<void> {
+  const marker = `leave_req#${requestId}`;
+  await db.execute(sql`
+    UPDATE additional_pay
+       SET status = 'voided',
+           voided_at = NOW(),
+           voided_by = ${voidedByUserId ?? null}
+     WHERE company_id = ${companyId}
+       AND notes LIKE ${"%" + marker + "%"}
+       AND COALESCE(status,'pending') <> 'voided'`);
+}
