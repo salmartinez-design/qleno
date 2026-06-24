@@ -117,6 +117,11 @@ export default function AccountDetailPage() {
   const [expandedProp, setExpandedProp] = useState<number | null>(null);
   const [propRecent, setPropRecent] = useState<Record<number, any>>({});
   const [tab, setTab] = useState<Tab>("overview");
+  // [commercial-console] Properties grouped by zone + searchable so big
+  // portfolios (PPM has 45 buildings) read as a few neighborhoods, not an
+  // endless scroll. First slice of the master-detail console.
+  const [propSearch, setPropSearch] = useState("");
+  const [collapsedZones, setCollapsedZones] = useState<Set<string>>(new Set());
 
   // Rate card
   const [showRateCard, setShowRateCard] = useState(false);
@@ -562,8 +567,14 @@ export default function AccountDetailPage() {
         {/* ─── PROPERTIES TAB ─────────────────────────────────────────────── */}
         {tab === "properties" && (
           <div className="space-y-3">
-            <div className="flex justify-end">
-              <Button onClick={openNewProperty} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2" size="sm">
+            <div className="flex items-center gap-2">
+              <input
+                value={propSearch}
+                onChange={(e) => setPropSearch(e.target.value)}
+                placeholder={`Search ${account.properties?.length ?? 0} buildings…`}
+                className="flex-1 h-9 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-[#00C9A0]"
+              />
+              <Button onClick={openNewProperty} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2 flex-shrink-0" size="sm">
                 <Plus size={14} /> Add Property
               </Button>
             </div>
@@ -572,9 +583,29 @@ export default function AccountDetailPage() {
                 <MapPin size={32} strokeWidth={1.5} />
                 <p className="text-sm">No properties yet</p>
               </div>
-            ) : (
+            ) : (() => {
+              const q = propSearch.trim().toLowerCase();
+              const filtered = account.properties.filter((pp: any) => !q || `${pp.property_name || ""} ${pp.address || ""} ${pp.city || ""} ${pp.zip || ""} ${pp.zone_name || ""}`.toLowerCase().includes(q));
+              const groups: Record<string, any[]> = {};
+              for (const pp of filtered) { const z = pp.zone_name || "Unzoned"; (groups[z] = groups[z] || []).push(pp); }
+              const items: any[] = [];
+              for (const z of Object.keys(groups).sort()) { items.push({ __zone: z, __count: groups[z].length }); if (!collapsedZones.has(z)) items.push(...groups[z]); }
+              if (!filtered.length) return <div className="py-10 text-center text-sm text-gray-400">No buildings match.</div>;
+              return (
               <div className="space-y-2">
-                {account.properties.map((p: any) => {
+                {items.map((p: any) => {
+                  if (p.__zone) {
+                    const collapsed = collapsedZones.has(p.__zone);
+                    return (
+                      <div key={`z-${p.__zone}`} role="button" tabIndex={0}
+                        onClick={() => setCollapsedZones((prev) => { const n = new Set(prev); if (n.has(p.__zone)) n.delete(p.__zone); else n.add(p.__zone); return n; })}
+                        className="flex items-center gap-2 px-1 pt-3 pb-1 cursor-pointer select-none">
+                        <ChevronDown size={14} className={`text-gray-400 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+                        <span className="text-xs font-semibold text-gray-600">{p.__zone}</span>
+                        <span className="text-[10px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">{p.__count}</span>
+                      </div>
+                    );
+                  }
                   const open = expandedProp === p.id;
                   const recent = propRecent[p.id];
                   return (
@@ -681,7 +712,8 @@ export default function AccountDetailPage() {
                   );
                 })}
               </div>
-            )}
+              );
+            })()}
           </div>
         )}
 
