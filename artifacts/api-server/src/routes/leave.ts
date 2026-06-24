@@ -365,6 +365,39 @@ router.get("/balances", officeReadGate, async (req, res) => {
   return res.json({ data });
 });
 
+// Per-employee leave usage feed (the bucket lives in each row's note tag —
+// "…/pto", "…/plawa", etc.). Replaces the deprecated /hr-leave/balance/:id
+// usage feed for the profile's "View History" modal. Read-only.
+async function buildUsageForUser(companyId: number, userId: number) {
+  return db
+    .select({
+      date_used: employeeLeaveUsageTable.date_used,
+      hours: employeeLeaveUsageTable.hours,
+      notes: employeeLeaveUsageTable.notes,
+    })
+    .from(employeeLeaveUsageTable)
+    .where(
+      and(
+        eq(employeeLeaveUsageTable.company_id, companyId),
+        eq(employeeLeaveUsageTable.employee_id, userId),
+      ),
+    )
+    .orderBy(desc(employeeLeaveUsageTable.date_used));
+}
+
+router.get("/usage/me", async (req, res) => {
+  const data = await buildUsageForUser(req.auth!.companyId!, req.auth!.userId!);
+  return res.json({ data });
+});
+
+router.get("/usage", officeReadGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const userId = Number(req.query.userId);
+  if (!Number.isFinite(userId)) return bad(res, "userId required");
+  const data = await buildUsageForUser(companyId, userId);
+  return res.json({ data });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Availability
 // ─────────────────────────────────────────────────────────────────────────────
