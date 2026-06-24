@@ -64,6 +64,8 @@ import {
   round2,
 } from "../lib/leave-balance.js";
 import { nextResetDate } from "../lib/leave-reset-format.js";
+import { benefitYearStartDate } from "../lib/leave-grant-reset.js";
+import { nextOccurrenceStep } from "../lib/unexcused-ladder.js";
 import {
   DISC_LABEL,
   parseUnexcusedHours,
@@ -505,6 +507,45 @@ async function buildAttendanceSummary(
   );
   const nextStep = pickNextStep(steps, rollingHours);
 
+  // Occurrence-based disciplinary ladders (PHES). Count INCIDENTS per Benefit
+  // Year (work anniversary) — unexcused absences and tardies independently.
+  // Steps read defensively (columns added by the cutover migration).
+  let unexOccSteps: any[] = [];
+  let tardyOccSteps: any[] = [];
+  try {
+    const r = await db.execute(
+      sql`SELECT unexcused_occurrence_steps, tardy_occurrence_steps FROM company_attendance_policy WHERE company_id = ${companyId} LIMIT 1`,
+    );
+    unexOccSteps = ((r.rows[0] as any)?.unexcused_occurrence_steps as any[]) || [];
+    tardyOccSteps = ((r.rows[0] as any)?.tardy_occurrence_steps as any[]) || [];
+  } catch {
+    unexOccSteps = [];
+    tardyOccSteps = [];
+  }
+  const uRow = await db
+    .select({ hire_date: usersTable.hire_date })
+    .from(usersTable)
+    .where(and(eq(usersTable.company_id, companyId), eq(usersTable.id, userId)))
+    .limit(1);
+  const occHireDate = uRow[0]?.hire_date ? String(uRow[0].hire_date).slice(0, 10) : to;
+  const benefitYearStart = benefitYearStartDate(occHireDate, to).toISOString().slice(0, 10);
+  const byRows = await db
+    .select({ type: employeeAttendanceLogTable.type, is_protected: employeeAttendanceLogTable.protected })
+    .from(employeeAttendanceLogTable)
+    .where(
+      and(
+        eq(employeeAttendanceLogTable.company_id, companyId),
+        eq(employeeAttendanceLogTable.employee_id, userId),
+        gte(employeeAttendanceLogTable.log_date, benefitYearStart),
+      ),
+    );
+  const unexOccCount = byRows.filter((r) => r.type === "absent" && !r.is_protected).length;
+  const tardyOccCount = byRows.filter((r) => r.type === "tardy" && !r.is_protected).length;
+  const fmtOccStep = (s: any | null) =>
+    s ? { occurrence: Number(s.occurrence), label: s.label || DISC_LABEL[s.discipline_type] || "Discipline" } : null;
+  const unexNextOcc = fmtOccStep(nextOccurrenceStep(unexOccSteps, unexOccCount));
+  const tardyNextOcc = fmtOccStep(nextOccurrenceStep(tardyOccSteps, tardyOccCount));
+
   // Discipline log (office/owner only — never returned to an employee's own
   // /me view). Active = not dismissed. Newest first.
   let discipline: Array<{ label: string; type: string; reason: string | null; effective_date: string; pending_review: boolean }> = [];
@@ -551,10 +592,21 @@ async function buildAttendanceSummary(
       pto: tile(ptoRows),
     },
     unexcused: {
-      rolling_hours: rollingHours,
-      window_days: maxWindow,
-      next_step: nextStep,
+      // Occurrence-based (PHES) — the disciplinary ladder counts incidents per
+      // benefit year. Falls back to plain count when no steps are configured.
+      occurrences: unexOccCount,
+      benefit_year_start: benefitYearStart,
+      next_step: unexNextOcc,
       current_discipline: currentDiscipline,
+      // Legacy cumulative-hours record (kept for reference, not the ladder).
+      rolling_hours: rollingHours,
+      hours_window_days: maxWindow,
+      hours_next_step: nextStep,
+    },
+    tardy: {
+      occurrences: tardyOccCount,
+      benefit_year_start: benefitYearStart,
+      next_step: tardyNextOcc,
     },
     discipline,
   };

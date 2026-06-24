@@ -110,3 +110,62 @@ export function evaluateLadder(
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Occurrence-based ladder (PHES, Sal 2026-06-24).
+//
+// The PHES handbook/LMS disciplinary ladder counts INCIDENTS per Benefit Year
+// (work anniversary), NOT cumulative hours. Two independent counters: unexcused
+// absences and tardies. This pure evaluator returns the HIGHEST step the
+// occurrence count crosses that hasn't already fired this benefit year — so a
+// jump (e.g. straight to the 5th occurrence) emits one row at the highest level,
+// never re-firing a lower step.
+// ─────────────────────────────────────────────────────────────────────────────
+export type OccurrenceStep = {
+  occurrence: number; // fires at the Nth occurrence (1-based)
+  discipline_type:
+    | "tardy_warning"
+    | "absence_warning"
+    | "final_warning"
+    | "termination"
+    | "custom";
+  label?: string;
+  notify: boolean;
+};
+
+export type OccurrenceEvaluation = {
+  triggered_step: OccurrenceStep | null;
+  occurrence_count: number;
+};
+
+export function evaluateOccurrenceLadder(
+  steps: ReadonlyArray<OccurrenceStep>,
+  occurrenceCount: number,
+  alreadyFiredOccurrences: ReadonlySet<number>,
+): OccurrenceEvaluation {
+  const sorted = [...steps]
+    .filter((s) => Number(s.occurrence) > 0)
+    .sort((a, b) => a.occurrence - b.occurrence);
+  let triggered: OccurrenceStep | null = null;
+  for (const step of sorted) {
+    if (alreadyFiredOccurrences.has(step.occurrence)) continue;
+    if (occurrenceCount >= step.occurrence) {
+      triggered = step; // keep walking → highest crossed, not-yet-fired step
+    }
+  }
+  return { triggered_step: triggered, occurrence_count: occurrenceCount };
+}
+
+/** The next step the employee has NOT yet reached (for the card progress bar).
+ *  Returns null when no steps configured or all crossed. */
+export function nextOccurrenceStep(
+  steps: ReadonlyArray<OccurrenceStep>,
+  occurrenceCount: number,
+): OccurrenceStep | null {
+  return (
+    [...steps]
+      .filter((s) => Number(s.occurrence) > 0)
+      .sort((a, b) => a.occurrence - b.occurrence)
+      .find((s) => s.occurrence > occurrenceCount) || null
+  );
+}

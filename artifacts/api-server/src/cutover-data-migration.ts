@@ -61,6 +61,7 @@ export async function runCutoverDataMigration(): Promise<void> {
   }
   try {
     await seedPhesLeavePolicy3A();
+    await seedPhesOccurrenceLadders();
   } catch (err) {
     console.error(
       "[cutover-migration] Phes 3A leave policy seed failed (non-fatal):",
@@ -752,6 +753,72 @@ async function seedPhesLeavePolicy3A(): Promise<void> {
         use_it_or_lose_it_alert_lead_days = COALESCE(EXCLUDED.use_it_or_lose_it_alert_lead_days, company_leave_policy.use_it_or_lose_it_alert_lead_days),
         balance_ceiling_hours = COALESCE(EXCLUDED.balance_ceiling_hours, company_leave_policy.balance_ceiling_hours);
       RAISE NOTICE 'cutover-migration: ensured Phes 3A leave policy (work-anniversary reset)';
+    END
+    $$;
+  `),
+  );
+}
+
+/**
+ * PHES occurrence-based disciplinary ladders (Sal 2026-06-24, confirmed against
+ * the LMS "Phes Policies" module). Adds the two occurrence-step columns and
+ * seeds the ladder for co1 + co4: 3rd occurrence → written warning, 4th → final
+ * warning, 5th → termination — independently for unexcused absences and tardies,
+ * counted per Benefit Year. Seeds only when the column is empty so later office
+ * edits are never clobbered. (Tardy step 3 uses tardy_warning, unexcused step 3
+ * uses absence_warning; both render the label "Written warning".)
+ */
+async function seedPhesOccurrenceLadders(): Promise<void> {
+  const UNEXCUSED = JSON.stringify([
+    { occurrence: 3, discipline_type: "absence_warning", label: "Written warning", notify: true },
+    { occurrence: 4, discipline_type: "final_warning", label: "Final warning", notify: true },
+    { occurrence: 5, discipline_type: "termination", label: "Termination", notify: true },
+  ]);
+  const TARDY = JSON.stringify([
+    { occurrence: 3, discipline_type: "tardy_warning", label: "Written warning", notify: true },
+    { occurrence: 4, discipline_type: "final_warning", label: "Final warning", notify: true },
+    { occurrence: 5, discipline_type: "termination", label: "Termination", notify: true },
+  ]);
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'company_attendance_policy'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: company_attendance_policy not present yet, skipping occurrence ladder';
+        RETURN;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='company_attendance_policy' AND column_name='unexcused_occurrence_steps'
+      ) THEN
+        ALTER TABLE company_attendance_policy ADD COLUMN unexcused_occurrence_steps jsonb DEFAULT '[]'::jsonb;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='company_attendance_policy' AND column_name='tardy_occurrence_steps'
+      ) THEN
+        ALTER TABLE company_attendance_policy ADD COLUMN tardy_occurrence_steps jsonb DEFAULT '[]'::jsonb;
+      END IF;
+
+      -- Ensure a policy row exists for co1 + co4 (no unique-constraint assumption).
+      INSERT INTO company_attendance_policy (company_id)
+        SELECT v FROM (VALUES (1),(4)) AS t(v)
+        WHERE NOT EXISTS (SELECT 1 FROM company_attendance_policy p WHERE p.company_id = t.v);
+
+      -- Seed the PHES ladders only where not already configured (never clobber edits).
+      UPDATE company_attendance_policy
+        SET unexcused_occurrence_steps = '${UNEXCUSED}'::jsonb
+        WHERE company_id IN (1,4)
+          AND (unexcused_occurrence_steps IS NULL OR unexcused_occurrence_steps = '[]'::jsonb);
+      UPDATE company_attendance_policy
+        SET tardy_occurrence_steps = '${TARDY}'::jsonb
+        WHERE company_id IN (1,4)
+          AND (tardy_occurrence_steps IS NULL OR tardy_occurrence_steps = '[]'::jsonb);
+      RAISE NOTICE 'cutover-migration: ensured PHES occurrence disciplinary ladders (3/4/5 → written/final/termination)';
     END
     $$;
   `),
