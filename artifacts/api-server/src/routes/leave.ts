@@ -66,6 +66,7 @@ import {
 import { nextResetDate } from "../lib/leave-reset-format.js";
 import { benefitYearStartDate } from "../lib/leave-grant-reset.js";
 import { nextOccurrenceStep } from "../lib/unexcused-ladder.js";
+import { resolveBucketDisplay } from "../lib/leave-bucket-display.js";
 import {
   DISC_LABEL,
   parseUnexcusedHours,
@@ -310,6 +311,11 @@ async function buildBalancesForUser(
     past_waiting_period: boolean;
     next_reset_date: string | null;
     eligible_on: string | null;
+    accent: string;
+    tint: string;
+    on_tint: string;
+    board_label: string;
+    chip_label: string;
   }>
 > {
   const buckets = await db
@@ -361,6 +367,7 @@ async function buildBalancesForUser(
       d.setUTCDate(d.getUTCDate() + (b.waiting_period_days || 0));
       eligibleOn = d.toISOString().slice(0, 10);
     }
+    const disp = resolveBucketDisplay(b as any);
     out.push({
       leave_type_id: b.id,
       display_name: b.display_name,
@@ -374,6 +381,11 @@ async function buildBalancesForUser(
       past_waiting_period: past,
       next_reset_date: nextReset,
       eligible_on: eligibleOn,
+      accent: disp.accent,
+      tint: disp.tint,
+      on_tint: disp.on_tint,
+      board_label: disp.board_label,
+      chip_label: disp.chip_label,
     });
   }
   return out;
@@ -1096,6 +1108,7 @@ router.get("/requests", officeReadGate, async (req, res) => {
       leave_type_id: leaveRequestsTable.leave_type_id,
       bucket_name: leaveTypesTable.display_name,
       bucket_slug: leaveTypesTable.slug,
+      bucket_display_config: leaveTypesTable.display_config,
       start_date: leaveRequestsTable.start_date,
       end_date: leaveRequestsTable.end_date,
       hours: leaveRequestsTable.hours,
@@ -1118,7 +1131,12 @@ router.get("/requests", officeReadGate, async (req, res) => {
     )
     .where(where)
     .orderBy(desc(leaveRequestsTable.created_at));
-  return res.json({ data: rows });
+  // Resolve each row's chip tint + on-tint from the tenant's bucket display.
+  const data = rows.map((r) => {
+    const d = resolveBucketDisplay({ slug: String(r.bucket_slug ?? ""), display_name: String(r.bucket_name ?? ""), display_config: r.bucket_display_config as any });
+    return { ...r, bucket_tint: d.tint, bucket_on_tint: d.on_tint };
+  });
+  return res.json({ data });
 });
 
 router.get("/requests/mine", async (req, res) => {

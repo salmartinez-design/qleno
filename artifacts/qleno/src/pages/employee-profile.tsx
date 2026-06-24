@@ -89,14 +89,12 @@ function leaveBucketTag(slug: string): string {
 }
 // Dispatch-board-consistent accent palette. White card + colored left bar /
 // dot / label / number in this accent. (Phase 3 will source these per-tenant.)
-function leaveBucketAccent(slug: string): string {
-  const s = (slug || '').toLowerCase();
-  if (s.includes('plawa') || s.includes('sick')) return '#378ADD'; // blue
-  if (s.includes('pto')) return '#1D9E75';                          // green
-  if (s.includes('unpaid')) return '#BA7517';                       // amber
-  if (s.includes('unexcused')) return '#E24B4A';                    // red
-  return '#374151';
-}
+// [Phase 3] Bucket accent/label are tenant-dynamic — resolved server-side from
+// leave_types.display_config and delivered on each balance row (b.accent,
+// b.chip_label). The chips look these up via a slug→display map built from the
+// balances response (see bucketDisplayMap). Unknown slugs get a neutral accent.
+type BucketDisp = { accent: string; label: string };
+const NEUTRAL_ACCENT = '#374151';
 const LEAVE_LOW = '#BA7517';  // amber — running low
 const LEAVE_OUT = '#E24B4A';  // red — exhausted / step crossed
 // Days until a YYYY-MM-DD date (UTC), and a "Mon DD" label.
@@ -113,16 +111,19 @@ function shortDate(ymd: string): string {
 // [Phase 4] Render a leave/attendance note as clean chips: a colored bucket
 // chip + a status/kind chip + the human remainder. Presentation-only — parses
 // both [MC import] and app-approved formats; falls back to plain text.
-function NoteChips({ note }: { note: string | null | undefined }) {
+function NoteChips({ note, bucketMap }: { note: string | null | undefined; bucketMap?: Record<string, BucketDisp> }) {
   const p = parseLeaveNote(note);
   if (!p.bucketSlug && !p.kind && !p.clean) {
     return <span style={{ fontSize: 12, color: '#9E9B94' }}>—</span>;
   }
   const toneStyle = KIND_TONE_STYLE[p.kindTone];
+  const disp = p.bucketSlug ? bucketMap?.[p.bucketSlug] : undefined;
+  const chipAccent = disp?.accent || NEUTRAL_ACCENT;
+  const chipLabel = disp?.label || leaveBucketLabel(p.bucketSlug);
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
       {p.bucketSlug && (
-        <span style={{ fontSize: 10.5, fontWeight: 700, color: leaveBucketAccent(p.bucketSlug), background: '#FFFFFF', border: `1px solid ${leaveBucketAccent(p.bucketSlug)}`, borderRadius: 99, padding: '1px 7px', whiteSpace: 'nowrap' }}>{leaveBucketLabel(p.bucketSlug)}</span>
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: chipAccent, background: '#FFFFFF', border: `1px solid ${chipAccent}`, borderRadius: 99, padding: '1px 7px', whiteSpace: 'nowrap' }}>{chipLabel}</span>
       )}
       {p.kind && (
         <span style={{ fontSize: 10.5, fontWeight: 600, color: toneStyle.fg, background: toneStyle.bg, borderRadius: 99, padding: '1px 7px', whiteSpace: 'nowrap' }}>{p.kind}</span>
@@ -592,6 +593,11 @@ export default function EmployeeProfilePage() {
     enabled: activeTab === 'Attendance',
   });
   const leaveBuckets: any[] = leaveBalancesResp?.data || [];
+  // [Phase 3] slug → {accent, chip label} for the history chips, built from the
+  // tenant's balance rows (which now carry display from leave_types config).
+  const bucketDisplayMap: Record<string, BucketDisp> = Object.fromEntries(
+    leaveBuckets.map((b: any) => [b.slug, { accent: b.accent || NEUTRAL_ACCENT, label: b.chip_label || b.display_name }]),
+  );
   const { data: leaveUsageResp } = useQuery({
     queryKey: ['leave-usage', userId],
     queryFn: () => apiFetch(`/leave/usage?userId=${userId}`),
@@ -1236,7 +1242,7 @@ export default function EmployeeProfilePage() {
                   </div>
                 )}
                 {leaveBuckets.map((b: any) => {
-                  const accent = leaveBucketAccent(b.slug);
+                  const accent = b.accent || NEUTRAL_ACCENT;
                   const officeRecorded = b.accrual_mode === 'office_recorded';
                   const notVested = !officeRecorded && !b.past_waiting_period;
                   const granted = Number(b.granted || 0);
@@ -1372,7 +1378,7 @@ export default function EmployeeProfilePage() {
                           <div key={i} style={{ display:'flex',justifyContent:'space-between',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
                             <div style={{ minWidth:0 }}>
                               <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(u.date_used).slice(0,10))} · {String(u.date_used).slice(0,10)}</div>
-                              <NoteChips note={u.notes} />
+                              <NoteChips note={u.notes} bucketMap={bucketDisplayMap} />
                             </div>
                             <div style={{ fontSize:14,fontWeight:700,color:'#1A1917',whiteSpace:'nowrap' }}>{Number(u.hours).toFixed(2)} h</div>
                           </div>
@@ -1430,7 +1436,7 @@ export default function EmployeeProfilePage() {
                         <div key={i} style={{ display:'flex',justifyContent:'space-between',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
                           <div style={{ minWidth:0 }}>
                             <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(d.date))} · {String(d.date)}</div>
-                            <NoteChips note={d.reason} />
+                            <NoteChips note={d.reason} bucketMap={bucketDisplayMap} />
                           </div>
                           {d.hours != null && <div style={{ fontSize:14,fontWeight:700,color:'#1A1917',whiteSpace:'nowrap' }}>{Number(d.hours).toFixed(2)} h</div>}
                         </div>
