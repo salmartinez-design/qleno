@@ -50,6 +50,8 @@ import {
   leaveBlackoutsTable,
   employeeAvailabilityTable,
   employeeLeaveUsageTable,
+  employeeAttendanceLogTable,
+  employeeDisciplineLogTable,
   companyLeavePolicyTable,
   usersTable,
 } from "@workspace/db/schema";
@@ -61,6 +63,14 @@ import {
   isPastWaitingPeriod,
   round2,
 } from "../lib/leave-balance.js";
+import { nextResetDate } from "../lib/leave-reset-format.js";
+import {
+  DISC_LABEL,
+  parseUnexcusedHours,
+  cleanUnexNote,
+  pickNextStep,
+  maxLadderWindow,
+} from "../lib/leave-attendance-format.js";
 import {
   checkRequestable,
   checkWaitingPeriod,
@@ -296,6 +306,8 @@ async function buildBalancesForUser(
     annual_cap_hours: number;
     waiting_period_days: number;
     past_waiting_period: boolean;
+    next_reset_date: string | null;
+    eligible_on: string | null;
   }>
 > {
   const buckets = await db
@@ -334,6 +346,19 @@ async function buildBalancesForUser(
     const past = hireDate
       ? isPastWaitingPeriod(hireDate, b.waiting_period_days, today)
       : false;
+    // Reset countdown + waiting-period note inputs (Phase 2 card polish).
+    // Flat-grant buckets reset on the work anniversary; office-recorded
+    // (Unexcused) never resets → null. eligible_on = hire + waiting period.
+    const nextReset =
+      b.accrual_mode === "flat_grant" && hireDate
+        ? nextResetDate(hireDate, today).toISOString().slice(0, 10)
+        : null;
+    let eligibleOn: string | null = null;
+    if (hireDate) {
+      const d = new Date(`${hireDate}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() + (b.waiting_period_days || 0));
+      eligibleOn = d.toISOString().slice(0, 10);
+    }
     out.push({
       leave_type_id: b.id,
       display_name: b.display_name,
@@ -345,6 +370,8 @@ async function buildBalancesForUser(
       annual_cap_hours: Number(b.annual_cap_hours),
       waiting_period_days: b.waiting_period_days,
       past_waiting_period: past,
+      next_reset_date: nextReset,
+      eligible_on: eligibleOn,
     });
   }
   return out;
@@ -395,6 +422,147 @@ router.get("/usage", officeReadGate, async (req, res) => {
   const userId = Number(req.query.userId);
   if (!Number.isFinite(userId)) return bad(res, "userId required");
   const data = await buildUsageForUser(companyId, userId);
+  return res.json({ data });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Attendance summary (Phase 2) — real, clickable stat tiles + the Unexcused
+// disciplinary-ladder progress. Counts + per-day drill-down rows (date +
+// reason) over a rolling window, sourced from employee_attendance_log
+// (tardy/absent/ncns) + employee_leave_usage (pto/plawa note tags). Read-only.
+// ─────────────────────────────────────────────────────────────────────────────
+function ymdMinus(days: number): string {
+  return new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+}
+
+async function buildAttendanceSummary(
+  companyId: number,
+  userId: number,
+  windowDays: number,
+) {
+  const to = new Date().toISOString().slice(0, 10);
+  const from = ymdMinus(windowDays);
+
+  const att = await db
+    .select({
+      log_date: employeeAttendanceLogTable.log_date,
+      type: employeeAttendanceLogTable.type,
+      notes: employeeAttendanceLogTable.notes,
+      is_protected: employeeAttendanceLogTable.protected,
+    })
+    .from(employeeAttendanceLogTable)
+    .where(
+      and(
+        eq(employeeAttendanceLogTable.company_id, companyId),
+        eq(employeeAttendanceLogTable.employee_id, userId),
+        gte(employeeAttendanceLogTable.log_date, from),
+      ),
+    )
+    .orderBy(desc(employeeAttendanceLogTable.log_date));
+
+  const usage = await buildUsageForUser(companyId, userId);
+  const usageInWindow = usage.filter(
+    (u) => String(u.date_used).slice(0, 10) >= from,
+  );
+
+  const dayRow = (date: any, reason: string, hours: number | null) => ({
+    date: String(date).slice(0, 10),
+    reason: (reason || "").trim(),
+    hours: hours != null ? round2(Number(hours)) : null,
+  });
+  const lateRows = att.filter((r) => r.type === "tardy").map((r) => dayRow(r.log_date, r.notes || "Late", null));
+  const absentRows = att.filter((r) => r.type === "absent" || r.type === "ncns").map((r) => dayRow(r.log_date, r.notes || "Absent", null));
+  const unexRows = att.filter((r) => r.type === "absent" && !r.is_protected).map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes)));
+  const ptoRows = usageInWindow.filter((u) => String(u.notes || "").includes("/pto")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours)));
+  const sickRows = usageInWindow.filter((u) => String(u.notes || "").includes("/plawa")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours)));
+  const timeOffRows = usageInWindow.map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours)));
+
+  const tile = (rows: Array<{ hours: number | null }>) => ({
+    count: rows.length,
+    hours: round2(rows.reduce((s, r) => s + (r.hours || 0), 0)),
+    days: rows,
+  });
+
+  // Unexcused disciplinary ladder (LMS-rule thresholds). The
+  // unexcused_hours_steps column may not exist yet in every tenant DB — read
+  // defensively so the tile degrades to a plain count until it's configured.
+  let steps: any[] = [];
+  try {
+    const r = await db.execute(
+      sql`SELECT unexcused_hours_steps FROM company_attendance_policy WHERE company_id = ${companyId} LIMIT 1`,
+    );
+    steps = ((r.rows[0] as any)?.unexcused_hours_steps as any[]) || [];
+  } catch {
+    steps = [];
+  }
+  const maxWindow = maxLadderWindow(steps, windowDays);
+  const ladderFrom = ymdMinus(maxWindow);
+  const rollingHours = round2(
+    att
+      .filter((r) => r.type === "absent" && !r.is_protected && String(r.log_date).slice(0, 10) >= ladderFrom)
+      .reduce((s, r) => s + parseUnexcusedHours(r.notes), 0),
+  );
+  const nextStep = pickNextStep(steps, rollingHours);
+
+  const disc = await db
+    .select({
+      discipline_type: employeeDisciplineLogTable.discipline_type,
+      custom_label: employeeDisciplineLogTable.custom_label,
+    })
+    .from(employeeDisciplineLogTable)
+    .where(
+      and(
+        eq(employeeDisciplineLogTable.company_id, companyId),
+        eq(employeeDisciplineLogTable.employee_id, userId),
+        eq(employeeDisciplineLogTable.dismissed, false),
+      ),
+    )
+    .orderBy(desc(employeeDisciplineLogTable.effective_date))
+    .limit(1);
+  const currentDiscipline = disc[0]
+    ? { label: disc[0].custom_label || DISC_LABEL[disc[0].discipline_type] || "Discipline" }
+    : null;
+
+  return {
+    window_days: windowDays,
+    from,
+    to,
+    tiles: {
+      late: tile(lateRows),
+      absent: tile(absentRows),
+      unexcused: tile(unexRows),
+      time_off: tile(timeOffRows),
+      sick: tile(sickRows),
+      pto: tile(ptoRows),
+    },
+    unexcused: {
+      rolling_hours: rollingHours,
+      window_days: maxWindow,
+      next_step: nextStep,
+      current_discipline: currentDiscipline,
+    },
+  };
+}
+
+function parseWindowDays(q: unknown): number {
+  const n = Number(q);
+  return [30, 90, 180, 365].includes(n) ? n : 180;
+}
+
+router.get("/attendance-summary/me", async (req, res) => {
+  const data = await buildAttendanceSummary(
+    req.auth!.companyId!,
+    req.auth!.userId!,
+    parseWindowDays(req.query.windowDays),
+  );
+  return res.json({ data });
+});
+
+router.get("/attendance-summary", officeReadGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const userId = Number(req.query.userId);
+  if (!Number.isFinite(userId)) return bad(res, "userId required");
+  const data = await buildAttendanceSummary(companyId, userId, parseWindowDays(req.query.windowDays));
   return res.json({ data });
 });
 

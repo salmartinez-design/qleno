@@ -86,13 +86,27 @@ function leaveBucketTag(slug: string): string {
   if (s.includes('unexcused')) return '/unexcused';
   return '/' + s;
 }
-function leaveBucketColors(slug: string): { bg: string; fg: string } {
+// Dispatch-board-consistent accent palette. White card + colored left bar /
+// dot / label / number in this accent. (Phase 3 will source these per-tenant.)
+function leaveBucketAccent(slug: string): string {
   const s = (slug || '').toLowerCase();
-  if (s.includes('plawa') || s.includes('sick')) return { bg: '#FEF3C7', fg: '#92400E' };
-  if (s.includes('pto')) return { bg: 'var(--brand-dim)', fg: 'var(--brand)' };
-  if (s.includes('unpaid')) return { bg: '#EEF2F7', fg: '#334155' };
-  if (s.includes('unexcused')) return { bg: '#FCE7E7', fg: '#991B1B' };
-  return { bg: '#F3F4F6', fg: '#374151' };
+  if (s.includes('plawa') || s.includes('sick')) return '#378ADD'; // blue
+  if (s.includes('pto')) return '#1D9E75';                          // green
+  if (s.includes('unpaid')) return '#BA7517';                       // amber
+  if (s.includes('unexcused')) return '#E24B4A';                    // red
+  return '#374151';
+}
+const LEAVE_LOW = '#BA7517';  // amber — running low
+const LEAVE_OUT = '#E24B4A';  // red — exhausted / step crossed
+// Days until a YYYY-MM-DD date (UTC), and a "Mon DD" label.
+function daysUntilYmd(ymd: string): number {
+  const t = new Date(`${ymd}T00:00:00Z`).getTime();
+  const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime();
+  return Math.round((t - today) / 86400000);
+}
+function shortDate(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
 const PAY_GROUPS: { label: string; types: string[] }[] = [
@@ -561,6 +575,16 @@ export default function EmployeeProfilePage() {
     enabled: activeTab === 'Attendance',
   });
   const leaveUsage: any[] = leaveUsageResp?.data || [];
+
+  // [Phase 2] Real attendance stats + per-day drill-downs. Default 180-day
+  // window (the API accepts windowDays 30/90/180/365 for a future selector).
+  const [statDrill, setStatDrill] = useState<null | { label: string; days: any[] }>(null);
+  const { data: attnSummaryResp } = useQuery({
+    queryKey: ['attendance-summary', userId],
+    queryFn: () => apiFetch(`/leave/attendance-summary?userId=${userId}&windowDays=180`),
+    enabled: activeTab === 'Attendance',
+  });
+  const attnSummary: any = attnSummaryResp?.data || null;
 
   const { data: ticketsData, refetch: refetchTickets } = useQuery({
     queryKey: ['contact-tickets', userId],
@@ -1166,27 +1190,84 @@ export default function EmployeeProfilePage() {
                   </div>
                 )}
                 {leaveBuckets.map((b: any) => {
-                  const c = leaveBucketColors(b.slug);
+                  const accent = leaveBucketAccent(b.slug);
                   const officeRecorded = b.accrual_mode === 'office_recorded';
                   const notVested = !officeRecorded && !b.past_waiting_period;
-                  const bigNum = officeRecorded ? Number(b.used || 0) : Number(b.available || 0);
+                  const granted = Number(b.granted || 0);
+                  const used = Number(b.used || 0);
+                  const avail = Number(b.available || 0);
+                  const unex = officeRecorded ? (attnSummary?.unexcused || null) : null;
+
+                  // Big number + usage bar geometry + smart color.
+                  let bigNum = avail.toFixed(1);
+                  let bigLabel = 'hours available';
+                  let barPct = 0;
+                  let barColor = accent;
+                  let barCaption = '';
+                  if (officeRecorded) {
+                    const rolling = Number(unex?.rolling_hours || 0);
+                    const nextThresh = Number(unex?.next_step?.threshold || 0);
+                    bigNum = rolling.toFixed(1);
+                    bigLabel = 'hours recorded';
+                    if (nextThresh > 0) {
+                      barPct = Math.min(100, (rolling / nextThresh) * 100);
+                      barColor = barPct >= 100 ? LEAVE_OUT : barPct >= 60 ? LEAVE_LOW : accent;
+                      barCaption = `${rolling.toFixed(1)} of ${nextThresh} h to next discipline step`;
+                    } else {
+                      barCaption = 'No disciplinary thresholds set';
+                    }
+                  } else {
+                    barPct = granted > 0 ? Math.min(100, (used / granted) * 100) : 0;
+                    barColor = avail <= 0 ? LEAVE_OUT : (granted > 0 && avail <= 0.2 * granted) ? LEAVE_LOW : accent;
+                    barCaption = `${used.toFixed(1)} used · ${avail.toFixed(1)} left · of ${granted.toFixed(1)} granted`;
+                  }
+                  const resetDays = !officeRecorded && b.next_reset_date ? daysUntilYmd(b.next_reset_date) : null;
+                  const eligDays = b.eligible_on ? daysUntilYmd(b.eligible_on) : null;
+
                   return (
-                    <div key={b.leave_type_id} style={{ background:c.bg, borderRadius:10, padding:'14px 16px' }}>
-                      <p style={{ fontSize:12,fontWeight:700,color:c.fg,margin:'0 0 2px 0',textTransform:'uppercase',letterSpacing:'0.04em' }}>{b.display_name}</p>
-                      <div style={{ display:'flex',alignItems:'baseline',gap:6 }}>
-                        <span style={{ fontSize:30,fontWeight:800,color:c.fg,lineHeight:1.1 }}>{notVested ? '—' : bigNum.toFixed(1)}</span>
-                        <span style={{ fontSize:12,color:c.fg,opacity:0.8 }}>{officeRecorded ? 'hours recorded' : 'hours available'}</span>
+                    <div key={b.leave_type_id} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderLeft:`4px solid ${accent}`, borderRadius:10, padding:'14px 16px' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:7, minWidth:0 }}>
+                          <span style={{ width:9, height:9, borderRadius:'50%', background:accent, flexShrink:0 }} />
+                          <span style={{ fontSize:12, fontWeight:700, color:accent, textTransform:'uppercase', letterSpacing:'0.04em' }}>{b.display_name}</span>
+                        </div>
+                        {resetDays != null && resetDays >= 0 && !notVested && (
+                          <span style={{ fontSize:10.5, color:'#9E9B94', whiteSpace:'nowrap' }}>resets in {resetDays}d · {shortDate(b.next_reset_date)}</span>
+                        )}
                       </div>
-                      <p style={{ fontSize:11,color:c.fg,opacity:0.75,margin:'4px 0 0 0' }}>
-                        {notVested
-                          ? 'Eligible after waiting period'
-                          : officeRecorded
-                            ? `${Number(b.used||0).toFixed(1)} h recorded this period`
-                            : `${Number(b.granted||0).toFixed(1)} granted · ${Number(b.used||0).toFixed(1)} used`}
-                      </p>
+
+                      {notVested ? (
+                        <div style={{ marginTop:8 }}>
+                          <p style={{ fontSize:14, fontWeight:700, color:accent, margin:0 }}>
+                            {eligDays != null && eligDays > 0 ? `Unlocks in ${eligDays} day${eligDays === 1 ? '' : 's'}` : 'Eligible after waiting period'}
+                          </p>
+                          {b.eligible_on && eligDays != null && eligDays > 0 && (
+                            <p style={{ fontSize:11, color:'#9E9B94', margin:'2px 0 0 0' }}>{b.display_name} available {shortDate(b.eligible_on)}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ display:'flex', alignItems:'baseline', gap:6, marginTop:6 }}>
+                            <span style={{ fontSize:30, fontWeight:800, color:accent, lineHeight:1.1 }}>{bigNum}</span>
+                            <span style={{ fontSize:12, color:'#6B6860' }}>{bigLabel}</span>
+                            {officeRecorded && unex?.current_discipline && (
+                              <span style={{ marginLeft:'auto', fontSize:10.5, fontWeight:700, color:'#FFFFFF', background:LEAVE_OUT, borderRadius:99, padding:'2px 8px', whiteSpace:'nowrap' }}>{unex.current_discipline.label}</span>
+                            )}
+                          </div>
+                          {/* usage / progress bar */}
+                          <div style={{ height:6, borderRadius:99, background:'#EEEDEA', marginTop:8, overflow:'hidden' }}>
+                            <div style={{ height:'100%', width:`${barPct}%`, background:barColor, borderRadius:99, transition:'width 0.3s ease' }} />
+                          </div>
+                          <p style={{ fontSize:11, color:'#6B6860', margin:'5px 0 0 0' }}>{barCaption}</p>
+                          {!officeRecorded && (
+                            <p style={{ fontSize:11, color:'#9E9B94', margin:'2px 0 0 0' }}>{used.toFixed(1)} hrs taken this year</p>
+                          )}
+                        </>
+                      )}
+
                       <div style={{ display:'flex', gap:8, marginTop:10 }}>
-                        <button onClick={() => setHistoryBucket({ slug:b.slug, display_name:b.display_name })} style={{ flex:1,padding:'6px 0',border:`1px solid ${c.fg}`,borderRadius:6,fontSize:12,color:c.fg,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
-                        <button style={{ flex:1,padding:'6px 0',background:c.fg,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Update</button>
+                        <button onClick={() => setHistoryBucket({ slug:b.slug, display_name:b.display_name })} style={{ flex:1,padding:'6px 0',border:`1px solid ${accent}`,borderRadius:6,fontSize:12,color:accent,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
+                        <button style={{ flex:1,padding:'6px 0',background:accent,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Update</button>
                       </div>
                     </div>
                   );
@@ -1222,27 +1303,61 @@ export default function EmployeeProfilePage() {
                 })()}
 
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'14px 16px' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-                    <p style={{ fontSize:13,fontWeight:700,color:'#1A1917',margin:0 }}>Stats — Last 180 Days</p>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                    <p style={{ fontSize:13,fontWeight:700,color:'#1A1917',margin:0 }}>Attendance — Last 180 Days</p>
                   </div>
-                  {[
-                    {label:'Scheduled', value: user.total_jobs || 0},
-                    {label:'Worked', value: Math.round((user.total_jobs||0)*0.88)},
-                    {label:'Absent', value: 11, pct:'8%'},
-                    {label:'Time Off', value: 9, pct:'6%'},
-                    {label:'Excused', value: 0, pct:'0%'},
-                    {label:'Unexcused', value: 2, pct:'1%'},
-                    {label:'Paid Time Off', value: 3, pct:'2%'},
-                    {label:'Sick', value: 4, pct:'3%'},
-                    {label:'Late', value: 6, pct:'5%'},
-                    {label:'Score', value: scorePct != null ? `${scorePct.toFixed(0)}%` : '—'},
-                  ].map(row => (
-                    <div key={row.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'5px 0', borderBottom:'1px solid #F3F4F6' }}>
-                      <span style={{ fontSize:12,color:'#6B7280' }}>{row.label}</span>
-                      <span style={{ fontSize:12,fontWeight:600,color:'#1A1917' }}>{row.value}{row.pct ? ` (${row.pct})` : ''}</span>
-                    </div>
-                  ))}
+                  {(() => {
+                    const t = attnSummary?.tiles;
+                    const rows: Array<{ label:string; value:any; days?:any[] }> = [
+                      { label:'Scheduled', value: user.total_jobs || 0 },
+                      { label:'Late', value: t?.late?.count ?? 0, days: t?.late?.days },
+                      { label:'Absent', value: t?.absent?.count ?? 0, days: t?.absent?.days },
+                      { label:'Unexcused', value: t?.unexcused?.count ?? 0, days: t?.unexcused?.days },
+                      { label:'Time Off', value: t?.time_off?.count ?? 0, days: t?.time_off?.days },
+                      { label:'Paid Time Off', value: t?.pto?.count ?? 0, days: t?.pto?.days },
+                      { label:'Sick', value: t?.sick?.count ?? 0, days: t?.sick?.days },
+                      { label:'Score', value: scorePct != null ? `${scorePct.toFixed(0)}%` : '—' },
+                    ];
+                    return rows.map(row => {
+                      const clickable = Array.isArray(row.days);
+                      const hasRows = clickable && (row.days as any[]).length > 0;
+                      return (
+                        <div key={row.label}
+                          onClick={hasRows ? () => setStatDrill({ label: row.label, days: row.days as any[] }) : undefined}
+                          style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', borderBottom:'1px solid #F3F4F6', cursor: hasRows ? 'pointer' : 'default' }}>
+                          <span style={{ fontSize:12, color: hasRows ? 'var(--brand)' : '#6B7280' }}>{row.label}</span>
+                          <span style={{ fontSize:12, fontWeight:600, color:'#1A1917' }}>{row.value}{hasRows ? ' ›' : ''}</span>
+                        </div>
+                      );
+                    });
+                  })()}
+                  {!attnSummary && (
+                    <p style={{ fontSize:11, color:'#9E9B94', margin:'8px 0 0 0' }}>Loading…</p>
+                  )}
                 </div>
+
+                {/* [Phase 2] Stat-tile day-level drill-down (date + reason) */}
+                {statDrill && (
+                  <div onClick={() => setStatDrill(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:12,padding:24,width:560,maxWidth:'92vw',maxHeight:'80vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+                      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
+                        <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>{statDrill.label} — last 180 days</h3>
+                        <button onClick={() => setStatDrill(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
+                      </div>
+                      {statDrill.days.length === 0 ? (
+                        <p style={{ color:'#9E9B94',fontSize:13,margin:0 }}>No {statDrill.label.toLowerCase()} days recorded.</p>
+                      ) : statDrill.days.map((d: any, i: number) => (
+                        <div key={i} style={{ display:'flex',justifyContent:'space-between',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ fontSize:13,fontWeight:600,color:'#1A1917' }}>{shortDate(String(d.date))} · {String(d.date)}</div>
+                            <div style={{ fontSize:12,color:'#6B6860' }}>{d.reason || '—'}</div>
+                          </div>
+                          {d.hours != null && <div style={{ fontSize:14,fontWeight:700,color:'#1A1917',whiteSpace:'nowrap' }}>{Number(d.hours).toFixed(2)} h</div>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
