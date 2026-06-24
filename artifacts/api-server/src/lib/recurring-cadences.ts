@@ -229,13 +229,21 @@ export function generateCadenceDates(
     );
     intervalDays = 14;
   }
-  // Seed at the later of fromDate or start so we never emit before
-  // start_date. The previous version only gated on fromDate, which let
-  // pre-start dates slip into the output when fromDate < start.
-  const seed = fromDate > start ? fromDate : start;
-  let current = getFirstOccurrence(start, targetDow, seed);
+  // [phase-fix 2026-06-24] Anchor the interval grid on start_date, not on the
+  // generation window. We take the first targetDow occurrence on/after
+  // start_date, then step by intervalDays and fast-forward (in whole intervals)
+  // up to the window. This preserves the alternate-week PHASE for biweekly /
+  // every_3_weeks / every_4_weeks / custom — a biweekly customer stays on their
+  // real week regardless of when the cron happens to run. The previous version
+  // seeded `getFirstOccurrence` from max(fromDate, start), so the phase was
+  // re-derived from the run date and a biweekly schedule could silently flip to
+  // the wrong week each time generation ran on a different date. start_date is
+  // the source of truth for the cadence anchor; day_of_week sets the weekday.
+  let current = getFirstOccurrence(start, targetDow, start);
+  while (current < fromDate) current = addDays(current, intervalDays);
   while (current <= effectiveEnd) {
-    if (current >= fromDate && current >= start) dates.push(new Date(current));
+    // current is guaranteed >= fromDate (fast-forwarded) and >= start (anchored).
+    dates.push(new Date(current));
     current = addDays(current, intervalDays);
   }
   return dates;
