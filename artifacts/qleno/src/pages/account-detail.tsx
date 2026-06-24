@@ -4,7 +4,7 @@ import {
   Building2, ChevronLeft, ChevronDown, Plus, Pencil, Trash2, DollarSign,
   MapPin, Users, Phone, Mail, Star, Bell, BellOff, Briefcase,
   TrendingUp, AlertCircle, CheckCircle2, Clock, FileText,
-  CreditCard, Home, Hash,
+  CreditCard, Home, Key,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -175,6 +175,22 @@ export default function AccountDetailPage() {
 
   useEffect(() => { load(); }, [id]);
 
+  // [commercial-console slice 2] On desktop, auto-select the first building so the
+  // detail pane is populated on arrival. On mobile we leave it on the list (the
+  // detail is a drill-in there).
+  useEffect(() => {
+    if (
+      tab === "properties" &&
+      expandedProp === null &&
+      (account?.properties?.length ?? 0) > 0 &&
+      typeof window !== "undefined" &&
+      window.innerWidth >= 768
+    ) {
+      selectProp(account.properties[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, account]);
+
   // ─── Rate Cards ──────────────────────────────────────────────────────────
   function openNewRateCard() {
     setEditCard(null);
@@ -275,8 +291,13 @@ export default function AccountDetailPage() {
   // Tap a property card to drop down its full details + last service. The
   // last-service lookup is lazy and cached so we only hit the API the first
   // time a card is opened.
-  function toggleProp(propId: number) {
-    setExpandedProp((cur) => (cur === propId ? null : propId));
+  // [commercial-console slice 2] Master-detail select — always selects (never
+  // toggles off) so the right detail pane swaps as you click down the list.
+  function selectProp(propId: number) {
+    setExpandedProp(propId);
+    loadRecent(propId);
+  }
+  function loadRecent(propId: number) {
     if (propRecent[propId] === undefined) {
       setPropRecent((m) => ({ ...m, [propId]: "loading" }));
       fetch(`${API}/api/accounts/${id}/properties/${propId}/recent-job`, { headers: getAuthHeaders() })
@@ -565,157 +586,170 @@ export default function AccountDetailPage() {
         )}
 
         {/* ─── PROPERTIES TAB ─────────────────────────────────────────────── */}
-        {tab === "properties" && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <input
-                value={propSearch}
-                onChange={(e) => setPropSearch(e.target.value)}
-                placeholder={`Search ${account.properties?.length ?? 0} buildings…`}
-                className="flex-1 h-9 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-[#00C9A0]"
-              />
-              <Button onClick={openNewProperty} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2 flex-shrink-0" size="sm">
-                <Plus size={14} /> Add Property
-              </Button>
-            </div>
-            {!account.properties?.length ? (
-              <div className="flex flex-col items-center py-16 text-gray-400 gap-2">
-                <MapPin size={32} strokeWidth={1.5} />
-                <p className="text-sm">No properties yet</p>
+        {tab === "properties" && (() => {
+          const allProps = account.properties || [];
+          const q = propSearch.trim().toLowerCase();
+          const filtered = allProps.filter((pp: any) => !q || `${pp.property_name || ""} ${pp.address || ""} ${pp.city || ""} ${pp.zip || ""} ${pp.zone_name || ""}`.toLowerCase().includes(q));
+          const groups: Record<string, any[]> = {};
+          for (const pp of filtered) { const z = pp.zone_name || "Unzoned"; (groups[z] = groups[z] || []).push(pp); }
+          const items: any[] = [];
+          for (const z of Object.keys(groups).sort()) { items.push({ __zone: z, __count: groups[z].length }); if (!collapsedZones.has(z)) items.push(...groups[z]); }
+          const selected = allProps.find((pp: any) => pp.id === expandedProp) || null;
+          return (
+            // [commercial-console slice 2] Master-detail: building list left,
+            // inline detail right. Pick a building, it loads on the right — never
+            // navigate away. On mobile the list and detail swap (drill-in).
+            <div className="md:grid md:grid-cols-[300px_minmax(0,1fr)] md:gap-4 md:items-start">
+              {/* LEFT — building list */}
+              <div className={selected ? "hidden md:block" : "block"}>
+                <div className="flex items-center gap-2 mb-2">
+                  <input
+                    value={propSearch}
+                    onChange={(e) => setPropSearch(e.target.value)}
+                    placeholder={`Search ${allProps.length} buildings…`}
+                    className="flex-1 h-9 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-[#00C9A0]"
+                  />
+                  <Button onClick={openNewProperty} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-1.5 flex-shrink-0" size="sm">
+                    <Plus size={14} /> Add
+                  </Button>
+                </div>
+                {!allProps.length ? (
+                  <div className="flex flex-col items-center py-16 text-gray-400 gap-2">
+                    <MapPin size={32} strokeWidth={1.5} />
+                    <p className="text-sm">No properties yet</p>
+                  </div>
+                ) : !filtered.length ? (
+                  <div className="py-10 text-center text-sm text-gray-400">No buildings match.</div>
+                ) : (
+                  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden md:max-h-[72vh] md:overflow-auto">
+                    {items.map((p: any) => {
+                      if (p.__zone) {
+                        const collapsed = collapsedZones.has(p.__zone);
+                        return (
+                          <div key={`z-${p.__zone}`} role="button" tabIndex={0}
+                            onClick={() => setCollapsedZones((prev) => { const n = new Set(prev); if (n.has(p.__zone)) n.delete(p.__zone); else n.add(p.__zone); return n; })}
+                            className="flex items-center gap-2 px-3 pt-3 pb-1.5 cursor-pointer select-none bg-gray-50/40">
+                            <ChevronDown size={13} className={`text-gray-400 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+                            <span className="text-xs font-semibold text-gray-600">{p.__zone}</span>
+                            <span className="text-[10px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">{p.__count}</span>
+                          </div>
+                        );
+                      }
+                      const sel = expandedProp === p.id;
+                      return (
+                        <div key={p.id} role="button" tabIndex={0}
+                          onClick={() => selectProp(p.id)}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectProp(p.id); } }}
+                          className={`flex items-center gap-2.5 px-3 py-2.5 cursor-pointer transition-colors border-l-2 ${sel ? "bg-[#F1FBF8] border-[#00C9A0]" : "border-transparent hover:bg-gray-50"}`}>
+                          <div className="w-7 h-7 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+                            <Home size={13} className="text-purple-600" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-sm text-[#0A0E1A] truncate">{p.property_name || p.address}</p>
+                            <p className="text-xs text-gray-500 truncate">{[p.address, p.city].filter(Boolean).join(", ")}</p>
+                          </div>
+                          {p.unit_count ? <span className="text-[11px] text-gray-400 flex-shrink-0">{p.unit_count}u</span> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            ) : (() => {
-              const q = propSearch.trim().toLowerCase();
-              const filtered = account.properties.filter((pp: any) => !q || `${pp.property_name || ""} ${pp.address || ""} ${pp.city || ""} ${pp.zip || ""} ${pp.zone_name || ""}`.toLowerCase().includes(q));
-              const groups: Record<string, any[]> = {};
-              for (const pp of filtered) { const z = pp.zone_name || "Unzoned"; (groups[z] = groups[z] || []).push(pp); }
-              const items: any[] = [];
-              for (const z of Object.keys(groups).sort()) { items.push({ __zone: z, __count: groups[z].length }); if (!collapsedZones.has(z)) items.push(...groups[z]); }
-              if (!filtered.length) return <div className="py-10 text-center text-sm text-gray-400">No buildings match.</div>;
-              return (
-              <div className="space-y-2">
-                {items.map((p: any) => {
-                  if (p.__zone) {
-                    const collapsed = collapsedZones.has(p.__zone);
-                    return (
-                      <div key={`z-${p.__zone}`} role="button" tabIndex={0}
-                        onClick={() => setCollapsedZones((prev) => { const n = new Set(prev); if (n.has(p.__zone)) n.delete(p.__zone); else n.add(p.__zone); return n; })}
-                        className="flex items-center gap-2 px-1 pt-3 pb-1 cursor-pointer select-none">
-                        <ChevronDown size={14} className={`text-gray-400 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
-                        <span className="text-xs font-semibold text-gray-600">{p.__zone}</span>
-                        <span className="text-[10px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">{p.__count}</span>
-                      </div>
-                    );
-                  }
-                  const open = expandedProp === p.id;
+
+              {/* RIGHT — selected building detail */}
+              <div className={selected ? "block mt-3 md:mt-0" : "hidden md:block"}>
+                {!selected ? (
+                  <div className="hidden md:flex flex-col items-center justify-center py-24 text-gray-300 gap-2 border border-dashed border-gray-200 rounded-xl">
+                    <Building2 size={28} strokeWidth={1.5} />
+                    <p className="text-sm text-gray-400">Select a building to see its details</p>
+                  </div>
+                ) : (() => {
+                  const p = selected;
                   const recent = propRecent[p.id];
                   return (
-                  <div key={p.id} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => toggleProp(p.id)}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleProp(p.id); } }}
-                      className="flex items-start justify-between p-4 cursor-pointer hover:bg-gray-50/60 transition-colors"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <Home size={14} className="text-purple-600" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-[#0A0E1A] text-sm">{p.property_name || p.address}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {p.address}
-                            {(p.city || p.state || p.zip) && `, ${[p.city, p.state, p.zip].filter(Boolean).join(", ")}`}
-                          </p>
-                          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                            {p.unit_count && (
-                              <span className="text-xs text-gray-500 flex items-center gap-1">
-                                <Hash size={11} /> {p.unit_count} units
-                              </span>
-                            )}
-                            {p.default_service_type && (
-                              <span className="text-xs text-gray-500">
-                                Default: {SERVICE_TYPES.find((s) => s.value === p.default_service_type)?.label ?? p.default_service_type}
-                              </span>
-                            )}
+                    <div className="bg-white border border-gray-100 rounded-xl p-4 md:p-5">
+                      <button onClick={() => setExpandedProp(null)} className="md:hidden flex items-center gap-1 text-xs text-gray-500 mb-3">
+                        <ChevronLeft size={14} /> All buildings
+                      </button>
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+                            <Home size={16} className="text-purple-600" />
                           </div>
-                          {p.access_notes && (
-                            <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1 mt-2 max-w-md">
-                              {p.access_notes}
+                          <div className="min-w-0">
+                            <p className="font-semibold text-[#0A0E1A]">{p.property_name || p.address}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {p.address}{(p.city || p.state || p.zip) && `, ${[p.city, p.state, p.zip].filter(Boolean).join(", ")}`}
                             </p>
-                          )}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditProperty(p)}>
+                            <Pencil size={13} className="text-gray-400" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteProperty(p.id)}>
+                            <Trash2 size={13} className="text-red-400" />
+                          </Button>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); openEditProperty(p); }}>
-                          <Pencil size={13} className="text-gray-400" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); deleteProperty(p.id); }}>
-                          <Trash2 size={13} className="text-red-400" />
-                        </Button>
-                        <ChevronDown size={16} className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+
+                      {p.access_notes && (
+                        <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-4 flex items-start gap-1.5">
+                          <Key size={13} className="mt-0.5 flex-shrink-0" /> {p.access_notes}
+                        </p>
+                      )}
+
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 mb-4">
+                        <Detail label="Property type" value={p.property_type ? (PROPERTY_TYPES.find((t) => t.value === p.property_type)?.label ?? p.property_type) : "—"} />
+                        <Detail label="Units" value={p.unit_count ? `${p.unit_count}` : "—"} />
+                        <Detail label="Default service" value={p.default_service_type ? (SERVICE_TYPES.find((s) => s.value === p.default_service_type)?.label ?? p.default_service_type) : "—"} />
+                        <Detail label="Zone" value={p.zone_name ?? (p.zone_id ? `Zone ${p.zone_id}` : "—")} />
+                        {(p.lat != null && p.lng != null) && (
+                          <Detail label="Map location" value={`${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}`} />
+                        )}
+                      </div>
+
+                      {p.notes && (
+                        <div className="mb-4">
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Notes</p>
+                          <p className="text-xs text-gray-700 whitespace-pre-wrap">{p.notes}</p>
+                        </div>
+                      )}
+
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Last service</p>
+                        {recent === undefined || recent === "loading" ? (
+                          <p className="text-xs text-gray-400">Loading…</p>
+                        ) : recent && recent !== "none" ? (
+                          <div className="flex items-center justify-between bg-gray-50/60 border border-gray-100 rounded-lg px-3 py-2">
+                            <div>
+                              <p className="text-xs font-medium text-[#0A0E1A]">
+                                {SERVICE_TYPES.find((s) => s.value === recent.service_type)?.label ?? recent.service_type}
+                              </p>
+                              <p className="text-[11px] text-gray-500 mt-0.5">
+                                {recent.scheduled_date ? new Date(recent.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                                {recent.frequency && recent.frequency !== "one_time" ? ` · ${recent.frequency}` : ""}
+                              </p>
+                            </div>
+                            <span className="text-xs font-semibold text-[#00C9A0]">
+                              {recent.billing_method === "hourly" && recent.hourly_rate
+                                ? `${fmtDecimal(parseFloat(recent.hourly_rate))}/hr`
+                                : recent.base_fee != null
+                                ? fmtDecimal(parseFloat(recent.base_fee))
+                                : "—"}
+                            </span>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-400">No service history yet</p>
+                        )}
                       </div>
                     </div>
-
-                    {open && (
-                      <div className="border-t border-gray-100 bg-gray-50/40 px-4 py-3 space-y-3">
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-                          <Detail label="Property type" value={p.property_type ? (PROPERTY_TYPES.find((t) => t.value === p.property_type)?.label ?? p.property_type) : "—"} />
-                          <Detail label="Units" value={p.unit_count ? `${p.unit_count}` : "—"} />
-                          <Detail
-                            label="Default service"
-                            value={p.default_service_type ? (SERVICE_TYPES.find((s) => s.value === p.default_service_type)?.label ?? p.default_service_type) : "—"}
-                          />
-                          <Detail label="Zone" value={p.zone_name ?? (p.zone_id ? `Zone ${p.zone_id}` : "—")} />
-                          {(p.lat != null && p.lng != null) && (
-                            <Detail label="Map location" value={`${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}`} />
-                          )}
-                        </div>
-
-                        {p.notes && (
-                          <div>
-                            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Notes</p>
-                            <p className="text-xs text-gray-700 whitespace-pre-wrap">{p.notes}</p>
-                          </div>
-                        )}
-
-                        <div>
-                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Last service</p>
-                          {recent === undefined || recent === "loading" ? (
-                            <p className="text-xs text-gray-400">Loading…</p>
-                          ) : recent && recent !== "none" ? (
-                            <div className="flex items-center justify-between bg-white border border-gray-100 rounded-lg px-3 py-2">
-                              <div>
-                                <p className="text-xs font-medium text-[#0A0E1A]">
-                                  {SERVICE_TYPES.find((s) => s.value === recent.service_type)?.label ?? recent.service_type}
-                                </p>
-                                <p className="text-[11px] text-gray-500 mt-0.5">
-                                  {recent.scheduled_date ? new Date(recent.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
-                                  {recent.frequency && recent.frequency !== "one_time" ? ` · ${recent.frequency}` : ""}
-                                </p>
-                              </div>
-                              <span className="text-xs font-semibold text-[#00C9A0]">
-                                {recent.billing_method === "hourly" && recent.hourly_rate
-                                  ? `${fmtDecimal(parseFloat(recent.hourly_rate))}/hr`
-                                  : recent.base_fee != null
-                                  ? fmtDecimal(parseFloat(recent.base_fee))
-                                  : "—"}
-                              </span>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-gray-400">No service history yet</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
                   );
-                })}
+                })()}
               </div>
-              );
-            })()}
-          </div>
-        )}
+            </div>
+          );
+        })()}
 
         {/* ─── RATE CARDS TAB ─────────────────────────────────────────────── */}
         {tab === "rate_cards" && (
