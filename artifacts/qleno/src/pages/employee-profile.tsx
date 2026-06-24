@@ -74,6 +74,27 @@ const TABS = [
   'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
 ];
 
+// [Phase 1] Leave bucket display helpers. NOTE: this slug→color map is
+// intentionally local + temporary — Phase 3 centralizes bucket config so it's
+// tenant-dynamic (driven off leave_types), retiring this and the other
+// hardcoded bucket maps. The tag mirrors the "/<bucket>" usage-note convention.
+function leaveBucketTag(slug: string): string {
+  const s = (slug || '').toLowerCase();
+  if (s.includes('plawa') || s.includes('sick')) return '/plawa';
+  if (s.includes('pto')) return '/pto';
+  if (s.includes('unpaid')) return '/unpaid';
+  if (s.includes('unexcused')) return '/unexcused';
+  return '/' + s;
+}
+function leaveBucketColors(slug: string): { bg: string; fg: string } {
+  const s = (slug || '').toLowerCase();
+  if (s.includes('plawa') || s.includes('sick')) return { bg: '#FEF3C7', fg: '#92400E' };
+  if (s.includes('pto')) return { bg: 'var(--brand-dim)', fg: 'var(--brand)' };
+  if (s.includes('unpaid')) return { bg: '#EEF2F7', fg: '#334155' };
+  if (s.includes('unexcused')) return { bg: '#FCE7E7', fg: '#991B1B' };
+  return { bg: '#F3F4F6', fg: '#374151' };
+}
+
 const PAY_GROUPS: { label: string; types: string[] }[] = [
   { label: 'Earnings',    types: ['bonus', 'tips', 'mileage'] },
   { label: 'Time Off',   types: ['sick_pay', 'holiday_pay', 'vacation_pay'] },
@@ -521,16 +542,25 @@ export default function EmployeeProfilePage() {
     enabled: activeTab === 'Availability',
   });
 
-  // [view-history 2026-06-23] Attendance-tab PTO/Sick "View History" buttons.
-  // Reuses the leave usage feed (GET /hr-leave/balance/:id → usage[]); the
-  // bucket lives in each row's note tag ("…/pto" vs "…/plawa"), so we filter on it.
-  const [historyBucket, setHistoryBucket] = useState<null | 'pto' | 'plawa'>(null);
-  const { data: leaveBalanceData } = useQuery({
-    queryKey: ['leave-usage', userId],
-    queryFn: () => apiFetch(`/hr-leave/balance/${userId}`),
+  // [profile-attendance-real-balances 2026-06-24 · Phase 1] Data-driven leave
+  // cards: one per active tenant bucket from the real 3A balances endpoint
+  // (same source as the Leave Balance tab). Usage history comes from the new
+  // /leave/usage feed (the deprecated /hr-leave/balance/:id is retired here).
+  // The bucket of each usage row lives in its note tag ("…/pto","…/plawa",…).
+  const [historyBucket, setHistoryBucket] =
+    useState<null | { slug: string; display_name: string }>(null);
+  const { data: leaveBalancesResp } = useQuery({
+    queryKey: ['leave-balances', userId],
+    queryFn: () => apiFetch(`/leave/balances?userId=${userId}`),
     enabled: activeTab === 'Attendance',
   });
-  const leaveUsage: any[] = leaveBalanceData?.usage || [];
+  const leaveBuckets: any[] = leaveBalancesResp?.data || [];
+  const { data: leaveUsageResp } = useQuery({
+    queryKey: ['leave-usage', userId],
+    queryFn: () => apiFetch(`/leave/usage?userId=${userId}`),
+    enabled: activeTab === 'Attendance',
+  });
+  const leaveUsage: any[] = leaveUsageResp?.data || [];
 
   const { data: ticketsData, refetch: refetchTickets } = useQuery({
     queryKey: ['contact-tickets', userId],
@@ -1130,26 +1160,41 @@ export default function EmployeeProfilePage() {
               </div>
 
               <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                <div style={{ background:'var(--brand-dim)', borderRadius:10, padding:'14px 16px' }}>
-                  <p style={{ fontSize:13,fontWeight:700,color:'var(--brand)',margin:'0 0 4px 0' }}>— PTO hours Available</p>
-                  <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                    <button onClick={() => setHistoryBucket('pto')} style={{ flex:1,padding:'6px 0',border:'1px solid var(--brand)',borderRadius:6,fontSize:12,color:'var(--brand)',background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
-                    <button style={{ flex:1,padding:'6px 0',background:'var(--brand)',border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Update PTO</button>
+                {leaveBuckets.length === 0 && (
+                  <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'14px 16px', fontSize:13, color:'#9E9B94' }}>
+                    No leave buckets configured.
                   </div>
-                </div>
+                )}
+                {leaveBuckets.map((b: any) => {
+                  const c = leaveBucketColors(b.slug);
+                  const officeRecorded = b.accrual_mode === 'office_recorded';
+                  const notVested = !officeRecorded && !b.past_waiting_period;
+                  const bigNum = officeRecorded ? Number(b.used || 0) : Number(b.available || 0);
+                  return (
+                    <div key={b.leave_type_id} style={{ background:c.bg, borderRadius:10, padding:'14px 16px' }}>
+                      <p style={{ fontSize:12,fontWeight:700,color:c.fg,margin:'0 0 2px 0',textTransform:'uppercase',letterSpacing:'0.04em' }}>{b.display_name}</p>
+                      <div style={{ display:'flex',alignItems:'baseline',gap:6 }}>
+                        <span style={{ fontSize:30,fontWeight:800,color:c.fg,lineHeight:1.1 }}>{notVested ? '—' : bigNum.toFixed(1)}</span>
+                        <span style={{ fontSize:12,color:c.fg,opacity:0.8 }}>{officeRecorded ? 'hours recorded' : 'hours available'}</span>
+                      </div>
+                      <p style={{ fontSize:11,color:c.fg,opacity:0.75,margin:'4px 0 0 0' }}>
+                        {notVested
+                          ? 'Eligible after waiting period'
+                          : officeRecorded
+                            ? `${Number(b.used||0).toFixed(1)} h recorded this period`
+                            : `${Number(b.granted||0).toFixed(1)} granted · ${Number(b.used||0).toFixed(1)} used`}
+                      </p>
+                      <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                        <button onClick={() => setHistoryBucket({ slug:b.slug, display_name:b.display_name })} style={{ flex:1,padding:'6px 0',border:`1px solid ${c.fg}`,borderRadius:6,fontSize:12,color:c.fg,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
+                        <button style={{ flex:1,padding:'6px 0',background:c.fg,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Update</button>
+                      </div>
+                    </div>
+                  );
+                })}
 
-                <div style={{ background:'#FEF3C7', borderRadius:10, padding:'14px 16px' }}>
-                  <p style={{ fontSize:13,fontWeight:700,color:'#92400E',margin:'0 0 4px 0' }}>— Sick hours Available</p>
-                  <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                    <button onClick={() => setHistoryBucket('plawa')} style={{ flex:1,padding:'6px 0',border:'1px solid #92400E',borderRadius:6,fontSize:12,color:'#92400E',background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
-                    <button style={{ flex:1,padding:'6px 0',background:'#92400E',border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Update Sick</button>
-                  </div>
-                </div>
-
-                {/* [view-history 2026-06-23] Per-bucket usage history modal */}
+                {/* Per-bucket usage history modal (data-driven over all buckets) */}
                 {historyBucket && (() => {
-                  const isPto = historyBucket === 'pto';
-                  const tag = isPto ? '/pto' : '/plawa';
+                  const tag = leaveBucketTag(historyBucket.slug);
                   const rows = leaveUsage
                     .filter((u: any) => String(u.notes || '').includes(tag))
                     .sort((a: any, b: any) => String(b.date_used).localeCompare(String(a.date_used)));
@@ -1157,11 +1202,11 @@ export default function EmployeeProfilePage() {
                     <div onClick={() => setHistoryBucket(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
                       <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:12,padding:24,width:560,maxWidth:'92vw',maxHeight:'80vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
                         <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
-                          <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>{isPto ? 'PTO' : 'Sick (PLAWA)'} History</h3>
+                          <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>{historyBucket.display_name} History</h3>
                           <button onClick={() => setHistoryBucket(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
                         </div>
                         {rows.length === 0 ? (
-                          <p style={{ color:'#9E9B94',fontSize:13,margin:0 }}>No {isPto ? 'PTO' : 'sick'} history recorded.</p>
+                          <p style={{ color:'#9E9B94',fontSize:13,margin:0 }}>No {historyBucket.display_name} history recorded.</p>
                         ) : rows.map((u: any, i: number) => (
                           <div key={i} style={{ display:'flex',justifyContent:'space-between',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
                             <div style={{ minWidth:0 }}>
