@@ -291,6 +291,15 @@ type ScheduleInput = {
   // (default) leaves base_fee as the per-visit price.
   monthly_charge_amount?: string | null;
   monthly_charge_mode?: string | null;
+  // [commercial-site-schedule] Per-site targeting for multi-building commercial.
+  // When set, stamped onto every generated job so each site carries its account
+  // link + address. NULL = ordinary single-location schedule (client address).
+  account_id?: number | null;
+  account_property_id?: number | null;
+  service_address_street?: string | null;
+  service_address_city?: string | null;
+  service_address_state?: string | null;
+  service_address_zip?: string | null;
   // [legacy-pricing-pin 2026-06-20] When the schedule's agreed price is manually
   // pinned (grandfathered / unreproducible by the current catalog — e.g. the
   // MaidCentral import has no sqft, so the sqft-tier engine can't recompute it),
@@ -422,7 +431,15 @@ export async function computeOccurrencesForSchedule(
       notes: schedule.notes ?? null,
       recurring_schedule_id: schedule.id,
       booking_location: (bookingLocation ?? null) as any,
-      address_zip: (clientZip ?? null) as any,
+      // [commercial-site-schedule] When the schedule targets a specific site,
+      // stamp its account link + address so each multi-building site's visits
+      // carry the right location. Otherwise leave the client-derived defaults.
+      account_id: (schedule.account_id ?? null) as any,
+      account_property_id: (schedule.account_property_id ?? null) as any,
+      address_street: (schedule.service_address_street ?? null) as any,
+      address_city: (schedule.service_address_city ?? null) as any,
+      address_state: (schedule.service_address_state ?? null) as any,
+      address_zip: (schedule.service_address_zip ?? clientZip ?? null) as any,
       // Sidecar — NOT a jobs column. Stripped in generateJobsFromSchedule
       // before the actual INSERT; passed through unchanged in dry-run.
       _parking_fee_applies: parkingApplies,
