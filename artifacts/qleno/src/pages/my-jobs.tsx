@@ -363,10 +363,18 @@ function PhotoGrid({ jobId, type, photos, onUploaded }: {
       for (const file of files) {
         if (file.size > 10 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) { skipped++; continue; }
         try {
-          const data_url = await fileToBase64(file);
-          const res = await apiFetch(`/jobs/${jobId}/photos`, {
+          // [photos-r2 2026-06-24] Send the raw file as multipart (not base64
+          // JSON). The server streams it to R2. Using a direct fetch because
+          // apiFetch forces Content-Type: application/json — for FormData the
+          // browser must set its own multipart boundary.
+          const fd = new FormData();
+          fd.append("photo", file);
+          fd.append("photo_type", type);
+          const token = useAuthStore.getState().token;
+          const res = await fetch(`${BASE}/api/jobs/${jobId}/photos`, {
             method: "POST",
-            body: JSON.stringify({ photo_type: type, data_url }),
+            headers: { Authorization: `Bearer ${token}` },
+            body: fd,
           });
           if (!res.ok) { skipped++; continue; }
           ok++;

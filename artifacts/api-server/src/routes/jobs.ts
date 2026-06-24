@@ -12,6 +12,17 @@ import { sendNotification, labelServiceType } from "../services/notificationServ
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
+import multer from "multer";
+import crypto from "node:crypto";
+import { r2Configured, r2Upload, r2SignedGetUrl, isR2Key, jobPhotoKey } from "../lib/r2.js";
+
+// [photos-r2 2026-06-24] In-memory upload buffer for job photos → streamed to
+// R2. 15 MB cap (phone photos run a few MB). Accept only images.
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+});
 
 const router = Router();
 
@@ -3707,12 +3718,18 @@ router.get("/:id/photos", requireAuth, async (req, res) => {
     const beforeCount = photos.filter(p => p.photo_type === "before").length;
     const afterCount = photos.filter(p => p.photo_type === "after").length;
 
+    // [photos-r2] R2-stored photos carry an object key in `url`; sign it into a
+    // short-lived GET URL the browser can load. Legacy base64 / already-URL rows
+    // pass through untouched (so old photos keep rendering during migration).
+    const data = await Promise.all(photos.map(async p => ({
+      ...p,
+      url: isR2Key(p.url) ? await r2SignedGetUrl(p.url) : p.url,
+      lat: p.lat ? parseFloat(p.lat) : null,
+      lng: p.lng ? parseFloat(p.lng) : null,
+    })));
+
     return res.json({
-      data: photos.map(p => ({
-        ...p,
-        lat: p.lat ? parseFloat(p.lat) : null,
-        lng: p.lng ? parseFloat(p.lng) : null,
-      })),
+      data,
       before_count: beforeCount,
       after_count: afterCount,
     });
@@ -3722,7 +3739,7 @@ router.get("/:id/photos", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/:id/photos", requireAuth, async (req, res) => {
+router.post("/:id/photos", requireAuth, photoUpload.single("photo"), async (req, res) => {
   // [AF] PHOTOS_ENABLED is now an explicit kill switch — photo uploads are
   // ENABLED by default and only blocked when PHOTOS_ENABLED="false".
   if (process.env.PHOTOS_ENABLED === "false") {
@@ -3732,23 +3749,51 @@ router.post("/:id/photos", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const { photo_type, data_url, lat, lng } = req.body;
 
+    // [photos-r2 2026-06-24] Resolve the image bytes from either a multipart
+    // upload (new field app) or a base64 data_url (legacy frontend). Store in
+    // R2 when configured; fall back to inline base64 only until R2 is wired up
+    // so uploads never break mid-migration.
+    let buffer: Buffer | null = null;
+    let contentType = "image/jpeg";
+    if (req.file) {
+      buffer = req.file.buffer;
+      contentType = req.file.mimetype || "image/jpeg";
+    } else if (typeof data_url === "string" && data_url.startsWith("data:")) {
+      const m = data_url.match(/^data:([^;]+);base64,([\s\S]*)$/);
+      if (m) { contentType = m[1]; buffer = Buffer.from(m[2], "base64"); }
+    }
+
+    let storedUrl: string;
+    if (buffer && r2Configured()) {
+      const ext = (contentType.split("/")[1] || "jpg").split("+")[0];
+      const key = jobPhotoKey(req.auth!.companyId, jobId, ext, crypto.randomBytes(12).toString("hex"));
+      await r2Upload(key, buffer, contentType);
+      storedUrl = key;
+    } else {
+      storedUrl = typeof data_url === "string" && data_url
+        ? data_url
+        : (buffer ? `data:${contentType};base64,${buffer.toString("base64")}` : "");
+    }
+
     const photo = await db
       .insert(jobPhotosTable)
       .values({
         job_id: jobId,
         company_id: req.auth!.companyId,
         photo_type,
-        url: data_url,
+        url: storedUrl,
         lat,
         lng,
         uploaded_by: req.auth!.userId,
       })
       .returning();
 
+    const row = photo[0];
     return res.status(201).json({
-      ...photo[0],
-      lat: photo[0].lat ? parseFloat(photo[0].lat) : null,
-      lng: photo[0].lng ? parseFloat(photo[0].lng) : null,
+      ...row,
+      url: isR2Key(row.url) ? await r2SignedGetUrl(row.url) : row.url,
+      lat: row.lat ? parseFloat(row.lat) : null,
+      lng: row.lng ? parseFloat(row.lng) : null,
     });
   } catch (err) {
     console.error("Upload photo error:", err);
