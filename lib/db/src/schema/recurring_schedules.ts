@@ -45,6 +45,18 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   //                         of each calendar month, $0 on the rest.
   monthly_charge_amount: text("monthly_charge_amount"),
   monthly_charge_mode: text("monthly_charge_mode").notNull().default("manual"),
+  // [commercial-site-schedule 2026-06-24] Targets a specific commercial site.
+  // Multi-building accounts (KMA, Cucci, Daniel Walter PPM, Daveco) have one
+  // client/account with many service addresses, each on its own cadence — one
+  // schedule per site. When set, the engine stamps these onto every generated
+  // job so each site's visits carry the right account link + address. NULL on
+  // ordinary single-location schedules (the client's own address is used).
+  account_id: integer("account_id"),
+  account_property_id: integer("account_property_id"),
+  service_address_street: text("service_address_street"),
+  service_address_city: text("service_address_city"),
+  service_address_state: text("service_address_state"),
+  service_address_zip: text("service_address_zip"),
   notes: text("notes"),
   is_active: boolean("is_active").notNull().default(true),
   last_generated_date: date("last_generated_date"),
