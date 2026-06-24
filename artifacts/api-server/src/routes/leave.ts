@@ -439,6 +439,7 @@ async function buildAttendanceSummary(
   companyId: number,
   userId: number,
   windowDays: number,
+  includeDiscipline = false,
 ) {
   const to = new Date().toISOString().slice(0, 10);
   const from = ymdMinus(windowDays);
@@ -504,24 +505,38 @@ async function buildAttendanceSummary(
   );
   const nextStep = pickNextStep(steps, rollingHours);
 
-  const disc = await db
-    .select({
-      discipline_type: employeeDisciplineLogTable.discipline_type,
-      custom_label: employeeDisciplineLogTable.custom_label,
-    })
-    .from(employeeDisciplineLogTable)
-    .where(
-      and(
-        eq(employeeDisciplineLogTable.company_id, companyId),
-        eq(employeeDisciplineLogTable.employee_id, userId),
-        eq(employeeDisciplineLogTable.dismissed, false),
-      ),
-    )
-    .orderBy(desc(employeeDisciplineLogTable.effective_date))
-    .limit(1);
-  const currentDiscipline = disc[0]
-    ? { label: disc[0].custom_label || DISC_LABEL[disc[0].discipline_type] || "Discipline" }
-    : null;
+  // Discipline log (office/owner only — never returned to an employee's own
+  // /me view). Active = not dismissed. Newest first.
+  let discipline: Array<{ label: string; type: string; reason: string | null; effective_date: string; pending_review: boolean }> = [];
+  let currentDiscipline: { label: string } | null = null;
+  if (includeDiscipline) {
+    const disc = await db
+      .select({
+        discipline_type: employeeDisciplineLogTable.discipline_type,
+        custom_label: employeeDisciplineLogTable.custom_label,
+        reason: employeeDisciplineLogTable.reason,
+        effective_date: employeeDisciplineLogTable.effective_date,
+        pending_review: employeeDisciplineLogTable.pending_review,
+      })
+      .from(employeeDisciplineLogTable)
+      .where(
+        and(
+          eq(employeeDisciplineLogTable.company_id, companyId),
+          eq(employeeDisciplineLogTable.employee_id, userId),
+          eq(employeeDisciplineLogTable.dismissed, false),
+        ),
+      )
+      .orderBy(desc(employeeDisciplineLogTable.effective_date))
+      .limit(20);
+    discipline = disc.map((d) => ({
+      label: d.custom_label || DISC_LABEL[d.discipline_type] || "Discipline",
+      type: d.discipline_type,
+      reason: d.reason,
+      effective_date: String(d.effective_date).slice(0, 10),
+      pending_review: !!d.pending_review,
+    }));
+    currentDiscipline = discipline[0] ? { label: discipline[0].label } : null;
+  }
 
   return {
     window_days: windowDays,
@@ -541,6 +556,7 @@ async function buildAttendanceSummary(
       next_step: nextStep,
       current_discipline: currentDiscipline,
     },
+    discipline,
   };
 }
 
@@ -562,7 +578,7 @@ router.get("/attendance-summary", officeReadGate, async (req, res) => {
   const companyId = req.auth!.companyId!;
   const userId = Number(req.query.userId);
   if (!Number.isFinite(userId)) return bad(res, "userId required");
-  const data = await buildAttendanceSummary(companyId, userId, parseWindowDays(req.query.windowDays));
+  const data = await buildAttendanceSummary(companyId, userId, parseWindowDays(req.query.windowDays), true);
   return res.json({ data });
 });
 
