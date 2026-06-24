@@ -38,6 +38,12 @@ function client(): S3Client {
         accessKeyId: process.env.R2_ACCESS_KEY_ID || "",
         secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
       },
+      // [photos-r2 fix] AWS SDK v3 (≥3.729) adds default CRC32 integrity
+      // checksums + a streaming trailer that R2 rejects ("not implemented" /
+      // signature mismatch on PutObject). Force checksums to WHEN_REQUIRED so
+      // they're omitted for normal puts. This is the standard R2 + aws-sdk fix.
+      requestChecksumCalculation: "WHEN_REQUIRED",
+      responseChecksumValidation: "WHEN_REQUIRED",
     });
   }
   return _client;
