@@ -4,6 +4,7 @@ import {
   companiesTable,
   clientsTable,
   invoicesTable,
+  jobsTable,
   paymentsTable,
   qbSyncQueueTable,
   qbCustomerMapTable,
@@ -451,7 +452,20 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       .from(companiesTable)
       .where(eq(companiesTable.id, companyId))
       .limit(1);
-    if (cutoverCo?.cutover && invoice.created_at && new Date(invoice.created_at) < new Date(cutoverCo.cutover)) {
+    // Gate on the SERVICE date, not the invoice's created date. A per-visit
+    // invoice carries job_id, so a July-1-forward job that happened to be
+    // invoiced before the cutover (e.g. during the MC→Qleno reconciliation)
+    // still pushes. Batch/no-job invoices fall back to created_at.
+    let effectiveDate: Date | null = invoice.created_at ? new Date(invoice.created_at) : null;
+    if (invoice.job_id) {
+      const [jb] = await db
+        .select({ d: jobsTable.scheduled_date })
+        .from(jobsTable)
+        .where(eq(jobsTable.id, invoice.job_id))
+        .limit(1);
+      if (jb?.d) effectiveDate = new Date(jb.d as any);
+    }
+    if (cutoverCo?.cutover && effectiveDate && effectiveDate < new Date(cutoverCo.cutover)) {
       await upsertQueue(companyId, "invoice", invoiceId, "skipped", undefined, "before qb_sync_start_date cutover");
       return;
     }
@@ -734,6 +748,45 @@ export async function syncAll(companyId: number): Promise<{ synced: number; fail
   }
 
   return { synced, failed, skipped };
+}
+
+// ── BACKFILL (qb-cutover) ──────────────────────────────────────────────────
+// Run when QB is (re)connected. The live push path no-ops while QB is
+// disconnected and never queues, so any invoice/payment issued during a
+// disconnected window would be stranded (syncAll only replays the queue). This
+// re-queues every issued, not-yet-synced invoice whose SERVICE date is on/after
+// qb_sync_start_date (+ a payment row for paid ones), then drains the queue.
+// Idempotent: invoices already in QB (qbo_invoice_id set) and drafts are skipped.
+export async function backfillFromCutover(
+  companyId: number,
+): Promise<{ queued: number; result: { synced: number; failed: number; skipped: number } }> {
+  const empty = { synced: 0, failed: 0, skipped: 0 };
+  const [co] = await db
+    .select({ cutover: companiesTable.qb_sync_start_date, connected: companiesTable.qb_connected })
+    .from(companiesTable)
+    .where(eq(companiesTable.id, companyId))
+    .limit(1);
+  if (!co?.connected || !co.cutover) return { queued: 0, result: empty };
+  const cutoverStr = new Date(co.cutover).toISOString().slice(0, 10);
+
+  const rows: any = await db.execute(sql`
+    SELECT i.id, i.status
+    FROM invoices i
+    LEFT JOIN jobs j ON j.id = i.job_id
+    WHERE i.company_id = ${companyId}
+      AND i.qbo_invoice_id IS NULL
+      AND i.status NOT IN ('draft', 'void', 'superseded')
+      AND COALESCE(j.scheduled_date, i.created_at::date) >= ${cutoverStr}::date
+  `);
+  const list = rows.rows ?? rows;
+  let queued = 0;
+  for (const r of list) {
+    await upsertQueue(companyId, "invoice", Number(r.id), "pending");
+    if (r.status === "paid") await upsertQueue(companyId, "payment", Number(r.id), "pending");
+    queued++;
+  }
+  const result = await syncAll(companyId);
+  return { queued, result };
 }
 
 // ── Fire-and-forget wrapper ────────────────────────────────────────────────

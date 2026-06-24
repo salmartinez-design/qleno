@@ -10,6 +10,8 @@ import {
   getQbBaseUrl,
   QB_ACCOUNTING_SCOPE,
   syncAll,
+  backfillFromCutover,
+  queueSync,
   refreshQBToken,
 } from "../../services/quickbooks-sync.js";
 
@@ -148,6 +150,13 @@ router.get("/callback", async (req, res) => {
         qb_last_sync_at: new Date(),
       })
       .where(eq(companiesTable.id, companyId));
+
+    // [qb-cutover] On connect, backfill any invoices/payments issued while QB was
+    // disconnected (service date >= qb_sync_start_date) so nothing is stranded.
+    // Fire-and-forget so the OAuth redirect isn't blocked on the QB round-trips.
+    queueSync(() => backfillFromCutover(companyId).then(
+      r => console.log(`[QB] cutover backfill: queued ${r.queued}, synced ${r.result.synced}, failed ${r.result.failed}`),
+    ));
 
     return res.redirect(`${baseFrontend}/company?tab=integrations&qb=connected`);
   } catch (err) {
@@ -323,6 +332,20 @@ router.post("/sync", requireAuth, requireRole("owner", "admin"), async (req, res
   } catch (err) {
     console.error("[QB] Manual sync error:", err);
     return res.status(500).json({ error: "Sync failed" });
+  }
+});
+
+// ── POST /api/integrations/quickbooks/backfill ────────────────────────────
+// [qb-cutover] Manually re-run the post-connect backfill (idempotent). Pushes
+// every issued, not-yet-synced invoice with service date >= qb_sync_start_date.
+router.post("/backfill", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const out = await backfillFromCutover(companyId);
+    return res.json({ ok: true, ...out });
+  } catch (err) {
+    console.error("[QB] Backfill error:", err);
+    return res.status(500).json({ error: "Backfill failed" });
   }
 });
 
