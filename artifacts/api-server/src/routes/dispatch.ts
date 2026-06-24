@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import { DAYS_AHEAD } from "../lib/recurring-jobs.js";
+import { resolveBucketDisplay, ABSENT_DISPLAY } from "../lib/leave-bucket-display.js";
 
 const router = Router();
 
@@ -358,25 +359,33 @@ async function buildDispatchPayload(
         eq(leaveRequestsTable.status, 'approved'),
         sql`${leaveRequestsTable.start_date} <= ${date} AND ${leaveRequestsTable.end_date} >= ${date}`,
       ));
-    const SLUG_TO_BUCKET: Record<string, 'pto' | 'plawa' | 'unpaid' | 'unexcused'> = {
-      pto_phes: 'pto', plawa: 'plawa', unpaid_leave: 'unpaid', unexcused: 'unexcused',
-    };
-    const leaveByEmp = new Map<number, { bucket: 'pto' | 'plawa' | 'unpaid' | 'unexcused'; unit: string }>();
+    // [Phase 3] Tenant-dynamic bucket display: resolve each bucket's row tint +
+    // label from the tenant's own leave_types.display_config (no hardcoded
+    // SLUG_TO_BUCKET / TIME_OFF_BG). time_off is now the SLUG; the board renders
+    // the returned time_off_color / time_off_label directly.
+    const tenantBuckets = await db
+      .select({ slug: leaveTypesTable.slug, display_name: leaveTypesTable.display_name, display_config: leaveTypesTable.display_config })
+      .from(leaveTypesTable)
+      .where(eq(leaveTypesTable.company_id, companyId));
+    const bucketDisplayBySlug = new Map(
+      tenantBuckets.map((b) => [String(b.slug), resolveBucketDisplay(b as any)]),
+    );
+    const leaveByEmp = new Map<number, { slug: string; unit: string }>();
     for (const r of approvedLeave) {
-      const b = SLUG_TO_BUCKET[String(r.slug)];
-      if (b) leaveByEmp.set(r.user_id, { bucket: b, unit: String(r.day_unit) });
+      leaveByEmp.set(r.user_id, { slug: String(r.slug), unit: String(r.day_unit) });
     }
 
     const ptoSet = new Set(leaveUsage.map(r => r.employee_id)); // legacy fallback
     const sickSet = new Set(attendanceLogs.filter(r => r.type === 'plawa_leave' || r.type === 'protected_leave').map(r => r.employee_id));
     const absentSet = new Set(attendanceLogs.filter(r => r.type === 'absent' || r.type === 'ncns').map(r => r.employee_id));
 
-    function getTimeOff(empId: number): 'pto' | 'plawa' | 'unpaid' | 'unexcused' | 'absent' | null {
+    // Returns the bucket SLUG (or 'absent' pseudo-bucket) in effect for the day.
+    function getTimeOff(empId: number): string | null {
       const lv = leaveByEmp.get(empId);
-      if (lv) return lv.bucket;
+      if (lv) return lv.slug;
       if (absentSet.has(empId)) return 'absent';
       if (sickSet.has(empId)) return 'plawa';
-      if (ptoSet.has(empId)) return 'pto';
+      if (ptoSet.has(empId)) return 'pto_phes';
       return null;
     }
     function getTimeOffUnit(empId: number): 'full_day' | 'morning' | 'afternoon' | null {
@@ -384,6 +393,18 @@ async function buildDispatchPayload(
       if (lv) return lv.unit as 'full_day' | 'morning' | 'afternoon';
       if (absentSet.has(empId) || sickSet.has(empId) || ptoSet.has(empId)) return 'full_day';
       return null;
+    }
+    function getTimeOffColor(empId: number): string | null {
+      const slug = getTimeOff(empId);
+      if (!slug) return null;
+      if (slug === 'absent') return ABSENT_DISPLAY.tint;
+      return bucketDisplayBySlug.get(slug)?.tint ?? null;
+    }
+    function getTimeOffLabel(empId: number): string | null {
+      const slug = getTimeOff(empId);
+      if (!slug) return null;
+      if (slug === 'absent') return ABSENT_DISPLAY.board_label;
+      return bucketDisplayBySlug.get(slug)?.board_label ?? null;
     }
 
     if (jobs.length === 0) {
@@ -396,6 +417,8 @@ async function buildDispatchPayload(
           zone: empZoneMap[e.id] ?? null,
           time_off: getTimeOff(e.id),
           time_off_unit: getTimeOffUnit(e.id),
+          time_off_color: getTimeOffColor(e.id),
+          time_off_label: getTimeOffLabel(e.id),
           commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         })),
         unassigned_jobs: [],
@@ -1082,6 +1105,8 @@ async function buildDispatchPayload(
         zone: empZoneMap[e.id] ?? null,
         time_off: getTimeOff(e.id),
         time_off_unit: getTimeOffUnit(e.id),
+        time_off_color: getTimeOffColor(e.id),
+        time_off_label: getTimeOffLabel(e.id),
         commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         avatar_url: e.avatar_url ?? null,
       })),

@@ -45,6 +45,7 @@ import {
   date,
   time,
   timestamp,
+  jsonb,
   pgEnum,
   index,
   uniqueIndex,
@@ -140,6 +141,13 @@ export const leaveTypesTable = pgTable(
       .notNull()
       .default(false),
     active: boolean("active").notNull().default(true),
+    // [Phase 3 — tenant-dynamic buckets] Per-tenant display metadata so every
+    // surface (dispatch board, employees review, profile cards, history chips)
+    // renders this bucket's colors + labels from data, not hardcoded maps.
+    // Shape: { tint, accent, on_tint, board_label, chip_label }. Null → the
+    // resolver derives sane defaults (so a new tenant's buckets render with no
+    // code change). display_name remains the canonical label.
+    display_config: jsonb("display_config").$type<Record<string, string>>(),
     created_at: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

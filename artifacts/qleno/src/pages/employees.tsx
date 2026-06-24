@@ -402,12 +402,8 @@ export default function EmployeesPage() {
 // [time-off-ticket 2026-06-22] Office "Time off & leave requests" section at the
 // bottom of the Employees page. Lists pending requests; the office approves or
 // declines inline. Profile-photo avatars (EmployeeAvatar falls back to initials).
-const BUCKET_COLORS: Record<string, { bg: string; fg: string }> = {
-  pto_phes: { bg: '#E9FBF5', fg: '#00876B' },
-  plawa:    { bg: '#FEF3C7', fg: '#92400E' },
-  unpaid_leave: { bg: '#EEF2F7', fg: '#334155' },
-  unexcused: { bg: '#FCE7E7', fg: '#991B1B' },
-};
+// [Phase 3] Bucket chip colors are tenant-dynamic: the /leave/requests API
+// returns bucket_tint + bucket_on_tint (resolved from leave_types.display_config).
 function unitLabel(u: string) {
   return u === 'morning' ? 'Morning' : u === 'afternoon' ? 'Afternoon' : 'Full day';
 }
@@ -485,7 +481,7 @@ function TimeOffRequestsSection() {
         ) : rows.length === 0 ? (
           <div style={{ padding: 24, color: '#9E9B94', fontSize: 13 }}>No pending time-off requests.</div>
         ) : rows.map((r, i) => {
-          const c = BUCKET_COLORS[r.bucket_slug] ?? { bg: '#F4F3F0', fg: '#6B6860' };
+          const c = { bg: r.bucket_tint || '#F4F3F0', fg: r.bucket_on_tint || '#6B6860' };
           return (
             <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
               <EmployeeAvatar name={`${r.first_name ?? ''} ${r.last_name ?? ''}`} avatarUrl={r.avatar_url} size={36} />

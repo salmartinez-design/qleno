@@ -62,6 +62,7 @@ export async function runCutoverDataMigration(): Promise<void> {
   try {
     await seedPhesLeavePolicy3A();
     await seedPhesOccurrenceLadders();
+    await seedPhesBucketDisplay();
   } catch (err) {
     console.error(
       "[cutover-migration] Phes 3A leave policy seed failed (non-fatal):",
@@ -819,6 +820,52 @@ async function seedPhesOccurrenceLadders(): Promise<void> {
         WHERE company_id IN (1,4)
           AND (tardy_occurrence_steps IS NULL OR tardy_occurrence_steps = '[]'::jsonb);
       RAISE NOTICE 'cutover-migration: ensured PHES occurrence disciplinary ladders (3/4/5 → written/final/termination)';
+    END
+    $$;
+  `),
+  );
+}
+
+/**
+ * Phase 3 — tenant-dynamic bucket display. Adds leave_types.display_config and
+ * seeds PHES (co1 + co4) with the EXACT colors/labels pulled from the four
+ * legacy hardcoded maps, so the dispatch board / review / profile render
+ * byte-identical. Seeds only where display_config IS NULL (never clobbers).
+ */
+async function seedPhesBucketDisplay(): Promise<void> {
+  const J = (o: Record<string, string>) => JSON.stringify(o);
+  const SEED: Record<string, Record<string, string>> = {
+    pto_phes:     { tint: "#E9FBF5", accent: "#1D9E75", on_tint: "#00876B", board_label: "PTO",       chip_label: "PTO" },
+    plawa:        { tint: "#FEF3C7", accent: "#378ADD", on_tint: "#92400E", board_label: "PLAWA",     chip_label: "Sick" },
+    unpaid_leave: { tint: "#EEF2F7", accent: "#BA7517", on_tint: "#334155", board_label: "Unpaid",    chip_label: "Unpaid" },
+    unexcused:    { tint: "#FCE7E7", accent: "#E24B4A", on_tint: "#991B1B", board_label: "Unexcused", chip_label: "Unexcused" },
+  };
+  const updates = Object.entries(SEED)
+    .map(
+      ([slug, cfg]) =>
+        `UPDATE leave_types SET display_config = '${J(cfg)}'::jsonb
+           WHERE company_id IN (1,4) AND slug = '${slug}' AND display_config IS NULL;`,
+    )
+    .join("\n");
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'leave_types'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: leave_types not present yet, skipping bucket display';
+        RETURN;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='leave_types' AND column_name='display_config'
+      ) THEN
+        ALTER TABLE leave_types ADD COLUMN display_config jsonb;
+      END IF;
+      ${updates}
+      RAISE NOTICE 'cutover-migration: ensured PHES bucket display_config (byte-identical legacy colors)';
     END
     $$;
   `),
