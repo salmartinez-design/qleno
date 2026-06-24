@@ -35,6 +35,16 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   service_type: text("service_type"),
   duration_minutes: integer("duration_minutes"),
   base_fee: text("base_fee"),
+  // [monthly-batch-billing 2026-06-24] Commercial accounts billed once a month
+  // (one visit carries the whole charge, the rest are $0 — e.g. Bill Azzarello
+  // $761.25/mo, 4009 Condo $416.76/mo). monthly_charge_amount holds that lump.
+  // monthly_charge_mode controls how the engine reproduces it:
+  //   'manual' (default)  — generate $0 visits; the office drops the lump on one
+  //                         visit by hand (the current MaidCentral/QuickBooks flow).
+  //   'auto_first_visit'  — engine puts monthly_charge_amount on the FIRST visit
+  //                         of each calendar month, $0 on the rest.
+  monthly_charge_amount: text("monthly_charge_amount"),
+  monthly_charge_mode: text("monthly_charge_mode").notNull().default("manual"),
   notes: text("notes"),
   is_active: boolean("is_active").notNull().default(true),
   last_generated_date: date("last_generated_date"),

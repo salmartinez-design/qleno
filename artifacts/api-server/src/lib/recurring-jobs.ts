@@ -285,6 +285,12 @@ type ScheduleInput = {
   scheduled_time?: string | null;
   duration_minutes: number | null;
   base_fee: string | null;
+  // [monthly-batch-billing] Commercial accounts billed once a month. When
+  // monthly_charge_mode='auto_first_visit', the engine drops monthly_charge_amount
+  // on the first visit of each calendar month and $0 on the rest. 'manual'
+  // (default) leaves base_fee as the per-visit price.
+  monthly_charge_amount?: string | null;
+  monthly_charge_mode?: string | null;
   // [legacy-pricing-pin 2026-06-20] When the schedule's agreed price is manually
   // pinned (grandfathered / unreproducible by the current catalog — e.g. the
   // MaidCentral import has no sqft, so the sqft-tier engine can't recompute it),
@@ -374,6 +380,25 @@ export async function computeOccurrencesForSchedule(
   const parkingEnabled = !!schedule.parking_fee_enabled;
   const parkingDays: number[] | null = schedule.parking_fee_days ?? null;
 
+  // [monthly-batch-billing] 'auto_first_visit' mode: drop the monthly lump on
+  // the first occurrence of each calendar month and $0 on the rest. 'manual'
+  // (default) leaves base_fee as the schedule's per-visit price. The first-of-
+  // month set is derived from ALL occurrences in the window (not just the
+  // not-yet-existing ones) so the lump lands on the true first visit. (Caveat:
+  // if a window starts mid-month after that month's first visit already exists,
+  // the existing visit already carries the decision — we don't re-stamp it.)
+  const autoMonthly =
+    schedule.monthly_charge_mode === "auto_first_visit" && schedule.monthly_charge_amount != null;
+  const firstOfMonth = new Set<string>();
+  if (autoMonthly) {
+    const seenMonths = new Set<string>();
+    for (const d of [...occurrences].sort((a, b) => a.getTime() - b.getTime())) {
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      if (!seenMonths.has(key)) { seenMonths.add(key); firstOfMonth.add(toDateStr(d)); }
+    }
+  }
+  const monthlyLump = autoMonthly ? parseFloat(schedule.monthly_charge_amount!).toFixed(2) : "0.00";
+
   const rows = toInsert.map(d => {
     const dow = d.getDay(); // 0=Sun..6=Sat
     const parkingApplies = parkingEnabled && (parkingDays == null || parkingDays.includes(dow));
@@ -387,7 +412,9 @@ export async function computeOccurrencesForSchedule(
       occurrence_date: toDateStr(d),
       scheduled_time: (schedule.scheduled_time ?? null) as any,
       frequency: mapFrequency(schedule.frequency) as any,
-      base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
+      base_fee: autoMonthly
+        ? (firstOfMonth.has(toDateStr(d)) ? monthlyLump : "0.00")
+        : (schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00"),
       // [legacy-pricing-pin 2026-06-20] Carry the schedule's pin onto the job so
       // a pinned agreed price stays sticky on future occurrences.
       manual_rate_override: !!schedule.manual_rate_override,
