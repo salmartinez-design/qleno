@@ -14,11 +14,31 @@ import {
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-// [photos-r2 fix] .trim() every value — a stray space/newline pasted into a
+// [photos-r2 fix] Strip ALL non-printable-ASCII chars (newlines, tabs, control,
+// non-ASCII), not just trim the ends — a stray character anywhere in a pasted
 // Railway variable corrupts the S3 SigV4 auth header ("Invalid character in
-// header content [authorization]") and every upload fails.
-const ACCOUNT_ID = (process.env.R2_ACCOUNT_ID || "").trim();
-const BUCKET = (process.env.R2_BUCKET || "qleno-photos").trim();
+// header content [authorization]") and every upload fails. R2 keys are hex, so
+// this only ever removes paste artifacts, never legitimate characters.
+const clean = (s: string | undefined): string =>
+  (s || "").replace(/[^\x20-\x7E]/g, "").trim();
+
+const ACCOUNT_ID = clean(process.env.R2_ACCOUNT_ID);
+const BUCKET = clean(process.env.R2_BUCKET) || "qleno-photos";
+
+// Safe diagnostic — lengths only, never the values. `stripped > 0` means that
+// variable had non-printable paste junk in it.
+export function r2CredFingerprint() {
+  const fp = (k: string) => {
+    const raw = process.env[k] || "";
+    return { raw_len: raw.length, clean_len: clean(raw).length };
+  };
+  return {
+    account: fp("R2_ACCOUNT_ID"),
+    access_key_id: fp("R2_ACCESS_KEY_ID"),
+    secret: fp("R2_SECRET_ACCESS_KEY"),
+    bucket: fp("R2_BUCKET"),
+  };
+}
 
 let _client: S3Client | null = null;
 
@@ -38,8 +58,8 @@ function client(): S3Client {
       region: "auto",
       endpoint: `https://${ACCOUNT_ID}.r2.cloudflarestorage.com`,
       credentials: {
-        accessKeyId: (process.env.R2_ACCESS_KEY_ID || "").trim(),
-        secretAccessKey: (process.env.R2_SECRET_ACCESS_KEY || "").trim(),
+        accessKeyId: clean(process.env.R2_ACCESS_KEY_ID),
+        secretAccessKey: clean(process.env.R2_SECRET_ACCESS_KEY),
       },
       // [photos-r2 fix] AWS SDK v3 (≥3.729) adds default CRC32 integrity
       // checksums + a streaming trailer that R2 rejects ("not implemented" /
