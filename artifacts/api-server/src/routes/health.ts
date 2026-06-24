@@ -46,7 +46,9 @@ router.get("/health", async (_req, res) => {
     deployed_at: DEPLOYED_AT,
     db: dbStatus,
     dispatch_autonomous_mode: process.env.DISPATCH_AUTONOMOUS_MODE === "true",
-    recurring_engine_enabled: process.env.RECURRING_ENGINE_ENABLED !== "false",
+    // [2026-06-24] Cron now starts unless hard-stopped (env=off); which tenants
+    // actually generate is the per-company recurring_engine_enabled DB flag.
+    recurring_engine_enabled: process.env.RECURRING_ENGINE_ENABLED !== "off",
     // Global comms master gate. Non-secret boolean (not the value of any
     // credential) — reports whether email/SMS are allowed to leave the box.
     comms_enabled: process.env.COMMS_ENABLED === "true",

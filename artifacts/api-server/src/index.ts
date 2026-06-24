@@ -379,18 +379,39 @@ async function startup() {
     // Fire-and-forget: each task self-logs and is independently guarded.
     void runPostListenDataTasks();
 
-    const recurringEngineEnabled = process.env.RECURRING_ENGINE_ENABLED !== "false";
-    // [2026-04-22 J3] Startup invocation of runRecurringJobGeneration() removed —
-    // Railway restart cascades caused 5x concurrent engine runs on the
-    // 2026-04-22 overnight cron, creating 270 duplicate rows. The engine now
-    // only fires via the 2 AM cron registered below. Seed + PHES data migration
-    // already completed above (await chain before listen).
-    if (recurringEngineEnabled) {
-    startRecurringJobCron();
-    console.log("[recurring-engine] Cron started");
-  } else {
-    console.log("[recurring-engine] Cron DISABLED via RECURRING_ENGINE_ENABLED=false env var");
-  }
+    // [2026-06-24] Cron control moved to the per-company
+    // companies.recurring_engine_enabled flag — enforced per-tenant inside
+    // generateRecurringJobs() and guarded by a per-company advisory lock, so a
+    // running cron only ever generates for enabled tenants (Oak Lawn yes,
+    // Schaumburg no). The legacy RECURRING_ENGINE_ENABLED env kill-switch is
+    // retired now the phase/dedup fixes are in + audited.
+    // RECURRING_ENGINE_ENABLED=off still forces a hard global stop (break-glass).
+    // [2026-04-22 J3] Startup invocation of runRecurringJobGeneration() stays
+    // removed — Railway restart cascades caused 5x concurrent runs / 270 dup
+    // rows. The engine only fires via the 2 AM cron registered below.
+    void (async () => {
+      if (process.env.RECURRING_ENGINE_ENABLED === "off") {
+        console.log("[recurring-engine] Cron HARD-STOPPED via RECURRING_ENGINE_ENABLED=off");
+        return;
+      }
+      try {
+        const { db } = await import("@workspace/db");
+        const { companiesTable } = await import("@workspace/db/schema");
+        const { eq } = await import("drizzle-orm");
+        const enabled = await db
+          .select({ id: companiesTable.id })
+          .from(companiesTable)
+          .where(eq(companiesTable.recurring_engine_enabled, true));
+        if (enabled.length > 0) {
+          startRecurringJobCron();
+          console.log(`[recurring-engine] Cron started — ${enabled.length} tenant(s) enabled (DB flag)`);
+        } else {
+          console.log("[recurring-engine] Cron not started — no tenant has recurring_engine_enabled=true");
+        }
+      } catch (err) {
+        console.error("[recurring-engine] cron-start flag check failed — not starting:", err);
+      }
+    })();
 
   // [AI] Per-tenant engine flag visibility. Future sessions verifying the
   // disabled state can grep this line. Runs after migrations complete so
