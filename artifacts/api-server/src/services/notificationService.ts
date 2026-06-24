@@ -275,28 +275,39 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
     const targetStr = target.toISOString().slice(0, 10);
     const { sql: drizzleSql } = await import("drizzle-orm");
 
+    // [comms-cadence-mirror] Per-company gate + scope. Reminders previously
+    // gated ONLY on the global COMMS_ENABLED with no company filter, so flipping
+    // the global switch would have blasted EVERY tenant's customers at once. The
+    // `JOIN companies co ... AND co.comms_enabled = true` scopes reminders to
+    // tenants that have explicitly opted in — so Oak Lawn (co1) can go live
+    // independently of Schaumburg (co4). Both gates apply: global COMMS_ENABLED
+    // (checked above) AND per-tenant comms_enabled (here).
     const rows = await db.execute(
       hoursAhead === 72
         ? drizzleSql`
-            SELECT j.id, j.scheduled_date, j.service_type, j.arrival_window,
+            SELECT j.id, j.company_id, j.scheduled_date, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
                    c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
               FROM jobs j
               JOIN clients c ON c.id = j.client_id
+              JOIN companies co ON co.id = j.company_id
              WHERE j.scheduled_date = ${targetStr}
                AND j.status NOT IN ('cancelled', 'void', 'done', 'complete')
+               AND co.comms_enabled = true
                AND j.reminder_72h_sent = false
           `
         : drizzleSql`
-            SELECT j.id, j.scheduled_date, j.service_type, j.arrival_window,
+            SELECT j.id, j.company_id, j.scheduled_date, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
                    c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
               FROM jobs j
               JOIN clients c ON c.id = j.client_id
+              JOIN companies co ON co.id = j.company_id
              WHERE j.scheduled_date = ${targetStr}
                AND j.status NOT IN ('cancelled', 'void', 'done', 'complete')
+               AND co.comms_enabled = true
                AND j.reminder_24h_sent = false
           `
     );
@@ -416,15 +427,17 @@ export async function runReviewRequestCron(): Promise<void> {
     return;
   }
   try {
-    const cutoffMs  = 24 * 60 * 60 * 1000;
-    const now       = new Date();
-    const from      = new Date(now.getTime() - cutoffMs - 30 * 60 * 1000); // 24h30m ago
-    const to        = new Date(now.getTime() - cutoffMs + 30 * 60 * 1000); // 23h30m ago
-    const fromStr   = from.toISOString().slice(0, 10);
-
+    // [comms-cadence-mirror] Key off COMPLETION, not creation. The old
+    // `DATE(j.created_at) = ~24h ago` filter never matched recurring child jobs:
+    // the recurring engine generates them weeks ahead, so created_at is the
+    // generation date, not ~24h pre-review — recurring clients silently got no
+    // review request. completed_at (stamped by notifyJobCompleted on every
+    // completion path, server-time timestamptz) fixes that. The 1-hour window
+    // (23h30m–24h30m after completion) lands each job in exactly one hourly run;
+    // the 30-day survey_last_sent throttle is the backstop against any overlap.
     const rows = await db.execute(
       (await import("drizzle-orm")).sql`
-        SELECT j.id, j.company_id, j.client_id, j.created_at, j.scheduled_date, j.service_type,
+        SELECT j.id, j.company_id, j.client_id, j.completed_at, j.scheduled_date, j.service_type,
                c.first_name, c.last_name, c.email, c.phone,
                c.address, c.city, c.state, c.survey_last_sent,
                co.review_link
@@ -432,7 +445,9 @@ export async function runReviewRequestCron(): Promise<void> {
           JOIN clients c ON c.id = j.client_id
           JOIN companies co ON co.id = j.company_id
          WHERE j.status = 'complete'
-           AND DATE(j.created_at) = ${fromStr}
+           AND j.completed_at IS NOT NULL
+           AND j.completed_at >= NOW() - INTERVAL '24 hours 30 minutes'
+           AND j.completed_at <  NOW() - INTERVAL '23 hours 30 minutes'
            AND (c.survey_last_sent IS NULL OR c.survey_last_sent < NOW() - INTERVAL '30 days')
       `
     );

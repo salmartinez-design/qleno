@@ -40,6 +40,7 @@ import { estimateEtaMinutes } from "../lib/eta.js";
 import { sendOnMyWaySms } from "../lib/comms.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
+import { notifyJobStarted, notifyJobCompleted } from "../lib/job-lifecycle-notify.js";
 
 const router = Router();
 
@@ -498,6 +499,10 @@ async function handleClockEvent(
         .where(
           and(eq(jobsTable.company_id, companyId), eq(jobsTable.id, job.id)),
         );
+      // [comms-cadence-mirror] "Your cleaning has started" — idempotent, gated,
+      // fire-and-forget so it never blocks the clock-in response.
+      notifyJobStarted(companyId, job.id)
+        .catch((e: Error) => console.error("[tech-clock started-notify] non-fatal:", e));
     } else if (eventType === "clock_out" && job.status !== "complete") {
       await db
         .update(jobsTable)
@@ -511,6 +516,9 @@ async function handleClockEvent(
       // is internally non-fatal and skips if an invoice already exists).
       ensureInvoiceForCompletedJob(companyId, job.id, userId)
         .catch((e: Error) => console.error("[tech-clock invoice] non-fatal:", e));
+      // [comms-cadence-mirror] "Your cleaning is complete" + stamp completed_at.
+      notifyJobCompleted(companyId, job.id)
+        .catch((e: Error) => console.error("[tech-clock completed-notify] non-fatal:", e));
     }
 
     return res.json({

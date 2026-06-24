@@ -5959,6 +5959,18 @@ async function runNotificationTemplateSeed() {
       ["users.reset_token",                         sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT`],
       ["users.reset_token_expires_at",              sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP`],
       ["jobs.supply_cost",                          sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS supply_cost NUMERIC(8,2) DEFAULT 0.00`],
+      // [comms-cadence-mirror] Lifecycle notification bookkeeping. job_started_sent
+      // / job_completed_sent are per-job idempotency latches so the "cleaning has
+      // started" / "cleaning is complete" texts+emails fire exactly once even
+      // though the start/complete signal arrives from multiple paths (office
+      // PATCH, field tech-clock, per-house timeclock). completed_at is the
+      // server-time (UTC, timestamptz) completion stamp the review-request cron
+      // keys off — replacing the old DATE(created_at) key that never matched
+      // recurring child jobs (generated weeks ahead). NOW() is timestamptz so the
+      // cron's `completed_at vs NOW() - INTERVAL` comparison stays frame-consistent.
+      ["jobs.job_started_sent",                     sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_started_sent BOOLEAN NOT NULL DEFAULT false`],
+      ["jobs.job_completed_sent",                   sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_completed_sent BOOLEAN NOT NULL DEFAULT false`],
+      ["jobs.completed_at",                         sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS completed_at TIMESTAMPTZ`],
       ["companies.overhead_rate_pct",               sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS overhead_rate_pct NUMERIC(5,2) DEFAULT 10.00`],
       // [invoice-branding 2026-06-23] Per-tenant invoice content so every company
       // controls their own header/footer/terms from Settings (no code). Invoice
@@ -6121,6 +6133,34 @@ async function runNotificationTemplateSeed() {
         subject: null,
         body_html: null,
         body_text: "Hi {{first_name}}, {{technician_name}} from {{company_name}} is on the way \u2014 arriving during your {{appointment_window}} window. Questions? {{company_phone}}.",
+      },
+
+      // ── 3b. JOB STARTED ─────────────────────────────────────────────────
+      // [comms-cadence-mirror] Fires when the cleaner clocks in at the house
+      // (status → in_progress / first timeclock punch). Mirrors MaidCentral's
+      // "your home cleaning has started" touch. Email + SMS.
+      {
+        trigger: "job_started", channel: "email",
+        subject: "Your cleaning has started, {{first_name}}",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Good news — your <strong>{{company_name}}</strong> team has arrived and your cleaning is now underway.</p>
+<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E2DC;border-radius:6px;background:#FFFFFF;margin:0 0 24px">
+<tr><td style="padding:20px">
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Service</p>
+  <p style="margin:0 0 16px;font-size:15px;color:#1A1917;font-weight:600">{{scope}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Address</p>
+  <p style="margin:0;font-size:15px;color:#1A1917">{{service_address}}</p>
+</td></tr>
+</table>
+<p style="margin:0 0 20px;color:#1A1917">You will get a confirmation the moment we finish. If you need to reach the office while we are on-site, call or text <strong>{{company_phone}}</strong>.</p>
+<p style="margin:0">Thank you for trusting {{company_name}}.</p>`,
+        body_text: "Hi {{first_name}}, your {{company_name}} cleaning has started — the team is now on-site at {{service_address}}. We will confirm when we finish. Questions? {{company_phone}}.",
+      },
+      {
+        trigger: "job_started", channel: "sms",
+        subject: null,
+        body_html: null,
+        body_text: "Hi {{first_name}}, your {{company_name}} cleaning has started — the team is now on-site at {{service_address}}. We will confirm when we finish. Questions? {{company_phone}}.",
       },
 
       // ── 4. JOB COMPLETED ────────────────────────────────────────────────

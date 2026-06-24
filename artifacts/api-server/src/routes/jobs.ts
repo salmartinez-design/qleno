@@ -8,7 +8,7 @@ import { logAudit, logClientActivity } from "../lib/audit.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { resolveZoneForZip } from "./zones.js";
-import { sendNotification, labelServiceType } from "../services/notificationService.js";
+import { sendNotification } from "../services/notificationService.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
@@ -3652,27 +3652,16 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
       });
     }
 
-    // ── job_completed notification (non-blocking) ─────────────────────────
+    // ── job_completed notification + completion stamp (non-blocking) ──────
+    // [comms-cadence-mirror] Centralised in notifyJobCompleted so the office
+    // PATCH path (here), the field tech-clock clock-out, and the per-house
+    // timeclock last clock-out all send through ONE idempotent helper — no
+    // double-send, and every path stamps completed_at for the review-request
+    // cron. Gating (global + per-tenant comms_enabled) lives in sendNotification.
     const companyId = req.auth!.companyId;
-    if (clientId && jobDetail[0]) {
-      const jd = jobDetail[0];
-      db.select({ email: clientsTable.email, phone: clientsTable.phone,
-                  address: clientsTable.address, city: clientsTable.city, state: clientsTable.state,
-                  first_name: clientsTable.first_name })
-        .from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1)
-        .then(([cl]) => {
-          if (!cl) return;
-          const addr = [cl.address, cl.city, cl.state].filter(Boolean).join(", ");
-          const mv = {
-            first_name:       cl.first_name || "",
-            appointment_date: jd.scheduled_date || new Date().toISOString().slice(0, 10),
-            scope:            labelServiceType(jd.service_type),
-            service_address:  addr,
-          };
-          sendNotification("job_completed", "email", companyId, cl.email, null, mv).catch(() => {});
-          sendNotification("job_completed", "sms",   companyId, null, cl.phone, mv).catch(() => {});
-        }).catch(() => {});
-    }
+    import("../lib/job-lifecycle-notify.js").then(({ notifyJobCompleted }) =>
+      notifyJobCompleted(companyId, jobId).catch(() => {}),
+    ).catch(() => {});
     // ─────────────────────────────────────────────────────────────────────
 
     // ── efficiency auto-compute (non-blocking) ────────────────────────────

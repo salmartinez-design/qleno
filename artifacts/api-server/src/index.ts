@@ -51,6 +51,13 @@ if (criticalMissing) {
   console.error("[Qleno] Missing critical env vars — server may not function correctly");
 }
 
+// [comms-cadence-mirror] MaidCentral sends only a 24-hour (day-before) reminder.
+// Qleno additionally sends a 72-hour (3-day) reminder as an extra customer touch.
+// Default ON (keep the extra touch). Flip to false for an EXACT MaidCentral
+// mirror — that drops the 3-day reminder and keeps only the day-before one.
+// Single switch so the keep-vs-remove call is one line, no code surgery.
+const REMINDER_72H_ENABLED = true;
+
 // ── Notification cron scheduler (CT timezone) ─────────────────────────────
 // Fires reminder_3day at 9 AM CT, reminder_1day at 4 PM CT, review_request hourly
 function startNotificationCron() {
@@ -72,8 +79,9 @@ function startNotificationCron() {
     const ctMonth = ctNow.getUTCMonth(); // 0-indexed; December = 11
     const ctDay   = ctNow.getUTCDate();
 
-    // 9 AM CT → reminder_3day (jobs in 3 days)
-    if (ctH === 9 && fired["reminder_3day"] !== `${ctDate}-9`) {
+    // 9 AM CT → reminder_3day (jobs in 3 days) — gated by REMINDER_72H_ENABLED
+    // so dropping the extra 72h touch for an exact MaidCentral mirror is one flag.
+    if (REMINDER_72H_ENABLED && ctH === 9 && fired["reminder_3day"] !== `${ctDate}-9`) {
       fired["reminder_3day"] = `${ctDate}-9`;
       runReminderCron(3).catch((e: Error) => console.error("[cron] reminder_3day error:", e));
     }

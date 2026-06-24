@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission-paytype.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
+import { notifyJobStarted, notifyJobCompleted } from "../lib/job-lifecycle-notify.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
 import type { CommissionInputJob } from "../lib/commission-compute.js";
 
@@ -384,6 +385,12 @@ router.post("/clock-in", requireAuth, async (req, res) => {
       console.error("[late_clockin notify] failed:", notifErr);
     }
 
+    // [comms-cadence-mirror] "Your cleaning has started" — fires on the first
+    // clock-in at the house (idempotent latch means later techs on the same job
+    // don't re-send). Gated + fire-and-forget so it never blocks the response.
+    notifyJobStarted(req.auth!.companyId, job_id)
+      .catch((e: Error) => console.error("[timeclock started-notify] non-fatal:", e));
+
     return res.json({
       ...entry,
       distance_from_job_ft: distanceFt,
@@ -547,6 +554,11 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
           // never blocks the clock-out response (helper is internally non-fatal).
           ensureInvoiceForCompletedJob(req.auth!.companyId, jobId, req.auth!.userId)
             .catch((e: Error) => console.error("[end-job invoice] non-fatal:", e));
+          // [comms-cadence-mirror] "Your cleaning is complete" + stamp completed_at
+          // (the review-request cron's key). RETURNING guard above means this runs
+          // exactly once, on the transition. Gated + fire-and-forget.
+          notifyJobCompleted(req.auth!.companyId, jobId)
+            .catch((e: Error) => console.error("[end-job completed-notify] non-fatal:", e));
         }
         if (clientId) {
           fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
