@@ -14,6 +14,9 @@ export const recurringFrequencyEnum = pgEnum("recurring_frequency", [
   // (typically [1, 15] or [15, 30]). Engine snaps forward to next
   // business day when an anchor falls on a weekend.
   "semi_monthly",
+  // [commercial-cadence] Nth weekday of month — "3rd Wednesday", "last
+  // Friday". Pairs week_of_month (1..4, 5=last) with day_of_week.
+  "monthly_weekday",
 ]);
 
 export const recurringDayEnum = pgEnum("recurring_day", [
