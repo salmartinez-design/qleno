@@ -556,7 +556,11 @@ export async function processDueEnrollments(): Promise<void> {
   }
 }
 
-async function processEnrollment(enr: any): Promise<void> {
+// Returns the outcome of the touch it just processed (used by the immediate
+// "Send now" path to report whether the email actually went out). The cron
+// callers ignore the return.
+type TouchResult = { channel: string; status: string; recipient: string | null };
+async function processEnrollment(enr: any): Promise<TouchResult | null> {
   // Fetch the current step (template_id links to a managed message_templates row)
   const stepRows = await db.execute(sql`
     SELECT id, step_number, delay_hours, channel, subject, message_template, template_id
@@ -569,7 +573,7 @@ async function processEnrollment(enr: any): Promise<void> {
     await db.execute(sql`
       UPDATE follow_up_enrollments SET completed_at = NOW() WHERE id = ${enr.id}
     `);
-    return;
+    return null;
   }
   const step = stepRows.rows[0] as any;
 
@@ -791,6 +795,39 @@ async function processEnrollment(enr: any): Promise<void> {
       UPDATE follow_up_enrollments SET completed_at = NOW() WHERE id = ${enr.id}
     `);
     console.log(`[follow-up] Enrollment ${enr.id} completed — all steps sent`);
+  }
+  return { channel: step.channel, status: sendStatus, recipient: step.channel === "sms" ? recipientPhone : recipientEmail };
+}
+
+// [estimate-send-now] Fire an estimate's Day-0 touch IMMEDIATELY (instead of
+// waiting up to 30 min for the cron), through the same gated processEnrollment
+// path (comms gates, opt-out, CC, engagement event, step-advance all apply).
+// Returns whether the email actually went out so the office gets instant
+// confirmation. Safe no-op if the estimate isn't enrolled / already advanced.
+export async function fireEstimateDay0(
+  companyId: number, estimateId: number,
+): Promise<{ emailed: boolean; status: string; channel?: string; recipient?: string | null; reason?: string }> {
+  try {
+    const rows = await db.execute(sql`
+      SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id,
+             fe.abandoned_booking_id, fe.estimate_id, fe.current_step,
+             fs.name AS sequence_name, fs.sequence_type
+      FROM follow_up_enrollments fe
+      JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+      WHERE fe.estimate_id = ${estimateId} AND fe.company_id = ${companyId}
+        AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+      ORDER BY fe.id DESC LIMIT 1
+    `);
+    const enr = (rows as any).rows[0];
+    if (!enr) return { emailed: false, status: "not_enrolled", reason: "not_enrolled" };
+    // Only fire if still on the first (Day-0) step — never re-send a later touch.
+    if (Number(enr.current_step) !== 1) return { emailed: false, status: "already_started", reason: "already_started" };
+    const r = await processEnrollment(enr);
+    if (!r) return { emailed: false, status: "no_step", reason: "no_step" };
+    return { emailed: r.status === "sent" && r.channel === "email", status: r.status, channel: r.channel, recipient: r.recipient, reason: r.status !== "sent" ? r.status : undefined };
+  } catch (err: any) {
+    console.error("[estimate-send-now] fireEstimateDay0 error:", err?.message ?? err);
+    return { emailed: false, status: "error", reason: err?.message ?? "error" };
   }
 }
 

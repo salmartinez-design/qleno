@@ -3,7 +3,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { requireAuth } from "../lib/auth.js";
-import { enrollForEstimateSent, stopEnrollmentsForEstimate } from "../services/followUpService.js";
+import { enrollForEstimateSent, stopEnrollmentsForEstimate, fireEstimateDay0 } from "../services/followUpService.js";
 import { recordEngagementEvent } from "../lib/engagement.js";
 
 // [commercial-estimate-tool 2026-06-09] Commercial / common-area estimates.
@@ -738,11 +738,14 @@ router.post("/:id/send", requireAuth, async (req, res) => {
       WHERE id = ${id} AND company_id = ${companyId}
     `);
     // [estimate-drip-phase3] Auto-enroll into the native estimate follow-up
-    // cadence. No-op unless the tenant has an ACTIVE estimate_followup sequence
-    // (seeded inactive), and sends still pass the comms gates. Non-blocking.
-    enrollForEstimateSent(companyId as number, id).catch((e) =>
-      console.warn("[estimates] enrollForEstimateSent failed:", e?.message ?? e));
-    return res.json({ id, public_token: token });
+    // cadence (no-op unless an ACTIVE estimate_followup sequence exists).
+    // [estimate-send-now] Then fire the Day-0 email IMMEDIATELY (gated path) so
+    // the prospect gets it now instead of waiting up to 30 min for the cron, and
+    // we can confirm delivery back to the office. Both awaited so the response
+    // carries the result.
+    await enrollForEstimateSent(companyId as number, id);
+    const day0 = await fireEstimateDay0(companyId as number, id);
+    return res.json({ id, public_token: token, emailed: day0.emailed, email_status: day0.status, email_recipient: day0.recipient ?? null });
   } catch (err) {
     console.error("Send estimate error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
