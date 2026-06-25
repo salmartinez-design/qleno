@@ -48,6 +48,8 @@ export const followUpEnrollmentsTable = pgTable("follow_up_enrollments", {
   client_id: integer("client_id"),
   lead_id: integer("lead_id"),
   abandoned_booking_id: integer("abandoned_booking_id"),
+  // [estimate-drip-phase3 2026-06-25] commercial estimate follow-up enrollments
+  estimate_id: integer("estimate_id"),
   current_step: integer("current_step").notNull().default(1),
   enrolled_at: timestamp("enrolled_at").notNull().defaultNow(),
   next_fire_at: timestamp("next_fire_at").notNull(),

@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { requireAuth } from "../lib/auth.js";
+import { enrollForEstimateSent, stopEnrollmentsForEstimate } from "../services/followUpService.js";
 
 // [commercial-estimate-tool 2026-06-09] Commercial / common-area estimates.
 // Raw SQL (db.execute) on purpose: the estimate tables are brand-new and the
@@ -357,6 +358,8 @@ router.post("/public/:token/accept", async (req, res) => {
       UPDATE estimates SET status = 'accepted', accepted_at = now(), accepted_name = ${name}, updated_at = now()
       WHERE id = ${est.id}
     `);
+    // [estimate-drip-phase3] Accepted → stop the follow-up drip. Non-blocking.
+    stopEnrollmentsForEstimate(Number(est.id), "accepted").catch(() => {});
     return res.json({ ok: true, status: "accepted" });
   } catch (err) {
     console.error("Accept estimate error:", err);
@@ -375,6 +378,8 @@ router.post("/public/:token/decline", async (req, res) => {
     if (est.status === "accepted") return res.status(409).json({ error: "Conflict", message: "Already accepted" });
     if (est.status !== "declined") {
       await db.execute(sql`UPDATE estimates SET status = 'declined', declined_at = now(), updated_at = now() WHERE id = ${est.id}`);
+      // [estimate-drip-phase3] Declined → stop the follow-up drip. Non-blocking.
+      stopEnrollmentsForEstimate(Number(est.id), "declined").catch(() => {});
     }
     return res.json({ ok: true, status: "declined" });
   } catch (err) {
@@ -564,6 +569,11 @@ router.post("/:id/send", requireAuth, async (req, res) => {
       SET status = 'sent', sent_at = COALESCE(sent_at, now()), public_token = ${token}, valid_until = ${validUntil}, updated_at = now()
       WHERE id = ${id} AND company_id = ${companyId}
     `);
+    // [estimate-drip-phase3] Auto-enroll into the native estimate follow-up
+    // cadence. No-op unless the tenant has an ACTIVE estimate_followup sequence
+    // (seeded inactive), and sends still pass the comms gates. Non-blocking.
+    enrollForEstimateSent(companyId as number, id).catch((e) =>
+      console.warn("[estimates] enrollForEstimateSent failed:", e?.message ?? e));
     return res.json({ id, public_token: token });
   } catch (err) {
     console.error("Send estimate error:", err);

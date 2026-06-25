@@ -53,6 +53,12 @@ router.post("/inbound", async (req, res) => {
         await stopEnrollmentsForClient(match.client_id, optOut ? "opted_out" : "replied");
       } catch (e) { console.warn("[comms/inbound] client cadence stop failed:", e); }
     }
+    // [estimate-drip-phase3] Stop estimate drips when the property manager texts
+    // back (matched on the estimate's contact_phone), independent of client match.
+    try {
+      const { stopEstimateEnrollmentsByPhone } = await import("../services/followUpService.js");
+      await stopEstimateEnrollmentsByPhone(companyId, from, optOut ? "opted_out" : "replied");
+    } catch (e) { console.warn("[comms/inbound] estimate cadence stop failed:", e); }
 
     // [comms-opt-out 2026-06-21] Record the SMS opt-out flag on the client(s)
     // (matched by phone, last-10) so EVERY send path honors it — not just the

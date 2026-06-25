@@ -182,6 +182,34 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
   };
 }
 
+// Build merge vars for a commercial-estimate enrollment touch. Pulls the
+// estimate's public token (→ the hosted /estimate/ page), total, property +
+// contact and the tenant brand. Merge fields used by the estimate sequence copy:
+// {{first_name}} {{company_name}} {{company_phone}} {{property}} {{monthly}} {{estimate_link}}.
+async function buildEstimateMergeVars(companyId: number, estimateId: number): Promise<Record<string, string>> {
+  const r = await db.execute(sql`
+    SELECT e.id, e.total, e.property_name, e.service_address, e.public_token, e.contact_name,
+           c.name AS company_name, c.phone AS company_phone, c.email AS company_email
+    FROM estimates e JOIN companies c ON c.id = e.company_id
+    WHERE e.id = ${estimateId} AND e.company_id = ${companyId} LIMIT 1
+  `);
+  const e: any = r.rows[0];
+  if (!e) return {};
+  const fullLink = e.public_token ? `${appBaseUrl()}/estimate/${e.public_token}` : `${appBaseUrl()}/estimate`;
+  const link = e.public_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
+  const total = e.total != null ? Number(e.total).toFixed(2) : "0.00";
+  return {
+    company_name:   e.company_name || "Phes",
+    company_phone:  e.company_phone || "(773) 706-6000",
+    company_email:  e.company_email || "info@phes.io",
+    property:       e.property_name || e.service_address || "your property",
+    monthly:        total,
+    estimate_total: total,
+    estimate_link:  link,
+    estimate_number: String(e.id),
+  };
+}
+
 // ── Enroll for quote follow-up ─────────────────────────────────────────────────
 export async function enrollForQuoteSent(
   companyId: number,
@@ -355,6 +383,95 @@ export async function stopEnrollmentsForQuote(
   }
 }
 
+// ── Enroll for estimate follow-up (commercial drip) ────────────────────────────
+// Fired from POST /api/estimates/:id/send. Enrolls only when the tenant has an
+// ACTIVE 'estimate_followup' sequence — seeded is_active=FALSE by default, so the
+// drip is INERT until the office explicitly turns it on. Even when active, the
+// actual sends still pass through the COMMS_ENABLED + company/branch comms gates
+// in processEnrollment, so nothing leaves while a tenant's comms are off.
+export async function enrollForEstimateSent(
+  companyId: number,
+  estimateId: number,
+): Promise<void> {
+  try {
+    const seqRows = await db.execute(sql`
+      SELECT id FROM follow_up_sequences
+      WHERE company_id = ${companyId} AND sequence_type = 'estimate_followup' AND is_active = true
+      LIMIT 1
+    `);
+    if (!seqRows.rows.length) {
+      console.log(`[follow-up] No active estimate_followup sequence for company ${companyId} — estimate ${estimateId} not enrolled (drip inert).`);
+      return;
+    }
+    const sequenceId = (seqRows.rows[0] as any).id;
+
+    // Deduplicate: one active enrollment per estimate.
+    const existing = await db.execute(sql`
+      SELECT id FROM follow_up_enrollments
+      WHERE sequence_id = ${sequenceId} AND estimate_id = ${estimateId}
+        AND completed_at IS NULL AND stopped_at IS NULL
+      LIMIT 1
+    `);
+    if (existing.rows.length > 0) return;
+
+    await db.execute(sql`
+      INSERT INTO follow_up_enrollments
+        (company_id, sequence_id, estimate_id, current_step, next_fire_at)
+      VALUES
+        (${companyId}, ${sequenceId}, ${estimateId}, 1, NOW())
+    `);
+    console.log(`[follow-up] Enrolled estimate ${estimateId} in estimate_followup sequence ${sequenceId}`);
+  } catch (err) {
+    console.error("[follow-up] enrollForEstimateSent error (non-fatal):", err);
+  }
+}
+
+// ── Stop enrollments for an estimate (accepted / declined) ──────────────────────
+export async function stopEnrollmentsForEstimate(
+  estimateId: number,
+  reason: string,
+): Promise<void> {
+  try {
+    await db.execute(sql`
+      UPDATE follow_up_enrollments
+      SET stopped_at = NOW(), stopped_reason = ${reason}
+      WHERE estimate_id = ${estimateId}
+        AND completed_at IS NULL
+        AND stopped_at IS NULL
+    `);
+    console.log(`[follow-up] Stopped estimate enrollments for estimate ${estimateId} — reason: ${reason}`);
+  } catch (err) {
+    console.error("[follow-up] stopEnrollmentsForEstimate error (non-fatal):", err);
+  }
+}
+
+// ── Stop estimate enrollments by replier phone (stop-on-reply) ──────────────────
+// The inbound-SMS webhook calls this so a property manager texting back halts the
+// estimate drip, matched on the estimate's contact_phone (last-10 digits).
+export async function stopEstimateEnrollmentsByPhone(
+  companyId: number,
+  phone: string,
+  reason: string,
+): Promise<void> {
+  try {
+    const digits = (phone || "").replace(/\D/g, "").slice(-10);
+    if (digits.length !== 10) return;
+    await db.execute(sql`
+      UPDATE follow_up_enrollments fe
+      SET stopped_at = NOW(), stopped_reason = ${reason}
+      FROM estimates e
+      WHERE fe.estimate_id = e.id
+        AND fe.company_id = ${companyId}
+        AND right(regexp_replace(e.contact_phone, '\\D', '', 'g'), 10) = ${digits}
+        AND fe.completed_at IS NULL
+        AND fe.stopped_at IS NULL
+    `);
+    console.log(`[follow-up] Stopped estimate enrollments by phone ${digits} (company=${companyId}) — reason: ${reason}`);
+  } catch (err) {
+    console.error("[follow-up] stopEstimateEnrollmentsByPhone error (non-fatal):", err);
+  }
+}
+
 // ── Stop abandoned-booking enrollments (the customer finished booking) ──────────
 // Keyed by email since /book/confirm knows the email, not the abandoned row id.
 // Run BEFORE the confirm-time DELETE of the abandoned_bookings row (the FK is
@@ -391,7 +508,7 @@ export async function processDueEnrollments(): Promise<void> {
     const due = await db.execute(sql`
       SELECT
         fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id,
-        fe.abandoned_booking_id, fe.current_step,
+        fe.abandoned_booking_id, fe.estimate_id, fe.current_step,
         fs.name AS sequence_name, fs.sequence_type
       FROM follow_up_enrollments fe
       JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
@@ -483,6 +600,17 @@ async function processEnrollment(enr: any): Promise<void> {
       recipientPhone = a.phone || null;
       zip = a.zip || null;
     }
+  } else if (enr.estimate_id) {
+    const estRows = await db.execute(sql`
+      SELECT contact_name, contact_email, contact_phone, service_address FROM estimates WHERE id = ${enr.estimate_id} LIMIT 1
+    `);
+    if (estRows.rows.length) {
+      const e = estRows.rows[0] as any;
+      firstName = (e.contact_name || "").split(" ")[0] || "";
+      recipientEmail = e.contact_email || null;
+      recipientPhone = e.contact_phone || null;
+      zip = (String(e.service_address || "").match(/\b(\d{5})\b/) || [])[1] || null;
+    }
   }
 
   // Per-branch routing — every comm goes through getBranchByZip (CLAUDE.md).
@@ -514,6 +642,9 @@ async function processEnrollment(enr: any): Promise<void> {
   // Quote-tied enrollments (the quote email/SMS) get the full quote merge set:
   // public estimate link, total, itemized line items, address, contact, brand.
   if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(enr.company_id, enr.quote_id));
+  // Estimate enrollments get the commercial-estimate merge set (contact, property,
+  // monthly total, hosted view link).
+  if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(enr.company_id, enr.estimate_id));
   // Abandoned-booking enrollments get {{resume_link}} (the company booking page)
   // + {{office_phone}} (the steps reference both).
   if (enr.abandoned_booking_id) {
@@ -620,7 +751,7 @@ export async function sendSingleEnrollmentTouch(
   companyId: number, enrollmentId: number, stepOverride?: number,
 ): Promise<{ sent: boolean; channel?: string; recipient?: string | null; step?: number; reason?: string; advanced_to_step?: number | null; completed?: boolean; provider_id?: string | null; error?: string }> {
   const enrRows = await db.execute(sql`
-    SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id, fe.current_step,
+    SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id, fe.estimate_id, fe.current_step,
            fs.name AS sequence_name
     FROM follow_up_enrollments fe
     JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
@@ -648,6 +779,9 @@ export async function sendSingleEnrollmentTouch(
   } else if (enr.lead_id) {
     const r = await db.execute(sql`SELECT first_name, email, phone, zip FROM leads WHERE id = ${enr.lead_id} LIMIT 1`);
     const l = r.rows[0] as any; if (l) { firstName = l.first_name || ""; recipientEmail = l.email || null; recipientPhone = l.phone || null; zip = l.zip || null; }
+  } else if (enr.estimate_id) {
+    const r = await db.execute(sql`SELECT contact_name, contact_email, contact_phone, service_address FROM estimates WHERE id = ${enr.estimate_id} LIMIT 1`);
+    const e = r.rows[0] as any; if (e) { firstName = (e.contact_name || "").split(" ")[0] || ""; recipientEmail = e.contact_email || null; recipientPhone = e.contact_phone || null; zip = (String(e.service_address || "").match(/\b(\d{5})\b/) || [])[1] || null; }
   }
   const branch = getBranchByZip(zip || "");
 
@@ -660,6 +794,7 @@ export async function sendSingleEnrollmentTouch(
   const ci = await companyInfo(companyId);
   const mergeVars: Record<string, string> = { first_name: firstName, company_name: ci.name, company_phone: ci.phone, company_email: ci.email };
   if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(companyId, enr.quote_id));
+  if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(companyId, enr.estimate_id));
   const body = resolveMergeFields(rawBody, mergeVars);
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
   const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
