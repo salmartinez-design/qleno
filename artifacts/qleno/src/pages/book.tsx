@@ -552,6 +552,18 @@ export default function BookPage() {
     return () => { cancelled = true; };
   }, []);
 
+  // ── Scroll to top on every step change ────────────────────────────────────
+  // After "Book" goes through we jump to the confirmation step, but the scroll
+  // position stays down on the prior step's content, leaving the customer
+  // staring at the middle of the page. Reset to the top on each transition.
+  // window.scrollTo handles the standalone page (and an iframe that scrolls
+  // internally); the postMessage lets a host page (phes.io embed) scroll its
+  // own frame to the top if it listens for it.
+  useEffect(() => {
+    try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { window.scrollTo(0, 0); }
+    try { window.parent?.postMessage({ type: "qleno-booking-scroll-top", step }, "*"); } catch { /* not embedded */ }
+  }, [step]);
+
   // ── Wire autocomplete after Maps is ready AND input is in the DOM ──────────
   useEffect(() => {
     if (!mapsReady || !inputMounted || !addressInputRef.current) return;
