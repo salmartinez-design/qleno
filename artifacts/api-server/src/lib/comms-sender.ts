@@ -33,7 +33,23 @@ export async function resolveSender(companyId: number, branchId?: number | null)
       branchComms = !!(br.rows[0] as any)?.comms_enabled;
     }
   }
-  const from_number = branchNumber || c.twilio_from_number || null;
+  let from_number = branchNumber || c.twilio_from_number || null;
+  // [sms-from-number-fallback 2026-06-25] Manual / company-scoped sends pass no
+  // branch context, and a tenant that keeps its Twilio numbers on the BRANCHES
+  // (not company-level, e.g. Phes co1) would otherwise resolve no_from_number.
+  // Fall back to the company's primary branch number: first active branch
+  // (comms_enabled first, then lowest id) that actually has a from-number.
+  // If NO branch has a number, it stays null → reason 'no_from_number' (we
+  // never invent a number).
+  if (!from_number) {
+    const fb = await db.execute(sql`
+      SELECT twilio_from_number FROM branches
+       WHERE company_id = ${companyId}
+         AND twilio_from_number IS NOT NULL AND twilio_from_number <> ''
+       ORDER BY comms_enabled DESC, id ASC
+       LIMIT 1`);
+    from_number = (fb.rows[0] as any)?.twilio_from_number ?? null;
+  }
   const account_sid = c.twilio_account_sid ?? null;
   const auth_token = c.twilio_auth_token ?? null;
   const enabled = !!c.twilio_enabled;
