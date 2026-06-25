@@ -186,7 +186,7 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
 // estimate's public token (→ the hosted /estimate/ page), total, property +
 // contact and the tenant brand. Merge fields used by the estimate sequence copy:
 // {{first_name}} {{company_name}} {{company_phone}} {{property}} {{monthly}} {{estimate_link}}.
-async function buildEstimateMergeVars(companyId: number, estimateId: number): Promise<Record<string, string>> {
+async function buildEstimateMergeVars(companyId: number, estimateId: number, enrollmentId?: number): Promise<Record<string, string>> {
   const r = await db.execute(sql`
     SELECT e.id, e.total, e.property_name, e.service_address, e.public_token, e.contact_name,
            c.name AS company_name, c.phone AS company_phone, c.email AS company_email
@@ -196,7 +196,16 @@ async function buildEstimateMergeVars(companyId: number, estimateId: number): Pr
   const e: any = r.rows[0];
   if (!e) return {};
   const fullLink = e.public_token ? `${appBaseUrl()}/estimate/${e.public_token}` : `${appBaseUrl()}/estimate`;
-  const link = e.public_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
+  // [engagement-phase4] When sending a real touch (enrollmentId present), route
+  // the link through our own click-redirect so the click is recorded natively
+  // and attributed to this estimate + enrollment. Falls back to a short link.
+  let link: string;
+  if (enrollmentId) {
+    const { createTrackedLink } = await import("../lib/engagement.js");
+    link = await createTrackedLink({ companyId, targetUrl: fullLink, estimateId, enrollmentId });
+  } else {
+    link = e.public_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
+  }
   const total = e.total != null ? Number(e.total).toFixed(2) : "0.00";
   return {
     company_name:   e.company_name || "Phes",
@@ -456,7 +465,7 @@ export async function stopEstimateEnrollmentsByPhone(
   try {
     const digits = (phone || "").replace(/\D/g, "").slice(-10);
     if (digits.length !== 10) return;
-    await db.execute(sql`
+    const stopped = await db.execute(sql`
       UPDATE follow_up_enrollments fe
       SET stopped_at = NOW(), stopped_reason = ${reason}
       FROM estimates e
@@ -465,8 +474,18 @@ export async function stopEstimateEnrollmentsByPhone(
         AND right(regexp_replace(e.contact_phone, '\\D', '', 'g'), 10) = ${digits}
         AND fe.completed_at IS NULL
         AND fe.stopped_at IS NULL
+      RETURNING fe.id AS enrollment_id, fe.estimate_id
     `);
-    console.log(`[follow-up] Stopped estimate enrollments by phone ${digits} (company=${companyId}) — reason: ${reason}`);
+    // [engagement-phase4] Record an inbound reply against each stopped estimate.
+    const { recordEngagementEvent } = await import("../lib/engagement.js");
+    for (const r of (stopped as any).rows ?? []) {
+      await recordEngagementEvent({
+        companyId, estimateId: r.estimate_id, enrollmentId: r.enrollment_id,
+        eventType: "replied", channel: "sms", recipient: digits,
+        meta: { reason },
+      });
+    }
+    console.log(`[follow-up] Stopped ${((stopped as any).rows ?? []).length} estimate enrollment(s) by phone ${digits} (company=${companyId}) — reason: ${reason}`);
   } catch (err) {
     console.error("[follow-up] stopEstimateEnrollmentsByPhone error (non-fatal):", err);
   }
@@ -644,7 +663,7 @@ async function processEnrollment(enr: any): Promise<void> {
   if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(enr.company_id, enr.quote_id));
   // Estimate enrollments get the commercial-estimate merge set (contact, property,
   // monthly total, hosted view link).
-  if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(enr.company_id, enr.estimate_id));
+  if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(enr.company_id, enr.estimate_id, enr.id));
   // Abandoned-booking enrollments get {{resume_link}} (the company booking page)
   // + {{office_phone}} (the steps reference both).
   if (enr.abandoned_booking_id) {
@@ -654,9 +673,19 @@ async function processEnrollment(enr: any): Promise<void> {
     mergeVars.resume_link = slug ? `${base}/book/${slug}` : `${base}/book`;
     mergeVars.office_phone = mergeVars.company_phone;
   }
-  const body    = resolveMergeFields(rawBody, mergeVars);
+  let body      = resolveMergeFields(rawBody, mergeVars);
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
   const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
+
+  // [engagement-phase4] Estimate email touches carry a 1x1 open pixel so opens
+  // are recorded natively, attributed to this estimate + enrollment.
+  if (enr.estimate_id && step.channel === "email") {
+    try {
+      const { createOpenPixel } = await import("../lib/engagement.js");
+      const pixel = await createOpenPixel({ companyId: enr.company_id, estimateId: enr.estimate_id, enrollmentId: enr.id });
+      if (pixel) body += `\n<img src="${pixel}" width="1" height="1" alt="" style="display:none" />`;
+    } catch { /* pixel optional */ }
+  }
 
   let sendStatus = "sent";
   let sendError  = "";
@@ -715,6 +744,21 @@ async function processEnrollment(enr: any): Promise<void> {
        ${subject || null}, ${body}, ${sendStatus},
        ${enr.sequence_name}, ${step.step_number})
   `);
+
+  // [engagement-phase4] Fan the cadence send into the engagement timeline
+  // (estimate enrollments only). sent → 'sent'; otherwise → 'failed' with reason.
+  if (enr.estimate_id) {
+    const { recordEngagementEvent } = await import("../lib/engagement.js");
+    await recordEngagementEvent({
+      companyId: enr.company_id,
+      estimateId: enr.estimate_id,
+      enrollmentId: enr.id,
+      eventType: sendStatus === "sent" ? "sent" : "failed",
+      channel: step.channel,
+      recipient: step.channel === "sms" ? recipientPhone : recipientEmail,
+      meta: { step_number: step.step_number, status: sendStatus, ...(sendError ? { error: sendError } : {}) },
+    });
+  }
 
   // Advance or complete — next_fire_at clamped to 8am–9pm America/Chicago.
   const nextStepRows = await db.execute(sql`
@@ -794,7 +838,7 @@ export async function sendSingleEnrollmentTouch(
   const ci = await companyInfo(companyId);
   const mergeVars: Record<string, string> = { first_name: firstName, company_name: ci.name, company_phone: ci.phone, company_email: ci.email };
   if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(companyId, enr.quote_id));
-  if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(companyId, enr.estimate_id));
+  if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(companyId, enr.estimate_id, enr.id));
   const body = resolveMergeFields(rawBody, mergeVars);
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
   const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };

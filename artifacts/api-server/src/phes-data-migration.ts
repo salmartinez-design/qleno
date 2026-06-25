@@ -373,6 +373,38 @@ async function runBookingSchemaGuard(): Promise<void> {
     // the builder can offer a one-click picker (common_areas|office|retail|
     // medical|null). Additive + idempotent.
     { label: "estimate_templates.category", stmt: `ALTER TABLE estimate_templates ADD COLUMN IF NOT EXISTS category TEXT` },
+    // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
+    // native click-redirect / open-pixel tokens. Additive + idempotent.
+    { label: "CREATE engagement_events", stmt: `
+      CREATE TABLE IF NOT EXISTS engagement_events (
+        id            SERIAL PRIMARY KEY,
+        company_id    INTEGER NOT NULL,
+        estimate_id   INTEGER,
+        enrollment_id INTEGER,
+        event_type    TEXT NOT NULL,
+        channel       TEXT,
+        recipient     TEXT,
+        meta          JSONB,
+        occurred_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_engagement_events_estimate",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_engagement_events_estimate ON engagement_events(company_id, estimate_id, occurred_at)` },
+    { label: "idx_engagement_events_company_time",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_engagement_events_company_time ON engagement_events(company_id, occurred_at)` },
+    { label: "CREATE tracked_links", stmt: `
+      CREATE TABLE IF NOT EXISTS tracked_links (
+        id            SERIAL PRIMARY KEY,
+        token         TEXT NOT NULL UNIQUE,
+        company_id    INTEGER NOT NULL,
+        estimate_id   INTEGER,
+        enrollment_id INTEGER,
+        kind          TEXT NOT NULL DEFAULT 'click',
+        target_url    TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
     // ── follow_up_sequences table ────────────────────────────────────────────
     { label: "CREATE follow_up_sequences", stmt: `
       CREATE TABLE IF NOT EXISTS follow_up_sequences (

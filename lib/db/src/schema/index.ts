@@ -7,6 +7,8 @@ export * from "./referral_partners";
 // (previously raw-SQL-migration-only tables, now first-class Drizzle models).
 export * from "./leads";
 export * from "./follow_up";
+// [engagement-tracking-phase4 2026-06-25] Native engagement timeline + tracked links.
+export * from "./engagement";
 export * from "./marketing_spend";
 export * from "./kpi_targets";
 export * from "./lead_report_settings";
