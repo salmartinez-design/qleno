@@ -588,13 +588,17 @@ async function buildDispatchPayload(
     // into a delta without re-multiplying.
     const addOnRows = await db.execute(sql`
       SELECT jao.job_id, jao.quantity, jao.unit_price, jao.subtotal,
+             jao.pricing_addon_id, jao.add_on_id,
              COALESCE(pa.name, ao.name) AS name
         FROM job_add_ons jao
         LEFT JOIN add_ons ao ON ao.id = jao.add_on_id
         LEFT JOIN pricing_addons pa ON pa.id = jao.pricing_addon_id
        WHERE jao.job_id = ANY(ARRAY[${sql.raw(idList)}]::int[])
     `);
-    const addOnsByJob = new Map<number, Array<{ name: string; quantity: number; unit_price: number; subtotal: number }>>();
+    // [job-card-redesign 2026-06-25] Carry pricing_addon_id + add_on_id so the
+    // card's inline pricing editor can persist edits/removals via the same
+    // PATCH /api/jobs/:id { base_fee, add_ons } the edit-modal uses.
+    const addOnsByJob = new Map<number, Array<{ name: string; quantity: number; unit_price: number; subtotal: number; pricing_addon_id: number | null; add_on_id: number | null }>>();
     for (const r of addOnRows.rows as any[]) {
       if (!addOnsByJob.has(r.job_id)) addOnsByJob.set(r.job_id, []);
       addOnsByJob.get(r.job_id)!.push({
@@ -602,6 +606,8 @@ async function buildDispatchPayload(
         quantity: r.quantity != null ? parseFloat(String(r.quantity)) : 1,
         unit_price: r.unit_price != null ? parseFloat(String(r.unit_price)) : 0,
         subtotal: r.subtotal != null ? parseFloat(String(r.subtotal)) : 0,
+        pricing_addon_id: r.pricing_addon_id != null ? Number(r.pricing_addon_id) : null,
+        add_on_id: r.add_on_id != null ? Number(r.add_on_id) : null,
       });
     }
 

@@ -77,7 +77,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 // ─── TYPES ────────────────────────────────────────────────────────────────────
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; clock_in_distance_ft?: number | null; clock_out_distance_ft?: number | null; clock_in_outside_geofence?: boolean; clock_out_outside_geofence?: boolean; gps_missing?: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
-interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; }
+interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; pricing_addon_id?: number | null; add_on_id?: number | null; }
 interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
 interface Employee { id: number; name: string; role: string; is_trainee?: boolean; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: string | null; time_off_unit?: 'full_day' | 'morning' | 'afternoon' | null; time_off_color?: string | null; time_off_label?: string | null; commission_rate?: number | null; avatar_url?: string | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
@@ -1268,6 +1268,143 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
 }
 
 // ─── JOB DETAIL PANEL ────────────────────────────────────────────────────────
+// [job-card-redesign 2026-06-25] Inline pricing editor — Maribel: the base rate
+// and add-on LINES must be editable right on the card (the flat "Change price"
+// was removed in #670, it overwrote the breakdown). RESIDENTIAL only: base_fee
+// there is the ALL-IN total, so new base_fee = base + Σ add-on subtotals,
+// persisted via the same PATCH /api/jobs/:id { base_fee, add_ons } the edit modal
+// uses — with cascade_scope:'this_job' so it only touches THIS occurrence, never
+// the whole series. Commercial-hourly prices as rate×hours (the base line is not
+// base_fee), so those stay read-only and route to the full editor.
+function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; canEdit: boolean; onUpdate: () => void }) {
+  const token = useAuthStore(s => s.token)!;
+  const { toast } = useToast();
+  const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+  const initAddOns = job.add_ons ?? [];
+  const total = Number(job.amount ?? job.billed_amount ?? 0);
+  const addOnSum = initAddOns.reduce((s, a) => s + Number(a.subtotal ?? 0), 0);
+  const baseInit = Math.max(0, Math.round((total - addOnSum) * 100) / 100);
+
+  const isLocked = !!job.locked_at || job.status === "complete" || job.status === "cancelled";
+  const rateDriven = (job.account_id != null || job.client_type === "commercial")
+    && !job.manual_rate_override
+    && job.hourly_rate != null && job.hourly_rate > 0
+    && (job as any).allowed_hours != null && (job as any).allowed_hours > 0;
+  const editable = canEdit && !isLocked && !rateDriven;
+
+  const [editing, setEditing] = useState(false);
+  const [baseVal, setBaseVal] = useState(baseInit.toFixed(2));
+  const [items, setItems] = useState<JobAddOn[]>(initAddOns.map(a => ({ ...a })));
+  const [saving, setSaving] = useState(false);
+
+  if (total === 0 && initAddOns.length === 0) return null;
+
+  const liveAddOnSum = items.reduce((s, a) => s + Number(a.subtotal ?? 0), 0);
+  const liveBase = parseFloat(baseVal || "0") || 0;
+  const liveTotal = Math.round((liveBase + liveAddOnSum) * 100) / 100;
+  const num = (n: number) => `$${n.toFixed(2)}`;
+  const inputStyle: React.CSSProperties = { width: 92, padding: "5px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF, textAlign: "right", outline: "none" };
+
+  async function save() {
+    setSaving(true);
+    try {
+      // Residential convention: base_fee carries the ALL-IN total. add_ons are
+      // the itemized record (NOT re-summed into revenue) — so we send both.
+      const newBaseFee = Math.round((liveBase + liveAddOnSum) * 100) / 100;
+      const add_ons = items.map(a => ({
+        pricing_addon_id: a.pricing_addon_id ?? null,
+        add_on_id: a.add_on_id ?? a.pricing_addon_id ?? null,
+        qty: a.quantity ?? 1,
+        unit_price: a.unit_price ?? a.subtotal ?? 0,
+        subtotal: a.subtotal ?? 0,
+      }));
+      const r = await fetch(`${API}/api/jobs/${job.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ base_fee: String(newBaseFee), add_ons, cascade_scope: "this_job" }),
+      });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.message || d.error || `HTTP ${r.status}`); }
+      toast({ title: "Pricing updated" });
+      setEditing(false);
+      onUpdate();
+    } catch (e: any) {
+      toast({ title: "Couldn't save pricing", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    if (!editable && initAddOns.length === 0) return null;
+    const positives = initAddOns.filter(a => Number(a.subtotal ?? 0) >= 0);
+    const discounts = initAddOns.filter(a => Number(a.subtotal ?? 0) < 0);
+    const line = (label: string, value: string, color?: string) => (
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "3px 0" }}>
+        <span style={{ color: "#6B6860", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
+        <span style={{ fontWeight: 600, color: color ?? "#1A1917", flexShrink: 0 }}>{value}</span>
+      </div>
+    );
+    return (
+      <PS label="Service & pricing">
+        {line(fmtSvc(job.service_type), num(baseInit))}
+        {positives.map((a, i) => <div key={`p${i}`}>{line(`Add-on · ${a.name}`, num(Number(a.subtotal)))}</div>)}
+        {discounts.map((a, i) => <div key={`d${i}`}>{line(a.name, `−$${Math.abs(Number(a.subtotal)).toFixed(2)}`, "#2D9B83")}</div>)}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 6, paddingTop: 8 }}>
+          <span style={{ fontWeight: 700, color: "#1A1917" }}>Total</span>
+          <span style={{ fontWeight: 800, color: "#1A1917" }}>{num(total)}</span>
+        </div>
+        {editable && (
+          <button onClick={() => { setBaseVal(baseInit.toFixed(2)); setItems(initAddOns.map(a => ({ ...a }))); setEditing(true); }}
+            style={{ marginTop: 8, width: "100%", padding: "8px 12px", border: "1px solid #BDEBDD", borderRadius: 8, background: "#EAF9F4", color: "#06715C", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Pencil size={13} /> Edit base rate and add-ons
+          </button>
+        )}
+      </PS>
+    );
+  }
+
+  return (
+    <PS label="Service & pricing">
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 13, color: "#6B6860" }}>{fmtSvc(job.service_type)} <span style={{ fontSize: 11, color: "#9E9B94" }}>· base rate</span></span>
+          <input type="number" step="0.01" min="0" value={baseVal} onChange={e => setBaseVal(e.target.value)} style={inputStyle} autoFocus />
+        </div>
+        {items.map((a, i) => (
+          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, color: "#6B6860", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+            <input type="number" step="0.01" value={String(a.subtotal ?? 0)}
+              onChange={e => { const v = parseFloat(e.target.value) || 0; setItems(prev => prev.map((it, idx) => idx === i ? { ...it, subtotal: v, unit_price: (it.quantity && it.quantity > 0) ? v / it.quantity : v } : it)); }}
+              style={inputStyle} />
+            <button onClick={() => setItems(prev => prev.filter((_, idx) => idx !== i))} title={`Remove ${a.name}`} aria-label={`Remove ${a.name}`}
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, color: "#B91C1C", border: "1px solid #F3D2D2", background: "#FEF2F2", borderRadius: 5, cursor: "pointer", flexShrink: 0 }}>
+              <X size={12} />
+            </button>
+          </div>
+        ))}
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 4, paddingTop: 8 }}>
+          <span style={{ fontWeight: 700, color: "#1A1917" }}>Total</span>
+          <span style={{ fontWeight: 800, color: "#1A1917" }}>{num(liveTotal)}</span>
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+          <button onClick={save} disabled={saving}
+            style={{ flex: 1, padding: "8px 12px", background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+          <button onClick={() => setEditing(false)} disabled={saving}
+            style={{ padding: "8px 14px", background: "#fff", color: "#6B6860", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+            Cancel
+          </button>
+        </div>
+        <div style={{ fontSize: 11, color: "#9E9B94", lineHeight: 1.4 }}>
+          This visit only. Total = base rate + add-ons.
+        </div>
+      </div>
+    </PS>
+  );
+}
+
 // [job-card-redesign 2026-06-25] Exported so the customer profile can render the
 // SAME editable dispatch card (fed by GET /api/dispatch/jobs/:id) instead of a
 // bare reschedule/void modal. `employees` may be [] off-dispatch — the panel
@@ -2291,50 +2428,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               canEdit={false}
               onUpdated={onUpdate}
             />
-            {/* [job-card-redesign 2026-06-25] The single edit entry point for
-                pricing: base rate + each add-on as line items, total recomputed.
-                Replaces the removed flat "Change price". */}
-            {canEditOfficeNotes && (
-              <button
-                onClick={() => setEditOpen(true)}
-                title="Edit the base rate and add-ons as line items (total recalculates)"
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 12px", border: "1px solid #BDEBDD", borderRadius: 8, background: "#EAF9F4", color: "#06715C", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}
-              >
-                <Pencil size={13} /> Edit base rate and add-ons
-              </button>
-            )}
           </div>
 
-          {/* [panel-revamp step 3] Itemized service & pricing — base + add-ons
-              + discount (negative add-on) + total. Only shown when there are
-              add-ons/discounts; otherwise the price editor above already
-              carries the single price. */}
-          {(() => {
-            const addOns = job.add_ons ?? [];
-            if (addOns.length === 0) return null;
-            const total = Number(job.amount ?? job.billed_amount ?? 0);
-            const addOnSum = addOns.reduce((s, a) => s + Number(a.subtotal ?? 0), 0);
-            const base = total - addOnSum;
-            const positives = addOns.filter(a => Number(a.subtotal ?? 0) >= 0);
-            const discounts = addOns.filter(a => Number(a.subtotal ?? 0) < 0);
-            const line = (label: string, value: string, color?: string) => (
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "3px 0" }}>
-                <span style={{ color: "#6B6860", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</span>
-                <span style={{ fontWeight: 600, color: color ?? "#1A1917", flexShrink: 0 }}>{value}</span>
-              </div>
-            );
-            return (
-              <PS label="Service & pricing">
-                {line(fmtSvc(job.service_type), `$${base.toFixed(2)}`)}
-                {positives.map((a, i) => <div key={`p${i}`}>{line(`Add-on · ${a.name}`, `$${Number(a.subtotal).toFixed(2)}`)}</div>)}
-                {discounts.map((a, i) => <div key={`d${i}`}>{line(a.name, `−$${Math.abs(Number(a.subtotal)).toFixed(2)}`, "#2D9B83")}</div>)}
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 6, paddingTop: 8 }}>
-                  <span style={{ fontWeight: 700, color: "#1A1917" }}>Total</span>
-                  <span style={{ fontWeight: 800, color: "#1A1917" }}>${total.toFixed(2)}</span>
-                </div>
-              </PS>
-            );
-          })()}
+          {/* [job-card-redesign 2026-06-25] Itemized service & pricing — now an
+              INLINE editor (Maribel): base rate + each add-on editable + removable
+              right here, total recomputed. Residential only (commercial-hourly
+              stays read-only — see InlinePricingEditor). */}
+          <InlinePricingEditor job={job} canEdit={canEditOfficeNotes} onUpdate={onUpdate} />
 
           {/* [lockout-visibility 2026-06-17] This completed job is actually a
               charged cancellation/lockout — make that unmistakable in the
