@@ -3191,10 +3191,10 @@ export default function BookPage() {
           {step === 5 && bookResult && !(isCommercial && commercialOption === "walkthrough") && (
             <div style={s.card}>
               <div style={{ textAlign: "center", marginBottom: 28 }}>
-                <div style={{ width: 64, height: 64, borderRadius: "50%", background: `${brand}20`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-                  <CheckCircle2 size={32} color={brand} />
+                <div style={{ width: 80, height: 80, borderRadius: "50%", background: brand, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", boxShadow: `0 6px 20px ${brand}40` }}>
+                  <CheckCircle2 size={44} color="#fff" />
                 </div>
-                <p style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 800, color: "#1A1917" }}>Your booking is confirmed!</p>
+                <p style={{ margin: "0 0 10px", fontSize: 28, fontWeight: 800, lineHeight: 1.2, letterSpacing: "-0.02em", color: "#1A1917" }}>Your booking is confirmed!</p>
                 <p style={{ margin: "0 0 6px", fontSize: 14, color: "#6B6860" }}>
                   Thank you, {firstName}. {selectedScope?.name} is scheduled
                   {selectedDate ? ` for ${new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}` : ""}
