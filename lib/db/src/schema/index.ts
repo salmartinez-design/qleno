@@ -3,6 +3,10 @@ export * from "./branches";
 export * from "./users";
 export * from "./message_templates";
 export * from "./referral_partners";
+// [lead-pipeline-foundation 2026-06-25] Typed lead pipeline + cadence engine
+// (previously raw-SQL-migration-only tables, now first-class Drizzle models).
+export * from "./leads";
+export * from "./follow_up";
 export * from "./marketing_spend";
 export * from "./kpi_targets";
 export * from "./lead_report_settings";

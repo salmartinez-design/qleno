@@ -46,7 +46,9 @@ export const estimatesTable = pgTable("estimates", {
   accepted_at: timestamp("accepted_at"),
   declined_at: timestamp("declined_at"),
   accepted_name: text("accepted_name"),
-  // GoHighLevel sync bookkeeping (Phase 3)
+  // DEPRECATED [native-estimate-workflow 2026-06-25]: the GoHighLevel outbound
+  // bridge was removed — the estimate workflow is now 100% native to Qleno.
+  // Retained (harmless) for historical rows but no longer written or read.
   ghl_synced_at: timestamp("ghl_synced_at"),
   created_by: integer("created_by").references(() => usersTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
