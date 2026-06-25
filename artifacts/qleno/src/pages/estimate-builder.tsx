@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical } from "lucide-react";
 import { toast } from "sonner";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -93,6 +94,15 @@ export default function EstimateBuilderPage() {
   const [templates, setTemplates] = useState<any[]>([]);
   const [showPicker, setShowPicker] = useState(isNew);
   const [applyingTemplate, setApplyingTemplate] = useState(false);
+
+  // [estimate-address-autocomplete] Google Places on the Service Address field —
+  // pick a suggestion to fill the canonical "Street, City, State ZIP" (zip is
+  // also what branch routing needs).
+  const serviceAddressRef = useRef<HTMLInputElement>(null);
+  useAddressAutocomplete(serviceAddressRef, true, (p) => {
+    const composed = [p.street, p.city, [p.state, p.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ");
+    setServiceAddress(composed || p.formatted);
+  });
 
   // Load existing estimate, or seed a new one from a template (?template=id).
   useEffect(() => {
@@ -365,7 +375,7 @@ export default function EstimateBuilderPage() {
               </div>
             )}
           </Field>
-          <Field label="Service address"><input style={inp} value={serviceAddress} onChange={e => setServiceAddress(e.target.value)} placeholder="Street, City, State ZIP" /></Field>
+          <Field label="Service address"><input ref={serviceAddressRef} style={inp} value={serviceAddress} onChange={e => setServiceAddress(e.target.value)} placeholder="Start typing an address…" /></Field>
         </Section>
 
         <Section title="Estimate details">
