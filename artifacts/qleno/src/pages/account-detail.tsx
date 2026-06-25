@@ -415,7 +415,7 @@ export default function AccountDetailPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-5xl mx-auto space-y-5">
+      <div className="space-y-5">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
@@ -767,7 +767,7 @@ export default function AccountDetailPage() {
                         </p>
                       )}
 
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 mb-4">
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-2.5 mb-4">
                         <Detail label="Property type" value={p.property_type ? (PROPERTY_TYPES.find((t) => t.value === p.property_type)?.label ?? p.property_type) : "—"} />
                         <Detail label="Units" value={p.unit_count ? `${p.unit_count}` : "—"} />
                         <Detail label="Default service" value={p.default_service_type ? (SERVICE_TYPES.find((s) => s.value === p.default_service_type)?.label ?? p.default_service_type) : "—"} />
