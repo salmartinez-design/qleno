@@ -373,6 +373,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     // the builder can offer a one-click picker (common_areas|office|retail|
     // medical|null). Additive + idempotent.
     { label: "estimate_templates.category", stmt: `ALTER TABLE estimate_templates ADD COLUMN IF NOT EXISTS category TEXT` },
+    // [account-comms-toggle 2026-06-25] Per-account "pause all communications"
+    // master switch (default true). When false, no automated SMS/email reaches
+    // any customer record linked to the account. Additive + idempotent.
+    { label: "accounts.comms_enabled", stmt: `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS comms_enabled boolean NOT NULL DEFAULT true` },
     // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
     // native click-redirect / open-pixel tokens. Additive + idempotent.
     { label: "CREATE engagement_events", stmt: `

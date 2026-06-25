@@ -179,6 +179,27 @@ export default function AccountDetailPage() {
 
   useEffect(() => { load(); }, [id]);
 
+  // [account-comms-toggle] Pause/resume ALL automated SMS+email for this account's
+  // customers (reminders, on-my-way, completion, receipts, review requests).
+  // Optimistic; reverts on failure. Manual invoice sends are unaffected.
+  async function toggleComms(next: boolean) {
+    if (!account) return;
+    const prev = account.comms_enabled;
+    setAccount({ ...account, comms_enabled: next });
+    try {
+      const r = await fetch(`${API}/api/accounts/${id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
+        body: JSON.stringify({ comms_enabled: next }),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: next ? "Communications resumed for this account" : "Communications paused — no automated texts/emails to this account's customers" });
+    } catch {
+      setAccount({ ...account, comms_enabled: prev });
+      toast({ title: "Failed to update communications setting", variant: "destructive" });
+    }
+  }
+
   // [commercial-console slice 2] On desktop, auto-select the first building so the
   // detail pane is populated on arrival. On mobile we leave it on the list (the
   // detail is a drill-in there).
@@ -523,6 +544,23 @@ export default function AccountDetailPage() {
                     {account.auto_charge_on_completion ? "Enabled" : "Disabled"}
                   </span>
                 </div>
+              </div>
+            </div>
+
+            {/* Communications — pause all automated SMS/email for this account */}
+            <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3 sm:col-span-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Communications</p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-[#0A0E1A]">Automated customer messages</p>
+                  <p className="text-xs text-gray-500 mt-0.5 max-w-md">
+                    Reminders, on-my-way texts, completion &amp; receipt notices, review requests for every customer under this account.
+                    {account.comms_enabled === false
+                      ? " Currently PAUSED — nothing automated goes out. (Manual invoices still send.)"
+                      : " Turn off for property managers (PPM, KMA, …) who don't want the messaging."}
+                  </p>
+                </div>
+                <Switch checked={account.comms_enabled !== false} onCheckedChange={toggleComms} />
               </div>
             </div>
 

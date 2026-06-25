@@ -161,6 +161,8 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin"), async (req, res
     "account_name", "account_type", "invoice_frequency", "payment_method",
     "payment_terms_days", "notes", "is_active", "billing_contact_id",
     "auto_charge_on_completion", "stripe_customer_id", "square_customer_id",
+    // [account-comms-toggle] master "pause all communications" switch
+    "comms_enabled",
   ];
   const updates: Record<string, unknown> = { updated_at: new Date() };
   for (const key of allowed) {

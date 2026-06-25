@@ -29,6 +29,12 @@ export const accountsTable = pgTable("accounts", {
   square_customer_id: text("square_customer_id"),
   notes: text("notes"),
   is_active: boolean("is_active").notNull().default(true),
+  // [account-comms-toggle 2026-06-25] Master "pause all communications" switch
+  // for an account. When false, NO automated SMS/email goes to any customer
+  // record linked to this account (clients.account_id) — for property-management
+  // accounts (PPM, KMA, etc.) with many properties that don't want messaging.
+  // Default true = normal. Enforced in every client-resolving send path.
+  comms_enabled: boolean("comms_enabled").notNull().default(true),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });

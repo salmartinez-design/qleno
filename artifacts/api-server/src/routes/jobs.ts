@@ -3660,8 +3660,11 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
                   address: clientsTable.address, city: clientsTable.city, state: clientsTable.state,
                   first_name: clientsTable.first_name })
         .from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1)
-        .then(([cl]) => {
+        .then(async ([cl]) => {
           if (!cl) return;
+          // [account-comms-toggle] Skip if this client's account paused comms.
+          const { isClientAccountCommsPaused } = await import("../lib/account-comms.js");
+          if (await isClientAccountCommsPaused(clientId)) return;
           const addr = [cl.address, cl.city, cl.state].filter(Boolean).join(", ");
           const mv = {
             first_name:       cl.first_name || "",
