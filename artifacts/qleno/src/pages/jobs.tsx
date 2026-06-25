@@ -2214,7 +2214,11 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                  Message sit on the right. Call is a tel: stub today — flips to
                  Dialpad click-to-call once the API key lands in Railway. */
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", flex: 1 }}>{job.client_phone}</span>
+                {/* [job-card-redesign 2026-06-25] The number itself is a tel:
+                   link — with the free Dialpad Chrome extension or Dialpad set
+                   as the default call handler, clicking it dials through Dialpad
+                   (no Pro/API plan). The Call button is the same action. */}
+                <a href={`tel:${job.client_phone}`} style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", flex: 1, textDecoration: "none", minWidth: 0 }} title="Call (dials through Dialpad if it's your default call handler)">{job.client_phone}</a>
                 <a href={`tel:${job.client_phone}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 9, backgroundColor: "#EAF9F4", border: "1px solid #BDEBDD", textDecoration: "none" }} title="Call client (Dialpad)">
                   <Phone size={14} color="#06715C" />
                 </a>
