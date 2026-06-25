@@ -1268,7 +1268,11 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
 }
 
 // ─── JOB DETAIL PANEL ────────────────────────────────────────────────────────
-function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
+// [job-card-redesign 2026-06-25] Exported so the customer profile can render the
+// SAME editable dispatch card (fed by GET /api/dispatch/jobs/:id) instead of a
+// bare reschedule/void modal. `employees` may be [] off-dispatch — the panel
+// degrades gracefully (InlineTechEdit fetches its own tech list).
+export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   job: DispatchJob; employees: Employee[]; onClose: () => void; onUpdate: () => void; mobile: boolean;
 }) {
   const token = useAuthStore(s => s.token)!;

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -15,6 +15,10 @@ import {
 } from "lucide-react";
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from "./customer-profile-tabs2";
 import { JobWizard } from "@/components/job-wizard";
+// [job-card-redesign 2026-06-25] The SAME editable dispatch card, opened from the
+// client calendar (Maribel: "edit everything there, not just void/cancel"). Lazy
+// so jobs.tsx stays out of the profile's main chunk — loaded when a card opens.
+const DispatchJobPanel = lazy(() => import("@/pages/jobs").then(m => ({ default: m.JobPanel })));
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -4890,6 +4894,10 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
   const [dragJobId, setDragJobId] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [modal, setModal] = useState<{ job: any; targetDate?: string } | null>(null);
+  // [job-card-redesign 2026-06-25] Full editable dispatch card opened from a
+  // calendar click (fetched in the rich dispatch shape).
+  const [panelJob, setPanelJob] = useState<any | null>(null);
+  const [panelLoading, setPanelLoading] = useState(false);
   const [form, setForm] = useState({ new_date: "", reason: "", notes: "" });
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
@@ -4922,6 +4930,22 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
     setForm({ new_date: targetDate || String(job.scheduled_date).split("T")[0], reason: "", notes: "" });
     setSaveErr(null);
     setModal({ job, targetDate });
+  }
+
+  // Clicking a job opens the full editable dispatch card. We fetch the job in
+  // the rich dispatch shape the JobPanel needs; if that's unavailable (e.g. a
+  // charged cancellation isn't on the board) we fall back to the old modal.
+  async function openJobCard(job: any) {
+    setPanelLoading(true);
+    try {
+      const r = await apiFetch(`/api/dispatch/jobs/${job.id}`);
+      if (r?.data) { setPanelJob(r.data); return; }
+      openReschedule(job);
+    } catch {
+      openReschedule(job);
+    } finally {
+      setPanelLoading(false);
+    }
   }
 
   async function handleReschedule() {
@@ -5041,7 +5065,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
                 key={j.id}
                 draggable={!ro}
                 onDragStart={e => onDragStart(e, j)}
-                onClick={() => openReschedule(j)}
+                onClick={() => openJobCard(j)}
                 title={`${chip.tooltip}${j.scheduled_time ? " | " + String(j.scheduled_time).slice(0,5).replace(/^(\d+):(\d+)$/, (_, h, m) => `${parseInt(h) % 12 || 12}:${m} ${parseInt(h) < 12 ? "AM" : "PM"}`) : ""}${j.technician_name ? " · " + j.technician_name : ""}`}
                 style={{
                   background: chip.bg, border: `1px solid ${chip.border}`, color: chip.text,
@@ -5117,6 +5141,24 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
       <div style={{ padding: "12px 16px", display: "flex", flexDirection: calIsMobile ? "column" : "row", gap: 16 }}>
         {months.map(m => renderMonth(m))}
       </div>
+
+      {panelLoading && !panelJob && (
+        <div style={{ position: "fixed", top: 16, right: 16, zIndex: 60, background: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#6B6860", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }}>Loading job…</div>
+      )}
+
+      {/* [job-card-redesign 2026-06-25] Full editable dispatch card, opened from
+          a calendar click. Same component the dispatch board uses. */}
+      {panelJob && (
+        <Suspense fallback={null}>
+          <DispatchJobPanel
+            job={panelJob}
+            employees={[]}
+            mobile={false}
+            onClose={() => setPanelJob(null)}
+            onUpdate={() => { qc.invalidateQueries({ queryKey: ["client-calendar-jobs", clientId] }); refetch(); }}
+          />
+        </Suspense>
+      )}
 
       {/* Reschedule / Detail Modal */}
       {modal && (
