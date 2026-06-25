@@ -285,9 +285,11 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
               FROM jobs j
               JOIN clients c ON c.id = j.client_id
               JOIN companies co ON co.id = j.company_id
+              LEFT JOIN accounts a ON a.id = c.account_id
              WHERE j.scheduled_date = ${targetStr}
                AND j.status NOT IN ('cancelled', 'complete')
                AND co.comms_enabled = true
+               AND (a.id IS NULL OR a.comms_enabled = true)
                AND j.reminder_72h_sent = false
           `
         : drizzleSql`
@@ -298,9 +300,11 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
               FROM jobs j
               JOIN clients c ON c.id = j.client_id
               JOIN companies co ON co.id = j.company_id
+              LEFT JOIN accounts a ON a.id = c.account_id
              WHERE j.scheduled_date = ${targetStr}
                AND j.status NOT IN ('cancelled', 'complete')
                AND co.comms_enabled = true
+               AND (a.id IS NULL OR a.comms_enabled = true)
                AND j.reminder_24h_sent = false
           `
     );
@@ -435,8 +439,10 @@ export async function runReviewRequestCron(): Promise<void> {
           FROM jobs j
           JOIN clients c ON c.id = j.client_id
           JOIN companies co ON co.id = j.company_id
+          LEFT JOIN accounts a ON a.id = c.account_id
          WHERE j.status = 'complete'
            AND DATE(j.created_at) = ${fromStr}
+           AND (a.id IS NULL OR a.comms_enabled = true)
            AND (c.survey_last_sent IS NULL OR c.survey_last_sent < NOW() - INTERVAL '30 days')
       `
     );

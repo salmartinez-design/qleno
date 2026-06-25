@@ -49,6 +49,9 @@ router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) =>
       .from(clientsTable).where(eq(clientsTable.id, parseInt(client_id))).limit(1)
       .then(async ([cl]) => {
         if (!cl) return;
+        // [account-comms-toggle] Skip if this client's account paused comms.
+        const { isClientAccountCommsPaused } = await import("../lib/account-comms.js");
+        if (await isClientAccountCommsPaused(parseInt(client_id))) return;
         let invNum = invoice_id ? String(invoice_id) : "";
         if (invoice_id) {
           const [inv] = await db.select({ invoice_number: invoicesTable.invoice_number })

@@ -341,6 +341,9 @@ async function sendOnMyWayForJob(
   // [comms-opt-out] A recorded SMS STOP overrides the per-client preference.
   const { isSmsOptedOut } = await import("../lib/opt-out.js");
   const smsOptedOut = await isSmsOptedOut(companyId, client?.phone ?? null);
+  // [account-comms-toggle] A paused account silences on-my-way for its clients.
+  const { isClientAccountCommsPaused } = await import("../lib/account-comms.js");
+  const accountPaused = await isClientAccountCommsPaused(job.client_id ?? null);
   return sendOnMyWaySms({
     toPhone: client?.phone ?? null,
     fromPhone: tenant?.twilio_from_number ?? null,
@@ -351,7 +354,7 @@ async function sendOnMyWayForJob(
     serviceAddress,
     promisedArrivalLabel: promisedLabel,
     tenantSmsEnabled: !!tenant?.sms_on_my_way_enabled,
-    clientOptedIn: client?.wants_on_my_way_notifications !== false && !smsOptedOut,
+    clientOptedIn: client?.wants_on_my_way_notifications !== false && !smsOptedOut && !accountPaused,
   });
 }
 
