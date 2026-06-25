@@ -1429,6 +1429,12 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "leads.closed_reason", stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS closed_reason TEXT` },
     { label: "leads.job_id",        stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS job_id INTEGER` },
     { label: "leads.contacted_by",  stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS contacted_by INTEGER` },
+    // [lead-pipeline-foundation 2026-06-25] routes/leads.ts PATCH references
+    // agreement_signed UNCONDITIONALLY (agreement_signed = COALESCE(...)), but
+    // the column was never migrated and is absent in prod — so every
+    // PATCH /api/leads/:id 500s ("column agreement_signed does not exist").
+    // Additive + idempotent: closes the landmine without touching existing data.
+    { label: "leads.agreement_signed", stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS agreement_signed BOOLEAN` },
     { label: "leads.status default → needs_contacted",
       stmt: `ALTER TABLE leads ALTER COLUMN status SET DEFAULT 'needs_contacted'` },
     { label: "leads.status normalize legacy 'new'",

@@ -1,9 +1,8 @@
-import { Router, type Request } from "express";
+import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { requireAuth } from "../lib/auth.js";
-import { fireGhlWebhook, type GhlEstimatePayload } from "../lib/ghl.js";
 
 // [commercial-estimate-tool 2026-06-09] Commercial / common-area estimates.
 // Raw SQL (db.execute) on purpose: the estimate tables are brand-new and the
@@ -12,56 +11,18 @@ import { fireGhlWebhook, type GhlEstimatePayload } from "../lib/ghl.js";
 // Every query is company-scoped via req.auth!.companyId. Line items are stored
 // in estimate_line_items; PATCH/create replace the full set (mirrors the
 // job_add_ons pattern). Totals are always recomputed server-side.
+//
+// [native-estimate-workflow 2026-06-25] The GoHighLevel outbound bridge was
+// removed — the estimate workflow is 100% native to Qleno (no external
+// integrations). Send/accept/decline still mint the token + transition status;
+// they just no longer fire a webhook. The companies.ghl_estimate_*_webhook and
+// estimates.ghl_synced_at columns are left in place (harmless) but DEPRECATED —
+// nothing writes or reads them now. Multi-touch follow-up will be driven by the
+// native cadence engine (follow_up_* tables) in a later phase.
 
 const router = Router();
 
 const PRICING_TYPES = new Set(["flat", "hourly", "one_time"]);
-
-// [ghl-estimate-bridge 2026-06-10] Absolute customer link for webhook payloads.
-// Behind Railway's proxy the public scheme arrives in x-forwarded-proto.
-function publicEstimateLink(req: Request, token: string | null): string | null {
-  if (!token) return null;
-  const proto = (req.headers["x-forwarded-proto"] as string)?.split(",")[0]?.trim() || req.protocol || "https";
-  const host = req.get("host");
-  return host ? `${proto}://${host}/estimate/${token}` : null;
-}
-
-// Fire-and-forget GHL notification. Loads the tenant's webhook URL for the
-// event class, posts the payload, and stamps ghl_synced_at on a successful
-// 'sent' notification. Never blocks or fails the calling request.
-function notifyGhl(req: Request, estimateId: number, event: GhlEstimatePayload["event"], acceptedName?: string | null): void {
-  (async () => {
-    const rows = await db.execute(sql`
-      SELECT e.id, e.estimate_number, e.title, e.contact_name, e.contact_email, e.contact_phone,
-             e.property_name, e.service_address, e.total, e.valid_until, e.public_token,
-             c.ghl_estimate_sent_webhook, c.ghl_estimate_outcome_webhook
-      FROM estimates e JOIN companies c ON c.id = e.company_id
-      WHERE e.id = ${estimateId} LIMIT 1
-    `);
-    const est = (rows as any).rows[0];
-    if (!est) return;
-    const url = event === "estimate_sent" ? est.ghl_estimate_sent_webhook : est.ghl_estimate_outcome_webhook;
-    if (!url) return;
-    const ok = await fireGhlWebhook(url, {
-      event,
-      estimate_id: est.id,
-      estimate_number: est.estimate_number,
-      title: est.title,
-      contact_name: est.contact_name,
-      contact_email: est.contact_email,
-      contact_phone: est.contact_phone,
-      property_name: est.property_name,
-      service_address: est.service_address,
-      total: est.total != null ? String(est.total) : null,
-      valid_until: est.valid_until ? String(est.valid_until).slice(0, 10) : null,
-      estimate_link: publicEstimateLink(req, est.public_token),
-      accepted_name: acceptedName ?? null,
-    });
-    if (ok && event === "estimate_sent") {
-      await db.execute(sql`UPDATE estimates SET ghl_synced_at = now() WHERE id = ${estimateId}`);
-    }
-  })().catch(err => console.warn("[ghl] notify failed:", err?.message ?? err));
-}
 
 type NormalizedItem = {
   sort_order: number;
@@ -396,7 +357,6 @@ router.post("/public/:token/accept", async (req, res) => {
       UPDATE estimates SET status = 'accepted', accepted_at = now(), accepted_name = ${name}, updated_at = now()
       WHERE id = ${est.id}
     `);
-    notifyGhl(req, Number(est.id), "estimate_accepted", name);
     return res.json({ ok: true, status: "accepted" });
   } catch (err) {
     console.error("Accept estimate error:", err);
@@ -415,7 +375,6 @@ router.post("/public/:token/decline", async (req, res) => {
     if (est.status === "accepted") return res.status(409).json({ error: "Conflict", message: "Already accepted" });
     if (est.status !== "declined") {
       await db.execute(sql`UPDATE estimates SET status = 'declined', declined_at = now(), updated_at = now() WHERE id = ${est.id}`);
-      notifyGhl(req, Number(est.id), "estimate_declined");
     }
     return res.json({ ok: true, status: "declined" });
   } catch (err) {
@@ -589,7 +548,7 @@ router.post("/:id/save-as-template", requireAuth, async (req, res) => {
   }
 });
 
-// ─── Send: mark sent, mint the public token, notify GHL to start the drip ────
+// ─── Send: mark sent + mint the public token (native — no external webhook) ──
 router.post("/:id/send", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
@@ -605,7 +564,6 @@ router.post("/:id/send", requireAuth, async (req, res) => {
       SET status = 'sent', sent_at = COALESCE(sent_at, now()), public_token = ${token}, valid_until = ${validUntil}, updated_at = now()
       WHERE id = ${id} AND company_id = ${companyId}
     `);
-    notifyGhl(req, id, "estimate_sent");
     return res.json({ id, public_token: token });
   } catch (err) {
     console.error("Send estimate error:", err);
