@@ -18,11 +18,38 @@ async function logActivity(companyId: number, leadId: number, action: string, no
 // link quotes.lead_id, return the lead id.
 export async function upsertLeadForQuote(companyId: number, quote: any): Promise<number | null> {
   try {
-    const email = quote.lead_email ? String(quote.lead_email).toLowerCase().trim() : null;
-    const phone10 = digits(quote.lead_phone).slice(-10) || null;
+    let email = quote.lead_email ? String(quote.lead_email).toLowerCase().trim() : null;
+    let phone10 = digits(quote.lead_phone).slice(-10) || null;
     const nameParts = String(quote.lead_name ?? "").trim().split(/\s+/).filter(Boolean);
-    const first = nameParts[0] || null;
-    const last = nameParts.slice(1).join(" ") || null;
+    let first = nameParts[0] || null;
+    let last = nameParts.slice(1).join(" ") || null;
+    // Raw (un-normalized) contact used for the INSERT/UPDATE, seeded from the
+    // quote's own lead_* fields. Existing-client quotes leave these null and
+    // carry the customer on client_id instead — resolve those below.
+    let insEmail: string | null = quote.lead_email ?? null;
+    let insPhone: string | null = quote.lead_phone ?? null;
+
+    // Existing-client quotes (quote builder for a known client) don't populate
+    // lead_name/email/phone — the contact lives on the clients row via client_id.
+    // Without this, every such quote produced a blank "Lead" placeholder. Pull the
+    // real name/contact so the lead lands NAMED and dedupes against any existing
+    // lead by email/phone.
+    if (!email && !phone10 && !first && quote.client_id) {
+      try {
+        const cl = await db.execute(sql`
+          SELECT first_name, last_name, email, phone FROM clients
+          WHERE id = ${quote.client_id} AND company_id = ${companyId} LIMIT 1`);
+        const row = cl.rows[0] as any;
+        if (row) {
+          first = row.first_name || first;
+          last = row.last_name || last;
+          email = row.email ? String(row.email).toLowerCase().trim() : email;
+          phone10 = digits(row.phone).slice(-10) || phone10;
+          insEmail = row.email ?? insEmail;
+          insPhone = row.phone ?? insPhone;
+        }
+      } catch { /* leave contact as-is */ }
+    }
     // Scope label for the lead pipeline. The quote stamps the scope name onto
     // service_type at CREATE, but PATCH (the builder's edit/save path) doesn't —
     // so fall back to resolving the name from scope_id, else the lead's Scope
@@ -49,12 +76,14 @@ export async function upsertLeadForQuote(companyId: number, quote: any): Promise
     }
 
     if (!leadId) {
-      // Create. Only fall back to "Lead" as a last resort when there's truly no
-      // name yet (e.g. a draft autosave before the office filled in the quote).
-      const insFirst = first || quote.lead_name || "Lead";
+      // Don't create a blank "Lead" placeholder for a contactless draft (no name,
+      // no email, no phone — a fresh autosave before the office filled anything in).
+      // A later PATCH/send/convert, once contact exists, will create the lead then.
+      if (!first && !email && !phone10) return null;
+      const insFirst = first || "Lead";
       const ins = await db.execute(sql`
         INSERT INTO leads (company_id, first_name, last_name, email, phone, address, scope, source, status, created_at, updated_at)
-        VALUES (${companyId}, ${insFirst}, ${last}, ${quote.lead_email ?? null}, ${quote.lead_phone ?? null},
+        VALUES (${companyId}, ${insFirst}, ${last}, ${insEmail}, ${insPhone},
                 ${address}, ${scope}, ${quote.referral_source || "quote"}, 'needs_contacted', NOW(), NOW())
         RETURNING id`);
       leadId = (ins.rows[0] as any).id;
@@ -68,8 +97,8 @@ export async function upsertLeadForQuote(companyId: number, quote: any): Promise
         UPDATE leads SET
           first_name = COALESCE(NULLIF(${first}, ''), first_name),
           last_name  = COALESCE(NULLIF(${last}, ''), last_name),
-          email      = COALESCE(${quote.lead_email ?? null}, email),
-          phone      = COALESCE(${quote.lead_phone ?? null}, phone),
+          email      = COALESCE(${insEmail}, email),
+          phone      = COALESCE(${insPhone}, phone),
           address    = COALESCE(${address}, address),
           scope      = COALESCE(${scope}, scope),
           updated_at = NOW()
