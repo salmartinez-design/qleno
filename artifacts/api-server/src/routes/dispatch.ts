@@ -1126,6 +1126,37 @@ router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
   }
 });
 
+// [job-card-redesign 2026-06-25] GET /api/dispatch/jobs/:id — one job in the
+// FULL dispatch shape (technicians, commission_basis, zone_color, allowed_hours,
+// add-ons, …) so the same editable JobPanel the dispatch board uses can be
+// rendered from the customer profile. Reuses buildDispatchPayload for the job's
+// own date and plucks the job out — no query duplication, identical shape.
+router.get("/jobs/:id", requireAuth, dispatchOfficeGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const jobId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: "Invalid job id" });
+    const row = (await db.execute(sql`
+      SELECT to_char(scheduled_date, 'YYYY-MM-DD') AS d
+      FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
+    `)).rows[0] as { d: string } | undefined;
+    if (!row?.d) return res.status(404).json({ error: "Job not found" });
+    const payload = await buildDispatchPayload(companyId, row.d, undefined);
+    let job: any = (payload.unassigned_jobs || []).find((j: any) => j.id === jobId);
+    if (!job) {
+      for (const e of (payload.employees || [])) {
+        const f = (e.jobs || []).find((j: any) => j.id === jobId);
+        if (f) { job = f; break; }
+      }
+    }
+    if (!job) return res.status(404).json({ error: "Job not visible on the dispatch board (e.g. a charged cancellation)" });
+    return res.json({ data: job });
+  } catch (err) {
+    console.error("Dispatch single-job error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to load job" });
+  }
+});
+
 // [combined-board 2026-06-17] Cross-company combined dispatch. Resolves the
 // companies this user OWNS (same gate as /api/rollup) and merges each one's
 // dispatch payload, tagging every employee + unassigned job with its company
