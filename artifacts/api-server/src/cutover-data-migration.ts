@@ -804,6 +804,19 @@ async function seedPhesOccurrenceLadders(): Promise<void> {
       ) THEN
         ALTER TABLE company_attendance_policy ADD COLUMN tardy_occurrence_steps jsonb DEFAULT '[]'::jsonb;
       END IF;
+      -- [schema-drift fix 2026-06-25] The Drizzle schema (hr_policies.ts) defines
+      -- unexcused_hours_steps but the column was never added to the DB. The
+      -- attendance writer (recordUnexcusedEntryAndDriveLadder) SELECTs it on every
+      -- record, so without the column the office "Record unexcused/tardy" form AND
+      -- the attendance-overlay confirm path threw 500 after inserting the row.
+      -- co1/co4 use the occurrence ladder, so this stays '[]' (legacy hours ladder
+      -- dormant) — adding it just stops the SELECT from erroring.
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='company_attendance_policy' AND column_name='unexcused_hours_steps'
+      ) THEN
+        ALTER TABLE company_attendance_policy ADD COLUMN unexcused_hours_steps jsonb DEFAULT '[]'::jsonb;
+      END IF;
 
       -- Ensure a policy row exists for co1 + co4 (no unique-constraint assumption).
       INSERT INTO company_attendance_policy (company_id)
