@@ -86,16 +86,27 @@ gap is mostly the console UI itself** plus the service-type/add-on cleanup.
 
 ## Build slices
 - **Slice 1 — DONE (#629):** properties grouped by zone + search (account detail).
-  The grouped-list precursor.
-- **Slice 2 — master-detail shell:** two-pane layout, left list + right detail pane,
-  click-to-select, inline (no navigate-away). Move the existing per-building info
-  into the right pane.
-- **Slice 3 — pivots + exceptions strip:** Zone/Service/Day/Tech toggle on the list;
-  the top exceptions pills (unassigned tonight / uninvoiced / COI) with click-to-filter.
-- **Slice 4 — inline editing:** edit services/rate/cadence/crew, Add service, Skip a
-  date, View invoices — all from the detail pane (reuse existing edit endpoints).
-- **Slice 5 — cleanup + mobile:** clean commercial service types, commercial-only
-  add-ons, and the list→bottom-sheet responsive collapse.
+- **Slice 2 — DONE (#652):** master-detail shell — two-pane layout, left list +
+  inline right detail, click-to-select, no navigate-away; mobile drills in.
+- **Slice 3 — DONE:** exceptions strip (unassigned + uninvoiced, click-to-filter)
+  + pivot toggle (Zone / Service / Cleaner). Derived on the frontend from the
+  uninvoiced-jobs + jobs-calendar data (account_property_id, tech, date). COI is
+  NOT built — there is no insurance-expiry data; needs a backend field first.
+- **Slice 4 — DISPLAY DONE; inline-edit is the remaining backend gap:** the detail
+  pane now shows Next visit + assigned Cleaner (from the calendar). The deeper
+  master-detail editing — change a service's rate/cadence/crew, Add service, Skip
+  a date — needs new per-property recurring-schedule endpoints (the account API
+  has no per-building recurring summary or schedule-edit route yet). That's the
+  next real build. (Edit-property and View-invoices already work via existing flows.)
+- **Slice 5 — mobile DONE (via slice 2 drill-in + responsive strip/pivot).** The
+  fancier bottom-sheet and the commercial service-type/add-on cleanup are polish,
+  not blockers.
+
+## Remaining after today
+The console is complete and useful as a **read + navigate** surface. The one real
+build left is **inline schedule editing in the detail pane**, which needs backend:
+a per-property recurring summary (services with rate/cadence/crew/next-date) and
+edit/add/skip endpoints. Plus optional COI tracking and service-type cleanup.
 
 ## Files
 - Frontend: `artifacts/qleno/src/pages/account-detail.tsx` (slice 1 lives here;

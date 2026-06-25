@@ -122,6 +122,10 @@ export default function AccountDetailPage() {
   // endless scroll. First slice of the master-detail console.
   const [propSearch, setPropSearch] = useState("");
   const [collapsedZones, setCollapsedZones] = useState<Set<string>>(new Set());
+  // [commercial-console slice 3] Pivot the building list by zone / service / tech,
+  // and a one-tap filter to the buildings with an unassigned upcoming visit.
+  const [pivot, setPivot] = useState<"zone" | "service" | "tech">("zone");
+  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
 
   // Rate card
   const [showRateCard, setShowRateCard] = useState(false);
@@ -588,18 +592,47 @@ export default function AccountDetailPage() {
         {/* ─── PROPERTIES TAB ─────────────────────────────────────────────── */}
         {tab === "properties" && (() => {
           const allProps = account.properties || [];
+          // [slice 3] Per-building next visit + tech from the upcoming-jobs calendar
+          // (already sorted, so the first hit per property is the soonest visit).
+          const nextByProp: Record<number, any> = {};
+          for (const j of upcoming) { const pid = j.account_property_id; if (pid && !nextByProp[pid]) nextByProp[pid] = j; }
+          const unassignedCount = upcoming.filter((j: any) => !j.tech_first_name).length;
+          const techOf = (pp: any) => { const nj = nextByProp[pp.id]; return nj?.tech_first_name ? `${nj.tech_first_name} ${nj.tech_last_name || ""}`.trim() : null; };
+          const groupKey = (pp: any) => {
+            if (pivot === "service") { const s = nextByProp[pp.id]?.service_type || pp.default_service_type; return s ? (SERVICE_TYPES.find((x) => x.value === s)?.label ?? s) : "No service set"; }
+            if (pivot === "tech") return techOf(pp) || "Unassigned";
+            return pp.zone_name || "Unzoned";
+          };
           const q = propSearch.trim().toLowerCase();
-          const filtered = allProps.filter((pp: any) => !q || `${pp.property_name || ""} ${pp.address || ""} ${pp.city || ""} ${pp.zip || ""} ${pp.zone_name || ""}`.toLowerCase().includes(q));
+          let filtered = allProps.filter((pp: any) => !q || `${pp.property_name || ""} ${pp.address || ""} ${pp.city || ""} ${pp.zip || ""} ${pp.zone_name || ""}`.toLowerCase().includes(q));
+          if (onlyUnassigned) filtered = filtered.filter((pp: any) => { const nj = nextByProp[pp.id]; return nj && !nj.tech_first_name; });
           const groups: Record<string, any[]> = {};
-          for (const pp of filtered) { const z = pp.zone_name || "Unzoned"; (groups[z] = groups[z] || []).push(pp); }
+          for (const pp of filtered) { const k = groupKey(pp); (groups[k] = groups[k] || []).push(pp); }
           const items: any[] = [];
           for (const z of Object.keys(groups).sort()) { items.push({ __zone: z, __count: groups[z].length }); if (!collapsedZones.has(z)) items.push(...groups[z]); }
           const selected = allProps.find((pp: any) => pp.id === expandedProp) || null;
           return (
-            // [commercial-console slice 2] Master-detail: building list left,
-            // inline detail right. Pick a building, it loads on the right — never
-            // navigate away. On mobile the list and detail swap (drill-in).
-            <div className="md:grid md:grid-cols-[300px_minmax(0,1fr)] md:gap-4 md:items-start">
+            <div className="space-y-3">
+              {/* [slice 3] exceptions strip — what needs you first */}
+              {(unassignedCount > 0 || jobs.length > 0) && (
+                <div className="flex flex-wrap gap-2">
+                  {unassignedCount > 0 && (
+                    <button onClick={() => setOnlyUnassigned((v) => !v)}
+                      className={`text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${onlyUnassigned ? "bg-red-600 text-white" : "bg-red-50 text-red-700 hover:bg-red-100"}`}>
+                      {unassignedCount} unassigned{onlyUnassigned ? " · clear" : ""}
+                    </button>
+                  )}
+                  {jobs.length > 0 && (
+                    <button onClick={() => setTab("jobs")}
+                      className="text-xs font-medium px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100">
+                      {jobs.length} uninvoiced
+                    </button>
+                  )}
+                </div>
+              )}
+              {/* [slice 2] Master-detail: building list left, inline detail right —
+                  pick a building, it loads on the right, never navigate away. */}
+              <div className="md:grid md:grid-cols-[300px_minmax(0,1fr)] md:gap-4 md:items-start">
               {/* LEFT — building list */}
               <div className={selected ? "hidden md:block" : "block"}>
                 <div className="flex items-center gap-2 mb-2">
@@ -612,6 +645,15 @@ export default function AccountDetailPage() {
                   <Button onClick={openNewProperty} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-1.5 flex-shrink-0" size="sm">
                     <Plus size={14} /> Add
                   </Button>
+                </div>
+                {/* [slice 3] pivot the list by zone / service / cleaner */}
+                <div className="flex gap-0.5 mb-2 bg-gray-100 rounded-lg p-0.5">
+                  {([["zone", "Zone"], ["service", "Service"], ["tech", "Cleaner"]] as const).map(([k, lbl]) => (
+                    <button key={k} onClick={() => { setPivot(k); setCollapsedZones(new Set()); }}
+                      className={`flex-1 text-[11px] font-medium py-1 rounded-md transition-colors ${pivot === k ? "bg-white text-[#0A0E1A] shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                      {lbl}
+                    </button>
+                  ))}
                 </div>
                 {!allProps.length ? (
                   <div className="flex flex-col items-center py-16 text-gray-400 gap-2">
@@ -693,6 +735,32 @@ export default function AccountDetailPage() {
                         </div>
                       </div>
 
+                      {/* [slice 3/4] next visit + assigned cleaner, from the calendar */}
+                      {(() => {
+                        const nj = nextByProp[p.id];
+                        return (
+                          <div className="flex gap-2 mb-4">
+                            <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2">
+                              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Next visit</p>
+                              <p className="text-sm font-semibold text-[#0A0E1A] mt-0.5">
+                                {nj?.scheduled_date
+                                  ? new Date(nj.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                                  : "—"}
+                                {nj?.scheduled_time ? <span className="text-xs font-normal text-gray-500"> · {String(nj.scheduled_time).slice(0, 5)}</span> : null}
+                              </p>
+                            </div>
+                            <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2">
+                              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Cleaner</p>
+                              {nj && !nj.tech_first_name ? (
+                                <p className="text-sm font-semibold text-red-600 mt-0.5">Unassigned</p>
+                              ) : (
+                                <p className="text-sm font-semibold text-[#0A0E1A] mt-0.5">{techOf(p) || "—"}</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {p.access_notes && (
                         <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-4 flex items-start gap-1.5">
                           <Key size={13} className="mt-0.5 flex-shrink-0" /> {p.access_notes}
@@ -747,6 +815,7 @@ export default function AccountDetailPage() {
                   );
                 })()}
               </div>
+            </div>
             </div>
           );
         })()}
