@@ -587,6 +587,51 @@ export default function EmployeeProfilePage() {
   // The bucket of each usage row lives in its note tag ("…/pto","…/plawa",…).
   const [historyBucket, setHistoryBucket] =
     useState<null | { slug: string; display_name: string }>(null);
+
+  // [attendance-record 2026-06-25] Office record form for an unexcused absence
+  // or a tardy, with a reason. Posts to /leave/unexcused/record (type
+  // 'absent'|'tardy'); the server stores the reason behind the
+  // "unexcused hours: X (reason)" marker and drives the occurrence ladder
+  // live (real-time entries DO fire the ladder — unlike the historical backfill).
+  const [recordModal, setRecordModal] =
+    useState<null | { type: 'absent' | 'tardy'; title: string; accent: string }>(null);
+  const [recDate, setRecDate] = useState('');
+  const [recHours, setRecHours] = useState('');
+  const [recReason, setRecReason] = useState('');
+  const [recBusy, setRecBusy] = useState(false);
+  const [recErr, setRecErr] = useState<string | null>(null);
+  const openRecord = (type: 'absent' | 'tardy', accent: string) => {
+    setRecDate(new Date().toISOString().slice(0, 10));
+    setRecHours(''); setRecReason(''); setRecErr(null);
+    setRecordModal({ type, accent, title: type === 'tardy' ? 'Record tardy' : 'Record unexcused absence' });
+  };
+  const submitRecord = async () => {
+    setRecErr(null);
+    const hrs = Number(recHours);
+    if (!recDate) { setRecErr('Pick a date'); return; }
+    if (!Number.isFinite(hrs) || hrs <= 0) { setRecErr('Hours must be a positive number'); return; }
+    setRecBusy(true);
+    try {
+      await apiFetch('/leave/unexcused/record', {
+        method: 'POST',
+        body: JSON.stringify({
+          employee_id: Number(userId),
+          log_date: recDate,
+          hours: hrs,
+          type: recordModal!.type,
+          notes: recReason.trim() || undefined,
+        }),
+      });
+      qc.invalidateQueries({ queryKey: ['attendance-summary', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+      setRecordModal(null);
+    } catch (e: any) {
+      setRecErr(e?.message || 'Could not record — try again');
+    } finally {
+      setRecBusy(false);
+    }
+  };
   const { data: leaveBalancesResp } = useQuery({
     queryKey: ['leave-balances', userId],
     queryFn: () => apiFetch(`/leave/balances?userId=${userId}`),
@@ -1322,7 +1367,7 @@ export default function EmployeeProfilePage() {
 
                       <div style={{ display:'flex', gap:8, marginTop:10 }}>
                         <button onClick={() => setHistoryBucket({ slug:b.slug, display_name:b.display_name })} style={{ flex:1,padding:'6px 0',border:`1px solid ${accent}`,borderRadius:6,fontSize:12,color:accent,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
-                        <button style={{ flex:1,padding:'6px 0',background:accent,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Update</button>
+                        <button onClick={officeRecorded ? () => openRecord('absent', accent) : undefined} style={{ flex:1,padding:'6px 0',background:accent,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor: officeRecorded ? 'pointer':'default',opacity: officeRecorded ? 1 : 0.5,fontFamily:'inherit' }}>{officeRecorded ? 'Record' : 'Update'}</button>
                       </div>
                     </div>
                   );
@@ -1355,9 +1400,36 @@ export default function EmployeeProfilePage() {
                         <div style={{ height:'100%', width:`${barPct}%`, background:barColor, borderRadius:99, transition:'width 0.3s ease' }} />
                       </div>
                       <p style={{ fontSize:11, color:'#6B6860', margin:'5px 0 0 0' }}>{caption}</p>
+                      <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                        <button onClick={() => setStatDrill({ label:'Tardies', days: attnSummary?.tiles?.late?.days || [] })} style={{ flex:1,padding:'6px 0',border:`1px solid ${accent}`,borderRadius:6,fontSize:12,color:accent,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
+                        <button onClick={() => openRecord('tardy', accent)} style={{ flex:1,padding:'6px 0',background:accent,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Record</button>
+                      </div>
                     </div>
                   );
                 })()}
+
+                {/* [attendance-record] Record an unexcused absence / tardy with a reason. */}
+                {recordModal && (
+                  <div onClick={() => !recBusy && setRecordModal(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:14,padding:'22px 22px 20px',width:380,maxWidth:'92vw',fontFamily:"'Plus Jakarta Sans',sans-serif",boxShadow:'0 12px 40px rgba(0,0,0,0.18)' }}>
+                      <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14 }}>
+                        <span style={{ fontSize:16,fontWeight:800,color:'#1A1917' }}>{recordModal.title}</span>
+                        <button onClick={() => !recBusy && setRecordModal(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
+                      </div>
+                      <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Date</label>
+                      <input type="date" value={recDate} onChange={e => setRecDate(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                      <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>{recordModal.type === 'tardy' ? 'Hours late' : 'Hours missed'}</label>
+                      <input type="number" min="0" step="0.25" value={recHours} onChange={e => setRecHours(e.target.value)} placeholder="e.g. 8" style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                      <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Reason <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional)</span></label>
+                      <textarea value={recReason} onChange={e => setRecReason(e.target.value)} placeholder="e.g. no-show, didn't call" rows={2} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box',resize:'vertical' }} />
+                      {recErr && <p style={{ fontSize:12,color:'#991B1B',margin:'0 0 10px' }}>{recErr}</p>}
+                      <div style={{ display:'flex',gap:8 }}>
+                        <button onClick={() => !recBusy && setRecordModal(null)} disabled={recBusy} style={{ flex:1,padding:'9px 0',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,color:'#6B6860',background:'none',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
+                        <button onClick={submitRecord} disabled={recBusy} style={{ flex:1,padding:'9px 0',border:'none',borderRadius:8,fontSize:13,fontWeight:700,color:'#FFFFFF',background:recordModal.accent,cursor:'pointer',fontFamily:'inherit',opacity:recBusy?0.6:1 }}>{recBusy ? 'Saving…' : 'Record'}</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* Per-bucket usage history modal (data-driven over all buckets) */}
                 {historyBucket && (() => {

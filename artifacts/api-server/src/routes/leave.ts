@@ -485,8 +485,15 @@ async function buildAttendanceSummary(
     reason: (reason || "").trim(),
     hours: hours != null ? round2(Number(hours)) : null,
   });
-  const lateRows = att.filter((r) => r.type === "tardy").map((r) => dayRow(r.log_date, r.notes || "Late", null));
-  const absentRows = att.filter((r) => r.type === "absent" || r.type === "ncns").map((r) => dayRow(r.log_date, r.notes || "Absent", null));
+  // Tardy/absent rows store their reason behind the `unexcused hours: X (reason)`
+  // marker (same writer as unexcused). Strip the marker for display like
+  // unexRows already does; fall back to a type-appropriate label when blank.
+  const cleanOr = (notes: string | null, fallback: string) => {
+    const c = cleanUnexNote(notes);
+    return c === "Unexcused absence" ? fallback : c;
+  };
+  const lateRows = att.filter((r) => r.type === "tardy").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Late"), parseUnexcusedHours(r.notes)));
+  const absentRows = att.filter((r) => r.type === "absent" || r.type === "ncns").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Absent"), parseUnexcusedHours(r.notes)));
   const unexRows = att.filter((r) => r.type === "absent" && !r.is_protected).map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes)));
   const ptoRows = usageInWindow.filter((u) => String(u.notes || "").includes("/pto")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours)));
   const sickRows = usageInWindow.filter((u) => String(u.notes || "").includes("/plawa")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours)));
@@ -1514,6 +1521,7 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
     log_date?: string;
     hours?: number | string;
     notes?: string;
+    type?: string;
   };
   if (!body?.employee_id || !Number.isFinite(Number(body.employee_id)))
     return bad(res, "employee_id required");
@@ -1522,6 +1530,10 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
   const hours = Number(body.hours);
   if (!Number.isFinite(hours) || hours <= 0)
     return bad(res, "hours must be positive");
+  // Optional type — the same endpoint records an unexcused absence OR a tardy
+  // (the writer + occurrence ladder already support both, with separate
+  // counters). Default 'absent' for backward compatibility with prior callers.
+  const recordType = body.type === "tardy" ? "tardy" : "absent";
   // Honor the legacy `notes` field: prior callers passed a full notes
   // string (e.g. "unexcused hours: 8.00") rather than a short context
   // suffix. The extracted helper composes its own canonical marker
@@ -1533,7 +1545,7 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
     employee_id: Number(body.employee_id),
     log_date: body.log_date,
     hours,
-    type: "absent",
+    type: recordType,
     protected: false,
     note: body.notes,
     logged_by: actingUserId,
