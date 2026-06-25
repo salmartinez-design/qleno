@@ -151,6 +151,7 @@ const TECH_ALLOWED_PREFIXES = [
   "/training",
   "/leave",
   "/notifications",
+  "/settings/notifications",  // tech notification prefs (avatar menu → Notification settings)
   "/pay/",        // token-based payment link
   "/sign/",       // token-based document sign
   "/sign-doc/",   // token-based document sign
