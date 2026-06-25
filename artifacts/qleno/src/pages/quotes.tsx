@@ -338,7 +338,7 @@ export default function QuotesPage() {
   // ── Desktop layout ─────────────────────────────────────────────────────────
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-6xl mx-auto space-y-6">
+      <div className="space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-[#1A1917]">Quotes</h1>

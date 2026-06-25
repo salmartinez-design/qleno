@@ -798,7 +798,7 @@ export default function ZonesPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ maxWidth: 1100 }}>
+      <div>
         {isMobile ? (
           <MobileZones zones={zones} employees={employees} loading={loading} onRefresh={load} />
         ) : (

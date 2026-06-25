@@ -506,7 +506,7 @@ export default function TimeClockPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ fontFamily: FF, maxWidth: 920, margin: "0 auto" }}>
+      <div style={{ fontFamily: FF }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 10 }}>
           <div>

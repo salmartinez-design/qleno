@@ -284,7 +284,7 @@ export default function JobsListPage() {
 
   return (
     <DashboardLayout title="Jobs">
-      <div style={{ padding: "28px 32px", fontFamily: FF, minHeight: "100%", background: BG }}>
+      <div style={{ padding: "0", fontFamily: FF, minHeight: "100%", background: BG }}>
 
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>

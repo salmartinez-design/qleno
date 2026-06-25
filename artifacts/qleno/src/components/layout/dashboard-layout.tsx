@@ -1192,7 +1192,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
         ) : (
           <main style={{ flex: 1, overflowY: 'auto', scrollbarGutter: 'stable', backgroundColor: '#F7F6F3', display: 'flex', flexDirection: 'column' }}>
             <CommsPausedBanner />
-            <div style={{ padding: '28px 28px', maxWidth: 1400, margin: '0 auto', width: '100%' }}>{children}</div>
+            <div style={{ padding: '28px 28px', maxWidth: 1600, margin: '0 auto', width: '100%' }}>{children}</div>
           </main>
         )}
       </div>
