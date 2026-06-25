@@ -2283,14 +2283,17 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 && job.hourly_rate != null && job.hourly_rate > 0
                 && (job as any).allowed_hours != null && (job as any).allowed_hours > 0
               }
-              canEdit={canEditOfficeNotes}
+              /* [job-card-redesign 2026-06-25] Maribel: "that Change price
+                 shouldn't even exist." It set a FLAT total that overwrote the
+                 base+add-ons breakdown. Price now DISPLAYS read-only here; all
+                 editing goes through "Edit base rate and add-ons" below (the
+                 itemized editor), the only safe path. */
+              canEdit={false}
               onUpdated={onUpdate}
             />
-            {/* [job-card-redesign 2026-06-25] Maribel: base rate + add-ons must be
-                editable from the card. The "Change price" editor above sets a FLAT
-                total that overwrites the base+add-ons breakdown ("goes crazy").
-                This opens the ITEMIZED editor — base rate + each add-on, total
-                computed — the safe path that won't nuke the line items. */}
+            {/* [job-card-redesign 2026-06-25] The single edit entry point for
+                pricing: base rate + each add-on as line items, total recomputed.
+                Replaces the removed flat "Change price". */}
             {canEditOfficeNotes && (
               <button
                 onClick={() => setEditOpen(true)}
