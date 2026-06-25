@@ -75,6 +75,10 @@ export const estimateTemplatesTable = pgTable("estimate_templates", {
   id: serial("id").primaryKey(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
   name: text("name").notNull(),
+  // [estimate-templates-phase2 2026-06-25] Optional vertical so the builder can
+  // offer a one-click picker (common_areas | office | retail | medical | null).
+  // null = a user-saved template with no fixed vertical.
+  category: text("category"),
   title: text("title"),
   intro_note: text("intro_note"),
   terms: text("terms"),

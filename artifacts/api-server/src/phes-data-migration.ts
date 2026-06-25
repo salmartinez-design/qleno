@@ -369,6 +369,10 @@ async function runBookingSchemaGuard(): Promise<void> {
         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     ` },
+    // [estimate-templates-phase2 2026-06-25] Optional vertical on templates so
+    // the builder can offer a one-click picker (common_areas|office|retail|
+    // medical|null). Additive + idempotent.
+    { label: "estimate_templates.category", stmt: `ALTER TABLE estimate_templates ADD COLUMN IF NOT EXISTS category TEXT` },
     // ── follow_up_sequences table ────────────────────────────────────────────
     { label: "CREATE follow_up_sequences", stmt: `
       CREATE TABLE IF NOT EXISTS follow_up_sequences (
@@ -5058,6 +5062,120 @@ export async function runPhesDataMigration(): Promise<void> {
 
   // Seed MC discounts + remove placeholder discount add-ons
   await runDiscountMigration();
+
+  // [estimate-templates-phase2 2026-06-25] Seed the 4 commercial estimate
+  // templates (Common Areas / Office / Retail / Medical) for the one-click
+  // builder picker. Idempotent per (company_id, category).
+  await runEstimateTemplateSeed();
+}
+
+// ── Estimate Template Seed (PHES) ───────────────────────────────────────────
+// Seeds 4 vertical commercial estimate templates as reusable starting points
+// for the estimate builder's one-click picker. Pricing reflects PHES commercial
+// rates (Common Areas $45/hr, Office $50/hr, Retail $48/hr, Medical $60/hr).
+// Idempotent: each vertical is inserted only if no template with that category
+// already exists for the company, so re-runs and operator edits are preserved.
+type SeedTemplateItem = {
+  name: string; pricing_type: "flat" | "hourly" | "one_time";
+  frequency: string; quantity: number; unit_rate: number;
+};
+type SeedTemplate = {
+  category: string; name: string; title: string; intro_note: string;
+  terms: string; items: SeedTemplateItem[];
+};
+export const ESTIMATE_TEMPLATE_SEED: ReadonlyArray<SeedTemplate> = [
+  {
+    category: "common_areas",
+    name: "Common Areas — Condo / HOA",
+    title: "Common Area Cleaning — Recurring Service",
+    intro_note: "Thank you for the opportunity to quote recurring cleaning for your building's common areas. The scope below covers the shared spaces your residents use every day — lobby, hallways, elevators, and restrooms — kept consistently clean on the schedule that fits your property.",
+    terms: "Pricing reflects recurring service at the frequency shown. First service billed on completion; net-15 thereafter. Estimate valid 30 days. Supplies included.",
+    items: [
+      { name: "Lobby & entrance", pricing_type: "hourly", frequency: "2x/week", quantity: 1.0, unit_rate: 45 },
+      { name: "Common hallways & stairwells", pricing_type: "hourly", frequency: "2x/week", quantity: 1.0, unit_rate: 45 },
+      { name: "Elevators — cab, tracks & glass", pricing_type: "hourly", frequency: "2x/week", quantity: 0.5, unit_rate: 45 },
+      { name: "Common restrooms — clean & restock", pricing_type: "hourly", frequency: "2x/week", quantity: 0.75, unit_rate: 45 },
+      { name: "Entry glass & interior windows", pricing_type: "flat", frequency: "Weekly", quantity: 1, unit_rate: 40 },
+      { name: "Trash removal & liner replacement", pricing_type: "flat", frequency: "2x/week", quantity: 1, unit_rate: 35 },
+    ],
+  },
+  {
+    category: "office",
+    name: "Office Cleaning",
+    title: "Office Cleaning — Recurring Janitorial",
+    intro_note: "Thank you for considering Phes for your office cleaning. The scope below keeps your workspace healthy and presentable — workstations, kitchen, restrooms, and floors — on a recurring schedule that works around your team.",
+    terms: "Pricing reflects recurring service at the frequency shown. First service billed on completion; net-15 thereafter. Estimate valid 30 days. Supplies included.",
+    items: [
+      { name: "Workstations & desks — dust & sanitize", pricing_type: "hourly", frequency: "3x/week", quantity: 1.0, unit_rate: 50 },
+      { name: "Kitchen / break room", pricing_type: "hourly", frequency: "3x/week", quantity: 0.75, unit_rate: 50 },
+      { name: "Restrooms — clean & restock", pricing_type: "hourly", frequency: "3x/week", quantity: 1.0, unit_rate: 50 },
+      { name: "Floors — vacuum & mop", pricing_type: "hourly", frequency: "3x/week", quantity: 1.0, unit_rate: 50 },
+      { name: "Trash & recycling removal", pricing_type: "flat", frequency: "3x/week", quantity: 1, unit_rate: 30 },
+    ],
+  },
+  {
+    category: "retail",
+    name: "Retail Store",
+    title: "Retail Store Cleaning — Nightly Service",
+    intro_note: "Thank you for the opportunity to quote nightly cleaning for your store. The scope below keeps your sales floor, fitting rooms, and entrance spotless and customer-ready every morning when you open.",
+    terms: "Pricing reflects nightly service. First service billed on completion; net-15 thereafter. Estimate valid 30 days. Supplies included.",
+    items: [
+      { name: "Sales floor — vacuum, mop & dust", pricing_type: "hourly", frequency: "Daily", quantity: 1.0, unit_rate: 48 },
+      { name: "Fitting rooms & mirrors", pricing_type: "hourly", frequency: "Daily", quantity: 0.5, unit_rate: 48 },
+      { name: "Entrance glass & display windows", pricing_type: "flat", frequency: "Daily", quantity: 1, unit_rate: 25 },
+      { name: "Restrooms — clean & restock", pricing_type: "hourly", frequency: "Daily", quantity: 0.5, unit_rate: 48 },
+      { name: "Trash removal & liner replacement", pricing_type: "flat", frequency: "Daily", quantity: 1, unit_rate: 25 },
+    ],
+  },
+  {
+    category: "medical",
+    name: "Medical Facility",
+    title: "Medical Facility Cleaning — Disinfection Service",
+    intro_note: "Thank you for considering Phes for your facility. The scope below follows CDC/OSHA cleaning and disinfection protocols for medical settings — exam rooms, high-touch surfaces, and regulated-waste handling — to keep your patients and staff safe.",
+    terms: "Service follows CDC/OSHA disinfection protocols with EPA List-N products. First service billed on completion; net-15 thereafter. Estimate valid 30 days. Supplies & PPE included.",
+    items: [
+      { name: "Exam rooms — clean & EPA disinfect", pricing_type: "hourly", frequency: "Daily", quantity: 1.5, unit_rate: 60 },
+      { name: "High-touch disinfection (CDC/OSHA protocol)", pricing_type: "hourly", frequency: "Daily", quantity: 0.75, unit_rate: 60 },
+      { name: "Waiting room & reception", pricing_type: "hourly", frequency: "Daily", quantity: 0.5, unit_rate: 60 },
+      { name: "Restrooms — clean & restock", pricing_type: "hourly", frequency: "Daily", quantity: 0.5, unit_rate: 60 },
+      { name: "Floors — disinfect mop", pricing_type: "hourly", frequency: "Daily", quantity: 1.0, unit_rate: 60 },
+      { name: "Biohazard / regulated-waste handling", pricing_type: "flat", frequency: "Daily", quantity: 1, unit_rate: 40 },
+    ],
+  },
+];
+
+async function runEstimateTemplateSeed(): Promise<void> {
+  const PHES = 1;
+  try {
+    for (const tpl of ESTIMATE_TEMPLATE_SEED) {
+      const existing = await db.execute(sql`
+        SELECT 1 FROM estimate_templates
+        WHERE company_id = ${PHES} AND category = ${tpl.category} LIMIT 1
+      `);
+      if ((existing as any).rows.length) continue; // already seeded — preserve operator edits
+
+      const inserted = await db.execute(sql`
+        INSERT INTO estimate_templates (company_id, name, category, title, intro_note, terms, created_by)
+        VALUES (${PHES}, ${tpl.name}, ${tpl.category}, ${tpl.title}, ${tpl.intro_note}, ${tpl.terms}, NULL)
+        RETURNING id
+      `);
+      const templateId = (inserted as any).rows[0].id;
+      let sort = 0;
+      for (const it of tpl.items) {
+        const amount = Math.round(it.quantity * it.unit_rate * 100) / 100;
+        await db.execute(sql`
+          INSERT INTO estimate_template_items
+            (template_id, company_id, sort_order, name, description, pricing_type, frequency, quantity, unit_rate, amount)
+          VALUES
+            (${templateId}, ${PHES}, ${sort}, ${it.name}, NULL, ${it.pricing_type}, ${it.frequency}, ${it.quantity}, ${it.unit_rate}, ${amount})
+        `);
+        sort++;
+      }
+    }
+    console.log("[estimate-template-seed] Commercial templates ensured for PHES.");
+  } catch (err) {
+    console.error("[estimate-template-seed] Seed error (non-fatal):", err);
+  }
 }
 
 // ── MaidCentral Discount Migration (2026-04-16) ─────────────────────────────
