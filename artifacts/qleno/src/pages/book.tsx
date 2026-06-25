@@ -1563,7 +1563,7 @@ export default function BookPage() {
       {/* Top bar */}
       <div className="bw-topbar" style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "12px 32px", display: "flex", alignItems: "center", gap: 16 }}>
         {logoSrc ? (
-          <img src={logoSrc} alt={company.name} style={{ width: 120, height: 48, objectFit: "contain", objectPosition: "left center", flexShrink: 0 }} />
+          <img src={logoSrc} alt={company.name} style={{ width: 200, height: 64, objectFit: "contain", objectPosition: "left center", flexShrink: 0 }} />
         ) : (
           <span style={{ fontWeight: 800, fontSize: 18, color: brand }}>{company.name}</span>
         )}
