@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Plus, FileText, Send, CheckCircle, Clock, Trash2, Pencil, LayoutTemplate, Search } from "lucide-react";
+import { Plus, FileText, Send, CheckCircle, Clock, Trash2, Pencil, LayoutTemplate, Search, Activity } from "lucide-react";
 import { toast } from "sonner";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -107,10 +107,16 @@ export default function EstimatesPage() {
             <h1 style={{ fontSize: 24, fontWeight: 800, color: INK, margin: 0 }}>Estimates</h1>
             <p style={{ fontSize: 13, color: MUTE, margin: "4px 0 0" }}>Build, send, and track commercial &amp; common-area estimates.</p>
           </div>
-          <button onClick={() => navigate("/estimates/new")}
-            style={{ display: "inline-flex", alignItems: "center", gap: 6, background: INK, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-            <Plus size={16} /> New Estimate
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => navigate("/estimates/engagement")}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", color: INK, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "10px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+              <Activity size={16} /> Engagement
+            </button>
+            <button onClick={() => navigate("/estimates/new")}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: INK, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+              <Plus size={16} /> New Estimate
+            </button>
+          </div>
         </div>
 
         {/* Stat strip */}

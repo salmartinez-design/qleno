@@ -188,6 +188,147 @@ router.delete("/templates/:id", requireAuth, async (req, res) => {
   }
 });
 
+// ─── Engagement dashboard (Phase 5) ─────────────────────────────────────────
+// Read models over engagement_events + follow_up_enrollments + estimates. All
+// company-scoped. Registered before /:id (distinct 2-segment paths, no clash).
+
+// Per-estimate aggregate sub-select (opens / clicks / views / touches sent).
+const EV_AGG = sql`
+  SELECT
+    COUNT(*) FILTER (WHERE event_type = 'opened')                 AS opened,
+    COUNT(*) FILTER (WHERE event_type = 'clicked')                AS clicked,
+    COUNT(*) FILTER (WHERE event_type IN ('viewed'))              AS viewed,
+    COUNT(*) FILTER (WHERE event_type = 'sent')                   AS touches_sent,
+    MAX(occurred_at)                                              AS last_event_at
+  FROM engagement_events ee WHERE ee.estimate_id = e.id`;
+
+// GET /api/estimates/engagement/pipeline — all sent estimates + engagement.
+router.get("/engagement/pipeline", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const rows = await db.execute(sql`
+      SELECT e.id, e.estimate_number, e.status, e.total, e.sent_at, e.accepted_at, e.declined_at,
+             COALESCE(NULLIF(e.property_name, ''), NULLIF(e.contact_name, ''), 'Untitled') AS recipient,
+             ev.opened, ev.clicked, ev.viewed, ev.touches_sent, ev.last_event_at,
+             enr.current_step, enr.next_fire_at, enr.stopped_at, enr.completed_at
+      FROM estimates e
+      LEFT JOIN LATERAL (${EV_AGG}) ev ON true
+      LEFT JOIN LATERAL (
+        SELECT current_step, next_fire_at, stopped_at, completed_at
+        FROM follow_up_enrollments fe WHERE fe.estimate_id = e.id ORDER BY fe.id DESC LIMIT 1
+      ) enr ON true
+      WHERE e.company_id = ${companyId} AND e.status <> 'draft'
+      ORDER BY e.sent_at DESC NULLS LAST, e.id DESC
+      LIMIT 300
+    `);
+    return res.json({ data: (rows as any).rows });
+  } catch (err) {
+    console.error("Engagement pipeline error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// GET /api/estimates/engagement/summary?month=YYYY-MM — month rollup.
+router.get("/engagement/summary", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const monthStr = str(req.query?.month, 7); // "YYYY-MM"
+    const now = new Date();
+    const base = monthStr && /^\d{4}-\d{2}$/.test(monthStr)
+      ? new Date(`${monthStr}-01T00:00:00Z`)
+      : new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const start = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth(), 1)).toISOString();
+    const end = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 1)).toISOString();
+
+    const agg = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE e.sent_at >= ${start} AND e.sent_at < ${end})                                  AS sent,
+        COUNT(*) FILTER (WHERE e.sent_at >= ${start} AND e.sent_at < ${end} AND ev.opened > 0)                AS opened,
+        COUNT(*) FILTER (WHERE e.sent_at >= ${start} AND e.sent_at < ${end} AND ev.clicked > 0)               AS clicked,
+        COUNT(*) FILTER (WHERE e.accepted_at >= ${start} AND e.accepted_at < ${end})                          AS won,
+        COUNT(*) FILTER (WHERE e.declined_at >= ${start} AND e.declined_at < ${end})                          AS lost
+      FROM estimates e
+      LEFT JOIN LATERAL (
+        SELECT COUNT(*) FILTER (WHERE event_type IN ('opened','viewed')) AS opened,
+               COUNT(*) FILTER (WHERE event_type = 'clicked') AS clicked
+        FROM engagement_events ee WHERE ee.estimate_id = e.id
+      ) ev ON true
+      WHERE e.company_id = ${companyId}
+    `);
+    const won = await db.execute(sql`
+      SELECT COALESCE(AVG(t.cnt), 0)::numeric(6,1) AS avg_touches_to_win FROM (
+        SELECT (SELECT COUNT(*) FROM engagement_events ee WHERE ee.estimate_id = e.id AND ee.event_type = 'sent') AS cnt
+        FROM estimates e
+        WHERE e.company_id = ${companyId} AND e.accepted_at >= ${start} AND e.accepted_at < ${end}
+      ) t
+    `);
+    const row: any = (agg as any).rows[0] ?? {};
+    const sent = Number(row.sent || 0);
+    return res.json({
+      month: `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, "0")}`,
+      sent,
+      opened: Number(row.opened || 0),
+      clicked: Number(row.clicked || 0),
+      won: Number(row.won || 0),
+      lost: Number(row.lost || 0),
+      opened_pct: sent ? Math.round((Number(row.opened || 0) / sent) * 100) : 0,
+      clicked_pct: sent ? Math.round((Number(row.clicked || 0) / sent) * 100) : 0,
+      avg_touches_to_win: Number((won as any).rows[0]?.avg_touches_to_win || 0),
+    });
+  } catch (err) {
+    console.error("Engagement summary error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// GET /api/estimates/:id/engagement — per-estimate detail + touchpoint timeline.
+router.get("/:id/engagement", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) return res.status(404).json({ error: "Not Found" });
+    const e = await db.execute(sql`
+      SELECT id, estimate_number, status, total, contact_name, property_name, service_address,
+             sent_at, viewed_at, accepted_at, declined_at
+      FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1
+    `);
+    const est = (e as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+
+    const counts = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE event_type = 'opened')  AS opened,
+        COUNT(*) FILTER (WHERE event_type = 'clicked') AS clicked,
+        COUNT(*) FILTER (WHERE event_type = 'viewed')  AS viewed,
+        COUNT(*) FILTER (WHERE event_type = 'sent')    AS touches_sent
+      FROM engagement_events WHERE estimate_id = ${id} AND company_id = ${companyId}
+    `);
+    const timeline = await db.execute(sql`
+      SELECT event_type, channel, recipient, meta, occurred_at
+      FROM engagement_events WHERE estimate_id = ${id} AND company_id = ${companyId}
+      ORDER BY occurred_at ASC, id ASC
+    `);
+    // Latest enrollment → next scheduled touch + step progress.
+    const enr = await db.execute(sql`
+      SELECT fe.id, fe.current_step, fe.next_fire_at, fe.stopped_at, fe.stopped_reason, fe.completed_at,
+             (SELECT COUNT(*)::int FROM follow_up_steps s WHERE s.sequence_id = fe.sequence_id) AS total_steps,
+             (SELECT channel FROM follow_up_steps s WHERE s.sequence_id = fe.sequence_id AND s.step_number = fe.current_step LIMIT 1) AS next_channel
+      FROM follow_up_enrollments fe WHERE fe.estimate_id = ${id} AND fe.company_id = ${companyId}
+      ORDER BY fe.id DESC LIMIT 1
+    `);
+
+    return res.json({
+      estimate: est,
+      counts: (counts as any).rows[0] ?? { opened: 0, clicked: 0, viewed: 0, touches_sent: 0 },
+      timeline: (timeline as any).rows,
+      enrollment: (enr as any).rows[0] ?? null,
+    });
+  } catch (err) {
+    console.error("Estimate engagement error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── Public hosted estimate (no auth — tokenized) ───────────────────────────
 // [estimate-hosted-page 2026-06-10] The link the office texts/emails to the
 // property manager. GET marks first view (sent → viewed); accept/decline are
