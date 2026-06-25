@@ -71,6 +71,8 @@ export default function EstimateBuilderPage() {
   const [status, setStatus] = useState("draft");
   const [estimateNumber, setEstimateNumber] = useState<string>("");
   const [publicToken, setPublicToken] = useState<string | null>(null);
+  // [estimate-send-now] Set to the recipient when the Day-0 email actually went out.
+  const [emailedTo, setEmailedTo] = useState<string | null>(null);
 
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
@@ -248,13 +250,17 @@ export default function EstimateBuilderPage() {
       const r = await apiFetch(`/api/estimates/${savedId}/send`, { method: "POST" });
       setStatus("sent");
       setPublicToken(r.public_token || null);
-      if (r.public_token) {
-        try {
-          await navigator.clipboard.writeText(publicLink(r.public_token));
-          toast.success("Estimate link copied — paste it into a text or email.");
-        } catch {
-          toast.success("Estimate is live — copy the link below to share it.");
-        }
+      // [estimate-send-now] r.emailed = the Day-0 email actually went out just now.
+      setEmailedTo(r.emailed ? (r.email_recipient || contactEmail) : null);
+      if (r.public_token) { try { await navigator.clipboard.writeText(publicLink(r.public_token)); } catch { /* clipboard optional */ } }
+      if (r.emailed) {
+        toast.success(`Estimate emailed to ${r.email_recipient || contactEmail}${ccEmails.length ? ` (+${ccEmails.length} CC)` : ""} — link also copied.`);
+      } else if (r.email_status === "email_opt_out") {
+        toast.success("Link copied. Email skipped — that recipient opted out.");
+      } else if (!contactEmail.trim()) {
+        toast.success("Link copied. Add an email above to also send the estimate by email.");
+      } else {
+        toast.success("Link copied. The follow-up email will go out shortly.");
       }
     } catch {
       toast.error("Failed to mark sent");
@@ -275,6 +281,12 @@ export default function EstimateBuilderPage() {
           <ArrowLeft size={15} /> Estimates
         </button>
 
+        {emailedTo && (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#ECFDF8", border: "1px solid #99E9D3", borderRadius: 10, padding: "10px 14px", marginBottom: 10 }}>
+            <span style={{ width: 18, height: 18, borderRadius: 999, background: "#047857", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, flexShrink: 0 }}>✓</span>
+            <p style={{ fontSize: 13, fontWeight: 600, color: "#065F46", margin: 0 }}>Estimate emailed to {emailedTo}{ccEmails.length ? ` and ${ccEmails.length} more` : ""}. Track opens/clicks on the Engagement page.</p>
+          </div>
+        )}
         {publicToken && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#ECFDF8", border: "1px solid #99E9D3", borderRadius: 10, padding: "10px 14px", marginBottom: 14, flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 200 }}>
