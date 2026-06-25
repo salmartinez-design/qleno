@@ -21,7 +21,7 @@ import {
   ChevronDown, Eye, LogOut, CircleHelp, KeyRound, Bell,
   CalendarX2, UserMinus, AlertTriangle, Plus, Receipt, Briefcase, UserPlus,
   GraduationCap,
-  Building2,
+  Building2, LifeBuoy,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 
@@ -104,6 +104,7 @@ const MORE_CARDS = [
   { title: 'Core KPIs',      href: '/reports/insights',  icon: TrendingUp  },
   // Other
   { title: 'Loyalty',        href: '/loyalty',            icon: Star        },
+  { title: 'Help & Guides',  href: '/help',               icon: LifeBuoy    },
   { title: 'Cleancyclopedia', href: '/cleancyclopedia',  icon: BookOpen    },
   { title: 'Training',       href: '/training',           icon: GraduationCap },
   { title: 'Company',        href: '/company',            icon: Settings    },
