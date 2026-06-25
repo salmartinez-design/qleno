@@ -68,6 +68,27 @@ export async function enablePush(): Promise<"enabled" | "denied" | "unsupported"
   }
 }
 
+// Re-bind THIS device's existing push subscription to the CURRENT logged-in
+// user. The "on this device" toggle is derived from the browser HAVING a
+// PushSubscription, not from the server owning a row for the current user — so
+// on a reused/shared device (or after re-login) the subscription can stay
+// mapped to a previous user and that user's pushes go nowhere. This silently
+// re-POSTs the existing subscription so the server's ON CONFLICT (endpoint)
+// repoints it to whoever is logged in now. No permission prompt, no new
+// subscribe — only re-registers a sub that already exists. Safe on every load.
+export async function resyncPushSubscription(): Promise<void> {
+  if (!pushSupported() || Notification.permission !== "granted") return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    await fetch(`${API}/api/push/subscribe`, {
+      method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(sub.toJSON()),
+    });
+  } catch (e) { console.warn("[push] resync failed", e); }
+}
+
 export async function disablePush(): Promise<void> {
   if (!pushSupported()) return;
   try {

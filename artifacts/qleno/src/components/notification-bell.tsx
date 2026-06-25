@@ -13,6 +13,7 @@ import { useState, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useAuthStore, getAuthHeaders } from "@/lib/auth";
+import { resyncPushSubscription } from "@/lib/web-push-client";
 import { Bell, MessageSquare, Briefcase, CalendarDays, AlertTriangle } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -33,6 +34,16 @@ export function NotificationBell() {
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
+
+  // [push-rebind 2026-06-25] On every authenticated load, re-bind this device's
+  // existing push subscription to the CURRENT user. Without this, a device that
+  // was subscribed under a previous login (e.g. the owner test-installed the PWA,
+  // then a tech logged into the same install) keeps the subscription mapped to
+  // the old user — so the current user's lock-screen pushes go nowhere. Idempotent
+  // (re-POST → ON CONFLICT repoints user_id); never prompts or creates a new sub.
+  useEffect(() => {
+    if (token) void resyncPushSubscription();
+  }, [token]);
 
   const { data } = useQuery({
     // Same key as the office shell's mobile-bell badge → one shared cache entry.
