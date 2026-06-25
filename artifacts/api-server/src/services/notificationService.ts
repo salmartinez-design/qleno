@@ -284,8 +284,10 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
                    c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
               FROM jobs j
               JOIN clients c ON c.id = j.client_id
+              JOIN companies co ON co.id = j.company_id
              WHERE j.scheduled_date = ${targetStr}
-               AND j.status NOT IN ('cancelled', 'void', 'done', 'complete')
+               AND j.status NOT IN ('cancelled', 'complete')
+               AND co.comms_enabled = true
                AND j.reminder_72h_sent = false
           `
         : drizzleSql`
@@ -295,8 +297,10 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
                    c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
               FROM jobs j
               JOIN clients c ON c.id = j.client_id
+              JOIN companies co ON co.id = j.company_id
              WHERE j.scheduled_date = ${targetStr}
-               AND j.status NOT IN ('cancelled', 'void', 'done', 'complete')
+               AND j.status NOT IN ('cancelled', 'complete')
+               AND co.comms_enabled = true
                AND j.reminder_24h_sent = false
           `
     );
