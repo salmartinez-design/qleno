@@ -7,6 +7,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { ChangePasswordModal } from "@/components/change-password-modal";
+import { NotificationBell } from "@/components/notification-bell";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
@@ -1425,6 +1426,9 @@ export default function MyJobsPage() {
             <Link href="/training" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#FFFFFF', color: '#1A1917', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none' }}>
               <GraduationCap size={13}/> Training
             </Link>
+            {/* [tech notifications 2026-06-25] Shared bell + inbox — same
+                component as the office shell, fed by the per-user inbox. */}
+            <NotificationBell />
             {/* Account menu — tap the avatar */}
             <div ref={acctRef} style={{ position: "relative" }}>
               <button onClick={() => setAcctOpen(o => !o)} aria-label="Account menu"
