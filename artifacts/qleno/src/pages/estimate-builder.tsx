@@ -54,6 +54,10 @@ const CATEGORY_META: Record<string, { label: string; hint: string }> = {
 
 const blankItem = (): Item => ({ name: "", pricing_type: "flat", frequency: "Monthly", quantity: "1", unit_rate: "" });
 
+// The cadence shared by all line items, or "" when they differ.
+const commonFreqOf = (arr: Item[]): string =>
+  arr.length && arr.every(x => x.frequency === arr[0].frequency) ? arr[0].frequency : "";
+
 function lineAmount(it: Item): number {
   return Math.round((Number(it.quantity) || 0) * (Number(it.unit_rate) || 0) * 100) / 100;
 }
@@ -91,6 +95,9 @@ export default function EstimateBuilderPage() {
   const [discount, setDiscount] = useState("0");
   const [validUntil, setValidUntil] = useState("");
   const [items, setItems] = useState<Item[]>([blankItem()]);
+  // [estimate-bulk-frequency] Estimate-level cadence: pick once, apply to every
+  // line. Any line can still be overridden below.
+  const [bulkFreq, setBulkFreq] = useState("");
 
   // [estimate-templates-phase2] One-click template picker (new estimates only).
   const [templates, setTemplates] = useState<any[]>([]);
@@ -127,13 +134,13 @@ export default function EstimateBuilderPage() {
           setTitle(e.title || ""); setIntroNote(e.intro_note || ""); setTerms(e.terms || ""); setInternalNotes(e.internal_notes || "");
           setDiscount(String(e.discount_amount ?? "0"));
           setValidUntil(e.valid_until ? String(e.valid_until).slice(0, 10) : "");
-          setItems((e.items || []).length ? e.items.map(mapRow) : [blankItem()]);
+          { const its = (e.items || []).length ? e.items.map(mapRow) : [blankItem()]; setItems(its); setBulkFreq(commonFreqOf(its)); }
         } else {
           const templateId = new URLSearchParams(window.location.search).get("template");
           if (templateId) {
             const t = await apiFetch(`/api/estimates/templates/${templateId}`);
             setTitle(t.title || ""); setIntroNote(t.intro_note || ""); setTerms(t.terms || "");
-            setItems((t.items || []).length ? t.items.map(mapRow) : [blankItem()]);
+            { const its = (t.items || []).length ? t.items.map(mapRow) : [blankItem()]; setItems(its); setBulkFreq(commonFreqOf(its)); }
             setShowPicker(false);
           } else {
             // Load the template list for the one-click picker. Non-fatal.
@@ -229,7 +236,7 @@ export default function EstimateBuilderPage() {
       if (full.title) setTitle(full.title);
       if (full.intro_note) setIntroNote(full.intro_note);
       if (full.terms) setTerms(full.terms);
-      setItems((full.items || []).length ? full.items.map(mapRow) : [blankItem()]);
+      { const its = (full.items || []).length ? full.items.map(mapRow) : [blankItem()]; setItems(its); setBulkFreq(commonFreqOf(its)); }
       setShowPicker(false);
       toast.success(`Started from "${t.name}" — edit anything below`);
     } catch {
@@ -269,6 +276,16 @@ export default function EstimateBuilderPage() {
 
   const updateItem = (i: number, patch: Partial<Item>) =>
     setItems(its => its.map((it, idx) => (idx === i ? { ...it, ...patch } : it)));
+
+  // [estimate-bulk-frequency] Set every line's frequency at once.
+  const applyFreqToAll = (v: string) => {
+    const f = v.trim();
+    if (!f) return;
+    setBulkFreq(f);
+    setItems(its => its.map(it => ({ ...it, frequency: f })));
+  };
+  // The cadence shared by all lines (empty when they differ — "Mixed").
+  const commonFreq = useMemo(() => commonFreqOf(items), [items]);
 
   if (loading) {
     return <DashboardLayout><div style={{ padding: 60, textAlign: "center", color: MUTE, fontFamily: FF }}>Loading…</div></DashboardLayout>;
@@ -398,6 +415,18 @@ export default function EstimateBuilderPage() {
         <Section title="Line items" right={
           <button onClick={() => setItems(its => [...its, blankItem()])} style={addBtn}><Plus size={15} /> Add line</button>
         }>
+          {/* [estimate-bulk-frequency] Set the cadence for every line at once. */}
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 8, marginBottom: 12, padding: "10px 12px", border: `1px solid ${BORDER}`, borderRadius: 10, background: "#FCFCFB", flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Service frequency — sets every line</span>
+              <input style={inp} list="freq-options" value={bulkFreq}
+                onChange={e => setBulkFreq(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); applyFreqToAll(bulkFreq); } }}
+                placeholder="Weekly, Monthly, 2x/month, custom…" />
+            </div>
+            <button onClick={() => applyFreqToAll(bulkFreq)} style={addBtn}>Apply to all</button>
+            <span style={{ fontSize: 12, color: MUTE, alignSelf: "center", whiteSpace: "nowrap" }}>{commonFreq ? `All lines: ${commonFreq}` : "Lines vary — set above"}</span>
+          </div>
           {items.map((it, i) => {
             const L = TYPE_LABELS[it.pricing_type];
             return (
