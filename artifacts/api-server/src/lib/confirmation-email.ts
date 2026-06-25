@@ -90,7 +90,7 @@ export function renderConfirmationEmail(o: ConfEmailOpts): string {
     <!-- Navy masthead -->
     <tr><td bgcolor="${NAVY}" style="background:${NAVY};padding:20px 28px;">
       <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-        <td valign="middle" style="padding-right:13px;"><img src="${escAttr(o.logoUrl)}" width="40" alt="${escAttr(o.companyName)}" style="height:40px;width:auto;border-radius:8px;background:#ffffff;display:block;border:0;" /></td>
+        <td valign="middle" style="padding-right:13px;"><img src="${escAttr(o.logoUrl)}" width="60" alt="${escAttr(o.companyName)}" style="height:60px;width:auto;border-radius:8px;background:#ffffff;display:block;border:0;" /></td>
         <td valign="middle">
           <div style="font-family:${FONT};font-size:18px;font-weight:700;color:#ffffff;line-height:1.2;">${o.companyName}</div>
           <div style="font-family:${FONT};font-size:12px;color:${SUBLINE};line-height:1.4;">Residential &amp; Commercial Cleaning</div>

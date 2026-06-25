@@ -56,6 +56,14 @@ function rateLimit(req: any, res: any, next: any) {
   return next();
 }
 
+// ── GET /api/public/config/google-maps-key ───────────────────────────────────
+// Public (no requireAuth) so the booking widget can load Maps Places at runtime.
+// The build-time VITE_GOOGLE_MAPS_API_KEY is empty in the Railway build, so the
+// browser key is served from the server-side GOOGLE_MAPS_API_KEY env instead.
+router.get("/config/google-maps-key", rateLimit, (_req, res) => {
+  return res.json({ key: process.env.GOOGLE_MAPS_API_KEY ?? "" });
+});
+
 // ── GET /api/public/company/:slug ────────────────────────────────────────────
 router.get("/company/:slug", rateLimit, async (req, res) => {
   try {

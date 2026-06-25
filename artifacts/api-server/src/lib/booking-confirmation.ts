@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { renderConfirmationEmail, extractPolicyCopy, fmtTime12h } from "./confirmation-email.js";
 import { shortenUrl } from "./short-link.js";
+import { appBaseUrl } from "./app-url.js";
 import { BOOKING_SMS } from "./sms-copy.js";
 
 // [booking-confirmation GAP1] Customer booking confirmation: a no-login,
@@ -142,7 +143,7 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
     // ONLY — no last name/contact. Per-tenant contact from the record, branch
     // fallback otherwise. The renderer reuses the merged template body's policy
     // copy verbatim (extractPolicyCopy) and reskins everything else.
-    const origin = originFromReq(req);
+    const origin = appBaseUrl();
     const FALLBACK_PHONE = "(847) 538-3729", FALLBACK_PHONE_TEL = "+18475383729", FALLBACK_EMAIL = "schaumburg@phes.io";
     const cPhone = j.company_phone || FALLBACK_PHONE;
     const cPhoneTel = j.company_phone ? String(j.company_phone).replace(/[^\d+]/g, "") : FALLBACK_PHONE_TEL;
