@@ -1501,6 +1501,10 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `ALTER TABLE follow_up_steps ADD COLUMN IF NOT EXISTS template_id INTEGER` },
     { label: "follow_up_enrollments.lead_id",
       stmt: `ALTER TABLE follow_up_enrollments ADD COLUMN IF NOT EXISTS lead_id INTEGER` },
+    // [estimate-drip-phase3 2026-06-25] Estimate-keyed enrollments for the
+    // commercial estimate follow-up sequence. Additive + idempotent.
+    { label: "follow_up_enrollments.estimate_id",
+      stmt: `ALTER TABLE follow_up_enrollments ADD COLUMN IF NOT EXISTS estimate_id INTEGER` },
 
     // ── Phes per-branch from-numbers (public business numbers, not secrets).
     //    The Twilio account SID + auth token are entered via Settings →
@@ -5067,6 +5071,77 @@ export async function runPhesDataMigration(): Promise<void> {
   // templates (Common Areas / Office / Retail / Medical) for the one-click
   // builder picker. Idempotent per (company_id, category).
   await runEstimateTemplateSeed();
+
+  // [estimate-drip-phase3 2026-06-25] Seed the 8-touch commercial estimate
+  // follow-up sequence — INACTIVE by default so the drip is inert until the
+  // office turns it on. Idempotent (skips if estimate_followup already exists).
+  await runEstimateSequenceSeed();
+}
+
+// ── Estimate Follow-Up Sequence Seed (PHES, INACTIVE by default) ────────────
+// The native commercial-estimate drip. Seeded with is_active=FALSE so NO estimate
+// enrolls and NOTHING sends until the office explicitly activates it (and the
+// usual COMMS_ENABLED + company/branch comms gates also apply at send time). This
+// is the load-bearing safety: the drip is fully inert on deploy.
+// Cadence: Day0 email + SMS, Day2 email, Day4 SMS, Day7 email, Day10 SMS,
+// Day13 email, Day16 email. delay_hours are gaps from the previous touch.
+export const ESTIMATE_SEQUENCE_STEPS: ReadonlyArray<{
+  step_number: number; delay_hours: number; channel: "email" | "sms";
+  subject: string | null; message_template: string;
+}> = [
+  { step_number: 1, delay_hours: 0, channel: "email",
+    subject: "Your cleaning estimate for {{property}}",
+    message_template: "Hi {{first_name}}, thank you for the opportunity to quote cleaning for {{property}}. Your estimate is ready to review here: {{estimate_link}} — it comes to ${{monthly}} for the service outlined. Reply to this email or call {{company_phone}} with any questions. We would love to earn your business." },
+  { step_number: 2, delay_hours: 2, channel: "sms",
+    subject: null,
+    message_template: "Hi {{first_name}}, it's {{company_name}} — just sent your cleaning estimate for {{property}}. View it here: {{estimate_link}}. Happy to answer any questions!" },
+  { step_number: 3, delay_hours: 48, channel: "email",
+    subject: "Did you get your estimate?",
+    message_template: "Hi {{first_name}}, just making sure you received the cleaning estimate for {{property}}. Here it is again: {{estimate_link}}. Any questions about the scope or scheduling? Reply here or call {{company_phone}}." },
+  { step_number: 4, delay_hours: 48, channel: "sms",
+    subject: null,
+    message_template: "Hi {{first_name}}, {{company_name}} checking in on your estimate for {{property}}: {{estimate_link}}. Want us to walk you through it? Just reply." },
+  { step_number: 5, delay_hours: 72, channel: "email",
+    subject: "Why property managers choose {{company_name}}",
+    message_template: "Hi {{first_name}}, a quick note on what you get with {{company_name}}: reliable insured crews, consistent quality, and responsive service when something comes up. Your estimate for {{property}} is still ready: {{estimate_link}}. We would love to get you on the schedule." },
+  { step_number: 6, delay_hours: 72, channel: "sms",
+    subject: null,
+    message_template: "Hi {{first_name}}, ready to move forward on {{property}}? We can usually start within a week. Approve your estimate here: {{estimate_link}} or call {{company_phone}}." },
+  { step_number: 7, delay_hours: 72, channel: "email",
+    subject: "Let's get {{property}} on the schedule",
+    message_template: "Hi {{first_name}}, we have openings coming up and would love to hold a spot for {{property}}. Approve your estimate whenever you are ready: {{estimate_link}}. Questions? Call {{company_phone}}." },
+  { step_number: 8, delay_hours: 72, channel: "email",
+    subject: "Closing the loop on your estimate",
+    message_template: "Hi {{first_name}}, I do not want to crowd your inbox, so this is my last note for now. Your estimate for {{property}} stays valid and ready whenever you are: {{estimate_link}}. Thank you for considering {{company_name}} — call {{company_phone}} anytime." },
+];
+
+async function runEstimateSequenceSeed(): Promise<void> {
+  const PHES = 1;
+  try {
+    const existing = await db.execute(sql`
+      SELECT id FROM follow_up_sequences
+      WHERE company_id = ${PHES} AND sequence_type = 'estimate_followup' LIMIT 1
+    `);
+    if ((existing as any).rows.length) {
+      console.log("[estimate-sequence-seed] estimate_followup already present — skipping.");
+      return;
+    }
+    const seq = await db.execute(sql`
+      INSERT INTO follow_up_sequences (company_id, sequence_type, name, is_active)
+      VALUES (${PHES}, 'estimate_followup', 'Estimate Follow-Up', false)
+      RETURNING id
+    `);
+    const seqId = (seq as any).rows[0].id;
+    for (const st of ESTIMATE_SEQUENCE_STEPS) {
+      await db.execute(sql`
+        INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template)
+        VALUES (${seqId}, ${st.step_number}, ${st.delay_hours}, ${st.channel}, ${st.subject ?? null}, ${st.message_template})
+      `);
+    }
+    console.log(`[estimate-sequence-seed] estimate_followup seeded INACTIVE for PHES (${ESTIMATE_SEQUENCE_STEPS.length} steps).`);
+  } catch (err) {
+    console.error("[estimate-sequence-seed] Seed error (non-fatal):", err);
+  }
 }
 
 // ── Estimate Template Seed (PHES) ───────────────────────────────────────────
