@@ -42,6 +42,15 @@ const TYPE_LABELS: Record<PricingType, { type: string; qty: string; rate: string
 };
 const FREQUENCY_OPTIONS = ["Daily", "5x/week", "3x/week", "2x/week", "Weekly", "Bi-weekly", "Monthly", "One-time"];
 
+// [estimate-templates-phase2] One-click vertical picker. Seeded templates carry
+// a category; this maps it to a clean label + one-line scope hint for the cards.
+const CATEGORY_META: Record<string, { label: string; hint: string }> = {
+  common_areas: { label: "Common Areas", hint: "Lobby, halls, elevators, restrooms" },
+  office: { label: "Office", hint: "Desks, kitchen, restrooms, floors" },
+  retail: { label: "Retail Store", hint: "Sales floor, fitting rooms, nightly" },
+  medical: { label: "Medical Facility", hint: "Exam rooms, disinfection, biohaz" },
+};
+
 const blankItem = (): Item => ({ name: "", pricing_type: "flat", frequency: "Monthly", quantity: "1", unit_rate: "" });
 
 function lineAmount(it: Item): number {
@@ -75,6 +84,11 @@ export default function EstimateBuilderPage() {
   const [validUntil, setValidUntil] = useState("");
   const [items, setItems] = useState<Item[]>([blankItem()]);
 
+  // [estimate-templates-phase2] One-click template picker (new estimates only).
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [showPicker, setShowPicker] = useState(isNew);
+  const [applyingTemplate, setApplyingTemplate] = useState(false);
+
   // Load existing estimate, or seed a new one from a template (?template=id).
   useEffect(() => {
     (async () => {
@@ -95,6 +109,13 @@ export default function EstimateBuilderPage() {
             const t = await apiFetch(`/api/estimates/templates/${templateId}`);
             setTitle(t.title || ""); setIntroNote(t.intro_note || ""); setTerms(t.terms || "");
             setItems((t.items || []).length ? t.items.map(mapRow) : [blankItem()]);
+            setShowPicker(false);
+          } else {
+            // Load the template list for the one-click picker. Non-fatal.
+            try {
+              const r = await apiFetch(`/api/estimates/templates`);
+              setTemplates(Array.isArray(r?.data) ? r.data : []);
+            } catch { /* picker just won't show */ }
           }
         }
       } catch {
@@ -153,6 +174,25 @@ export default function EstimateBuilderPage() {
       toast.success("Saved as template");
     } catch {
       toast.error("Failed to save template");
+    }
+  }
+
+  // Apply a template's body + line items into the current (new) estimate.
+  // Everything stays editable afterward; this just pre-fills.
+  async function applyTemplate(t: any) {
+    setApplyingTemplate(true);
+    try {
+      const full = await apiFetch(`/api/estimates/templates/${t.id}`);
+      if (full.title) setTitle(full.title);
+      if (full.intro_note) setIntroNote(full.intro_note);
+      if (full.terms) setTerms(full.terms);
+      setItems((full.items || []).length ? full.items.map(mapRow) : [blankItem()]);
+      setShowPicker(false);
+      toast.success(`Started from "${t.name}" — edit anything below`);
+    } catch {
+      toast.error("Couldn't load that template");
+    } finally {
+      setApplyingTemplate(false);
     }
   }
 
@@ -217,6 +257,45 @@ export default function EstimateBuilderPage() {
           <h1 style={{ fontSize: 23, fontWeight: 800, color: INK, margin: 0 }}>{isNew && !id ? "New Estimate" : (estimateNumber || "Estimate")}</h1>
           <span style={{ fontSize: 12, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.05em" }}>{status}</span>
         </div>
+
+        {/* [estimate-templates-phase2] One-click vertical picker — new estimates only. */}
+        {isNew && !id && showPicker && templates.length > 0 && (
+          <div style={{ border: `1px solid ${BORDER}`, borderRadius: 14, padding: 18, marginBottom: 22, background: "#FCFCFB" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <LayoutTemplate size={16} style={{ color: MINT }} />
+                <h2 style={{ fontSize: 13, fontWeight: 800, color: INK, textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Start from a template</h2>
+              </div>
+              <button onClick={() => setShowPicker(false)} style={{ background: "none", border: "none", color: MUTE, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, padding: 0 }}>
+                Start blank
+              </button>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
+              {[...templates]
+                .sort((a, b) => (CATEGORY_META[b.category] ? 1 : 0) - (CATEGORY_META[a.category] ? 1 : 0))
+                .map((t) => {
+                  const meta = CATEGORY_META[t.category];
+                  return (
+                    <button
+                      key={t.id}
+                      onClick={() => !applyingTemplate && applyTemplate(t)}
+                      disabled={applyingTemplate}
+                      style={{
+                        textAlign: "left", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 12,
+                        padding: "13px 14px", cursor: applyingTemplate ? "default" : "pointer", fontFamily: FF,
+                        display: "flex", flexDirection: "column", gap: 4, transition: "border-color 0.12s",
+                      }}
+                      onMouseEnter={(e) => (e.currentTarget.style.borderColor = MINT)}
+                      onMouseLeave={(e) => (e.currentTarget.style.borderColor = BORDER)}
+                    >
+                      <span style={{ fontSize: 14, fontWeight: 800, color: INK }}>{meta?.label || t.name}</span>
+                      <span style={{ fontSize: 12, color: MUTE, lineHeight: 1.35 }}>{meta?.hint || `${t.item_count ?? 0} line items`}</span>
+                    </button>
+                  );
+                })}
+            </div>
+          </div>
+        )}
 
         <Section title="Who it's for">
           <Grid>

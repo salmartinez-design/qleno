@@ -152,8 +152,8 @@ router.post("/templates", requireAuth, async (req, res) => {
     if (!name) return res.status(400).json({ error: "Bad Request", message: "Template name is required" });
     const items = normalizeItems(req.body?.items);
     const inserted = await db.execute(sql`
-      INSERT INTO estimate_templates (company_id, name, title, intro_note, terms, created_by)
-      VALUES (${companyId}, ${name}, ${str(req.body?.title, 300)}, ${str(req.body?.intro_note)}, ${str(req.body?.terms)}, ${req.auth!.userId})
+      INSERT INTO estimate_templates (company_id, name, category, title, intro_note, terms, created_by)
+      VALUES (${companyId}, ${name}, ${str(req.body?.category, 40)}, ${str(req.body?.title, 300)}, ${str(req.body?.intro_note)}, ${str(req.body?.terms)}, ${req.auth!.userId})
       RETURNING id
     `);
     const templateId = (inserted as any).rows[0].id;
