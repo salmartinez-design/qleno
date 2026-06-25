@@ -24,7 +24,11 @@ export const estimatesTable = pgTable("estimates", {
   account_property_id: integer("account_property_id").references(() => accountPropertiesTable.id),
   client_id: integer("client_id").references(() => clientsTable.id),
   contact_name: text("contact_name"),
-  contact_email: text("contact_email"),
+  contact_email: text("contact_email"),       // primary recipient (To)
+  // [multi-recipient-estimates 2026-06-25] Additional recipient emails (CC),
+  // comma-separated + normalized. Every drip EMAIL touch goes To contact_email
+  // and CCs all of these. SMS still goes to the primary mobile only.
+  cc_emails: text("cc_emails"),
   contact_phone: text("contact_phone"),
   property_name: text("property_name"),
   service_address: text("service_address"),

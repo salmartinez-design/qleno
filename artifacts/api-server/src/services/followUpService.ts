@@ -91,6 +91,8 @@ async function sendEmailRaw(
   brand?: EmailBrand,
   // [comms-opt-out] Optional List-Unsubscribe headers + footer link.
   unsub?: { headers: Record<string, string>; footerHtml: string },
+  // [multi-recipient-estimates] Optional CC recipients.
+  cc?: string[],
 ): Promise<string | null> {
   const key = process.env.RESEND_API_KEY;
   if (!key) throw new Error("Resend not configured");
@@ -113,9 +115,11 @@ ${inner}
 <p style="font-size:13px;color:#9E9B94;margin:20px 0 0;">${brandName} &mdash; ${brandPhone} &mdash; ${brandEmail}</p>
 ${unsub?.footerHtml ?? ""}
 </div></div>`;
+  const ccList = (cc ?? []).filter((e) => e && e.toLowerCase() !== to.toLowerCase());
   const res: any = await resend.emails.send({
     from: fromAddress,
     to: [to],
+    ...(ccList.length ? { cc: ccList } : {}),
     subject,
     html: bodyHtml,
     ...(unsub?.headers && Object.keys(unsub.headers).length ? { headers: unsub.headers } : {}),
@@ -130,12 +134,12 @@ ${unsub?.footerHtml ?? ""}
   return res?.data?.id ?? res?.id ?? null;
 }
 
-async function sendEmail(to: string, subject: string, body: string, fromAddress?: string, brand?: EmailBrand, unsub?: { headers: Record<string, string>; footerHtml: string }): Promise<void> {
+async function sendEmail(to: string, subject: string, body: string, fromAddress?: string, brand?: EmailBrand, unsub?: { headers: Record<string, string>; footerHtml: string }, cc?: string[]): Promise<void> {
   if (process.env.COMMS_ENABLED !== "true") {
     console.log("[COMMS BLOCKED] Follow-up email suppressed:", { to, subject });
     return;
   }
-  await sendEmailRaw(to, subject, body, fromAddress, brand, unsub);
+  await sendEmailRaw(to, subject, body, fromAddress, brand, unsub, cc);
 }
 
 // Build the merge vars for a quote-tied enrollment touch (the quote email + SMS).
@@ -574,6 +578,8 @@ async function processEnrollment(enr: any): Promise<void> {
   let recipientEmail: string | null = null;
   let recipientPhone: string | null = null;
   let zip: string | null = null;
+  // [multi-recipient-estimates] Extra CC emails (estimate enrollments only).
+  let ccEmails: string[] = [];
 
   if (enr.client_id) {
     const clientRows = await db.execute(sql`
@@ -621,12 +627,13 @@ async function processEnrollment(enr: any): Promise<void> {
     }
   } else if (enr.estimate_id) {
     const estRows = await db.execute(sql`
-      SELECT contact_name, contact_email, contact_phone, service_address FROM estimates WHERE id = ${enr.estimate_id} LIMIT 1
+      SELECT contact_name, contact_email, cc_emails, contact_phone, service_address FROM estimates WHERE id = ${enr.estimate_id} LIMIT 1
     `);
     if (estRows.rows.length) {
       const e = estRows.rows[0] as any;
       firstName = (e.contact_name || "").split(" ")[0] || "";
       recipientEmail = e.contact_email || null;
+      ccEmails = String(e.cc_emails || "").split(",").map((s: string) => s.trim()).filter(Boolean);
       recipientPhone = e.contact_phone || null;
       zip = (String(e.service_address || "").match(/\b(\d{5})\b/) || [])[1] || null;
     }
@@ -721,7 +728,8 @@ async function processEnrollment(enr: any): Promise<void> {
         console.log(`[follow-up] email suppressed (${sendError}) enrollment ${enr.id}`);
       } else {
         const unsub = await buildEmailUnsubData(enr.company_id, recipientEmail);
-        await sendEmail(recipientEmail, subject, body, await companyFromAddress(enr.company_id), emailBrand, unsub ?? undefined);
+        // [multi-recipient-estimates] CC every additional recipient on each email touch.
+        await sendEmail(recipientEmail, subject, body, await companyFromAddress(enr.company_id), emailBrand, unsub ?? undefined, ccEmails);
       }
     } else {
       sendStatus = "failed";

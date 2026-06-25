@@ -73,6 +73,11 @@ export default function EstimateBuilderPage() {
 
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
+  // [multi-recipient-estimates] Additional CC recipients (chips) + in-progress input.
+  const [ccEmails, setCcEmails] = useState<string[]>([]);
+  const [ccInput, setCcInput] = useState("");
+  // Account contacts offered as quick-add CC (only when the estimate is account-tied).
+  const [accountContacts, setAccountContacts] = useState<{ name: string; email: string }[]>([]);
   const [contactPhone, setContactPhone] = useState("");
   const [propertyName, setPropertyName] = useState("");
   const [serviceAddress, setServiceAddress] = useState("");
@@ -98,6 +103,14 @@ export default function EstimateBuilderPage() {
           setStatus(e.status); setEstimateNumber(e.estimate_number || "");
           setPublicToken(e.public_token || null);
           setContactName(e.contact_name || ""); setContactEmail(e.contact_email || ""); setContactPhone(e.contact_phone || "");
+          setCcEmails(String(e.cc_emails || "").split(",").map((s: string) => s.trim()).filter(Boolean));
+          // Account-tied estimate → offer its contacts (with email) as quick-add CC.
+          if (e.account_id) {
+            try {
+              const cs = await apiFetch(`/api/accounts/${e.account_id}/contacts`);
+              setAccountContacts((Array.isArray(cs) ? cs : []).filter((c: any) => c.email).map((c: any) => ({ name: c.name || c.email, email: c.email })));
+            } catch { /* contacts are optional */ }
+          }
           setPropertyName(e.property_name || ""); setServiceAddress(e.service_address || "");
           setTitle(e.title || ""); setIntroNote(e.intro_note || ""); setTerms(e.terms || ""); setInternalNotes(e.internal_notes || "");
           setDiscount(String(e.discount_amount ?? "0"));
@@ -132,6 +145,7 @@ export default function EstimateBuilderPage() {
 
   const body = () => ({
     contact_name: contactName, contact_email: contactEmail, contact_phone: contactPhone,
+    cc_emails: ccEmails.join(","),
     property_name: propertyName, service_address: serviceAddress,
     title, intro_note: introNote, terms, internal_notes: internalNotes,
     discount_amount: Number(discount) || 0,
@@ -141,6 +155,23 @@ export default function EstimateBuilderPage() {
       quantity: Number(it.quantity) || 0, unit_rate: Number(it.unit_rate) || 0,
     })),
   });
+
+  // [multi-recipient-estimates] CC chip helpers. Accept comma/semicolon/space or
+  // Enter; validate; dedupe; never re-add the primary.
+  const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  function addCc(raw: string) {
+    const parts = raw.split(/[,;\s]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
+    if (!parts.length) return;
+    setCcEmails(prev => {
+      const next = [...prev];
+      for (const e of parts) {
+        if (EMAIL_RE.test(e) && e !== contactEmail.trim().toLowerCase() && !next.includes(e)) next.push(e);
+      }
+      return next;
+    });
+    setCcInput("");
+  }
+  const removeCc = (e: string) => setCcEmails(prev => prev.filter(x => x !== e));
 
   async function save(): Promise<number | null> {
     setSaving(true);
@@ -304,6 +335,36 @@ export default function EstimateBuilderPage() {
             <Field label="Email"><input style={inp} value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="name@email.com" /></Field>
             <Field label="Phone"><input style={inp} value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="(773) 555-0123" /></Field>
           </Grid>
+          {/* [multi-recipient-estimates] Additional recipients (CC). Every emailed
+              touch goes to the primary Email + all of these. */}
+          <Field label="CC — also email these people">
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", border: `1px solid ${BORDER}`, borderRadius: 9, padding: "6px 8px", background: "#fff" }}>
+              {ccEmails.map(e => (
+                <span key={e} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "#ECFDF8", border: "1px solid #99E9D3", color: "#065F46", borderRadius: 999, padding: "3px 8px", fontSize: 12, fontWeight: 600 }}>
+                  {e}
+                  <button onClick={() => removeCc(e)} aria-label={`Remove ${e}`} style={{ border: "none", background: "none", color: "#047857", cursor: "pointer", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+                </span>
+              ))}
+              <input
+                style={{ flex: 1, minWidth: 160, border: "none", outline: "none", fontSize: 14, fontFamily: FF, background: "transparent", padding: "4px 2px" }}
+                value={ccInput}
+                onChange={e => setCcInput(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" || e.key === "," || e.key === ";") { e.preventDefault(); addCc(ccInput); } }}
+                onBlur={() => addCc(ccInput)}
+                placeholder={ccEmails.length ? "Add another…" : "manager@email.com, owner@email.com"}
+              />
+            </div>
+            {accountContacts.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                <span style={{ fontSize: 11, color: MUTE, alignSelf: "center" }}>From this account:</span>
+                {accountContacts.filter(c => !ccEmails.includes(c.email.toLowerCase()) && c.email.toLowerCase() !== contactEmail.trim().toLowerCase()).map(c => (
+                  <button key={c.email} onClick={() => addCc(c.email)} style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 999, padding: "3px 9px", fontSize: 12, color: INK, cursor: "pointer", fontFamily: FF }}>
+                    + {c.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Field>
           <Field label="Service address"><input style={inp} value={serviceAddress} onChange={e => setServiceAddress(e.target.value)} placeholder="Street, City, State ZIP" /></Field>
         </Section>
 
