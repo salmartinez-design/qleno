@@ -2286,6 +2286,20 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               canEdit={canEditOfficeNotes}
               onUpdated={onUpdate}
             />
+            {/* [job-card-redesign 2026-06-25] Maribel: base rate + add-ons must be
+                editable from the card. The "Change price" editor above sets a FLAT
+                total that overwrites the base+add-ons breakdown ("goes crazy").
+                This opens the ITEMIZED editor — base rate + each add-on, total
+                computed — the safe path that won't nuke the line items. */}
+            {canEditOfficeNotes && (
+              <button
+                onClick={() => setEditOpen(true)}
+                title="Edit the base rate and add-ons as line items (total recalculates)"
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "9px 12px", border: "1px solid #BDEBDD", borderRadius: 8, background: "#EAF9F4", color: "#06715C", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}
+              >
+                <Pencil size={13} /> Edit base rate and add-ons
+              </button>
+            )}
           </div>
 
           {/* [panel-revamp step 3] Itemized service & pricing — base + add-ons
