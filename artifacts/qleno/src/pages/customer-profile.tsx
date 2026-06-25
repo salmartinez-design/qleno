@@ -2747,6 +2747,73 @@ function RevenueTrendTab({ clientId, jobs }: { clientId: number; jobs: any[] }) 
 
 
 // ─── Profitability Tab ───────────────────────────────────────────────────────
+// [account-health 2026-06-25] Bug #9: the simple 3-check health card — Happy /
+// Active / Making money → Healthy / Watch / At risk. Each failing check expands
+// to show the real records behind it (re-cleans, complaints, refunds,
+// cancellations, margin). Replaces the old money-only 0-100 gauge.
+function AccountHealthCard({ status, checks }: { status?: string; checks?: any }) {
+  const [open, setOpen] = useState<string | null>(null);
+  if (!checks) return null;
+  const st = status === "healthy" ? { label: "Healthy", color: "#06715C", bg: "#EAF9F4", dot: "#00C9A0" }
+    : status === "watch" ? { label: "Watch", color: "#9A7B12", bg: "#FBF1E0", dot: "#E0A93B" }
+    : { label: "At risk", color: "#B91C1C", bg: "#FDECEC", dot: "#E25555" };
+  const CHECKS = [
+    { key: "happy", title: "Happy", c: checks.happy },
+    { key: "active", title: "Active", c: checks.active },
+    { key: "money", title: "Making money", c: checks.money },
+  ];
+  const tagStyle = (kind: string) => kind === "complaint"
+    ? { background: "#FBF1E0", color: "#946200" }
+    : kind === "cancel" ? { background: "#F1EFEA", color: "#6B6860" }
+    : { background: "#FDECEC", color: "#B91C1C" };
+  return (
+    <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Account Health</div>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 800, padding: "5px 12px", borderRadius: 20, background: st.bg, color: st.color }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: st.dot }} /> {st.label}
+        </span>
+      </div>
+      {CHECKS.map(({ key, title, c }) => {
+        if (!c) return null;
+        const hasDetail = (c.items && c.items.length > 0) || key === "money";
+        const isOpen = open === key;
+        return (
+          <div key={key} style={{ borderTop: "1px solid #F1EFEA" }}>
+            <div onClick={() => hasDetail && setOpen(isOpen ? null : key)} style={{ display: "flex", alignItems: "center", gap: 11, padding: "11px 0", cursor: hasDetail ? "pointer" : "default" }}>
+              <span style={{ width: 22, height: 22, borderRadius: "50%", background: c.pass ? "#00B894" : "#E25555", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {c.pass ? <Check size={13} color="#fff" /> : <X size={13} color="#fff" />}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{title}</div>
+                <div style={{ fontSize: 11.5, color: c.pass ? "#9E9B94" : "#B91C1C" }}>{c.summary}</div>
+              </div>
+              {hasDetail && (isOpen ? <ChevronUp size={15} color="#C9C5BD" /> : <ChevronDown size={15} color="#C9C5BD" />)}
+            </div>
+            {isOpen && (
+              <div style={{ paddingBottom: 10 }}>
+                {key === "money" && c.details && (
+                  <div style={{ fontSize: 12.5, color: "#4B4A47", paddingLeft: 33, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#9E9B94" }}>Revenue</span><b>${Math.round(c.details.revenue || 0).toLocaleString()}</b></div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#9E9B94" }}>Profit margin</span><b style={{ color: (c.details.net_pct ?? 0) >= 15 ? "#06715C" : "#B91C1C" }}>{Number(c.details.net_pct || 0).toFixed(0)}%</b></div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#9E9B94" }}>Avg bill</span><b>${Math.round(c.details.avg_bill || 0)}<span style={{ fontWeight: 400, color: "#9E9B94", fontSize: 11 }}> vs ${Math.round(c.details.company_avg_bill || 0)} avg</span></b></div>
+                  </div>
+                )}
+                {c.items && c.items.map((it: any, i: number) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, paddingLeft: 33, paddingTop: 6, fontSize: 12.5 }}>
+                    <div style={{ minWidth: 0 }}><div style={{ color: "#1A1917" }}>{it.label}</div><div style={{ color: "#9E9B94", fontSize: 11 }}>{it.date}{it.job_id ? ` · job #${it.job_id}` : ""}</div></div>
+                    {it.tag && <span style={{ fontSize: 9.5, fontWeight: 800, padding: "2px 7px", borderRadius: 5, whiteSpace: "nowrap" as const, ...tagStyle(it.kind) }}>{it.tag}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProfitabilityTab({ clientId }: { clientId: number }) {
   const [period, setPeriod] = useState<"monthly" | "quarterly" | "annually">("monthly");
 
@@ -2771,6 +2838,7 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
     labor_pct: laborPct, supply_pct: supplyPct, overhead_pct_of_rev: overheadPctOfRev,
     net_pct: netPct, month_multiplier: mm,
     health_score: healthScore, top_services: topServices, trend_data: trendData,
+    health_status: healthStatus, health_checks: healthChecks,
   } = data;
 
   const fmtDollar = (v: number) => `$${Math.max(0, v).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -2885,28 +2953,34 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
           ))}
         </div>
 
-        {/* Account Health Gauge */}
-        <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 16px", textAlign: "center" as const }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 12 }}>Account Health</div>
-          <svg width="110" height="110" style={{ display: "block", margin: "0 auto" }}>
-            <circle cx="55" cy="55" r={r} fill="none" stroke="#F0EEE9" strokeWidth="11" />
-            <circle
-              cx="55" cy="55" r={r} fill="none"
-              stroke={healthColor} strokeWidth="11"
-              strokeDasharray={`${circ}`}
-              strokeDashoffset={`${dashOffset}`}
-              strokeLinecap="round"
-              transform="rotate(-90 55 55)"
-              style={{ transition: "stroke-dashoffset 0.6s ease" }}
-            />
-            <text x="55" y="51" textAnchor="middle" fontSize="22" fontWeight="800" fill="#1A1917" fontFamily="'Plus Jakarta Sans', sans-serif">{healthScore}</text>
-            <text x="55" y="68" textAnchor="middle" fontSize="11" fill="#9E9B94" fontFamily="'Plus Jakarta Sans', sans-serif">/100</text>
-          </svg>
-          <div style={{ marginTop: 8, fontSize: 11, color: "#6B7280" }}>Score</div>
-          <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: healthColor, background: `${healthColor}20`, borderRadius: 20, padding: "3px 10px", display: "inline-block" }}>
-            {healthScore >= 75 ? "Healthy" : healthScore >= 50 ? "Watch" : "At Risk"}
+        {/* [account-health 2026-06-25] Bug #9: 3-check health card with
+            click-through detail. Falls back to the old gauge if the backend
+            hasn't redeployed the new fields yet. */}
+        {healthChecks
+          ? <AccountHealthCard status={healthStatus} checks={healthChecks} />
+          : (
+          <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 16px", textAlign: "center" as const }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 12 }}>Account Health</div>
+            <svg width="110" height="110" style={{ display: "block", margin: "0 auto" }}>
+              <circle cx="55" cy="55" r={r} fill="none" stroke="#F0EEE9" strokeWidth="11" />
+              <circle
+                cx="55" cy="55" r={r} fill="none"
+                stroke={healthColor} strokeWidth="11"
+                strokeDasharray={`${circ}`}
+                strokeDashoffset={`${dashOffset}`}
+                strokeLinecap="round"
+                transform="rotate(-90 55 55)"
+                style={{ transition: "stroke-dashoffset 0.6s ease" }}
+              />
+              <text x="55" y="51" textAnchor="middle" fontSize="22" fontWeight="800" fill="#1A1917" fontFamily="'Plus Jakarta Sans', sans-serif">{healthScore}</text>
+              <text x="55" y="68" textAnchor="middle" fontSize="11" fill="#9E9B94" fontFamily="'Plus Jakarta Sans', sans-serif">/100</text>
+            </svg>
+            <div style={{ marginTop: 8, fontSize: 11, color: "#6B7280" }}>Score</div>
+            <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: healthColor, background: `${healthColor}20`, borderRadius: 20, padding: "3px 10px", display: "inline-block" }}>
+              {healthScore >= 75 ? "Healthy" : healthScore >= 50 ? "Watch" : "At Risk"}
+            </div>
           </div>
-        </div>
+          )}
       </div>
 
       {/* Top Services */}
