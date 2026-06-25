@@ -193,7 +193,7 @@ export default function ClockMonitorPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ padding: "28px 32px", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>Clock Monitor</h1>
           <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>Today's clock activity across all employees</p>

@@ -109,7 +109,7 @@ export default function AgreementTemplatesPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ padding: "28px 32px", maxWidth: "1100px", margin: "0 auto" }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "24px" }}>
           <div>

@@ -81,7 +81,7 @@ export default function LoyaltyPage() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
         {/* Header */}
         <div>
-          <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '42px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Loyalty Program</h1>
+          <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Loyalty Program</h1>
           <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', marginTop: '6px' }}>Configure your CleanRewards program style, earn rules, and rewards.</p>
         </div>
 

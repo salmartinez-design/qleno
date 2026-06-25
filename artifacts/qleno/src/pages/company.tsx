@@ -75,7 +75,7 @@ export default function CompanyPage() {
     <DashboardLayout>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
         <div>
-          <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '42px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Company Settings</h1>
+          <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Company Settings</h1>
           <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', marginTop: '6px' }}>Manage your company profile, branding, and integrations.</p>
           {branchName && (
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 10, backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(91,155,213,0.3)', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: 'var(--brand)', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600 }}>

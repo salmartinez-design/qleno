@@ -190,7 +190,7 @@ export default function QuotingPage() {
 
   return (
     <DashboardLayout>
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1A1917]">Quoting Settings</h1>
@@ -208,7 +208,7 @@ export default function QuotingPage() {
               Load PHES Defaults
             </Button>
           )}
-          <Button onClick={() => setIsCreating(true)} className="gap-2 bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white">
+          <Button onClick={() => setIsCreating(true)} className="gap-2 bg-[#00C9A0] hover:bg-[#00b38f] text-white">
             <Plus className="w-4 h-4" />
             New Scope
           </Button>
@@ -261,7 +261,7 @@ export default function QuotingPage() {
           <div className="flex gap-2 pt-1">
             <Button
               size="sm"
-              className="bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white"
+              className="bg-[#00C9A0] hover:bg-[#00b38f] text-white"
               onClick={() => createMutation.mutate(newScope)}
               disabled={!newScope.name || createMutation.isPending}
             >
@@ -432,7 +432,7 @@ function ScopeEditor({
             </div>
           </div>
           <div className="flex gap-2 pt-2">
-            <Button size="sm" className="bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white" onClick={() => onPatchScope(basicFields)}>
+            <Button size="sm" className="bg-[#00C9A0] hover:bg-[#00b38f] text-white" onClick={() => onPatchScope(basicFields)}>
               Save Changes
             </Button>
             <AlertDialog>
@@ -549,7 +549,7 @@ function ScopeEditor({
             </Button>
             <Button
               size="sm"
-              className="bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white"
+              className="bg-[#00C9A0] hover:bg-[#00b38f] text-white"
               onClick={() => onSaveSqft(sqftEdits)}
             >
               Save Table
@@ -615,7 +615,7 @@ function ScopeEditor({
                 </div>
               </div>
               <div className="flex gap-2">
-                <Button size="sm" className="bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white" onClick={() => { onAddAddon(newAddon); setShowNewAddon(false); setNewAddon({ name: "", price_type: "flat", price_value: "50", time_minutes: 0, tech_pay: true }); }} disabled={!newAddon.name}>
+                <Button size="sm" className="bg-[#00C9A0] hover:bg-[#00b38f] text-white" onClick={() => { onAddAddon(newAddon); setShowNewAddon(false); setNewAddon({ name: "", price_type: "flat", price_value: "50", time_minutes: 0, tech_pay: true }); }} disabled={!newAddon.name}>
                   Add
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => setShowNewAddon(false)}>Cancel</Button>

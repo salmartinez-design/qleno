@@ -916,7 +916,7 @@ export default function LeadsPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 0 40px" }}>
+      <div style={{ padding: "0 0 40px" }}>
 
         {/* Page header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
