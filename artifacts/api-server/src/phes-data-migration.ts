@@ -377,6 +377,9 @@ async function runBookingSchemaGuard(): Promise<void> {
     // master switch (default true). When false, no automated SMS/email reaches
     // any customer record linked to the account. Additive + idempotent.
     { label: "accounts.comms_enabled", stmt: `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS comms_enabled boolean NOT NULL DEFAULT true` },
+    // [multi-recipient-estimates 2026-06-25] Additional CC recipient emails on an
+    // estimate (comma-separated). Additive + idempotent.
+    { label: "estimates.cc_emails", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS cc_emails TEXT` },
     // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
     // native click-redirect / open-pixel tokens. Additive + idempotent.
     { label: "CREATE engagement_events", stmt: `

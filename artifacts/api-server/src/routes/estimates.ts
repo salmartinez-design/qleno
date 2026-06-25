@@ -79,6 +79,26 @@ function intOrNull(v: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+// [multi-recipient-estimates] Parse a CC list (comma/semicolon/whitespace
+// separated, or an array) → a normalized, de-duped, lower-cased comma-joined
+// string of valid emails, excluding `exclude` (the primary). Returns null when
+// empty. Invalid tokens are dropped silently. Capped at 20 to bound the list.
+export function normalizeEmails(v: unknown, exclude?: string | null): string | null {
+  const raw = Array.isArray(v) ? v : String(v ?? "").split(/[,;\s]+/);
+  const ex = (exclude ?? "").trim().toLowerCase();
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const t of raw) {
+    const e = String(t ?? "").trim().toLowerCase();
+    if (!e || e === ex || seen.has(e) || !EMAIL_RE.test(e)) continue;
+    seen.add(e);
+    out.push(e);
+    if (out.length >= 20) break;
+  }
+  return out.length ? out.join(",") : null;
+}
+
 async function insertLineItems(estimateId: number, companyId: number, items: NormalizedItem[]) {
   for (const it of items) {
     await db.execute(sql`
@@ -609,12 +629,12 @@ router.post("/", requireAuth, async (req, res) => {
     const inserted = await db.execute(sql`
       INSERT INTO estimates
         (company_id, branch_id, account_id, account_property_id, client_id,
-         contact_name, contact_email, contact_phone, property_name, service_address,
+         contact_name, contact_email, cc_emails, contact_phone, property_name, service_address,
          title, intro_note, terms, internal_notes, status,
          subtotal, discount_amount, total, valid_until, created_by, updated_at)
       VALUES
         (${companyId}, ${intOrNull(b.branch_id)}, ${intOrNull(b.account_id)}, ${intOrNull(b.account_property_id)}, ${intOrNull(b.client_id)},
-         ${str(b.contact_name, 200)}, ${str(b.contact_email, 200)}, ${str(b.contact_phone, 40)}, ${str(b.property_name, 300)}, ${str(b.service_address, 400)},
+         ${str(b.contact_name, 200)}, ${str(b.contact_email, 200)}, ${normalizeEmails(b.cc_emails, str(b.contact_email, 200))}, ${str(b.contact_phone, 40)}, ${str(b.property_name, 300)}, ${str(b.service_address, 400)},
          ${str(b.title, 300)}, ${str(b.intro_note)}, ${str(b.terms)}, ${str(b.internal_notes)}, 'draft',
          ${subtotal}, ${discount}, ${total}, ${b.valid_until ? new Date(b.valid_until) : null}, ${req.auth!.userId}, now())
       RETURNING id
@@ -648,6 +668,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
         client_id = ${intOrNull(b.client_id)},
         contact_name = ${str(b.contact_name, 200)},
         contact_email = ${str(b.contact_email, 200)},
+        cc_emails = ${normalizeEmails(b.cc_emails, str(b.contact_email, 200))},
         contact_phone = ${str(b.contact_phone, 40)},
         property_name = ${str(b.property_name, 300)},
         service_address = ${str(b.service_address, 400)},
