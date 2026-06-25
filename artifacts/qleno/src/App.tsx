@@ -68,6 +68,7 @@ const QuotesPage          = lazy(() => import("@/pages/quotes"));
 const QuoteBuilderPage    = lazy(() => import("@/pages/quote-builder"));
 const EstimatesPage       = lazy(() => import("@/pages/estimates"));
 const EstimateBuilderPage = lazy(() => import("@/pages/estimate-builder"));
+const EstimateEngagementPage = lazy(() => import("@/pages/estimate-engagement"));
 const EstimatePublicPage  = lazy(() => import("@/pages/estimate-public"));
 const QuoteDetailPage     = lazy(() => import("@/pages/quote-detail"));
 const QuotingPage         = lazy(() => import("@/pages/quoting"));
@@ -311,6 +312,7 @@ function Router() {
         <Route path="/quotes" component={QuotesPage} />
 
         <Route path="/estimates/new" component={EstimateBuilderPage} />
+        <Route path="/estimates/engagement" component={EstimateEngagementPage} />
         <Route path="/estimates/:id" component={EstimateBuilderPage} />
         <Route path="/estimates" component={EstimatesPage} />
         {/* Public hosted estimate — no login, tokenized (like /pay/:token). */}
