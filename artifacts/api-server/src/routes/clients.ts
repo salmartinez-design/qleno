@@ -2431,6 +2431,71 @@ router.get("/:id/profitability", requireAuth, requireRole("owner", "office"), as
     if (companyAvgBill > 0 && avgBill < companyAvgBill) health -= 5;
     health = Math.max(0, Math.min(100, health));
 
+    // [account-health 2026-06-25] Bug #9: replace the money-only score with a
+    // simple 3-check model — Happy / Active / Making money. The old score
+    // ignored quality entirely, so an unhappy-but-profitable client read
+    // "Healthy" (Maribel's complaint). Each check links to real records for the
+    // click-through detail. Quality window 90d, real (past) cancellations 60d.
+    const recleanRows = (await db.execute(sql`
+      SELECT qc.id, qc.complaint_date::text AS date, qc.description, qc.job_id
+      FROM quality_complaints qc JOIN jobs j ON j.id = qc.job_id
+      WHERE j.client_id = ${clientId} AND qc.company_id = ${companyId}
+        AND (qc.re_clean_required OR qc.valid)
+        AND qc.complaint_date >= CURRENT_DATE - INTERVAL '90 days'
+      ORDER BY qc.complaint_date DESC`)).rows as any[];
+    const ticketRows = (await db.execute(sql`
+      SELECT t.id, t.ticket_type::text AS ticket_type, t.notes, t.job_id, t.created_at::text AS date
+      FROM contact_tickets t
+      WHERE t.client_id = ${clientId} AND t.company_id = ${companyId}
+        AND t.ticket_type IN ('complaint_poor_cleaning','complaint_attitude','breakage','incident')
+        AND t.created_at >= CURRENT_DATE - INTERVAL '90 days'
+      ORDER BY t.created_at DESC`)).rows as any[];
+    const refundRows = (await db.execute(sql`
+      SELECT p.id, p.amount, p.refunded_at::text AS date, p.refund_reason, p.job_id
+      FROM payments p JOIN jobs j ON j.id = p.job_id
+      WHERE j.client_id = ${clientId} AND p.refunded_at IS NOT NULL
+        AND p.refunded_at >= CURRENT_DATE - INTERVAL '90 days'
+      ORDER BY p.refunded_at DESC`)).rows as any[];
+    const cancelRows = (await db.execute(sql`
+      SELECT id, scheduled_date::text AS date FROM jobs
+      WHERE client_id = ${clientId} AND company_id = ${companyId} AND status = 'cancelled'
+        AND scheduled_date BETWEEN CURRENT_DATE - INTERVAL '60 days' AND CURRENT_DATE
+      ORDER BY scheduled_date DESC`)).rows as any[];
+
+    const happyPass = (recleanRows.length + ticketRows.length + refundRows.length) === 0;
+    const realCancels = cancelRows.length;
+    const activePass = realCancels < 3;                       // 3+ real cancellations = churn risk
+    const moneyPass = netPct >= 15 && laborPct <= 40;         // matches the prior thresholds
+    const fails = [happyPass, activePass, moneyPass].filter(p => !p).length;
+    const healthStatus = fails === 0 ? "healthy" : fails === 1 ? "watch" : "at_risk";
+
+    const ticketLabel = (t: string) => ({ complaint_poor_cleaning: "Poor cleaning", complaint_attitude: "Attitude", breakage: "Breakage", incident: "Incident" } as Record<string,string>)[t] ?? t;
+    const happyParts: string[] = [];
+    if (recleanRows.length) happyParts.push(`${recleanRows.length} re-clean${recleanRows.length > 1 ? "s" : ""}`);
+    if (ticketRows.length) happyParts.push(`${ticketRows.length} complaint${ticketRows.length > 1 ? "s" : ""}`);
+    if (refundRows.length) happyParts.push(`${refundRows.length} refund${refundRows.length > 1 ? "s" : ""}`);
+    const healthChecks = {
+      happy: {
+        pass: happyPass,
+        summary: happyPass ? "No complaints or re-cleans" : happyParts.join(", "),
+        items: [
+          ...recleanRows.map(r => ({ kind: "reclean", label: r.description || "Re-clean", date: r.date, job_id: r.job_id, tag: "RE-CLEAN" })),
+          ...ticketRows.map(t => ({ kind: "complaint", label: t.notes || ticketLabel(t.ticket_type), date: String(t.date).split("T")[0], job_id: t.job_id, tag: ticketLabel(t.ticket_type).toUpperCase() })),
+          ...refundRows.map(r => ({ kind: "refund", label: `Refund $${Number(r.amount || 0).toFixed(0)}${r.refund_reason ? ` · ${r.refund_reason}` : ""}`, date: String(r.date).split("T")[0], job_id: r.job_id, tag: "REFUND" })),
+        ],
+      },
+      active: {
+        pass: activePass,
+        summary: activePass ? "Visits on track" : `Cancelled ${realCancels} visit${realCancels > 1 ? "s" : ""} recently`,
+        items: cancelRows.map(c => ({ kind: "cancel", label: "Cancelled visit", date: c.date, job_id: c.id, tag: "CANCELLED" })),
+      },
+      money: {
+        pass: moneyPass,
+        summary: moneyPass ? "Healthy margin" : (netPct < 15 ? `Low margin (${netPct.toFixed(0)}%)` : `Labor cost high (${laborPct.toFixed(0)}%)`),
+        details: { revenue, net_pct: netPct, labor_pct: laborPct, avg_bill: avgBill, company_avg_bill: companyAvgBill },
+      },
+    };
+
     // Top services by revenue
     const svcsRes = await db.execute(sql`
       SELECT service_type,
@@ -2501,6 +2566,8 @@ router.get("/:id/profitability", requireAuth, requireRole("owner", "office"), as
       net_pct: netPct,
       month_multiplier: monthMultiplier,
       health_score: health,
+      health_status: healthStatus,
+      health_checks: healthChecks,
       last_job_date: lastJobDate,
       days_since_last_job: daysSinceLastJob,
       company_avg_bill: companyAvgBill,
