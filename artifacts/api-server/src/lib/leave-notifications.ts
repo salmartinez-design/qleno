@@ -84,10 +84,26 @@ function dateLabel(c: LeaveCtx): string {
   return c.start_date === c.end_date ? c.start_date : `${c.start_date} → ${c.end_date}`;
 }
 
-/** Employee-facing email — gated by COMMS_ENABLED (employee-facing comms). */
+/** Employee-facing email — gated by the GLOBAL COMMS_ENABLED master AND the
+ *  per-company comms flag (companies.comms_enabled), matching how SMS is gated
+ *  and what the in-app "comms paused" banner promises ("global off OR company
+ *  off"). [comms-pause fix 2026-06-25] Previously only the global master was
+ *  checked, so a PAUSED company (co1) still emailed employees despite the banner
+ *  saying no messages would go out. */
 async function sendEmployeeEmail(c: LeaveCtx, subject: string, bodyHtml: string): Promise<void> {
   try {
-    if (process.env.COMMS_ENABLED !== "true") return;
+    if (process.env.COMMS_ENABLED !== "true") {
+      console.log(`[leave-notify] employee email suppressed (comms_disabled) for request #${c.request_id}`);
+      return;
+    }
+    // Honor the per-company gate too. resolveSender reads companies.comms_enabled;
+    // we use ONLY that company flag here — its branch / twilio-from-number checks
+    // are SMS-specific and must not block email.
+    const sender = await resolveSender(c.company_id, null);
+    if (!sender.company_comms_enabled) {
+      console.log(`[leave-notify] employee email suppressed (company_comms_disabled) for request #${c.request_id}`);
+      return;
+    }
     const key = process.env.RESEND_API_KEY;
     if (!key || !c.employee_email) return;
     const from = `${c.company_name} <${c.email_from}>`;

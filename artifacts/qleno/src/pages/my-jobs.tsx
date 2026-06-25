@@ -8,6 +8,7 @@ import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin
 import { Link, useLocation } from "wouter";
 import { ChangePasswordModal } from "@/components/change-password-modal";
 import { NotificationBell } from "@/components/notification-bell";
+import { PushNudge } from "@/components/push-nudge";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
@@ -1513,6 +1514,10 @@ export default function MyJobsPage() {
             ›
           </button>
         </div>
+
+        {/* [push-nudge 2026-06-25] One-time CTA to enable lock-screen job
+            alerts; self-hides when already subscribed / dismissed. */}
+        <PushNudge />
 
         {/* [day-banner 2026-06-11] Qleno-Night day summary: Efficiency + Quality
             for the selected day, with a job-completion progress bar. */}

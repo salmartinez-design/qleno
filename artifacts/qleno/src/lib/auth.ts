@@ -129,6 +129,17 @@ export function getTokenRole(): string | null {
   }
 }
 
+export function getTokenUserId(): number | null {
+  const token = useAuthStore.getState().token;
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    return typeof payload.userId === 'number' ? payload.userId : (payload.userId ? Number(payload.userId) : null);
+  } catch {
+    return null;
+  }
+}
+
 export function getTokenIsSuperAdmin(): boolean {
   const token = useAuthStore.getState().token;
   if (!token) return false;
