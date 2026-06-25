@@ -521,8 +521,10 @@ export default function BookPage() {
   }, [slug]);
 
   // ── Load Google Maps Places ───────────────────────────────────────────────
+  // Fetch the browser key at runtime from the public config endpoint first
+  // (VITE_GOOGLE_MAPS_API_KEY is empty in the Railway build), then fall back to
+  // the build-time var if the runtime fetch yields nothing.
   useEffect(() => {
-    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
     if ((window as any).google?.maps?.places) { setMapsReady(true); return; }
     const scriptId = "gmap-places-script";
     if (document.getElementById(scriptId)) {
@@ -530,14 +532,24 @@ export default function BookPage() {
       if (existing) { existing.addEventListener("load", () => setMapsReady(true)); }
       return;
     }
-    if (!key) return;
-    const s = document.createElement("script");
-    s.id = scriptId;
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
-    s.async = true;
-    s.defer = true;
-    s.onload = () => setMapsReady(true);
-    document.head.appendChild(s);
+    let cancelled = false;
+    (async () => {
+      let key = "";
+      try {
+        const res = await pubFetch("/api/public/config/google-maps-key");
+        key = String(res?.key ?? "");
+      } catch { /* fall through to build-time key */ }
+      if (!key) key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+      if (cancelled || !key) return;
+      if (document.getElementById(scriptId)) { setMapsReady(true); return; }
+      const s = document.createElement("script");
+      s.id = scriptId;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+      s.async = true; s.defer = true;
+      s.onload = () => setMapsReady(true);
+      document.head.appendChild(s);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   // ── Wire autocomplete after Maps is ready AND input is in the DOM ──────────
@@ -1676,8 +1688,6 @@ export default function BookPage() {
                   <input type="checkbox" checked={smsConsent} onChange={e => setSmsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: brand, width: 16, height: 16, flexShrink: 0, minHeight: "unset" }} />
                   <span className="bw-consent" style={{ fontSize: 13, color: "#6B6860", width: "100%" }}>
                     By checking this box, you agree to receive transactional SMS messages from Phes regarding your appointment. Message frequency varies. Message and data rates may apply. Reply STOP to opt out. You must be 18 or older to opt in. View our{" "}
-                    <a href="https://phes.io/terms" target="_blank" rel="noopener noreferrer" style={{ color: brand, textDecoration: "underline" }}>Terms of Service</a>
-                    {" "}and{" "}
                     <a href="https://phes.io/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: brand, textDecoration: "underline" }}>Privacy Policy</a>.
                   </span>
                 </label>
