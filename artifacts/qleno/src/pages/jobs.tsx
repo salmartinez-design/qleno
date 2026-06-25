@@ -16,7 +16,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2, MoreVertical,
-  Languages,
+  Languages, Pencil,
 } from "lucide-react";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS, mutedFill } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
@@ -490,7 +490,7 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
   const { toast } = useToast();
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
-  const [techs, setTechs] = useState<Array<{ id: number; first_name: string; last_name: string; name: string }>>([]);
+  const [techs, setTechs] = useState<Array<{ id: number; first_name: string; last_name: string; name: string; avatar_url?: string | null }>>([]);
   const [loadingTechs, setLoadingTechs] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -552,7 +552,11 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
 
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }}><User size={14} /></span>
+      {/* [job-card-redesign 2026-06-25] Show the assigned cleaner's real photo
+          (avatar_url; initials fallback) instead of the generic person glyph. */}
+      {job.assigned_user_id != null
+        ? <EmployeeAvatar name={currentName} avatarUrl={currentTechFromList?.avatar_url ?? null} size={28} fontSize={10} title={currentName} />
+        : <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }}><User size={14} /></span>}
       <select
         value={job.assigned_user_id ?? ""}
         onChange={e => onChange(parseInt(e.target.value, 10))}
@@ -1372,6 +1376,9 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [overrideOpen, setOverrideOpen] = useState<Record<number, boolean>>({});
   const [overrideVal, setOverrideVal] = useState<Record<number, string>>({});
   const [overrideBusy, setOverrideBusy] = useState(false);
+  // [job-card-redesign 2026-06-25] Bug #6: edit commission straight from the top
+  // tile (Maribel) instead of hunting for the buried Commission section.
+  const [tileCommEdit, setTileCommEdit] = useState(false);
   const canManageCommission = (userRole === "owner" || userRole === "admin" || userRole === "office");
   const canEditOfficeNotes  = (userRole === "owner" || userRole === "admin" || userRole === "office");
 
@@ -2106,7 +2113,10 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               Commission / Hours. Three small tiles fit the mobile sheet. */}
           {(() => {
             const billed = Number(job.amount ?? job.billed_amount ?? 0);
-            const techs = job.technicians ?? [];
+            // [job-card-redesign 2026-06-25] Drive the Commission tile off the
+            // commTechs STATE (updated by saveOverride) so an override reflects
+            // here immediately, not just in the buried Commission section.
+            const techs = commTechs.length > 0 ? commTechs : (job.technicians ?? []);
             const hasComm = techs.length > 0;
             const commTotal = techs.reduce((s, t) => s + (t.final_pay ?? 0), 0);
             const allowed = (job as any).allowed_hours != null ? Number((job as any).allowed_hours) : (job.estimated_hours ?? null);
@@ -2116,6 +2126,9 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             // the office sees the labor drop when they add a tech.
             const techCount = Math.max(1, techs.length || (job.assigned_user_id != null ? 1 : 1));
             const perTechAllowed = allowed != null ? allowed / techCount : null;
+            // Bug #6: primary tech is the one the top-tile editor overrides.
+            const primaryTech = techs.find(t => t.is_primary) ?? techs[0] ?? null;
+            const canEditComm = canManageCommission && !isLocked && primaryTech != null;
             const Tile = ({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) => (
               <div style={{ flex: 1, minWidth: 0, background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 11px" }}>
                 <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
@@ -2123,18 +2136,68 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 {sub && <div style={{ fontSize: 10, color: "#9E9B94", marginTop: 1 }}>{sub}</div>}
               </div>
             );
+            const overridden = primaryTech?.pay_override != null;
             return (
-              <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-                <Tile label="Billed" value={fmtUSD(billed)} />
-                <Tile label="Commission" value={hasComm ? fmtUSD(commTotal) : "—"} color="#2D9B83" />
-                {/* [rebook-preserve 2026-06-20] Lead with the time ON THE CLOCK
-                    (allowed ÷ techs) like MaidCentral, not the summed person-
-                    hours — otherwise a 2-tech job reads "5.0h" and looks like
-                    the crew wasn't counted. Total labor moves to the sub-line. */}
-                <Tile label="Hours"
-                  value={allowed != null ? `${(techCount > 1 && perTechAllowed != null ? perTechAllowed : allowed).toFixed(1)}h` : "—"}
-                  sub={techCount > 1 && perTechAllowed != null ? `on clock · ${allowed.toFixed(1)}h total · ${techCount} techs` : "allowed"} />
-              </div>
+              <>
+                <div style={{ display: "flex", gap: 8, marginBottom: tileCommEdit ? 8 : 16 }}>
+                  <Tile label="Billed" value={fmtUSD(billed)} />
+                  {/* Commission tile is now an edit control (Bug #6). */}
+                  <div
+                    onClick={canEditComm ? () => { setTileCommEdit(e => !e); if (primaryTech) setOverrideVal(v => ({ ...v, [primaryTech.user_id]: primaryTech.pay_override != null ? String(primaryTech.pay_override) : "" })); } : undefined}
+                    title={canEditComm ? "Edit commission" : undefined}
+                    style={{ flex: 1, minWidth: 0, background: canEditComm ? "#EAF9F4" : "#F7F6F3", border: `1px solid ${canEditComm ? "#BDEBDD" : "#E5E2DC"}`, borderRadius: 10, padding: "10px 11px", cursor: canEditComm ? "pointer" : "default" }}
+                  >
+                    <div style={{ fontSize: 10, fontWeight: 700, color: canEditComm ? "#06715C" : "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", gap: 4 }}>
+                      Commission {canEditComm && <Pencil size={10} />}
+                    </div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#2D9B83", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{hasComm ? fmtUSD(commTotal) : "—"}</div>
+                    {overridden && <div style={{ fontSize: 10, color: "#D97706", marginTop: 1, fontWeight: 700 }}>override</div>}
+                  </div>
+                  {/* [rebook-preserve 2026-06-20] Lead with the time ON THE CLOCK
+                      (allowed ÷ techs) like MaidCentral, not the summed person-
+                      hours — otherwise a 2-tech job reads "5.0h" and looks like
+                      the crew wasn't counted. Total labor moves to the sub-line. */}
+                  <Tile label="Hours"
+                    value={allowed != null ? `${(techCount > 1 && perTechAllowed != null ? perTechAllowed : allowed).toFixed(1)}h` : "—"}
+                    sub={techCount > 1 && perTechAllowed != null ? `on clock · ${allowed.toFixed(1)}h total · ${techCount} techs` : "allowed"} />
+                </div>
+                {/* Inline commission editor — overrides the primary tech's pay
+                    for THIS job, via the same payroll-safe pay_override path the
+                    Commission section uses. The basis toggle (commission ↔
+                    hourly) lands with the pay-basis-switch backend work. */}
+                {tileCommEdit && canEditComm && primaryTech && (
+                  <div style={{ marginBottom: 16, background: "#FBFAF8", border: "1px solid #ECE8E1", borderRadius: 10, padding: "11px 12px" }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", marginBottom: 7 }}>
+                      Set commission for {primaryTech.name}
+                    </div>
+                    <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 13, color: "#6B7280" }}>$</span>
+                      <input
+                        type="number" step="0.01" min="0"
+                        value={overrideVal[primaryTech.user_id] ?? ""}
+                        onChange={e => setOverrideVal(v => ({ ...v, [primaryTech.user_id]: e.target.value }))}
+                        placeholder={String((primaryTech.calc_pay ?? 0).toFixed(2))}
+                        autoFocus
+                        style={{ width: 104, height: 32, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, outline: "none" }}
+                      />
+                      <button onClick={() => { saveOverride(primaryTech.user_id); setTileCommEdit(false); }} disabled={overrideBusy}
+                        style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--brand)", border: "none", borderRadius: 8, padding: "7px 14px", cursor: overrideBusy ? "wait" : "pointer", fontFamily: FF }}>
+                        {overrideBusy ? "Saving…" : "Save"}
+                      </button>
+                      {overridden && (
+                        <button onClick={() => { setOverrideVal(v => ({ ...v, [primaryTech.user_id]: "" })); saveOverride(primaryTech.user_id); setTileCommEdit(false); }} disabled={overrideBusy}
+                          style={{ fontSize: 12, color: "#EF4444", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}>
+                          Reset to calculated
+                        </button>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 7, lineHeight: 1.4 }}>
+                      Calculated: ${(primaryTech.calc_pay ?? 0).toFixed(2)}
+                      {primaryTech.pay_type && primaryTech.pay_rate != null ? ` · ${primaryTech.pay_type === "hourly" ? `$${primaryTech.pay_rate.toFixed(2)}/hr` : `${(primaryTech.pay_rate * 100).toFixed(0)}%`}` : ""}. Overrides this tech's pay for this job only — flows straight to payroll.
+                    </div>
+                  </div>
+                )}
+              </>
             );
           })()}
 
@@ -2445,7 +2508,7 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       <span style={{ fontSize: 12, color: t.pay_override != null ? "#D97706" : "#16A34A", fontWeight: 700 }}>
                         ${t.final_pay.toFixed(2)}{t.pay_override != null ? " (override)" : ""}
                       </span>
-                      {userRole === "owner" || userRole === "admin" ? (
+                      {canManageCommission ? (
                         <button
                           onClick={() => { setOverrideOpen(o => ({ ...o, [t.user_id]: !o[t.user_id] })); setOverrideVal(v => ({ ...v, [t.user_id]: t.pay_override != null ? String(t.pay_override) : "" })); }}
                           style={{ fontSize: 10, color: "#6B7280", border: "1px solid #E5E2DC", background: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF }}
