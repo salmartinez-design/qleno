@@ -814,12 +814,25 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
   }
 
   if (!editing) {
+    // [job-card-redesign 2026-06-25] Address is a live Google Maps directions
+    // link — prefer the geocoded lat/lng, fall back to the address text query.
+    const mapsHref = (job.job_lat != null && job.job_lng != null)
+      ? `https://www.google.com/maps/dir/?api=1&destination=${job.job_lat},${job.job_lng}`
+      : job.address ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(job.address)}` : null;
     return (
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
         <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }}><MapPin size={14} /></span>
-        <span style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5, flex: 1 }}>
-          {job.address || "(No address)"}
-        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.5 }}>
+            {job.address || "(No address)"}
+          </span>
+          {mapsHref && (
+            <a href={mapsHref} target="_blank" rel="noopener noreferrer" title="Open directions in Google Maps"
+              style={{ marginLeft: 8, fontSize: 12, fontWeight: 600, color: "#185FA5", textDecoration: "none", whiteSpace: "nowrap" }}>
+              Directions
+            </a>
+          )}
+        </div>
         <button
           onClick={open}
           style={{
@@ -1959,23 +1972,34 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       <div style={panelStyle}>
         {mobile && <div style={{ width: 40, height: 4, backgroundColor: "#E5E2DC", borderRadius: 2, margin: "12px auto 0" }} />}
         <div style={{ padding: "16px 20px 14px", borderBottom: "1px solid #EEECE7", flexShrink: 0, display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>
-              {(job.client_id || job.account_id) ? (
-                <a
-                  href={job.client_id ? `/customers/${job.client_id}` : `/accounts/${job.account_id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title="Open profile in a new tab"
-                  style={{ color: "#1A1917", textDecoration: "none", cursor: "pointer" }}
-                  onMouseEnter={e => (e.currentTarget.style.textDecoration = "underline")}
-                  onMouseLeave={e => (e.currentTarget.style.textDecoration = "none")}
-                >
-                  {job.display_name ?? job.client_name}
-                </a>
-              ) : (job.display_name ?? job.client_name)}
-            </h2>
-            <span style={{ display: "inline-block", marginTop: 5, fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 4, backgroundColor: "var(--brand-dim)", color: "var(--brand)" }}>{fmtSvc(job.service_type)}</span>
+          <div style={{ minWidth: 0 }}>
+            {/* [job-card-redesign 2026-06-25] Zone-color dot beside the name so
+                the zone reads at a glance even when the open card covers the
+                timeline chip — Sal: needed for quick logistics calls. */}
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              {job.zone_color && (
+                <span title={job.zone_name ?? "Zone"} style={{ width: 11, height: 11, borderRadius: "50%", backgroundColor: job.zone_color, flexShrink: 0, boxShadow: `0 0 0 3px ${job.zone_color}2E` }} />
+              )}
+              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>
+                {(job.client_id || job.account_id) ? (
+                  <a
+                    href={job.client_id ? `/customers/${job.client_id}` : `/accounts/${job.account_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="Open profile in a new tab"
+                    style={{ color: "#1A1917", textDecoration: "none", cursor: "pointer" }}
+                    onMouseEnter={e => (e.currentTarget.style.textDecoration = "underline")}
+                    onMouseLeave={e => (e.currentTarget.style.textDecoration = "none")}
+                  >
+                    {job.display_name ?? job.client_name}
+                  </a>
+                ) : (job.display_name ?? job.client_name)}
+              </h2>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5, flexWrap: "wrap", paddingLeft: job.zone_color ? 19 : 0 }}>
+              <span style={{ display: "inline-block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 4, backgroundColor: "var(--brand-dim)", color: "var(--brand)" }}>{fmtSvc(job.service_type)}</span>
+              {job.zone_name && <span style={{ fontSize: 11, fontWeight: 700, color: job.zone_color ?? "#6B6860" }}>{job.zone_name}</span>}
+            </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
             {canEditOfficeNotes && (
@@ -2122,14 +2146,17 @@ function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             {/* [inline-edit] Address with pencil affordance, geocode preflight, auto-pick mode. */}
             <InlineAddressEdit job={job} onUpdate={onUpdate} />
             {job.client_phone && (
+              /* [job-card-redesign 2026-06-25] Dropped the redundant left phone
+                 glyph (the Call button already is a phone). Number leads; Call +
+                 Message sit on the right. Call is a tel: stub today — flips to
+                 Dialpad click-to-call once the API key lands in Railway. */
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Phone size={14} color="#9E9B94" style={{ flexShrink: 0 }} />
-                <span style={{ fontSize: 13, color: "#4B4A47", flex: 1 }}>{job.client_phone}</span>
-                <a href={`tel:${job.client_phone}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 6, backgroundColor: "#EBF4FF", border: "1px solid #BFDBFE", textDecoration: "none" }} title="Call client">
-                  <Phone size={13} color="#1D4ED8" />
+                <span style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", flex: 1 }}>{job.client_phone}</span>
+                <a href={`tel:${job.client_phone}`} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 9, backgroundColor: "#EAF9F4", border: "1px solid #BDEBDD", textDecoration: "none" }} title="Call client (Dialpad)">
+                  <Phone size={14} color="#06715C" />
                 </a>
-                <button onClick={() => { setSmsOpen(true); setSmsMessage(""); }} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, borderRadius: 6, backgroundColor: "#ECFDF5", border: "1px solid #6EE7B7", cursor: "pointer" }} title="Send SMS">
-                  <MessageSquare size={13} color="#059669" />
+                <button onClick={() => { setSmsOpen(true); setSmsMessage(""); }} style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 9, backgroundColor: "#EAF9F4", border: "1px solid #BDEBDD", cursor: "pointer" }} title="Message client from Qleno">
+                  <MessageSquare size={14} color="#06715C" />
                 </button>
               </div>
             )}
