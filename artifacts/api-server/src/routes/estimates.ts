@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { requireAuth } from "../lib/auth.js";
 import { enrollForEstimateSent, stopEnrollmentsForEstimate } from "../services/followUpService.js";
+import { recordEngagementEvent } from "../lib/engagement.js";
 
 // [commercial-estimate-tool 2026-06-09] Commercial / common-area estimates.
 // Raw SQL (db.execute) on purpose: the estimate tables are brand-new and the
@@ -274,6 +275,9 @@ router.get("/public/:token", async (req, res) => {
       est.status = "viewed";
       est.viewed_at = est.viewed_at || new Date().toISOString();
     }
+    // [engagement-phase4] Record the hosted-page view (web channel).
+    recordEngagementEvent({ companyId: est.company_id, estimateId: est.id, eventType: "viewed", channel: "web",
+      meta: { ua: req.get("user-agent") || null } }).catch(() => {});
 
     const items = await db.execute(sql`
       SELECT name, description, pricing_type, frequency, quantity, unit_rate, amount
@@ -301,7 +305,7 @@ router.post("/public/:token/accept", async (req, res) => {
     // there). Recorded in the lead audit note below for proof of consent.
     const smsConsent = req.body?.sms_consent === true;
     const rows = await db.execute(sql`
-      SELECT id, status, valid_until FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
+      SELECT id, company_id, status, valid_until FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
     `);
     const est = (rows as any).rows[0];
     if (!est) {
@@ -360,6 +364,7 @@ router.post("/public/:token/accept", async (req, res) => {
     `);
     // [estimate-drip-phase3] Accepted → stop the follow-up drip. Non-blocking.
     stopEnrollmentsForEstimate(Number(est.id), "accepted").catch(() => {});
+    recordEngagementEvent({ companyId: Number(est.company_id), estimateId: Number(est.id), eventType: "accepted", channel: "web", meta: { name } }).catch(() => {});
     return res.json({ ok: true, status: "accepted" });
   } catch (err) {
     console.error("Accept estimate error:", err);
@@ -371,7 +376,7 @@ router.post("/public/:token/decline", async (req, res) => {
   try {
     const token = String(req.params.token || "").trim();
     const rows = await db.execute(sql`
-      SELECT id, status FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
+      SELECT id, company_id, status FROM estimates WHERE public_token = ${token} AND status <> 'draft' LIMIT 1
     `);
     const est = (rows as any).rows[0];
     if (!est) return res.status(404).json({ error: "Not Found" });
@@ -380,6 +385,7 @@ router.post("/public/:token/decline", async (req, res) => {
       await db.execute(sql`UPDATE estimates SET status = 'declined', declined_at = now(), updated_at = now() WHERE id = ${est.id}`);
       // [estimate-drip-phase3] Declined → stop the follow-up drip. Non-blocking.
       stopEnrollmentsForEstimate(Number(est.id), "declined").catch(() => {});
+      recordEngagementEvent({ companyId: Number(est.company_id), estimateId: Number(est.id), eventType: "declined", channel: "web" }).catch(() => {});
     }
     return res.json({ ok: true, status: "declined" });
   } catch (err) {
