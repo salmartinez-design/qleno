@@ -2465,7 +2465,11 @@ router.get("/:id/profitability", requireAuth, requireRole("owner", "office"), as
     const happyPass = (recleanRows.length + ticketRows.length + refundRows.length) === 0;
     const realCancels = cancelRows.length;
     const activePass = realCancels < 3;                       // 3+ real cancellations = churn risk
-    const moneyPass = netPct >= 15 && laborPct <= 40;         // matches the prior thresholds
+    // No billed revenue in the period = not enough data to judge margin, so
+    // treat Money as neutral (pass) rather than penalizing missing history —
+    // otherwise every client with no completed jobs reads as "low margin".
+    const hasRevenue = revenue > 0;
+    const moneyPass = !hasRevenue || (netPct >= 15 && laborPct <= 40);
     const fails = [happyPass, activePass, moneyPass].filter(p => !p).length;
     const healthStatus = fails === 0 ? "healthy" : fails === 1 ? "watch" : "at_risk";
 
@@ -2491,7 +2495,7 @@ router.get("/:id/profitability", requireAuth, requireRole("owner", "office"), as
       },
       money: {
         pass: moneyPass,
-        summary: moneyPass ? "Healthy margin" : (netPct < 15 ? `Low margin (${netPct.toFixed(0)}%)` : `Labor cost high (${laborPct.toFixed(0)}%)`),
+        summary: !hasRevenue ? "No billed jobs in this period" : (moneyPass ? "Healthy margin" : (netPct < 15 ? `Low margin (${netPct.toFixed(0)}%)` : `Labor cost high (${laborPct.toFixed(0)}%)`)),
         details: { revenue, net_pct: netPct, labor_pct: laborPct, avg_bill: avgBill, company_avg_bill: companyAvgBill },
       },
     };
