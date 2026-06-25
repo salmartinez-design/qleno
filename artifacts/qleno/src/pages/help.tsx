@@ -12,6 +12,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import {
   LifeBuoy, BookOpen, Smartphone, Briefcase, Clock, DollarSign,
   FileText, Camera, MapPin, ChevronRight,
+  Navigation, UserX, CalendarOff, Bell, KeyRound,
 } from "lucide-react";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -35,6 +36,7 @@ type GuideListItem = {
 // lucide icons referenced by name in the `icon` column. Fallback = LifeBuoy.
 const ICONS: Record<string, React.ComponentType<{ size?: number; color?: string }>> = {
   LifeBuoy, BookOpen, Smartphone, Briefcase, Clock, DollarSign, FileText, Camera, MapPin,
+  Navigation, UserX, CalendarOff, Bell, KeyRound,
 };
 
 function pick(en: string | null, es: string | null, locale: Locale): string {
