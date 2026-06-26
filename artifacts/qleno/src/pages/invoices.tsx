@@ -202,6 +202,39 @@ function NewInvoiceModal({ onClose, onDone }: { onClose: () => void; onDone: () 
   );
 }
 
+// [pay-method 2026-06-26] One-tap "Mark Paid" with the payment method, for the
+// list view — so office records check / ACH / Zelle / cash without opening each
+// invoice. Posts { method } to /mark-paid (amount + date default server-side).
+const PAY_METHODS: { value: string; label: string }[] = [
+  { value: "check", label: "Check" },
+  { value: "ach", label: "ACH / Bank transfer" },
+  { value: "zelle", label: "Zelle" },
+  { value: "cash", label: "Cash" },
+  { value: "venmo", label: "Venmo" },
+  { value: "other", label: "Other" },
+];
+function MarkPaidMethodModal({ invoice, busy, onPick, onClose }: { invoice: any; busy: boolean; onPick: (method: string) => void; onClose: () => void }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ backgroundColor: "#FFFFFF", borderRadius: 16, boxShadow: "0 8px 40px rgba(0,0,0,0.12)", width: "100%", maxWidth: 360, padding: 24, fontFamily: FF }}>
+        <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Mark paid — how did they pay?</h3>
+        <p style={{ margin: "0 0 16px", fontSize: 12, color: "#6B7280" }}>
+          {invoice.invoice_number ? `#${invoice.invoice_number} · ` : ""}${parseFloat(invoice.total || "0").toFixed(2)}{invoice.client_name ? ` · ${invoice.client_name}` : ""}
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {PAY_METHODS.map(m => (
+            <button key={m.value} disabled={busy} onClick={() => onPick(m.value)}
+              style={{ padding: "12px 10px", border: "1px solid #E5E2DC", borderRadius: 10, backgroundColor: "#FFFFFF", color: "#1A1917", fontSize: 13, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <button onClick={onClose} style={{ width: "100%", marginTop: 14, background: "none", border: "none", color: "#9E9B94", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
 // [weekly-cadence 2026-06-26] On-demand consolidated invoicing. Lists
 // batch_invoice clients' pending per-visit drafts for a billing window (weekly
 // Sun–Sat or monthly), keyed on SERVICE DATE, and folds a client's window into
@@ -632,6 +665,7 @@ export default function InvoicesPage() {
   const [failedExpanded, setFailedExpanded] = useState(true);
   const [chargingJobId, setChargingJobId] = useState<number | null>(null);
   const [payingInvoiceId, setPayingInvoiceId] = useState<number | null>(null);
+  const [markPaidInv, setMarkPaidInv] = useState<any | null>(null);
 
   const { data: readyData, refetch: refetchReady } = useQuery({
     queryKey: ["ready-to-charge"],
@@ -668,12 +702,14 @@ export default function InvoicesPage() {
     }
   }
 
-  // [invoice-lifecycle 2026-06-21] One-click Mark Paid / Unmark from the list.
-  async function markInvoicePaid(invId: number) {
+  // [invoice-lifecycle 2026-06-21; pay-method 2026-06-26] Mark Paid from the list,
+  // recording HOW the client paid (check / ACH / Zelle / cash …) so non-processor
+  // payments are captured. Opens the quick method picker (setMarkPaidInv).
+  async function markInvoicePaid(invId: number, method = "cash") {
     setPayingInvoiceId(invId);
     try {
-      await apiFetch(`/api/invoices/${invId}/mark-paid`, { method: "POST", body: JSON.stringify({}) });
-      toast({ title: "Marked paid" });
+      await apiFetch(`/api/invoices/${invId}/mark-paid`, { method: "POST", body: JSON.stringify({ method }) });
+      toast({ title: `Marked paid${method && method !== "cash" ? ` · ${method}` : ""}` });
       refetch();
     } catch (err: any) {
       toast({ title: "Failed to mark paid", description: err?.message || "", variant: "destructive" });
@@ -1020,8 +1056,8 @@ export default function InvoicesPage() {
                           </button>
                         )}
                         {(effectiveStatus === "sent" || effectiveStatus === "overdue") && (
-                          <button onClick={() => markInvoicePaid(inv.id)} disabled={payingInvoiceId === inv.id}
-                            title="Mark paid (today)"
+                          <button onClick={() => setMarkPaidInv(inv)} disabled={payingInvoiceId === inv.id}
+                            title="Mark paid — choose method (check / ACH / Zelle …)"
                             style={{ marginRight: 8, padding: "5px 10px", border: "none", backgroundColor: "#16A34A", color: "#FFFFFF", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
                             {payingInvoiceId === inv.id ? "…" : "Mark Paid"}
                           </button>
@@ -1049,6 +1085,14 @@ export default function InvoicesPage() {
 
       {showBatch && <BatchInvoiceDrawer onClose={() => setShowBatch(false)} onDone={() => refetch()} />}
       {showWeekly && <WeeklyInvoicingDrawer onClose={() => setShowWeekly(false)} onDone={() => refetch()} />}
+      {markPaidInv && (
+        <MarkPaidMethodModal
+          invoice={markPaidInv}
+          busy={payingInvoiceId === markPaidInv.id}
+          onPick={async (method) => { const id = markPaidInv.id; setMarkPaidInv(null); await markInvoicePaid(id, method); }}
+          onClose={() => setMarkPaidInv(null)}
+        />
+      )}
       {showCloseDay && <CloseDayModal onClose={() => setShowCloseDay(false)} onOpenBatchInvoice={() => setShowBatch(true)} />}
       {showNewInvoice && <NewInvoiceModal onClose={() => setShowNewInvoice(false)} onDone={() => refetch()} />}
     </>

@@ -93,8 +93,9 @@ function MarkPaidModal({ invoice, onClose, onSuccess }: { invoice: any; onClose:
             <select value={method} onChange={e => setMethod(e.target.value)} style={SELECT}>
               <option value="cash">Cash</option>
               <option value="check">Check</option>
-              <option value="venmo">Venmo</option>
+              <option value="ach">ACH / Bank transfer</option>
               <option value="zelle">Zelle</option>
+              <option value="venmo">Venmo</option>
               <option value="other">Other</option>
             </select>
           </div>
