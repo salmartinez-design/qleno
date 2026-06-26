@@ -424,6 +424,10 @@ async function runBookingSchemaGuard(): Promise<void> {
         created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
       )` },
     { label: "idx agreement_events", stmt: `CREATE INDEX IF NOT EXISTS idx_agreement_events_agreement ON agreement_events(agreement_id, created_at)` },
+    // [agreement-esign] Audit columns on the live form_submissions sign flow.
+    { label: "form_submissions.viewed_at", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ` },
+    { label: "form_submissions.user_agent", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS user_agent TEXT` },
+    { label: "form_submissions.consent_at", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ` },
     // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
     // native click-redirect / open-pixel tokens. Additive + idempotent.
     { label: "CREATE engagement_events", stmt: `
