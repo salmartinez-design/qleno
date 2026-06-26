@@ -281,6 +281,74 @@ router.delete("/templates/:id", requireAuth, async (req, res) => {
   }
 });
 
+// ─── Native estimate follow-up drip editor (replaces the GoHighLevel bridge) ──
+// Read + edit the company's estimate_followup sequence and its steps in-app; the
+// existing engine (followUpService.processEnrollment) sends straight from these.
+// Registered before /:id so the literal path wins over the :id param.
+router.get("/follow-up", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const seqRows = await db.execute(sql`
+      SELECT id, name, is_active FROM follow_up_sequences
+      WHERE company_id = ${companyId} AND sequence_type = 'estimate_followup'
+      ORDER BY id LIMIT 1
+    `);
+    const seq = (seqRows as any).rows[0] ?? null;
+    if (!seq) return res.json({ sequence: null, steps: [] });
+    const steps = await db.execute(sql`
+      SELECT step_number, channel, delay_hours, subject, message_template
+      FROM follow_up_steps WHERE sequence_id = ${seq.id} ORDER BY step_number
+    `);
+    return res.json({ sequence: seq, steps: (steps as any).rows });
+  } catch (err) {
+    console.error("Get estimate follow-up error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.put("/follow-up", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const b = req.body ?? {};
+    const isActive = b.is_active === true;
+    // Normalize incoming steps; order in the array = send order.
+    const steps = (Array.isArray(b.steps) ? b.steps : []).map((s: any, i: number) => ({
+      step_number: i + 1,
+      channel: String(s?.channel) === "sms" ? "sms" : "email",
+      delay_hours: Math.max(0, Math.round(Number(s?.delay_hours ?? 0)) || 0),
+      subject: str(s?.subject, 300),
+      message_template: str(s?.message_template, 4000),
+    })).filter((s: any) => s.message_template);
+
+    // Find or create the company's estimate sequence.
+    const existing = await db.execute(sql`
+      SELECT id FROM follow_up_sequences WHERE company_id = ${companyId} AND sequence_type = 'estimate_followup' ORDER BY id LIMIT 1
+    `);
+    let seqId = (existing as any).rows[0]?.id as number | undefined;
+    if (!seqId) {
+      const ins = await db.execute(sql`
+        INSERT INTO follow_up_sequences (company_id, sequence_type, name, is_active)
+        VALUES (${companyId}, 'estimate_followup', 'Estimate Follow-Up', ${isActive}) RETURNING id
+      `);
+      seqId = (ins as any).rows[0].id;
+    } else {
+      await db.execute(sql`UPDATE follow_up_sequences SET is_active = ${isActive} WHERE id = ${seqId} AND company_id = ${companyId}`);
+    }
+    // Replace steps wholesale.
+    await db.execute(sql`DELETE FROM follow_up_steps WHERE sequence_id = ${seqId}`);
+    for (const s of steps) {
+      await db.execute(sql`
+        INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template)
+        VALUES (${seqId}, ${s.step_number}, ${s.delay_hours}, ${s.channel}, ${s.subject}, ${s.message_template})
+      `);
+    }
+    return res.json({ ok: true, sequence_id: seqId, steps: steps.length, is_active: isActive });
+  } catch (err) {
+    console.error("Save estimate follow-up error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── Engagement dashboard (Phase 5) ─────────────────────────────────────────
 // Read models over engagement_events + follow_up_enrollments + estimates. All
 // company-scoped. Registered before /:id (distinct 2-segment paths, no clash).
