@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick, MessageSquare, X, CreditCard } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick, MessageSquare, X, CreditCard, FileSignature } from "lucide-react";
 import { toast } from "sonner";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
@@ -393,6 +393,25 @@ export default function EstimateBuilderPage() {
     finally { setCardBusy(false); }
   }
 
+  // [agreement-esign] Send the e-signable commercial service agreement.
+  const [agrBusy, setAgrBusy] = useState(false);
+  const [agrLink, setAgrLink] = useState<{ url: string; to: string } | null>(null);
+  const AGR_REASON: Record<string, string> = {
+    no_email: "Add a contact email first, then send the agreement.",
+    no_template: "No agreement template found. Create one in Settings → Agreements.",
+  };
+  async function sendAgreement() {
+    const savedId = await save();
+    if (!savedId) return;
+    setAgrBusy(true);
+    try {
+      const r = await apiFetch(`/api/estimates/${savedId}/send-agreement`, { method: "POST" });
+      if (r.sent) { setAgrLink({ url: r.signing_url, to: r.sent_to }); }
+      else toast.error(AGR_REASON[r.reason] || "Couldn't create the agreement.");
+    } catch { toast.error("Couldn't create the agreement."); }
+    finally { setAgrBusy(false); }
+  }
+
   const [pdfBusy, setPdfBusy] = useState(false);
   async function downloadPdf() {
     // Always persist current edits first — the PDF is rendered server-side from
@@ -714,6 +733,7 @@ export default function EstimateBuilderPage() {
           <button onClick={downloadPdf} disabled={pdfBusy} style={ghostBtn}><FileText size={15} /> {pdfBusy ? "Preparing…" : "PDF preview"}</button>
           <button onClick={openSms} style={ghostBtn}><MessageSquare size={15} /> Text to client</button>
           <button onClick={sendCardOnFile} disabled={cardBusy} style={ghostBtn}><CreditCard size={15} /> {cardBusy ? "Sending…" : "Card on file"}</button>
+          <button onClick={sendAgreement} disabled={agrBusy} style={ghostBtn}><FileSignature size={15} /> {agrBusy ? "Preparing…" : "Send agreement"}</button>
           <button onClick={save} disabled={saving} style={ghostBtn}><Save size={15} /> {saving ? "Saving…" : "Save"}</button>
           <button onClick={markSent} style={primaryBtn}><Send size={15} /> {publicToken ? "Resend to client" : "Send to client"}</button>
         </div>
@@ -741,6 +761,26 @@ export default function EstimateBuilderPage() {
               <button onClick={sendSms} disabled={smsSending || !smsTo.trim()} style={{ ...primaryBtn, opacity: smsTo.trim() ? 1 : 0.5 }}>
                 <MessageSquare size={15} /> {smsSending ? "Sending…" : "Send text"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* [agreement-esign] Signing link after creating the agreement */}
+      {agrLink && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} onClick={() => setAgrLink(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 460, fontFamily: FF }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Agreement ready to sign</span>
+              <button onClick={() => setAgrLink(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}><X size={16} /></button>
+            </div>
+            <p style={{ fontSize: 13, color: MUTE, margin: "0 0 14px", lineHeight: 1.5 }}>Send this secure signing link to {agrLink.to}. They consent and e-sign; you get a Certificate of Completion with the full audit trail.</p>
+            <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+              <input readOnly value={agrLink.url} style={{ ...inp, flex: 1, fontSize: 12 }} onFocus={e => e.currentTarget.select()} />
+              <button onClick={() => { navigator.clipboard?.writeText(agrLink.url); toast.success("Link copied"); }} style={ghostBtn}>Copy</button>
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <a href={agrLink.url} target="_blank" rel="noreferrer" style={{ ...primaryBtn, textDecoration: "none" }}><FileSignature size={15} /> Open signing page</a>
             </div>
           </div>
         </div>
