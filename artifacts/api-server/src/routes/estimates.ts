@@ -5,6 +5,7 @@ import { randomUUID } from "crypto";
 import { requireAuth } from "../lib/auth.js";
 import { enrollForEstimateSent, stopEnrollmentsForEstimate, fireEstimateDay0 } from "../services/followUpService.js";
 import { recordEngagementEvent } from "../lib/engagement.js";
+import { renderEstimatePdf } from "../lib/estimate-pdf.js";
 
 // [commercial-estimate-tool 2026-06-09] Commercial / common-area estimates.
 // Raw SQL (db.execute) on purpose: the estimate tables are brand-new and the
@@ -660,6 +661,41 @@ router.get("/:id", requireAuth, async (req, res) => {
     return res.json({ ...est, items: (items as any).rows });
   } catch (err) {
     console.error("Get estimate error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── Estimate PDF (office preview of exactly what the client receives) ────────
+router.get("/:id/pdf", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const e = await db.execute(sql`
+      SELECT e.*, c.name AS company_name
+      FROM estimates e JOIN companies c ON c.id = e.company_id
+      WHERE e.id = ${id} AND e.company_id = ${companyId} LIMIT 1
+    `);
+    const est = (e as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+    const items = await db.execute(sql`
+      SELECT name, pricing_type, frequency, quantity, unit_rate, amount
+      FROM estimate_line_items WHERE estimate_id = ${id} AND company_id = ${companyId} ORDER BY sort_order
+    `);
+    const pdf = await renderEstimatePdf({
+      companyName: est.company_name || "Estimate",
+      estimateNumber: est.estimate_number, status: est.status,
+      title: est.title, introNote: est.intro_note,
+      contactName: est.contact_name, propertyName: est.property_name, serviceAddress: est.service_address,
+      billingMode: est.billing_mode || "itemized", flatPriceUnit: est.flat_price_unit, scopeNote: est.scope_note,
+      items: (items as any).rows,
+      subtotal: est.subtotal, discount: est.discount_amount, total: est.total,
+      terms: est.terms, validUntil: est.valid_until ? String(est.valid_until) : null,
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${est.estimate_number || `estimate-${id}`}.pdf"`);
+    return res.end(pdf);
+  } catch (err) {
+    console.error("Estimate PDF error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

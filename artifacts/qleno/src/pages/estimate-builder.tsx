@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText } from "lucide-react";
 import { toast } from "sonner";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
@@ -295,6 +295,28 @@ export default function EstimateBuilderPage() {
     return `${window.location.origin}${API}/estimate/${token}`;
   }
 
+  // [estimate-pdf] Save (if needed) then fetch the branded PDF with auth and open
+  // it in a new tab — a preview of exactly what the client receives. Falls back
+  // to a download if a popup is blocked.
+  const [pdfBusy, setPdfBusy] = useState(false);
+  async function downloadPdf() {
+    const savedId = id || (await save());
+    if (!savedId) return;
+    setPdfBusy(true);
+    try {
+      const r = await fetch(`${API}/api/estimates/${savedId}/pdf`, { headers: { ...(getAuthHeaders() as Record<string, string>) } });
+      if (!r.ok) throw new Error(await r.text());
+      const url = URL.createObjectURL(await r.blob());
+      const w = window.open(url, "_blank");
+      if (!w) { const a = document.createElement("a"); a.href = url; a.download = `${estimateNumber || "estimate"}.pdf`; a.click(); }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      toast.error("Couldn't generate the PDF");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
   async function markSent() {
     const savedId = id || (await save());
     if (!savedId) return;
@@ -581,6 +603,7 @@ export default function EstimateBuilderPage() {
         <div style={{ display: "flex", gap: 10, width: "100%", maxWidth: 860 }}>
           <button onClick={saveAsTemplate} style={ghostBtn}><LayoutTemplate size={15} /> Save as template</button>
           <div style={{ flex: 1 }} />
+          <button onClick={downloadPdf} disabled={pdfBusy} style={ghostBtn}><FileText size={15} /> {pdfBusy ? "Preparing…" : "PDF preview"}</button>
           <button onClick={save} disabled={saving} style={ghostBtn}><Save size={15} /> {saving ? "Saving…" : "Save"}</button>
           <button onClick={markSent} style={primaryBtn}><Send size={15} /> {publicToken ? "Re-copy link" : "Send — get link"}</button>
         </div>
