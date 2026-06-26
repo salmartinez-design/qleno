@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { toast } from "sonner";
 import { ArrowLeft, Loader2 } from "lucide-react";
 
@@ -33,6 +34,15 @@ export default function AddEmployeePage() {
   const [form, setForm] = useState<Form>(EMPTY);
   const [saving, setSaving] = useState(false);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm(p => ({ ...p, [k]: v }));
+  const addrRef = useRef<HTMLInputElement>(null);
+  // Google Places autocomplete on the street address — fills city/state/zip too.
+  useAddressAutocomplete(addrRef, true, (p) => setForm(prev => ({
+    ...prev,
+    address: p.street || prev.address,
+    city: p.city || prev.city,
+    state: p.state || prev.state,
+    zip: p.zip || prev.zip,
+  })));
   const canSave = form.first_name.trim() && form.email.trim() && !saving;
 
   async function handleSave() {
@@ -109,7 +119,11 @@ export default function AddEmployeePage() {
               </select>
             </div>
           </div>
-          {field("address", "Street address")}
+          <div>
+            <label style={label}>Street address</label>
+            <input ref={addrRef} style={input} type="text" placeholder="Start typing — Google will complete it"
+              value={form.address} onChange={e => set("address", e.target.value)} />
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "16px" }}>
             {field("city", "City")}
             {field("state", "State")}

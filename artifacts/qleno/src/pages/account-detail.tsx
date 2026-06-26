@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "wouter";
 import {
   Building2, ChevronLeft, ChevronDown, Plus, Pencil, Trash2, DollarSign,
@@ -18,6 +18,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthHeaders } from "@/lib/auth";
 import { AccountJobsCalendar } from "@/components/account-jobs-calendar";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -137,6 +138,19 @@ export default function AccountDetailPage() {
   const [showProperty, setShowProperty] = useState(false);
   const [editProp, setEditProp] = useState<any>(null);
   const [propForm, setPropForm] = useState({ property_name: "", address: "", city: "", state: "IL", zip: "", unit_count: "", property_type: "apartment_building", default_service_type: "", access_notes: "", notes: "" });
+  const propAddrRef = useRef<HTMLInputElement>(null);
+  // Google Places autocomplete on the property's Street Address. Fills
+  // street/city/state/zip from the selected suggestion; only overwrites a
+  // field when Google returns a value so a manual entry isn't blanked.
+  useAddressAutocomplete(propAddrRef, showProperty, (p) =>
+    setPropForm((f) => ({
+      ...f,
+      address: p.street || f.address,
+      city: p.city || f.city,
+      state: p.state || f.state,
+      zip: p.zip || f.zip,
+    })),
+  );
   const [propSaving, setPropSaving] = useState(false);
 
   // Contact
@@ -1145,7 +1159,7 @@ export default function AccountDetailPage() {
               </div>
               <div className="space-y-1.5 col-span-2">
                 <Label>Street Address *</Label>
-                <Input placeholder="4801 W 95th St" value={propForm.address} onChange={(e) => setPropForm({ ...propForm, address: e.target.value })} />
+                <Input ref={propAddrRef} placeholder="4801 W 95th St" value={propForm.address} onChange={(e) => setPropForm({ ...propForm, address: e.target.value })} />
               </div>
               <div className="space-y-1.5">
                 <Label>City</Label>
