@@ -60,11 +60,21 @@ function normalizeItems(raw: unknown): NormalizedItem[] {
   });
 }
 
-function computeTotals(items: NormalizedItem[], discountRaw: unknown) {
-  const subtotal = Math.round(items.reduce((s, it) => s + it.amount, 0) * 100) / 100;
+// [estimate-flat-mode] In 'flat' mode the subtotal is the single flat price the
+// office typed — line items are scope only and carry no price. Otherwise the
+// subtotal is the sum of line-item amounts (itemized, the default).
+function computeTotals(items: NormalizedItem[], discountRaw: unknown, billingMode = "itemized", flatPriceRaw?: unknown) {
+  const subtotal = billingMode === "flat"
+    ? Math.round((Math.max(0, Number(flatPriceRaw ?? 0) || 0)) * 100) / 100
+    : Math.round(items.reduce((s, it) => s + it.amount, 0) * 100) / 100;
   const discount = Math.max(0, Number(discountRaw ?? 0) || 0);
   const total = Math.round(Math.max(0, subtotal - discount) * 100) / 100;
   return { subtotal, discount, total };
+}
+
+// Normalize the billing mode to one of the two known values.
+function billingModeOf(v: unknown): "itemized" | "flat" {
+  return String(v ?? "").trim() === "flat" ? "flat" : "itemized";
 }
 
 function str(v: unknown, max = 2000): string | null {
@@ -624,18 +634,20 @@ router.post("/", requireAuth, async (req, res) => {
       `);
       items = normalizeItems((ti as any).rows);
     }
-    const { subtotal, discount, total } = computeTotals(items, b.discount_amount);
+    const billingMode = billingModeOf(b.billing_mode);
+    const { subtotal, discount, total } = computeTotals(items, b.discount_amount, billingMode, b.flat_price);
+    const flatPrice = billingMode === "flat" ? subtotal : 0;
 
     const inserted = await db.execute(sql`
       INSERT INTO estimates
         (company_id, branch_id, account_id, account_property_id, client_id,
          contact_name, contact_email, cc_emails, contact_phone, property_name, service_address,
-         title, intro_note, terms, internal_notes, status,
+         title, intro_note, terms, internal_notes, status, billing_mode, flat_price,
          subtotal, discount_amount, total, valid_until, created_by, updated_at)
       VALUES
         (${companyId}, ${intOrNull(b.branch_id)}, ${intOrNull(b.account_id)}, ${intOrNull(b.account_property_id)}, ${intOrNull(b.client_id)},
          ${str(b.contact_name, 200)}, ${str(b.contact_email, 200)}, ${normalizeEmails(b.cc_emails, str(b.contact_email, 200))}, ${str(b.contact_phone, 40)}, ${str(b.property_name, 300)}, ${str(b.service_address, 400)},
-         ${str(b.title, 300)}, ${str(b.intro_note)}, ${str(b.terms)}, ${str(b.internal_notes)}, 'draft',
+         ${str(b.title, 300)}, ${str(b.intro_note)}, ${str(b.terms)}, ${str(b.internal_notes)}, 'draft', ${billingMode}, ${flatPrice},
          ${subtotal}, ${discount}, ${total}, ${b.valid_until ? new Date(b.valid_until) : null}, ${req.auth!.userId}, now())
       RETURNING id
     `);
@@ -659,11 +671,15 @@ router.patch("/:id", requireAuth, async (req, res) => {
 
     const b = req.body ?? {};
     const items = normalizeItems(b.items);
-    const { subtotal, discount, total } = computeTotals(items, b.discount_amount);
+    const billingMode = billingModeOf(b.billing_mode);
+    const { subtotal, discount, total } = computeTotals(items, b.discount_amount, billingMode, b.flat_price);
+    const flatPrice = billingMode === "flat" ? subtotal : 0;
 
     await db.execute(sql`
       UPDATE estimates SET
         account_id = ${intOrNull(b.account_id)},
+        billing_mode = ${billingMode},
+        flat_price = ${flatPrice},
         account_property_id = ${intOrNull(b.account_property_id)},
         client_id = ${intOrNull(b.client_id)},
         contact_name = ${str(b.contact_name, 200)},
