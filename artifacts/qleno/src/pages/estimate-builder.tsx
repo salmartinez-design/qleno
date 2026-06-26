@@ -337,13 +337,14 @@ export default function EstimateBuilderPage() {
   // [estimate-sms] Text-the-estimate preview modal.
   const [smsOpen, setSmsOpen] = useState(false);
   const [smsData, setSmsData] = useState<{ to: string | null; to_e164: string | null; body: string } | null>(null);
+  const [smsTo, setSmsTo] = useState("");
   const [smsSending, setSmsSending] = useState(false);
   async function openSms() {
     const savedId = await save();
     if (!savedId) return;
     try {
       const r = await apiFetch(`/api/estimates/${savedId}/sms-preview`);
-      setSmsData(r); setSmsOpen(true);
+      setSmsData(r); setSmsTo(r.to || r.to_e164 || ""); setSmsOpen(true);
     } catch { toast.error("Couldn't build the SMS preview"); }
   }
   const SMS_REASON: Record<string, string> = {
@@ -359,7 +360,7 @@ export default function EstimateBuilderPage() {
     if (!id) return;
     setSmsSending(true);
     try {
-      const r = await apiFetch(`/api/estimates/${id}/sms`, { method: "POST" });
+      const r = await apiFetch(`/api/estimates/${id}/sms`, { method: "POST", body: { to: smsTo.trim() } });
       if (r.sent) { toast.success(`Texted to ${r.to}`); setSmsOpen(false); setTrackVersion(v => v + 1); }
       else toast.error(SMS_REASON[r.reason] || "Couldn't send the text.");
     } catch { toast.error("Couldn't send the text."); }
@@ -695,7 +696,8 @@ export default function EstimateBuilderPage() {
               <button onClick={() => setSmsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}><X size={16} /></button>
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>To</div>
-            <div style={{ ...inp, marginBottom: 14, color: smsData.to ? INK : "#B91C1C" }}>{smsData.to || "No phone number on this estimate"}</div>
+            <input style={{ ...inp, marginBottom: 4 }} type="tel" value={smsTo} onChange={e => setSmsTo(e.target.value)} placeholder="(773) 555-0123" />
+            <div style={{ fontSize: 11, color: MUTE, marginBottom: 14 }}>Edit if they want it sent to a different number (e.g. a personal cell).</div>
             <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Message preview</div>
             {/* Phone-bubble preview */}
             <div style={{ background: "#F0F0F2", borderRadius: 12, padding: 12, marginBottom: 4 }}>
@@ -704,7 +706,7 @@ export default function EstimateBuilderPage() {
             <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 16 }}>Sent from your Phes number · standard messaging rates apply</div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button onClick={() => setSmsOpen(false)} style={ghostBtn}>Cancel</button>
-              <button onClick={sendSms} disabled={smsSending || !smsData.to} style={{ ...primaryBtn, opacity: smsData.to ? 1 : 0.5 }}>
+              <button onClick={sendSms} disabled={smsSending || !smsTo.trim()} style={{ ...primaryBtn, opacity: smsTo.trim() ? 1 : 0.5 }}>
                 <MessageSquare size={15} /> {smsSending ? "Sending…" : "Send text"}
               </button>
             </div>

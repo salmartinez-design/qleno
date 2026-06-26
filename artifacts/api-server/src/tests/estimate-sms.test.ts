@@ -25,4 +25,9 @@ describe("text the estimate (SMS)", () => {
     assert.match(ui, /Text to client/);
     assert.match(ui, /Text the estimate/);
   });
+  it("recipient number is editable and honored by the send", () => {
+    assert.match(route, /const to = smsPhone\(req\.body\?\.to\) \|\| smsPhone\(r\.est\.contact_phone\)/);
+    assert.match(ui, /value=\{smsTo\} onChange=\{e => setSmsTo\(e\.target\.value\)\}/);
+    assert.match(ui, /method: "POST", body: \{ to: smsTo\.trim\(\) \}/);
+  });
 });
