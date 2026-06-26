@@ -82,7 +82,11 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
           const { Resend } = await import("resend") as any;
           const resend = new Resend(resendKey);
           await resend.emails.send({
-            from: `${companyName} <noreply@qlenopro.com>`,
+            // [card-link-from-addr 2026-06-26] Was noreply@qlenopro.com — an
+            // UNVERIFIED Resend domain, so every card-link email was silently
+            // rejected. Use the tenant's verified sender (the same address the
+            // working confirmation/reminder emails use).
+            from: `${companyName} <${(company as any).email_from_address || "info@phes.io"}>`,
             to: toEmail,
             subject: `${companyName} — Save your payment method`,
             html: buildCardLinkEmail({ clientName, companyName, payUrl, brandColor: company.brand_color }),
@@ -109,7 +113,13 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       const toPhone = client.billing_contact_phone || client.phone;
       const twilioSid = process.env.TWILIO_ACCOUNT_SID;
       const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-      const twilioFrom = company.twilio_from_number; // per-tenant only — no global-env fallback
+      // [card-link-from-number 2026-06-26] co1 keeps its Twilio number on the
+      // BRANCH (company.twilio_from_number is NULL), so reading the company
+      // column alone silently SKIPPED every card-link SMS. Fall back to the
+      // branch number via resolveSender — same fix as on-my-way / reminders.
+      const { resolveSender } = await import("../lib/comms-sender.js");
+      const sender = await resolveSender(companyId, (client as any).branch_id ?? null);
+      const twilioFrom = company.twilio_from_number || sender.from_number;
       if (!twilioSid || !twilioToken || !twilioFrom || !toPhone) {
         console.warn("Twilio not configured or no phone — skipping SMS");
       } else {

@@ -1912,6 +1912,27 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
   const [sending, setSending] = useState<"email" | "sms" | null>(null);
   const [sent, setSent] = useState<"email" | "sms" | null>(null);
   const [togglingAutoCharge, setTogglingAutoCharge] = useState(false);
+  // Charge-on-command, right where the card lives (same flow as the Payments tab).
+  const [chargeOpen, setChargeOpen] = useState(false);
+  const [chargeAmt, setChargeAmt] = useState("");
+  const [chargeMemo, setChargeMemo] = useState("");
+  const [chargeBusy, setChargeBusy] = useState(false);
+  async function chargeCard() {
+    const amt = parseFloat(chargeAmt);
+    if (!amt || amt <= 0) { alert("Enter an amount to charge."); return; }
+    if (!confirm(`Charge $${amt.toFixed(2)} to ${client.first_name}'s ${client.card_brand || "card"} ending ${client.card_last_four}?`)) return;
+    setChargeBusy(true);
+    try {
+      const r = await fetch(`${API}/api/payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ client_id: client.id, amount: amt, method: "card", memo: chargeMemo || undefined, last_4: client.card_last_four, card_brand: client.card_brand }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || "Charge failed"); }
+      else { setChargeOpen(false); setChargeAmt(""); setChargeMemo(""); alert(`Charged $${amt.toFixed(2)} successfully.`); refetch(); }
+    } catch { alert("Network error — please try again."); }
+    finally { setChargeBusy(false); }
+  }
 
   // [AH] Inline edit for commercial_hourly_rate on the Billing Settings card.
   const [editingRate, setEditingRate] = useState(false);
@@ -2055,6 +2076,32 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
               <button onClick={removeCard} style={{ fontSize: 12, color: "#DC2626", background: "none", border: "none", cursor: "pointer", fontFamily: FF, textDecoration: "underline" }}>
                 Remove
               </button>
+            </div>
+
+            {/* Charge on command — charge the card on file for any amount, with a confirm */}
+            <div style={{ marginBottom: 16 }}>
+              {!chargeOpen ? (
+                <button onClick={() => setChargeOpen(true)}
+                  style={{ width: "100%", padding: "11px 0", background: "#ECFDF5", border: "1px solid #6EE7B7", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#065F46", cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <CreditCard size={14} /> Charge this card
+                </button>
+              ) : (
+                <div style={{ padding: "14px 16px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 10, fontFamily: FF }}>Charge {brandIcon} •••• {client.card_last_four}</div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    <input type="number" step="0.01" placeholder="Amount" value={chargeAmt} onChange={e => setChargeAmt(e.target.value)}
+                      style={{ flex: 1, padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: "border-box" }} />
+                    <input placeholder="Memo (optional)" value={chargeMemo} onChange={e => setChargeMemo(e.target.value)}
+                      style={{ flex: 2, padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: "border-box" }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                    <button onClick={() => { setChargeOpen(false); setChargeAmt(""); setChargeMemo(""); }}
+                      style={{ padding: "8px 14px", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                    <button onClick={chargeCard} disabled={chargeBusy}
+                      style={{ padding: "8px 16px", background: "#059669", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>{chargeBusy ? "Charging…" : "Charge now"}</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Auto-charge toggle */}
