@@ -22,9 +22,11 @@ async function apiFetch(path: string, opts: { method?: string; body?: any } = {}
 type Step = { channel: "email" | "sms"; delay_hours: number; subject: string | null; message_template: string };
 
 const VARS = ["first_name", "company_name", "company_phone", "property", "monthly", "estimate_link", "estimate_number"];
+// Sample values mirror what the engine actually substitutes — {{monthly}} is the
+// bare amount ("300.00"), so copy adds its own "$" (e.g. "${{monthly}}").
 const SAMPLE: Record<string, string> = {
   first_name: "Brenda", company_name: "Phes", company_phone: "(773) 706-6000", property: "616 S Maplewood",
-  monthly: "$300.00 / month", estimate_link: "app.qleno.com/estimate/…", estimate_number: "EST-1001",
+  monthly: "300.00", estimate_link: "app.qleno.com/estimate/…", estimate_number: "EST-1001",
 };
 const fillVars = (s: string) => (s || "").replace(/\{\{(\w+)\}\}/g, (_, k) => SAMPLE[k] ?? `{{${k}}}`);
 
@@ -35,9 +37,9 @@ const presetDelays = (factor: number) => BASE_DELAYS.map((h, i) => (i === 0 ? 0 
 
 const DEFAULT_STEPS: Step[] = [
   { channel: "email", delay_hours: 0, subject: "Your cleaning estimate for {{property}}",
-    message_template: "Hi {{first_name}},\n\nThank you for the opportunity to quote cleaning for {{property}}. Your estimate is ready: {{monthly}}.\n\nView the full details and approve it here:\n{{estimate_link}}\n\nHappy to walk through anything or adjust the scope — just reply or call {{company_phone}}.\n\n— {{company_name}}" },
+    message_template: "Hi {{first_name}},\n\nThank you for the opportunity to quote cleaning for {{property}}. Your estimate comes to ${{monthly}} for the service outlined.\n\nView the full details and approve it here:\n{{estimate_link}}\n\nHappy to walk through anything or adjust the scope — just reply or call {{company_phone}}.\n\n— {{company_name}}" },
   { channel: "sms", delay_hours: 2, subject: null,
-    message_template: "Hi {{first_name}}, it's {{company_name}} — just emailed your cleaning estimate for {{property}} ({{monthly}}). Here's the link: {{estimate_link}}. Any questions, just reply." },
+    message_template: "Hi {{first_name}}, it's {{company_name}} — just emailed your cleaning estimate for {{property}} (${{monthly}}). Here's the link: {{estimate_link}}. Any questions, just reply." },
   { channel: "email", delay_hours: 48, subject: "Did you get your estimate?",
     message_template: "Hi {{first_name}},\n\nJust making sure the cleaning estimate for {{property}} reached you. Review and approve it here:\n{{estimate_link}}\n\nIf anything needs adjusting — frequency, scope, budget — tell me and I'll revise it the same day.\n\n— {{company_name}}" },
   { channel: "sms", delay_hours: 48, subject: null,
