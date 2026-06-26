@@ -822,6 +822,76 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
   }
 });
 
+// ─── Text the estimate (SMS) + preview ───────────────────────────────────────
+// Loads the estimate, ensures a public link exists, and builds the SMS body.
+// Shared by the preview (GET) and the send (POST) so they never drift.
+async function loadEstimateForSms(companyId: number, id: number) {
+  const e = await db.execute(sql`
+    SELECT e.id, e.status, e.public_token, e.branch_id, e.contact_name, e.contact_phone, c.name AS company_name
+    FROM estimates e JOIN companies c ON c.id = e.company_id
+    WHERE e.id = ${id} AND e.company_id = ${companyId} LIMIT 1
+  `);
+  const est = (e as any).rows[0];
+  if (!est) return null;
+  // Ensure a resolvable link (generate token + flip draft→sent so the hosted
+  // page renders) without touching the drip — that still starts via /send.
+  let token = est.public_token as string | null;
+  if (!token || est.status === "draft") {
+    token = token || randomUUID();
+    await db.execute(sql`
+      UPDATE estimates SET public_token = ${token}, status = CASE WHEN status = 'draft' THEN 'sent' ELSE status END,
+        sent_at = COALESCE(sent_at, now()), updated_at = now()
+      WHERE id = ${id} AND company_id = ${companyId}
+    `);
+  }
+  const first = (est.contact_name || "").split(" ")[0] || "there";
+  const link = `${appBaseUrl()}/estimate/${token}`;
+  const body = `Hi ${first}, here is your cleaning estimate from ${est.company_name || "us"}: ${link}`;
+  return { est, body };
+}
+const smsPhone = (p: string | null | undefined): string | null => {
+  const d = String(p || "").replace(/\D/g, "");
+  if (d.length === 10) return `+1${d}`;
+  if (d.length === 11 && d.startsWith("1")) return `+${d}`;
+  return d ? `+${d}` : null;
+};
+
+router.get("/:id/sms-preview", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const r = await loadEstimateForSms(companyId, id);
+    if (!r) return res.status(404).json({ error: "Not Found" });
+    return res.json({ to: r.est.contact_phone || null, to_e164: smsPhone(r.est.contact_phone), body: r.body });
+  } catch (err) {
+    console.error("Estimate SMS preview error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/:id/sms", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const r = await loadEstimateForSms(companyId, id);
+    if (!r) return res.status(404).json({ error: "Not Found" });
+    const to = smsPhone(r.est.contact_phone);
+    if (!to) return res.json({ sent: false, reason: "no_phone" });
+
+    const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+    const sender = await resolveSender(companyId, r.est.branch_id);
+    if (sender.reason) return res.json({ sent: false, reason: sender.reason, to });
+    await sendSmsVia(sender, to, r.body);
+    // Record the manual SMS touch so it shows in the tracking timeline.
+    recordEngagementEvent({ companyId, estimateId: id, eventType: "sent", channel: "sms", recipient: to,
+      meta: { manual: true } }).catch(() => {});
+    return res.json({ sent: true, to });
+  } catch (err) {
+    console.error("Estimate SMS send error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── Create estimate ─────────────────────────────────────────────────────────
 router.post("/", requireAuth, async (req, res) => {
   try {

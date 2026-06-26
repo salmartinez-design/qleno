@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick, MessageSquare, X } from "lucide-react";
 import { toast } from "sonner";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
@@ -334,6 +334,38 @@ export default function EstimateBuilderPage() {
   // [estimate-pdf] Save (if needed) then fetch the branded PDF with auth and open
   // it in a new tab — a preview of exactly what the client receives. Falls back
   // to a download if a popup is blocked.
+  // [estimate-sms] Text-the-estimate preview modal.
+  const [smsOpen, setSmsOpen] = useState(false);
+  const [smsData, setSmsData] = useState<{ to: string | null; to_e164: string | null; body: string } | null>(null);
+  const [smsSending, setSmsSending] = useState(false);
+  async function openSms() {
+    const savedId = await save();
+    if (!savedId) return;
+    try {
+      const r = await apiFetch(`/api/estimates/${savedId}/sms-preview`);
+      setSmsData(r); setSmsOpen(true);
+    } catch { toast.error("Couldn't build the SMS preview"); }
+  }
+  const SMS_REASON: Record<string, string> = {
+    no_phone: "No phone number on this estimate — add one under “Who it's for.”",
+    comms_disabled: "Texting is turned off (global comms).",
+    company_comms_disabled: "Texting is turned off for this company.",
+    branch_comms_disabled: "Texting is turned off for this branch.",
+    twilio_disabled: "SMS isn't enabled yet (Twilio go-live).",
+    twilio_unconfigured: "SMS isn't configured (Twilio credentials).",
+    no_from_number: "No SMS sending number is configured.",
+  };
+  async function sendSms() {
+    if (!id) return;
+    setSmsSending(true);
+    try {
+      const r = await apiFetch(`/api/estimates/${id}/sms`, { method: "POST" });
+      if (r.sent) { toast.success(`Texted to ${r.to}`); setSmsOpen(false); setTrackVersion(v => v + 1); }
+      else toast.error(SMS_REASON[r.reason] || "Couldn't send the text.");
+    } catch { toast.error("Couldn't send the text."); }
+    finally { setSmsSending(false); }
+  }
+
   const [pdfBusy, setPdfBusy] = useState(false);
   async function downloadPdf() {
     // Always persist current edits first — the PDF is rendered server-side from
@@ -648,10 +680,37 @@ export default function EstimateBuilderPage() {
             {autoStatus === "saving" ? "Saving…" : autoStatus === "saved" ? "All changes saved" : autoStatus === "error" ? "Save failed — retry" : ""}
           </span>
           <button onClick={downloadPdf} disabled={pdfBusy} style={ghostBtn}><FileText size={15} /> {pdfBusy ? "Preparing…" : "PDF preview"}</button>
+          <button onClick={openSms} style={ghostBtn}><MessageSquare size={15} /> Text to client</button>
           <button onClick={save} disabled={saving} style={ghostBtn}><Save size={15} /> {saving ? "Saving…" : "Save"}</button>
           <button onClick={markSent} style={primaryBtn}><Send size={15} /> {publicToken ? "Resend to client" : "Send to client"}</button>
         </div>
       </div>
+
+      {/* [estimate-sms] Text-the-estimate preview modal */}
+      {smsOpen && smsData && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} onClick={() => setSmsOpen(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 420, fontFamily: FF }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Text the estimate</span>
+              <button onClick={() => setSmsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}><X size={16} /></button>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>To</div>
+            <div style={{ ...inp, marginBottom: 14, color: smsData.to ? INK : "#B91C1C" }}>{smsData.to || "No phone number on this estimate"}</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Message preview</div>
+            {/* Phone-bubble preview */}
+            <div style={{ background: "#F0F0F2", borderRadius: 12, padding: 12, marginBottom: 4 }}>
+              <div style={{ background: "#00C9A0", color: "#063", borderRadius: 16, borderBottomRightRadius: 4, padding: "9px 13px", fontSize: 13.5, lineHeight: 1.45, marginLeft: "auto", maxWidth: "92%", width: "fit-content", whiteSpace: "pre-wrap" }}>{smsData.body}</div>
+            </div>
+            <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 16 }}>Sent from your Phes number · standard messaging rates apply</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setSmsOpen(false)} style={ghostBtn}>Cancel</button>
+              <button onClick={sendSms} disabled={smsSending || !smsData.to} style={{ ...primaryBtn, opacity: smsData.to ? 1 : 0.5 }}>
+                <MessageSquare size={15} /> {smsSending ? "Sending…" : "Send text"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DashboardLayout>
   );
 }
