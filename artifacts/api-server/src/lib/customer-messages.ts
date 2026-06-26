@@ -23,12 +23,35 @@ export interface CatalogChannelDefault {
   body: string;
 }
 
+// How a message's send time is determined:
+//  - on_booking    : fires immediately when the job is created (event)
+//  - before_appointment : offset_days before scheduled_date, at send_hour CT (cron)
+//  - on_my_way     : fires when the tech taps On My Way (event)
+//  - on_completion : fires when the job is marked complete (event)
+//  - after_review  : ~1 day after completion via the throttled review cron (event-ish)
+//  - after_appointment : offset_days AFTER scheduled_date, at send_hour CT (cron)
+// The offset cron engine only manages before_appointment / after_appointment;
+// the rest are event-driven and fire from their own call sites. Custom messages
+// the office adds are always before_/after_appointment so they have a clock.
+export type MsgAnchor =
+  | "on_booking"
+  | "before_appointment"
+  | "on_my_way"
+  | "on_completion"
+  | "after_review"
+  | "after_appointment";
+
+export const OFFSET_ANCHORS: MsgAnchor[] = ["before_appointment", "after_appointment"];
+
 export interface CustomerMessageDef {
   trigger: string;
   label: string; // office-facing name
   group: "before" | "during" | "after";
-  // Plain-English trigger + exact timing, shown read-only in the UI (the send
-  // SCHEDULE is code-controlled; only copy + on/off are editable).
+  anchor: MsgAnchor;
+  offsetDays?: number; // before_/after_appointment only
+  sendHour?: number;   // 0-23 CT, before_/after_appointment only
+  // Plain-English trigger + timing, shown in the UI. For offset messages the
+  // office can edit offsetDays + sendHour; event messages show timing read-only.
   timing: string;
   description: string;
   channels: CatalogChannelDefault[];
@@ -62,6 +85,7 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     trigger: "job_scheduled",
     label: "Booking Confirmation",
     group: "before",
+    anchor: "on_booking",
     timing: "Immediately when an appointment is booked",
     description: "Confirms the appointment the moment it's created.",
     channels: [
@@ -82,6 +106,9 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     trigger: "reminder_3day",
     label: "3-Day Reminder",
     group: "before",
+    anchor: "before_appointment",
+    offsetDays: 3,
+    sendHour: 9,
     timing: "9:00 AM CT, 3 days before the appointment",
     description: "Early heads-up so the customer can plan access.",
     channels: [
@@ -102,6 +129,9 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     trigger: "reminder_1day",
     label: "Next-Day Reminder",
     group: "before",
+    anchor: "before_appointment",
+    offsetDays: 1,
+    sendHour: 16,
     timing: "4:00 PM CT, the day before the appointment",
     description: "Final reminder the afternoon before, with an access note.",
     channels: [
@@ -122,6 +152,7 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     trigger: "on_my_way",
     label: '"On My Way" Text',
     group: "during",
+    anchor: "on_my_way",
     timing: "Real time, when the cleaner leaves for the home",
     description: "Live heads-up with an arrival ETA when the tech departs.",
     companyToggleColumn: "sms_on_my_way_enabled",
@@ -137,6 +168,7 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     trigger: "job_completed",
     label: "Thank-You After Service",
     group: "after",
+    anchor: "on_completion",
     timing: "Immediately when the job is marked complete",
     description: "Thanks the customer once the visit is finished.",
     channels: [
@@ -157,6 +189,7 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     trigger: "review_request",
     label: "Review Request",
     group: "after",
+    anchor: "after_review",
     timing: "About a day after the visit (max once per customer / 30 days)",
     description: "Asks for a rating or review after a completed visit.",
     channels: [
@@ -221,6 +254,99 @@ export async function ensureCustomerMessageTemplates(
     }
   }
   return seeded;
+}
+
+// ── Schedule engine schema + seeding ─────────────────────────────────────────
+// customer_message_schedules : per-tenant timing/on-off for every message (the
+//   built-ins above plus any the office adds). Copy lives in
+//   notification_templates keyed by (company_id, key, channel).
+// job_message_sends : a per-(job, message, channel) ledger. This is the HARD
+//   idempotency guard for the offset cron AND a row in the customer audit
+//   trail. A message can only fire once per job per channel — no double-sends,
+//   ever, regardless of restarts or catch-up runs.
+export async function runCustomerMessagesMigration(): Promise<void> {
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS customer_message_schedules (
+      id           SERIAL PRIMARY KEY,
+      company_id   INTEGER NOT NULL,
+      key          TEXT NOT NULL,
+      label        TEXT NOT NULL,
+      anchor       TEXT NOT NULL,
+      offset_days  INTEGER,
+      send_hour    INTEGER,
+      channels     TEXT[] NOT NULL DEFAULT '{}',
+      is_active    BOOLEAN NOT NULL DEFAULT TRUE,
+      is_builtin   BOOLEAN NOT NULL DEFAULT FALSE,
+      sort_order   INTEGER NOT NULL DEFAULT 0,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (company_id, key)
+    )`);
+  await db.execute(sql`
+    CREATE TABLE IF NOT EXISTS job_message_sends (
+      id            SERIAL PRIMARY KEY,
+      company_id    INTEGER NOT NULL,
+      job_id        INTEGER NOT NULL,
+      client_id     INTEGER,
+      schedule_key  TEXT NOT NULL,
+      channel       TEXT NOT NULL,
+      status        TEXT NOT NULL DEFAULT 'sent',
+      recipient     TEXT,
+      sent_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (job_id, schedule_key, channel)
+    )`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_jms_client ON job_message_sends (client_id)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_jms_company ON job_message_sends (company_id)`);
+
+  // Backfill the ledger from the legacy reminder_*_sent boolean flags so the new
+  // engine treats already-reminded jobs as done and NEVER re-sends them. Both
+  // channels are marked (the legacy flag didn't record which channel succeeded);
+  // marking both is the safe choice — it prevents a duplicate, never forces one.
+  for (const [flag, key] of [["reminder_72h_sent", "reminder_3day"], ["reminder_24h_sent", "reminder_1day"]] as const) {
+    for (const channel of ["email", "sms"] as const) {
+      await db.execute(sql`
+        INSERT INTO job_message_sends (company_id, job_id, client_id, schedule_key, channel, status, sent_at)
+        SELECT j.company_id, j.id, j.client_id, ${key}, ${channel}, 'sent', NOW()
+          FROM jobs j
+         WHERE j.${sql.raw(flag)} = TRUE
+        ON CONFLICT (job_id, schedule_key, channel) DO NOTHING`);
+    }
+  }
+
+  // Seed the built-in schedule rows for EVERY tenant now, at boot — not lazily on
+  // first page view. Without this the offset cron would find zero schedules and
+  // silently stop sending reminders until someone opened the settings page.
+  const companies = await db.execute(sql`SELECT id FROM companies`);
+  for (const row of companies.rows as any[]) {
+    try {
+      await ensureCustomerMessageSchedules(Number(row.id));
+    } catch (err) {
+      console.error(`[customer-messages] seed schedules failed for company ${row.id}:`, err);
+    }
+  }
+}
+
+// Seed the built-in schedule rows + templates for a tenant. Idempotent — only
+// inserts what's missing, never clobbers office edits (timing or copy).
+export async function ensureCustomerMessageSchedules(companyId: number): Promise<void> {
+  await ensureCustomerMessageTemplates(companyId);
+  const existing = await db.execute(sql`SELECT key FROM customer_message_schedules WHERE company_id = ${companyId}`);
+  const have = new Set((existing.rows as any[]).map((r) => r.key));
+  let order = 0;
+  for (const def of CUSTOMER_MESSAGE_CATALOG) {
+    order += 10;
+    if (have.has(def.trigger)) continue;
+    // channels are fixed known tokens ('email'/'sms') — safe to embed as a
+    // Postgres array literal like '{email,sms}'.
+    const channelsLiteral = `{${def.channels.map((c) => c.channel).join(",")}}`;
+    await db.execute(sql`
+      INSERT INTO customer_message_schedules
+        (company_id, key, label, anchor, offset_days, send_hour, channels, is_active, is_builtin, sort_order)
+      VALUES (${companyId}, ${def.trigger}, ${def.label}, ${def.anchor},
+              ${def.offsetDays ?? null}, ${def.sendHour ?? null},
+              ${channelsLiteral}::text[],
+              true, true, ${order})
+      ON CONFLICT (company_id, key) DO NOTHING`);
+  }
 }
 
 export interface RenderedTemplate {

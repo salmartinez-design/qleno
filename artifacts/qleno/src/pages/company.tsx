@@ -1560,6 +1560,13 @@ function NotificationsTab() {
   const [editSubject, setEditSubject] = useState("");
   const [showLog, setShowLog] = useState(false);
   const [saving, setSaving] = useState<number | null>(null);
+  const [timingKey, setTimingKey] = useState<string | null>(null);
+  const [timingDays, setTimingDays] = useState(1);
+  const [timingHour, setTimingHour] = useState(9);
+  const [showAdd, setShowAdd] = useState(false);
+  const blankAdd = { label: "", anchor: "before_appointment", offset_days: 1, send_hour: 9, email_subject: "", email_body: "", sms_body: "" };
+  const [addForm, setAddForm] = useState<any>(blankAdd);
+  const [addBusy, setAddBusy] = useState(false);
 
   async function load() {
     try {
@@ -1607,6 +1614,49 @@ function NotificationsTab() {
     finally { setSaving(null); }
   }
 
+  function startTiming(msg: any) {
+    setTimingKey(msg.key);
+    setTimingDays(msg.offset_days ?? 1);
+    setTimingHour(msg.send_hour ?? 9);
+  }
+  async function saveTiming(key: string) {
+    try {
+      await fetch(`${API}/api/notifications/customer-messages/${key}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ offset_days: timingDays, send_hour: timingHour }),
+      });
+      setTimingKey(null);
+      toast({ title: "Timing updated" });
+      load();
+    } catch { toast({ title: "Failed to update timing", variant: "destructive" }); }
+  }
+  async function addMessage() {
+    if (!addForm.label.trim()) { toast({ title: "Give the message a name", variant: "destructive" }); return; }
+    if (!addForm.email_body && !addForm.sms_body) { toast({ title: "Add an email or text body", variant: "destructive" }); return; }
+    setAddBusy(true);
+    try {
+      const r = await fetch(`${API}/api/notifications/customer-messages`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(addForm),
+      });
+      if (!r.ok) throw new Error();
+      setShowAdd(false); setAddForm(blankAdd);
+      toast({ title: "Message added" });
+      load();
+    } catch { toast({ title: "Failed to add message", variant: "destructive" }); }
+    finally { setAddBusy(false); }
+  }
+  async function deleteMessage(key: string, label: string) {
+    if (!confirm(`Delete "${label}"? This automated message will stop sending.`)) return;
+    try {
+      await fetch(`${API}/api/notifications/customer-messages/${key}`, { method: "DELETE", headers: getAuthHeaders() });
+      toast({ title: "Message deleted" });
+      load();
+    } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
+  }
+
   function startEdit(ch: any) {
     setEditingId(ch.id);
     setEditBody(ch.body || "");
@@ -1627,13 +1677,72 @@ function NotificationsTab() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
           <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 4px' }}>Customer Messages</p>
-          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, maxWidth: 540, lineHeight: 1.5 }}>Every automated text and email customers receive, in the order they get them. Edit the wording, or pause any one. Timing is shown for each.</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, maxWidth: 540, lineHeight: 1.5 }}>Every automated text and email customers receive, in the order they get them. Edit the wording or timing, pause any one, or add your own.</p>
         </div>
-        <button onClick={() => setShowLog(!showLog)}
-          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF, flexShrink: 0 }}>
-          {showLog ? "Hide Recent Sends" : "Recent Sends"} {logs.length > 0 && `(${logs.length})`}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button onClick={() => { setAddForm(blankAdd); setShowAdd(true); }}
+            style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--brand, #5B9BD5)', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF }}>
+            + Add a message
+          </button>
+          <button onClick={() => setShowLog(!showLog)}
+            style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF }}>
+            {showLog ? "Hide Recent Sends" : "Recent Sends"} {logs.length > 0 && `(${logs.length})`}
+          </button>
+        </div>
       </div>
+
+      {showAdd && (
+        <div onClick={() => setShowAdd(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(10,14,26,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: '40px 16px', overflowY: 'auto' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 24, width: '100%', maxWidth: 560, fontFamily: FF }}>
+            <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 4px' }}>Add a message</p>
+            <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px' }}>A new automated message that fires for every job, on your schedule.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Name (internal)</p>
+                <input value={addForm.label} onChange={e => setAddForm({ ...addForm, label: e.target.value })} placeholder="e.g. Two-day follow-up"
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13, color: '#374151' }}>
+                <span>Send</span>
+                <input type="number" min={0} max={60} value={addForm.offset_days} onChange={e => setAddForm({ ...addForm, offset_days: Math.max(0, Math.min(60, parseInt(e.target.value) || 0)) })}
+                  style={{ width: 56, padding: '6px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 13 }} />
+                <span>day(s)</span>
+                <select value={addForm.anchor} onChange={e => setAddForm({ ...addForm, anchor: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 13 }}>
+                  <option value="before_appointment">before the appointment</option>
+                  <option value="after_appointment">after the appointment</option>
+                </select>
+                <span>at</span>
+                <select value={addForm.send_hour} onChange={e => setAddForm({ ...addForm, send_hour: parseInt(e.target.value) })} style={{ padding: '6px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 13 }}>
+                  {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{`${((h + 11) % 12) + 1}:00 ${h < 12 ? 'AM' : 'PM'}`}</option>)}
+                </select>
+                <span>CT</span>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Text message (leave blank to skip)</p>
+                <textarea value={addForm.sms_body} onChange={e => setAddForm({ ...addForm, sms_body: e.target.value })} placeholder="Hi {{first_name}}, ..."
+                  style={{ width: '100%', height: 64, padding: '9px 11px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 12, fontFamily: FF, resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Email (leave blank to skip)</p>
+                <input value={addForm.email_subject} onChange={e => setAddForm({ ...addForm, email_subject: e.target.value })} placeholder="Email subject"
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: 'border-box', marginBottom: 6 }} />
+                <textarea value={addForm.email_body} onChange={e => setAddForm({ ...addForm, email_body: e.target.value })} placeholder="Hi {{first_name}}, ..."
+                  style={{ width: '100%', height: 96, padding: '9px 11px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 12, fontFamily: FF, resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }} />
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                <span style={{ fontSize: 10, color: '#9E9B94', alignSelf: 'center', marginRight: 2 }}>Tags:</span>
+                {(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => (
+                  <span key={v} style={{ fontSize: 10, color: '#7C3AED', background: '#EDE9FE', borderRadius: 4, padding: '2px 7px' }}>{`{{${v}}}`}</span>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                <button onClick={() => setShowAdd(false)} style={{ padding: '8px 16px', border: '1px solid #E5E2DC', borderRadius: 7, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: FF }}>Cancel</button>
+                <button onClick={addMessage} disabled={addBusy} style={{ padding: '8px 18px', border: 'none', borderRadius: 7, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF }}>{addBusy ? 'Adding…' : 'Add message'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showLog && (
         <div style={{ ...CARD, marginBottom: 20 }}>
@@ -1668,17 +1777,38 @@ function NotificationsTab() {
             {groupMsgs.map(msg => {
               const anyOn = msg.channels.some((c: any) => c.is_active);
               return (
-                <div key={msg.trigger} style={{ ...CARD, borderLeft: `3px solid ${anyOn ? 'var(--brand, #5B9BD5)' : '#E5E2DC'}` }}>
+                <div key={msg.key} style={{ ...CARD, borderLeft: `3px solid ${anyOn ? 'var(--brand, #5B9BD5)' : '#E5E2DC'}` }}>
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
                       <span style={{ fontSize: 14, fontWeight: 800, color: '#1A1917' }}>{msg.label}</span>
                       {msg.channels.map((c: any) => (
                         <span key={c.channel} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: chTags[c.channel]?.color, background: chTags[c.channel]?.bg, padding: '2px 6px', borderRadius: 4 }}>{chTags[c.channel]?.label}</span>
                       ))}
+                      {!msg.is_builtin && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#7C3AED', background: '#EDE9FE', padding: '2px 6px', borderRadius: 4 }}>CUSTOM</span>}
+                      {!msg.is_builtin && (
+                        <button onClick={() => deleteMessage(msg.key, msg.label)} style={{ marginLeft: 'auto', fontSize: 11, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Delete</button>
+                      )}
                     </div>
-                    <p style={{ fontSize: 11.5, color: '#6B7280', margin: 0, lineHeight: 1.5 }}>
-                      <span style={{ fontWeight: 600, color: '#374151' }}>When:</span> {msg.timing}
-                    </p>
+                    {timingKey === msg.key ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: '#374151' }}>
+                        <span>Send</span>
+                        <input type="number" min={0} max={60} value={timingDays} onChange={e => setTimingDays(Math.max(0, Math.min(60, parseInt(e.target.value) || 0)))}
+                          style={{ width: 52, padding: '5px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 12 }} />
+                        <span>day(s) {msg.anchor === 'after_appointment' ? 'after' : 'before'}, at</span>
+                        <select value={timingHour} onChange={e => setTimingHour(parseInt(e.target.value))}
+                          style={{ padding: '5px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 12 }}>
+                          {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{`${((h + 11) % 12) + 1}:00 ${h < 12 ? 'AM' : 'PM'}`}</option>)}
+                        </select>
+                        <span>CT</span>
+                        <button onClick={() => saveTiming(msg.key)} style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: 'var(--brand, #5B9BD5)', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontFamily: FF }}>Save</button>
+                        <button onClick={() => setTimingKey(null)} style={{ fontSize: 11, color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 11.5, color: '#6B7280', margin: 0, lineHeight: 1.5 }}>
+                        <span style={{ fontWeight: 600, color: '#374151' }}>When:</span> {msg.timing}
+                        {msg.editable_timing && <button onClick={() => startTiming(msg)} style={{ marginLeft: 8, fontSize: 11, color: 'var(--brand, #5B9BD5)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>Edit timing</button>}
+                      </p>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>

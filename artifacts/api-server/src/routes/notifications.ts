@@ -7,7 +7,22 @@ import {
   CUSTOMER_MESSAGE_CATALOG,
   MERGE_TAGS,
   ensureCustomerMessageTemplates,
+  ensureCustomerMessageSchedules,
 } from "../lib/customer-messages.js";
+
+// Friendly "when does it send" string for an offset (cron-driven) message.
+function formatOffsetTiming(anchor: string, days: number | null, hour: number | null): string {
+  const h = hour == null ? 9 : hour;
+  const hr = `${((h + 11) % 12) + 1}:00 ${h < 12 ? "AM" : "PM"} CT`;
+  const d = days == null ? 0 : days;
+  const dl = `${d} day${d === 1 ? "" : "s"}`;
+  if (anchor === "before_appointment") return d === 0 ? `${hr}, the day of the appointment` : `${hr}, ${dl} before the appointment`;
+  return `${hr}, ${dl} after the appointment`;
+}
+function slugifyKey(label: string): string {
+  const base = "custom_" + (label || "message").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 36);
+  return base.replace(/_+$/g, "") || "custom_message";
+}
 
 const router = Router();
 
@@ -78,42 +93,135 @@ router.get("/templates", requireAuth, requireRole("owner", "admin"), async (req,
 });
 
 // ── Customer Messages control panel ─────────────────────────────────────────
-// Returns the canonical catalog of customer-facing messages merged with this
-// tenant's current copy + on/off state. This is what the office "Customer
-// Messages" screen renders: every booking/job message with View / Edit / Pause.
+// Schedule-driven: returns every customer message (built-in + custom) with its
+// timing, copy, and on/off state. Built-in metadata (group, description) comes
+// from the catalog; custom messages derive theirs from the schedule row.
 router.get("/customer-messages", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
-    // Idempotently make sure every catalog (trigger, channel) row exists so the
-    // editor never shows a blank for a message that can fire.
-    await ensureCustomerMessageTemplates(companyId);
-    const rows = await db.select().from(notificationTemplatesTable)
-      .where(eq(notificationTemplatesTable.company_id, companyId));
-    const byKey = new Map(rows.map((r: any) => [`${r.trigger}:${r.channel}`, r]));
+    await ensureCustomerMessageSchedules(companyId); // seeds schedules + templates idempotently
+    const [schedRes, tplRows] = await Promise.all([
+      db.execute(sql`SELECT key, label, anchor, offset_days, send_hour, channels, is_active, is_builtin, sort_order
+                       FROM customer_message_schedules WHERE company_id = ${companyId} ORDER BY sort_order, id`),
+      db.select().from(notificationTemplatesTable).where(eq(notificationTemplatesTable.company_id, companyId)),
+    ]);
+    const tplByKey = new Map((tplRows as any[]).map((r) => [`${r.trigger}:${r.channel}`, r]));
+    const catalogByKey = new Map(CUSTOMER_MESSAGE_CATALOG.map((d) => [d.trigger, d]));
 
-    const messages = CUSTOMER_MESSAGE_CATALOG.map((def) => ({
-      trigger: def.trigger,
-      label: def.label,
-      group: def.group,
-      timing: def.timing,
-      description: def.description,
-      channels: def.channels.map((ch) => {
-        const row: any = byKey.get(`${def.trigger}:${ch.channel}`);
-        const body = ch.channel === "email"
-          ? (row?.body_html || row?.body)
-          : (row?.body_text || row?.body);
-        return {
-          channel: ch.channel,
-          id: row?.id ?? null,
-          subject: row?.subject ?? ch.subject ?? null,
-          body: body ?? ch.body,
-          is_active: row?.is_active ?? true,
-        };
-      }),
-    }));
+    const messages = (schedRes.rows as any[]).map((s) => {
+      const def = catalogByKey.get(s.key);
+      const editableTiming = s.anchor === "before_appointment" || s.anchor === "after_appointment";
+      const channels: string[] = Array.isArray(s.channels) ? s.channels : [];
+      return {
+        key: s.key,
+        label: s.label,
+        group: def?.group ?? (s.anchor === "after_appointment" ? "after" : "before"),
+        description: def?.description ?? "",
+        anchor: s.anchor,
+        offset_days: s.offset_days,
+        send_hour: s.send_hour,
+        is_builtin: s.is_builtin,
+        editable_timing: editableTiming,
+        timing: editableTiming ? formatOffsetTiming(s.anchor, s.offset_days, s.send_hour) : (def?.timing ?? ""),
+        channels: channels.map((channel) => {
+          const row: any = tplByKey.get(`${s.key}:${channel}`);
+          const defCh = def?.channels.find((c) => c.channel === channel);
+          const body = channel === "email" ? (row?.body_html || row?.body) : (row?.body_text || row?.body);
+          return {
+            channel,
+            id: row?.id ?? null,
+            subject: row?.subject ?? defCh?.subject ?? null,
+            body: body ?? defCh?.body ?? "",
+            is_active: row?.is_active ?? true,
+          };
+        }),
+      };
+    });
     return res.json({ data: messages, merge_tags: MERGE_TAGS });
   } catch (err) {
     console.error("Customer messages fetch error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Edit the CADENCE (timing) of an offset message — days before/after + send hour.
+router.patch("/customer-messages/:key", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const key = req.params.key;
+    const { offset_days, send_hour } = req.body ?? {};
+    const [sched] = await db.execute(sql`SELECT anchor FROM customer_message_schedules WHERE company_id = ${companyId} AND key = ${key} LIMIT 1`).then((r: any) => r.rows);
+    if (!sched) return res.status(404).json({ error: "Message not found" });
+    if (sched.anchor !== "before_appointment" && sched.anchor !== "after_appointment") {
+      return res.status(400).json({ error: "This message's timing is event-driven and can't be rescheduled." });
+    }
+    const days = Math.max(0, Math.min(60, parseInt(String(offset_days))));
+    const hour = Math.max(0, Math.min(23, parseInt(String(send_hour))));
+    if (!Number.isFinite(days) || !Number.isFinite(hour)) return res.status(400).json({ error: "Invalid timing" });
+    await db.execute(sql`UPDATE customer_message_schedules SET offset_days = ${days}, send_hour = ${hour} WHERE company_id = ${companyId} AND key = ${key}`);
+    return res.json({ ok: true, offset_days: days, send_hour: hour });
+  } catch (err) {
+    console.error("Update cadence error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ADD a custom automated message to the cadence (before/after the appointment).
+router.post("/customer-messages", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const b = req.body ?? {};
+    const label = String(b.label || "").trim();
+    const anchor = b.anchor === "after_appointment" ? "after_appointment" : "before_appointment";
+    const days = Math.max(0, Math.min(60, parseInt(String(b.offset_days ?? 1)) || 0));
+    const hour = Math.max(0, Math.min(23, parseInt(String(b.send_hour ?? 9)) || 0));
+    const wantEmail = !!b.email_body;
+    const wantSms = !!b.sms_body;
+    if (!label) return res.status(400).json({ error: "Give the message a name." });
+    if (!wantEmail && !wantSms) return res.status(400).json({ error: "Add an email or text message body." });
+
+    // Unique key.
+    let key = slugifyKey(label);
+    const taken = new Set((await db.execute(sql`SELECT key FROM customer_message_schedules WHERE company_id = ${companyId}`)).rows.map((r: any) => r.key));
+    if (taken.has(key)) { let n = 2; while (taken.has(`${key}_${n}`)) n++; key = `${key}_${n}`; }
+
+    const channels = [wantEmail ? "email" : null, wantSms ? "sms" : null].filter(Boolean) as string[];
+    const channelsLiteral = `{${channels.join(",")}}`;
+    const maxOrder = (await db.execute(sql`SELECT COALESCE(MAX(sort_order), 0) AS m FROM customer_message_schedules WHERE company_id = ${companyId}`)).rows[0] as any;
+    await db.execute(sql`
+      INSERT INTO customer_message_schedules (company_id, key, label, anchor, offset_days, send_hour, channels, is_active, is_builtin, sort_order)
+      VALUES (${companyId}, ${key}, ${label}, ${anchor}, ${days}, ${hour}, ${channelsLiteral}::text[], true, false, ${Number(maxOrder.m) + 10})`);
+    if (wantEmail) {
+      const subj = String(b.email_subject || label);
+      const body = String(b.email_body);
+      await db.execute(sql`INSERT INTO notification_templates (company_id, trigger, channel, subject, body, body_html, is_active, created_at)
+                           VALUES (${companyId}, ${key}, 'email', ${subj}, ${body}, ${body}, true, NOW())`);
+    }
+    if (wantSms) {
+      const body = String(b.sms_body);
+      await db.execute(sql`INSERT INTO notification_templates (company_id, trigger, channel, subject, body, body_text, is_active, created_at)
+                           VALUES (${companyId}, ${key}, 'sms', NULL, ${body}, ${body}, true, NOW())`);
+    }
+    return res.json({ ok: true, key });
+  } catch (err) {
+    console.error("Add customer message error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// DELETE a custom message (built-ins can't be deleted — only paused).
+router.delete("/customer-messages/:key", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const key = req.params.key;
+    const [sched] = await db.execute(sql`SELECT is_builtin FROM customer_message_schedules WHERE company_id = ${companyId} AND key = ${key} LIMIT 1`).then((r: any) => r.rows);
+    if (!sched) return res.status(404).json({ error: "Message not found" });
+    if (sched.is_builtin) return res.status(400).json({ error: "Built-in messages can be paused but not deleted." });
+    await db.execute(sql`DELETE FROM notification_templates WHERE company_id = ${companyId} AND trigger = ${key}`);
+    await db.execute(sql`DELETE FROM customer_message_schedules WHERE company_id = ${companyId} AND key = ${key}`);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Delete customer message error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

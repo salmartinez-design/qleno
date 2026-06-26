@@ -5,7 +5,7 @@ import { runPhesDataMigration } from "./phes-data-migration";
 import { runCutoverDataMigration } from "./cutover-data-migration";
 import { verifyClockIntegrityConstraint } from "./lib/clock-integrity-self-check";
 import { runUserCompaniesMigration } from "./user-companies-migration.js";
-import { runReminderCron, runReviewRequestCron } from "./services/notificationService.js";
+import { runReminderCron, runReviewRequestCron, runScheduledJobMessages } from "./services/notificationService.js";
 import { runRateLockNightlyChecks } from "./utils/rateLock.js";
 import { processDueEnrollments } from "./services/followUpService.js";
 import { runSmokeTests } from "./lib/smoke-test.js";
@@ -72,23 +72,17 @@ function startNotificationCron() {
     const ctMonth = ctNow.getUTCMonth(); // 0-indexed; December = 11
     const ctDay   = ctNow.getUTCDate();
 
-    // 72h reminder (jobs ~3 days out): primary 9 AM CT + noon catch-up.
-    // [reminder-catchup 2026-06-26] A restart through the single 9 AM window
-    // used to drop the whole day silently. A second daily slot recovers it the
-    // same day; runReminderCron now matches a date RANGE and is flag-guarded
-    // per job, so the extra slot never double-sends.
-    for (const h of [9, 12]) {
-      if (ctH === h && fired[`reminder_3day-${h}`] !== ctDate) {
-        fired[`reminder_3day-${h}`] = ctDate;
-        runReminderCron(3).catch((e: Error) => console.error("[cron] reminder_3day error:", e));
-      }
-    }
-    // 24h reminder (jobs tomorrow): primary 4 PM CT + 6 PM catch-up.
-    for (const h of [16, 18]) {
-      if (ctH === h && fired[`reminder_1day-${h}`] !== ctDate) {
-        fired[`reminder_1day-${h}`] = ctDate;
-        runReminderCron(1).catch((e: Error) => console.error("[cron] reminder_1day error:", e));
-      }
+    // Every hour → scheduled customer-message engine. Replaces the old fixed
+    // 72h/24h reminder triggers: each tenant's offset messages (built-in
+    // reminders + any custom ones the office adds) carry their OWN send_hour, so
+    // the engine itself decides what's due this hour. It's idempotent via the
+    // job_message_sends ledger, so an hourly cadence + catch-up never
+    // double-sends. (runReminderCron is retained as a copy reference but no
+    // longer scheduled.)
+    const schedKey = `${ctDate}-${ctH}`;
+    if (fired["scheduled_messages"] !== schedKey) {
+      fired["scheduled_messages"] = schedKey;
+      runScheduledJobMessages().catch((e: Error) => console.error("[cron] scheduled_messages error:", e));
     }
     // Every hour → review_request
     const hrKey = `${ctDate}-${ctH}`;
@@ -271,6 +265,17 @@ async function runStartupMigrations() {
     });
   } catch (err: any) {
     console.error("[startup] runCommsOptOutMigration — non-fatal:", err?.message ?? err);
+  }
+  // [customer-messages 2026-06-26] customer_message_schedules + job_message_sends
+  // tables + ledger backfill from the legacy reminder_*_sent flags (so the new
+  // engine never re-sends an already-reminded job).
+  try {
+    await withBootTimeout("runCustomerMessagesMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runCustomerMessagesMigration } = await import("./lib/customer-messages.js");
+      await runCustomerMessagesMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runCustomerMessagesMigration — non-fatal:", err?.message ?? err);
   }
   // [booking-confirmation GAP1] token column + job_scheduled SMS template (all tenants)
   try {

@@ -486,6 +486,220 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
   }
 }
 
+// ── Scheduled customer-message engine (configurable cadence) ──────────────────
+// Generalizes the old fixed 72h/24h reminders into a per-tenant, office-editable
+// set of offset-based messages (before/after the appointment), PLUS any custom
+// messages the office adds. Drives off customer_message_schedules (timing) +
+// notification_templates (copy) and is made idempotent by the job_message_sends
+// ledger — a message fires AT MOST once per (job, key, channel), so restarts,
+// catch-up runs, and overlapping ticks can never double-send. This REPLACES the
+// hardcoded runReminderCron calls in index.ts; runReminderCron is retained only
+// as the copy fallback's historical reference and is no longer scheduled.
+export async function runScheduledJobMessages(): Promise<void> {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] scheduled-messages cron suppressed — COMMS_ENABLED!=true");
+    return;
+  }
+  const { sql: drizzleSql } = await import("drizzle-orm");
+  const { renderCustomerTemplate } = await import("../lib/customer-messages.js");
+
+  // CT "now" (DST-aware), matching the offset math used elsewhere.
+  const now = new Date();
+  const jan = new Date(now.getFullYear(), 0, 1);
+  const jul = new Date(now.getFullYear(), 6, 1);
+  const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+  const isDST = now.getTimezoneOffset() < stdOffset;
+  const ctOffset = isDST ? -5 : -6;
+  const ctNow = new Date(now.getTime() + ctOffset * 3600000 + now.getTimezoneOffset() * 60000);
+  const ctHour = ctNow.getUTCHours();
+  const todayStr = ctNow.toISOString().slice(0, 10);
+
+  const resendKey = process.env.RESEND_API_KEY;
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+  let schedules: any[] = [];
+  try {
+    const r = await db.execute(drizzleSql`
+      SELECT s.company_id, s.key, s.label, s.anchor, s.offset_days, s.send_hour, s.channels
+        FROM customer_message_schedules s
+        JOIN companies co ON co.id = s.company_id
+       WHERE s.is_active = true
+         AND s.anchor IN ('before_appointment', 'after_appointment')
+         AND co.comms_enabled = true
+         AND s.offset_days IS NOT NULL`);
+    schedules = (r as any).rows ?? [];
+  } catch (err) {
+    console.error("[scheduled-messages] failed to load schedules:", err);
+    return;
+  }
+
+  for (const sched of schedules) {
+    try {
+      const offset = Number(sched.offset_days);
+      const sendHour = sched.send_hour == null ? 0 : Number(sched.send_hour);
+      const channels: string[] = Array.isArray(sched.channels) ? sched.channels : [];
+      if (!channels.length || !Number.isFinite(offset)) continue;
+      const isBefore = sched.anchor === "before_appointment";
+      // 1-day catch-up grace for offset >= 2 (a date-based message can fire a day
+      // late). offset 1 ("tomorrow"/"day after") gets NO grace — you can't sensibly
+      // say "tomorrow" once the day has arrived. This mirrors the deployed
+      // reminder behavior (72h fired [today+2,today+3], 24h fired exactly today+1)
+      // and stops a same-day job from collecting both the 3-day and 1-day copy.
+      const lowerOffset = offset >= 2 ? offset - 1 : offset;
+
+      // Candidate jobs in the catch-up window. before: [today+lowerOffset,
+      // today+offset], not yet started; after: [today-offset-1, today-offset],
+      // completed.
+      const rows = await db.execute(
+        isBefore
+          ? drizzleSql`
+              SELECT j.id, j.company_id, j.client_id, co.name AS company_name,
+                     j.scheduled_date::date AS sdate, j.service_type, j.arrival_window,
+                     j.address_street, j.address_city, j.address_state, j.address_zip,
+                     c.first_name, c.last_name, c.email, c.phone, c.zip,
+                     c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
+                FROM jobs j
+                JOIN clients c ON c.id = j.client_id
+                JOIN companies co ON co.id = j.company_id
+                LEFT JOIN accounts a ON a.id = c.account_id
+               WHERE j.company_id = ${sched.company_id}
+                 AND j.scheduled_date >= (${todayStr}::date + ${lowerOffset}::int)
+                 AND j.scheduled_date <= (${todayStr}::date + ${offset}::int)
+                 AND j.status NOT IN ('cancelled', 'complete')
+                 AND (a.id IS NULL OR a.comms_enabled = true)`
+          : drizzleSql`
+              SELECT j.id, j.company_id, j.client_id, co.name AS company_name,
+                     j.scheduled_date::date AS sdate, j.service_type, j.arrival_window,
+                     j.address_street, j.address_city, j.address_state, j.address_zip,
+                     c.first_name, c.last_name, c.email, c.phone, c.zip,
+                     c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
+                FROM jobs j
+                JOIN clients c ON c.id = j.client_id
+                JOIN companies co ON co.id = j.company_id
+                LEFT JOIN accounts a ON a.id = c.account_id
+               WHERE j.company_id = ${sched.company_id}
+                 AND j.scheduled_date <= (${todayStr}::date - ${offset}::int)
+                 AND j.scheduled_date >= (${todayStr}::date - ${offset}::int - 1)
+                 AND j.status = 'complete'
+                 AND (a.id IS NULL OR a.comms_enabled = true)`
+      );
+      const jobs: any[] = (rows as any).rows ?? [];
+
+      for (const job of jobs) {
+        // Hour gate ONLY on the exact target day — earlier (a missed prior day,
+        // now caught up) sends immediately so a skipped window self-recovers.
+        const sdate = String(job.sdate).slice(0, 10);
+        const targetStr = isBefore
+          ? new Date(Date.parse(`${todayStr}T00:00:00Z`) + offset * 86400000).toISOString().slice(0, 10)
+          : new Date(Date.parse(`${todayStr}T00:00:00Z`) - offset * 86400000).toISOString().slice(0, 10);
+        if (sdate === targetStr && ctHour < sendHour) continue;
+
+        const jobZip = job.address_zip || job.zip || "";
+        const branchConfig = getBranchByZip(jobZip);
+        const stateZip = [job.address_state, job.address_zip].filter(Boolean).join(" ");
+        const serviceAddress = [job.address_street, job.address_city, stateZip].filter(Boolean).join(", ") || "On file";
+        const arrivalWindowLabel = job.arrival_window === "morning" ? "9:00 AM – 12:00 PM"
+          : job.arrival_window === "afternoon" ? "12:00 PM – 2:00 PM" : "scheduled window";
+        const vars: Record<string, string> = {
+          first_name: job.first_name || "there",
+          client_name: [job.first_name, job.last_name].filter(Boolean).join(" ") || "there",
+          company_name: job.company_name || "Phes",
+          company_phone: branchConfig.clientPhone,
+          company_email: branchConfig.officeEmail,
+          service_type: labelServiceType(job.service_type),
+          date: formatDate(job.scheduled_date),
+          arrival_window: arrivalWindowLabel,
+          service_address: serviceAddress,
+        };
+
+        for (const channel of channels) {
+          if (channel !== "email" && channel !== "sms") continue;
+          // Ledger guard — the hard idempotency gate. One row = already fired.
+          const led = await db.execute(drizzleSql`
+            SELECT 1 FROM job_message_sends
+             WHERE job_id = ${job.id} AND schedule_key = ${sched.key} AND channel = ${channel} LIMIT 1`);
+          if (((led as any).rows ?? []).length) continue;
+
+          const tpl = await renderCustomerTemplate(job.company_id, sched.key, channel as "email" | "sms", vars);
+          if (tpl && !tpl.is_active) continue; // channel paused by office
+          if (!tpl) continue; // no copy row — skip (built-ins always have one)
+
+          if (channel === "email") {
+            if (!resendKey || !job.email || job.email_opt_out_at) continue;
+            try {
+              const htmlBody = /<[a-z][\s\S]*>/i.test(tpl.body) ? tpl.body : tpl.body.replace(/\n/g, "<br>");
+              let emailHtml = wrapEmailHtml(htmlBody);
+              const headers: Record<string, string> = {};
+              if (job.email_unsub_token) {
+                const u = buildUnsubDataFromToken(job.email_unsub_token);
+                Object.assign(headers, u.headers);
+                emailHtml = emailHtml.includes("</body>") ? emailHtml.replace(/<\/body>/i, `${u.footerHtml}</body>`) : emailHtml + u.footerHtml;
+              }
+              await new Resend(resendKey).emails.send({
+                from: `Phes <${branchConfig.officeEmail}>`,
+                replyTo: branchConfig.officeEmail,
+                to: [job.email],
+                subject: tpl.subject || sched.label,
+                html: emailHtml,
+                ...(Object.keys(headers).length ? { headers } : {}),
+              });
+              await recordJobMessageSend(job, sched.key, "email", "sent", job.email);
+              await logNotification(job.company_id, job.email, "email", sched.key, "sent", null, { job_id: String(job.id) });
+            } catch (e) {
+              console.error(`[scheduled-messages] email failed key=${sched.key} job=${job.id}:`, e);
+            }
+          } else {
+            if (!accountSid || !authToken || !job.phone || job.sms_opt_out_at) continue;
+            try {
+              const smsRes = await fetch(
+                `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                  },
+                  body: new URLSearchParams({ To: job.phone, From: branchConfig.twilioFrom, Body: tpl.body }).toString(),
+                }
+              );
+              if (smsRes.ok) {
+                await recordJobMessageSend(job, sched.key, "sms", "sent", job.phone);
+                await logNotification(job.company_id, job.phone, "sms", sched.key, "sent", null, { job_id: String(job.id) });
+              } else {
+                console.error(`[scheduled-messages] twilio failed key=${sched.key} job=${job.id}:`, (await smsRes.text()).slice(0, 200));
+              }
+            } catch (e) {
+              console.error(`[scheduled-messages] sms error key=${sched.key} job=${job.id}:`, e);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`[scheduled-messages] schedule ${sched.key} (co ${sched.company_id}) error:`, err);
+    }
+  }
+}
+
+// Ledger writer — the row that both prevents a re-send and feeds the customer
+// audit trail. ON CONFLICT keeps it idempotent under concurrent ticks.
+async function recordJobMessageSend(
+  job: { id: number; company_id: number; client_id: number | null },
+  scheduleKey: string,
+  channel: string,
+  status: string,
+  recipient: string,
+): Promise<void> {
+  try {
+    await db.execute(sql`
+      INSERT INTO job_message_sends (company_id, job_id, client_id, schedule_key, channel, status, recipient, sent_at)
+      VALUES (${job.company_id}, ${job.id}, ${job.client_id ?? null}, ${scheduleKey}, ${channel}, ${status}, ${recipient}, NOW())
+      ON CONFLICT (job_id, schedule_key, channel) DO NOTHING`);
+  } catch (err) {
+    console.error(`[scheduled-messages] ledger write failed job=${job.id} key=${scheduleKey}:`, err);
+  }
+}
+
 // ── Review request cron ──────────────────────────────────────────────────────
 export async function runReviewRequestCron(): Promise<void> {
   if (process.env.COMMS_ENABLED !== "true") {
