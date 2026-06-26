@@ -30,6 +30,7 @@ import * as React from "react";
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import {
   getCurriculum,
   type Curriculum,
@@ -6484,6 +6485,16 @@ function OnboardingIntakeView({
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  const homeAddrRef = useRef<HTMLInputElement>(null);
+  // Google Places autocomplete on the home street address — fills city/state/zip.
+  useAddressAutocomplete(homeAddrRef, true, (p) => setForm((prev) => ({
+    ...prev,
+    home_address_street: p.street || prev.home_address_street,
+    home_address_city: p.city || prev.home_address_city,
+    home_address_state: p.state || prev.home_address_state,
+    home_address_zip: p.zip || prev.home_address_zip,
+  })));
+
   const required = (label: string) => (
     <span>
       {label}
@@ -6569,6 +6580,7 @@ function OnboardingIntakeView({
           value={form.home_address_street}
           onChange={(v) => set("home_address_street", v)}
           placeholder={locale === "es" ? "Calle y número" : "Street address"}
+          inputRef={homeAddrRef}
         />
         <Field
           label={
@@ -6985,12 +6997,14 @@ function Field({
   onChange,
   type = "text",
   placeholder,
+  inputRef,
 }: {
   label: React.ReactNode;
   value: string;
   onChange: (v: string) => void;
   type?: "text" | "email" | "tel" | "date";
   placeholder?: string;
+  inputRef?: React.RefObject<HTMLInputElement | null>;
 }) {
   return (
     <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
@@ -6999,6 +7013,7 @@ function Field({
         <CalendarPopover value={value} onChange={onChange} block />
       ) : (
         <input
+          ref={inputRef}
           type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}

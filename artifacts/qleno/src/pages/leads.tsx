@@ -3,6 +3,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CalendarPopover } from "@/components/calendar-popover";
@@ -149,6 +150,15 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   });
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  const addrRef = useRef<HTMLInputElement>(null);
+  // Google Places autocomplete on the street address — fills city/state/zip too.
+  useAddressAutocomplete(addrRef, true, (p) => setForm(f => ({
+    ...f,
+    address: p.street || f.address,
+    city: p.city || f.city,
+    state: p.state || f.state,
+    zip: p.zip || f.zip,
+  })));
 
   async function handleSave() {
     if (!form.first_name.trim()) {
@@ -206,7 +216,7 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           </div>
           <div>
             <label style={lbl}>Address</label>
-            <Input value={form.address} onChange={e => set("address", e.target.value)} placeholder="Street address" />
+            <Input ref={addrRef} value={form.address} onChange={e => set("address", e.target.value)} placeholder="Start typing — Google will complete it" />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr auto 80px", gap: 8 }}>
             <div>

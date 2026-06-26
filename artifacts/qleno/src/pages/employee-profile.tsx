@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, forwardRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -219,21 +220,24 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Input({ value, onChange, type='text', readOnly }: { value: string; onChange?: (v: string) => void; type?: string; readOnly?: boolean }) {
-  return (
-    <input
-      type={type}
-      value={value || ''}
-      readOnly={readOnly}
-      onChange={e => onChange?.(e.target.value)}
-      style={{
-        height:36, padding:'0 12px', border:'1px solid #E5E2DC', borderRadius:8,
-        fontSize:13, color:'#1A1917', background: readOnly ? '#F7F6F3' : '#FFFFFF',
-        outline:'none', width:'100%',
-      }}
-    />
-  );
-}
+const Input = forwardRef<HTMLInputElement, { value: string; onChange?: (v: string) => void; type?: string; readOnly?: boolean }>(
+  function Input({ value, onChange, type='text', readOnly }, ref) {
+    return (
+      <input
+        ref={ref}
+        type={type}
+        value={value || ''}
+        readOnly={readOnly}
+        onChange={e => onChange?.(e.target.value)}
+        style={{
+          height:36, padding:'0 12px', border:'1px solid #E5E2DC', borderRadius:8,
+          fontSize:13, color:'#1A1917', background: readOnly ? '#F7F6F3' : '#FFFFFF',
+          outline:'none', width:'100%',
+        }}
+      />
+    );
+  }
+);
 
 function Select({ value, onChange, options }: { value: string; onChange: (v: string) => void; options: { value: string; label: string }[] }) {
   return (
@@ -782,6 +786,15 @@ export default function EmployeeProfilePage() {
 
   const [form, setForm] = useState<Record<string, any>>({});
   useEffect(() => { if (user) setForm(user); }, [user]);
+  const addrRef = useRef<HTMLInputElement>(null);
+  // Google Places autocomplete on the employee's street address.
+  useAddressAutocomplete(addrRef, true, (p) => setForm(f => ({
+    ...f,
+    address: p.street || f.address,
+    city: p.city || f.city,
+    state: p.state || f.state,
+    zip: p.zip || f.zip,
+  })));
 
   const setField = (k: string, v: any) => setForm(p => ({ ...p, [k]: v }));
 
@@ -1178,7 +1191,7 @@ export default function EmployeeProfilePage() {
 
               <SectionCard title="Address">
                 <div style={{ display:'grid', gridTemplateColumns:'2fr 1fr 1fr 1fr', gap:16 }}>
-                  <Field label="Street"><Input value={form.address||''} onChange={v=>setField('address',v)}/></Field>
+                  <Field label="Street"><Input ref={addrRef} value={form.address||''} onChange={v=>setField('address',v)}/></Field>
                   <Field label="City"><Input value={form.city||''} onChange={v=>setField('city',v)}/></Field>
                   <Field label="State"><Input value={form.state||''} onChange={v=>setField('state',v)}/></Field>
                   <Field label="Zip"><Input value={form.zip||''} onChange={v=>setField('zip',v)}/></Field>
