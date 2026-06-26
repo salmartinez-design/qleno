@@ -1,7 +1,7 @@
 /**
- * Estimate-level "Service frequency — applies to every line" control.
- * Frontend-only feature; source-assertion guard that the builder ships the
- * apply-to-all helper + control and still allows per-line override.
+ * Estimate frequency UX: a real dropdown (all options always visible) + Custom,
+ * an estimate-level "set every line" control, and per-line override.
+ * Frontend-only; source-assertion guard.
  */
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -14,20 +14,22 @@ const ui = readFileSync(
   "utf8",
 );
 
-describe("estimate bulk frequency", () => {
-  it("has an apply-to-all helper that rewrites every line's frequency", () => {
-    assert.match(ui, /const applyFreqToAll = /);
+describe("estimate frequency dropdown", () => {
+  it("is a real <select> listing every option + Custom… (not a filtered datalist)", () => {
+    assert.match(ui, /function FrequencyPicker/);
+    assert.match(ui, /FREQUENCY_OPTIONS\.map\(f => <option key=\{f\} value=\{f\}>\{f\}<\/option>\)/);
+    assert.match(ui, /value="__custom__">Custom…/);
+    assert.doesNotMatch(ui, /list="freq-options"/); // old filtered-datalist approach gone
+  });
+  it("Custom… reveals a free-text field for any cadence", () => {
+    assert.match(ui, /e\.g\. 2x\/month, every 3 weeks/);
+  });
+  it("estimate-level control sets every line at once", () => {
+    assert.match(ui, /Service frequency — sets every line/);
+    assert.match(ui, /<FrequencyPicker value=\{commonFreq\} onChange=\{applyFreqToAll\} \/>/);
     assert.match(ui, /its\.map\(it => \(\{ \.\.\.it, frequency: f \}\)\)/);
   });
-  it("renders the estimate-level control + Apply to all", () => {
-    assert.match(ui, /Service frequency — sets every line/);
-    assert.match(ui, /Apply to all/);
-  });
-  it("supports any cadence incl. custom (free-text + datalist)", () => {
-    assert.match(ui, /Weekly, Monthly, 2x\/month, custom/);
-    assert.match(ui, /list="freq-options"/);
-  });
-  it("still allows per-line override (per-line frequency input intact)", () => {
-    assert.match(ui, /updateItem\(i, \{ frequency: e\.target\.value \}\)/);
+  it("each line still uses the picker (per-line override)", () => {
+    assert.match(ui, /<FrequencyPicker value=\{it\.frequency\} onChange=\{v => updateItem\(i, \{ frequency: v \}\)\} \/>/);
   });
 });

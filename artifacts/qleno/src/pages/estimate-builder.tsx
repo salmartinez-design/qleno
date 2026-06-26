@@ -95,9 +95,6 @@ export default function EstimateBuilderPage() {
   const [discount, setDiscount] = useState("0");
   const [validUntil, setValidUntil] = useState("");
   const [items, setItems] = useState<Item[]>([blankItem()]);
-  // [estimate-bulk-frequency] Estimate-level cadence: pick once, apply to every
-  // line. Any line can still be overridden below.
-  const [bulkFreq, setBulkFreq] = useState("");
 
   // [estimate-templates-phase2] One-click template picker (new estimates only).
   const [templates, setTemplates] = useState<any[]>([]);
@@ -134,13 +131,13 @@ export default function EstimateBuilderPage() {
           setTitle(e.title || ""); setIntroNote(e.intro_note || ""); setTerms(e.terms || ""); setInternalNotes(e.internal_notes || "");
           setDiscount(String(e.discount_amount ?? "0"));
           setValidUntil(e.valid_until ? String(e.valid_until).slice(0, 10) : "");
-          { const its = (e.items || []).length ? e.items.map(mapRow) : [blankItem()]; setItems(its); setBulkFreq(commonFreqOf(its)); }
+          setItems((e.items || []).length ? e.items.map(mapRow) : [blankItem()]);
         } else {
           const templateId = new URLSearchParams(window.location.search).get("template");
           if (templateId) {
             const t = await apiFetch(`/api/estimates/templates/${templateId}`);
             setTitle(t.title || ""); setIntroNote(t.intro_note || ""); setTerms(t.terms || "");
-            { const its = (t.items || []).length ? t.items.map(mapRow) : [blankItem()]; setItems(its); setBulkFreq(commonFreqOf(its)); }
+            setItems((t.items || []).length ? t.items.map(mapRow) : [blankItem()]);
             setShowPicker(false);
           } else {
             // Load the template list for the one-click picker. Non-fatal.
@@ -236,7 +233,7 @@ export default function EstimateBuilderPage() {
       if (full.title) setTitle(full.title);
       if (full.intro_note) setIntroNote(full.intro_note);
       if (full.terms) setTerms(full.terms);
-      { const its = (full.items || []).length ? full.items.map(mapRow) : [blankItem()]; setItems(its); setBulkFreq(commonFreqOf(its)); }
+      setItems((full.items || []).length ? full.items.map(mapRow) : [blankItem()]);
       setShowPicker(false);
       toast.success(`Started from "${t.name}" — edit anything below`);
     } catch {
@@ -281,7 +278,6 @@ export default function EstimateBuilderPage() {
   const applyFreqToAll = (v: string) => {
     const f = v.trim();
     if (!f) return;
-    setBulkFreq(f);
     setItems(its => its.map(it => ({ ...it, frequency: f })));
   };
   // The cadence shared by all lines (empty when they differ — "Mixed").
@@ -415,17 +411,13 @@ export default function EstimateBuilderPage() {
         <Section title="Line items" right={
           <button onClick={() => setItems(its => [...its, blankItem()])} style={addBtn}><Plus size={15} /> Add line</button>
         }>
-          {/* [estimate-bulk-frequency] Set the cadence for every line at once. */}
+          {/* [estimate-bulk-frequency] Pick a cadence → applies to every line. */}
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, marginBottom: 12, padding: "10px 12px", border: `1px solid ${BORDER}`, borderRadius: 10, background: "#FCFCFB", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 180 }}>
               <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Service frequency — sets every line</span>
-              <input style={inp} list="freq-options" value={bulkFreq}
-                onChange={e => setBulkFreq(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); applyFreqToAll(bulkFreq); } }}
-                placeholder="Weekly, Monthly, 2x/month, custom…" />
+              <FrequencyPicker value={commonFreq} onChange={applyFreqToAll} />
             </div>
-            <button onClick={() => applyFreqToAll(bulkFreq)} style={addBtn}>Apply to all</button>
-            <span style={{ fontSize: 12, color: MUTE, alignSelf: "center", whiteSpace: "nowrap" }}>{commonFreq ? `All lines: ${commonFreq}` : "Lines vary — set above"}</span>
+            <span style={{ fontSize: 12, color: MUTE, alignSelf: "center", whiteSpace: "nowrap" }}>{commonFreq ? `All lines: ${commonFreq}` : "Lines vary"}</span>
           </div>
           {items.map((it, i) => {
             const L = TYPE_LABELS[it.pricing_type];
@@ -445,7 +437,7 @@ export default function EstimateBuilderPage() {
                     </select>
                   </Field>
                   <Field label="Frequency">
-                    <input style={inp} list="freq-options" value={it.frequency} onChange={e => updateItem(i, { frequency: e.target.value })} placeholder="Monthly" />
+                    <FrequencyPicker value={it.frequency} onChange={v => updateItem(i, { frequency: v })} />
                   </Field>
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, alignItems: "end" }}>
@@ -456,7 +448,6 @@ export default function EstimateBuilderPage() {
               </div>
             );
           })}
-          <datalist id="freq-options">{FREQUENCY_OPTIONS.map(f => <option key={f} value={f} />)}</datalist>
         </Section>
 
         {/* Totals */}
@@ -529,6 +520,34 @@ const Field = ({ label, children }: { label: string; children: React.ReactNode }
 const Row = ({ label, value }: { label: string; value: string }) => (
   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: INK }}><span style={{ color: MUTE }}>{label}</span><span style={{ fontWeight: 600 }}>{value}</span></div>
 );
+
+// [frequency-dropdown] A real dropdown of all cadence options + "Custom…".
+// A free-text input with a datalist only shows suggestions matching what's
+// already typed, so a filled field looked like it had a single option — this
+// always shows the full list, with Custom… revealing a free-text field.
+function FrequencyPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const isStd = FREQUENCY_OPTIONS.includes(value);
+  const [custom, setCustom] = useState(value !== "" && !isStd);
+  useEffect(() => { if (FREQUENCY_OPTIONS.includes(value)) setCustom(false); }, [value]);
+  if (custom) {
+    return (
+      <div style={{ display: "flex", gap: 6 }}>
+        <input style={inp} autoFocus value={value} onChange={e => onChange(e.target.value)} placeholder="e.g. 2x/month, every 3 weeks" />
+        <button type="button" onClick={() => { setCustom(false); onChange(""); }} style={{ ...addBtn, flexShrink: 0 }} title="Back to the list">List</button>
+      </div>
+    );
+  }
+  return (
+    <select style={inp} value={isStd ? value : ""} onChange={e => {
+      if (e.target.value === "__custom__") { setCustom(true); onChange(""); }
+      else onChange(e.target.value);
+    }}>
+      <option value="">Select…</option>
+      {FREQUENCY_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+      <option value="__custom__">Custom…</option>
+    </select>
+  );
+}
 
 const inp: React.CSSProperties = {
   width: "100%", padding: "9px 11px", border: `1px solid ${BORDER}`, borderRadius: 9,
