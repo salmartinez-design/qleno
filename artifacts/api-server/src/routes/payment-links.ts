@@ -124,13 +124,27 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
         console.warn("Twilio not configured or no phone — skipping SMS");
       } else {
         try {
-          const twilio = (await import("twilio")).default;
-          const client2 = twilio(twilioSid, twilioToken);
-          await client2.messages.create({
-            from: twilioFrom,
-            to: toPhone,
-            body: `${companyName}: Please save your payment method for future invoices. Link expires in 72 hours: ${payUrl}`,
-          });
+          // [card-link-twilio-rest 2026-06-26] The `twilio` SDK is NOT a
+          // dependency (never installed), so `import("twilio")` threw and the
+          // card-link SMS silently failed for everyone. Use the raw Twilio REST
+          // API via fetch — the same approach every WORKING SMS path uses
+          // (reminders, on-my-way, sendNotification).
+          const smsRes = await fetch(
+            `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Basic ${Buffer.from(`${twilioSid}:${twilioToken}`).toString("base64")}`,
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                To: toPhone,
+                From: twilioFrom,
+                Body: `${companyName}: Please save your payment method for future invoices. Link expires in 72 hours: ${payUrl}`,
+              }).toString(),
+            }
+          );
+          if (!smsRes.ok) throw new Error((await smsRes.text()).slice(0, 200));
           await db.insert(notificationLogTable).values({
             company_id: companyId,
             trigger: "payment_link_sms",
