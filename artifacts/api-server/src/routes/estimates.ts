@@ -894,6 +894,33 @@ router.post("/:id/sms", requireAuth, async (req, res) => {
   }
 });
 
+// Office marks the outcome (e.g. the client said "proceed" on the phone). Mirrors
+// the client-side accept/decline: sets status + timestamp and stops the drip.
+router.post("/:id/mark-outcome", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const outcome = String(req.body?.outcome) === "declined" ? "declined" : String(req.body?.outcome) === "accepted" ? "accepted" : null;
+    if (!outcome) return res.status(400).json({ error: "Bad Request", message: "outcome must be accepted or declined" });
+    const e = await db.execute(sql`SELECT id, contact_name FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    const est = (e as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+    const name = str(req.body?.name, 200) || est.contact_name || "Office";
+    if (outcome === "accepted") {
+      await db.execute(sql`UPDATE estimates SET status = 'accepted', accepted_at = now(), accepted_name = ${name}, updated_at = now() WHERE id = ${id} AND company_id = ${companyId}`);
+    } else {
+      await db.execute(sql`UPDATE estimates SET status = 'declined', declined_at = now(), updated_at = now() WHERE id = ${id} AND company_id = ${companyId}`);
+    }
+    stopEnrollmentsForEstimate(id, outcome).catch(() => {});
+    recordEngagementEvent({ companyId, estimateId: id, eventType: outcome, channel: "office", recipient: null,
+      meta: { by_user: req.auth!.userId, name } }).catch(() => {});
+    return res.json({ ok: true, status: outcome });
+  } catch (err) {
+    console.error("Estimate mark-outcome error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── Create estimate ─────────────────────────────────────────────────────────
 router.post("/", requireAuth, async (req, res) => {
   try {

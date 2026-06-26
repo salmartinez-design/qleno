@@ -788,12 +788,25 @@ function EstimateTracking({ estimateId, version }: { estimateId: number; version
     catch { toast.error("Couldn't stop follow-ups"); }
     finally { setStopping(false); }
   };
+  // Office marks the outcome when the client says "proceed" (or passes) off-app.
+  const markOutcome = async (outcome: "accepted" | "declined") => {
+    const verb = outcome === "accepted" ? "won" : "lost";
+    if (!confirm(`Mark this estimate as ${verb}? This stops the follow-ups.`)) return;
+    try { await apiFetch(`/api/estimates/${estimateId}/mark-outcome`, { method: "POST", body: { outcome } }); await load(); toast.success(`Marked as ${verb}`); }
+    catch { toast.error("Couldn't update the status"); }
+  };
 
   return (
     <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, overflow: "hidden", marginBottom: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "13px 16px", borderBottom: `1px solid #EEECE7` }}>
         <span style={{ fontSize: 14, fontWeight: 700, color: INK }}>Sent &amp; tracking</span>
         <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: pill.fg, background: pill.bg, padding: "2px 9px", borderRadius: 20 }}>{status}</span>
+        {!accepted && (
+          <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
+            <button onClick={() => markOutcome("accepted")} style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "#0F6E56", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontFamily: FF }}>Mark as won</button>
+            <button onClick={() => markOutcome("declined")} style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontFamily: FF }}>Mark as lost</button>
+          </div>
+        )}
       </div>
 
       <div style={{ padding: "14px 16px", borderBottom: `1px solid #EEECE7` }}>
