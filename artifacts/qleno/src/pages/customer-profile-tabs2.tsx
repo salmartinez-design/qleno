@@ -850,9 +850,35 @@ export function CommLog2({ clientId }: { clientId: number }) {
   const [perPage, setPerPage] = useState(10);
 
   const qk = ["comm-log", clientId, filter];
+  // [comms-unify 2026-06-26] This panel now reads the SAME complete history as
+  // the Messages tab (/api/clients/:id/messages) — every text + email sent to
+  // AND received from the customer, matched by phone so duplicate-profile texts
+  // still show. The old /api/comms source only held manual logs, which is why
+  // the box looked empty even when conversations existed. Manual "+ Log
+  // Communication" entries still post to /api/comms (communication_log) and come
+  // back through this union, so nothing is lost. Filter is applied client-side.
   const { data: logs = [], isLoading, refetch } = useQuery<any[]>({
     queryKey: qk,
-    queryFn: () => apiFetch(`/api/comms?customer_id=${clientId}${filter ? `&filter=${filter}` : ""}&limit=200`),
+    queryFn: async () => {
+      const d = await apiFetch(`/api/clients/${clientId}/messages`);
+      const rows = (d.data || []).map((m: any, i: number) => ({
+        id: `${m.source || "msg"}-${m.at}-${i}`,
+        channel: m.channel,
+        direction: m.direction,
+        source: m.source || "staff",
+        body: m.body,
+        subject: m.subject,
+        recipient: m.recipient,
+        logged_at: m.at,
+        delivery_status: m.status,
+        sent_by: null,
+      }));
+      if (filter && filter !== "all") {
+        const f = filter.toLowerCase();
+        return rows.filter((r: any) => (r.channel || "").toLowerCase() === f);
+      }
+      return rows;
+    },
     staleTime: 30000,
   });
 
