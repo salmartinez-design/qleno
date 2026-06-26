@@ -51,13 +51,13 @@ function genToken(len = 18): string {
 // when hit, records a 'clicked' event tied to the estimate + enrollment then
 // 302s to target_url. Falls back to target_url on any DB failure.
 export async function createTrackedLink(args: {
-  companyId: number; targetUrl: string; estimateId?: number | null; enrollmentId?: number | null;
+  companyId: number; targetUrl: string; estimateId?: number | null; enrollmentId?: number | null; recipient?: string | null;
 }): Promise<string> {
   try {
     const token = genToken();
     await db.execute(sql`
-      INSERT INTO tracked_links (token, company_id, estimate_id, enrollment_id, kind, target_url)
-      VALUES (${token}, ${args.companyId}, ${args.estimateId ?? null}, ${args.enrollmentId ?? null}, 'click', ${args.targetUrl})
+      INSERT INTO tracked_links (token, company_id, estimate_id, enrollment_id, kind, target_url, recipient)
+      VALUES (${token}, ${args.companyId}, ${args.estimateId ?? null}, ${args.enrollmentId ?? null}, 'click', ${args.targetUrl}, ${args.recipient ?? null})
     `);
     return `${appBaseUrl()}/api/track/c/${token}`;
   } catch (err) {
@@ -69,13 +69,13 @@ export async function createTrackedLink(args: {
 // Mint an open-pixel URL (/api/track/o/<token>.png). Returns "" on failure so
 // callers can simply skip the pixel.
 export async function createOpenPixel(args: {
-  companyId: number; estimateId?: number | null; enrollmentId?: number | null;
+  companyId: number; estimateId?: number | null; enrollmentId?: number | null; recipient?: string | null;
 }): Promise<string> {
   try {
     const token = genToken();
     await db.execute(sql`
-      INSERT INTO tracked_links (token, company_id, estimate_id, enrollment_id, kind, target_url)
-      VALUES (${token}, ${args.companyId}, ${args.estimateId ?? null}, ${args.enrollmentId ?? null}, 'open', NULL)
+      INSERT INTO tracked_links (token, company_id, estimate_id, enrollment_id, kind, target_url, recipient)
+      VALUES (${token}, ${args.companyId}, ${args.estimateId ?? null}, ${args.enrollmentId ?? null}, 'open', NULL, ${args.recipient ?? null})
     `);
     return `${appBaseUrl()}/api/track/o/${token}.png`;
   } catch (err) {

@@ -192,7 +192,7 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
 // {{first_name}} {{company_name}} {{company_phone}} {{property}} {{monthly}} {{estimate_link}}.
 async function buildEstimateMergeVars(companyId: number, estimateId: number, enrollmentId?: number): Promise<Record<string, string>> {
   const r = await db.execute(sql`
-    SELECT e.id, e.total, e.property_name, e.service_address, e.public_token, e.contact_name,
+    SELECT e.id, e.total, e.property_name, e.service_address, e.public_token, e.contact_name, e.contact_email,
            c.name AS company_name, c.phone AS company_phone, c.email AS company_email
     FROM estimates e JOIN companies c ON c.id = e.company_id
     WHERE e.id = ${estimateId} AND e.company_id = ${companyId} LIMIT 1
@@ -206,7 +206,7 @@ async function buildEstimateMergeVars(companyId: number, estimateId: number, enr
   let link: string;
   if (enrollmentId) {
     const { createTrackedLink } = await import("../lib/engagement.js");
-    link = await createTrackedLink({ companyId, targetUrl: fullLink, estimateId, enrollmentId });
+    link = await createTrackedLink({ companyId, targetUrl: fullLink, estimateId, enrollmentId, recipient: e.contact_email ?? null });
   } else {
     link = e.public_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
   }
@@ -693,7 +693,7 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
   if (enr.estimate_id && step.channel === "email") {
     try {
       const { createOpenPixel } = await import("../lib/engagement.js");
-      const pixel = await createOpenPixel({ companyId: enr.company_id, estimateId: enr.estimate_id, enrollmentId: enr.id });
+      const pixel = await createOpenPixel({ companyId: enr.company_id, estimateId: enr.estimate_id, enrollmentId: enr.id, recipient: recipientEmail });
       if (pixel) body += `\n<img src="${pixel}" width="1" height="1" alt="" style="display:none" />`;
     } catch { /* pixel optional */ }
   }

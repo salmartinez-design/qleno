@@ -34,7 +34,7 @@ router.get("/c/:token", async (req, res) => {
   let target = `${appBaseUrl()}/`;
   try {
     const rows = await db.execute(sql`
-      SELECT company_id, estimate_id, enrollment_id, target_url
+      SELECT company_id, estimate_id, enrollment_id, target_url, recipient
       FROM tracked_links WHERE token = ${token} AND kind = 'click' LIMIT 1
     `);
     const link = (rows as any).rows[0];
@@ -46,6 +46,7 @@ router.get("/c/:token", async (req, res) => {
         enrollmentId: link.enrollment_id,
         eventType: "clicked",
         channel: "email",
+        recipient: link.recipient ?? null,
         meta: { token, target_url: link.target_url, ua: req.get("user-agent") || null },
       });
     }
@@ -61,7 +62,7 @@ router.get("/o/:token", async (req, res) => {
   const token = String(req.params.token || "").trim().replace(/\.png$/i, "");
   try {
     const rows = await db.execute(sql`
-      SELECT company_id, estimate_id, enrollment_id
+      SELECT company_id, estimate_id, enrollment_id, recipient
       FROM tracked_links WHERE token = ${token} AND kind = 'open' LIMIT 1
     `);
     const link = (rows as any).rows[0];
@@ -72,6 +73,7 @@ router.get("/o/:token", async (req, res) => {
         enrollmentId: link.enrollment_id,
         eventType: "opened",
         channel: "email",
+        recipient: link.recipient ?? null,
         meta: { token, ua: req.get("user-agent") || null },
       });
     }
