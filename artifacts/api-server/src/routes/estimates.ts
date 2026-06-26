@@ -432,8 +432,12 @@ router.get("/public/:token", async (req, res) => {
     const token = String(req.params.token || "").trim();
     if (!token) return res.status(404).json({ error: "Not Found" });
     const rows = await db.execute(sql`
-      SELECT e.*, c.name AS company_name, c.logo_url AS company_logo, c.brand_color AS company_brand_color
-      FROM estimates e JOIN companies c ON c.id = e.company_id
+      SELECT e.*, c.name AS company_name, c.logo_url AS company_logo, c.brand_color AS company_brand_color,
+             c.phone AS company_phone, c.email AS company_email,
+             bz.name AS branch_name, bz.phone AS branch_phone
+      FROM estimates e
+      JOIN companies c ON c.id = e.company_id
+      LEFT JOIN branches bz ON bz.id = e.branch_id
       WHERE e.public_token = ${token} AND e.status <> 'draft'
       LIMIT 1
     `);
@@ -447,7 +451,8 @@ router.get("/public/:token", async (req, res) => {
         SELECT q.id, q.lead_name, q.address, q.service_type, q.total_price, q.base_price,
                q.addons, q.status, q.created_at, q.sent_at,
                q.frequency, q.frequency_options, q.selected_frequency,
-               c.name AS company_name, c.logo_url AS company_logo, c.brand_color AS company_brand_color
+               c.name AS company_name, c.logo_url AS company_logo, c.brand_color AS company_brand_color,
+               c.phone AS company_phone, c.email AS company_email
         FROM quotes q JOIN companies c ON c.id = q.company_id
         WHERE q.sign_token = ${token} LIMIT 1
       `);
@@ -489,6 +494,8 @@ router.get("/public/:token", async (req, res) => {
         company_name: qt.company_name,
         company_logo: qt.company_logo,
         company_brand_color: qt.company_brand_color,
+        company_phone: qt.company_phone,
+        company_email: qt.company_email,
         items,
         is_quote: true,
         // [multi-frequency] additive — the comparison tiers (empty array when the

@@ -14,12 +14,9 @@ const MINT = "#00C9A0";
 const SUBLINE = "#9DA3B0";
 // Real Phes logo asset (public/). Used when the tenant has no logo_url of its own.
 const PHES_LOGO = `${API}/phes-logo.jpeg`;
-// Branch contact — fallback only. The public payload carries no per-tenant
-// phone/email yet, so these hardcoded Phes Schaumburg values render until that
-// field is exposed (tracked for a later backend pass).
-const FALLBACK_PHONE = "(847) 538-3729";
-const FALLBACK_PHONE_TEL = "+18475383729";
-const FALLBACK_EMAIL = "schaumburg@phes.io";
+// Contact comes from the estimate's branch (when set) or the company — never
+// hardcode a branch. tel: link is the digits with a US +1 prefix.
+const telOf = (phone: string) => `+1${phone.replace(/\D/g, "").replace(/^1/, "")}`;
 
 type Item = {
   name: string | null;
@@ -57,6 +54,10 @@ type PublicEstimate = {
   company_name: string;
   company_logo: string | null;
   company_brand_color: string | null;
+  company_phone?: string | null;
+  company_email?: string | null;
+  branch_name?: string | null;
+  branch_phone?: string | null;
   items: Item[];
   // Phes doc-type model: residential = QUOTE, commercial = ESTIMATE. The public
   // endpoint sets is_quote=true when the token resolved a quote (not an estimate)
@@ -411,13 +412,20 @@ export default function EstimatePublicPage() {
           </button>
         </div>
 
-        {/* Contact block */}
-        <div style={{ textAlign: "center", marginTop: 22, fontSize: 13, color: MUTE, lineHeight: 1.6 }}>
-          Questions? Call or text{" "}
-          <a href={`tel:${FALLBACK_PHONE_TEL}`} style={{ color: INK, fontWeight: 700, textDecoration: "none" }}>{FALLBACK_PHONE}</a>
-          {" · "}
-          <a href={`mailto:${FALLBACK_EMAIL}`} style={{ color: INK, fontWeight: 700, textDecoration: "none" }}>{FALLBACK_EMAIL}</a>
-        </div>
+        {/* Contact block — branch contact when set, else company; never hardcoded. */}
+        {(() => {
+          const phone = est.branch_phone || est.company_phone || null;
+          const email = est.company_email || null;
+          if (!phone && !email) return null;
+          return (
+            <div style={{ textAlign: "center", marginTop: 22, fontSize: 13, color: MUTE, lineHeight: 1.6 }}>
+              Questions? Call or text{" "}
+              {phone && <a href={`tel:${telOf(phone)}`} style={{ color: INK, fontWeight: 700, textDecoration: "none" }}>{phone}</a>}
+              {phone && email && " · "}
+              {email && <a href={`mailto:${email}`} style={{ color: INK, fontWeight: 700, textDecoration: "none" }}>{email}</a>}
+            </div>
+          );
+        })()}
 
         {/* Footer — Powered by Qleno (the only Qleno mention) */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 18, paddingTop: 16, borderTop: `1px solid ${BORDER}` }}>
