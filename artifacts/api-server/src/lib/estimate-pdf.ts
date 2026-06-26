@@ -21,6 +21,7 @@ export interface EstimatePdfItem {
 
 export interface EstimatePdfData {
   companyName: string;
+  logo?: Buffer | null;
   estimateNumber: string | null;
   status: string;
   title: string | null;
@@ -61,14 +62,25 @@ export function renderEstimatePdf(data: EstimatePdfData): Promise<Buffer> {
     const width = right - left;
     const isFlat = data.billingMode === "flat";
 
-    // Header band
+    // Header band — logo on a white chip (or the company name as a fallback) on
+    // the left; ESTIMATE / number / status on the right.
     doc.rect(0, 0, doc.page.width, 84).fill(NAVY);
-    doc.fillColor("#FFFFFF").fontSize(20).font("Helvetica-Bold").text(data.companyName, left, 26, { width: width - 160 });
-    doc.fontSize(10).font("Helvetica").fillColor("#9CA3AF").text("ESTIMATE", left, 54);
-    doc.fillColor("#FFFFFF").fontSize(13).font("Helvetica-Bold")
-      .text(data.estimateNumber || "", right - 160, 30, { width: 160, align: "right" });
-    doc.fontSize(9).font("Helvetica").fillColor("#9CA3AF")
-      .text(String(data.status || "").toUpperCase(), right - 160, 50, { width: 160, align: "right" });
+    let drewLogo = false;
+    if (data.logo) {
+      try {
+        doc.roundedRect(left, 22, 156, 40, 6).fill("#FFFFFF");
+        doc.image(data.logo, left + 10, 27, { fit: [136, 30] });
+        drewLogo = true;
+      } catch { drewLogo = false; }
+    }
+    if (!drewLogo) {
+      doc.fillColor("#FFFFFF").fontSize(20).font("Helvetica-Bold").text(data.companyName, left, 32, { width: width - 190 });
+    }
+    doc.fillColor("#9CA3AF").fontSize(9).font("Helvetica").text("ESTIMATE", right - 190, 24, { width: 190, align: "right" });
+    doc.fillColor("#FFFFFF").fontSize(14).font("Helvetica-Bold")
+      .text(data.estimateNumber || "", right - 190, 38, { width: 190, align: "right" });
+    doc.fillColor("#9CA3AF").fontSize(9).font("Helvetica")
+      .text(String(data.status || "").toUpperCase(), right - 190, 57, { width: 190, align: "right" });
 
     let y = 108;
 

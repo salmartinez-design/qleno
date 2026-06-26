@@ -37,13 +37,27 @@ describe("estimate PDF", () => {
     assert.equal(buf.subarray(0, 5).toString("latin1"), "%PDF-");
   });
 
-  it("route streams the PDF inline; builder has the preview button", () => {
+  it("embeds a company logo when one is provided", async () => {
+    // 1x1 transparent PNG.
+    const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==", "base64");
+    const buf = await renderEstimatePdf({
+      ...base, logo: png, billingMode: "flat", flatPriceUnit: "month", scopeNote: null,
+      items: [{ name: "Restrooms", pricing_type: "flat", frequency: "Semi-monthly", quantity: 1, unit_rate: 0, amount: 0 }],
+    });
+    assert.equal(buf.subarray(0, 5).toString("latin1"), "%PDF-");
+  });
+
+  it("route fetches the logo + streams inline; builder previews after saving", () => {
     const route = read("../routes/estimates.ts");
     const builder = read("../../../qleno/src/pages/estimate-builder.tsx");
     assert.match(route, /router\.get\("\/:id\/pdf"/);
     assert.match(route, /setHeader\("Content-Type", "application\/pdf"\)/);
-    assert.match(route, /renderEstimatePdf\(/);
-    assert.match(builder, /async function downloadPdf/);
+    assert.match(route, /c\.logo_url AS company_logo/);
+    assert.match(route, /const logo = await fetchLogoBuffer\(est\.company_logo\)/);
+    assert.match(route, /renderEstimatePdf\(\{\s*companyName: est\.company_name \|\| "Estimate", logo,/);
+    // PDF + Send must persist current edits first (no stale preview/send).
+    assert.match(builder, /async function downloadPdf\(\) \{[\s\S]*?const savedId = await save\(\);/);
+    assert.match(builder, /async function markSent\(\) \{[\s\S]*?const savedId = await save\(\);/);
     assert.match(builder, /PDF preview/);
   });
 });
