@@ -405,6 +405,25 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "tracked_links.recipient", stmt: `ALTER TABLE tracked_links ADD COLUMN IF NOT EXISTS recipient TEXT` },
     // [estimate-industry 2026-06-26] Facility type for win-rate-by-industry. Additive.
     { label: "estimates.facility_type", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS facility_type TEXT` },
+    // [agreement-esign 2026-06-26] DocuSign-grade audit trail for client agreements.
+    { label: "client_agreements.signer_email", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS signer_email TEXT` },
+    { label: "client_agreements.user_agent", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS user_agent TEXT` },
+    { label: "client_agreements.consent_at", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ` },
+    { label: "client_agreements.viewed_at", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ` },
+    { label: "client_agreements.token", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS token TEXT` },
+    { label: "CREATE agreement_events", stmt: `
+      CREATE TABLE IF NOT EXISTS agreement_events (
+        id          SERIAL PRIMARY KEY,
+        company_id  INTEGER NOT NULL,
+        agreement_id INTEGER NOT NULL,
+        event_type  TEXT NOT NULL,
+        actor_email TEXT,
+        ip_address  TEXT,
+        user_agent  TEXT,
+        meta        JSONB,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )` },
+    { label: "idx agreement_events", stmt: `CREATE INDEX IF NOT EXISTS idx_agreement_events_agreement ON agreement_events(agreement_id, created_at)` },
     // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
     // native click-redirect / open-pixel tokens. Additive + idempotent.
     { label: "CREATE engagement_events", stmt: `
