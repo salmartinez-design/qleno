@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick } from "lucide-react";
 import { toast } from "sonner";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
@@ -92,6 +92,8 @@ export default function EstimateBuilderPage() {
   const [publicToken, setPublicToken] = useState<string | null>(null);
   // [estimate-send-now] Set to the recipient when the Day-0 email actually went out.
   const [emailedTo, setEmailedTo] = useState<string | null>(null);
+  // [estimate-tracking] Bumped after a send so the tracking panel refetches.
+  const [trackVersion, setTrackVersion] = useState(0);
 
   const [contactName, setContactName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
@@ -363,6 +365,7 @@ export default function EstimateBuilderPage() {
       setPublicToken(r.public_token || null);
       // [estimate-send-now] r.emailed = the Day-0 email actually went out just now.
       setEmailedTo(r.emailed ? (r.email_recipient || contactEmail) : null);
+      setTrackVersion(v => v + 1);
       if (r.public_token) { try { await navigator.clipboard.writeText(publicLink(r.public_token)); } catch { /* clipboard optional */ } }
       if (r.emailed) {
         toast.success(`Estimate emailed to ${r.email_recipient || contactEmail}${ccEmails.length ? ` (+${ccEmails.length} CC)` : ""} — link also copied.`);
@@ -425,6 +428,7 @@ export default function EstimateBuilderPage() {
             </div>
           </div>
         )}
+        {id && status !== "draft" && <EstimateTracking estimateId={id} version={trackVersion} />}
 
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
           <h1 style={{ fontSize: 23, fontWeight: 800, color: INK, margin: 0 }}>{isNew && !id ? "New Estimate" : (estimateNumber || "Estimate")}</h1>
@@ -645,7 +649,7 @@ export default function EstimateBuilderPage() {
           </span>
           <button onClick={downloadPdf} disabled={pdfBusy} style={ghostBtn}><FileText size={15} /> {pdfBusy ? "Preparing…" : "PDF preview"}</button>
           <button onClick={save} disabled={saving} style={ghostBtn}><Save size={15} /> {saving ? "Saving…" : "Save"}</button>
-          <button onClick={markSent} style={primaryBtn}><Send size={15} /> {publicToken ? "Re-copy link" : "Send — get link"}</button>
+          <button onClick={markSent} style={primaryBtn}><Send size={15} /> {publicToken ? "Resend to client" : "Send to client"}</button>
         </div>
       </div>
     </DashboardLayout>
@@ -683,6 +687,111 @@ const Field = ({ label, children }: { label: string; children: React.ReactNode }
 const Row = ({ label, value }: { label: string; value: string }) => (
   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: INK }}><span style={{ color: MUTE }}>{label}</span><span style={{ fontWeight: 600 }}>{value}</span></div>
 );
+
+// [estimate-tracking] On-page send status, engagement activity, and follow-up
+// progress — surfaces the data from GET /api/estimates/:id/engagement so the
+// office sees it on the estimate instead of only on the dashboard.
+const fmtWhen = (d: string | null) =>
+  d ? new Date(d).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+const STATUS_PILL: Record<string, { bg: string; fg: string }> = {
+  SENT: { bg: "#E1F5EE", fg: "#0F6E56" }, VIEWED: { bg: "#E1F5EE", fg: "#0F6E56" },
+  ACCEPTED: { bg: "#EAF3DE", fg: "#3B6D11" }, DECLINED: { bg: "#FCEBEB", fg: "#A32D2D" },
+  EXPIRED: { bg: "#FAEEDA", fg: "#854F0B" },
+};
+
+function EstimateTracking({ estimateId, version }: { estimateId: number; version: number }) {
+  const [data, setData] = useState<any>(null);
+  const [stopping, setStopping] = useState(false);
+  const load = async () => { try { setData(await apiFetch(`/api/estimates/${estimateId}/engagement`)); } catch { /* non-fatal */ } };
+  useEffect(() => { load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [estimateId, version]);
+  if (!data?.estimate) return null;
+
+  const { estimate, counts, timeline, enrollment } = data;
+  const status = String(estimate.status || "").toUpperCase();
+  const pill = STATUS_PILL[status] || { bg: "#F1EFE8", fg: "#5F5E5A" };
+  const ICONS: Record<string, any> = { sent: Mail, viewed: Eye, opened: Mail, clicked: MousePointerClick };
+  const LABELS: Record<string, (r: string | null) => string> = {
+    sent: (r) => `Email sent${r ? ` to ${r}` : ""}`,
+    viewed: () => "Client opened the estimate",
+    opened: () => "Email opened",
+    clicked: () => "Link clicked",
+  };
+  const step = Number(enrollment?.current_step || 0);
+  const total = Number(enrollment?.total_steps || 0);
+  const stopped = !!enrollment?.stopped_at, done = !!enrollment?.completed_at;
+  const accepted = status === "ACCEPTED" || status === "DECLINED";
+
+  const stop = async () => {
+    setStopping(true);
+    try { await apiFetch(`/api/estimates/${estimateId}/stop-followups`, { method: "POST" }); await load(); toast.success("Follow-ups stopped"); }
+    catch { toast.error("Couldn't stop follow-ups"); }
+    finally { setStopping(false); }
+  };
+
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, overflow: "hidden", marginBottom: 16 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, padding: "13px 16px", borderBottom: `1px solid #EEECE7` }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: INK }}>Sent &amp; tracking</span>
+        <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: pill.fg, background: pill.bg, padding: "2px 9px", borderRadius: 20 }}>{status}</span>
+      </div>
+
+      <div style={{ padding: "14px 16px", borderBottom: `1px solid #EEECE7` }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+          {timeline.length === 0 && <span style={{ fontSize: 13, color: MUTE }}>No activity yet.</span>}
+          {timeline.map((t: any, i: number) => {
+            const Icon = ICONS[t.event_type] || Clock;
+            const label = (LABELS[t.event_type] || ((): string => t.event_type))(t.recipient);
+            return (
+              <div key={i} style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
+                <Icon size={16} style={{ color: MINT, marginTop: 1, flexShrink: 0 }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, color: INK }}>{label}</div>
+                  <div style={{ fontSize: 11, color: "#9CA3AF" }}>{fmtWhen(t.occurred_at)}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          {[["Views", counts?.viewed], ["Email opens", counts?.opened], ["Link clicks", counts?.clicked]].map(([l, v]) => (
+            <div key={l as string} style={{ flex: 1, background: "#F8F7F4", borderRadius: 9, padding: "9px 12px" }}>
+              <div style={{ fontSize: 18, fontWeight: 700, color: INK }}>{Number(v || 0)}</div>
+              <div style={{ fontSize: 11, color: MUTE }}>{l}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {enrollment && (
+        <div style={{ padding: "14px 16px" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#9CA3AF" }}>FOLLOW-UP SEQUENCE</span>
+            <span style={{ fontSize: 12, color: MUTE }}>Step <span style={{ color: INK, fontWeight: 700 }}>{Math.min(step, total)}</span> of {total}</span>
+          </div>
+          <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
+            {Array.from({ length: total }).map((_, i) => (
+              <div key={i} style={{ flex: 1, height: 5, borderRadius: 3, background: i < step - 1 || done ? MINT : BORDER }} />
+            ))}
+          </div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, color: INK, display: "inline-flex", alignItems: "center", gap: 6 }}>
+              {done ? <><Check size={15} style={{ color: "#3B6D11" }} /> Sequence complete</>
+                : stopped ? <>Follow-ups stopped{enrollment.stopped_reason ? ` (${enrollment.stopped_reason})` : ""}</>
+                : accepted ? <><Check size={15} style={{ color: "#3B6D11" }} /> Stopped — client {status.toLowerCase()}</>
+                : <><Clock size={15} style={{ color: "#BA7517" }} /> Next email {fmtWhen(enrollment.next_fire_at)}</>}
+            </span>
+            {!stopped && !done && !accepted && (
+              <button onClick={stop} disabled={stopping} style={{ fontSize: 12, fontWeight: 700, color: "#B91C1C", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "6px 11px", cursor: "pointer", fontFamily: FF }}>
+                {stopping ? "Stopping…" : "Stop follow-ups"}
+              </button>
+            )}
+          </div>
+          {!stopped && !done && !accepted && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 8 }}>Stops automatically when the client accepts or declines.</div>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 
 const inp: React.CSSProperties = {

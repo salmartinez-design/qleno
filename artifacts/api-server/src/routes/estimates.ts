@@ -422,6 +422,21 @@ router.get("/:id/engagement", requireAuth, async (req, res) => {
   }
 });
 
+// Stop the follow-up drip for an estimate (office "Stop follow-ups" button).
+router.post("/:id/stop-followups", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(String(req.params.id), 10);
+    const exists = await db.execute(sql`SELECT id FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    if (!(exists as any).rows[0]) return res.status(404).json({ error: "Not Found" });
+    await stopEnrollmentsForEstimate(id, "manual");
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Stop estimate follow-ups error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── Public hosted estimate (no auth — tokenized) ───────────────────────────
 // [estimate-hosted-page 2026-06-10] The link the office texts/emails to the
 // property manager. GET marks first view (sent → viewed); accept/decline are
