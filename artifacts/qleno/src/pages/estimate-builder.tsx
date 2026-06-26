@@ -84,6 +84,8 @@ export default function EstimateBuilderPage() {
 
   const [loading, setLoading] = useState(!isNew);
   const [saving, setSaving] = useState(false);
+  // [estimate-autosave] Debounced save status surfaced in the action bar.
+  const [autoStatus, setAutoStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [id, setId] = useState<number | null>(estimateId);
   const [status, setStatus] = useState("draft");
   const [estimateNumber, setEstimateNumber] = useState<string>("");
@@ -230,27 +232,59 @@ export default function EstimateBuilderPage() {
   }
   const removeCc = (e: string) => setCcEmails(prev => prev.filter(x => x !== e));
 
-  async function save(): Promise<number | null> {
-    setSaving(true);
+  // [estimate-autosave] Single in-flight guard + the last successfully-saved
+  // snapshot so autosave only fires on real changes.
+  const savingRef = useRef(false);
+  const lastSavedRef = useRef<string | null>(null);
+
+  // Quiet save (no toast) — creates on first save, PATCHes thereafter. Shared by
+  // the manual Save button, autosave, PDF preview, and Send.
+  async function persist(): Promise<number | null> {
+    if (savingRef.current) return id;
+    savingRef.current = true;
+    setSaving(true); setAutoStatus("saving");
     try {
+      let sid: number | null = id;
       if (id) {
         await apiFetch(`/api/estimates/${id}`, { method: "PATCH", body: body() });
-        toast.success("Estimate saved");
-        return id;
       } else {
         const r = await apiFetch("/api/estimates", { method: "POST", body: body() });
-        setId(r.id);
+        sid = r.id; setId(r.id);
         window.history.replaceState(null, "", `${API}/estimates/${r.id}`);
-        toast.success("Estimate created");
-        return r.id;
       }
+      lastSavedRef.current = JSON.stringify(body());
+      setAutoStatus("saved");
+      return sid;
     } catch {
-      toast.error("Failed to save");
+      setAutoStatus("error");
       return null;
     } finally {
-      setSaving(false);
+      savingRef.current = false; setSaving(false);
     }
   }
+
+  // Manual Save button — persist + a confirmation toast.
+  async function save(): Promise<number | null> {
+    const wasNew = !id;
+    const sid = await persist();
+    if (sid) toast.success(wasNew ? "Estimate created" : "Estimate saved");
+    else toast.error("Failed to save");
+    return sid;
+  }
+
+  // [estimate-autosave] Auto-save 2s after the last edit. Skips the initial
+  // load, no-op edits, and creating an empty draft.
+  const snapshot = JSON.stringify(body());
+  useEffect(() => {
+    if (loading) return;
+    if (lastSavedRef.current === null) { lastSavedRef.current = snapshot; return; } // baseline after load
+    if (snapshot === lastSavedRef.current) return;
+    const hasContent = !!(contactName.trim() || title.trim() || items.some(it => it.name.trim()) || Number(flatPrice) > 0);
+    if (!id && !hasContent) return;
+    const t = setTimeout(() => { persist(); }, 2000);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, loading, id]);
 
   async function saveAsTemplate() {
     const savedId = id || (await save());
@@ -606,6 +640,9 @@ export default function EstimateBuilderPage() {
         <div style={{ display: "flex", gap: 10, width: "100%", maxWidth: 860 }}>
           <button onClick={saveAsTemplate} style={ghostBtn}><LayoutTemplate size={15} /> Save as template</button>
           <div style={{ flex: 1 }} />
+          <span style={{ alignSelf: "center", fontSize: 12, fontWeight: 600, marginRight: 4, whiteSpace: "nowrap", color: autoStatus === "error" ? "#B91C1C" : MUTE }}>
+            {autoStatus === "saving" ? "Saving…" : autoStatus === "saved" ? "All changes saved" : autoStatus === "error" ? "Save failed — retry" : ""}
+          </span>
           <button onClick={downloadPdf} disabled={pdfBusy} style={ghostBtn}><FileText size={15} /> {pdfBusy ? "Preparing…" : "PDF preview"}</button>
           <button onClick={save} disabled={saving} style={ghostBtn}><Save size={15} /> {saving ? "Saving…" : "Save"}</button>
           <button onClick={markSent} style={primaryBtn}><Send size={15} /> {publicToken ? "Re-copy link" : "Send — get link"}</button>
