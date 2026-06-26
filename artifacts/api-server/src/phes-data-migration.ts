@@ -392,6 +392,9 @@ async function runBookingSchemaGuard(): Promise<void> {
     // free-text scope paragraph. Additive + idempotent.
     { label: "estimates.flat_price_unit", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS flat_price_unit TEXT NOT NULL DEFAULT 'visit'` },
     { label: "estimates.scope_note", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS scope_note TEXT` },
+    // [estimate-recipient-tracking 2026-06-26] Which recipient a tracked link /
+    // open-pixel belongs to, so opens/clicks attribute to a person. Additive.
+    { label: "tracked_links.recipient", stmt: `ALTER TABLE tracked_links ADD COLUMN IF NOT EXISTS recipient TEXT` },
     // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
     // native click-redirect / open-pixel tokens. Additive + idempotent.
     { label: "CREATE engagement_events", stmt: `

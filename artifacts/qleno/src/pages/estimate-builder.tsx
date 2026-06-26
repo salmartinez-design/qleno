@@ -769,11 +769,11 @@ function EstimateTracking({ estimateId, version }: { estimateId: number; version
   const status = String(estimate.status || "").toUpperCase();
   const pill = STATUS_PILL[status] || { bg: "#F1EFE8", fg: "#5F5E5A" };
   const ICONS: Record<string, any> = { sent: Mail, viewed: Eye, opened: Mail, clicked: MousePointerClick };
-  const LABELS: Record<string, (r: string | null) => string> = {
-    sent: (r) => `Email sent${r ? ` to ${r}` : ""}`,
+  const LABELS: Record<string, (r: string | null, ch?: string | null) => string> = {
+    sent: (r, ch) => `${ch === "sms" ? "Text" : "Email"} sent${r ? ` to ${r}` : ""}`,
     viewed: () => "Client opened the estimate",
-    opened: () => "Email opened",
-    clicked: () => "Link clicked",
+    opened: (r) => `Email opened${r ? ` by ${r}` : ""}`,
+    clicked: (r) => `Link clicked${r ? ` by ${r}` : ""}`,
   };
   const step = Number(enrollment?.current_step || 0);
   const total = Number(enrollment?.total_steps || 0);
@@ -798,8 +798,8 @@ function EstimateTracking({ estimateId, version }: { estimateId: number; version
         <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
           {timeline.length === 0 && <span style={{ fontSize: 13, color: MUTE }}>No activity yet.</span>}
           {timeline.map((t: any, i: number) => {
-            const Icon = ICONS[t.event_type] || Clock;
-            const label = (LABELS[t.event_type] || ((): string => t.event_type))(t.recipient);
+            const Icon = t.event_type === "sent" && t.channel === "sms" ? MessageSquare : (ICONS[t.event_type] || Clock);
+            const label = (LABELS[t.event_type] || ((): string => t.event_type))(t.recipient, t.channel);
             return (
               <div key={i} style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
                 <Icon size={16} style={{ color: MINT, marginTop: 1, flexShrink: 0 }} />
