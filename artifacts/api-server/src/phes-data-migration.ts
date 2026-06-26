@@ -380,6 +380,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     // [multi-recipient-estimates 2026-06-25] Additional CC recipient emails on an
     // estimate (comma-separated). Additive + idempotent.
     { label: "estimates.cc_emails", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS cc_emails TEXT` },
+    // [estimate-flat-mode 2026-06-26] Flat-price estimates: one price for the
+    // whole job + scope-only line items. Additive + idempotent.
+    { label: "estimates.billing_mode", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS billing_mode TEXT NOT NULL DEFAULT 'itemized'` },
+    { label: "estimates.flat_price", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS flat_price NUMERIC(12,2) NOT NULL DEFAULT 0` },
     // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
     // native click-redirect / open-pixel tokens. Additive + idempotent.
     { label: "CREATE engagement_events", stmt: `

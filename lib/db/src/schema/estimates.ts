@@ -39,6 +39,12 @@ export const estimatesTable = pgTable("estimates", {
   terms: text("terms"),
   internal_notes: text("internal_notes"),
   status: text("status").notNull().default("draft"), // draft|sent|viewed|accepted|declined|expired
+  // [estimate-flat-mode 2026-06-26] How the estimate is priced/shown:
+  //   'itemized' (default) — line items each carry a price; total = sum.
+  //   'flat'     — one price for the whole job; line items are scope only
+  //                (name + frequency, no per-line price) and total = flat_price.
+  billing_mode: text("billing_mode").notNull().default("itemized"),
+  flat_price: numeric("flat_price", { precision: 12, scale: 2 }).notNull().default("0"),
   subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
   discount_amount: numeric("discount_amount", { precision: 12, scale: 2 }).notNull().default("0"),
   total: numeric("total", { precision: 12, scale: 2 }).notNull().default("0"),

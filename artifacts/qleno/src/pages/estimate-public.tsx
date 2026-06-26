@@ -38,6 +38,8 @@ type PublicEstimate = {
   intro_note: string | null;
   terms: string | null;
   status: string;
+  // [estimate-flat-mode] 'flat' → render scope list + single price; else itemized.
+  billing_mode?: string | null;
   subtotal: string;
   discount_amount: string;
   total: string;
@@ -263,6 +265,39 @@ export default function EstimatePublicPage() {
 
             {(() => {
               const opts = (Array.isArray(est.options) ? est.options : []).filter(o => o.configured);
+              // [estimate-flat-mode] One price + a scope checklist (no per-line
+              // prices). The total is the single flat price the office set.
+              if (est.billing_mode === "flat") {
+                return (
+                  <>
+                    {est.items.length > 0 && (
+                      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 10px" }}>What's included</p>
+                        {est.items.map((it, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "6px 0" }}>
+                            <span style={{ width: 18, height: 18, borderRadius: 5, background: MINT, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, fontSize: 12, fontWeight: 800, lineHeight: 1 }}>✓</span>
+                            <span style={{ fontSize: 14, color: INK }}>
+                              {it.name || "Service"}
+                              {it.frequency && <span style={{ color: MUTE }}>{` · ${it.frequency}`}</span>}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ marginBottom: 18 }}>
+                      {Number(est.discount_amount) > 0 && (
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#047857", padding: "3px 0" }}>
+                          <span>Discount</span><span>−{money(est.discount_amount)}</span>
+                        </div>
+                      )}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `2px solid ${INK}`, marginTop: 8, paddingTop: 10 }}>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: INK }}>Total</span>
+                        <span style={{ fontSize: 26, fontWeight: 800, color: MINT, letterSpacing: "-0.01em" }}>{money(est.total)}</span>
+                      </div>
+                    </div>
+                  </>
+                );
+              }
               // No snapshot → keep the original single line-items + total render.
               if (opts.length < 1) {
                 return (
