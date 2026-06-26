@@ -388,6 +388,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     // Additive + idempotent.
     { label: "estimate_templates.billing_mode", stmt: `ALTER TABLE estimate_templates ADD COLUMN IF NOT EXISTS billing_mode TEXT NOT NULL DEFAULT 'itemized'` },
     { label: "estimate_templates.flat_price", stmt: `ALTER TABLE estimate_templates ADD COLUMN IF NOT EXISTS flat_price NUMERIC(12,2) NOT NULL DEFAULT 0` },
+    // [estimate-flat-clarity 2026-06-26] Price unit ("$150 / visit") + optional
+    // free-text scope paragraph. Additive + idempotent.
+    { label: "estimates.flat_price_unit", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS flat_price_unit TEXT NOT NULL DEFAULT 'visit'` },
+    { label: "estimates.scope_note", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS scope_note TEXT` },
     // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
     // native click-redirect / open-pixel tokens. Additive + idempotent.
     { label: "CREATE engagement_events", stmt: `

@@ -28,6 +28,19 @@ async function apiFetch(path: string, opts: { method?: string; body?: any } = {}
 
 const money = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// [estimate-flat-clarity] What the flat price is charged per + the label suffix
+// ("$150 / visit"). "total" = a one-time price, so no suffix.
+const PRICE_UNITS = [
+  { v: "visit", label: "per visit" },
+  { v: "week", label: "per week" },
+  { v: "month", label: "per month" },
+  { v: "quarter", label: "per quarter" },
+  { v: "year", label: "per year" },
+  { v: "service", label: "per service" },
+  { v: "total", label: "one-time (total)" },
+];
+const unitSuffix = (u: string) => (u && u !== "total" ? ` / ${u}` : "");
+
 type PricingType = "flat" | "hourly" | "one_time";
 interface Item {
   name: string;
@@ -99,6 +112,10 @@ export default function EstimateBuilderPage() {
   // the whole job + a scope checklist). Default itemized.
   const [billingMode, setBillingMode] = useState<"itemized" | "flat">("itemized");
   const [flatPrice, setFlatPrice] = useState("");
+  // [estimate-flat-clarity] What the flat price is per + an optional free-text
+  // scope paragraph (alternative to itemizing the checklist).
+  const [flatPriceUnit, setFlatPriceUnit] = useState("visit");
+  const [scopeNote, setScopeNote] = useState("");
 
   // [estimate-templates-phase2] One-click template picker (new estimates only).
   const [templates, setTemplates] = useState<any[]>([]);
@@ -136,6 +153,8 @@ export default function EstimateBuilderPage() {
           setDiscount(String(e.discount_amount ?? "0"));
           setBillingMode(e.billing_mode === "flat" ? "flat" : "itemized");
           setFlatPrice(e.flat_price != null && Number(e.flat_price) > 0 ? String(e.flat_price) : "");
+          setFlatPriceUnit(e.flat_price_unit || "visit");
+          setScopeNote(e.scope_note || "");
           setValidUntil(e.valid_until ? String(e.valid_until).slice(0, 10) : "");
           setItems((e.items || []).length ? e.items.map(mapRow) : [blankItem()]);
         } else {
@@ -182,6 +201,8 @@ export default function EstimateBuilderPage() {
     discount_amount: Number(discount) || 0,
     billing_mode: billingMode,
     flat_price: billingMode === "flat" ? (Number(flatPrice) || 0) : 0,
+    flat_price_unit: flatPriceUnit,
+    scope_note: billingMode === "flat" ? (scopeNote.trim() || null) : null,
     valid_until: validUntil || null,
     // Flat mode persists scope only (name + shared frequency, no price); itemized
     // keeps the full priced line. Empty scope rows are dropped either way.
@@ -468,13 +489,26 @@ export default function EstimateBuilderPage() {
             <>
               <div style={{ marginBottom: 14, padding: "12px 14px", border: `1px solid ${BORDER}`, borderRadius: 10, background: "#FCFCFB" }}>
                 <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Service price</span>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
                   <span style={{ color: MUTE, fontSize: 16 }}>$</span>
-                  <input style={{ ...inp, maxWidth: 200, fontWeight: 700, fontSize: 16 }} type="number" min="0" step="0.01" value={flatPrice} onChange={e => setFlatPrice(e.target.value)} placeholder="0.00" />
-                  <span style={{ fontSize: 12, color: MUTE }}>one price for the whole job — shown to the client as the total</span>
+                  <input style={{ ...inp, maxWidth: 150, fontWeight: 700, fontSize: 16 }} type="number" min="0" step="0.01" value={flatPrice} onChange={e => setFlatPrice(e.target.value)} placeholder="0.00" />
+                  <select style={{ ...inp, maxWidth: 170 }} value={flatPriceUnit} onChange={e => setFlatPriceUnit(e.target.value)} aria-label="Price unit">
+                    {PRICE_UNITS.map(u => <option key={u.v} value={u.v}>{u.label}</option>)}
+                  </select>
                 </div>
+                <span style={{ display: "block", fontSize: 12, color: MUTE, marginTop: 6 }}>
+                  {flatPriceUnit === "total"
+                    ? `Client sees ${money(Number(flatPrice) || 0)} as a one-time total.`
+                    : `Client sees ${money(Number(flatPrice) || 0)}${unitSuffix(flatPriceUnit)} — the price for each ${flatPriceUnit}.`}
+                </span>
               </div>
-              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>What's included <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9CA3AF" }}>— scope shown to the client, no per-line price</span></span>
+
+              {/* [estimate-flat-clarity] Optional scope paragraph — describe the
+                  work in prose instead of (or alongside) the checklist below. */}
+              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Scope description <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9CA3AF" }}>— optional, shown to the client above the checklist</span></span>
+              <textarea style={{ ...inp, minHeight: 70, resize: "vertical", marginBottom: 14 }} value={scopeNote} onChange={e => setScopeNote(e.target.value)} placeholder="e.g. Full janitorial service for the suite — all offices, the break room, both restrooms, and common hallways, cleaned each visit. Supplies included." />
+
+              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>What's included <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9CA3AF" }}>— optional checklist, no per-line price</span></span>
               {items.map((it, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                   <span style={{ width: 20, height: 20, borderRadius: 6, background: MINT, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Check size={13} /></span>
@@ -528,7 +562,7 @@ export default function EstimateBuilderPage() {
           </div>
           <div style={{ borderTop: `1px solid ${BORDER}`, marginTop: 8, paddingTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Total</span>
-            <span style={{ fontSize: 22, fontWeight: 800, color: INK }}>{money(total)}</span>
+            <span style={{ fontSize: 22, fontWeight: 800, color: INK }}>{money(total)}{billingMode === "flat" && <span style={{ fontSize: 14, fontWeight: 600, color: MUTE }}>{unitSuffix(flatPriceUnit)}</span>}</span>
           </div>
         </div>
 
