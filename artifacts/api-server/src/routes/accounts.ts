@@ -185,7 +185,8 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin"), async (req, res
 });
 
 // DELETE /api/accounts/:id  (soft delete)
-router.delete("/:id", requireAuth, requireRole("owner"), async (req, res) => {
+// [office-admin-parity 2026-06-26] Office tier may delete customer accounts (Sal granted this).
+router.delete("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
 

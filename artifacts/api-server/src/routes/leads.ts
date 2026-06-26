@@ -292,7 +292,8 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
 });
 
 // ── DELETE /api/leads/:id ──────────────────────────────────────────────────────
-router.delete("/:id", requireAuth, requireRole("owner"), async (req, res) => {
+// [office-admin-parity 2026-06-26] Office tier may delete leads (Sal granted this).
+router.delete("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const leadId = parseInt(req.params.id);
@@ -321,7 +322,7 @@ router.delete("/:id", requireAuth, requireRole("owner"), async (req, res) => {
 // Child rows (activity log, follow-up enrollments) are removed and quote/sms
 // back-references cleared in the same transaction so nothing orphans. Every
 // deleted lead is audited (Sal: "all touches going to audit log").
-router.post("/bulk-delete", requireAuth, requireRole("owner"), async (req, res) => {
+router.post("/bulk-delete", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const { ids, generic } = req.body as { ids?: unknown; generic?: boolean };

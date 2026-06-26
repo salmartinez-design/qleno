@@ -276,8 +276,10 @@ export function LeaveBalanceTab({ employeeId }: { employeeId: number }) {
 
 export function DisciplineTab({ employeeId }: { employeeId: number }) {
   const role = getTokenRole();
-  const isOwner = role === "owner";
-  const canCreate = role === "owner" || role === "admin";
+  // [office-admin-parity 2026-06-26] Office tier has full discipline access:
+  // create records + confirm/dismiss pending ones (Sal granted full HR access).
+  const isOwner = role === "owner" || role === "admin" || role === "office" || role === "super_admin";
+  const canCreate = role === "owner" || role === "admin" || role === "office";
   const { toast } = useToast();
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
