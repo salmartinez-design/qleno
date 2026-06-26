@@ -190,7 +190,7 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
 // estimate's public token (→ the hosted /estimate/ page), total, property +
 // contact and the tenant brand. Merge fields used by the estimate sequence copy:
 // {{first_name}} {{company_name}} {{company_phone}} {{property}} {{monthly}} {{estimate_link}}.
-async function buildEstimateMergeVars(companyId: number, estimateId: number, enrollmentId?: number): Promise<Record<string, string>> {
+async function buildEstimateMergeVars(companyId: number, estimateId: number, enrollmentId?: number, recipientOverride?: string | null): Promise<Record<string, string>> {
   const r = await db.execute(sql`
     SELECT e.id, e.total, e.property_name, e.service_address, e.public_token, e.contact_name, e.contact_email,
            c.name AS company_name, c.phone AS company_phone, c.email AS company_email
@@ -206,7 +206,7 @@ async function buildEstimateMergeVars(companyId: number, estimateId: number, enr
   let link: string;
   if (enrollmentId) {
     const { createTrackedLink } = await import("../lib/engagement.js");
-    link = await createTrackedLink({ companyId, targetUrl: fullLink, estimateId, enrollmentId, recipient: e.contact_email ?? null });
+    link = await createTrackedLink({ companyId, targetUrl: fullLink, estimateId, enrollmentId, recipient: recipientOverride ?? e.contact_email ?? null });
   } else {
     link = e.public_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
   }
@@ -687,16 +687,16 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
   let body      = resolveMergeFields(rawBody, mergeVars);
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
   const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
-
-  // [engagement-phase4] Estimate email touches carry a 1x1 open pixel so opens
-  // are recorded natively, attributed to this estimate + enrollment.
-  if (enr.estimate_id && step.channel === "email") {
+  // Append a 1x1 open pixel to an estimate email body for `recipient`, minted so
+  // the open attributes to that exact person. Used per-recipient below.
+  const withPixel = async (b: string, recipient: string): Promise<string> => {
+    if (!(enr.estimate_id && step.channel === "email")) return b;
     try {
       const { createOpenPixel } = await import("../lib/engagement.js");
-      const pixel = await createOpenPixel({ companyId: enr.company_id, estimateId: enr.estimate_id, enrollmentId: enr.id, recipient: recipientEmail });
-      if (pixel) body += `\n<img src="${pixel}" width="1" height="1" alt="" style="display:none" />`;
-    } catch { /* pixel optional */ }
-  }
+      const px = await createOpenPixel({ companyId: enr.company_id, estimateId: enr.estimate_id, enrollmentId: enr.id, recipient });
+      return px ? `${b}\n<img src="${px}" width="1" height="1" alt="" style="display:none" />` : b;
+    } catch { return b; }
+  };
 
   let sendStatus = "sent";
   let sendError  = "";
@@ -731,9 +731,30 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
         sendError  = sender.reason || "branch_comms_disabled";
         console.log(`[follow-up] email suppressed (${sendError}) enrollment ${enr.id}`);
       } else {
-        const unsub = await buildEmailUnsubData(enr.company_id, recipientEmail);
-        // [multi-recipient-estimates] CC every additional recipient on each email touch.
-        await sendEmail(recipientEmail, subject, body, await companyFromAddress(enr.company_id), emailBrand, unsub ?? undefined, ccEmails);
+        const fromAddr = await companyFromAddress(enr.company_id);
+        if (enr.estimate_id) {
+          // [per-recipient-tracking] Estimate touches send an individual email to
+          // each recipient (To + every CC) with their OWN tracked link + open
+          // pixel, so opens/clicks attribute to the exact person. The To send
+          // drives the touch status; CC failures are logged, not fatal.
+          const recipients = [...new Set([recipientEmail, ...ccEmails].map(s => s.trim().toLowerCase()).filter(Boolean))];
+          for (let i = 0; i < recipients.length; i++) {
+            const rcpt = recipients[i];
+            if (i > 0 && await isEmailOptedOut(enr.company_id, rcpt)) continue;
+            const rVars = { ...mergeVars, ...(await buildEstimateMergeVars(enr.company_id, enr.estimate_id, enr.id, rcpt)) };
+            const rBody = await withPixel(resolveMergeFields(rawBody, rVars), rcpt);
+            const rUnsub = await buildEmailUnsubData(enr.company_id, rcpt);
+            if (i === 0) {
+              await sendEmail(rcpt, subject, rBody, fromAddr, emailBrand, rUnsub ?? undefined);
+            } else {
+              try { await sendEmail(rcpt, subject, rBody, fromAddr, emailBrand, rUnsub ?? undefined); }
+              catch (e: any) { console.error(`[follow-up] CC send failed (${rcpt}) enrollment ${enr.id}:`, e?.message || e); }
+            }
+          }
+        } else {
+          const unsub = await buildEmailUnsubData(enr.company_id, recipientEmail);
+          await sendEmail(recipientEmail, subject, body, fromAddr, emailBrand, unsub ?? undefined, ccEmails);
+        }
       }
     } else {
       sendStatus = "failed";
