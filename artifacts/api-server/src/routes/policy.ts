@@ -9,8 +9,13 @@ import { eq } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 
 const router = Router();
-const OWNER_ONLY = requireRole("owner");
 const OWNER_ADMIN = requireRole("owner", "admin");
+// [office-admin-parity 2026-06-26] HR pay/attendance/leave policy edits used to
+// be OWNER-only. Per Sal, the office/management tier needs full access — "all I
+// can." Editing these policies (commission %, mileage/overtime rules, accrual,
+// attendance steps) is now owner/admin/office. Reads were already owner/admin
+// (office via the requireRole choke point); writes now match.
+const MANAGER_TIER = requireRole("owner", "admin", "office");
 
 async function getOrCreatePayPolicy(companyId: number) {
   const rows = await db.select().from(companyPayPolicyTable).where(eq(companyPayPolicyTable.company_id, companyId)).limit(1);
@@ -43,7 +48,7 @@ router.get("/pay", requireAuth, OWNER_ADMIN, async (req, res) => {
   }
 });
 
-router.put("/pay", requireAuth, OWNER_ONLY, async (req, res) => {
+router.put("/pay", requireAuth, MANAGER_TIER, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const existing = await getOrCreatePayPolicy(companyId);
@@ -82,7 +87,7 @@ router.get("/attendance", requireAuth, OWNER_ADMIN, async (req, res) => {
   }
 });
 
-router.put("/attendance", requireAuth, OWNER_ONLY, async (req, res) => {
+router.put("/attendance", requireAuth, MANAGER_TIER, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const existing = await getOrCreateAttendancePolicy(companyId);
@@ -114,7 +119,7 @@ router.get("/leave", requireAuth, OWNER_ADMIN, async (req, res) => {
   }
 });
 
-router.put("/leave", requireAuth, OWNER_ONLY, async (req, res) => {
+router.put("/leave", requireAuth, MANAGER_TIER, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const existing = await getOrCreateLeavePolicy(companyId);

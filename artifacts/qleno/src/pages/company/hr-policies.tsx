@@ -238,7 +238,13 @@ function HolidayEditor({ holidays, onChange }: { holidays: Holiday[]; onChange: 
 
 export function HRPoliciesTab() {
   const role = getTokenRole();
-  const isOwner = role === "owner" || role === "super_admin";
+  // [office-admin-parity 2026-06-26] Pay/attendance/leave policy editing is now
+  // open to the full management tier (owner/admin/office), not owner-only — Sal:
+  // office "needs to make edits, all I can." The backend matches (policy.ts
+  // MANAGER_TIER). Name kept as `isOwner` since it gates ~40 inputs/save buttons
+  // as "can edit policy".
+  const isOwner =
+    role === "owner" || role === "super_admin" || role === "admin" || role === "office";
   const { toast } = useToast();
 
   const [payPolicy, setPayPolicy] = useState<any>(null);
