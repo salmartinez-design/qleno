@@ -6,6 +6,22 @@ import { requireAuth } from "../lib/auth.js";
 import { enrollForEstimateSent, stopEnrollmentsForEstimate, fireEstimateDay0 } from "../services/followUpService.js";
 import { recordEngagementEvent } from "../lib/engagement.js";
 import { renderEstimatePdf } from "../lib/estimate-pdf.js";
+import { appBaseUrl } from "../lib/app-url.js";
+
+// Fetch a company logo for embedding in the PDF. pdfkit only supports PNG/JPEG,
+// so anything else (or a fetch failure) falls back to the company name text.
+async function fetchLogoBuffer(logoUrl: string | null | undefined): Promise<Buffer | null> {
+  if (!logoUrl) return null;
+  try {
+    const abs = /^https?:\/\//i.test(logoUrl) ? logoUrl : `${appBaseUrl()}${logoUrl}`;
+    const r = await fetch(abs);
+    if (!r.ok) return null;
+    if (!/image\/(png|jpe?g)/i.test(r.headers.get("content-type") || "")) return null;
+    return Buffer.from(await r.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
 
 // [commercial-estimate-tool 2026-06-09] Commercial / common-area estimates.
 // Raw SQL (db.execute) on purpose: the estimate tables are brand-new and the
@@ -671,7 +687,7 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
     const companyId = req.auth!.companyId;
     const id = parseInt(req.params.id, 10);
     const e = await db.execute(sql`
-      SELECT e.*, c.name AS company_name
+      SELECT e.*, c.name AS company_name, c.logo_url AS company_logo
       FROM estimates e JOIN companies c ON c.id = e.company_id
       WHERE e.id = ${id} AND e.company_id = ${companyId} LIMIT 1
     `);
@@ -681,8 +697,9 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
       SELECT name, pricing_type, frequency, quantity, unit_rate, amount
       FROM estimate_line_items WHERE estimate_id = ${id} AND company_id = ${companyId} ORDER BY sort_order
     `);
+    const logo = await fetchLogoBuffer(est.company_logo);
     const pdf = await renderEstimatePdf({
-      companyName: est.company_name || "Estimate",
+      companyName: est.company_name || "Estimate", logo,
       estimateNumber: est.estimate_number, status: est.status,
       title: est.title, introNote: est.intro_note,
       contactName: est.contact_name, propertyName: est.property_name, serviceAddress: est.service_address,

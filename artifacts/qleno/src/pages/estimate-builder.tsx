@@ -300,7 +300,9 @@ export default function EstimateBuilderPage() {
   // to a download if a popup is blocked.
   const [pdfBusy, setPdfBusy] = useState(false);
   async function downloadPdf() {
-    const savedId = id || (await save());
+    // Always persist current edits first — the PDF is rendered server-side from
+    // the saved row, so a stale save would preview the wrong content.
+    const savedId = await save();
     if (!savedId) return;
     setPdfBusy(true);
     try {
@@ -318,7 +320,8 @@ export default function EstimateBuilderPage() {
   }
 
   async function markSent() {
-    const savedId = id || (await save());
+    // Persist current edits before sending so the client gets what's on screen.
+    const savedId = await save();
     if (!savedId) return;
     try {
       const r = await apiFetch(`/api/estimates/${savedId}/send`, { method: "POST" });
