@@ -37,21 +37,21 @@ const presetDelays = (factor: number) => BASE_DELAYS.map((h, i) => (i === 0 ? 0 
 
 const DEFAULT_STEPS: Step[] = [
   { channel: "email", delay_hours: 0, subject: "Your cleaning estimate for {{property}}",
-    message_template: "Hi {{first_name}},\n\nThank you for the opportunity to quote cleaning for {{property}}. Your estimate comes to ${{monthly}} for the service outlined.\n\nView the full details and approve it here:\n{{estimate_link}}\n\nHappy to walk through anything or adjust the scope — just reply or call {{company_phone}}.\n\n— {{company_name}}" },
+    message_template: "Hi {{first_name}},\n\nThank you for the opportunity to quote cleaning for {{property}}. Your estimate comes to ${{monthly}} for the service outlined.\n\nYou can review the full details and approve it here:\n{{estimate_link}}\n\nIf you have any questions or want to adjust the scope, just reply or call {{company_phone}}.\n\nThank you,\n{{company_name}}" },
   { channel: "sms", delay_hours: 2, subject: null,
-    message_template: "Hi {{first_name}}, it's {{company_name}} — just emailed your cleaning estimate for {{property}} (${{monthly}}). Here's the link: {{estimate_link}}. Any questions, just reply." },
+    message_template: "Hi {{first_name}}, it is {{company_name}}. We just emailed your cleaning estimate for {{property}} (${{monthly}}). Here is the link: {{estimate_link}}. Any questions, just reply." },
   { channel: "email", delay_hours: 48, subject: "Did you get your estimate?",
-    message_template: "Hi {{first_name}},\n\nJust making sure the cleaning estimate for {{property}} reached you. Review and approve it here:\n{{estimate_link}}\n\nIf anything needs adjusting — frequency, scope, budget — tell me and I'll revise it the same day.\n\n— {{company_name}}" },
+    message_template: "Hi {{first_name}},\n\nJust making sure the cleaning estimate for {{property}} reached you. You can review and approve it here:\n{{estimate_link}}\n\nIf anything needs adjusting, like the frequency, scope, or budget, let me know and I will revise it the same day.\n\nThank you,\n{{company_name}}" },
   { channel: "sms", delay_hours: 48, subject: null,
-    message_template: "Hi {{first_name}}, {{company_name}} checking in on your estimate for {{property}} — still happy to answer any questions. Here it is again: {{estimate_link}}" },
-  { channel: "email", delay_hours: 72, subject: "Why {{company_name}}",
-    message_template: "Hi {{first_name}},\n\nA quick note on what you get with {{company_name}}: fully insured, background-checked crews, a consistent team that learns your building, and one point of contact for anything.\n\nYour estimate for {{property}} is still ready here:\n{{estimate_link}}\n\n— {{company_name}}" },
+    message_template: "Hi {{first_name}}, {{company_name}} checking in on your estimate for {{property}}. Happy to answer any questions. Here it is again: {{estimate_link}}" },
+  { channel: "email", delay_hours: 72, subject: "Why property managers choose {{company_name}}",
+    message_template: "Hi {{first_name}},\n\nA quick note on what you get with {{company_name}}. Fully insured, background checked crews, a consistent team that learns your building, and one point of contact for anything you need.\n\nYour estimate for {{property}} is still ready here:\n{{estimate_link}}\n\nThank you,\n{{company_name}}" },
   { channel: "sms", delay_hours: 72, subject: null,
-    message_template: "Hi {{first_name}}, ready to get {{property}} on the schedule? We can usually start within a week. Reply YES and we'll hold a spot. {{estimate_link}}" },
-  { channel: "email", delay_hours: 72, subject: "Holding a spot for {{property}}",
-    message_template: "Hi {{first_name}},\n\nWe have a few openings coming up and I'd love to hold one for {{property}}. Approve your estimate and we'll lock in your start date:\n{{estimate_link}}\n\n— {{company_name}}" },
+    message_template: "Hi {{first_name}}, ready to get {{property}} on the schedule? We can usually start within a week. Reply YES and we will hold a spot. {{estimate_link}}" },
+  { channel: "email", delay_hours: 72, subject: "Lets get {{property}} on the schedule",
+    message_template: "Hi {{first_name}},\n\nWe have a few openings coming up and I would love to hold one for {{property}}. Approve your estimate and we will lock in your start date:\n{{estimate_link}}\n\nThank you,\n{{company_name}}" },
   { channel: "email", delay_hours: 72, subject: "Closing the loop on your estimate",
-    message_template: "Hi {{first_name}},\n\nI don't want to crowd your inbox, so this is my last note for now. If the timing isn't right, no problem — your estimate for {{property}} stays here whenever you're ready:\n{{estimate_link}}\n\nThanks for considering {{company_name}}." },
+    message_template: "Hi {{first_name}},\n\nI do not want to crowd your inbox, so this is my last note for now. If the timing is not right, no problem at all. Your estimate for {{property}} stays here whenever you are ready:\n{{estimate_link}}\n\nThank you for considering {{company_name}}." },
 ];
 
 const lbl: React.CSSProperties = { display: "block", fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", marginBottom: 6 };

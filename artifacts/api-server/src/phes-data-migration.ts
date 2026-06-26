@@ -5142,10 +5142,10 @@ export const ESTIMATE_SEQUENCE_STEPS: ReadonlyArray<{
 }> = [
   { step_number: 1, delay_hours: 0, channel: "email",
     subject: "Your cleaning estimate for {{property}}",
-    message_template: "Hi {{first_name}}, thank you for the opportunity to quote cleaning for {{property}}. Your estimate is ready to review here: {{estimate_link}} — it comes to ${{monthly}} for the service outlined. Reply to this email or call {{company_phone}} with any questions. We would love to earn your business." },
+    message_template: "Hi {{first_name}}, thank you for the opportunity to quote cleaning for {{property}}. Your estimate is ready to review here: {{estimate_link}}. It comes to ${{monthly}} for the service outlined. Reply to this email or call {{company_phone}} with any questions. We would love to earn your business." },
   { step_number: 2, delay_hours: 2, channel: "sms",
     subject: null,
-    message_template: "Hi {{first_name}}, it's {{company_name}} — just sent your cleaning estimate for {{property}}. View it here: {{estimate_link}}. Happy to answer any questions!" },
+    message_template: "Hi {{first_name}}, it is {{company_name}}. We just sent your cleaning estimate for {{property}}. View it here: {{estimate_link}}. Happy to answer any questions!" },
   { step_number: 3, delay_hours: 48, channel: "email",
     subject: "Did you get your estimate?",
     message_template: "Hi {{first_name}}, just making sure you received the cleaning estimate for {{property}}. Here it is again: {{estimate_link}}. Any questions about the scope or scheduling? Reply here or call {{company_phone}}." },
@@ -5163,7 +5163,7 @@ export const ESTIMATE_SEQUENCE_STEPS: ReadonlyArray<{
     message_template: "Hi {{first_name}}, we have openings coming up and would love to hold a spot for {{property}}. Approve your estimate whenever you are ready: {{estimate_link}}. Questions? Call {{company_phone}}." },
   { step_number: 8, delay_hours: 72, channel: "email",
     subject: "Closing the loop on your estimate",
-    message_template: "Hi {{first_name}}, I do not want to crowd your inbox, so this is my last note for now. Your estimate for {{property}} stays valid and ready whenever you are: {{estimate_link}}. Thank you for considering {{company_name}} — call {{company_phone}} anytime." },
+    message_template: "Hi {{first_name}}, I do not want to crowd your inbox, so this is my last note for now. Your estimate for {{property}} stays valid and ready whenever you are: {{estimate_link}}. Thank you for considering {{company_name}}. Call {{company_phone}} anytime." },
 ];
 
 async function runEstimateSequenceSeed(): Promise<void> {
