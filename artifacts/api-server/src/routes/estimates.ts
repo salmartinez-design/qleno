@@ -921,6 +921,45 @@ router.post("/:id/mark-outcome", requireAuth, async (req, res) => {
   }
 });
 
+// Ensure a client record exists for an estimate's contact (so the existing
+// Stripe save-card payment-link flow can target it). Links it back onto the
+// estimate. Returns the client id + contact channels for sending the link.
+router.post("/:id/ensure-client", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const e = await db.execute(sql`
+      SELECT id, client_id, contact_name, contact_email, contact_phone, property_name
+      FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1
+    `);
+    const est = (e as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+    if (est.client_id) return res.json({ client_id: est.client_id, email: est.contact_email, phone: est.contact_phone });
+
+    let clientId: number | null = null;
+    if (est.contact_email) {
+      const f = await db.execute(sql`SELECT id FROM clients WHERE company_id = ${companyId} AND lower(email) = lower(${est.contact_email}) LIMIT 1`);
+      clientId = (f as any).rows[0]?.id ?? null;
+    }
+    if (!clientId) {
+      const parts = String(est.contact_name || "").trim().split(/\s+/).filter(Boolean);
+      const first = parts[0] || "Client";
+      const last = parts.slice(1).join(" ") || est.property_name || "Contact";
+      const ins = await db.execute(sql`
+        INSERT INTO clients (company_id, first_name, last_name, email, phone, client_type, payment_method)
+        VALUES (${companyId}, ${first}, ${last}, ${str(est.contact_email, 200)}, ${str(est.contact_phone, 40)}, 'commercial', 'card_on_file')
+        RETURNING id
+      `);
+      clientId = (ins as any).rows[0].id;
+    }
+    await db.execute(sql`UPDATE estimates SET client_id = ${clientId}, updated_at = now() WHERE id = ${id} AND company_id = ${companyId}`);
+    return res.json({ client_id: clientId, email: est.contact_email, phone: est.contact_phone });
+  } catch (err) {
+    console.error("Estimate ensure-client error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── Create estimate ─────────────────────────────────────────────────────────
 router.post("/", requireAuth, async (req, res) => {
   try {
