@@ -20,6 +20,18 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
   return r.json();
 }
 
+// Open an auth-gated PDF (invoice/quote) in a new tab — window.open can't carry
+// the Bearer header, so fetch with auth → blob URL → open.
+async function openAuthedPdf(path: string) {
+  try {
+    const r = await fetch(`${API}${path}`, { headers: getAuthHeaders() });
+    if (!r.ok) { alert("Could not open the PDF."); return; }
+    const url = URL.createObjectURL(await r.blob());
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch { alert("Could not open the PDF."); }
+}
+
 async function apiFetchJSON(path: string, opts: RequestInit = {}) {
   return apiFetch(path, { ...opts, headers: { "Content-Type": "application/json", ...opts.headers } });
 }
@@ -193,6 +205,9 @@ export function QuotesTab({ clientId, client }: { clientId: number; client: any 
                   <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B7280" }}>{q.sent_at ? fmtDate(q.sent_at) : "—"}</td>
                   <td style={{ padding: "12px 14px" }}>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      <button onClick={() => openAuthedPdf(`/api/quotes/${q.id}/pdf`)} style={{ backgroundColor: "#F3F4F6", color: "#374151", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
+                        PDF
+                      </button>
                       {q.status === "draft" && (
                         <button onClick={() => sendMut.mutate(q.id)} disabled={sendMut.isPending} style={{ backgroundColor: "#EFF6FF", color: "#1D4ED8", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}>
                           <Send size={10} /> Send

@@ -289,6 +289,80 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
   }
 });
 
+// ── Quote PDF ────────────────────────────────────────────────────────────────
+// Branded, downloadable PDF of the quote — reuses the estimate PDF renderer so
+// quotes and estimates look identical to the customer. Inline disposition.
+router.get("/:id/pdf", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id);
+    const [q] = await db
+      .select({
+        client_id: quotesTable.client_id,
+        lead_name: quotesTable.lead_name,
+        address: quotesTable.address,
+        service_type: quotesTable.service_type,
+        frequency: quotesTable.frequency,
+        base_price: quotesTable.base_price,
+        total_price: quotesTable.total_price,
+        discount_amount: quotesTable.discount_amount,
+        status: quotesTable.status,
+        notes: quotesTable.notes,
+        created_at: quotesTable.created_at,
+        client_first: clientsTable.first_name,
+        client_last: clientsTable.last_name,
+      })
+      .from(quotesTable)
+      .leftJoin(clientsTable, eq(quotesTable.client_id, clientsTable.id))
+      .where(and(eq(quotesTable.id, id), eq(quotesTable.company_id, companyId)))
+      .limit(1);
+    if (!q) return res.status(404).json({ error: "Not Found" });
+
+    const co = await db.execute(sql`SELECT name, logo_url FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const company: any = (co as any).rows[0] ?? {};
+    let logo: Buffer | null = null;
+    if (company.logo_url && /^https?:\/\//i.test(company.logo_url)) {
+      try {
+        const r = await fetch(company.logo_url);
+        if (r.ok && /image\/(png|jpe?g)/i.test(r.headers.get("content-type") || "")) logo = Buffer.from(await r.arrayBuffer());
+      } catch { logo = null; }
+    }
+
+    const total = Number(q.total_price ?? q.base_price ?? 0);
+    const discount = Number(q.discount_amount ?? 0);
+    const contactName = [q.client_first, q.client_last].filter(Boolean).join(" ") || q.lead_name || null;
+    const svcLabel = (q.service_type || "Cleaning Service").replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+
+    const { renderEstimatePdf } = await import("../lib/estimate-pdf.js");
+    const pdf = await renderEstimatePdf({
+      companyName: company.name || "Quote",
+      logo,
+      estimateNumber: `Q-${id}`,
+      status: q.status || "draft",
+      title: svcLabel,
+      introNote: null,
+      contactName,
+      propertyName: null,
+      serviceAddress: q.address || null,
+      billingMode: "flat",
+      flatPriceUnit: q.frequency && q.frequency !== "one_time" ? "visit" : "total",
+      scopeNote: q.notes || null,
+      items: [{ name: svcLabel, pricing_type: "flat", frequency: q.frequency || null, quantity: 1, unit_rate: total, amount: total }],
+      subtotal: total + discount,
+      discount,
+      total,
+      terms: null,
+      validUntil: null,
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="quote-${id}.pdf"`);
+    return res.end(pdf);
+  } catch (err) {
+    console.error("Quote PDF error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to render quote PDF" });
+  }
+});
+
 router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);

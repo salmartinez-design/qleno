@@ -613,24 +613,40 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
 
     const result = await db.execute(sql`
       SELECT * FROM (
-        SELECT sent_at AS at, channel::text AS channel, 'outbound'::text AS direction,
-               trigger::text AS type, recipient::text AS recipient, status::text AS status,
-               NULL::text AS subject, NULL::text AS body, 'automated'::text AS source
-          FROM notification_log
-         WHERE company_id = ${companyId}
-           AND (( ${email} <> '' AND recipient = ${email}) OR ( ${phone} <> '' AND recipient = ${phone}))
+        SELECT nl.sent_at AS at, nl.channel::text AS channel, 'outbound'::text AS direction,
+               nl.trigger::text AS type, nl.recipient::text AS recipient, nl.status::text AS status,
+               NULL::text AS subject, NULL::text AS body, 'automated'::text AS source,
+               CASE WHEN nl.trigger = 'invoice_sent' THEN 'invoice' END::text AS doc_type,
+               CASE WHEN nl.trigger = 'invoice_sent'
+                    THEN (SELECT i.id FROM invoices i
+                           WHERE i.company_id = nl.company_id AND i.client_id = ${clientId}
+                             AND i.invoice_number = (nl.metadata->>'invoice_number') LIMIT 1)
+               END AS doc_id
+          FROM notification_log nl
+         WHERE nl.company_id = ${companyId}
+           AND (( ${email} <> '' AND nl.recipient = ${email}) OR ( ${phone} <> '' AND nl.recipient = ${phone}))
         UNION ALL
         SELECT created_at AS at, 'sms'::text AS channel, direction::text AS direction,
                'sms'::text AS type, COALESCE(to_number, from_number)::text AS recipient,
-               status::text AS status, NULL::text AS subject, body::text AS body, 'two_way'::text AS source
+               status::text AS status, NULL::text AS subject, body::text AS body, 'two_way'::text AS source,
+               NULL::text AS doc_type, NULL::int AS doc_id
           FROM sms_messages
          WHERE company_id = ${companyId} AND client_id = ${clientId}
         UNION ALL
         SELECT logged_at AS at, channel::text AS channel, direction::text AS direction,
                COALESCE(source, 'message')::text AS type, recipient::text AS recipient,
-               delivery_status::text AS status, subject::text AS subject, body::text AS body, 'logged'::text AS source
+               delivery_status::text AS status, subject::text AS subject, body::text AS body, 'logged'::text AS source,
+               NULL::text AS doc_type, NULL::int AS doc_id
           FROM communication_log
          WHERE company_id = ${companyId} AND customer_id = ${clientId}
+        UNION ALL
+        SELECT sent_at AS at, channel::text AS channel, 'outbound'::text AS direction,
+               COALESCE(sequence_name, 'message')::text AS type,
+               COALESCE(recipient_email, recipient_phone)::text AS recipient,
+               status::text AS status, subject::text AS subject, body::text AS body, 'cadence'::text AS source,
+               NULL::text AS doc_type, NULL::int AS doc_id
+          FROM message_log
+         WHERE company_id = ${companyId} AND client_id = ${clientId}
       ) t
       ORDER BY at DESC NULLS LAST
       LIMIT 200`);

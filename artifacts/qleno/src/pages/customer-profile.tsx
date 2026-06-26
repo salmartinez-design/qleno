@@ -1378,8 +1378,9 @@ function BillingTab({ invoices }: { invoices: any[] }) {
                     {inv.status}
                   </span>
                 </td>
-                <td style={{ padding: "12px 16px" }}>
+                <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
                   <button onClick={() => navigate(`/invoices/${inv.id}`)} style={{ fontSize: "12px", color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>View</button>
+                  <button onClick={() => openAuthedPdf(`/api/invoices/${inv.id}/pdf`)} style={{ fontSize: "12px", color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginLeft: 12 }}>PDF</button>
                 </td>
               </tr>
             ))}
@@ -5484,6 +5485,18 @@ function ActivityTab({ clientId }: { clientId: number }) {
   );
 }
 
+// Open an auth-gated PDF (invoice/quote) in a new tab. window.open can't send
+// the Bearer header, so fetch with auth → blob URL → open.
+async function openAuthedPdf(path: string) {
+  try {
+    const r = await fetch(`${API}${path}`, { headers: getAuthHeaders() });
+    if (!r.ok) { alert("Could not open the PDF."); return; }
+    const url = URL.createObjectURL(await r.blob());
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch { alert("Could not open the PDF."); }
+}
+
 // Per-customer message timeline — every automated + manual text/email we've
 // sent this customer, newest first (GET /api/clients/:id/messages).
 function CustomerMessagesTab({ clientId }: { clientId: number }) {
@@ -5526,6 +5539,12 @@ function CustomerMessagesTab({ clientId }: { clientId: number }) {
               </p>
             )}
             <span style={{ fontSize: 11, fontWeight: 600, color: statusColor(m.status) }}>{m.status || ""}</span>
+            {m.doc_type && m.doc_id && (
+              <button onClick={() => openAuthedPdf(`/api/${m.doc_type === "quote" ? "quotes" : "invoices"}/${m.doc_id}/pdf`)}
+                style={{ marginLeft: 10, fontSize: 11, fontWeight: 600, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                View PDF
+              </button>
+            )}
           </div>
         </div>
       ))}
