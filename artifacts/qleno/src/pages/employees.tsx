@@ -47,15 +47,16 @@ export default function EmployeesPage() {
   const [search, setSearch] = useState('');
   const [inviteModal, setInviteModal] = useState(false);
   const isOwner = getTokenRole() === 'owner';
-  // [office-perms 2026-06-17] Who can act on (view-as / manage) a given row.
-  // Mirrors the backend guards: owner → any non-owner; admin → non-admins;
-  // office → technicians/team_leads only (never a peer or the owner).
+  // [office-admin-parity 2026-06-26] Who can act on (view-as / manage) a given
+  // row. Mirrors the backend guards: owner → any non-owner; office is elevated
+  // to the same → any non-owner; admin → non-admins. The owner row is never
+  // actionable by anyone but the owner.
   const myRole = getTokenRole() || '';
   const canActOn = (u: any) => {
     if (u.role === 'owner') return false;
     if (myRole === 'owner') return true;
+    if (myRole === 'office') return true;
     if (myRole === 'admin') return u.role !== 'admin';
-    if (myRole === 'office') return u.role === 'technician' || u.role === 'team_lead';
     return false;
   };
   const { activateView } = useEmployeeView();
