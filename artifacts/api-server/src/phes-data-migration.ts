@@ -428,6 +428,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "form_submissions.viewed_at", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ` },
     { label: "form_submissions.user_agent", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS user_agent TEXT` },
     { label: "form_submissions.consent_at", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ` },
+    // [agreement-review] Per-send editable agreement text + link to the estimate.
+    { label: "form_submissions.terms_body_override", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS terms_body_override TEXT` },
+    { label: "form_submissions.estimate_id", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS estimate_id INTEGER` },
+    { label: "idx form_submissions estimate", stmt: `CREATE INDEX IF NOT EXISTS idx_form_submissions_estimate ON form_submissions(estimate_id)` },
     // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
     // native click-redirect / open-pixel tokens. Additive + idempotent.
     { label: "CREATE engagement_events", stmt: `

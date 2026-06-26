@@ -1007,9 +1007,10 @@ router.post("/:id/send-agreement", requireAuth, async (req, res) => {
     if (!templateId) return res.json({ sent: false, reason: "no_template" });
     const token = randomUUID();
     const expires = new Date(); expires.setDate(expires.getDate() + 30);
+    const bodyOverride = str(req.body?.terms_body, 20000) || null;
     const ins = await db.execute(sql`
-      INSERT INTO form_submissions (company_id, form_id, client_id, responses, status, sign_token, sent_at, sent_to, expires_at, submitted_by)
-      VALUES (${companyId}, ${templateId}, ${est.client_id ?? null}, '{}'::jsonb, 'pending', ${token}, now(), ${est.contact_email}, ${expires}, ${req.auth!.userId})
+      INSERT INTO form_submissions (company_id, form_id, client_id, estimate_id, responses, status, sign_token, sent_at, sent_to, expires_at, submitted_by, terms_body_override)
+      VALUES (${companyId}, ${templateId}, ${est.client_id ?? null}, ${id}, '{}'::jsonb, 'pending', ${token}, now(), ${est.contact_email}, ${expires}, ${req.auth!.userId}, ${bodyOverride})
       RETURNING id
     `);
     const submissionId = (ins as any).rows[0].id;
@@ -1018,6 +1019,48 @@ router.post("/:id/send-agreement", requireAuth, async (req, res) => {
     return res.json({ sent: true, signing_url: `${appBaseUrl()}/sign/${token}`, sent_to: est.contact_email });
   } catch (err) {
     console.error("Estimate send-agreement error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Draft for the Send-agreement review modal: the template body (or a prior edit)
+// + recipient so the office sees exactly what will be sent and can edit it.
+router.get("/:id/agreement-draft", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const e = await db.execute(sql`SELECT contact_email, contact_name FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    const est: any = (e as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+    const tpl = await db.execute(sql`
+      SELECT id, name, terms_body FROM form_templates
+      WHERE company_id = ${companyId} AND requires_sign = true AND is_active = true
+        AND (category = 'commercial' OR name ILIKE '%agreement%')
+      ORDER BY (name ILIKE '%commercial%') DESC, id ASC LIMIT 1
+    `);
+    const t: any = (tpl as any).rows[0];
+    if (!t) return res.json({ has_template: false });
+    return res.json({ has_template: true, template_id: t.id, title: t.name, body: t.terms_body || "", to: est.contact_email, to_name: est.contact_name });
+  } catch (err) {
+    console.error("Estimate agreement-draft error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Track the e-sign agreements sent for this estimate (status + audit + links).
+router.get("/:id/agreements", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const rows = await db.execute(sql`
+      SELECT id, sign_token, status, sent_to, sent_at, viewed_at, signature_at, signature_name, pdf_url
+      FROM form_submissions
+      WHERE estimate_id = ${id} AND company_id = ${companyId}
+      ORDER BY id DESC
+    `);
+    return res.json({ data: (rows as any).rows });
+  } catch (err) {
+    console.error("Estimate agreements list error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

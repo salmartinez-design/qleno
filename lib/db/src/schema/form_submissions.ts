@@ -26,6 +26,12 @@ export const formSubmissionsTable = pgTable("form_submissions", {
   sent_at: timestamp("sent_at"),
   sent_to: text("sent_to"),
   expires_at: timestamp("expires_at"),
+  // [agreement-esign] Audit + per-send edits.
+  viewed_at: timestamp("viewed_at"),
+  user_agent: text("user_agent"),
+  consent_at: timestamp("consent_at"),
+  terms_body_override: text("terms_body_override"),
+  estimate_id: integer("estimate_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick, MessageSquare, X, CreditCard, FileSignature } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick, MessageSquare, X, CreditCard, FileSignature, MoreHorizontal, Copy, ShieldCheck, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
@@ -393,25 +393,39 @@ export default function EstimateBuilderPage() {
     finally { setCardBusy(false); }
   }
 
-  // [agreement-esign] Send the e-signable commercial service agreement.
+  // [agreement-esign] Review → edit → send the e-signable agreement.
   const [agrBusy, setAgrBusy] = useState(false);
   const [agrLink, setAgrLink] = useState<{ url: string; to: string } | null>(null);
+  const [agrModal, setAgrModal] = useState<null | { title: string; to: string; to_name: string }>(null);
+  const [agrBody, setAgrBody] = useState("");
+  const [agrVersion, setAgrVersion] = useState(0);
   const AGR_REASON: Record<string, string> = {
     no_email: "Add a contact email first, then send the agreement.",
     no_template: "No agreement template found. Create one in Settings → Agreements.",
   };
-  async function sendAgreement() {
+  async function openAgreement() {
     const savedId = await save();
     if (!savedId) return;
     setAgrBusy(true);
     try {
-      const r = await apiFetch(`/api/estimates/${savedId}/send-agreement`, { method: "POST" });
-      if (r.sent) { setAgrLink({ url: r.signing_url, to: r.sent_to }); }
-      else toast.error(AGR_REASON[r.reason] || "Couldn't create the agreement.");
-    } catch { toast.error("Couldn't create the agreement."); }
+      const d = await apiFetch(`/api/estimates/${savedId}/agreement-draft`);
+      if (!d.has_template) { toast.error(AGR_REASON.no_template); return; }
+      setAgrModal({ title: d.title, to: d.to, to_name: d.to_name }); setAgrBody(d.body || "");
+    } catch { toast.error("Couldn't load the agreement"); }
+    finally { setAgrBusy(false); }
+  }
+  async function submitAgreement() {
+    if (!id) return;
+    setAgrBusy(true);
+    try {
+      const r = await apiFetch(`/api/estimates/${id}/send-agreement`, { method: "POST", body: { terms_body: agrBody } });
+      if (r.sent) { setAgrModal(null); setAgrLink({ url: r.signing_url, to: r.sent_to }); setAgrVersion(v => v + 1); }
+      else toast.error(AGR_REASON[r.reason] || "Couldn't send the agreement.");
+    } catch { toast.error("Couldn't send the agreement."); }
     finally { setAgrBusy(false); }
   }
 
+  const [moreOpen, setMoreOpen] = useState(false);
   const [pdfBusy, setPdfBusy] = useState(false);
   async function downloadPdf() {
     // Always persist current edits first — the PDF is rendered server-side from
@@ -507,6 +521,7 @@ export default function EstimateBuilderPage() {
           </div>
         )}
         {id && status !== "draft" && <EstimateTracking estimateId={id} version={trackVersion} />}
+        {id && <AgreementTracking estimateId={id} version={agrVersion} />}
 
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 18 }}>
           <h1 style={{ fontSize: 23, fontWeight: 800, color: INK, margin: 0 }}>{isNew && !id ? "New Estimate" : (estimateNumber || "Estimate")}</h1>
@@ -724,16 +739,32 @@ export default function EstimateBuilderPage() {
 
       {/* Sticky action bar */}
       <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#fff", borderTop: `1px solid ${BORDER}`, padding: "12px 16px", display: "flex", justifyContent: "center", gap: 10, zIndex: 20 }}>
-        <div style={{ display: "flex", gap: 10, width: "100%", maxWidth: 860 }}>
-          <button onClick={saveAsTemplate} style={ghostBtn}><LayoutTemplate size={15} /> Save as template</button>
-          <div style={{ flex: 1 }} />
-          <span style={{ alignSelf: "center", fontSize: 12, fontWeight: 600, marginRight: 4, whiteSpace: "nowrap", color: autoStatus === "error" ? "#B91C1C" : MUTE }}>
+        <div style={{ display: "flex", gap: 10, width: "100%", maxWidth: 860, alignItems: "center" }}>
+          <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", color: autoStatus === "error" ? "#B91C1C" : MUTE }}>
             {autoStatus === "saving" ? "Saving…" : autoStatus === "saved" ? "All changes saved" : autoStatus === "error" ? "Save failed — retry" : ""}
           </span>
-          <button onClick={downloadPdf} disabled={pdfBusy} style={ghostBtn}><FileText size={15} /> {pdfBusy ? "Preparing…" : "PDF preview"}</button>
-          <button onClick={openSms} style={ghostBtn}><MessageSquare size={15} /> Text to client</button>
-          <button onClick={sendCardOnFile} disabled={cardBusy} style={ghostBtn}><CreditCard size={15} /> {cardBusy ? "Sending…" : "Card on file"}</button>
-          <button onClick={sendAgreement} disabled={agrBusy} style={ghostBtn}><FileSignature size={15} /> {agrBusy ? "Preparing…" : "Send agreement"}</button>
+          <div style={{ flex: 1 }} />
+          {/* More menu — secondary actions */}
+          <div style={{ position: "relative" }}>
+            <button onClick={() => setMoreOpen(o => !o)} style={ghostBtn}><MoreHorizontal size={15} /> More</button>
+            {moreOpen && (
+              <>
+                <div onClick={() => setMoreOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 25 }} />
+                <div style={{ position: "absolute", right: 0, bottom: 48, background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 12, boxShadow: "0 8px 28px rgba(10,14,26,0.14)", padding: 6, width: 216, zIndex: 26 }}>
+                  {[
+                    { icon: FileText, label: pdfBusy ? "Preparing…" : "PDF preview", fn: downloadPdf },
+                    { icon: MessageSquare, label: "Text to client", fn: openSms },
+                    { icon: CreditCard, label: cardBusy ? "Sending…" : "Card on file", fn: sendCardOnFile },
+                    { icon: FileSignature, label: agrBusy ? "Preparing…" : "Send agreement", fn: openAgreement },
+                  ].map(({ icon: Icon, label, fn }) => (
+                    <button key={label} onClick={() => { setMoreOpen(false); fn(); }} style={menuItem}><Icon size={15} style={{ color: MUTE }} /> {label}</button>
+                  ))}
+                  <div style={{ height: 1, background: "#EEECE7", margin: "4px 8px" }} />
+                  <button onClick={() => { setMoreOpen(false); saveAsTemplate(); }} style={menuItem}><LayoutTemplate size={15} style={{ color: MUTE }} /> Save as template</button>
+                </div>
+              </>
+            )}
+          </div>
           <button onClick={save} disabled={saving} style={ghostBtn}><Save size={15} /> {saving ? "Saving…" : "Save"}</button>
           <button onClick={markSent} style={primaryBtn}><Send size={15} /> {publicToken ? "Resend to client" : "Send to client"}</button>
         </div>
@@ -760,6 +791,33 @@ export default function EstimateBuilderPage() {
               <button onClick={() => setSmsOpen(false)} style={ghostBtn}>Cancel</button>
               <button onClick={sendSms} disabled={smsSending || !smsTo.trim()} style={{ ...primaryBtn, opacity: smsTo.trim() ? 1 : 0.5 }}>
                 <MessageSquare size={15} /> {smsSending ? "Sending…" : "Send text"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* [agreement-esign] Review & edit the agreement before sending */}
+      {agrModal && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} onClick={() => setAgrModal(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 0, width: "100%", maxWidth: 580, maxHeight: "88vh", display: "flex", flexDirection: "column", fontFamily: FF }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 18px", borderBottom: `1px solid #EEECE7` }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Send agreement</span>
+              <button onClick={() => setAgrModal(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}><X size={16} /></button>
+            </div>
+            <div style={{ padding: 18, overflowY: "auto" }}>
+              <div style={{ display: "flex", gap: 20, marginBottom: 14, flexWrap: "wrap" }}>
+                <div><div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF" }}>TO</div><div style={{ fontSize: 13, color: agrModal.to ? INK : "#B91C1C" }}>{agrModal.to_name ? `${agrModal.to_name} · ` : ""}{agrModal.to || "No contact email"}</div></div>
+                <div><div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF" }}>TEMPLATE</div><div style={{ fontSize: 13, color: INK }}>{agrModal.title} <span onClick={() => navigate("/company/agreements")} style={{ color: "#185FA5", cursor: "pointer" }}>· Edit template ↗</span></div></div>
+              </div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF", marginBottom: 5 }}>AGREEMENT TEXT — EDITABLE</div>
+              <textarea value={agrBody} onChange={e => setAgrBody(e.target.value)} style={{ ...inp, minHeight: 260, resize: "vertical", lineHeight: 1.55, fontSize: 13, whiteSpace: "pre-wrap" }} />
+              <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 7 }}>Edits apply to this agreement only — the client e-signs this exact text.</div>
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "14px 18px", borderTop: `1px solid #EEECE7` }}>
+              <button onClick={() => setAgrModal(null)} style={ghostBtn}>Cancel</button>
+              <button onClick={submitAgreement} disabled={agrBusy || !agrModal.to || !agrBody.trim()} style={{ ...primaryBtn, opacity: (agrModal.to && agrBody.trim()) ? 1 : 0.5 }}>
+                <FileSignature size={15} /> {agrBusy ? "Sending…" : "Send for signature"}
               </button>
             </div>
           </div>
@@ -831,6 +889,58 @@ const STATUS_PILL: Record<string, { bg: string; fg: string }> = {
   ACCEPTED: { bg: "#EAF3DE", fg: "#3B6D11" }, DECLINED: { bg: "#FCEBEB", fg: "#A32D2D" },
   EXPIRED: { bg: "#FAEEDA", fg: "#854F0B" },
 };
+
+// [agreement-esign] Live Sent → Viewed → Signed tracker for e-sign agreements.
+function AgreementTracking({ estimateId, version }: { estimateId: number; version: number }) {
+  const [rows, setRows] = useState<any[]>([]);
+  useEffect(() => {
+    fetch(`${API}/api/estimates/${estimateId}/agreements`, { headers: { ...(getAuthHeaders() as Record<string, string>) } })
+      .then(r => (r.ok ? r.json() : { data: [] })).then(d => setRows(d.data || [])).catch(() => {});
+  }, [estimateId, version]);
+  if (!rows.length) return null;
+  const origin = typeof window !== "undefined" ? window.location.origin : "";
+  const ts = (v: any) => (v ? new Date(v).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
+  const Step = ({ done, label, when, icon }: any) => (
+    <div style={{ flex: 1, textAlign: "center" }}>
+      <div style={{ width: 26, height: 26, borderRadius: "50%", margin: "0 auto", background: done ? "#0F6E56" : "#F1EFE8", color: done ? "#fff" : "#9CA3AF", display: "flex", alignItems: "center", justifyContent: "center" }}>{icon}</div>
+      <div style={{ fontSize: 11, marginTop: 4, color: done ? INK : "#9CA3AF" }}>{label}</div>
+      <div style={{ fontSize: 10, color: "#9CA3AF" }}>{when}</div>
+    </div>
+  );
+  return (
+    <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 14, padding: 16, marginBottom: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 800, color: INK, marginBottom: 12 }}>Service agreement</div>
+      {rows.map((a: any) => {
+        const signed = a.status === "signed" || !!a.signature_at;
+        const viewed = !!a.viewed_at;
+        const pill = signed ? { t: "SIGNED", bg: "#E1F5EE", fg: "#0F6E56" } : viewed ? { t: "VIEWED · NOT SIGNED", bg: "#FAEEDA", fg: "#854F0B" } : { t: "SENT", bg: "#E6F1FB", fg: "#185FA5" };
+        const link = `${origin}/sign/${a.sign_token}`;
+        const cert = `${API}/api/sign/${a.sign_token}/certificate.pdf`;
+        return (
+          <div key={a.id} style={{ borderTop: `1px solid #F4F2EE`, paddingTop: 12, marginTop: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <span style={{ fontSize: 12.5, color: MUTE }}>{a.sent_to || "—"}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: pill.fg, background: pill.bg, padding: "3px 9px", borderRadius: 20 }}>{pill.t}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "flex-start", marginBottom: 14 }}>
+              <Step done label="Sent" when={ts(a.sent_at)} icon={<Check size={13} />} />
+              <div style={{ height: 2, flex: "0 0 32px", marginTop: 12, background: viewed ? "#0F6E56" : "#E5E2DC" }} />
+              <Step done={viewed} label="Viewed" when={viewed ? ts(a.viewed_at) : "—"} icon={<Eye size={13} />} />
+              <div style={{ height: 2, flex: "0 0 32px", marginTop: 12, background: signed ? "#0F6E56" : "#E5E2DC" }} />
+              <Step done={signed} label="Signed" when={signed ? ts(a.signature_at) : "—"} icon={<FileSignature size={13} />} />
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button onClick={() => { navigator.clipboard?.writeText(link); toast.success("Signing link copied"); }} style={trackBtn}><Copy size={13} /> Copy link</button>
+              <a href={cert} target="_blank" rel="noreferrer" style={{ ...trackBtn, textDecoration: "none" }}><ShieldCheck size={13} /> Certificate</a>
+              {signed && a.pdf_url && <a href={a.pdf_url} target="_blank" rel="noreferrer" style={{ ...trackBtn, textDecoration: "none" }}><FileText size={13} /> Signed PDF</a>}
+              {!signed && <a href={link} target="_blank" rel="noreferrer" style={{ ...trackBtn, textDecoration: "none" }}><RefreshCw size={13} /> Open signing page</a>}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function EstimateTracking({ estimateId, version }: { estimateId: number; version: number }) {
   const [data, setData] = useState<any>(null);
@@ -948,3 +1058,5 @@ const iconBtn: React.CSSProperties = { width: 34, height: 34, display: "inline-f
 const addBtn: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 5, background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 9, padding: "7px 12px", fontSize: 13, fontWeight: 700, color: INK, cursor: "pointer", fontFamily: FF };
 const ghostBtn: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 10, padding: "10px 16px", fontSize: 14, fontWeight: 700, color: INK, cursor: "pointer", fontFamily: FF };
 const primaryBtn: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, background: INK, color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF };
+const menuItem: React.CSSProperties = { display: "flex", alignItems: "center", gap: 10, width: "100%", textAlign: "left", background: "none", border: "none", padding: "9px 11px", borderRadius: 8, fontSize: 13, fontWeight: 600, color: INK, cursor: "pointer", fontFamily: FF };
+const trackBtn: React.CSSProperties = { display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "7px 12px", fontSize: 12, fontWeight: 600, color: INK, cursor: "pointer", fontFamily: FF };
