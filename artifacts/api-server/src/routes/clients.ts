@@ -53,6 +53,14 @@ router.get("/", requireAuth, async (req, res) => {
         // Search by client ID (CL-XXXX format)
         conditions.push(eq(clientsTable.id, parseInt(clMatch[1])));
       } else {
+        // [search-fullname 2026-06-26] Match the term against the combined
+        // "first last" name too. Without this, "Sal Martinez" matched NOTHING —
+        // the per-field ILIKE checks each column alone, so a term spanning
+        // first+last never hit. trim() each part so trailing/leading spaces in
+        // the stored name (common from the MaidCentral import) don't break it,
+        // and collapse runs of whitespace in the term. This fixes full-name
+        // search for every client, not just this one.
+        const sNorm = s.trim().replace(/\s+/g, " ");
         conditions.push(
           or(
             ilike(clientsTable.first_name, `%${s}%`),
@@ -61,7 +69,8 @@ router.get("/", requireAuth, async (req, res) => {
             ilike(clientsTable.phone, `%${s}%`),
             ilike(clientsTable.address, `%${s}%`),
             ilike(clientsTable.city, `%${s}%`),
-            ilike(clientsTable.company_name, `%${s}%`)
+            ilike(clientsTable.company_name, `%${s}%`),
+            sql`(trim(coalesce(${clientsTable.first_name}, '')) || ' ' || trim(coalesce(${clientsTable.last_name}, ''))) ILIKE ${`%${sNorm}%`}`
           ) as any
         );
       }

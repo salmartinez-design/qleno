@@ -33,7 +33,7 @@ router.get("/", requireAuth, async (req, res) => {
           or(
             ilike(clientsTable.first_name, term),
             ilike(clientsTable.last_name, term),
-            ilike(sql`concat(${clientsTable.first_name},' ',${clientsTable.last_name})`, term),
+            ilike(sql`trim(coalesce(${clientsTable.first_name},'')) || ' ' || trim(coalesce(${clientsTable.last_name},''))`, term),
             ilike(clientsTable.email, term),
             ilike(clientsTable.phone, term),
             ilike(clientsTable.address, term),
@@ -57,7 +57,7 @@ router.get("/", requireAuth, async (req, res) => {
             ilike(sql<string>`${jobsTable.service_type}::text`, term),
             ilike(sql<string>`${jobsTable.status}::text`, term),
             ilike(sql<string>`${jobsTable.scheduled_date}::text`, term),
-            ilike(sql`concat(${clientsTable.first_name},' ',${clientsTable.last_name})`, term),
+            ilike(sql`trim(coalesce(${clientsTable.first_name},'')) || ' ' || trim(coalesce(${clientsTable.last_name},''))`, term),
           )
         ))
         .limit(5),
@@ -77,7 +77,7 @@ router.get("/", requireAuth, async (req, res) => {
           or(
             ilike(usersTable.first_name, term),
             ilike(usersTable.last_name, term),
-            ilike(sql`concat(${usersTable.first_name},' ',${usersTable.last_name})`, term),
+            ilike(sql`trim(coalesce(${usersTable.first_name},'')) || ' ' || trim(coalesce(${usersTable.last_name},''))`, term),
             ilike(usersTable.email, term),
           )
         ))
@@ -95,7 +95,7 @@ router.get("/", requireAuth, async (req, res) => {
         .where(and(
           eq(invoicesTable.company_id, companyId),
           or(
-            ilike(sql`concat(${clientsTable.first_name},' ',${clientsTable.last_name})`, term),
+            ilike(sql`trim(coalesce(${clientsTable.first_name},'')) || ' ' || trim(coalesce(${clientsTable.last_name},''))`, term),
             ilike(sql<string>`${invoicesTable.status}::text`, term),
           )
         ))
