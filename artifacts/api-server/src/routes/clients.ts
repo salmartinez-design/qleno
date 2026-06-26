@@ -610,6 +610,13 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
     if (!client) return res.status(404).json({ error: "Not Found" });
     const email = client.email || "";
     const phone = client.phone || "";
+    // [comms-by-phone 2026-06-26] Match texts by PHONE, not just client_id.
+    // Two-way SMS often land on a duplicate client record (same number, second
+    // profile) or with a null client_id, so a client_id-only match silently
+    // drops real conversations. Normalize to the last 10 digits and match the
+    // number on any of the SMS phone fields. Only used when we have a full
+    // 10-digit number (else '' disables the phone match).
+    const phoneDigits = (() => { const d = phone.replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : ""; })();
 
     const result = await db.execute(sql`
       SELECT * FROM (
@@ -631,7 +638,11 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                status::text AS status, NULL::text AS subject, body::text AS body, 'two_way'::text AS source,
                NULL::text AS doc_type, NULL::int AS doc_id
           FROM sms_messages
-         WHERE company_id = ${companyId} AND client_id = ${clientId}
+         WHERE company_id = ${companyId} AND (
+               client_id = ${clientId}
+            OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(contact_phone, ''), '[^0-9]', '', 'g'), 10) = ${phoneDigits})
+            OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(to_number, ''),    '[^0-9]', '', 'g'), 10) = ${phoneDigits})
+            OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(from_number, ''),   '[^0-9]', '', 'g'), 10) = ${phoneDigits}))
         UNION ALL
         SELECT logged_at AS at, channel::text AS channel, direction::text AS direction,
                COALESCE(source, 'message')::text AS type, recipient::text AS recipient,
@@ -646,7 +657,10 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                status::text AS status, subject::text AS subject, body::text AS body, 'cadence'::text AS source,
                NULL::text AS doc_type, NULL::int AS doc_id
           FROM message_log
-         WHERE company_id = ${companyId} AND client_id = ${clientId}
+         WHERE company_id = ${companyId} AND (
+               client_id = ${clientId}
+            OR (${email} <> '' AND recipient_email = ${email})
+            OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(recipient_phone, ''), '[^0-9]', '', 'g'), 10) = ${phoneDigits}))
       ) t
       ORDER BY at DESC NULLS LAST
       LIMIT 200`);
