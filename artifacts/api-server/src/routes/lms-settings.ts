@@ -80,7 +80,8 @@ router.get(
 router.patch(
   "/",
   requireAuth,
-  requireRole("owner"),
+  // [office-admin-parity 2026-06-26] LMS admin settings editable by owner + office.
+  requireRole("owner", "office"),
   async (req, res) => {
     try {
       const companyId = req.auth!.companyId;
