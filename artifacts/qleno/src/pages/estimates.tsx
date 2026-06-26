@@ -75,10 +75,10 @@ export default function EstimatesPage() {
   });
 
   const statCards = [
-    { label: "Outstanding", value: stats.outstanding ?? 0, sub: "sent / viewed" },
-    { label: "Accepted", value: stats.accepted ?? 0, sub: "all time" },
-    { label: "Won this month", value: money(stats.accepted_value_month), sub: "accepted value" },
-    { label: "Drafts", value: stats.draft ?? 0, sub: "not yet sent" },
+    { label: "Pipeline MRR", value: money(stats.mrr_pipeline), sub: `${stats.outstanding ?? 0} active bid${(stats.outstanding ?? 0) === 1 ? "" : "s"}`, accent: true },
+    { label: "Close rate", value: `${stats.close_rate ?? 0}%`, sub: `${stats.accepted ?? 0} won of ${stats.sent ?? 0} sent` },
+    { label: "Closed ARR", value: money(stats.arr_won), sub: "recurring won", accent: true },
+    { label: "Specialty pipeline", value: money(stats.specialty_pipeline), sub: "one-time / add-ons" },
   ];
 
   return (
@@ -106,7 +106,7 @@ export default function EstimatesPage() {
           {statCards.map(c => (
             <div key={c.label} style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 12, padding: "14px 16px" }}>
               <p style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 6px" }}>{c.label}</p>
-              <p style={{ fontSize: 24, fontWeight: 800, color: INK, margin: 0, lineHeight: 1 }}>{c.value}</p>
+              <p style={{ fontSize: 24, fontWeight: 800, color: (c as any).accent ? "#0F6E56" : INK, margin: 0, lineHeight: 1 }}>{c.value}</p>
               <p style={{ fontSize: 11, color: MUTE, margin: "5px 0 0" }}>{c.sub}</p>
             </div>
           ))}
@@ -150,6 +150,11 @@ export default function EstimatesPage() {
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                           <span style={{ fontSize: 14, fontWeight: 700, color: INK, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{recipient}</span>
                           <StatusChip status={e.status} />
+                          {e.billing_mode === "flat" && e.flat_price_unit === "month" ? (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#0F6E56", background: "#E1F5EE", padding: "1px 7px", borderRadius: 20, whiteSpace: "nowrap" }}>Recurring</span>
+                          ) : (
+                            <span style={{ fontSize: 10, fontWeight: 700, color: "#5F5E5A", background: "#F1EFE8", padding: "1px 7px", borderRadius: 20, whiteSpace: "nowrap" }}>One-time</span>
+                          )}
                         </div>
                         <p style={{ fontSize: 12, color: MUTE, margin: "3px 0 0", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
                           {e.estimate_number || "—"}{e.title ? ` · ${e.title}` : ""}{e.service_address ? ` · ${e.service_address}` : ""}
