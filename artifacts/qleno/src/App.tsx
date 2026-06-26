@@ -82,6 +82,7 @@ const ChurnBoardPage      = lazy(() => import("@/pages/intelligence/churn"));
 const RetentionBoardPage  = lazy(() => import("@/pages/intelligence/retention"));
 const SatisfactionReportPage = lazy(() => import("@/pages/reports/satisfaction"));
 const AddOnCatalogPage    = lazy(() => import("@/pages/company/addons"));
+const PackagesPage        = lazy(() => import("@/pages/company/packages"));
 const RatesPage           = lazy(() => import("@/pages/company/rates"));
 const ReferralReportPage  = lazy(() => import("@/pages/reports/referrals"));
 const IncentivesPage      = lazy(() => import("@/pages/reports/incentives"));
@@ -286,6 +287,7 @@ function Router() {
         <Route path="/company/quoting" component={QuotingPage} />
         <Route path="/company/zones" component={ZonesPage} />
         <Route path="/company/addons" component={AddOnCatalogPage} />
+        <Route path="/company/packages" component={PackagesPage} />
         <Route path="/company/rates" component={RatesPage} />
         <Route path="/survey/:token" component={SurveyPage} />
         {/* Public customer appointment view — no login, tokenized (booking confirmation link). */}
