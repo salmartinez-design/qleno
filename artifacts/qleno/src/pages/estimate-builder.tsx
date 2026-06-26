@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick, MessageSquare, X } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check, FileText, Mail, Eye, Clock, MousePointerClick, MessageSquare, X, CreditCard } from "lucide-react";
 import { toast } from "sonner";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
@@ -367,6 +367,22 @@ export default function EstimateBuilderPage() {
     finally { setSmsSending(false); }
   }
 
+  // [estimate-card-on-file] Send the client a Stripe save-card link (reuses the
+  // payment-links save_card flow): ensure a client record, then send the link.
+  const [cardBusy, setCardBusy] = useState(false);
+  async function sendCardOnFile() {
+    const savedId = await save();
+    if (!savedId) return;
+    setCardBusy(true);
+    try {
+      const c = await apiFetch(`/api/estimates/${savedId}/ensure-client`, { method: "POST" });
+      if (!c.email && !c.phone) { toast.error("Add an email or phone first, then send the card link."); return; }
+      await apiFetch(`/api/payment-links`, { method: "POST", body: { client_id: c.client_id, purpose: "save_card", send_email: !!c.email, send_sms: !c.email && !!c.phone } });
+      toast.success(`Card-on-file link sent to ${c.email || c.phone}`);
+    } catch { toast.error("Couldn't send the card-on-file link"); }
+    finally { setCardBusy(false); }
+  }
+
   const [pdfBusy, setPdfBusy] = useState(false);
   async function downloadPdf() {
     // Always persist current edits first — the PDF is rendered server-side from
@@ -682,6 +698,7 @@ export default function EstimateBuilderPage() {
           </span>
           <button onClick={downloadPdf} disabled={pdfBusy} style={ghostBtn}><FileText size={15} /> {pdfBusy ? "Preparing…" : "PDF preview"}</button>
           <button onClick={openSms} style={ghostBtn}><MessageSquare size={15} /> Text to client</button>
+          <button onClick={sendCardOnFile} disabled={cardBusy} style={ghostBtn}><CreditCard size={15} /> {cardBusy ? "Sending…" : "Card on file"}</button>
           <button onClick={save} disabled={saving} style={ghostBtn}><Save size={15} /> {saving ? "Saving…" : "Save"}</button>
           <button onClick={markSent} style={primaryBtn}><Send size={15} /> {publicToken ? "Resend to client" : "Send to client"}</button>
         </div>
