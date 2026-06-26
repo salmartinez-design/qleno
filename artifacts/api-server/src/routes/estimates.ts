@@ -155,11 +155,24 @@ router.get("/stats", requireAuth, async (req, res) => {
         COUNT(*) FILTER (WHERE status = 'draft')::int AS draft,
         COUNT(*) FILTER (WHERE status IN ('sent','viewed'))::int AS outstanding,
         COUNT(*) FILTER (WHERE status = 'accepted')::int AS accepted,
+        COUNT(*) FILTER (WHERE status <> 'draft')::int AS sent,
+        -- Recurring pipeline (flat, priced per month) still open
+        COALESCE(SUM(flat_price) FILTER (WHERE billing_mode = 'flat' AND flat_price_unit = 'month'
+          AND status IN ('sent','viewed')), 0)::numeric AS mrr_pipeline,
+        -- Recurring won, annualized
+        COALESCE(SUM(flat_price * 12) FILTER (WHERE billing_mode = 'flat' AND flat_price_unit = 'month'
+          AND status = 'accepted'), 0)::numeric AS arr_won,
+        -- Open non-recurring (one-time / add-ons / itemized)
+        COALESCE(SUM(total) FILTER (WHERE status IN ('sent','viewed')
+          AND NOT (billing_mode = 'flat' AND flat_price_unit = 'month')), 0)::numeric AS specialty_pipeline,
         COALESCE(SUM(total) FILTER (WHERE status = 'accepted'
           AND accepted_at >= date_trunc('month', now())), 0)::numeric AS accepted_value_month
       FROM estimates WHERE company_id = ${companyId}
     `);
-    return res.json((rows as any).rows[0] ?? {});
+    const r: any = (rows as any).rows[0] ?? {};
+    const sent = Number(r.sent) || 0, accepted = Number(r.accepted) || 0;
+    r.close_rate = sent > 0 ? Math.round((accepted / sent) * 100) : 0;
+    return res.json(r);
   } catch (err) {
     console.error("Estimate stats error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -726,6 +739,7 @@ router.get("/", requireAuth, async (req, res) => {
     const search = str(req.query?.search, 120);
     const rows = await db.execute(sql`
       SELECT e.id, e.estimate_number, e.status, e.title, e.total, e.subtotal,
+             e.billing_mode, e.flat_price_unit,
              e.contact_name, e.property_name, e.service_address,
              e.sent_at, e.viewed_at, e.accepted_at, e.valid_until, e.created_at,
              a.account_name,
