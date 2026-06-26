@@ -6,6 +6,7 @@ import multer from "multer";
 import path from "path";
 import { mkdirSync } from "fs";
 import { requireAuth } from "../lib/auth.js";
+import { renderW9 } from "../lib/w9-pdf.js";
 
 function getLogosDir(): string {
   const base = process.env.UPLOADS_DIR || path.resolve(process.cwd(), "uploads");
@@ -63,6 +64,67 @@ router.get("/me", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Get company error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to get company" });
+  }
+});
+
+// ─── Company W-9 / tax info (for the fillable IRS W-9) ────────────────────────
+const W9_S = (v: unknown): string | null => { const s = String(v ?? "").trim(); return s ? s.slice(0, 200) : null; };
+
+// Save the tenant's W-9 tax info.
+router.put("/w9", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (!companyId) return res.status(403).json({ error: "Forbidden" });
+    const b = req.body ?? {};
+    await db.execute(sql`
+      UPDATE companies SET
+        w9_legal_name = ${W9_S(b.w9_legal_name)},
+        w9_business_name = ${W9_S(b.w9_business_name)},
+        w9_classification = ${W9_S(b.w9_classification)},
+        w9_llc_class = ${W9_S(b.w9_llc_class)},
+        w9_ein = ${W9_S(b.w9_ein)},
+        w9_exempt_payee_code = ${W9_S(b.w9_exempt_payee_code)},
+        w9_fatca_code = ${W9_S(b.w9_fatca_code)}
+      WHERE id = ${companyId}
+    `);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Save W-9 error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Download the filled official IRS W-9 from saved tax info.
+router.get("/w9.pdf", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (!companyId) return res.status(403).json({ error: "Forbidden" });
+    const rows = await db.execute(sql`
+      SELECT name, address, city, state, zip, invoice_business_name,
+             w9_legal_name, w9_business_name, w9_classification, w9_llc_class, w9_ein, w9_exempt_payee_code, w9_fatca_code
+      FROM companies WHERE id = ${companyId} LIMIT 1
+    `);
+    const c: any = (rows as any).rows[0];
+    if (!c) return res.status(404).json({ error: "Not Found" });
+    if (!c.w9_ein) return res.status(422).json({ error: "Unprocessable", reason: "no_ein", message: "Add your EIN in Settings → Tax / W-9 first." });
+    const cityStateZip = [c.city, [c.state, c.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null;
+    const pdf = await renderW9({
+      legalName: c.w9_legal_name || c.invoice_business_name || c.name || "",
+      businessName: c.w9_business_name,
+      classification: (c.w9_classification || "other") as any,
+      llcClass: c.w9_llc_class,
+      ein: c.w9_ein,
+      address: c.address,
+      cityStateZip,
+      exemptPayeeCode: c.w9_exempt_payee_code,
+      fatcaCode: c.w9_fatca_code,
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="W-9-${String(c.w9_legal_name || c.name || "company").replace(/[^a-z0-9]+/gi, "-")}.pdf"`);
+    return res.end(pdf);
+  } catch (err) {
+    console.error("W-9 PDF error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
