@@ -5484,10 +5484,60 @@ function ActivityTab({ clientId }: { clientId: number }) {
   );
 }
 
+// Per-customer message timeline — every automated + manual text/email we've
+// sent this customer, newest first (GET /api/clients/:id/messages).
+function CustomerMessagesTab({ clientId }: { clientId: number }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let on = true;
+    fetch(`${API}/api/clients/${clientId}/messages`, { headers: getAuthHeaders() })
+      .then(r => r.json()).then(d => { if (on) setRows(d.data || []); })
+      .catch(() => {}).finally(() => { if (on) setLoading(false); });
+    return () => { on = false; };
+  }, [clientId]);
+
+  const TYPE_LABELS: Record<string, string> = {
+    job_scheduled: "Booking confirmation", reminder_3day: "3-day reminder", reminder_1day: "Next-day reminder",
+    on_my_way: "On-my-way text", job_completed: "Thank-you", review_request: "Review request", sms: "Text message",
+  };
+  const fmtType = (t: string) => TYPE_LABELS[t] || (t || "message").replace(/_/g, " ");
+  const statusColor = (s: string) =>
+    s === "sent" || s === "delivered" || s === "received" ? "#16A34A"
+    : s === "failed" || s === "undelivered" ? "#DC2626"
+    : (s || "").startsWith("suppress") || s === "skipped" ? "#B45309" : "#6B7280";
+
+  if (loading) return <div style={{ padding: 24, textAlign: "center", color: "#9E9B94", fontFamily: FF, fontSize: 13 }}>Loading…</div>;
+  if (rows.length === 0) return <div style={{ padding: 24, textAlign: "center", color: "#9E9B94", fontFamily: FF, fontSize: 13 }}>No messages sent to this customer yet.</div>;
+
+  return (
+    <div style={{ fontFamily: FF, display: "flex", flexDirection: "column", gap: 8 }}>
+      {rows.map((m, i) => (
+        <div key={i} style={{ display: "flex", gap: 12, padding: "10px 12px", background: "#F7F6F3", borderRadius: 8, alignItems: "flex-start" }}>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: m.channel === "email" ? "#1D4ED8" : "#047857", background: m.channel === "email" ? "#EFF6FF" : "#ECFDF5", padding: "3px 7px", borderRadius: 4, marginTop: 1, flexShrink: 0 }}>{m.channel === "email" ? "EMAIL" : "TEXT"}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{fmtType(m.type)}{m.direction === "inbound" && <span style={{ fontSize: 10, color: "#7C3AED", marginLeft: 6 }}>FROM CUSTOMER</span>}</span>
+              <span style={{ fontSize: 11, color: "#9E9B94", flexShrink: 0 }}>{m.at ? new Date(m.at).toLocaleString() : ""}</span>
+            </div>
+            {(m.subject || m.body) && (
+              <p style={{ fontSize: 12, color: "#6B6860", margin: "3px 0 2px", lineHeight: 1.5, whiteSpace: "pre-wrap", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>
+                {m.subject ? <strong>{m.subject} — </strong> : ""}{m.body}
+              </p>
+            )}
+            <span style={{ fontSize: 11, fontWeight: 600, color: statusColor(m.status) }}>{m.status || ""}</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const PROFILE_TABS = [
   { id: "client",        label: "Client"        },
   { id: "property",      label: "Property"      },
   { id: "jobs",          label: "Jobs"          },
+  { id: "messages",      label: "Messages"      },
   { id: "admin",         label: "Admin"         },
   { id: "activity",      label: "Activity"      },
   { id: "profitability", label: "Profitability" },
@@ -6030,6 +6080,13 @@ export default function CustomerProfilePage() {
         </div>
       )}
 
+      {activeTab === "messages" && (
+        <div style={CS}>
+          <SectionHead title="Message History" action={<span style={{ fontSize: 11, color: "#9E9B94" }}>Texts &amp; emails sent to this customer</span>} />
+          <CustomerMessagesTab clientId={clientId} />
+        </div>
+      )}
+
       {/* ══════════════════════════════════════════════
           TAB 4: ADMIN — operational, not daily dispatch
           2-column grid top + full-width collapsibles below
@@ -6221,6 +6278,12 @@ export default function CustomerProfilePage() {
                 <CommLog2 clientId={clientId} />
               </CollapsibleSection>
             </>)}
+            {activeTab === "messages" && (
+              <div style={CS}>
+                <div style={CTitle}>Message History</div>
+                <CustomerMessagesTab clientId={clientId} />
+              </div>
+            )}
             {activeTab === "property" && (<>
               <div style={CS}>
                 <div style={CTitle}>Service Addresses</div>

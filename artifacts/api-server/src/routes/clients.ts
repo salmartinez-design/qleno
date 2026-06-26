@@ -595,6 +595,53 @@ router.get("/:id", requireAuth, async (req, res) => {
   }
 });
 
+// ─── CUSTOMER MESSAGE HISTORY ──────────────────────────────────────────────────
+// Every automated + manual message we've sent this customer, newest first —
+// unioned across notification_log (booking/reminder/completion/review sends),
+// sms_messages (two-way texting), and communication_log (logged emails/SMS).
+// Powers the "Messages" timeline on the customer profile. Office + up.
+router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const clientId = parseInt(req.params.id);
+    const [client] = await db.select({ email: clientsTable.email, phone: clientsTable.phone })
+      .from(clientsTable)
+      .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, companyId))).limit(1);
+    if (!client) return res.status(404).json({ error: "Not Found" });
+    const email = client.email || "";
+    const phone = client.phone || "";
+
+    const result = await db.execute(sql`
+      SELECT * FROM (
+        SELECT sent_at AS at, channel::text AS channel, 'outbound'::text AS direction,
+               trigger::text AS type, recipient::text AS recipient, status::text AS status,
+               NULL::text AS subject, NULL::text AS body, 'automated'::text AS source
+          FROM notification_log
+         WHERE company_id = ${companyId}
+           AND (( ${email} <> '' AND recipient = ${email}) OR ( ${phone} <> '' AND recipient = ${phone}))
+        UNION ALL
+        SELECT created_at AS at, 'sms'::text AS channel, direction::text AS direction,
+               'sms'::text AS type, COALESCE(to_number, from_number)::text AS recipient,
+               status::text AS status, NULL::text AS subject, body::text AS body, 'two_way'::text AS source
+          FROM sms_messages
+         WHERE company_id = ${companyId} AND client_id = ${clientId}
+        UNION ALL
+        SELECT logged_at AS at, channel::text AS channel, direction::text AS direction,
+               COALESCE(source, 'message')::text AS type, recipient::text AS recipient,
+               delivery_status::text AS status, subject::text AS subject, body::text AS body, 'logged'::text AS source
+          FROM communication_log
+         WHERE company_id = ${companyId} AND customer_id = ${clientId}
+      ) t
+      ORDER BY at DESC NULLS LAST
+      LIMIT 200`);
+
+    return res.json({ data: result.rows });
+  } catch (err) {
+    console.error("Customer messages history error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── UPDATE CLIENT ─────────────────────────────────────────────────────────────
 router.put("/:id", requireAuth, async (req, res) => {
   try {
