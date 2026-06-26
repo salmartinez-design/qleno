@@ -687,7 +687,7 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
     const companyId = req.auth!.companyId;
     const id = parseInt(req.params.id, 10);
     const e = await db.execute(sql`
-      SELECT e.*, c.name AS company_name, c.logo_url AS company_logo
+      SELECT e.*, c.name AS company_name, c.logo_url AS company_logo, c.phone AS company_phone, c.email AS company_email
       FROM estimates e JOIN companies c ON c.id = e.company_id
       WHERE e.id = ${id} AND e.company_id = ${companyId} LIMIT 1
     `);
@@ -700,6 +700,7 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
     const logo = await fetchLogoBuffer(est.company_logo);
     const pdf = await renderEstimatePdf({
       companyName: est.company_name || "Estimate", logo,
+      companyPhone: est.company_phone, companyEmail: est.company_email,
       estimateNumber: est.estimate_number, status: est.status,
       title: est.title, introNote: est.intro_note,
       contactName: est.contact_name, propertyName: est.property_name, serviceAddress: est.service_address,
