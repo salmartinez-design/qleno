@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useRoute } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Check } from "lucide-react";
 import { toast } from "sonner";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
@@ -95,6 +95,10 @@ export default function EstimateBuilderPage() {
   const [discount, setDiscount] = useState("0");
   const [validUntil, setValidUntil] = useState("");
   const [items, setItems] = useState<Item[]>([blankItem()]);
+  // [estimate-flat-mode] 'itemized' (price each line) vs 'flat' (one price for
+  // the whole job + a scope checklist). Default itemized.
+  const [billingMode, setBillingMode] = useState<"itemized" | "flat">("itemized");
+  const [flatPrice, setFlatPrice] = useState("");
 
   // [estimate-templates-phase2] One-click template picker (new estimates only).
   const [templates, setTemplates] = useState<any[]>([]);
@@ -130,6 +134,8 @@ export default function EstimateBuilderPage() {
           setPropertyName(e.property_name || ""); setServiceAddress(e.service_address || "");
           setTitle(e.title || ""); setIntroNote(e.intro_note || ""); setTerms(e.terms || ""); setInternalNotes(e.internal_notes || "");
           setDiscount(String(e.discount_amount ?? "0"));
+          setBillingMode(e.billing_mode === "flat" ? "flat" : "itemized");
+          setFlatPrice(e.flat_price != null && Number(e.flat_price) > 0 ? String(e.flat_price) : "");
           setValidUntil(e.valid_until ? String(e.valid_until).slice(0, 10) : "");
           setItems((e.items || []).length ? e.items.map(mapRow) : [blankItem()]);
         } else {
@@ -156,7 +162,12 @@ export default function EstimateBuilderPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const subtotal = useMemo(() => items.reduce((s, it) => s + lineAmount(it), 0), [items]);
+  // [estimate-flat-mode] Flat mode = the one price the office typed; itemized =
+  // sum of the priced lines.
+  const subtotal = useMemo(
+    () => billingMode === "flat" ? (Number(flatPrice) || 0) : items.reduce((s, it) => s + lineAmount(it), 0),
+    [billingMode, flatPrice, items],
+  );
   const total = Math.max(0, subtotal - (Number(discount) || 0));
 
   const body = () => ({
@@ -165,11 +176,16 @@ export default function EstimateBuilderPage() {
     property_name: propertyName, service_address: serviceAddress,
     title, intro_note: introNote, terms, internal_notes: internalNotes,
     discount_amount: Number(discount) || 0,
+    billing_mode: billingMode,
+    flat_price: billingMode === "flat" ? (Number(flatPrice) || 0) : 0,
     valid_until: validUntil || null,
-    items: items.filter(it => it.name.trim() || Number(it.unit_rate) > 0).map(it => ({
-      name: it.name, pricing_type: it.pricing_type, frequency: it.frequency,
-      quantity: Number(it.quantity) || 0, unit_rate: Number(it.unit_rate) || 0,
-    })),
+    // Flat mode persists scope only (name + shared frequency, no price); itemized
+    // keeps the full priced line. Empty scope rows are dropped either way.
+    items: items.filter(it => it.name.trim() || (billingMode === "itemized" && Number(it.unit_rate) > 0)).map(it => (
+      billingMode === "flat"
+        ? { name: it.name, pricing_type: "flat", frequency: it.frequency, quantity: 1, unit_rate: 0 }
+        : { name: it.name, pricing_type: it.pricing_type, frequency: it.frequency, quantity: Number(it.quantity) || 0, unit_rate: Number(it.unit_rate) || 0 }
+    )),
   });
 
   // [multi-recipient-estimates] CC chip helpers. Accept comma/semicolon/space or
@@ -408,9 +424,19 @@ export default function EstimateBuilderPage() {
           <Field label="Intro note (shown to the client)"><textarea style={{ ...inp, minHeight: 64, resize: "vertical" }} value={introNote} onChange={e => setIntroNote(e.target.value)} placeholder="Thank you for the opportunity to quote your common-area cleaning…" /></Field>
         </Section>
 
-        <Section title="Line items" right={
-          <button onClick={() => setItems(its => [...its, blankItem()])} style={addBtn}><Plus size={15} /> Add line</button>
+        <Section title="Services & pricing" right={
+          <button onClick={() => setItems(its => [...its, blankItem()])} style={addBtn}><Plus size={15} /> {billingMode === "flat" ? "Add item" : "Add line"}</button>
         }>
+          {/* [estimate-flat-mode] Flat price (one number + scope list) vs itemized. */}
+          <div style={{ display: "inline-flex", border: `1px solid ${BORDER}`, borderRadius: 9, overflow: "hidden", marginBottom: 14 }}>
+            {(["flat", "itemized"] as const).map(m => (
+              <button key={m} onClick={() => setBillingMode(m)} style={{
+                fontFamily: FF, fontSize: 13, fontWeight: 700, padding: "7px 16px", border: "none", cursor: "pointer",
+                background: billingMode === m ? INK : "#fff", color: billingMode === m ? "#fff" : MUTE,
+              }}>{m === "flat" ? "Flat price" : "Itemized"}</button>
+            ))}
+          </div>
+
           {/* [estimate-bulk-frequency] Pick a cadence → applies to every line. */}
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, marginBottom: 12, padding: "10px 12px", border: `1px solid ${BORDER}`, borderRadius: 10, background: "#FCFCFB", flexWrap: "wrap" }}>
             <div style={{ flex: 1, minWidth: 180 }}>
@@ -419,35 +445,57 @@ export default function EstimateBuilderPage() {
             </div>
             <span style={{ fontSize: 12, color: MUTE, alignSelf: "center", whiteSpace: "nowrap" }}>{commonFreq ? `All lines: ${commonFreq}` : "Lines vary"}</span>
           </div>
-          {items.map((it, i) => {
-            const L = TYPE_LABELS[it.pricing_type];
-            return (
-              <div key={i} style={{ border: `1px solid ${BORDER}`, borderRadius: 12, padding: 14, marginBottom: 10, background: "#FCFCFB" }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                  <GripVertical size={15} style={{ color: "#C9C6BF", flexShrink: 0 }} />
-                  <input style={{ ...inp, fontWeight: 700 }} value={it.name} onChange={e => updateItem(i, { name: e.target.value })} placeholder="Lobby & common hallways" />
-                  <button title="Remove" onClick={() => setItems(its => its.length > 1 ? its.filter((_, idx) => idx !== i) : its)} style={{ ...iconBtn, flexShrink: 0 }}><Trash2 size={15} /></button>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <Field label="Type">
-                    <select style={inp} value={it.pricing_type} onChange={e => updateItem(i, { pricing_type: e.target.value as PricingType })}>
-                      <option value="flat">Flat / recurring</option>
-                      <option value="hourly">Hourly</option>
-                      <option value="one_time">One-time</option>
-                    </select>
-                  </Field>
-                  <Field label="Frequency">
-                    <FrequencyPicker value={it.frequency} onChange={v => updateItem(i, { frequency: v })} />
-                  </Field>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, alignItems: "end" }}>
-                  <Field label={L.qty}><input style={inp} type="number" min="0" step="0.25" value={it.quantity} onChange={e => updateItem(i, { quantity: e.target.value })} /></Field>
-                  <Field label={L.rate}><input style={inp} type="number" min="0" step="0.01" value={it.unit_rate} onChange={e => updateItem(i, { unit_rate: e.target.value })} placeholder="0.00" /></Field>
-                  <Field label="Amount"><div style={{ ...inp, background: "#F3F4F6", fontWeight: 700, color: INK }}>{money(lineAmount(it))}</div></Field>
+
+          {billingMode === "flat" ? (
+            <>
+              <div style={{ marginBottom: 14, padding: "12px 14px", border: `1px solid ${BORDER}`, borderRadius: 10, background: "#FCFCFB" }}>
+                <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Service price</span>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ color: MUTE, fontSize: 16 }}>$</span>
+                  <input style={{ ...inp, maxWidth: 200, fontWeight: 700, fontSize: 16 }} type="number" min="0" step="0.01" value={flatPrice} onChange={e => setFlatPrice(e.target.value)} placeholder="0.00" />
+                  <span style={{ fontSize: 12, color: MUTE }}>one price for the whole job — shown to the client as the total</span>
                 </div>
               </div>
-            );
-          })}
+              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>What's included <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9CA3AF" }}>— scope shown to the client, no per-line price</span></span>
+              {items.map((it, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <span style={{ width: 20, height: 20, borderRadius: 6, background: MINT, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Check size={13} /></span>
+                  <input style={inp} value={it.name} onChange={e => updateItem(i, { name: e.target.value })} placeholder="Workstations & desks — dust & sanitize" />
+                  <button title="Remove" onClick={() => setItems(its => its.length > 1 ? its.filter((_, idx) => idx !== i) : its)} style={{ ...iconBtn, flexShrink: 0 }}><Trash2 size={15} /></button>
+                </div>
+              ))}
+            </>
+          ) : (
+            items.map((it, i) => {
+              const L = TYPE_LABELS[it.pricing_type];
+              return (
+                <div key={i} style={{ border: `1px solid ${BORDER}`, borderRadius: 12, padding: 14, marginBottom: 10, background: "#FCFCFB" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                    <GripVertical size={15} style={{ color: "#C9C6BF", flexShrink: 0 }} />
+                    <input style={{ ...inp, fontWeight: 700 }} value={it.name} onChange={e => updateItem(i, { name: e.target.value })} placeholder="Lobby & common hallways" />
+                    <button title="Remove" onClick={() => setItems(its => its.length > 1 ? its.filter((_, idx) => idx !== i) : its)} style={{ ...iconBtn, flexShrink: 0 }}><Trash2 size={15} /></button>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1.2fr 1fr", gap: 8, marginBottom: 8 }}>
+                    <Field label="Type">
+                      <select style={inp} value={it.pricing_type} onChange={e => updateItem(i, { pricing_type: e.target.value as PricingType })}>
+                        <option value="flat">Flat / recurring</option>
+                        <option value="hourly">Hourly</option>
+                        <option value="one_time">One-time</option>
+                      </select>
+                    </Field>
+                    <Field label="Frequency">
+                      <FrequencyPicker value={it.frequency} onChange={v => updateItem(i, { frequency: v })} />
+                    </Field>
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, alignItems: "end" }}>
+                    <Field label={L.qty}><input style={inp} type="number" min="0" step="0.25" value={it.quantity} onChange={e => updateItem(i, { quantity: e.target.value })} /></Field>
+                    <Field label={L.rate}><input style={inp} type="number" min="0" step="0.01" value={it.unit_rate} onChange={e => updateItem(i, { unit_rate: e.target.value })} placeholder="0.00" /></Field>
+                    <Field label="Amount"><div style={{ ...inp, background: "#F3F4F6", fontWeight: 700, color: INK }}>{money(lineAmount(it))}</div></Field>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </Section>
 
         {/* Totals */}
