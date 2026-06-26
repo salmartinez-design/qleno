@@ -29,6 +29,7 @@ router.get("/:token", async (req, res) => {
         form_category: formTemplatesTable.category,
         form_schema: formTemplatesTable.schema,
         terms_body: formTemplatesTable.terms_body,
+        terms_body_override: formSubmissionsTable.terms_body_override,
         requires_sign: formTemplatesTable.requires_sign,
         company_id: formSubmissionsTable.company_id,
         company_name: sql<string>`(select name from companies where id = ${formSubmissionsTable.company_id})`,
@@ -50,8 +51,11 @@ router.get("/:token", async (req, res) => {
       return res.status(404).json({ error: "Agreement not found" });
     }
 
+    // Per-send edited text wins over the template body.
+    const effectiveTerms = (submission as any).terms_body_override || submission.terms_body;
+
     if (submission.status === "signed") {
-      return res.json({ ...submission, already_signed: true });
+      return res.json({ ...submission, terms_body: effectiveTerms, already_signed: true });
     }
 
     if (submission.expires_at && new Date() > new Date(submission.expires_at)) {
@@ -71,7 +75,7 @@ router.get("/:token", async (req, res) => {
       }
     } catch (e) { console.error("viewed-event (non-fatal):", e); }
 
-    return res.json({ ...submission, already_signed: false });
+    return res.json({ ...submission, terms_body: effectiveTerms, already_signed: false });
   } catch (err) {
     console.error("Get sign token error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -94,6 +98,7 @@ router.post("/:token", async (req, res) => {
         sent_to: formSubmissionsTable.sent_to,
         form_name: formTemplatesTable.name,
         terms_body: formTemplatesTable.terms_body,
+        terms_body_override: formSubmissionsTable.terms_body_override,
         company_name: sql<string>`(select name from companies where id = ${formSubmissionsTable.company_id})`,
       })
       .from(formSubmissionsTable)
@@ -130,7 +135,7 @@ router.post("/:token", async (req, res) => {
         submissionId: submission.id,
         formName: submission.form_name || "Service Agreement",
         companyName: submission.company_name || "Qleno",
-        termsBody: submission.terms_body || "",
+        termsBody: (submission as any).terms_body_override || submission.terms_body || "",
         responses: responses || {},
         signatureName: signature_name,
         signedAt: signedAt.toLocaleString("en-US", { timeZone: "America/Chicago" }),
