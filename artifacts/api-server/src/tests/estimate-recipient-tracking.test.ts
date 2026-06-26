@@ -24,9 +24,11 @@ describe("per-recipient open/click tracking", () => {
     assert.match(track, /SELECT company_id, estimate_id, enrollment_id, recipient/);
     assert.match(track, /recipient: link\.recipient \?\? null/);
   });
-  it("drip mints recipient-tagged pixel + link", () => {
-    assert.match(svc, /createOpenPixel\(\{ companyId: enr\.company_id, estimateId: enr\.estimate_id, enrollmentId: enr\.id, recipient: recipientEmail \}\)/);
-    assert.match(svc, /recipient: e\.contact_email \?\? null/);
+  it("drip mints recipient-tagged pixel + link, per recipient", () => {
+    assert.match(svc, /createOpenPixel\(\{ companyId: enr\.company_id, estimateId: enr\.estimate_id, enrollmentId: enr\.id, recipient \}\)/);
+    assert.match(svc, /recipient: recipientOverride \?\? e\.contact_email \?\? null/);
+    assert.match(svc, /const recipients = \[\.\.\.new Set\(\[recipientEmail, \.\.\.ccEmails\]/);
+    assert.match(svc, /buildEstimateMergeVars\(enr\.company_id, enr\.estimate_id, enr\.id, rcpt\)/);
   });
   it("tracking panel shows who opened / clicked", () => {
     assert.match(ui, /Email opened\$\{r \? ` by \$\{r\}` : ""\}/);
