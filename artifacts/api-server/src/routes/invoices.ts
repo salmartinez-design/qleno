@@ -438,6 +438,90 @@ router.get("/:id", requireAuth, async (req, res) => {
   }
 });
 
+// ── Invoice PDF ──────────────────────────────────────────────────────────────
+// Branded, downloadable PDF of the invoice — same look as the estimate PDF.
+// Inline disposition so it opens in a browser tab.
+router.get("/:id/pdf", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const invoiceId = parseInt(req.params.id);
+    const [inv] = await db
+      .select({
+        invoice_number: invoicesTable.invoice_number,
+        status: invoicesTable.status,
+        line_items: invoicesTable.line_items,
+        subtotal: invoicesTable.subtotal,
+        tips: invoicesTable.tips,
+        total: invoicesTable.total,
+        due_date: invoicesTable.due_date,
+        created_at: invoicesTable.created_at,
+        paid_at: invoicesTable.paid_at,
+        first_name: clientsTable.first_name,
+        last_name: clientsTable.last_name,
+        email: clientsTable.email,
+        phone: clientsTable.phone,
+        address: clientsTable.address,
+        city: clientsTable.city,
+        state: clientsTable.state,
+        zip: clientsTable.zip,
+        account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
+        service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
+      })
+      .from(invoicesTable)
+      .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
+      .limit(1);
+    if (!inv) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+
+    const co = await db.execute(sql`SELECT name, logo_url FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const company: any = (co as any).rows[0] ?? {};
+    let logo: Buffer | null = null;
+    if (company.logo_url) {
+      try {
+        const abs = /^https?:\/\//i.test(company.logo_url) ? company.logo_url : `${appBaseUrl()}${company.logo_url}`;
+        const r = await fetch(abs);
+        if (r.ok && /image\/(png|jpe?g)/i.test(r.headers.get("content-type") || "")) logo = Buffer.from(await r.arrayBuffer());
+      } catch { logo = null; }
+    }
+
+    const rawItems = Array.isArray(inv.line_items) ? inv.line_items : [];
+    const items = rawItems.map((it: any) => ({
+      description: it.description ?? it.name ?? "Service",
+      quantity: it.quantity ?? 1,
+      unit_price: it.unit_price ?? it.unit_rate ?? it.total ?? 0,
+      total: it.total ?? it.amount ?? 0,
+    }));
+    const billName = [inv.first_name, inv.last_name].filter(Boolean).join(" ") || inv.account_name || "Customer";
+    const billAddr = [inv.address, [inv.city, inv.state].filter(Boolean).join(", "), inv.zip].filter(Boolean).join(", ");
+
+    const { renderInvoicePdf } = await import("../lib/invoice-pdf.js");
+    const pdf = await renderInvoicePdf({
+      companyName: company.name || "Invoice",
+      logo,
+      invoiceNumber: inv.invoice_number || generateInvoiceNumber(invoiceId),
+      status: inv.status || "sent",
+      billToName: billName,
+      billToAddress: billAddr || null,
+      billToEmail: inv.email || null,
+      billToPhone: inv.phone || null,
+      serviceDate: inv.service_date ? String(inv.service_date) : null,
+      issuedDate: inv.created_at ? String(inv.created_at) : null,
+      dueDate: inv.due_date ? String(inv.due_date) : null,
+      items,
+      subtotal: inv.subtotal ?? inv.total ?? 0,
+      tips: inv.tips ?? 0,
+      total: inv.total ?? 0,
+      paid: !!inv.paid_at,
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${inv.invoice_number || `invoice-${invoiceId}`}.pdf"`);
+    return res.end(pdf);
+  } catch (err) {
+    console.error("Invoice PDF error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to render invoice PDF" });
+  }
+});
+
 router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
