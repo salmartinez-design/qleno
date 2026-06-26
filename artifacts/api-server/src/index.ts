@@ -72,15 +72,23 @@ function startNotificationCron() {
     const ctMonth = ctNow.getUTCMonth(); // 0-indexed; December = 11
     const ctDay   = ctNow.getUTCDate();
 
-    // 9 AM CT → reminder_3day (jobs in 3 days)
-    if (ctH === 9 && fired["reminder_3day"] !== `${ctDate}-9`) {
-      fired["reminder_3day"] = `${ctDate}-9`;
-      runReminderCron(3).catch((e: Error) => console.error("[cron] reminder_3day error:", e));
+    // 72h reminder (jobs ~3 days out): primary 9 AM CT + noon catch-up.
+    // [reminder-catchup 2026-06-26] A restart through the single 9 AM window
+    // used to drop the whole day silently. A second daily slot recovers it the
+    // same day; runReminderCron now matches a date RANGE and is flag-guarded
+    // per job, so the extra slot never double-sends.
+    for (const h of [9, 12]) {
+      if (ctH === h && fired[`reminder_3day-${h}`] !== ctDate) {
+        fired[`reminder_3day-${h}`] = ctDate;
+        runReminderCron(3).catch((e: Error) => console.error("[cron] reminder_3day error:", e));
+      }
     }
-    // 4 PM CT → reminder_1day (jobs tomorrow)
-    if (ctH === 16 && fired["reminder_1day"] !== `${ctDate}-16`) {
-      fired["reminder_1day"] = `${ctDate}-16`;
-      runReminderCron(1).catch((e: Error) => console.error("[cron] reminder_1day error:", e));
+    // 24h reminder (jobs tomorrow): primary 4 PM CT + 6 PM catch-up.
+    for (const h of [16, 18]) {
+      if (ctH === h && fired[`reminder_1day-${h}`] !== ctDate) {
+        fired[`reminder_1day-${h}`] = ctDate;
+        runReminderCron(1).catch((e: Error) => console.error("[cron] reminder_1day error:", e));
+      }
     }
     // Every hour → review_request
     const hrKey = `${ctDate}-${ctH}`;

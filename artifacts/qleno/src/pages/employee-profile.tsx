@@ -1849,7 +1849,7 @@ export default function EmployeeProfilePage() {
                                         style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#92400E',fontFamily:'inherit' }}>
                                         <Ban size={11}/> Void
                                       </button>
-                                      {(getTokenRole() === 'owner' || getTokenRole() === 'admin') && (
+                                      {['owner', 'admin', 'office'].includes(getTokenRole() || '') && (
                                         <button
                                           onClick={() => deletePay(p.id)}
                                           disabled={deletingId === p.id}

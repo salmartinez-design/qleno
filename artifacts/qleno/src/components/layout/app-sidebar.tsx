@@ -299,8 +299,16 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
           // (e.g. a tech viewing an office-only "Operations" / "Sales"
           // / "Insights" / etc. section) skip the section entirely so
           // we don't render an orphan label with nothing under it.
+          // [office-admin-parity 2026-06-26] 'office' is elevated to admin
+          // level (see requireRole in api-server/src/lib/auth.ts): anywhere a
+          // nav item grants 'admin', office sees it too — including Settings.
+          // Owner-only items (no 'admin' in roles) stay hidden from office.
           const visibleItems = section.items.filter(
-            (item: any) => !item.roles || (userInfo && item.roles.includes(userInfo.role)),
+            (item: any) =>
+              !item.roles ||
+              (userInfo &&
+                (item.roles.includes(userInfo.role) ||
+                  (userInfo.role === 'office' && item.roles.includes('admin')))),
           );
           if (visibleItems.length === 0) return null;
           return (

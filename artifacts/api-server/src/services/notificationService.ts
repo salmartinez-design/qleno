@@ -273,6 +273,20 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
     const target = new Date();
     target.setDate(target.getDate() + daysAhead);
     const targetStr = target.toISOString().slice(0, 10);
+    // [reminder-catchup 2026-06-26] The in-process scheduler fires this cron in
+    // a single daily window (9 AM / 4 PM CT). A server restart during that hour
+    // used to silently skip the whole day with no retry (reminder_72h_sent was 0
+    // across all jobs, ever). Fix: match a DATE RANGE, not a single day, so a
+    // missed window is recovered on the next run. The per-job reminder_*_sent
+    // flag still guards every send, so this never double-sends or blasts the
+    // back-catalog. The 72h reminder gets a 1-day grace (today+2..today+3); the
+    // 24h reminder stays exact (today+1) — a "your cleaning is tomorrow" message
+    // can't sensibly fire once the job is already same-day. Lower bound never
+    // reaches into the past.
+    const fromDays = daysAhead === 3 ? daysAhead - 1 : daysAhead;
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() + fromDays);
+    const fromStr = fromDate.toISOString().slice(0, 10);
     const { sql: drizzleSql } = await import("drizzle-orm");
 
     const rows = await db.execute(
@@ -286,7 +300,8 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
               JOIN clients c ON c.id = j.client_id
               JOIN companies co ON co.id = j.company_id
               LEFT JOIN accounts a ON a.id = c.account_id
-             WHERE j.scheduled_date = ${targetStr}
+             WHERE j.scheduled_date >= ${fromStr}
+               AND j.scheduled_date <= ${targetStr}
                AND j.status NOT IN ('cancelled', 'complete')
                AND co.comms_enabled = true
                AND (a.id IS NULL OR a.comms_enabled = true)
@@ -301,7 +316,8 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
               JOIN clients c ON c.id = j.client_id
               JOIN companies co ON co.id = j.company_id
               LEFT JOIN accounts a ON a.id = c.account_id
-             WHERE j.scheduled_date = ${targetStr}
+             WHERE j.scheduled_date >= ${fromStr}
+               AND j.scheduled_date <= ${targetStr}
                AND j.status NOT IN ('cancelled', 'complete')
                AND co.comms_enabled = true
                AND (a.id IS NULL OR a.comms_enabled = true)

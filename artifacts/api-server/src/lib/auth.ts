@@ -73,7 +73,15 @@ export function requireRole(...roles: string[]) {
       res.status(401).json({ error: "Unauthorized", message: "Not authenticated" });
       return;
     }
-    if (!roles.includes(req.auth.role)) {
+    // [office-admin-parity 2026-06-26] The 'office' role is elevated to admin
+    // level: anywhere a route grants 'admin', 'office' is granted too. This lets
+    // every office employee reach and modify admin settings (pricing, discounts,
+    // fees, company settings) without hand-editing each endpoint guard. It does
+    // NOT cover owner-only routes (requireRole("owner") with no "admin") — those
+    // stay owner-restricted, e.g. payroll-policy config. Single choke point so
+    // no settings endpoint is missed and future admin routes inherit it.
+    const allowed = roles.includes("admin") ? [...roles, "office"] : roles;
+    if (!allowed.includes(req.auth.role)) {
       res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
       return;
     }
