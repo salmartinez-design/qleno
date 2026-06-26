@@ -44,4 +44,16 @@ describe("estimate packages (flat-price templates)", () => {
     assert.match(builder, /setBillingMode\("flat"\)/);
     assert.match(builder, /t\.billing_mode === "flat"/); // picker card shows the price
   });
+
+  it("a Settings → Packages authoring page exists and is routed", () => {
+    const page = read("../../../qleno/src/pages/company/packages.tsx");
+    const app = read("../../../qleno/src/App.tsx");
+    assert.match(page, /export default function PackagesPage/);
+    assert.match(page, /billing_mode: "flat"/);            // always creates flat packages
+    assert.match(page, /method: "PATCH"/);                 // edit
+    assert.match(page, /method: "POST"/);                  // create
+    assert.match(page, /filter\(\(t: any\) => t\.billing_mode === "flat"\)/); // lists packages only
+    assert.match(page, /from "@\/components\/frequency-picker"/); // reuses the shared picker
+    assert.match(app, /component=\{PackagesPage\}/);
+  });
 });

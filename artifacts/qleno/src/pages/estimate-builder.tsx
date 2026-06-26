@@ -6,6 +6,7 @@ import { Plus, Trash2, ArrowLeft, Save, Send, LayoutTemplate, GripVertical, Chec
 import { toast } from "sonner";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
+import { FrequencyPicker } from "@/components/frequency-picker";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -41,21 +42,6 @@ const TYPE_LABELS: Record<PricingType, { type: string; qty: string; rate: string
   hourly: { type: "Hourly", qty: "Hours", rate: "$/hr" },
   one_time: { type: "One-time", qty: "Qty", rate: "Price" },
 };
-const FREQUENCY_OPTIONS = ["Daily", "5x/week", "3x/week", "2x/week", "Weekly", "Bi-weekly", "Semi-monthly", "Monthly", "Quarterly", "One-time"];
-
-// [frequency-custom] Custom cadence = a count + a unit (e.g. 2 × per month).
-// Stored as "Nx/<unit>" — same shape as the standard "2x/week" options.
-const CADENCE_UNITS = [
-  { v: "day", label: "per day" },
-  { v: "week", label: "per week" },
-  { v: "month", label: "per month" },
-  { v: "year", label: "per year" },
-];
-const parseCustomFreq = (v: string): { n: string; unit: string } | null => {
-  const m = /^(\d+)x\/(day|week|month|year)$/.exec((v || "").trim());
-  return m ? { n: m[1], unit: m[2] } : null;
-};
-const composeFreq = (n: string, unit: string) => `${Math.max(1, Number(n) || 1)}x/${unit}`;
 
 // [estimate-templates-phase2] One-click vertical picker. Seeded templates carry
 // a category; this maps it to a clean label + one-line scope hint for the cards.
@@ -373,9 +359,12 @@ export default function EstimateBuilderPage() {
                 <LayoutTemplate size={16} style={{ color: MINT }} />
                 <h2 style={{ fontSize: 13, fontWeight: 800, color: INK, textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Start from a template</h2>
               </div>
-              <button onClick={() => setShowPicker(false)} style={{ background: "none", border: "none", color: MUTE, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, padding: 0 }}>
-                Start blank
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+                <a href={`${API}/company/packages`} style={{ color: MINT, fontSize: 13, fontWeight: 700, textDecoration: "none" }}>Manage packages</a>
+                <button onClick={() => setShowPicker(false)} style={{ background: "none", border: "none", color: MUTE, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, padding: 0 }}>
+                  Start blank
+                </button>
+              </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: 10 }}>
               {[...templates]
@@ -598,45 +587,6 @@ const Row = ({ label, value }: { label: string; value: string }) => (
   <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, color: INK }}><span style={{ color: MUTE }}>{label}</span><span style={{ fontWeight: 600 }}>{value}</span></div>
 );
 
-// [frequency-dropdown] A real dropdown of all cadence options + "Custom…".
-// A free-text input with a datalist only shows suggestions matching what's
-// already typed, so a filled field looked like it had a single option — this
-// always shows the full list. Custom… reveals a structured builder: a count
-// (Frequency) + a cadence selector (per day/week/month/year), e.g. 2 × per month.
-function FrequencyPicker({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const isStd = FREQUENCY_OPTIONS.includes(value);
-  const parsed = parseCustomFreq(value);
-  const [custom, setCustom] = useState(value !== "" && !isStd);
-  const [n, setN] = useState(parsed?.n ?? "2");
-  const [unit, setUnit] = useState(parsed?.unit ?? "month");
-  useEffect(() => { if (FREQUENCY_OPTIONS.includes(value)) setCustom(false); }, [value]);
-  // Keep the builder in sync when an existing custom value loads in.
-  useEffect(() => { const p = parseCustomFreq(value); if (p) { setN(p.n); setUnit(p.unit); } }, [value]);
-
-  if (custom) {
-    return (
-      <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <input style={{ ...inp, width: 70 }} type="number" min="1" step="1" value={n} autoFocus aria-label="Times"
-          onChange={e => { setN(e.target.value); onChange(composeFreq(e.target.value, unit)); }} />
-        <select style={inp} value={unit} aria-label="Cadence"
-          onChange={e => { setUnit(e.target.value); onChange(composeFreq(n, e.target.value)); }}>
-          {CADENCE_UNITS.map(u => <option key={u.v} value={u.v}>{u.label}</option>)}
-        </select>
-        <button type="button" onClick={() => { setCustom(false); onChange(""); }} style={{ ...addBtn, flexShrink: 0 }} title="Back to the list">List</button>
-      </div>
-    );
-  }
-  return (
-    <select style={inp} value={isStd ? value : ""} onChange={e => {
-      if (e.target.value === "__custom__") { setCustom(true); onChange(composeFreq(n, unit)); }
-      else onChange(e.target.value);
-    }}>
-      <option value="">Select…</option>
-      {FREQUENCY_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
-      <option value="__custom__">Custom…</option>
-    </select>
-  );
-}
 
 const inp: React.CSSProperties = {
   width: "100%", padding: "9px 11px", border: `1px solid ${BORDER}`, borderRadius: 9,
