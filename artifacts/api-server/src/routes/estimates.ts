@@ -183,9 +183,11 @@ router.post("/templates", requireAuth, async (req, res) => {
     const name = str(req.body?.name, 200);
     if (!name) return res.status(400).json({ error: "Bad Request", message: "Template name is required" });
     const items = normalizeItems(req.body?.items);
+    const billingMode = billingModeOf(req.body?.billing_mode);
+    const flatPrice = billingMode === "flat" ? Math.max(0, Number(req.body?.flat_price ?? 0) || 0) : 0;
     const inserted = await db.execute(sql`
-      INSERT INTO estimate_templates (company_id, name, category, title, intro_note, terms, created_by)
-      VALUES (${companyId}, ${name}, ${str(req.body?.category, 40)}, ${str(req.body?.title, 300)}, ${str(req.body?.intro_note)}, ${str(req.body?.terms)}, ${req.auth!.userId})
+      INSERT INTO estimate_templates (company_id, name, category, title, intro_note, terms, billing_mode, flat_price, created_by)
+      VALUES (${companyId}, ${name}, ${str(req.body?.category, 40)}, ${str(req.body?.title, 300)}, ${str(req.body?.intro_note)}, ${str(req.body?.terms)}, ${billingMode}, ${flatPrice}, ${req.auth!.userId})
       RETURNING id
     `);
     const templateId = (inserted as any).rows[0].id;
@@ -201,6 +203,43 @@ router.post("/templates", requireAuth, async (req, res) => {
     return res.status(201).json({ id: templateId });
   } catch (err) {
     console.error("Create estimate template error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Update a template/package in place (replaces its items). Used by the
+// Settings → Packages authoring screen.
+router.patch("/templates/:id", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const exists = await db.execute(sql`SELECT id FROM estimate_templates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    if (!(exists as any).rows[0]) return res.status(404).json({ error: "Not Found" });
+    const name = str(req.body?.name, 200);
+    if (!name) return res.status(400).json({ error: "Bad Request", message: "Template name is required" });
+    const items = normalizeItems(req.body?.items);
+    const billingMode = billingModeOf(req.body?.billing_mode);
+    const flatPrice = billingMode === "flat" ? Math.max(0, Number(req.body?.flat_price ?? 0) || 0) : 0;
+    await db.execute(sql`
+      UPDATE estimate_templates SET
+        name = ${name}, category = ${str(req.body?.category, 40)}, title = ${str(req.body?.title, 300)},
+        intro_note = ${str(req.body?.intro_note)}, terms = ${str(req.body?.terms)},
+        billing_mode = ${billingMode}, flat_price = ${flatPrice}
+      WHERE id = ${id} AND company_id = ${companyId}
+    `);
+    await db.execute(sql`DELETE FROM estimate_template_items WHERE template_id = ${id} AND company_id = ${companyId}`);
+    for (const it of items) {
+      await db.execute(sql`
+        INSERT INTO estimate_template_items
+          (template_id, company_id, sort_order, name, description, pricing_type, frequency, quantity, unit_rate, amount)
+        VALUES
+          (${id}, ${companyId}, ${it.sort_order}, ${it.name}, ${it.description},
+           ${it.pricing_type}, ${it.frequency}, ${it.quantity}, ${it.unit_rate}, ${it.amount})
+      `);
+    }
+    return res.json({ id });
+  } catch (err) {
+    console.error("Update estimate template error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -715,12 +754,13 @@ router.post("/:id/save-as-template", requireAuth, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const name = str(req.body?.name, 200);
     if (!name) return res.status(400).json({ error: "Bad Request", message: "Template name is required" });
-    const e = await db.execute(sql`SELECT title, intro_note, terms FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    const e = await db.execute(sql`SELECT title, intro_note, terms, billing_mode, flat_price FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
     const est = (e as any).rows[0];
     if (!est) return res.status(404).json({ error: "Not Found" });
+    // Carry the estimate's pricing mode → a flat estimate becomes a package.
     const inserted = await db.execute(sql`
-      INSERT INTO estimate_templates (company_id, name, title, intro_note, terms, created_by)
-      VALUES (${companyId}, ${name}, ${est.title}, ${est.intro_note}, ${est.terms}, ${req.auth!.userId})
+      INSERT INTO estimate_templates (company_id, name, title, intro_note, terms, billing_mode, flat_price, created_by)
+      VALUES (${companyId}, ${name}, ${est.title}, ${est.intro_note}, ${est.terms}, ${est.billing_mode ?? "itemized"}, ${est.flat_price ?? 0}, ${req.auth!.userId})
       RETURNING id
     `);
     const templateId = (inserted as any).rows[0].id;
