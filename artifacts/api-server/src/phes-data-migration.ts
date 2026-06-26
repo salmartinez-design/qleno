@@ -403,6 +403,8 @@ async function runBookingSchemaGuard(): Promise<void> {
     // [estimate-recipient-tracking 2026-06-26] Which recipient a tracked link /
     // open-pixel belongs to, so opens/clicks attribute to a person. Additive.
     { label: "tracked_links.recipient", stmt: `ALTER TABLE tracked_links ADD COLUMN IF NOT EXISTS recipient TEXT` },
+    // [estimate-industry 2026-06-26] Facility type for win-rate-by-industry. Additive.
+    { label: "estimates.facility_type", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS facility_type TEXT` },
     // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
     // native click-redirect / open-pixel tokens. Additive + idempotent.
     { label: "CREATE engagement_events", stmt: `

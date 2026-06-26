@@ -143,7 +143,16 @@ export default function EstimateEngagementPage() {
 
   const { data: summary } = useQuery({ queryKey: ["engagement-summary"], queryFn: () => apiFetch("/api/estimates/engagement/summary") });
   const { data: pipeline, isLoading } = useQuery({ queryKey: ["engagement-pipeline"], queryFn: () => apiFetch("/api/estimates/engagement/pipeline") });
+  const { data: industry } = useQuery({ queryKey: ["engagement-by-industry"], queryFn: () => apiFetch("/api/estimates/engagement/by-industry") });
   const rows: any[] = pipeline?.data || [];
+  const industryRows: any[] = industry?.data || [];
+  const FACILITY_LABEL: Record<string, string> = {
+    medical: "Medical", corporate_office: "Corporate office", industrial: "Industrial / warehouse",
+    retail: "Retail", education: "Education", common_area: "Common area / HOA", religious: "Religious / nonprofit",
+    other: "Other", unspecified: "Unspecified",
+  };
+  const fmt$ = (n: any) => `$${Math.round(Number(n || 0)).toLocaleString("en-US")}`;
+  const bestIndustry = industryRows.filter(r => r.sent >= 1).slice().sort((a, b) => b.win_rate - a.win_rate)[0];
 
   return (
     <DashboardLayout>
@@ -161,6 +170,28 @@ export default function EstimateEngagementPage() {
           <StatCard label="Won" value={String(summary?.won ?? 0)} sub={`${summary?.lost ?? 0} lost`} />
           <StatCard label="Avg touches / win" value={String(summary?.avg_touches_to_win ?? 0)} sub="to close" />
         </div>
+
+        {/* Win rate by industry */}
+        {industryRows.length > 0 && (
+          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 12, padding: "16px 18px", marginBottom: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: INK }}>Where we win — by industry</span>
+              {bestIndustry && <span style={{ fontSize: 12, color: MUTE }}>Best close rate: <b style={{ color: "#0F6E56" }}>{FACILITY_LABEL[bestIndustry.facility_type] || bestIndustry.facility_type} ({bestIndustry.win_rate}%)</b></span>}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
+              {industryRows.map((r) => (
+                <div key={r.facility_type} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ width: 150, fontSize: 12.5, color: INK, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{FACILITY_LABEL[r.facility_type] || r.facility_type}</span>
+                  <div style={{ flex: 1, background: "#F1EFE8", borderRadius: 6, height: 22 }}>
+                    <div style={{ width: `${Math.max(2, r.win_rate)}%`, height: 22, borderRadius: 6, background: "#00C9A0" }} />
+                  </div>
+                  <span style={{ width: 150, textAlign: "right", fontSize: 12, color: MUTE, flexShrink: 0 }}><b style={{ color: INK }}>{r.win_rate}%</b> · {r.won}/{r.sent} · {fmt$(r.won_value)} won</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 12, borderTop: `1px solid #EEECE7`, paddingTop: 10 }}>Set a facility type on each estimate (under "Who it's for") to sharpen this breakdown.</div>
+          </div>
+        )}
 
         {/* Pipeline */}
         <h2 style={{ fontSize: 13, fontWeight: 800, color: INK, textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 10px" }}>Pipeline</h2>
