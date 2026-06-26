@@ -875,7 +875,9 @@ router.post("/:id/sms", requireAuth, async (req, res) => {
     const id = parseInt(req.params.id, 10);
     const r = await loadEstimateForSms(companyId, id);
     if (!r) return res.status(404).json({ error: "Not Found" });
-    const to = smsPhone(r.est.contact_phone);
+    // Honor an edited number from the modal (e.g. a personal cell given on a
+    // call), else fall back to the contact on file.
+    const to = smsPhone(req.body?.to) || smsPhone(r.est.contact_phone);
     if (!to) return res.json({ sent: false, reason: "no_phone" });
 
     const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
