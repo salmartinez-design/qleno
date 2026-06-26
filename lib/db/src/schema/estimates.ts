@@ -45,6 +45,11 @@ export const estimatesTable = pgTable("estimates", {
   //                (name + frequency, no per-line price) and total = flat_price.
   billing_mode: text("billing_mode").notNull().default("itemized"),
   flat_price: numeric("flat_price", { precision: 12, scale: 2 }).notNull().default("0"),
+  // [estimate-flat-clarity 2026-06-26] What the flat price is per (visit / week /
+  // month / …) so the client sees "$150 / visit", and an optional free-text scope
+  // paragraph for when the office would rather describe the work than itemize it.
+  flat_price_unit: text("flat_price_unit").notNull().default("visit"),
+  scope_note: text("scope_note"),
   subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
   discount_amount: numeric("discount_amount", { precision: 12, scale: 2 }).notNull().default("0"),
   total: numeric("total", { precision: 12, scale: 2 }).notNull().default("0"),

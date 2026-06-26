@@ -77,6 +77,13 @@ function billingModeOf(v: unknown): "itemized" | "flat" {
   return String(v ?? "").trim() === "flat" ? "flat" : "itemized";
 }
 
+// What the flat price is charged per — drives the "$150 / visit" label.
+const PRICE_UNITS = new Set(["visit", "week", "month", "quarter", "year", "service", "total"]);
+function priceUnitOf(v: unknown): string {
+  const s = String(v ?? "").trim();
+  return PRICE_UNITS.has(s) ? s : "visit";
+}
+
 function str(v: unknown, max = 2000): string | null {
   if (v === undefined || v === null) return null;
   const s = v.toString().trim();
@@ -681,12 +688,12 @@ router.post("/", requireAuth, async (req, res) => {
       INSERT INTO estimates
         (company_id, branch_id, account_id, account_property_id, client_id,
          contact_name, contact_email, cc_emails, contact_phone, property_name, service_address,
-         title, intro_note, terms, internal_notes, status, billing_mode, flat_price,
+         title, intro_note, terms, internal_notes, status, billing_mode, flat_price, flat_price_unit, scope_note,
          subtotal, discount_amount, total, valid_until, created_by, updated_at)
       VALUES
         (${companyId}, ${intOrNull(b.branch_id)}, ${intOrNull(b.account_id)}, ${intOrNull(b.account_property_id)}, ${intOrNull(b.client_id)},
          ${str(b.contact_name, 200)}, ${str(b.contact_email, 200)}, ${normalizeEmails(b.cc_emails, str(b.contact_email, 200))}, ${str(b.contact_phone, 40)}, ${str(b.property_name, 300)}, ${str(b.service_address, 400)},
-         ${str(b.title, 300)}, ${str(b.intro_note)}, ${str(b.terms)}, ${str(b.internal_notes)}, 'draft', ${billingMode}, ${flatPrice},
+         ${str(b.title, 300)}, ${str(b.intro_note)}, ${str(b.terms)}, ${str(b.internal_notes)}, 'draft', ${billingMode}, ${flatPrice}, ${priceUnitOf(b.flat_price_unit)}, ${str(b.scope_note)},
          ${subtotal}, ${discount}, ${total}, ${b.valid_until ? new Date(b.valid_until) : null}, ${req.auth!.userId}, now())
       RETURNING id
     `);
@@ -719,6 +726,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
         account_id = ${intOrNull(b.account_id)},
         billing_mode = ${billingMode},
         flat_price = ${flatPrice},
+        flat_price_unit = ${priceUnitOf(b.flat_price_unit)},
+        scope_note = ${str(b.scope_note)},
         account_property_id = ${intOrNull(b.account_property_id)},
         client_id = ${intOrNull(b.client_id)},
         contact_name = ${str(b.contact_name, 200)},

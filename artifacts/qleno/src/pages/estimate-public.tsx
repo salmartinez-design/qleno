@@ -40,6 +40,9 @@ type PublicEstimate = {
   status: string;
   // [estimate-flat-mode] 'flat' → render scope list + single price; else itemized.
   billing_mode?: string | null;
+  // [estimate-flat-clarity] price unit ("/ visit") + optional scope paragraph.
+  flat_price_unit?: string | null;
+  scope_note?: string | null;
   subtotal: string;
   discount_amount: string;
   total: string;
@@ -268,8 +271,12 @@ export default function EstimatePublicPage() {
               // [estimate-flat-mode] One price + a scope checklist (no per-line
               // prices). The total is the single flat price the office set.
               if (est.billing_mode === "flat") {
+                const unitSuffix = est.flat_price_unit && est.flat_price_unit !== "total" ? ` / ${est.flat_price_unit}` : "";
                 return (
                   <>
+                    {est.scope_note && (
+                      <p style={{ fontSize: 14, color: "#374151", margin: "0 0 16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{est.scope_note}</p>
+                    )}
                     {est.items.length > 0 && (
                       <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
                         <p style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 10px" }}>What's included</p>
@@ -290,9 +297,9 @@ export default function EstimatePublicPage() {
                           <span>Discount</span><span>−{money(est.discount_amount)}</span>
                         </div>
                       )}
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: `2px solid ${INK}`, marginTop: 8, paddingTop: 10 }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderTop: `2px solid ${INK}`, marginTop: 8, paddingTop: 10 }}>
                         <span style={{ fontSize: 15, fontWeight: 800, color: INK }}>Total</span>
-                        <span style={{ fontSize: 26, fontWeight: 800, color: MINT, letterSpacing: "-0.01em" }}>{money(est.total)}</span>
+                        <span style={{ fontSize: 26, fontWeight: 800, color: MINT, letterSpacing: "-0.01em" }}>{money(est.total)}<span style={{ fontSize: 15, fontWeight: 700, color: MUTE }}>{unitSuffix}</span></span>
                       </div>
                     </div>
                   </>
