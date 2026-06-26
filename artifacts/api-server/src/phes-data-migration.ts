@@ -72,6 +72,14 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for
     // the estimate drip. Opt-in: bridge fires only when a URL is set.
+    // [estimate-w9 2026-06-26] Company tax info for the fillable W-9. Additive.
+    { label: "companies.w9_legal_name", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_legal_name TEXT" },
+    { label: "companies.w9_business_name", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_business_name TEXT" },
+    { label: "companies.w9_classification", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_classification TEXT" },
+    { label: "companies.w9_llc_class", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_llc_class TEXT" },
+    { label: "companies.w9_ein", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_ein TEXT" },
+    { label: "companies.w9_exempt_payee_code", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_exempt_payee_code TEXT" },
+    { label: "companies.w9_fatca_code", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_fatca_code TEXT" },
     { label: "companies.ghl_estimate_sent_webhook", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS ghl_estimate_sent_webhook TEXT" },
     { label: "companies.ghl_estimate_outcome_webhook", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS ghl_estimate_outcome_webhook TEXT" },
     // [recurring-delete-skip 2026-06-05] Deleted-occurrence tombstones so a
