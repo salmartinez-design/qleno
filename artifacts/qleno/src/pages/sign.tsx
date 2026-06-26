@@ -70,7 +70,7 @@ export default function SignPage() {
     try {
       const result = await publicFetch(`/api/sign/${token}`, {
         method: "POST",
-        body: JSON.stringify({ responses, signature_name: signatureName, ip_address: "client" }),
+        body: JSON.stringify({ responses, signature_name: signatureName, ip_address: "client", agreed }),
       });
       setSuccess(result);
     } catch (err: any) {
@@ -119,11 +119,16 @@ export default function SignPage() {
             ? "This agreement has already been signed."
             : `Thank you, ${success?.signature_name || signatureName}. Your signed agreement has been recorded.`}
         </div>
-        {(success?.pdf_url || data?.pdf_url) && (
-          <a href={success?.pdf_url || data?.pdf_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: brand, color: "#fff", padding: "10px 24px", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
-            <FileText size={16} /> Download Signed Copy
+        <div style={{ display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" }}>
+          {(success?.pdf_url || data?.pdf_url) && (
+            <a href={success?.pdf_url || data?.pdf_url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: brand, color: "#fff", padding: "10px 24px", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
+              <FileText size={16} /> Download Signed Copy
+            </a>
+          )}
+          <a href={`${API}/api/sign/${token}/certificate.pdf`} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#fff", color: "#1A1917", border: "1px solid #E5E2DC", padding: "10px 24px", borderRadius: 8, textDecoration: "none", fontWeight: 600, fontSize: 14 }}>
+            <Shield size={16} /> Certificate of Completion
           </a>
-        )}
+        </div>
         <div style={{ marginTop: 20, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, color: "#9E9B94" }}>
           <Shield size={13} /> Secured by Qleno eSign
         </div>
