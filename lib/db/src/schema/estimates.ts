@@ -92,6 +92,11 @@ export const estimateTemplatesTable = pgTable("estimate_templates", {
   title: text("title"),
   intro_note: text("intro_note"),
   terms: text("terms"),
+  // [estimate-packages 2026-06-26] A "package" is a flat-price template: one
+  // price + scope-only items. billing_mode mirrors estimates.billing_mode so
+  // applying a package drops straight into the flat-price view.
+  billing_mode: text("billing_mode").notNull().default("itemized"),
+  flat_price: numeric("flat_price", { precision: 12, scale: 2 }).notNull().default("0"),
   created_by: integer("created_by").references(() => usersTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });

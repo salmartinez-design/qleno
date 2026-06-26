@@ -157,6 +157,10 @@ export default function EstimateBuilderPage() {
           if (templateId) {
             const t = await apiFetch(`/api/estimates/templates/${templateId}`);
             setTitle(t.title || ""); setIntroNote(t.intro_note || ""); setTerms(t.terms || "");
+            if (t.billing_mode === "flat") {
+              setBillingMode("flat");
+              setFlatPrice(t.flat_price != null && Number(t.flat_price) > 0 ? String(t.flat_price) : "");
+            }
             setItems((t.items || []).length ? t.items.map(mapRow) : [blankItem()]);
             setShowPicker(false);
           } else {
@@ -263,6 +267,13 @@ export default function EstimateBuilderPage() {
       if (full.title) setTitle(full.title);
       if (full.intro_note) setIntroNote(full.intro_note);
       if (full.terms) setTerms(full.terms);
+      // [estimate-packages] A flat package drops straight into flat-price view.
+      if (full.billing_mode === "flat") {
+        setBillingMode("flat");
+        setFlatPrice(full.flat_price != null && Number(full.flat_price) > 0 ? String(full.flat_price) : "");
+      } else {
+        setBillingMode("itemized");
+      }
       setItems((full.items || []).length ? full.items.map(mapRow) : [blankItem()]);
       setShowPicker(false);
       toast.success(`Started from "${t.name}" — edit anything below`);
@@ -385,7 +396,11 @@ export default function EstimateBuilderPage() {
                       onMouseLeave={(e) => (e.currentTarget.style.borderColor = BORDER)}
                     >
                       <span style={{ fontSize: 14, fontWeight: 800, color: INK }}>{meta?.label || t.name}</span>
-                      <span style={{ fontSize: 12, color: MUTE, lineHeight: 1.35 }}>{meta?.hint || `${t.item_count ?? 0} line items`}</span>
+                      <span style={{ fontSize: 12, color: MUTE, lineHeight: 1.35 }}>
+                        {t.billing_mode === "flat"
+                          ? `${money(Number(t.flat_price) || 0)} · ${t.item_count ?? 0} item${(t.item_count ?? 0) === 1 ? "" : "s"} included`
+                          : (meta?.hint || `${t.item_count ?? 0} line items`)}
+                      </span>
                     </button>
                   );
                 })}
