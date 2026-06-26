@@ -202,6 +202,150 @@ function NewInvoiceModal({ onClose, onDone }: { onClose: () => void; onDone: () 
   );
 }
 
+// [weekly-cadence 2026-06-26] On-demand consolidated invoicing. Lists
+// batch_invoice clients' pending per-visit drafts for a billing window (weekly
+// Sun–Sat or monthly), keyed on SERVICE DATE, and folds a client's window into
+// one invoice via POST /api/batch-invoicing/:clientId/consolidate. Office stays
+// in control — nothing generates automatically.
+function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [cadence, setCadence] = useState<"weekly" | "monthly">("weekly");
+  // Anchor any date inside the target window; default = today.
+  const [anchor, setAnchor] = useState(() => new Date().toISOString().slice(0, 10));
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [excluded, setExcluded] = useState<Set<number>>(new Set()); // invoice ids to leave out
+  const [busyClient, setBusyClient] = useState<number | null>(null);
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["weekly-invoicing", cadence, anchor],
+    queryFn: () => apiFetch(`/api/batch-invoicing?cadence=${cadence}&date=${anchor}`),
+  });
+  const clients: any[] = data?.clients || [];
+
+  function shiftWindow(deltaDays: number) {
+    const d = new Date(`${anchor}T00:00:00.000Z`);
+    d.setUTCDate(d.getUTCDate() + deltaDays);
+    setAnchor(d.toISOString().slice(0, 10));
+  }
+  const fmtRange = (a?: string, b?: string) => {
+    if (!a || !b) return "";
+    const f = (s: string) => new Date(`${s}T00:00:00.000Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    return `${f(a)} – ${f(b)}`;
+  };
+
+  async function consolidate(clientId: number) {
+    setBusyClient(clientId);
+    try {
+      const excludeForClient = (clients.find(c => c.client_id === clientId)?.visits || [])
+        .filter((v: any) => excluded.has(v.invoice_id)).map((v: any) => v.invoice_id);
+      const r = await apiFetch(`/api/batch-invoicing/${clientId}/consolidate`, {
+        method: "POST",
+        body: JSON.stringify({ cadence, date: anchor, exclude_invoice_ids: excludeForClient }),
+      });
+      toast({ title: "Weekly invoice created", description: `${r.visit_count} visit${r.visit_count !== 1 ? "s" : ""} · $${(r.parent_total || 0).toFixed(2)} · #${r.parent_invoice_id}` });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      refetch();
+      onDone();
+    } catch (err: any) {
+      let msg = err?.message || "Failed";
+      try { msg = JSON.parse(msg).message || msg; } catch {}
+      toast({ title: "Could not consolidate", description: msg, variant: "destructive" });
+    } finally {
+      setBusyClient(null);
+    }
+  }
+
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 1000 }} onClick={onClose} />
+      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "100%", maxWidth: 560, backgroundColor: "#FFFFFF", zIndex: 1001, display: "flex", flexDirection: "column", boxShadow: "-4px 0 24px rgba(0,0,0,0.12)", fontFamily: FF }}>
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid #EEECE7", flexShrink: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>Weekly Invoicing</h2>
+              <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B7280" }}>Combine a client's visits into one invoice</p>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={20} /></button>
+          </div>
+          {/* cadence + window nav */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
+            <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+              {(["weekly", "monthly"] as const).map(c => (
+                <button key={c} onClick={() => setCadence(c)}
+                  style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", fontFamily: FF, textTransform: "capitalize", backgroundColor: cadence === c ? "var(--brand)" : "#FFFFFF", color: cadence === c ? "#FFFFFF" : "#6B7280" }}>{c}</button>
+              ))}
+            </div>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => shiftWindow(cadence === "weekly" ? -7 : -31)} style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontFamily: FF }}>‹</button>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", minWidth: 120, textAlign: "center" }}>{fmtRange(data?.period_start, data?.period_end)}</span>
+            <button onClick={() => shiftWindow(cadence === "weekly" ? 7 : 31)} style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontFamily: FF }}>›</button>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
+          {isLoading ? (
+            <div style={{ textAlign: "center", color: "#9E9B94", padding: 40 }}>Loading…</div>
+          ) : clients.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 48 }}>
+              <AlertCircle size={36} style={{ color: "#C4C0BB", marginBottom: 12 }} />
+              <p style={{ fontSize: 14, fontWeight: 600, color: "#6B7280", margin: "0 0 4px" }}>No visits to invoice this {cadence === "weekly" ? "week" : "month"}</p>
+              <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>Only consolidated-billing clients with pending visits appear here.</p>
+            </div>
+          ) : (
+            clients.map((c: any) => {
+              const isOpen = expanded.has(c.client_id);
+              const incl = (c.visits || []).filter((v: any) => !excluded.has(v.invoice_id));
+              const inclTotal = incl.reduce((s: number, v: any) => s + (v.total || 0), 0);
+              return (
+                <div key={c.client_id} style={{ borderBottom: "1px solid #F0EDE8", padding: "14px 24px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <button onClick={() => setExpanded(p => { const n = new Set(p); n.has(c.client_id) ? n.delete(c.client_id) : n.add(c.client_id); return n; })}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
+                      {isOpen ? <ChevronUp size={16} color="#9E9B94" /> : <ChevronDown size={16} color="#9E9B94" />}
+                    </button>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.client_name || `Client #${c.client_id}`}</p>
+                      <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>{incl.length} visit{incl.length !== 1 ? "s" : ""}{excluded.size ? ` · ${(c.visits || []).length - incl.length} excluded` : ""}</p>
+                    </div>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>${inclTotal.toFixed(2)}</span>
+                    <button onClick={() => consolidate(c.client_id)} disabled={busyClient === c.client_id || incl.length === 0}
+                      style={{ backgroundColor: incl.length === 0 ? "#C4C0BB" : "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: incl.length === 0 ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                      {busyClient === c.client_id ? "Working…" : "Generate invoice"}
+                    </button>
+                  </div>
+                  {isOpen && (
+                    <div style={{ marginTop: 10, marginLeft: 28, borderLeft: "2px solid #F0EDE8", paddingLeft: 14 }}>
+                      {(c.visits || []).map((v: any) => {
+                        const isExcl = excluded.has(v.invoice_id);
+                        return (
+                          <div key={v.invoice_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", opacity: isExcl ? 0.45 : 1 }}>
+                            <button onClick={() => setExcluded(p => { const n = new Set(p); n.has(v.invoice_id) ? n.delete(v.invoice_id) : n.add(v.invoice_id); return n; })}
+                              title={isExcl ? "Include this visit" : "Exclude this visit"}
+                              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: isExcl ? "#C4C0BB" : "var(--brand)", display: "flex" }}>
+                              {isExcl ? <Square size={15} /> : <CheckSquare size={15} />}
+                            </button>
+                            <span style={{ flex: 1, fontSize: 12, color: "#6B7280" }}>{v.service_label || v.service_date}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", textDecoration: isExcl ? "line-through" : "none" }}>${(v.total || 0).toFixed(2)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div style={{ padding: "14px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, backgroundColor: "#FAFAF9" }}>
+          <p style={{ margin: 0, fontSize: 11, color: "#9E9B94" }}>One invoice per client, one line per visit (service date), due on receipt. Pushes a single document to QuickBooks.</p>
+        </div>
+      </div>
+    </>
+  );
+}
+
 function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -468,6 +612,7 @@ export default function InvoicesPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [showBatch, setShowBatch] = useState(false);
+  const [showWeekly, setShowWeekly] = useState(false);
   const [showCloseDay, setShowCloseDay] = useState(false);
   const [showNewInvoice, setShowNewInvoice] = useState(false);
   useEffect(() => {
@@ -747,6 +892,10 @@ export default function InvoicesPage() {
                       style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", backgroundColor: "#F7F6F3", color: "var(--brand)", border: "1px solid var(--brand)", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                       <Layers size={14} strokeWidth={2} /> {isMobile ? "Batch" : "Batch Invoice"}
                     </button>
+                    <button onClick={() => setShowWeekly(true)}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", backgroundColor: "#F7F6F3", color: "var(--brand)", border: "1px solid var(--brand)", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                      <Calendar size={14} strokeWidth={2} /> {isMobile ? "Weekly" : "Weekly Invoicing"}
+                    </button>
                   </>
                 )}
                 <button
@@ -899,6 +1048,7 @@ export default function InvoicesPage() {
       </DashboardLayout>
 
       {showBatch && <BatchInvoiceDrawer onClose={() => setShowBatch(false)} onDone={() => refetch()} />}
+      {showWeekly && <WeeklyInvoicingDrawer onClose={() => setShowWeekly(false)} onDone={() => refetch()} />}
       {showCloseDay && <CloseDayModal onClose={() => setShowCloseDay(false)} onOpenBatchInvoice={() => setShowBatch(true)} />}
       {showNewInvoice && <NewInvoiceModal onClose={() => setShowNewInvoice(false)} onDone={() => refetch()} />}
     </>
