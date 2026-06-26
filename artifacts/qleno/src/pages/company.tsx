@@ -1531,25 +1531,44 @@ function SmsSmsSettingsCard() {
   );
 }
 
+// Sample values used to render a live preview of each message in the editor,
+// so the office sees what the customer actually gets (no {{tags}} on screen).
+const CM_SAMPLE: Record<string, string> = {
+  first_name: "Maria", client_name: "Maria Gomez", company_name: "Phes",
+  company_phone: "(708) 974-5517", company_email: "info@phes.io",
+  service_type: "Standard Cleaning", date: "Fri, Jun 26", time: "9:00 AM",
+  arrival_window: "9:00 AM – 12:00 PM", service_address: "123 Oak St, Oak Lawn, IL 60453",
+  tech_name: "Ana", appointment_link: "https://phes.io/appt/1234", review_link: "https://phes.io/review/1234",
+};
+function cmFill(s: string): string {
+  return (s || "").replace(/\{\{([^}]+)\}\}/g, (_, k) => CM_SAMPLE[String(k).trim()] ?? "");
+}
+const CM_GROUPS: { key: string; title: string; sub: string }[] = [
+  { key: "before", title: "Before the visit", sub: "Confirmation and reminders" },
+  { key: "during", title: "During the visit", sub: "Day-of, while the team is en route" },
+  { key: "after", title: "After the visit", sub: "Thank-you and review request" },
+];
+
 function NotificationsTab() {
   const { toast } = useToast();
-  const [templates, setTemplates] = useState<any[]>([]);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [mergeTags, setMergeTags] = useState<string[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editBody, setEditBody] = useState("");
   const [editSubject, setEditSubject] = useState("");
   const [showLog, setShowLog] = useState(false);
-  const [testing, setTesting] = useState<number | null>(null);
   const [saving, setSaving] = useState<number | null>(null);
 
   async function load() {
     try {
-      const [t, l] = await Promise.all([
-        fetch(`${API}/api/notifications/templates`, { headers: getAuthHeaders() }).then(r => r.json()),
+      const [m, l] = await Promise.all([
+        fetch(`${API}/api/notifications/customer-messages`, { headers: getAuthHeaders() }).then(r => r.json()),
         fetch(`${API}/api/notifications/log`, { headers: getAuthHeaders() }).then(r => r.json()),
       ]);
-      setTemplates(t.data || []);
+      setMessages(m.data || []);
+      setMergeTags(m.merge_tags || []);
       setLogs(l.data || []);
     } catch {}
     finally { setLoading(false); }
@@ -1557,81 +1576,69 @@ function NotificationsTab() {
 
   useEffect(() => { load(); }, []);
 
-  async function toggle(id: number, is_active: boolean) {
-    const tmpl = templates.find(t => t.id === id);
-    if (!tmpl) return;
-    setTemplates(prev => prev.map(t => t.id === id ? { ...t, is_active } : t));
+  // Optimistically flip a channel's on/off, then persist. id = template row id.
+  async function toggle(id: number, ch: any, is_active: boolean) {
+    setMessages(prev => prev.map(m => ({ ...m, channels: m.channels.map((c: any) => c.id === id ? { ...c, is_active } : c) })));
     try {
       await fetch(`${API}/api/notifications/templates/${id}`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active, subject: tmpl.subject, body: tmpl.body }),
+        body: JSON.stringify({ is_active, subject: ch.subject, body: ch.body }),
       });
-      toast({ title: `Notification ${is_active ? "enabled" : "disabled"}` });
+      toast({ title: is_active ? "Message turned on" : "Message paused" });
     } catch {
       toast({ title: "Failed to update", variant: "destructive" });
       load();
     }
   }
 
-  async function save(id: number) {
+  async function save(id: number, ch: any) {
     setSaving(id);
     try {
-      const tmpl = templates.find(t => t.id === id)!;
       await fetch(`${API}/api/notifications/templates/${id}`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active: tmpl.is_active, subject: editSubject, body: editBody }),
+        body: JSON.stringify({ is_active: ch.is_active, subject: editSubject, body: editBody }),
       });
-      setTemplates(prev => prev.map(t => t.id === id ? { ...t, subject: editSubject, body: editBody } : t));
-      toast({ title: "Template saved" });
+      setMessages(prev => prev.map(m => ({ ...m, channels: m.channels.map((c: any) => c.id === id ? { ...c, subject: editSubject, body: editBody } : c) })));
+      toast({ title: "Message saved" });
       setEditingId(null);
     } catch { toast({ title: "Failed to save", variant: "destructive" }); }
     finally { setSaving(null); }
   }
 
-  async function testNotification(id: number) {
-    setTesting(id);
-    try {
-      const r = await fetch(`${API}/api/notifications/templates/${id}/test`, {
-        method: "POST", headers: getAuthHeaders(),
-      });
-      const d = await r.json();
-      toast({ title: "Test sent!", description: d.message });
-      load();
-    } catch { toast({ title: "Test failed", variant: "destructive" }); }
-    finally { setTesting(null); }
-  }
-
-  function startEdit(tmpl: any) {
-    setEditingId(tmpl.id);
-    setEditBody(tmpl.body);
-    setEditSubject(tmpl.subject || "");
+  function startEdit(ch: any) {
+    setEditingId(ch.id);
+    setEditBody(ch.body || "");
+    setEditSubject(ch.subject || "");
   }
 
   const FF = "'Plus Jakarta Sans', sans-serif";
   const CARD: React.CSSProperties = { background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '18px 20px', marginBottom: 12 };
+  const chTags: Record<string, { label: string; color: string; bg: string }> = {
+    email: { label: 'EMAIL', color: '#1D4ED8', bg: '#EFF6FF' },
+    sms: { label: 'TEXT', color: '#047857', bg: '#ECFDF5' },
+  };
 
   if (loading) return <div style={{ padding: '40px 0', textAlign: 'center', color: '#9E9B94', fontFamily: FF }}>Loading…</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, fontFamily: FF }}>
-      <SmsSmsSettingsCard />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px' }}>Notification Triggers</p>
-          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Configure automatic messages sent to clients and staff</p>
+          <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 4px' }}>Customer Messages</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, maxWidth: 540, lineHeight: 1.5 }}>Every automated text and email customers receive, in the order they get them. Edit the wording, or pause any one. Timing is shown for each.</p>
         </div>
         <button onClick={() => setShowLog(!showLog)}
-          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF }}>
-          {showLog ? "Hide Log" : "View Log"} {logs.length > 0 && `(${logs.length})`}
+          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF, flexShrink: 0 }}>
+          {showLog ? "Hide Recent Sends" : "Recent Sends"} {logs.length > 0 && `(${logs.length})`}
         </button>
       </div>
 
       {showLog && (
         <div style={{ ...CARD, marginBottom: 20 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 12px' }}>Recent Notification Log</p>
-          {logs.length === 0 && <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>No notifications sent yet.</p>}
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 12px' }}>Recent Sends (all customers)</p>
+          {logs.length === 0 && <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>No messages sent yet.</p>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto' }}>
             {logs.map(l => (
               <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 10px', background: '#F7F6F3', borderRadius: 6, alignItems: 'center' }}>
@@ -1640,8 +1647,8 @@ function NotificationsTab() {
                   <span style={{ fontSize: 11, color: '#9E9B94', marginLeft: 8 }}>{CHANNEL_LABELS[l.channel] || l.channel} → {l.recipient}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: l.status === 'test_sent' ? '#7C3AED' : '#16A34A', fontWeight: 600 }}>{l.status}</span>
-                  <span style={{ fontSize: 10, color: '#9E9B94' }}>{new Date(l.sent_at).toLocaleString()}</span>
+                  <span style={{ fontSize: 11, color: l.status === 'sent' ? '#16A34A' : l.status === 'test_sent' ? '#7C3AED' : '#B45309', fontWeight: 600 }}>{l.status}</span>
+                  <span style={{ fontSize: 10, color: '#9E9B94' }}>{l.sent_at ? new Date(l.sent_at).toLocaleString() : ""}</span>
                 </div>
               </div>
             ))}
@@ -1649,84 +1656,106 @@ function NotificationsTab() {
         </div>
       )}
 
-      {templates.map(tmpl => (
-        <div key={tmpl.id} style={{ ...CARD, borderLeft: `3px solid ${tmpl.is_active ? 'var(--brand, #5B9BD5)' : '#E5E2DC'}` }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: editingId === tmpl.id ? 14 : 0 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6B7280' }}>{CHANNEL_LABELS[tmpl.channel] || tmpl.channel}</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#1A1917' }}>{TRIGGER_LABELS[tmpl.trigger] || tmpl.trigger}</span>
-                <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9E9B94', background: '#F3F4F6', padding: '2px 7px', borderRadius: 4 }}>{tmpl.channel}</span>
-              </div>
-              {editingId !== tmpl.id && (
-                <p style={{ fontSize: 12, color: '#6B7280', margin: 0, lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                  {tmpl.subject ? <><strong>{tmpl.subject}</strong> — </> : ""}{tmpl.body}
-                </p>
-              )}
+      {CM_GROUPS.map(group => {
+        const groupMsgs = messages.filter(m => m.group === group.key);
+        if (groupMsgs.length === 0) return null;
+        return (
+          <div key={group.key} style={{ marginBottom: 24 }}>
+            <div style={{ marginBottom: 10 }}>
+              <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>{group.title}</p>
+              <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{group.sub}</p>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-              <button
-                onClick={() => toggle(tmpl.id, !tmpl.is_active)}
-                style={{
-                  width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                  background: tmpl.is_active ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s',
-                }}>
-                <div style={{
-                  width: 18, height: 18, borderRadius: 9, background: '#fff',
-                  position: 'absolute', top: 3, left: tmpl.is_active ? 23 : 3,
-                  transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-                }}/>
-              </button>
-              <div style={{ display: 'flex', gap: 5 }}>
-                <button onClick={() => editingId === tmpl.id ? setEditingId(null) : startEdit(tmpl)}
-                  style={{ fontSize: 11, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
-                  {editingId === tmpl.id ? "Cancel" : "Edit"}
-                </button>
-                <button onClick={() => testNotification(tmpl.id)} disabled={testing === tmpl.id}
-                  style={{ fontSize: 11, color: '#6B7280', background: '#F3F4F6', border: 'none', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontFamily: FF }}>
-                  {testing === tmpl.id ? "…" : "Test"}
-                </button>
-              </div>
-            </div>
-          </div>
+            {groupMsgs.map(msg => {
+              const anyOn = msg.channels.some((c: any) => c.is_active);
+              return (
+                <div key={msg.trigger} style={{ ...CARD, borderLeft: `3px solid ${anyOn ? 'var(--brand, #5B9BD5)' : '#E5E2DC'}` }}>
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: '#1A1917' }}>{msg.label}</span>
+                      {msg.channels.map((c: any) => (
+                        <span key={c.channel} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: chTags[c.channel]?.color, background: chTags[c.channel]?.bg, padding: '2px 6px', borderRadius: 4 }}>{chTags[c.channel]?.label}</span>
+                      ))}
+                    </div>
+                    <p style={{ fontSize: 11.5, color: '#6B7280', margin: 0, lineHeight: 1.5 }}>
+                      <span style={{ fontWeight: 600, color: '#374151' }}>When:</span> {msg.timing}
+                    </p>
+                  </div>
 
-          {editingId === tmpl.id && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {tmpl.channel === 'email' && (
-                <div>
-                  <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Subject Line</p>
-                  <input value={editSubject} onChange={e => setEditSubject(e.target.value)}
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, outline: 'none', boxSizing: 'border-box' }}/>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {msg.channels.map((ch: any) => (
+                      <div key={ch.channel} style={{ border: '1px solid #F0EEE9', borderRadius: 9, padding: '12px 14px', background: ch.is_active ? '#fff' : '#FAFAF8' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: chTags[ch.channel]?.color }}>{chTags[ch.channel]?.label}</span>
+                            {editingId !== ch.id && (
+                              <p style={{ fontSize: 12, color: ch.is_active ? '#374151' : '#9E9B94', margin: '4px 0 0', lineHeight: 1.5, whiteSpace: 'pre-wrap', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                                {ch.channel === 'email' && ch.subject ? <><strong>{cmFill(ch.subject)}</strong>{"\n"}</> : ""}{cmFill(ch.body)}
+                              </p>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+                            <button onClick={() => toggle(ch.id, ch, !ch.is_active)} title={ch.is_active ? "On — tap to pause" : "Paused — tap to turn on"}
+                              style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: ch.is_active ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s' }}>
+                              <div style={{ width: 18, height: 18, borderRadius: 9, background: '#fff', position: 'absolute', top: 3, left: ch.is_active ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }}/>
+                            </button>
+                            <button onClick={() => editingId === ch.id ? setEditingId(null) : startEdit(ch)}
+                              style={{ fontSize: 11, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
+                              {editingId === ch.id ? "Cancel" : "Edit"}
+                            </button>
+                          </div>
+                        </div>
+
+                        {editingId === ch.id && (
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
+                            {ch.channel === 'email' && (
+                              <div>
+                                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Subject Line</p>
+                                <input value={editSubject} onChange={e => setEditSubject(e.target.value)}
+                                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, outline: 'none', boxSizing: 'border-box' }}/>
+                              </div>
+                            )}
+                            <div>
+                              <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{ch.channel === 'email' ? 'Email Body' : 'Text Message'}</p>
+                              <textarea value={editBody} onChange={e => setEditBody(e.target.value)}
+                                style={{ width: '100%', height: ch.channel === 'email' ? 150 : 90, padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 12, fontFamily: FF, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }}/>
+                            </div>
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                              <span style={{ fontSize: 10, color: '#9E9B94', alignSelf: 'center', marginRight: 2 }}>Insert:</span>
+                              {(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => (
+                                <button key={v} onClick={() => setEditBody(b => b + `{{${v}}}`)}
+                                  style={{ fontSize: 10, color: '#7C3AED', background: '#EDE9FE', border: 'none', borderRadius: 4, padding: '2px 7px', cursor: 'pointer', fontFamily: FF }}>
+                                  {`{{${v}}}`}
+                                </button>
+                              ))}
+                            </div>
+                            <div style={{ background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 7, padding: '10px 12px' }}>
+                              <p style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Preview (sample customer)</p>
+                              {ch.channel === 'email' && editSubject && <p style={{ fontSize: 12, fontWeight: 700, color: '#1A1917', margin: '0 0 4px' }}>{cmFill(editSubject)}</p>}
+                              <p style={{ fontSize: 12, color: '#374151', margin: 0, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{cmFill(editBody)}</p>
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                              <button onClick={() => setEditingId(null)}
+                                style={{ padding: '7px 14px', border: '1px solid #E5E2DC', borderRadius: 7, background: '#fff', fontSize: 12, cursor: 'pointer', fontFamily: FF }}>
+                                Cancel
+                              </button>
+                              <button onClick={() => save(ch.id, ch)} disabled={saving === ch.id}
+                                style={{ padding: '7px 16px', border: 'none', borderRadius: 7, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: FF }}>
+                                {saving === ch.id ? "Saving…" : "Save"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              )}
-              <div>
-                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Message Body</p>
-                <textarea value={editBody} onChange={e => setEditBody(e.target.value)}
-                  style={{ width: '100%', height: 120, padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 12, fontFamily: FF, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }}/>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
-                <span style={{ fontSize: 10, color: '#9E9B94', alignSelf: 'center', marginRight: 2 }}>Variables:</span>
-                {VARIABLES_HELP.map(v => (
-                  <button key={v} onClick={() => setEditBody(b => b + v)}
-                    style={{ fontSize: 10, color: '#7C3AED', background: '#EDE9FE', border: 'none', borderRadius: 4, padding: '2px 7px', cursor: 'pointer', fontFamily: FF }}>
-                    {v}
-                  </button>
-                ))}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button onClick={() => setEditingId(null)}
-                  style={{ padding: '7px 14px', border: '1px solid #E5E2DC', borderRadius: 7, background: '#fff', fontSize: 12, cursor: 'pointer', fontFamily: FF }}>
-                  Cancel
-                </button>
-                <button onClick={() => save(tmpl.id)} disabled={saving === tmpl.id}
-                  style={{ padding: '7px 16px', border: 'none', borderRadius: 7, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: FF }}>
-                  {saving === tmpl.id ? "Saving…" : "Save Template"}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      ))}
+              );
+            })}
+          </div>
+        );
+      })}
+
+      <SmsSmsSettingsCard />
     </div>
   );
 }

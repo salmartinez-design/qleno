@@ -3,6 +3,11 @@ import { db } from "@workspace/db";
 import { notificationTemplatesTable, notificationLogTable } from "@workspace/db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import {
+  CUSTOMER_MESSAGE_CATALOG,
+  MERGE_TAGS,
+  ensureCustomerMessageTemplates,
+} from "../lib/customer-messages.js";
 
 const router = Router();
 
@@ -72,14 +77,72 @@ router.get("/templates", requireAuth, requireRole("owner", "admin"), async (req,
   }
 });
 
+// ── Customer Messages control panel ─────────────────────────────────────────
+// Returns the canonical catalog of customer-facing messages merged with this
+// tenant's current copy + on/off state. This is what the office "Customer
+// Messages" screen renders: every booking/job message with View / Edit / Pause.
+router.get("/customer-messages", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    // Idempotently make sure every catalog (trigger, channel) row exists so the
+    // editor never shows a blank for a message that can fire.
+    await ensureCustomerMessageTemplates(companyId);
+    const rows = await db.select().from(notificationTemplatesTable)
+      .where(eq(notificationTemplatesTable.company_id, companyId));
+    const byKey = new Map(rows.map((r: any) => [`${r.trigger}:${r.channel}`, r]));
+
+    const messages = CUSTOMER_MESSAGE_CATALOG.map((def) => ({
+      trigger: def.trigger,
+      label: def.label,
+      group: def.group,
+      timing: def.timing,
+      description: def.description,
+      channels: def.channels.map((ch) => {
+        const row: any = byKey.get(`${def.trigger}:${ch.channel}`);
+        const body = ch.channel === "email"
+          ? (row?.body_html || row?.body)
+          : (row?.body_text || row?.body);
+        return {
+          channel: ch.channel,
+          id: row?.id ?? null,
+          subject: row?.subject ?? ch.subject ?? null,
+          body: body ?? ch.body,
+          is_active: row?.is_active ?? true,
+        };
+      }),
+    }));
+    return res.json({ data: messages, merge_tags: MERGE_TAGS });
+  } catch (err) {
+    console.error("Customer messages fetch error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.patch("/templates/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const id = parseInt(req.params.id);
     const { is_active, subject, body } = req.body;
 
+    // Fetch the row first so we know its channel and can keep the editable
+    // `body` in sync with the channel-specific column the send path reads
+    // (body_html for email, body_text for sms). Without this sync, an edit to
+    // `body` is shadowed by a stale body_text/body_html and never goes out.
+    const [existing] = await db.select().from(notificationTemplatesTable)
+      .where(and(eq(notificationTemplatesTable.id, id), eq(notificationTemplatesTable.company_id, companyId)));
+    if (!existing) return res.status(404).json({ error: "Template not found" });
+
+    const patch: Record<string, any> = {};
+    if (is_active !== undefined) patch.is_active = is_active;
+    if (subject !== undefined) patch.subject = subject;
+    if (body !== undefined) {
+      patch.body = body;
+      if (existing.channel === "email") patch.body_html = body;
+      if (existing.channel === "sms") patch.body_text = body;
+    }
+
     const [updated] = await db.update(notificationTemplatesTable)
-      .set({ is_active, subject, body })
+      .set(patch)
       .where(and(eq(notificationTemplatesTable.id, id), eq(notificationTemplatesTable.company_id, companyId)))
       .returning();
 

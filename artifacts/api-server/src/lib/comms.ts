@@ -36,6 +36,11 @@ export async function sendOnMyWaySms(opts: {
   promisedArrivalLabel: string;
   tenantSmsEnabled: boolean;
   clientOptedIn: boolean;
+  // [customer-messages] When the office has an active on_my_way SMS template,
+  // the caller renders it (with {{tech_name}}/{{arrival_window}}/etc. already
+  // merged) and passes it here. Empty/undefined → the built-in default below,
+  // so a tenant with no template still gets a sensible message.
+  bodyOverride?: string;
 }): Promise<OnMyWaySmsResult> {
   if (process.env.COMMS_ENABLED !== "true") {
     console.log(
@@ -49,9 +54,12 @@ export async function sendOnMyWaySms(opts: {
 
   // Lead with the tenant's name; tech FIRST name only; concise, no ALL-CAPS.
   const sender = (opts.companyName || "").trim();
-  const body = `${sender ? sender + ": " : ""}your cleaner ${
-    opts.techName
-  } is on the way, arriving around ${opts.promisedArrivalLabel}.`;
+  const body =
+    opts.bodyOverride && opts.bodyOverride.trim()
+      ? opts.bodyOverride.trim()
+      : `${sender ? sender + ": " : ""}your cleaner ${
+          opts.techName
+        } is on the way, arriving around ${opts.promisedArrivalLabel}.`;
 
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;

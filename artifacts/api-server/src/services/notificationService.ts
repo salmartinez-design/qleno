@@ -5,6 +5,7 @@ import { getBranchByZip } from "../lib/branchRouter";
 import { buildReminderEmail } from "../lib/emailTemplates";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { isSmsOptedOut, isEmailOptedOut, buildEmailUnsubData, buildUnsubDataFromToken } from "../lib/opt-out.js";
+import { renderCustomerTemplate } from "../lib/customer-messages.js";
 import { Resend } from "resend";
 
 // ── Email brand constants ────────────────────────────────────────────────────
@@ -292,7 +293,8 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
     const rows = await db.execute(
       hoursAhead === 72
         ? drizzleSql`
-            SELECT j.id, j.scheduled_date, j.service_type, j.arrival_window,
+            SELECT j.id, j.company_id, co.name AS company_name,
+                   j.scheduled_date, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
                    c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
@@ -308,7 +310,8 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
                AND j.reminder_72h_sent = false
           `
         : drizzleSql`
-            SELECT j.id, j.scheduled_date, j.service_type, j.arrival_window,
+            SELECT j.id, j.company_id, co.name AS company_name,
+                   j.scheduled_date, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
                    c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
@@ -349,39 +352,74 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
       let emailSent = false;
       let smsSent = false;
 
+      // [customer-messages] The reminder copy now comes from the office-editable
+      // notification_templates rows (reminder_3day / reminder_1day), so edits in
+      // the Customer Messages panel actually take effect. A null template (no
+      // row) falls back to the built-in copy so a missing row never silences a
+      // reminder; a PAUSED template (is_active=false) honors the office's "off".
+      const reminderTrigger = hoursAhead === 72 ? "reminder_3day" : "reminder_1day";
+      const mergeVars: Record<string, string> = {
+        first_name: job.first_name || "there",
+        client_name: [job.first_name, job.last_name].filter(Boolean).join(" ") || "there",
+        company_name: job.company_name || "Phes",
+        company_phone: branchConfig.clientPhone,
+        company_email: branchConfig.officeEmail,
+        service_type: serviceType,
+        date: scheduledDate,
+        arrival_window: arrivalWindowLabel,
+        service_address: serviceAddress,
+      };
+      const logMeta = { job_id: String(job.id) };
+
       // Email reminder — skip if the client opted out of email.
       if (resendKey && job.email && !job.email_opt_out_at) {
-        try {
-          const { subject, html } = buildReminderEmail({
-            firstName: job.first_name || "",
-            email: job.email,
-            serviceType,
-            scheduledDate,
-            arrivalWindow: arrivalWindowLabel,
-            serviceAddress,
-            branchConfig,
-            hoursAhead: hoursAhead as 72 | 24,
-          });
-          // [comms-opt-out] List-Unsubscribe header + footer link.
-          let emailHtml = html;
-          const headers: Record<string, string> = {};
-          if (job.email_unsub_token) {
-            const u = buildUnsubDataFromToken(job.email_unsub_token);
-            Object.assign(headers, u.headers);
-            emailHtml = emailHtml.includes("</body>") ? emailHtml.replace(/<\/body>/i, `${u.footerHtml}</body>`) : emailHtml + u.footerHtml;
+        const emailTpl = await renderCustomerTemplate(job.company_id, reminderTrigger, "email", mergeVars);
+        if (emailTpl && !emailTpl.is_active) {
+          console.log(`[reminder-${label}] email paused by template job=${job.id}`);
+          await logNotification(job.company_id, job.email, "email", reminderTrigger, "suppressed", "template_paused", logMeta);
+        } else {
+          try {
+            let subject: string;
+            let html: string;
+            if (emailTpl) {
+              subject = emailTpl.subject || `Reminder: your cleaning on ${scheduledDate}`;
+              const htmlBody = /<[a-z][\s\S]*>/i.test(emailTpl.body) ? emailTpl.body : emailTpl.body.replace(/\n/g, "<br>");
+              html = wrapEmailHtml(htmlBody);
+            } else {
+              ({ subject, html } = buildReminderEmail({
+                firstName: job.first_name || "",
+                email: job.email,
+                serviceType,
+                scheduledDate,
+                arrivalWindow: arrivalWindowLabel,
+                serviceAddress,
+                branchConfig,
+                hoursAhead: hoursAhead as 72 | 24,
+              }));
+            }
+            // [comms-opt-out] List-Unsubscribe header + footer link.
+            let emailHtml = html;
+            const headers: Record<string, string> = {};
+            if (job.email_unsub_token) {
+              const u = buildUnsubDataFromToken(job.email_unsub_token);
+              Object.assign(headers, u.headers);
+              emailHtml = emailHtml.includes("</body>") ? emailHtml.replace(/<\/body>/i, `${u.footerHtml}</body>`) : emailHtml + u.footerHtml;
+            }
+            const resend = new Resend(resendKey);
+            await resend.emails.send({
+              from: `Phes <${branchConfig.officeEmail}>`,
+              replyTo: branchConfig.officeEmail,
+              to: [job.email],
+              subject,
+              html: emailHtml,
+              ...(Object.keys(headers).length ? { headers } : {}),
+            });
+            emailSent = true;
+            await logNotification(job.company_id, job.email, "email", reminderTrigger, "sent", null, logMeta);
+          } catch (emailErr) {
+            console.error(`[reminder-${label}] Email failed for job ${job.id}:`, emailErr);
+            await logNotification(job.company_id, job.email, "email", reminderTrigger, "failed", String(emailErr), logMeta);
           }
-          const resend = new Resend(resendKey);
-          await resend.emails.send({
-            from: `Phes <${branchConfig.officeEmail}>`,
-            replyTo: branchConfig.officeEmail,
-            to: [job.email],
-            subject,
-            html: emailHtml,
-            ...(Object.keys(headers).length ? { headers } : {}),
-          });
-          emailSent = true;
-        } catch (emailErr) {
-          console.error(`[reminder-${label}] Email failed for job ${job.id}:`, emailErr);
         }
       } else if (job.email_opt_out_at) {
         console.log(`[reminder-${label}] email suppressed (opt-out) job=${job.id}`);
@@ -389,25 +427,40 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
 
       // SMS reminder — skip if the client opted out of SMS.
       if (accountSid && authToken && job.phone && !job.sms_opt_out_at) {
-        try {
-          const smsBody = hoursAhead === 72
-            ? `Hi ${job.first_name || "there"}, this is Phes confirming your cleaning appointment on ${scheduledDate} with a ${arrivalWindowLabel} arrival window at ${serviceAddress}. Questions? Call us at ${branchConfig.clientPhone}. Reply STOP to unsubscribe.`
-            : `Hi ${job.first_name || "there"}, your Phes cleaning is tomorrow with a ${arrivalWindowLabel} arrival window at ${serviceAddress}. Please ensure access to your home is available. Questions? Call ${branchConfig.clientPhone}. Reply STOP to unsubscribe.`;
-          const smsRes = await fetch(
-            `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-              body: new URLSearchParams({ To: job.phone, From: branchConfig.twilioFrom, Body: smsBody }).toString(),
+        const smsTpl = await renderCustomerTemplate(job.company_id, reminderTrigger, "sms", mergeVars);
+        if (smsTpl && !smsTpl.is_active) {
+          console.log(`[reminder-${label}] SMS paused by template job=${job.id}`);
+          await logNotification(job.company_id, job.phone, "sms", reminderTrigger, "suppressed", "template_paused", logMeta);
+        } else {
+          try {
+            const smsBody = smsTpl
+              ? smsTpl.body
+              : hoursAhead === 72
+              ? `Hi ${job.first_name || "there"}, this is Phes confirming your cleaning appointment on ${scheduledDate} with a ${arrivalWindowLabel} arrival window at ${serviceAddress}. Questions? Call us at ${branchConfig.clientPhone}. Reply STOP to unsubscribe.`
+              : `Hi ${job.first_name || "there"}, your Phes cleaning is tomorrow with a ${arrivalWindowLabel} arrival window at ${serviceAddress}. Please ensure access to your home is available. Questions? Call ${branchConfig.clientPhone}. Reply STOP to unsubscribe.`;
+            const smsRes = await fetch(
+              `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+                  "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: new URLSearchParams({ To: job.phone, From: branchConfig.twilioFrom, Body: smsBody }).toString(),
+              }
+            );
+            if (smsRes.ok) {
+              smsSent = true;
+              await logNotification(job.company_id, job.phone, "sms", reminderTrigger, "sent", null, logMeta);
+            } else {
+              const errText = await smsRes.text();
+              console.error(`[reminder-${label}] Twilio failed for job ${job.id}:`, errText);
+              await logNotification(job.company_id, job.phone, "sms", reminderTrigger, "failed", errText.slice(0, 200), logMeta);
             }
-          );
-          if (smsRes.ok) smsSent = true;
-          else console.error(`[reminder-${label}] Twilio failed for job ${job.id}:`, await smsRes.text());
-        } catch (smsErr) {
-          console.error(`[reminder-${label}] SMS error for job ${job.id}:`, smsErr);
+          } catch (smsErr) {
+            console.error(`[reminder-${label}] SMS error for job ${job.id}:`, smsErr);
+            await logNotification(job.company_id, job.phone, "sms", reminderTrigger, "failed", String(smsErr), logMeta);
+          }
         }
       } else if (job.sms_opt_out_at) {
         console.log(`[reminder-${label}] SMS suppressed (opt-out) job=${job.id}`);

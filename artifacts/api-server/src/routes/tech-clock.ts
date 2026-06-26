@@ -37,7 +37,7 @@ import { requireAuth } from "../lib/auth.js";
 import { validateClockGpsPayload } from "../lib/clock-integrity.js";
 import { haversineMeters, companyGeofenceMeters } from "../lib/distance.js";
 import { estimateEtaMinutes } from "../lib/eta.js";
-import { sendOnMyWaySms } from "../lib/comms.js";
+import { sendOnMyWaySms, type OnMyWaySmsResult } from "../lib/comms.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 
@@ -273,7 +273,7 @@ async function sendOnMyWayForJob(
   userId: number,
   job: { id: number; client_id: number | null; branch_id: number | null },
   promisedArrivalAt: Date | null,
-) {
+): Promise<OnMyWaySmsResult> {
   // Load tenant SMS flag, tenant from-number, client phone + opt-in,
   // tech first/last. Everything we need to compose the SMS.
   const [tenantRows, clientRows, techRows] = await Promise.all([
@@ -355,6 +355,21 @@ async function sendOnMyWayForJob(
   const { resolveSender } = await import("../lib/comms-sender.js");
   const sender = await resolveSender(companyId, job.branch_id ?? null);
   const fromPhone = tenant?.twilio_from_number ?? sender.from_number;
+  // [customer-messages] Pull the office-editable on_my_way SMS copy. A null
+  // template falls back to the built-in message inside sendOnMyWaySms; an
+  // explicitly paused (is_active=false) template honors the office's "off".
+  const { renderCustomerTemplate } = await import("../lib/customer-messages.js");
+  const omwTpl = await renderCustomerTemplate(companyId, "on_my_way", "sms", {
+    first_name: client?.first_name ?? "",
+    client_name: client?.first_name ?? "",
+    company_name: tenant?.name ?? "",
+    tech_name: tech?.first_name ?? "",
+    arrival_window: promisedLabel,
+    service_address: serviceAddress,
+  });
+  if (omwTpl && !omwTpl.is_active) {
+    return { status: "suppressed_tenant_disabled" };
+  }
   return sendOnMyWaySms({
     toPhone: client?.phone ?? null,
     fromPhone,
@@ -366,6 +381,7 @@ async function sendOnMyWayForJob(
     promisedArrivalLabel: promisedLabel,
     tenantSmsEnabled: !!tenant?.sms_on_my_way_enabled,
     clientOptedIn: client?.wants_on_my_way_notifications !== false && !smsOptedOut && !accountPaused,
+    bodyOverride: omwTpl?.body,
   });
 }
 
