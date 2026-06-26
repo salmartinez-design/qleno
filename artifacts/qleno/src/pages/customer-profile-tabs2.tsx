@@ -873,9 +873,21 @@ export function CommLog2({ clientId }: { clientId: number }) {
         delivery_status: m.status,
         sent_by: null,
       }));
-      if (filter && filter !== "all") {
+      if (filter) {
+        // The filter dropdown mixes three dimensions — route each correctly:
+        // channel (sms/email/phone/in_person), direction (inbound/outbound),
+        // and source (system = automated/cadence, staff = manual/two-way).
         const f = filter.toLowerCase();
-        return rows.filter((r: any) => (r.channel || "").toLowerCase() === f);
+        const CHANNELS = ["sms", "email", "phone", "in_person"];
+        const DIRECTIONS = ["inbound", "outbound"];
+        return rows.filter((r: any) => {
+          if (CHANNELS.includes(f)) return (r.channel || "").toLowerCase() === f;
+          if (DIRECTIONS.includes(f)) return (r.direction || "").toLowerCase() === f;
+          const src = (r.source || "").toLowerCase();
+          if (f === "system") return src === "automated" || src === "cadence";
+          if (f === "staff") return src === "two_way" || src === "logged" || src === "staff";
+          return true;
+        });
       }
       return rows;
     },
