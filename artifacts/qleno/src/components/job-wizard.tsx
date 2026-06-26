@@ -258,7 +258,17 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const [quoteError, setQuoteError] = useState("");
 
   // Step 2 — Commercial Service + Rate
-  const [commercialServiceType, setCommercialServiceType] = useState("standard_clean");
+  // No default slug: 'standard_clean' isn't in the commercial grid, so
+  // pre-selecting it fired a spurious "No rate configured for Standard Clean"
+  // before the operator picked anything. Start empty → forces an explicit
+  // pick (Next stays disabled until then) and kills the phantom warning.
+  const [commercialServiceType, setCommercialServiceType] = useState("");
+  // Account jobs aren't only buildings — some accounts are individuals (e.g.
+  // Meg) who need residential services (Standard, Deep Clean, Move In/Out).
+  // This toggle flips the account Service-step grid between the account's
+  // commercial types and the residential set. Commission/billing routing is
+  // unchanged (still keyed on account_id) — this only controls the picker.
+  const [acctServiceParent, setAcctServiceParent] = useState<"commercial" | "residential">("commercial");
   const [rateLookup, setRateLookup] = useState<any>(null);
   const [rateLookupLoading, setRateLookupLoading] = useState(false);
   const [rateLookupDone, setRateLookupDone] = useState(false);
@@ -366,7 +376,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       setServiceType("standard_clean"); setScheduledDate(todayStr()); setScheduledTime("09:00");
       setDuration(120); setPrice(120); setPriceOverridden(false); setFrequency("on_demand"); setNotes("");
       setShowQuote(false); setQuoteSending(false); setQuoteSent(false); setQuoteError("");
-      setCommercialServiceType("standard_clean"); setRateLookup(null); setRateLookupLoading(false);
+      setCommercialServiceType(""); setAcctServiceParent("commercial"); setRateLookup(null); setRateLookupLoading(false);
       setRateLookupDone(false); setRateOverride(false); setOverrideRate(""); setEstimatedHours("");
       setManualBillingMethod("hourly"); setManualRate("");
       setCommercialScheduledDate(todayStr()); setCommercialScheduledTime("09:00");
@@ -648,12 +658,15 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   // Pricing settings page get pre-fill behavior for free.
   useEffect(() => {
     if (clientType !== "commercial") return;
-    const apiRow = apiServiceTypes.find(s => s.parent_slug === "commercial" && s.slug === commercialServiceType);
+    // Honor the account Service-Category toggle so a residential type's
+    // default allowed-hours pre-fills too; plain commercial clients stay pinned.
+    const gridParent = selectedAccount ? acctServiceParent : "commercial";
+    const apiRow = apiServiceTypes.find(s => s.parent_slug === gridParent && s.slug === commercialServiceType);
     const apiHours = apiRow?.default_allowed_hours ? parseFloat(apiRow.default_allowed_hours) : null;
     if (apiHours && Number.isFinite(apiHours) && !estimatedHours) {
       setEstimatedHours(String(apiHours));
     }
-  }, [commercialServiceType, apiServiceTypes, clientType]);
+  }, [commercialServiceType, apiServiceTypes, clientType, selectedAccount, acctServiceParent]);
 
   // ── Add-ons math + payload ────────────────────────────────────────────
   // The service base a %-priced add-on applies to. Residential = the entered
@@ -1605,22 +1618,54 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 );
               })()}
 
+              {/* Account jobs aren't only buildings — individual accounts
+                  (e.g. Meg) need residential services. This toggle flips the
+                  grid between the account's commercial types and the
+                  residential set. Only the account path gets it; a plain
+                  commercial client stays commercial-only. */}
+              {selectedAccount && (
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Category</p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {(["commercial", "residential"] as const).map(p => (
+                      <button key={p} type="button"
+                        onClick={() => { setAcctServiceParent(p); setCommercialServiceType(""); setRateLookup(null); setRateLookupDone(false); setRateOverride(false); }}
+                        style={{
+                          flex: 1, padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center",
+                          border: `1.5px solid ${acctServiceParent === p ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                          background: acctServiceParent === p ? "rgba(0,201,160,0.08)" : "#FFFFFF",
+                          color: acctServiceParent === p ? "var(--brand, #00C9A0)" : "#1A1917",
+                          fontSize: 13, fontWeight: 700, fontFamily: "inherit",
+                        }}>
+                        {p === "commercial" ? "Commercial" : "Residential"}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>
+                    Switch to Residential for individual accounts (move in/out, deep clean, standard).
+                  </p>
+                </div>
+              )}
+
               <div>
                 <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>
-                {/* [commercial-workflow PR #3] Commercial children
-                    fetched from /api/service-types?parent=commercial.
-                    Tenant-managed (admins add new types in
-                    /settings/pricing) so no fallback to a hardcoded
-                    list — empty state surfaces a config gap. */}
+                {/* [commercial-workflow PR #3] Children fetched from
+                    /api/service-types (both parents). Tenant-managed
+                    (admins add new types in /settings/pricing) so no
+                    fallback to a hardcoded list — empty state surfaces a
+                    config gap. On the account path the Service Category
+                    toggle picks the parent; a plain commercial client is
+                    pinned to commercial. */}
                 {(() => {
+                  const gridParent = selectedAccount ? acctServiceParent : "commercial";
                   const children = apiServiceTypes
-                    .filter(s => s.parent_slug === "commercial" && s.is_active)
+                    .filter(s => s.parent_slug === gridParent && s.is_active)
                     .sort((a, b) => a.display_order - b.display_order);
                   if (serviceTypesLoading && children.length === 0) {
                     return <p style={{ fontSize: 12, color: "#9E9B94" }}>Loading service types…</p>;
                   }
                   if (children.length === 0) {
-                    return <p style={{ fontSize: 12, color: "#991B1B" }}>No active commercial service types configured.</p>;
+                    return <p style={{ fontSize: 12, color: "#991B1B" }}>No active {gridParent} service types configured.</p>;
                   }
                   return (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>

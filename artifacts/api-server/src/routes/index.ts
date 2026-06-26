@@ -32,6 +32,7 @@ import estimatesRouter from "./estimates.js";
 import trackRouter from "./track.js";
 import paymentsRouter from "./payments.js";
 import attachmentsRouter from "./attachments.js";
+import teamPhotoNotesRouter from "./team-photo-notes.js";
 import { quoteAttachmentsRouter, jobAttachmentsRouter } from "./quote-attachments.js";
 import propertyGroupsRouter from "./property-groups.js";
 import agreementTemplatesRouter from "./agreement-templates.js";
@@ -142,6 +143,7 @@ router.use("/estimates", estimatesRouter);
 router.use("/track", trackRouter);
 router.use("/payments", paymentsRouter);
 router.use("/attachments", attachmentsRouter);
+router.use("/team-photo-notes", teamPhotoNotesRouter);
 // [translate-job-notes 2026-05-27] Office-only translation endpoint —
 // Claude API. POST /api/translate {text, target} → {translated}.
 router.use("/translate", translateRouter);

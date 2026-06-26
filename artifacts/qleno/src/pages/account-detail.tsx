@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "wouter";
 import {
   Building2, ChevronLeft, ChevronDown, Plus, Pencil, Trash2, DollarSign,
@@ -17,6 +17,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthHeaders } from "@/lib/auth";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
+import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { AccountJobsCalendar } from "@/components/account-jobs-calendar";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -137,6 +139,19 @@ export default function AccountDetailPage() {
   const [showProperty, setShowProperty] = useState(false);
   const [editProp, setEditProp] = useState<any>(null);
   const [propForm, setPropForm] = useState({ property_name: "", address: "", city: "", state: "IL", zip: "", unit_count: "", property_type: "apartment_building", default_service_type: "", access_notes: "", notes: "" });
+  // Google Places autocomplete on the Add/Edit Property street field — the
+  // same help every other address form gets. Picking a suggestion fills
+  // street + city + state + zip in one shot so the office isn't hand-typing.
+  const propAddrRef = useRef<HTMLInputElement>(null);
+  useAddressAutocomplete(propAddrRef, showProperty, (p) => {
+    setPropForm((f) => ({
+      ...f,
+      address: p.street || f.address,
+      city: p.city || f.city,
+      state: p.state || f.state,
+      zip: p.zip || f.zip,
+    }));
+  });
   const [propSaving, setPropSaving] = useState(false);
 
   // Contact
@@ -624,6 +639,15 @@ export default function AccountDetailPage() {
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{account.notes}</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* [team-photo-notes] Sticky pictures + notes for the whole account —
+            surface on every job for this account so the team always has the
+            context (gate codes, parking, contacts). */}
+        {tab === "overview" && (
+          <div className="bg-white border border-gray-100 rounded-xl p-4">
+            <TeamPhotoNotes accountId={Number(id)} title="Team Photos & Notes (shown on every job for this account)" />
           </div>
         )}
 
@@ -1145,7 +1169,7 @@ export default function AccountDetailPage() {
               </div>
               <div className="space-y-1.5 col-span-2">
                 <Label>Street Address *</Label>
-                <Input placeholder="4801 W 95th St" value={propForm.address} onChange={(e) => setPropForm({ ...propForm, address: e.target.value })} />
+                <Input ref={propAddrRef} placeholder="4801 W 95th St" value={propForm.address} onChange={(e) => setPropForm({ ...propForm, address: e.target.value })} />
               </div>
               <div className="space-y-1.5">
                 <Label>City</Label>

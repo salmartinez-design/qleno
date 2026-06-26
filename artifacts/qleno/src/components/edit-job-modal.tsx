@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X, AlertTriangle, Loader2 } from "lucide-react";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { useAuthStore } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -2319,6 +2320,16 @@ export default function EditJobModal({
               placeholder="Notes the cleaner sees on this job…"
               rows={4}
               style={{ ...INPUT, height: "auto", padding: "10px 12px", lineHeight: 1.5, resize: "vertical" }} />
+          </div>
+
+          {/* [team-photo-notes] Pictures + notes for the team. Attach to this
+              job, or tick sticky to pin to the customer for every visit. */}
+          <div style={SECTION}>
+            <TeamPhotoNotes
+              jobId={job.id}
+              jobClientId={job.client_id ?? null}
+              jobAccountId={job.account_id ?? null}
+            />
           </div>
 
           <div style={{ height: 16 }} />
