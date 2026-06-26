@@ -41,6 +41,13 @@ const PRICE_UNITS = [
 ];
 const unitSuffix = (u: string) => (u && u !== "total" ? ` / ${u}` : "");
 
+// [estimate-industry] Facility types drive the win-rate-by-industry report.
+const FACILITY_TYPES: [string, string][] = [
+  ["", "—"], ["medical", "Medical"], ["corporate_office", "Corporate office"],
+  ["industrial", "Industrial / warehouse"], ["retail", "Retail"], ["education", "Education"],
+  ["common_area", "Common area / HOA"], ["religious", "Religious / nonprofit"], ["other", "Other"],
+];
+
 type PricingType = "flat" | "hourly" | "one_time";
 interface Item {
   name: string;
@@ -120,6 +127,7 @@ export default function EstimateBuilderPage() {
   // scope paragraph (alternative to itemizing the checklist).
   const [flatPriceUnit, setFlatPriceUnit] = useState("visit");
   const [scopeNote, setScopeNote] = useState("");
+  const [facilityType, setFacilityType] = useState("");
 
   // [estimate-templates-phase2] One-click template picker (new estimates only).
   const [templates, setTemplates] = useState<any[]>([]);
@@ -159,6 +167,7 @@ export default function EstimateBuilderPage() {
           setFlatPrice(e.flat_price != null && Number(e.flat_price) > 0 ? String(e.flat_price) : "");
           setFlatPriceUnit(e.flat_price_unit || "visit");
           setScopeNote(e.scope_note || "");
+          setFacilityType(e.facility_type || "");
           setValidUntil(e.valid_until ? String(e.valid_until).slice(0, 10) : "");
           setItems((e.items || []).length ? e.items.map(mapRow) : [blankItem()]);
         } else {
@@ -207,6 +216,7 @@ export default function EstimateBuilderPage() {
     flat_price: billingMode === "flat" ? (Number(flatPrice) || 0) : 0,
     flat_price_unit: flatPriceUnit,
     scope_note: billingMode === "flat" ? (scopeNote.trim() || null) : null,
+    facility_type: facilityType || null,
     valid_until: validUntil || null,
     // Flat mode persists scope only (name + shared frequency, no price); itemized
     // keeps the full priced line. Empty scope rows are dropped either way.
@@ -536,6 +546,11 @@ export default function EstimateBuilderPage() {
             <Field label="Property / building"><input style={inp} value={propertyName} onChange={e => setPropertyName(e.target.value)} placeholder="e.g. 5721 W 103rd St Condos" /></Field>
             <Field label="Email"><input style={inp} value={contactEmail} onChange={e => setContactEmail(e.target.value)} placeholder="name@email.com" /></Field>
             <Field label="Phone"><input style={inp} value={contactPhone} onChange={e => setContactPhone(e.target.value)} placeholder="(773) 555-0123" /></Field>
+            <Field label="Facility type">
+              <select style={inp} value={facilityType} onChange={e => setFacilityType(e.target.value)}>
+                {FACILITY_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              </select>
+            </Field>
           </Grid>
           {/* [multi-recipient-estimates] Additional recipients (CC). Every emailed
               touch goes to the primary Email + all of these. */}

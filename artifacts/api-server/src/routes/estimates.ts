@@ -402,6 +402,32 @@ router.get("/engagement/pipeline", requireAuth, async (req, res) => {
   }
 });
 
+// GET /api/estimates/engagement/by-industry — win rate + value by facility type.
+router.get("/engagement/by-industry", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const rows = await db.execute(sql`
+      SELECT COALESCE(NULLIF(facility_type, ''), 'unspecified') AS facility_type,
+        COUNT(*)::int AS sent,
+        COUNT(*) FILTER (WHERE status = 'accepted')::int AS won,
+        COALESCE(SUM(total) FILTER (WHERE status = 'accepted'), 0)::numeric AS won_value,
+        COALESCE(SUM(total) FILTER (WHERE status IN ('sent','viewed')), 0)::numeric AS open_value
+      FROM estimates
+      WHERE company_id = ${companyId} AND status <> 'draft'
+      GROUP BY 1
+      ORDER BY won DESC, sent DESC
+    `);
+    const data = (rows as any).rows.map((r: any) => ({
+      ...r,
+      win_rate: Number(r.sent) > 0 ? Math.round((Number(r.won) / Number(r.sent)) * 100) : 0,
+    }));
+    return res.json({ data });
+  } catch (err) {
+    console.error("Engagement by-industry error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // GET /api/estimates/engagement/summary?month=YYYY-MM — month rollup.
 router.get("/engagement/summary", requireAuth, async (req, res) => {
   try {
@@ -984,12 +1010,12 @@ router.post("/", requireAuth, async (req, res) => {
       INSERT INTO estimates
         (company_id, branch_id, account_id, account_property_id, client_id,
          contact_name, contact_email, cc_emails, contact_phone, property_name, service_address,
-         title, intro_note, terms, internal_notes, status, billing_mode, flat_price, flat_price_unit, scope_note,
+         title, intro_note, terms, internal_notes, status, billing_mode, flat_price, flat_price_unit, scope_note, facility_type,
          subtotal, discount_amount, total, valid_until, created_by, updated_at)
       VALUES
         (${companyId}, ${intOrNull(b.branch_id)}, ${intOrNull(b.account_id)}, ${intOrNull(b.account_property_id)}, ${intOrNull(b.client_id)},
          ${str(b.contact_name, 200)}, ${str(b.contact_email, 200)}, ${normalizeEmails(b.cc_emails, str(b.contact_email, 200))}, ${str(b.contact_phone, 40)}, ${str(b.property_name, 300)}, ${str(b.service_address, 400)},
-         ${str(b.title, 300)}, ${str(b.intro_note)}, ${str(b.terms)}, ${str(b.internal_notes)}, 'draft', ${billingMode}, ${flatPrice}, ${priceUnitOf(b.flat_price_unit)}, ${str(b.scope_note)},
+         ${str(b.title, 300)}, ${str(b.intro_note)}, ${str(b.terms)}, ${str(b.internal_notes)}, 'draft', ${billingMode}, ${flatPrice}, ${priceUnitOf(b.flat_price_unit)}, ${str(b.scope_note)}, ${str(b.facility_type, 40)},
          ${subtotal}, ${discount}, ${total}, ${b.valid_until ? new Date(b.valid_until) : null}, ${req.auth!.userId}, now())
       RETURNING id
     `);
@@ -1024,6 +1050,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
         flat_price = ${flatPrice},
         flat_price_unit = ${priceUnitOf(b.flat_price_unit)},
         scope_note = ${str(b.scope_note)},
+        facility_type = ${str(b.facility_type, 40)},
         account_property_id = ${intOrNull(b.account_property_id)},
         client_id = ${intOrNull(b.client_id)},
         contact_name = ${str(b.contact_name, 200)},

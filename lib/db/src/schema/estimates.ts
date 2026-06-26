@@ -50,6 +50,8 @@ export const estimatesTable = pgTable("estimates", {
   // paragraph for when the office would rather describe the work than itemize it.
   flat_price_unit: text("flat_price_unit").notNull().default("visit"),
   scope_note: text("scope_note"),
+  // [estimate-industry 2026-06-26] Facility type for win-rate-by-industry reporting.
+  facility_type: text("facility_type"),
   subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
   discount_amount: numeric("discount_amount", { precision: 12, scale: 2 }).notNull().default("0"),
   total: numeric("total", { precision: 12, scale: 2 }).notNull().default("0"),
