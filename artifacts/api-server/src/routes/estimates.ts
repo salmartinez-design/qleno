@@ -986,6 +986,42 @@ router.post("/:id/ensure-client", requireAuth, async (req, res) => {
   }
 });
 
+// Send the e-signable commercial service agreement for a won estimate. Creates a
+// form_submission for the company's agreement template + the estimate's contact,
+// records the 'sent' audit event, and returns the tokenized signing link.
+router.post("/:id/send-agreement", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id, 10);
+    const e = await db.execute(sql`SELECT contact_email, contact_name, client_id FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    const est: any = (e as any).rows[0];
+    if (!est) return res.status(404).json({ error: "Not Found" });
+    if (!est.contact_email) return res.json({ sent: false, reason: "no_email" });
+    const tpl = await db.execute(sql`
+      SELECT id FROM form_templates
+      WHERE company_id = ${companyId} AND requires_sign = true AND is_active = true
+        AND (category = 'commercial' OR name ILIKE '%agreement%')
+      ORDER BY (name ILIKE '%commercial%') DESC, id ASC LIMIT 1
+    `);
+    const templateId = (tpl as any).rows[0]?.id;
+    if (!templateId) return res.json({ sent: false, reason: "no_template" });
+    const token = randomUUID();
+    const expires = new Date(); expires.setDate(expires.getDate() + 30);
+    const ins = await db.execute(sql`
+      INSERT INTO form_submissions (company_id, form_id, client_id, responses, status, sign_token, sent_at, sent_to, expires_at, submitted_by)
+      VALUES (${companyId}, ${templateId}, ${est.client_id ?? null}, '{}'::jsonb, 'pending', ${token}, now(), ${est.contact_email}, ${expires}, ${req.auth!.userId})
+      RETURNING id
+    `);
+    const submissionId = (ins as any).rows[0].id;
+    await db.execute(sql`INSERT INTO agreement_events (company_id, agreement_id, event_type, actor_email, meta)
+      VALUES (${companyId}, ${submissionId}, 'sent', ${est.contact_email}, ${JSON.stringify({ by_user: req.auth!.userId, estimate_id: id })}::jsonb)`);
+    return res.json({ sent: true, signing_url: `${appBaseUrl()}/sign/${token}`, sent_to: est.contact_email });
+  } catch (err) {
+    console.error("Estimate send-agreement error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── Create estimate ─────────────────────────────────────────────────────────
 router.post("/", requireAuth, async (req, res) => {
   try {

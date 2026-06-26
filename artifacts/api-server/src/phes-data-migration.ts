@@ -5163,6 +5163,7 @@ export async function runPhesDataMigration(): Promise<void> {
   // follow-up sequence — INACTIVE by default so the drip is inert until the
   // office turns it on. Idempotent (skips if estimate_followup already exists).
   await runEstimateSequenceSeed();
+  await runAgreementTemplateSeed();
 }
 
 // ── Estimate Follow-Up Sequence Seed (PHES, INACTIVE by default) ────────────
@@ -5228,6 +5229,49 @@ async function runEstimateSequenceSeed(): Promise<void> {
     console.log(`[estimate-sequence-seed] estimate_followup seeded INACTIVE for PHES (${ESTIMATE_SEQUENCE_STEPS.length} steps).`);
   } catch (err) {
     console.error("[estimate-sequence-seed] Seed error (non-fatal):", err);
+  }
+}
+
+// ── Commercial Cleaning Service Agreement template (PHES) ───────────────────
+// A ready-to-send, e-signable agreement (form_templates + requires_sign). Generic
+// terms that incorporate the per-client estimate by reference, so no merge fields
+// are needed. Idempotent: skips if a template of this name already exists.
+const COMMERCIAL_AGREEMENT_BODY = `COMMERCIAL CLEANING SERVICE AGREEMENT
+
+1. PARTIES
+This Commercial Cleaning Service Agreement ("Agreement") is entered into between Phes LLC, an Illinois company (the "Service Provider"), and the Client identified in the estimate provided to the Client (the "Client").
+
+2. SERVICES
+The Service Provider will perform the commercial cleaning services, at the frequency and pricing, set out in the estimate provided to the Client, which is incorporated into this Agreement by reference. The Service Provider will furnish all cleaning supplies and equipment necessary to perform these services unless otherwise agreed in writing.
+
+3. PAYMENT TERMS
+Pricing and billing follow the estimate provided to the Client. Unless otherwise stated, payment is due upon each visit and the card on file will be charged for each completed service. Work is strictly limited to the services listed in the estimate; additional tasks require prior written approval and will be billed separately.
+
+4. SCHEDULING & ACCESS
+Service dates and times are determined by the Service Provider and may be adjusted for holidays, weather, building access, or operational needs, with reasonable notice to the Client. The Service Provider will provide forty-eight (48) hours notice of the scheduled time. If the Service Provider is ready and able to perform on-site but access is denied, the Client will be charged 100% of the service cost. The Service Provider will provide a prorated credit for any scheduled service it fails to provide.
+
+5. TERM & TERMINATION
+This Agreement continues until terminated. Either party may terminate with thirty (30) days written notice. The Client remains responsible for all amounts due for services provided or scheduled during the term and any notice period.
+
+6. LIABILITY & GOVERNING LAW
+The Service Provider will maintain general liability insurance for the duration of this Agreement. This Agreement is governed by the laws of the State of Illinois, and any disputes will be resolved in Cook County, Illinois.
+
+7. ENTIRE AGREEMENT
+This Agreement constitutes the entire understanding between the parties. Any amendments must be in writing and signed by both parties. By signing, the Client acknowledges they have read and agree to this Agreement, and the individual signing represents they have authority to bind the Client.`;
+
+async function runAgreementTemplateSeed(): Promise<void> {
+  const PHES = 1;
+  const NAME = "Commercial Cleaning Service Agreement";
+  try {
+    const ex = await db.execute(sql`SELECT id FROM form_templates WHERE company_id = ${PHES} AND name = ${NAME} LIMIT 1`);
+    if ((ex as any).rows.length) { console.log("[agreement-template-seed] already present — skipping."); return; }
+    await db.execute(sql`
+      INSERT INTO form_templates (company_id, name, type, category, terms_body, requires_sign, is_active)
+      VALUES (${PHES}, ${NAME}, 'agreement', 'commercial', ${COMMERCIAL_AGREEMENT_BODY}, true, true)
+    `);
+    console.log("[agreement-template-seed] Commercial Cleaning Service Agreement seeded for PHES.");
+  } catch (err) {
+    console.error("[agreement-template-seed] Seed error (non-fatal):", err);
   }
 }
 
