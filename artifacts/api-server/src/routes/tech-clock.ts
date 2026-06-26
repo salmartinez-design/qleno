@@ -57,6 +57,7 @@ async function loadOwnedJob(
   company_id: number;
   assigned_user_id: number | null;
   client_id: number | null;
+  branch_id: number | null;
   scheduled_date: string;
   scheduled_time: string | null;
   status: string;
@@ -67,6 +68,7 @@ async function loadOwnedJob(
       company_id: jobsTable.company_id,
       assigned_user_id: jobsTable.assigned_user_id,
       client_id: jobsTable.client_id,
+      branch_id: jobsTable.branch_id,
       scheduled_date: jobsTable.scheduled_date,
       scheduled_time: jobsTable.scheduled_time,
       status: jobsTable.status,
@@ -269,7 +271,7 @@ router.post("/:jobId/on-my-way", requireAuth, async (req, res) => {
 async function sendOnMyWayForJob(
   companyId: number,
   userId: number,
-  job: { id: number; client_id: number | null },
+  job: { id: number; client_id: number | null; branch_id: number | null },
   promisedArrivalAt: Date | null,
 ) {
   // Load tenant SMS flag, tenant from-number, client phone + opt-in,
@@ -344,9 +346,18 @@ async function sendOnMyWayForJob(
   // [account-comms-toggle] A paused account silences on-my-way for its clients.
   const { isClientAccountCommsPaused } = await import("../lib/account-comms.js");
   const accountPaused = await isClientAccountCommsPaused(job.client_id ?? null);
+  // [on-my-way-from-number 2026-06-26] Resolve the SMS from-number the SAME way
+  // the reminder/confirmation senders do — branch number → company number →
+  // company's primary branch number. Tenants like Phes co1 keep their Twilio
+  // numbers on the BRANCH (company twilio_from_number is NULL), so reading the
+  // company column directly sent nothing (0 clients notified). resolveSender
+  // walks the job's branch first, then falls back; never invents a number.
+  const { resolveSender } = await import("../lib/comms-sender.js");
+  const sender = await resolveSender(companyId, job.branch_id ?? null);
+  const fromPhone = tenant?.twilio_from_number ?? sender.from_number;
   return sendOnMyWaySms({
     toPhone: client?.phone ?? null,
-    fromPhone: tenant?.twilio_from_number ?? null,
+    fromPhone,
     companyName: tenant?.name ?? "",
     // First name only — never the tech's full name to the customer.
     techName: tech?.first_name ?? "",
