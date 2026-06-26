@@ -285,6 +285,8 @@ export default function QuoteBuilderPage() {
   const [callNotes, setCallNotes] = useState("");
   const [callNotesSaving, setCallNotesSaving] = useState(false);
   const [callNotesSavedVisible, setCallNotesSavedVisible] = useState(false);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [draftSavedVisible, setDraftSavedVisible] = useState(false);
   const [callNotesMobileOpen, setCallNotesMobileOpen] = useState(false);
   const callNotesRef = useRef<HTMLTextAreaElement>(null);
   const autoSavedIdRef = useRef<string | null>(null);
@@ -509,6 +511,54 @@ export default function QuoteBuilderPage() {
     }, 10000);
     return () => clearTimeout(timer);
   }, [callNotes, isEdit, id]);
+
+  // ── Full-quote draft auto-save (debounced) ──────────────────────────────
+  // Persist the WHOLE quote (customer, scope, pricing, notes) as a draft
+  // while the office builds it — so a half-finished quote "stays in drafts"
+  // instead of vanishing when they navigate away. Previously the builder
+  // only minted an EMPTY draft shell (via attachment/call-note paths) and
+  // the actual content was written solely on an explicit Save/Send/Convert
+  // click; abandoning the wizard lost everything and left orphan blank
+  // drafts (client_id null) showing as "Unknown" in the list.
+  // Gated on meaningful content so we never create empty shells, and never
+  // downgrades an already-sent/booked quote back to draft.
+  useEffect(() => {
+    // Don't race the explicit Save/Send/Convert flow.
+    if (saving) return;
+    const hasContent =
+      Boolean(selectedClientId) ||
+      leadFirstName.trim() || leadLastName.trim() || leadEmail.trim() ||
+      selectedScopes.length > 0;
+    if (!hasContent) return;
+    const timer = setTimeout(async () => {
+      const targetId = isEdit ? id : autoSavedIdRef.current;
+      const payload = buildPayload("draft");
+      setDraftSaving(true);
+      try {
+        if (targetId) {
+          // Strip status on PATCH so autosave can never knock a quote that's
+          // already been sent/booked back down to "draft".
+          const { status: _omitStatus, ...patch } = payload;
+          await apiFetch(`/api/quotes/${targetId}`, { method: "PATCH", body: patch });
+        } else {
+          const result = await apiFetch("/api/quotes", { method: "POST", body: payload });
+          autoSavedIdRef.current = String(result.id);
+          qc.invalidateQueries({ queryKey: ["quotes"] });
+          qc.invalidateQueries({ queryKey: ["quote-stats"] });
+        }
+        setDraftSavedVisible(true);
+        setTimeout(() => setDraftSavedVisible(false), 2500);
+      } catch { /* silent — explicit Save still surfaces errors */ }
+      finally { setDraftSaving(false); }
+    }, 2500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    selectedClientId, leadFirstName, leadLastName, leadEmail, leadPhone,
+    address, unitSuite, selectedScopes, sqft, bedrooms, bathrooms, halfBaths,
+    pets, dirtLevel, notes, internalMemo, officeMemo, discountCode,
+    finalScopeId, quickBookPrice, referralSource, zoneOverride, isEdit, id, saving,
+  ]);
 
   // ── Recalc all sqft-based scopes when sqft changes ───────────────────────
   useEffect(() => {
@@ -1450,6 +1500,7 @@ export default function QuoteBuilderPage() {
           <div>
             <div style={{ fontSize: 11, color: "#6B6860" }}>Estimated Total</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: "#1A1917" }}>{estimatedTotalStr}</div>
+            <div style={{ fontSize: 10, color: "#9E9B94", minHeight: 12 }}>{draftSaving ? "Saving draft…" : draftSavedVisible ? "Draft saved" : ""}</div>
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <button
@@ -1503,7 +1554,10 @@ export default function QuoteBuilderPage() {
         </Button>
         <div className="h-5 w-px bg-[#E5E2DC]" />
         <h1 style={{ fontSize: 18, fontWeight: 600, color: "#1A1917" }}>{isEdit ? "Edit Quote" : "New Quote"}</h1>
-        <div className="ml-auto flex gap-2">
+        <div className="ml-auto flex gap-2 items-center">
+          <span style={{ fontSize: 11, color: "#9E9B94", minWidth: 78, textAlign: "right" }}>
+            {draftSaving ? "Saving draft…" : draftSavedVisible ? "Draft saved" : ""}
+          </span>
           <Button variant="ghost" size="sm" onClick={() => save("draft")} disabled={saving} className="gap-1.5 text-[#1A1917]">
             <Save className="w-4 h-4" /> Save Draft
           </Button>
