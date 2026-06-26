@@ -5,6 +5,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Plus, FileText, Send, CheckCircle, Clock, Trash2, Pencil, LayoutTemplate, Search, Activity } from "lucide-react";
 import { toast } from "sonner";
+import { FollowUpEditor } from "@/pages/estimates-followup-editor";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -49,10 +50,7 @@ export default function EstimatesPage() {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const [search, setSearch] = useState("");
-  const [tab, setTab] = useState<"estimates" | "templates" | "ghl">("estimates");
-  const [ghlSent, setGhlSent] = useState("");
-  const [ghlOutcome, setGhlOutcome] = useState("");
-  const [ghlLoaded, setGhlLoaded] = useState(false);
+  const [tab, setTab] = useState<"estimates" | "templates" | "followup">("estimates");
 
   const { data: statsData } = useQuery({ queryKey: ["estimate-stats"], queryFn: () => apiFetch("/api/estimates/stats") });
   const { data: listData, isLoading } = useQuery({
@@ -74,22 +72,6 @@ export default function EstimatesPage() {
     mutationFn: (id: number) => apiFetch(`/api/estimates/templates/${id}`, { method: "DELETE" }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["estimate-templates"] }); toast.success("Template deleted"); },
     onError: () => toast.error("Failed to delete template"),
-  });
-
-  // GoHighLevel bridge settings live on the company row.
-  const { data: companyData } = useQuery({ queryKey: ["company-me"], queryFn: () => apiFetch("/api/companies/me") });
-  if (companyData && !ghlLoaded) {
-    setGhlSent(companyData.ghl_estimate_sent_webhook || "");
-    setGhlOutcome(companyData.ghl_estimate_outcome_webhook || "");
-    setGhlLoaded(true);
-  }
-  const saveGhl = useMutation({
-    mutationFn: () => apiFetch("/api/companies/me", {
-      method: "PATCH",
-      body: { ghl_estimate_sent_webhook: ghlSent.trim(), ghl_estimate_outcome_webhook: ghlOutcome.trim() },
-    }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["company-me"] }); toast.success("GoHighLevel settings saved"); },
-    onError: () => toast.error("Failed to save settings"),
   });
 
   const statCards = [
@@ -132,7 +114,7 @@ export default function EstimatesPage() {
 
         {/* Tabs */}
         <div style={{ display: "flex", gap: 6, borderBottom: `1px solid ${BORDER}`, marginBottom: 16 }}>
-          {([["estimates", "Estimates"], ["templates", "Templates"], ["ghl", "GoHighLevel"]] as const).map(([key, label]) => (
+          {([["estimates", "Estimates"], ["templates", "Templates"], ["followup", "Follow-up"]] as const).map(([key, label]) => (
             <button key={key} onClick={() => setTab(key)}
               style={{ background: "none", border: "none", borderBottom: tab === key ? `2px solid ${INK}` : "2px solid transparent", color: tab === key ? INK : MUTE, fontWeight: 700, fontSize: 14, padding: "8px 12px", cursor: "pointer", fontFamily: FF, marginBottom: -1 }}>
               {label}
@@ -187,41 +169,8 @@ export default function EstimatesPage() {
               )}
             </div>
           </>
-        ) : tab === "ghl" ? (
-          <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 12, padding: "20px 22px", maxWidth: 640 }}>
-            <p style={{ fontSize: 15, fontWeight: 800, color: INK, margin: "0 0 4px" }}>GoHighLevel follow-up bridge</p>
-            <p style={{ fontSize: 13, color: MUTE, margin: "0 0 16px", lineHeight: 1.6 }}>
-              When you send an estimate, Qleno pushes the contact + estimate link to your GHL workflow so GHL runs the
-              SMS follow-up drip from your office line. When the customer accepts (or declines), Qleno fires the second
-              webhook so GHL stops the drip. Build the two workflows once in GHL (Inbound Webhook trigger), then paste
-              their webhook URLs here. Setup guide: <code style={{ fontSize: 12 }}>docs/GHL_ESTIMATE_BRIDGE.md</code>.
-            </p>
-            <label style={{ display: "block", marginBottom: 14 }}>
-              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>
-                "Estimate sent" webhook URL — starts the drip
-              </span>
-              <input value={ghlSent} onChange={e => setGhlSent(e.target.value)} placeholder="https://services.leadconnectorhq.com/hooks/…"
-                style={{ width: "100%", padding: "9px 11px", border: `1px solid ${BORDER}`, borderRadius: 9, fontSize: 13, fontFamily: FF, boxSizing: "border-box" }} />
-            </label>
-            <label style={{ display: "block", marginBottom: 16 }}>
-              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>
-                "Outcome" webhook URL — stops the drip on accept / decline
-              </span>
-              <input value={ghlOutcome} onChange={e => setGhlOutcome(e.target.value)} placeholder="https://services.leadconnectorhq.com/hooks/…"
-                style={{ width: "100%", padding: "9px 11px", border: `1px solid ${BORDER}`, borderRadius: 9, fontSize: 13, fontFamily: FF, boxSizing: "border-box" }} />
-            </label>
-            <button onClick={() => saveGhl.mutate()} disabled={saveGhl.isPending}
-              style={{ background: INK, color: "#fff", border: "none", borderRadius: 9, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-              {saveGhl.isPending ? "Saving…" : "Save settings"}
-            </button>
-            <div style={{ background: "#F7F6F3", borderRadius: 10, padding: "12px 14px", marginTop: 18 }}>
-              <p style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 6px" }}>Payload fields you can map in GHL</p>
-              <p style={{ fontSize: 12, color: "#4B5563", margin: 0, lineHeight: 1.7, fontFamily: "monospace" }}>
-                event · contact_name · contact_email · contact_phone · property_name · service_address · total ·
-                estimate_link · estimate_number · title · valid_until · accepted_name
-              </p>
-            </div>
-          </div>
+        ) : tab === "followup" ? (
+          <FollowUpEditor />
         ) : (
           <div style={{ background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 12, overflow: "hidden" }}>
             {templates.length === 0 ? (
