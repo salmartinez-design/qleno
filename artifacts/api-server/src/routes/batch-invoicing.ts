@@ -1,23 +1,38 @@
-// [invoicing-engine 2026-06-16] Batch invoicing — Sal's "first invoice of the
-// month" model (Scope 2). Mounted at /api/batch-invoicing. Owner/admin/office.
+// [invoicing-engine 2026-06-16; weekly-cadence 2026-06-26] Consolidated
+// invoicing — Sal's "one invoice per job, then merge them" model. Mounted at
+// /api/batch-invoicing. Owner/admin/office.
+//
+// WHY two steps (per-job draft → merge), not one weekly invoice:
+//   Each visit can differ — longer hours some days, a holiday with NO work other
+//   days. So every job keeps its OWN locked per-visit invoice (created on
+//   completion by ensure-invoice). The merge just sums whatever real visits
+//   landed in the billing window. Skipped/holiday days simply have no draft;
+//   long days carry their own higher total. Nothing is recomputed at merge time.
 //
 // How it works:
-//   - batch_invoice clients still get a per-visit DRAFT invoice on every
-//     completion (batch_status='pending'), created by the per-visit engine.
-//   - This page lists those pending drafts grouped by client for a month.
-//   - "Consolidate & Send" folds the month's pending visits into the FIRST
-//     invoice of the month (the parent): the parent carries the full month total
-//     as one line per visit; every OTHER pending invoice is zeroed and marked
-//     'superseded' with parent_invoice_id pointing at the parent. Only the parent
-//     is sent (net-0, due today) and pushed to QB. Superseded children never push.
-//   - Office may EXCLUDE individual visits before sending (e.g. already billed in
-//     QBO at month-start) via exclude_invoice_ids — excluded drafts are left
-//     untouched (their amount is simply not in the parent), the record is kept.
-//   - Idempotent: once a month is consolidated for a client (a superseded child
-//     exists), it cannot be re-consolidated.
+//   - A consolidated client (clients.billing_terms='batch_invoice') gets a
+//     per-visit DRAFT on each completion (batch_status='pending'), NOT sent, NOT
+//     charged, NOT pushed to QB — held for merging.
+//   - This route lists those pending drafts grouped by client for a billing
+//     WINDOW (cadence = 'weekly' Sun–Sat, or 'monthly'), keyed on the JOB's
+//     SERVICE DATE (jobs.scheduled_date) — NOT invoice created_at, so the lines
+//     and the window track when the work actually happened.
+//   - "Consolidate" folds the window's pending visits into the EARLIEST visit's
+//     invoice (the parent): the parent carries one line per visit (labeled with
+//     the service date), totals the window, is issued 'sent' due-on-receipt
+//     (due = today), and is pushed to QB. Every OTHER pending invoice is zeroed
+//     and marked 'superseded' with parent_invoice_id → the parent. Only the
+//     parent pushes to QB.
+//   - Office may EXCLUDE individual visits before merging (exclude_invoice_ids)
+//     — excluded drafts are left untouched (kept, just not in the parent).
+//   - Idempotent per (client, window): once a superseded child exists for a
+//     visit inside the window, that window can't be re-consolidated.
+//
+// per_visit clients (all residential + most commercial) never reach here: their
+// completion invoice is issued 'sent' immediately and is its own document.
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { invoicesTable, clientsTable } from "@workspace/db/schema";
+import { invoicesTable, clientsTable, jobsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
@@ -25,176 +40,205 @@ import { queueSync } from "../services/quickbooks-sync.js";
 
 const router = Router();
 
-// Resolve [start, end] timestamps for a YYYY-MM month (defaults to current month).
-function monthWindow(monthParam?: string): { start: Date; end: Date; label: string } {
-  const now = new Date();
-  let year = now.getFullYear();
-  let month = now.getMonth(); // 0-based
-  if (monthParam && /^\d{4}-\d{2}$/.test(monthParam)) {
-    const [y, m] = monthParam.split("-").map(Number);
-    year = y; month = m - 1;
+type Cadence = "weekly" | "monthly";
+
+// Resolve the billing window [start, end] (inclusive YYYY-MM-DD strings) for a
+// cadence + an anchor date. weekly = Sunday..Saturday containing the anchor;
+// monthly = first..last day of the anchor's month. All math on UTC calendar
+// dates to match how jobs.scheduled_date (a DATE) is stored/compared — no TZ
+// drift. Anchor defaults to today.
+function resolveWindow(cadence: Cadence, anchorParam?: string): { start: string; end: string; label: string } {
+  // Parse anchor as a pure calendar date (UTC midnight) to avoid TZ shifts.
+  let anchor: Date;
+  if (anchorParam && /^\d{4}-\d{2}-\d{2}$/.test(anchorParam)) {
+    anchor = new Date(`${anchorParam}T00:00:00.000Z`);
+  } else if (anchorParam && /^\d{4}-\d{2}$/.test(anchorParam)) {
+    anchor = new Date(`${anchorParam}-01T00:00:00.000Z`);
+  } else {
+    const now = new Date();
+    anchor = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   }
-  const start = new Date(year, month, 1, 0, 0, 0, 0);
-  const end = new Date(year, month + 1, 0, 23, 59, 59, 999); // last day of month
-  const label = `${year}-${String(month + 1).padStart(2, "0")}`;
-  return { start, end, label };
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  if (cadence === "weekly") {
+    const dow = anchor.getUTCDay(); // 0=Sun..6=Sat
+    const start = new Date(anchor); start.setUTCDate(anchor.getUTCDate() - dow);
+    const end = new Date(start); end.setUTCDate(start.getUTCDate() + 6);
+    return { start: iso(start), end: iso(end), label: `Week of ${iso(start)}` };
+  }
+  // monthly
+  const y = anchor.getUTCFullYear(), m = anchor.getUTCMonth();
+  const start = new Date(Date.UTC(y, m, 1));
+  const end = new Date(Date.UTC(y, m + 1, 0));
+  return { start: iso(start), end: iso(end), label: `${y}-${String(m + 1).padStart(2, "0")}` };
 }
 
-// GET /api/batch-invoicing?month=YYYY-MM
-// Lists batch_invoice clients with pending per-visit drafts in the month,
-// grouped by client (visit count + month-to-date total).
+function parseCadence(v: any): Cadence {
+  return v === "weekly" ? "weekly" : "monthly";
+}
+
+// Friendly service-date label, e.g. "Mon Jun 22". Built from a YYYY-MM-DD string
+// as a UTC date so it never shifts a day under the server's local TZ.
+function svcDateLabel(ymd: string | null): string {
+  if (!ymd) return "";
+  const d = new Date(`${String(ymd).slice(0, 10)}T00:00:00.000Z`);
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+// GET /api/batch-invoicing?cadence=weekly&date=YYYY-MM-DD
+// Lists consolidated (batch_invoice) clients with pending per-visit drafts whose
+// SERVICE DATE falls in the window, grouped by client (visit count + window
+// total + each visit's service date).
 router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId as number;
-    const { start, end, label } = monthWindow(req.query.month as string | undefined);
+    const cadence = parseCadence(req.query.cadence);
+    const { start, end, label } = resolveWindow(cadence, (req.query.date || req.query.period) as string | undefined);
 
     const rows = await db
       .select({
         client_id: invoicesTable.client_id,
         client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
+        company_name: clientsTable.company_name,
         client_email: clientsTable.email,
         invoice_id: invoicesTable.id,
         invoice_number: invoicesTable.invoice_number,
         total: invoicesTable.total,
         created_at: invoicesTable.created_at,
-        due_date: invoicesTable.due_date,
         line_items: invoicesTable.line_items,
         job_id: invoicesTable.job_id,
+        service_date: jobsTable.scheduled_date,
       })
       .from(invoicesTable)
+      .innerJoin(jobsTable, eq(invoicesTable.job_id, jobsTable.id))
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
       .where(and(
         eq(invoicesTable.company_id, companyId),
         eq(invoicesTable.status, "draft"),
         eq(invoicesTable.batch_status, "pending"),
-        gte(invoicesTable.created_at, start),
-        lte(invoicesTable.created_at, end),
+        gte(jobsTable.scheduled_date, start),
+        lte(jobsTable.scheduled_date, end),
       ))
-      .orderBy(invoicesTable.client_id, invoicesTable.created_at);
+      .orderBy(invoicesTable.client_id, jobsTable.scheduled_date);
 
-    // Group by client.
     const byClient = new Map<number, any>();
     for (const r of rows) {
       const cid = r.client_id as number;
       if (!byClient.has(cid)) {
         byClient.set(cid, {
           client_id: cid,
-          client_name: r.client_name,
+          client_name: (r.company_name && r.company_name.trim()) || r.client_name,
           client_email: r.client_email,
           visit_count: 0,
-          month_to_date_total: 0,
-          first_invoice_id: r.invoice_id,         // earliest (ordered by created_at)
-          first_invoice_created_at: r.created_at,
+          window_total: 0,
           visits: [] as any[],
         });
       }
       const g = byClient.get(cid);
       g.visit_count += 1;
-      g.month_to_date_total = Math.round((g.month_to_date_total + parseFloat(r.total || "0")) * 100) / 100;
+      g.window_total = Math.round((g.window_total + parseFloat(r.total || "0")) * 100) / 100;
       g.visits.push({
         invoice_id: r.invoice_id,
         invoice_number: r.invoice_number,
         total: parseFloat(r.total || "0"),
-        created_at: r.created_at,
-        line_items: r.line_items,
+        service_date: r.service_date ? String(r.service_date).slice(0, 10) : null,
+        service_label: svcDateLabel(r.service_date ? String(r.service_date) : null),
         job_id: r.job_id,
       });
     }
 
-    return res.json({ month: label, clients: Array.from(byClient.values()) });
+    return res.json({ cadence, period_start: start, period_end: end, label, clients: Array.from(byClient.values()) });
   } catch (err) {
-    console.error("Batch invoicing list error:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list batch invoices" });
+    console.error("Consolidated invoicing list error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list consolidated invoices" });
   }
 });
 
 // POST /api/batch-invoicing/:clientId/consolidate
-// Body: { month?: "YYYY-MM", exclude_invoice_ids?: number[] }
+// Body: { cadence?: 'weekly'|'monthly', date?: 'YYYY-MM-DD', exclude_invoice_ids?: number[] }
 router.post("/:clientId/consolidate", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId as number;
     const clientId = parseInt(String(req.params.clientId));
     if (isNaN(clientId)) return res.status(400).json({ error: "Bad Request", message: "Invalid client id" });
 
-    const { start, end, label } = monthWindow(req.body?.month);
+    const cadence = parseCadence(req.body?.cadence);
+    const { start, end, label } = resolveWindow(cadence, req.body?.date || req.body?.period);
     const excludeIds: number[] = Array.isArray(req.body?.exclude_invoice_ids)
       ? req.body.exclude_invoice_ids.map((n: any) => parseInt(n)).filter((n: number) => !isNaN(n))
       : [];
 
-    // Idempotency guard: if a child has already been superseded into a parent
-    // for this client in this month, the month is already consolidated.
+    // Pending per-visit drafts whose SERVICE DATE is in the window, earliest
+    // service date first. (created_at is irrelevant here — service date is the
+    // billing truth, so reschedules/backfills land in the right window.)
+    const pending = await db
+      .select({
+        id: invoicesTable.id,
+        invoice_number: invoicesTable.invoice_number,
+        total: invoicesTable.total,
+        line_items: invoicesTable.line_items,
+        job_id: invoicesTable.job_id,
+        service_date: jobsTable.scheduled_date,
+      })
+      .from(invoicesTable)
+      .innerJoin(jobsTable, eq(invoicesTable.job_id, jobsTable.id))
+      .where(and(
+        eq(invoicesTable.company_id, companyId),
+        eq(invoicesTable.client_id, clientId),
+        eq(invoicesTable.status, "draft"),
+        eq(invoicesTable.batch_status, "pending"),
+        gte(jobsTable.scheduled_date, start),
+        lte(jobsTable.scheduled_date, end),
+      ))
+      .orderBy(jobsTable.scheduled_date, invoicesTable.id);
+
+    if (pending.length === 0) {
+      return res.status(404).json({ error: "Not Found", message: `No pending visits to consolidate for ${label}` });
+    }
+
+    // Idempotency: if any visit in THIS window is already superseded, the window
+    // is already consolidated. (Keyed on service date via the job join.)
     const [alreadyDone] = await db
       .select({ id: invoicesTable.id })
       .from(invoicesTable)
+      .innerJoin(jobsTable, eq(invoicesTable.job_id, jobsTable.id))
       .where(and(
         eq(invoicesTable.company_id, companyId),
         eq(invoicesTable.client_id, clientId),
         eq(invoicesTable.status, "superseded"),
-        gte(invoicesTable.created_at, start),
-        lte(invoicesTable.created_at, end),
+        gte(jobsTable.scheduled_date, start),
+        lte(jobsTable.scheduled_date, end),
       ))
       .limit(1);
     if (alreadyDone) {
       return res.status(409).json({ error: "Conflict", message: `${label} is already consolidated for this client` });
     }
 
-    // Pending per-visit drafts for the month, earliest first.
-    const pending = await db
-      .select({
-        id: invoicesTable.id,
-        invoice_number: invoicesTable.invoice_number,
-        total: invoicesTable.total,
-        subtotal: invoicesTable.subtotal,
-        line_items: invoicesTable.line_items,
-        created_at: invoicesTable.created_at,
-        job_id: invoicesTable.job_id,
-        payment_source: invoicesTable.payment_source,
-      })
-      .from(invoicesTable)
-      .where(and(
-        eq(invoicesTable.company_id, companyId),
-        eq(invoicesTable.client_id, clientId),
-        eq(invoicesTable.status, "draft"),
-        eq(invoicesTable.batch_status, "pending"),
-        gte(invoicesTable.created_at, start),
-        lte(invoicesTable.created_at, end),
-      ))
-      .orderBy(invoicesTable.created_at, invoicesTable.id);
-
-    if (pending.length === 0) {
-      return res.status(404).json({ error: "Not Found", message: "No pending visits to consolidate for this month" });
-    }
-
-    // The FIRST invoice of the month becomes the parent. Everything else folds in.
+    // The EARLIEST-service-date visit becomes the parent. Everything else folds in.
     const parent = pending[0];
     const folded = pending.slice(1).filter((p) => !excludeIds.includes(p.id));
     const excluded = pending.filter((p) => excludeIds.includes(p.id));
-    // The parent itself can be excluded only if it's the sole invoice — guard:
     if (excludeIds.includes(parent.id)) {
-      return res.status(400).json({ error: "Bad Request", message: "Cannot exclude the first invoice of the month (it is the consolidation parent)" });
+      return res.status(400).json({ error: "Bad Request", message: "Cannot exclude the earliest visit of the window (it is the consolidation parent)" });
     }
 
-    // Build the parent's consolidated line items: one line per visit (parent +
-    // each folded child). Amounts come straight from each locked per-visit total
-    // — never recomputed.
-    const visitLine = (inv: any) => {
-      const d = inv.created_at ? new Date(inv.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "";
-      return {
-        description: `Visit ${d}${inv.invoice_number ? ` (#${inv.invoice_number})` : ""}`,
-        quantity: 1,
-        unit_price: parseFloat(inv.total || "0"),
-        total: parseFloat(inv.total || "0"),
-        source_invoice_id: inv.id,
-        job_id: inv.job_id,
-      };
-    };
+    // One line per visit, labeled with the SERVICE DATE. Amounts come straight
+    // from each locked per-visit total — never recomputed.
+    const visitLine = (inv: any) => ({
+      description: `Cleaning — ${svcDateLabel(inv.service_date ? String(inv.service_date) : null)}${inv.invoice_number ? ` (#${inv.invoice_number})` : ""}`,
+      quantity: 1,
+      unit_price: parseFloat(inv.total || "0"),
+      total: parseFloat(inv.total || "0"),
+      source_invoice_id: inv.id,
+      job_id: inv.job_id,
+      service_date: inv.service_date ? String(inv.service_date).slice(0, 10) : null,
+    });
 
     const parentLines = [visitLine(parent), ...folded.map(visitLine)];
     const parentTotal = Math.round(parentLines.reduce((s, l) => s + l.total, 0) * 100) / 100;
     const todayStr = new Date().toISOString().split("T")[0];
 
     await db.transaction(async (tx) => {
-      // Parent: full month total, one line per visit, sent + due today (net-0).
+      // Parent: window total, one line per visit, issued 'sent' due-on-receipt.
       await tx.update(invoicesTable)
         .set({
           line_items: parentLines,
@@ -224,14 +268,12 @@ router.post("/:clientId/consolidate", requireAuth, requireRole("owner", "admin",
             inArray(invoicesTable.id, folded.map((f) => f.id)),
           ));
       }
-      // Excluded drafts are intentionally left untouched (their amount is simply
-      // not in the parent; the office handles them separately, e.g. already
-      // billed in QBO). Record preserved per spec.
+      // Excluded drafts are intentionally left untouched.
     });
 
     logAudit(req, "UPDATE", "invoice", parent.id, null, {
-      action: "batch_consolidate", month: label, parent_invoice_id: parent.id,
-      folded_count: folded.length, excluded_count: excluded.length, total: parentTotal,
+      action: "consolidate", cadence, window: label, period_start: start, period_end: end,
+      parent_invoice_id: parent.id, folded_count: folded.length, excluded_count: excluded.length, total: parentTotal,
     });
 
     // Push ONLY the parent to QB (one consolidated document). Children never push.
@@ -242,7 +284,10 @@ router.post("/:clientId/consolidate", requireAuth, requireRole("owner", "admin",
 
     return res.json({
       ok: true,
-      month: label,
+      cadence,
+      window: label,
+      period_start: start,
+      period_end: end,
       parent_invoice_id: parent.id,
       parent_total: parentTotal,
       folded_invoice_ids: folded.map((f) => f.id),
@@ -250,7 +295,7 @@ router.post("/:clientId/consolidate", requireAuth, requireRole("owner", "admin",
       visit_count: parentLines.length,
     });
   } catch (err) {
-    console.error("Batch consolidate error:", err);
+    console.error("Consolidate error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to consolidate invoices" });
   }
 });
