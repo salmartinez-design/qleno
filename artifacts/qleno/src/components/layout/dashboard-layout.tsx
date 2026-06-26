@@ -79,13 +79,13 @@ const BOTTOM_TABS_MANAGER = [
 ];
 
 const BOTTOM_TABS_TECH = [
-  { href: '/dashboard', icon: LayoutDashboard, label: 'Today' },
-  { href: '/my-jobs',   icon: ClipboardList,   label: 'My Jobs' },
-  { href: '/customers', icon: Users,            label: 'Customers' },
+  { href: '/my-jobs',   icon: ClipboardList,   label: 'My Jobs'  },
+  { href: '/my-day',    icon: CalendarDays,    label: 'My Day'   },
+  { href: '/leave',     icon: CalendarClock,   label: 'Time Off' },
 ];
 
 function getBottomTabs(role?: string) {
-  return role === 'technician' ? BOTTOM_TABS_TECH : BOTTOM_TABS_MANAGER;
+  return (role === 'technician' || role === 'team_lead') ? BOTTOM_TABS_TECH : BOTTOM_TABS_MANAGER;
 }
 
 const MORE_CARDS = [
@@ -105,13 +105,18 @@ const MORE_CARDS = [
   { title: 'Core KPIs',      href: '/reports/insights',  icon: TrendingUp  },
   // Other
   { title: 'Loyalty',        href: '/loyalty',            icon: Star        },
-  { title: 'Help & Guides',  href: '/help',               icon: LifeBuoy    },
-  { title: 'Cleancyclopedia', href: '/cleancyclopedia',  icon: BookOpen    },
-  { title: 'Training',       href: '/training',           icon: GraduationCap },
+  { title: 'Help & Guides',  href: '/help',               icon: LifeBuoy,    tech: true },
+  { title: 'Cleancyclopedia', href: '/cleancyclopedia',  icon: BookOpen,    tech: true },
+  { title: 'Training',       href: '/training',           icon: GraduationCap, tech: true },
   { title: 'Company',        href: '/company',            icon: Settings    },
 ];
 
-function MoreSheet({ open, onClose, navigate, onChangePw }: { open: boolean; onClose: () => void; navigate: (path: string) => void; onChangePw?: () => void }) {
+function MoreSheet({ open, onClose, navigate, onChangePw, isTech }: { open: boolean; onClose: () => void; navigate: (path: string) => void; onChangePw?: () => void; isTech?: boolean }) {
+  // [tech-confinement 2026-06-26] Techs see ONLY the tech-safe cards (Help,
+  // Cleancyclopedia, Training) — never the office pages (Payroll, Employees,
+  // Company/Settings, …). Without this filter the More sheet leaked the whole
+  // office menu to technicians.
+  const cards = MORE_CARDS.filter((c) => !isTech || (c as any).tech);
   const logout = useAuthStore(state => state.logout);
 
   useEffect(() => {
@@ -153,7 +158,7 @@ function MoreSheet({ open, onClose, navigate, onChangePw }: { open: boolean; onC
         </div>
         <div style={{ overflowY: 'auto', padding: '0 16px 0', flex: 1 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {MORE_CARDS.map(card => {
+            {cards.map(card => {
               const Icon = card.icon;
               return (
                 <button
@@ -564,6 +569,11 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   });
 
   const isManager = user?.role === 'owner' || user?.role === 'office';
+  // [tech-confinement 2026-06-26] Technicians/team_leads are locked to the
+  // confined field view on EVERY screen size — never the office shell/sidebar.
+  // A tech on desktop must see only the technician view (Sal). Drives the layout
+  // branch below plus the office-only affordances (Quick Create, More sheet).
+  const isTech = user?.role === 'technician' || user?.role === 'team_lead';
   // [tech-experience 2026-06-17] Keyboard shortcuts + the shortcuts overlay /
   // help button are office-tier only — every shortcut targets an office page
   // (Quotes, Dispatch, Payroll, Employees…). Techs (technician/team_lead) see
@@ -680,7 +690,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   const pageTitle = title || ROUTE_TITLES[location] || 'Qleno';
   const initials = user ? `${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase() : '';
 
-  if (isMobile) {
+  if (isMobile || isTech) {
     const bottomTabs = getBottomTabs(user?.role);
     const isMoreActive = !bottomTabs.some(t => t.href === '/dashboard' ? location === t.href : location.startsWith(t.href));
     return (
@@ -689,7 +699,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
         {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} userId={user?.id || 0} />}
         {shortcutsOpen && canUseShortcuts && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
         <ChangePasswordModal open={changePwOpen} onClose={() => setChangePwOpen(false)} />
-        <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} navigate={setLocation} onChangePw={() => { setMoreOpen(false); setChangePwOpen(true); }} />
+        <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} navigate={setLocation} onChangePw={() => { setMoreOpen(false); setChangePwOpen(true); }} isTech={isTech} />
 
         {/* Top header */}
         <header style={{
@@ -735,7 +745,8 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               )}
             </button>
 
-            {/* ── Mobile Quick Create ─────────────────────────────────────── */}
+            {/* ── Quick Create (office tier only — techs never create jobs/quotes/clients) ── */}
+            {!isTech && (
             <div ref={quickCreateRef} style={{ position: 'relative' }}>
               <button
                 onClick={() => setQuickCreateOpen(p => !p)}
@@ -784,6 +795,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                 </div>
               )}
             </div>
+            )}
           </div>
         </header>
 

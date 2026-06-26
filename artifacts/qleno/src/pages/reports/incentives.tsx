@@ -51,7 +51,10 @@ function SkeletonRow({ cols }: { cols: number }) {
 
 export default function IncentivesPage() {
   const qc = useQueryClient();
-  const isOwner = getTokenRole() === "owner";
+  // [office-admin-parity 2026-06-26] Office/admin are approvers too (Sal granted
+  // incentive approvals): they see pending awards, approve/reject, and their own
+  // awards finalize immediately. Backend matches (incentives.ts canApprove).
+  const isOwner = ["owner", "admin", "office", "super_admin"].includes(getTokenRole() || "");
 
   const [tab, setTab] = useState<"programs" | "awards">("programs");
   const [progDrawer, setProgDrawer] = useState(false);

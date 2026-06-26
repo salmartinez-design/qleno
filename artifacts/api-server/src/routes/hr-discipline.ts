@@ -83,7 +83,8 @@ router.put("/:id/acknowledge", requireAuth, async (req, res) => {
   }
 });
 
-router.put("/:id/confirm", requireAuth, requireRole("owner"), async (req, res) => {
+// [office-admin-parity 2026-06-26] Office tier confirms/dismisses discipline records (Sal: full HR access).
+router.put("/:id/confirm", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const id = parseInt(req.params.id);
@@ -100,7 +101,7 @@ router.put("/:id/confirm", requireAuth, requireRole("owner"), async (req, res) =
   }
 });
 
-router.put("/:id/dismiss", requireAuth, requireRole("owner"), async (req, res) => {
+router.put("/:id/dismiss", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const id = parseInt(req.params.id);
