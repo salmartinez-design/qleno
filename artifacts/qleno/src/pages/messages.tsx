@@ -74,7 +74,7 @@ function AuthMedia({ msgId, idx, mediaKey }: { msgId: number; idx: number; media
     };
   }, [msgId, idx]);
 
-  const isVideo = /\.(mp4|mov|webm|avi|mkv)$/i.test(mediaKey);
+  const isVideo = /\.(mp4|mov|webm|avi|mkv|3gpp|3gp|m4v)$/i.test(mediaKey);
 
   if (err) return <div style={{ fontSize: 11, color: MUTE, marginTop: 4 }}>[Media unavailable]</div>;
   if (!blobUrl) return (

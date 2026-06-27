@@ -247,8 +247,22 @@ router.get("/media/:msgId/:idx", requireAuth, requireRole("owner", "admin", "off
     const { r2Configured, r2SignedGetUrl } = await import("../lib/r2.js");
     if (!r2Configured()) return res.status(503).json({ error: "r2_not_configured" });
 
-    const signedUrl = await r2SignedGetUrl(key, 3600);
-    return res.redirect(302, signedUrl);
+    // Proxy the content through the server instead of redirecting — browsers block
+    // cross-origin redirects from authenticated fetches (R2 has no CORS for app.qleno.com).
+    const signedUrl = await r2SignedGetUrl(key, 300);
+    const upstream = await fetch(signedUrl);
+    if (!upstream.ok) return res.status(502).json({ error: "media_fetch_failed" });
+
+    const contentType = upstream.headers.get("content-type") ?? "application/octet-stream";
+    const ext = key.split(".").pop()?.toLowerCase() ?? "";
+    const mimeMap: Record<string, string> = {
+      "3gpp": "video/3gpp", "3gp": "video/3gpp", "mp4": "video/mp4",
+      "mov": "video/quicktime", "webm": "video/webm",
+    };
+    res.setHeader("Content-Type", mimeMap[ext] ?? contentType);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    const buf = Buffer.from(await upstream.arrayBuffer());
+    return res.send(buf);
   } catch (err) {
     console.error("GET /sms/media:", err);
     return res.status(500).json({ error: "Internal Server Error" });
