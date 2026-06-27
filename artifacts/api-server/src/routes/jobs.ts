@@ -2,7 +2,9 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
+import { getResendEmailStatus } from "../lib/comms-sender.js";
+import { gatherConfirmationData, buildConfirmationPdf } from "../lib/confirmation-pdf.js";
 import { notifyUserAsync } from "../lib/push.js";
 import { logAudit, logClientActivity } from "../lib/audit.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
@@ -35,20 +37,52 @@ const router = Router();
 // ALL discounts) — the prior version omitted add-ons and would DROP them from a
 // draft on re-sync. Same code the creation engine + office recalc use, so a job
 // edit in dispatch now reflects correctly on its draft invoice.
-async function syncJobInvoiceDraft(jobId: number, companyId: number): Promise<void> {
+// [2026-06-27] Extended with opts:
+//   cancel:true  → voids the draft instead of syncing (job cancelled)
+//   newDate      → recalculates due_date when the job is rescheduled
+async function syncJobInvoiceDraft(
+  jobId: number,
+  companyId: number,
+  opts: { cancel?: boolean; newDate?: string } = {},
+): Promise<void> {
   try {
     const [existing] = await db
-      .select({ id: invoicesTable.id, status: invoicesTable.status })
+      .select({ id: invoicesTable.id, status: invoicesTable.status, payment_terms: invoicesTable.payment_terms })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.job_id, jobId), eq(invoicesTable.company_id, companyId)))
       .limit(1);
     if (!existing || existing.status !== "draft") return;
 
+    // Cancellation: void the draft so AR stays clean.
+    if (opts.cancel) {
+      await db.update(invoicesTable)
+        .set({ status: "void" })
+        .where(eq(invoicesTable.id, existing.id));
+      return;
+    }
+
     const built = await buildJobLineItems(companyId, jobId);
     if (!built) return;
 
+    const updateFields: Record<string, unknown> = {
+      line_items: built.lineItems,
+      subtotal: built.subtotal.toFixed(2),
+      total: built.subtotal.toFixed(2),
+    };
+
+    // Reschedule: shift the due date to match the new job date.
+    if (opts.newDate) {
+      const termsDays =
+        existing.payment_terms === "net_30" ? 30 :
+        existing.payment_terms === "net_15" ? 15 :
+        existing.payment_terms === "net_7"  ? 7  : 0;
+      const base = new Date(opts.newDate);
+      base.setDate(base.getDate() + termsDays);
+      updateFields.due_date = base.toISOString().split("T")[0];
+    }
+
     await db.update(invoicesTable)
-      .set({ line_items: built.lineItems, subtotal: built.subtotal.toFixed(2), total: built.subtotal.toFixed(2) })
+      .set(updateFields)
       .where(eq(invoicesTable.id, existing.id));
 
     // Re-push to QuickBooks (no-op for non-connected tenants). Accounting, not
@@ -3182,8 +3216,16 @@ router.patch("/:id", requireAuth, async (req, res) => {
     `);
     const updated = updatedRows.rows[0];
 
-    // Keep the job's draft invoice (if any) in step with the new price/discounts.
-    await syncJobInvoiceDraft(jobId, companyId);
+    // Keep the job's draft invoice (if any) in step with the job state.
+    // cancel → void the draft; reschedule → shift due_date; else → sync line items.
+    {
+      const changedFieldsForInv = new Set(changes.map((c: any) => c.field));
+      const isCancel = (updated as any)?.status === "cancelled";
+      const newDate = changedFieldsForInv.has("scheduled_date")
+        ? String((updated as any)?.scheduled_date ?? "").slice(0, 10) || undefined
+        : undefined;
+      await syncJobInvoiceDraft(jobId, companyId, { cancel: isCancel, newDate });
+    }
 
     // [notifications A.2] Alert the affected tech(s) about this change (in-app,
     // fire-and-forget). Reassign → new tech "assigned" + old tech "removed";
@@ -5516,6 +5558,137 @@ router.post("/:id/note", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Append job note error:", err);
     return res.status(500).json({ error: "Could not save note" });
+  }
+});
+
+// ─── Booking-confirmation email: status / PDF copy / manual resend ──────────
+// The office needs to (1) know whether a booked client actually received the
+// confirmation email, (2) view a copy of what was sent, and (3) re-send it.
+// Surfaced per-job in the Lead drawer's Jobs tab.
+
+// Latest job_scheduled EMAIL notification_log row for a job. Matches on the
+// stamped metadata.job_id first (reliable, written by sendJobScheduledConfirmation),
+// then falls back to the client's email for rows logged before that stamp
+// existed. Returns null when nothing was ever logged (e.g. comms were gated off
+// at booking time, so no email was attempted).
+async function getConfirmationEmailLog(companyId: number, jobId: number, clientEmail: string) {
+  const r = await db.execute(sql`
+    SELECT status, error_message, sent_at, recipient, metadata
+    FROM notification_log
+    WHERE company_id = ${companyId}
+      AND trigger = 'job_scheduled'
+      AND channel = 'email'
+      AND (
+        metadata->>'job_id' = ${String(jobId)}
+        OR (${clientEmail} <> '' AND recipient = ${clientEmail})
+      )
+    ORDER BY (metadata->>'job_id' = ${String(jobId)}) DESC, sent_at DESC
+    LIMIT 1
+  `);
+  return (r.rows[0] as any) || null;
+}
+
+// GET /api/jobs/:id/confirmation-status — did the client get the email?
+router.get("/:id/confirmation-status", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const jobId = parseInt(req.params.id);
+    if (Number.isNaN(jobId)) return res.status(400).json({ error: "Bad job id" });
+
+    const jr = await db.execute(sql`
+      SELECT j.id, c.email AS client_email
+      FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+      WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1
+    `);
+    const job = jr.rows[0] as any;
+    if (!job) return res.status(404).json({ error: "Not found" });
+    const clientEmail = job.client_email || "";
+
+    const log = await getConfirmationEmailLog(companyId, jobId, clientEmail);
+    if (!log) return res.json({ found: false, recipient: clientEmail || null });
+
+    const providerId = (log.metadata as any)?._provider_id || null;
+    // Live Resend lookup for ACTUAL delivery/open — works retroactively for
+    // already-sent emails and doesn't depend on the delivery webhook being wired.
+    let resend: { last_event: string; to: string; created_at: string } | null = null;
+    if (log.status === "sent" && providerId) {
+      const s = await getResendEmailStatus(providerId);
+      if (s.ok) resend = { last_event: s.last_event, to: s.to, created_at: s.created_at };
+    }
+
+    return res.json({
+      found: true,
+      status: log.status,              // sent | suppressed | failed | skipped
+      reason: log.error_message || null, // why, for suppressed/failed
+      sent_at: log.sent_at,
+      recipient: log.recipient,
+      provider_id: providerId,
+      resend,                          // { last_event } from the live API, or null
+    });
+  } catch (err) {
+    console.error("[confirmation-status]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/jobs/:id/confirmation.pdf — a PDF copy of the confirmation email.
+router.get("/:id/confirmation.pdf", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const jobId = parseInt(req.params.id);
+    if (Number.isNaN(jobId)) return res.status(400).json({ error: "Bad job id" });
+
+    const data = await gatherConfirmationData(jobId, companyId);
+    if (!data) return res.status(404).json({ error: "Not found" });
+
+    // Stamp the real sent-to / sent-on from the log when we have it.
+    const log = await getConfirmationEmailLog(companyId, jobId, data.recipientEmail || "");
+    if (log?.sent_at) data.sentAt = new Date(log.sent_at);
+    if (log?.recipient) data.recipientEmail = log.recipient;
+
+    const buf = await buildConfirmationPdf(data);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="confirmation-job-${jobId}.pdf"`);
+    return res.send(buf);
+  } catch (err) {
+    console.error("[confirmation-pdf]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/jobs/:id/resend-confirmation — manually re-send the email.
+// Email-only (the office ask is about email; SMS is left to the booking trigger)
+// and goes through the normal gated path: a company with comms disabled or a
+// client who opted out is reported back, not force-sent. The fresh log row tells
+// the office the real outcome.
+router.post("/:id/resend-confirmation", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const jobId = parseInt(req.params.id);
+    if (Number.isNaN(jobId)) return res.status(400).json({ error: "Bad job id" });
+
+    const jr = await db.execute(sql`
+      SELECT j.id, c.email AS client_email
+      FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+      WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1
+    `);
+    const job = jr.rows[0] as any;
+    if (!job) return res.status(404).json({ error: "Not found" });
+    if (!job.client_email) return res.status(400).json({ ok: false, error: "no_client_email" });
+
+    const { sendJobScheduledConfirmation } = await import("../lib/booking-confirmation.js");
+    await sendJobScheduledConfirmation(req, jobId, { channels: ["email"] });
+
+    const log = await getConfirmationEmailLog(companyId, jobId, job.client_email || "");
+    return res.json({
+      ok: true,
+      status: log?.status || "unknown",
+      reason: log?.error_message || null,
+      recipient: log?.recipient || job.client_email,
+    });
+  } catch (err) {
+    console.error("[resend-confirmation]", err);
+    return res.status(500).json({ error: "Server error" });
   }
 });
 

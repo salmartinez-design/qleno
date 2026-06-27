@@ -41,7 +41,7 @@ import { buildJobLineItems } from "./invoice-line-items.js";
 // billed in MaidCentral; the completion engine never auto-invoices them. Single
 // hardcoded constant for Phes go-live; move to tenant_settings when multi-tenant
 // cutovers arrive (mirrors the LATE_THRESHOLD_MINUTES pattern in job-status.ts).
-const INVOICE_CUTOVER_DATE = "2026-07-01";
+const INVOICE_CUTOVER_DATE = "2026-06-27";
 
 export type EnsureInvoiceResult = {
   created: boolean;
