@@ -158,6 +158,7 @@ export async function seedIfNeeded() {
 
     // ── Schema guards: add missing columns idempotently ──────────────────────
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT false`);
+    await db.execute(sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS cancellation_notify_via TEXT DEFAULT 'sms'`);
 
     // ── Super admin accounts ────────────────────────────────────────────────
     for (const sa of SUPER_ADMINS) {

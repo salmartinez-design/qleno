@@ -132,6 +132,10 @@ export const clientsTable = pgTable("clients", {
   // List-Unsubscribe header. Backfilled for existing clients on cold start and
   // generated for new clients; unique so a token resolves to exactly one client.
   email_unsub_token: text("email_unsub_token"),
+  // How to notify this client when a job is cancelled or skipped.
+  // The cancel modal "Notify client" checkbox uses this. 'sms' = text only;
+  // 'email' = email only; 'both' = both channels; 'none' = no notification.
+  cancellation_notify_via: text("cancellation_notify_via").default("sms"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

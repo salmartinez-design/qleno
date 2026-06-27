@@ -172,6 +172,9 @@ router.post("/action", requireAuth, async (req, res) => {
     // (cancel/lockout) to supersede a job that was already marked complete.
     // Without this flag the handler 409s on complete/cancelled jobs.
     reclassify?: boolean;
+    // When true, send the client a confirmation via their preferred channel
+    // (clients.cancellation_notify_via). Fire-and-forget after commit.
+    notify_client?: boolean;
   };
   if (!body?.job_id || !Number.isFinite(Number(body.job_id))) {
     return res.status(400).json({ error: "job_id required" });
@@ -425,6 +428,86 @@ router.post("/action", requireAuth, async (req, res) => {
 
     return logged;
   });
+
+  // Fire-and-forget client notification — runs after the transaction commits
+  // so a notify failure never rolls back the cancellation itself.
+  if (body.notify_client && row.client_id) {
+    (async () => {
+      try {
+        const ci = await db.execute(sql`
+          SELECT c.first_name, c.phone, c.email,
+                 COALESCE(c.cancellation_notify_via, 'sms') AS notify_via,
+                 c.sms_opt_out_at, c.email_opt_out_at,
+                 co.name AS company_name, co.email_from_address,
+                 j.scheduled_date
+            FROM clients c
+            JOIN companies co ON co.id = ${companyId}
+            JOIN jobs j ON j.id = ${body.job_id}
+           WHERE c.id = ${row.client_id}
+           LIMIT 1
+        `);
+        const c: any = ci.rows[0];
+        if (!c) return;
+
+        const notifyVia: string = c.notify_via || "sms";
+        const firstName: string = c.first_name || "there";
+        const fmtDate = (d: string) =>
+          new Date(d + "T12:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+        const dateLabel = c.scheduled_date ? fmtDate(c.scheduled_date) : "your upcoming visit";
+        const newDateLabel = body.new_date ? fmtDate(body.new_date) : "a new date";
+        const chargeClause = finalCharge > 0 ? ` (fee: $${finalCharge.toFixed(2)})` : "";
+
+        const MSG: Partial<Record<typeof action, string>> = {
+          skip: `Hi ${firstName}, your ${dateLabel} cleaning has been skipped. Your recurring schedule continues as normal.`,
+          cancel: `Hi ${firstName}, your ${dateLabel} cleaning has been cancelled${chargeClause}. Please reach out if you have any questions.`,
+          lockout: `Hi ${firstName}, our team was unable to access your home for the ${dateLabel} cleaning${chargeClause}. Please reach out if you have any questions.`,
+          move: `Hi ${firstName}, your cleaning appointment has been rescheduled to ${newDateLabel}. We'll see you then!`,
+          bump: `Hi ${firstName}, we've rescheduled your cleaning to ${newDateLabel}. We'll see you then!`,
+          cancel_service: `Hi ${firstName}, your cleaning service has been cancelled. All future appointments have been removed. Thank you for choosing us — we hope to serve you again.`,
+        };
+        const message = MSG[action] ?? `Hi ${firstName}, there has been an update to your ${dateLabel} cleaning appointment.`;
+
+        const SUBJECTS: Partial<Record<typeof action, string>> = {
+          skip: `Appointment Update — ${dateLabel}`,
+          cancel: `Cancellation Confirmed — ${dateLabel}`,
+          lockout: `Appointment Update — ${dateLabel}`,
+          move: `Appointment Rescheduled to ${newDateLabel}`,
+          bump: `Appointment Rescheduled to ${newDateLabel}`,
+          cancel_service: `Service Cancellation Confirmed`,
+        };
+        const subject = SUBJECTS[action] ?? `Appointment Update`;
+
+        // SMS
+        if ((notifyVia === "sms" || notifyVia === "both") && c.phone && !c.sms_opt_out_at) {
+          if (process.env.COMMS_ENABLED === "true") {
+            const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+            const sender = await resolveSender(companyId);
+            if (!sender.reason) {
+              await sendSmsVia(sender, c.phone, message);
+            }
+          }
+        }
+
+        // Email
+        if ((notifyVia === "email" || notifyVia === "both") && c.email && !c.email_opt_out_at) {
+          const key = process.env.RESEND_API_KEY;
+          if (key) {
+            const { Resend } = await import("resend");
+            const resend = new Resend(key);
+            const fromName: string = c.company_name || "Qleno";
+            const from = `${fromName} <${c.email_from_address || "noreply@phes.io"}>`;
+            const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#1A1917">
+<p style="font-size:15px;line-height:1.6;margin:0 0 20px">${message}</p>
+<p style="font-size:12px;color:#9E9B94;margin:0">— ${fromName}</p>
+</div>`;
+            await resend.emails.send({ from, to: [c.email], subject, html });
+          }
+        }
+      } catch (e) {
+        console.error("[cancellation] client notify failed:", e);
+      }
+    })();
+  }
 
   return res.status(201).json({
     ok: true,
