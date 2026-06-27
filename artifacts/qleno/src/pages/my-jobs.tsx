@@ -1421,9 +1421,9 @@ export default function MyJobsPage() {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
             {/* Tapping the logo/title returns the tech to today's main screen. */}
-            <button type="button" onClick={() => setSelectedDate(todayYmd)} aria-label="Back to today"
+            <button type="button" onClick={() => { setSelectedDate(todayYmd); setShowPay(false); }} aria-label="Back to today"
               style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", minWidth: 0 }}>
-              <QlenoMark size={24} />
+              <QlenoMark size={32} />
               <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", letterSpacing: "-0.01em" }}>My Jobs</span>
             </button>
             <WeatherChip lat={wxLat} lng={wxLng} />
@@ -1623,7 +1623,7 @@ export default function MyJobsPage() {
                   style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#1A1917", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>
                   Check the next day ›
                 </button>
-                <button type="button" onClick={() => setShowPay(true)}
+                <button type="button" onClick={() => { setShowPay(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                   style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: "var(--brand, #00C9A0)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>
                   <DollarSign size={15} aria-hidden="true" /> View my pay
                 </button>
