@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, index, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
@@ -27,6 +27,8 @@ export const smsMessagesTable = pgTable("sms_messages", {
   status: text("status").notNull().default("received"), // received | sent | failed | suppressed
   read_at: timestamp("read_at"),          // null = unread (inbound); outbound stamped on insert
   sent_by: integer("sent_by").references(() => usersTable.id), // staff user for outbound
+  media_urls: text("media_urls").array(),  // MMS: R2 object keys for attached images
+  scheduled_sms_id: integer("scheduled_sms_id"),  // FK back to scheduled_sms when sent by scheduler
   created_at: timestamp("created_at").notNull().defaultNow(),
 }, (t) => ({
   threadIdx: index("sms_messages_thread_idx").on(t.company_id, t.contact_phone, t.created_at),

@@ -16,6 +16,7 @@ import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./li
 import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
 import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
 import { setAppReady } from "./lib/readiness.js";
+import { processScheduledSms } from "./lib/sms-scheduler.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -79,6 +80,9 @@ function startNotificationCron() {
     // job_message_sends ledger, so an hourly cadence + catch-up never
     // double-sends. (runReminderCron is retained as a copy reference but no
     // longer scheduled.)
+    // Every minute → send due scheduled SMS/MMS
+    processScheduledSms().catch((e: Error) => console.error("[cron] scheduled_sms error:", e));
+
     const schedKey = `${ctDate}-${ctH}`;
     if (fired["scheduled_messages"] !== schedKey) {
       fired["scheduled_messages"] = schedKey;
@@ -349,6 +353,15 @@ async function runStartupMigrations() {
     });
   } catch (err: any) {
     console.error("[startup] ensurePayrollSnapshotSetup — non-fatal:", err?.message ?? err);
+  }
+  // [sms-mms-scheduling] media_urls column + scheduled_sms table
+  try {
+    await withBootTimeout("ensureSmsMmsSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureSmsMmsSchema } = await import("./lib/sms-mms-schema.js");
+      await ensureSmsMmsSchema();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureSmsMmsSchema — non-fatal:", err?.message ?? err);
   }
   // [revenue-connect 2026-06-12] job_history live bridge — mirrors completed
   // jobs into the revenue ledger past each tenant's MC-import end date, so

@@ -75,16 +75,22 @@ export async function resolveSender(companyId: number, branchId?: number | null)
   return { enabled, company_comms_enabled, branch_comms_enabled, account_sid, auth_token, from_number, reason };
 }
 
-// Send an SMS via Twilio REST (no SDK). Returns the Twilio response (sid, status,
-// error_code). Throws on non-2xx with the Twilio error body.
-export async function sendSmsVia(sender: ResolvedSender, to: string, body: string): Promise<any> {
+// Send an SMS (or MMS when mediaUrls provided) via Twilio REST (no SDK).
+// Returns the Twilio response (sid, status, error_code). Throws on non-2xx.
+export async function sendSmsVia(sender: ResolvedSender, to: string, body: string, mediaUrls?: string[]): Promise<any> {
+  const params: Record<string, string> = { From: sender.from_number!, To: to, Body: body };
+  if (mediaUrls && mediaUrls.length > 0) {
+    // Twilio accepts one MediaUrl per API call; for multiple images, only the first
+    // is sent. The spec supports sending multiple messages if needed.
+    params.MediaUrl = mediaUrls[0];
+  }
   const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sender.account_sid}/Messages.json`, {
     method: "POST",
     headers: {
       "Authorization": "Basic " + Buffer.from(`${sender.account_sid}:${sender.auth_token}`).toString("base64"),
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({ From: sender.from_number!, To: to, Body: body }).toString(),
+    body: new URLSearchParams(params).toString(),
   });
   const data: any = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(`Twilio ${resp.status} code=${data?.code ?? "?"}: ${data?.message ?? JSON.stringify(data).slice(0, 200)}`);
