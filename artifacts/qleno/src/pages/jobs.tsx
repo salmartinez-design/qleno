@@ -1485,6 +1485,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // date as the convenient starting point; operator picks new values.
   const [cancelNewDate, setCancelNewDate] = useState<string>("");
   const [cancelNewTime, setCancelNewTime] = useState<string>("");
+  const [cancelNotifyClient, setCancelNotifyClient] = useState(true);
 
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState("");
@@ -2006,6 +2007,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           // flag lets a charging action (cancel/lockout) supersede the prior
           // completion. Only sent from the panel when the job is complete.
           reclassify: isLocked && job.status === "complete" ? true : undefined,
+          notify_client: cancelNotifyClient || undefined,
         }),
       });
       if (!res.ok) {
@@ -3787,7 +3789,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         const jobAmount = Number((job as any).amount) || Number(job.billed_amount) || Number((job as any).base_fee) || 0;
         const previewCharge = (a: typeof ACTIONS[number]) => a.charges ? jobAmount : 0;
         const selected = ACTIONS.find(a => a.key === cancelAction);
-        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); };
+        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); setCancelNotifyClient(true); };
         const overrideCharge = chargeOverride.trim() !== "" ? Number(chargeOverride) : previewCharge(selected ?? ACTIONS[0]);
         const needsDate = selected?.reschedules === true;
         const confirmDisabled = busy || (needsDate && !cancelNewDate);
@@ -3972,15 +3974,34 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   )}
 
                   {/* Notes — shared across all branches */}
-                  <div style={{ marginBottom: 18 }}>
+                  <div style={{ marginBottom: 14 }}>
                     <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>Notes (optional)</label>
                     <textarea value={cancelNote} onChange={e => setCancelNote(e.target.value)} rows={2}
                       placeholder="Why? Anything the next person needs to know?"
                       style={{ width: "100%", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, resize: "vertical", fontFamily: FF, outline: "none", boxSizing: "border-box" }} />
                   </div>
 
+                  {/* Notify client checkbox */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 18, padding: "10px 12px", background: cancelNotifyClient ? "#F0FBF8" : "#F7F6F3", borderRadius: 8, border: `1px solid ${cancelNotifyClient ? "#B2EAD9" : "#E5E2DC"}`, cursor: "pointer" }}
+                    onClick={() => setCancelNotifyClient(v => !v)}>
+                    <input
+                      type="checkbox"
+                      checked={cancelNotifyClient}
+                      onChange={e => setCancelNotifyClient(e.target.checked)}
+                      onClick={e => e.stopPropagation()}
+                      style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#00C9A0", flexShrink: 0 }}
+                    />
+                    <span style={{ fontSize: 13, color: "#1A1917", fontWeight: 500, userSelect: "none" }}>
+                      {selected.reschedules
+                        ? "Send client a text/email with the new date"
+                        : selected.ends_service
+                        ? "Send client confirmation that service has ended"
+                        : "Send client a confirmation of this change"}
+                    </span>
+                  </div>
+
                   <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
-                    <button onClick={() => { setCancelAction(null); setCancelNewDate(""); setCancelNewTime(""); setChargeOverride(""); }} disabled={busy}
+                    <button onClick={() => { setCancelAction(null); setCancelNewDate(""); setCancelNewTime(""); setChargeOverride(""); setCancelNotifyClient(true); }} disabled={busy}
                       style={{ padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#6B6860", background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>← Back</button>
                     <button onClick={cancelJob} disabled={confirmDisabled}
                       style={{

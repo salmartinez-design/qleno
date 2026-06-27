@@ -697,6 +697,7 @@ router.put("/:id", requireAuth, async (req, res) => {
       hourly_rate,               // [PR #60] Per-client hourly rate (Schedule Rate auto-calc)
       parking_fee_enabled, parking_fee_amount,
       cancel_fee_pct, lockout_fee_pct,  // Cancellation policy overrides (null = use tenant default)
+      cancellation_notify_via,          // 'sms' | 'email' | 'both' | 'none'
     } = req.body;
 
     // [AH] Snapshot the previous commercial_hourly_rate so we can write a
@@ -778,6 +779,11 @@ router.put("/:id", requireAuth, async (req, res) => {
         lockout_fee_pct: lockout_fee_pct === null || lockout_fee_pct === ""
           ? null
           : String(Math.max(0, Math.min(100, Number(lockout_fee_pct)))),
+      }),
+      ...(cancellation_notify_via !== undefined && {
+        cancellation_notify_via: ["sms", "email", "both", "none"].includes(cancellation_notify_via)
+          ? cancellation_notify_via
+          : "sms",
       }),
     }).where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId))).returning();
     if (!updated[0]) return res.status(404).json({ error: "Not Found" });

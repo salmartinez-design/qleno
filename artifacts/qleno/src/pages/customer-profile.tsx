@@ -458,6 +458,7 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
     // null before sending.
     cancel_fee_pct: client.cancel_fee_pct != null ? String(client.cancel_fee_pct) : "",
     lockout_fee_pct: client.lockout_fee_pct != null ? String(client.lockout_fee_pct) : "",
+    cancellation_notify_via: (client as any).cancellation_notify_via ?? "sms",
   });
   const [saving, setSaving] = useState(false);
 
@@ -789,6 +790,24 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
             </div>
             <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 12 }}>
               Leave blank to use the tenant default. Set 0–100 % to override for this client only.
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 4 }}>
+                Notify client via
+              </label>
+              <select
+                value={form.cancellation_notify_via ?? "sms"}
+                onChange={upd("cancellation_notify_via")}
+                style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: "inherit" }}
+              >
+                <option value="sms">Text message (SMS)</option>
+                <option value="email">Email</option>
+                <option value="both">Both (SMS + Email)</option>
+                <option value="none">None — do not notify</option>
+              </select>
+              <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>
+                How to contact this client when a visit is cancelled or skipped.
+              </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
