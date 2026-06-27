@@ -243,8 +243,9 @@ export default function MessagesPage() {
     if (!reply.trim() && attachments.length === 0) return;
     if (!scheduleDate || !scheduleTime) { toast({ title: "Pick a date and time" }); return; }
     const scheduledFor = new Date(`${scheduleDate}T${scheduleTime}`);
-    if (isNaN(scheduledFor.getTime()) || scheduledFor <= new Date()) {
-      toast({ title: "Scheduled time must be in the future", variant: "destructive" as any }); return;
+    const minAllowed = new Date(Date.now() + 5 * 60_000);
+    if (isNaN(scheduledFor.getTime()) || scheduledFor < minAllowed) {
+      toast({ title: "Schedule at least 5 minutes from now", variant: "destructive" as any }); return;
     }
     if (attachments.some(a => a.uploading)) { toast({ title: "Please wait for uploads to finish" }); return; }
     setScheduling(true);
@@ -327,10 +328,24 @@ export default function MessagesPage() {
 
   const canSend = (reply.trim() || attachments.length > 0) && !attachments.some(a => a.uploading);
 
-  // Min datetime for schedule picker: now + 1 minute
-  const nowPlusMins = new Date(Date.now() + 60_000);
-  const minDate = nowPlusMins.toISOString().slice(0, 10);
-  const minTime = nowPlusMins.toTimeString().slice(0, 5);
+  // Min datetime for schedule picker: now + 5 minutes (enforced in scheduleSend too)
+  const nowPlusMins = new Date(Date.now() + 5 * 60_000);
+  const minDate = `${nowPlusMins.getFullYear()}-${String(nowPlusMins.getMonth()+1).padStart(2,"0")}-${String(nowPlusMins.getDate()).padStart(2,"0")}`;
+  const minTime = `${String(nowPlusMins.getHours()).padStart(2,"0")}:${String(nowPlusMins.getMinutes()).padStart(2,"0")}`;
+
+  function openSchedulePicker() {
+    if (!scheduleOpen) {
+      const d = new Date(Date.now() + 60 * 60_000); // default: 1 hour from now
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      const hh = String(d.getHours()).padStart(2, "0");
+      const min = String(d.getMinutes()).padStart(2, "0");
+      if (!scheduleDate) setScheduleDate(`${yyyy}-${mm}-${dd}`);
+      if (!scheduleTime) setScheduleTime(`${hh}:${min}`);
+    }
+    setScheduleOpen(o => !o);
+  }
 
   return (
     <DashboardLayout>
@@ -509,7 +524,7 @@ export default function MessagesPage() {
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                       placeholder="Type a reply…" rows={1}
                       style={{ flex: 1, resize: "none", padding: "10px 12px", border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 14, fontFamily: FF, maxHeight: 120 }} />
-                    <button onClick={() => setScheduleOpen(s => !s)} title="Schedule message"
+                    <button onClick={openSchedulePicker} title="Schedule message"
                       style={{ padding: 10, background: scheduleOpen ? "#E8FAF6" : "#F1F0EC", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 }}>
                       <Clock size={15} color={scheduleOpen ? BRAND : MUTE} />
                     </button>

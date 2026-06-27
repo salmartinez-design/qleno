@@ -3602,9 +3602,14 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 
         const handleSchedule = async () => {
           if (!smsScheduleDate || !smsScheduleTime || !canSend) return;
+          const scheduledAt = new Date(`${smsScheduleDate}T${smsScheduleTime}:00`);
+          if (scheduledAt < new Date(Date.now() + 5 * 60_000)) {
+            toast({ title: "Schedule at least 5 minutes from now", variant: "destructive" });
+            return;
+          }
           setSmsScheduling(true);
           try {
-            const scheduledFor = new Date(`${smsScheduleDate}T${smsScheduleTime}:00`).toISOString();
+            const scheduledFor = scheduledAt.toISOString();
             const mediaUrls = smsAttachments.filter(a => a.r2Key).map(a => a.r2Key as string);
             const r = await fetch(`${_API2}/api/sms/schedule`, {
               method: "POST",
@@ -3673,7 +3678,19 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid #E5E2DC", background: smsAttachments.length > 0 ? "#ECFDF5" : "#F9F8F7", color: smsAttachments.length > 0 ? "#059669" : "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                         <Paperclip size={13} /> {smsAttachments.length > 0 ? `${smsAttachments.length} photo${smsAttachments.length > 1 ? "s" : ""}` : "Attach"}
                       </button>
-                      <button onClick={() => setSmsScheduleOpen(o => !o)}
+                      <button onClick={() => {
+                          if (!smsScheduleOpen) {
+                            const d = new Date(Date.now() + 60 * 60_000);
+                            const yyyy = d.getFullYear();
+                            const mm = String(d.getMonth() + 1).padStart(2, "0");
+                            const dd = String(d.getDate()).padStart(2, "0");
+                            const hh = String(d.getHours()).padStart(2, "0");
+                            const min = String(d.getMinutes()).padStart(2, "0");
+                            if (!smsScheduleDate) setSmsScheduleDate(`${yyyy}-${mm}-${dd}`);
+                            if (!smsScheduleTime) setSmsScheduleTime(`${hh}:${min}`);
+                          }
+                          setSmsScheduleOpen(o => !o);
+                        }}
                         title="Schedule for later"
                         style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid #E5E2DC", background: smsScheduleOpen ? "#EFF6FF" : "#F9F8F7", color: smsScheduleOpen ? "#2563EB" : "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                         <Clock size={13} /> Schedule
