@@ -7128,7 +7128,38 @@ export default function JobsPage() {
             ) : mobileViewMode === "grid" ? (
               <MobileCalendarView jobs={allJobs} onJobClick={setSelectedJob} isToday={isToday} />
             ) : mobileViewMode === "team" ? (
-              <MobileTimeGrid jobs={allJobs} onJobClick={setSelectedJob} />
+              /* BY EMPLOYEE — group the focal day's jobs under each assigned tech.
+                 Unassigned floats to the top. Header shows tech, job count, total hrs. */
+              (() => {
+                const groups = new Map<string, DispatchJob[]>();
+                for (const j of allJobs) {
+                  const key = j.assigned_user_name || "Unassigned";
+                  if (!groups.has(key)) groups.set(key, []);
+                  groups.get(key)!.push(j);
+                }
+                const ordered = [...groups.entries()].sort((a, b) => {
+                  if (a[0] === "Unassigned") return -1;
+                  if (b[0] === "Unassigned") return 1;
+                  return a[0].localeCompare(b[0]);
+                });
+                return ordered.map(([name, jobs]) => {
+                  const mins = jobs.reduce((s, j) => s + (j.duration_minutes || 0), 0);
+                  const hrs = mins % 60 === 0 ? String(mins / 60) : (mins / 60).toFixed(1);
+                  const isUn = name === "Unassigned";
+                  return (
+                    <div key={name} style={{ marginBottom: 4 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 9, margin: "12px 2px 8px" }}>
+                        <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isUn ? "#9CA3AF" : techAvatarColor(name) }}>
+                          {isUn ? "?" : techInitials(name)}
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 700, color: isUn ? "#B45309" : "#1A1917", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
+                        <div style={{ fontSize: 11, color: "#9E9B94", fontWeight: 600, flexShrink: 0 }}>{jobs.length} {jobs.length !== 1 ? "jobs" : "job"} · {hrs}h</div>
+                      </div>
+                      {jobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
+                    </div>
+                  );
+                });
+              })()
             ) : (
               <>
                 {allJobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
