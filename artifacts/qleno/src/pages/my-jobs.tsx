@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
+import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { useToast } from "@/hooks/use-toast";
 import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera } from "lucide-react";
 import { Link, useLocation } from "wouter";
@@ -1049,6 +1050,16 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
 
       <PhotoGrid jobId={job.id} type="before" photos={photosBefore} onUploaded={loadPhotos} />
       <PhotoGrid jobId={job.id} type="after" photos={photosAfter} onUploaded={loadPhotos} />
+
+      {/* [team-photo-notes] Pictures + notes for the team. Tech can attach to
+          this job, or tick sticky to pin to the customer for every visit. */}
+      <div style={{ marginTop: 12 }}>
+        <TeamPhotoNotes
+          jobId={job.id}
+          jobAccountId={job.account_id ?? null}
+          jobAccountPropertyId={job.account_property_id ?? null}
+        />
+      </div>
 
       {isClockedIn && photoGate && (
         <div style={{ backgroundColor: "#FEF3C7", borderLeft: "3px solid #F59E0B", borderRadius: "0 6px 6px 0", padding: "10px 12px", marginTop: 12 }}>

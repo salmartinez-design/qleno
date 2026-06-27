@@ -15,6 +15,7 @@ export * from "./lead_report_settings";
 export * from "./clients";
 export * from "./jobs";
 export * from "./job_photos";
+export * from "./team_photo_notes";
 export * from "./timeclock";
 export * from "./invoices";
 export * from "./scorecards";

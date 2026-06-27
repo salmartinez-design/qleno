@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from "./customer-profile-tabs2";
 import { JobWizard } from "@/components/job-wizard";
+import { TeamPhotoNotes } from "@/components/team-photo-notes";
 // [job-card-redesign 2026-06-25] The SAME editable dispatch card, opened from the
 // client calendar (Maribel: "edit everything there, not just void/cancel"). Lazy
 // so jobs.tsx stays out of the profile's main chunk — loaded when a card opens.
@@ -4577,7 +4578,16 @@ function InspectionsSection() {
 
 // ─── Attachments Section ──────────────────────────────────────────────────────
 function AttachmentsSection({ clientId }: { clientId: number }) {
-  return <AttachmentsTab clientId={clientId} />;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <AttachmentsTab clientId={clientId} />
+      {/* [team-photo-notes] Sticky pictures + notes pinned to this client —
+          surface on every job so the team always has the context. */}
+      <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 20 }}>
+        <TeamPhotoNotes clientId={clientId} title="Team Photos & Notes (shown on every job for this customer)" />
+      </div>
+    </div>
+  );
 }
 
 // ─── Home Images Section ──────────────────────────────────────────────────────

@@ -266,6 +266,16 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] runCommsOptOutMigration — non-fatal:", err?.message ?? err);
   }
+  // [team-photo-notes] team_photo_notes table (pictures + notes attached to a
+  // job or made sticky to a customer/property).
+  try {
+    await withBootTimeout("runTeamPhotoNotesMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runTeamPhotoNotesMigration } = await import("./lib/team-photo-notes-migrate.js");
+      await runTeamPhotoNotesMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runTeamPhotoNotesMigration — non-fatal:", err?.message ?? err);
+  }
   // [customer-messages 2026-06-26] customer_message_schedules + job_message_sends
   // tables + ledger backfill from the legacy reminder_*_sent flags (so the new
   // engine never re-sends an already-reminded job).
