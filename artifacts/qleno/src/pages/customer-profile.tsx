@@ -1694,20 +1694,23 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ user_id: "", preference: "preferred", notes: "" });
 
-  const { data: employees } = useQuery<any[]>({
+  const { data: employeesRaw } = useQuery({
     queryKey: ["employees"],
-    queryFn: () => apiFetch("/api/users"),
+    queryFn: () => apiFetch("/api/users?limit=200"),
     staleTime: 60000,
   });
+  const employees: any[] = Array.isArray(employeesRaw) ? employeesRaw : (employeesRaw?.data || []);
 
   const createMut = useMutation({
     mutationFn: (data: any) => apiFetch(`/api/clients/${clientId}/tech-preferences`, { method: "POST", body: JSON.stringify({ ...data, user_id: parseInt(data.user_id) }) }),
-    onSuccess: () => { refetch(); setShowForm(false); },
+    onSuccess: () => { refetch(); setShowForm(false); setForm({ user_id: "", preference: "preferred", notes: "" }); },
+    onError: (err: any) => alert(err?.message || "Failed to save preference"),
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiFetch(`/api/clients/${clientId}/tech-preferences/${id}`, { method: "DELETE" }),
     onSuccess: () => refetch(),
+    onError: () => alert("Failed to remove preference"),
   });
 
   const prefStyle: Record<string, React.CSSProperties> = {
@@ -5994,20 +5997,6 @@ export default function CustomerProfilePage() {
 
           {/* Right column */}
           <div>
-            {/* Technician Preferences — surfaced on the main Client tab so the
-                office can capture who the client prefers (or doesn't want)
-                without digging into the Admin tab. Same component + API as the
-                Admin copy; edits sync via refetch. */}
-            <div style={CS}>
-              <SectionHead title="Technician Preferences" />
-              {(profile.tech_preferences || []).some((p: any) => p.preference === "do_not_schedule") && (
-                <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#92400E", marginBottom: 10 }}>
-                  Do Not Schedule preferences are enforced on the dispatch board. A warning will appear before assigning a flagged technician to this client.
-                </div>
-              )}
-              <TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} />
-            </div>
-
             {/* Invoices */}
             <div style={CS}>
               <SectionHead title="Invoices" />
