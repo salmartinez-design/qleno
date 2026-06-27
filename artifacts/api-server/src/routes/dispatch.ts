@@ -246,6 +246,14 @@ async function buildDispatchPayload(
         // customer.
         no_show_marked_by_tech: jobsTable.no_show_marked_by_tech,
         no_show_marked_by_user_id: jobsTable.no_show_marked_by_user_id,
+        // [dispatch-invoice 2026-06-27] Live invoice for this job so the panel
+        // can show "View Invoice" + status without a second fetch. Uses the
+        // most-recent non-void, non-superseded invoice (idempotent engine
+        // ensures at most one, but guard order is safest). Null on pre-cutover
+        // or uncompleted jobs that have no invoice yet.
+        invoice_id: sql<number | null>`(SELECT iv.id FROM invoices iv WHERE iv.job_id = ${jobsTable.id} AND iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') ORDER BY iv.created_at DESC LIMIT 1)`,
+        invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.job_id = ${jobsTable.id} AND iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') ORDER BY iv.created_at DESC LIMIT 1)`,
+        invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.job_id = ${jobsTable.id} AND iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') ORDER BY iv.created_at DESC LIMIT 1)`,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))

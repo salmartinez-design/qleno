@@ -599,7 +599,14 @@ export default function InvoiceDetailPage() {
               { label: "Service Date", value: invoice.service_date ? new Date(invoice.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
               { label: "Created", value: invoice.created_at ? new Date(invoice.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
               { label: "Due Date", value: invoice.due_date ? new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
-              { label: "Sent", value: invoice.sent_at ? new Date(invoice.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—" },
+              { label: "Issued", value: (() => {
+                // sent_at = the moment the email was sent to the client.
+                // For auto-finalized per-visit invoices that were never emailed,
+                // sent_at may be null even though status='sent'. Fall back to
+                // created_at so the office always sees when the invoice went live.
+                const ts = invoice.sent_at || (["sent","paid","overdue"].includes(invoice.status) ? invoice.created_at : null);
+                return ts ? new Date(ts).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+              })() },
               { label: "Paid", value: invoice.paid_at ? new Date(invoice.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—" },
               ...(invoice.refunded_amount != null ? [{ label: "Refunded", value: `$${Number(invoice.refunded_amount).toFixed(2)}${invoice.refunded_at ? " on " + new Date(invoice.refunded_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}` }] : []),
             ].map(({ label, value }) => (

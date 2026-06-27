@@ -293,6 +293,10 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
         total: total.toString(),
         due_date: dueDateStr,
         status: auto_send ? "sent" : "draft",
+        // Always stamp sent_at when the invoice is finalized 'sent' — whether
+        // by auto_send OR by an explicit status='sent' in the request body.
+        // Without this, BatchInvoiceDrawer-created invoices without auto_send
+        // ended up with status='sent' but sent_at=null, showing "Sent: —".
         sent_at: auto_send ? new Date() : null,
         created_by: req.auth!.userId,
         po_number: po_number || null,
@@ -434,6 +438,12 @@ router.get("/:id", requireAuth, async (req, res) => {
           (${clientsTable.stripe_payment_method_id} IS NOT NULL AND ${clientsTable.stripe_customer_id} IS NOT NULL)
           OR ${clientsTable.square_customer_id} IS NOT NULL
         )`,
+        // Needed for refund modal: routes Stripe API call vs offline-only notice.
+        stripe_payment_intent_id: invoicesTable.stripe_payment_intent_id,
+        payment_source: invoicesTable.payment_source,
+        refunded_amount: invoicesTable.refunded_amount,
+        refund_reason: invoicesTable.refund_reason,
+        refunded_at: invoicesTable.refunded_at,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
