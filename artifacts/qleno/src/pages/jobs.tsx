@@ -6609,18 +6609,9 @@ export default function JobsPage() {
       <DashboardLayout>
         {/* Negative margins cancel DashboardLayout's main padding so sections go edge-to-edge */}
         <div style={{ margin: "-16px -14px 0", fontFamily: FF }}>
-          {/* Header — date + new job */}
+          {/* Header — date nav */}
           <div style={{ backgroundColor: "#FFFFFF", borderBottom: "1px solid #EEECE7", padding: "12px 16px 10px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Jobs</div>
-              <button
-                onClick={() => setShowWizard(true)}
-                title=""
-                style={{ display: "flex", alignItems: "center", gap: 6, backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: 1 }}>
-                <Plus size={14} /> New Job
-                <kbd style={{ fontSize: 10, border: '1px solid rgba(255,255,255,0.45)', borderRadius: 3, padding: '1px 5px', color: 'rgba(255,255,255,0.8)', fontFamily: 'inherit' }}>⇧J</kbd>
-              </button>
-            </div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", marginBottom: 10 }}>Jobs</div>
             {/* Date navigation */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <button onClick={() => setSelectedDate(d => addDays(d, -1))} style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#6B7280" }}><ChevronLeft size={16} /></button>
