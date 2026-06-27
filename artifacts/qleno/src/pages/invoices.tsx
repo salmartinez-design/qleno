@@ -1048,6 +1048,11 @@ export default function InvoicesPage() {
                         <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF }}>
                           {effectiveStatus}
                         </span>
+                        {inv.refunded_amount != null && Number(inv.refunded_amount) > 0 && (
+                          <span style={{ marginLeft: 4, display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF, backgroundColor: "#EDE9FE", color: "#6D28D9", border: "1px solid #DDD6FE" }}>
+                            {Number(inv.refunded_amount) >= Number(inv.total) ? "REFUNDED" : `REFUNDED $${Number(inv.refunded_amount).toFixed(2)}`}
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: "13px 18px", textAlign: "right", whiteSpace: "nowrap" }} onClick={e => e.stopPropagation()}>
                         {(effectiveStatus === "sent" || effectiveStatus === "overdue") && inv.has_card_on_file && (

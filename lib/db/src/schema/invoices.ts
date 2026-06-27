@@ -63,6 +63,14 @@ export const invoicesTable = pgTable("invoices", {
   // the self-reference style used elsewhere (e.g. account_id) and avoid a
   // circular Drizzle self-ref.
   parent_invoice_id: integer("parent_invoice_id"),
+  // [refunds 2026-06-27] Partial or full refund issued against a paid invoice.
+  // refunded_amount tracks how much was returned (≤ total); null means no refund.
+  // Status stays 'paid' — money moved both directions; the net is total−refunded_amount.
+  // For Stripe invoices the refund is initiated via the Stripe API before this is set.
+  // For manual payments the refund is recorded here only (money returned offline).
+  refunded_amount: numeric("refunded_amount", { precision: 10, scale: 2 }),
+  refund_reason: text("refund_reason"),
+  refunded_at: timestamp("refunded_at"),
 });
 
 export const insertInvoiceSchema = createInsertSchema(invoicesTable).omit({ id: true, created_at: true });

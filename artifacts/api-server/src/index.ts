@@ -377,6 +377,15 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] ensureJobHistoryLiveBridgeSchema — non-fatal:", err?.message ?? err);
   }
+  // [refunds 2026-06-27] invoices.refunded_amount / refund_reason / refunded_at columns.
+  try {
+    await withBootTimeout("ensureInvoiceRefundColumns", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureInvoiceRefundColumns } = await import("./lib/invoice-refund-migrate.js");
+      await ensureInvoiceRefundColumns();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureInvoiceRefundColumns — non-fatal:", err?.message ?? err);
+  }
 }
 
 // [boot-resilience 2026-06-24] Bind the port FIRST, then run the migration

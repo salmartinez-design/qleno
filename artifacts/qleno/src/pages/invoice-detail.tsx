@@ -135,6 +135,7 @@ export default function InvoiceDetailPage() {
   const invoiceId = params?.id;
 
   const [showMarkPaid, setShowMarkPaid] = useState(false);
+  const [showRefund, setShowRefund] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [sendingInvoice, setSendingInvoice] = useState(false);
   const [charging, setCharging] = useState(false);
@@ -557,10 +558,18 @@ export default function InvoiceDetailPage() {
             </button>
           )}
           {invoice.status === "paid" && (
-            <button onClick={handleMarkUnpaid} disabled={markingUnpaid}
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              {markingUnpaid ? "Updating..." : "Mark Unpaid"}
-            </button>
+            <>
+              {(invoice.refunded_amount ?? 0) < invoice.total && (
+                <button onClick={() => setShowRefund(true)}
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#7C3AED", border: "1px solid #DDD6FE", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  Issue Refund
+                </button>
+              )}
+              <button onClick={handleMarkUnpaid} disabled={markingUnpaid}
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                {markingUnpaid ? "Updating..." : "Mark Unpaid"}
+              </button>
+            </>
           )}
           {!["paid", "void", "superseded"].includes(invoice.status) && !editing && (
             <button onClick={startEdit}
@@ -592,6 +601,7 @@ export default function InvoiceDetailPage() {
               { label: "Due Date", value: invoice.due_date ? new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
               { label: "Sent", value: invoice.sent_at ? new Date(invoice.sent_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—" },
               { label: "Paid", value: invoice.paid_at ? new Date(invoice.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—" },
+              ...(invoice.refunded_amount != null ? [{ label: "Refunded", value: `$${Number(invoice.refunded_amount).toFixed(2)}${invoice.refunded_at ? " on " + new Date(invoice.refunded_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}` }] : []),
             ].map(({ label, value }) => (
               <div key={label} style={{ padding: "8px 0", borderBottom: "1px solid #F0EDE8" }}>
                 <p style={{ margin: "0 0 2px", fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</p>
@@ -620,6 +630,104 @@ export default function InvoiceDetailPage() {
           }}
         />
       )}
+      {showRefund && (
+        <RefundModal
+          invoice={invoice}
+          onClose={() => setShowRefund(false)}
+          onSuccess={() => {
+            qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+            qc.invalidateQueries({ queryKey: ["invoices"] });
+          }}
+        />
+      )}
     </DashboardLayout>
+  );
+}
+
+// ── Refund Modal ─────────────────────────────────────────────────────────────
+function RefundModal({ invoice, onClose, onSuccess }: { invoice: any; onClose: () => void; onSuccess: () => void }) {
+  const { toast } = useToast();
+  const alreadyRefunded = Number(invoice.refunded_amount ?? 0);
+  const maxRefundable = Number(invoice.total) - alreadyRefunded;
+  const [amount, setAmount] = useState(maxRefundable.toFixed(2));
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const isStripe = !!invoice.stripe_payment_intent_id && invoice.payment_source === "stripe";
+
+  async function submit() {
+    const val = parseFloat(amount);
+    if (!val || val <= 0 || val > maxRefundable + 0.005) {
+      toast({ title: `Amount must be between $0.01 and $${maxRefundable.toFixed(2)}`, variant: "destructive" });
+      return;
+    }
+    setBusy(true);
+    try {
+      await apiFetch(`/api/invoices/${invoice.id}/refund`, {
+        method: "POST",
+        body: JSON.stringify({ amount: val, reason: reason.trim() || undefined }),
+      });
+      toast({ title: `Refund of $${val.toFixed(2)} issued` });
+      onSuccess();
+      onClose();
+    } catch (e: any) {
+      toast({ title: e?.message || "Refund failed", variant: "destructive" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.4)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, padding: 28, width: 380, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", fontFamily: FF }}>
+        <h3 style={{ margin: "0 0 6px", fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Issue Refund</h3>
+        <p style={{ margin: "0 0 20px", fontSize: 13, color: "#6B6963" }}>
+          Invoice total: <strong>${Number(invoice.total).toFixed(2)}</strong>
+          {alreadyRefunded > 0 && <> · Already refunded: <strong>${alreadyRefunded.toFixed(2)}</strong></>}
+          {" "}· Max refundable: <strong>${maxRefundable.toFixed(2)}</strong>
+        </p>
+        {isStripe && (
+          <div style={{ marginBottom: 14, padding: "8px 12px", backgroundColor: "#EEF2FF", border: "1px solid #C7D2FE", borderRadius: 6, fontSize: 12, color: "#3730A3" }}>
+            Stripe payment — funds will be returned to the card on file.
+          </div>
+        )}
+        {!isStripe && (
+          <div style={{ marginBottom: 14, padding: "8px 12px", backgroundColor: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 6, fontSize: 12, color: "#78350F" }}>
+            Manual / offline payment — refund is recorded here only. Return the money via check or cash directly.
+          </div>
+        )}
+        <label style={{ display: "block", marginBottom: 14 }}>
+          <span style={{ display: "block", marginBottom: 4, fontSize: 12, fontWeight: 600, color: "#1A1917" }}>Refund Amount</span>
+          <div style={{ display: "flex", alignItems: "center", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+            <span style={{ padding: "9px 12px", backgroundColor: "#F7F6F3", fontSize: 14, fontWeight: 700, color: "#6B6963", borderRight: "1px solid #E5E2DC" }}>$</span>
+            <input
+              type="number"
+              min="0.01"
+              max={maxRefundable.toFixed(2)}
+              step="0.01"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              style={{ flex: 1, padding: "9px 12px", border: "none", outline: "none", fontSize: 14, fontWeight: 600, fontFamily: FF }}
+            />
+            <button onClick={() => setAmount(maxRefundable.toFixed(2))} style={{ padding: "9px 12px", border: "none", backgroundColor: "transparent", color: "#7C3AED", fontSize: 12, fontWeight: 700, cursor: "pointer", borderLeft: "1px solid #E5E2DC" }}>Full</button>
+          </div>
+        </label>
+        <label style={{ display: "block", marginBottom: 20 }}>
+          <span style={{ display: "block", marginBottom: 4, fontSize: 12, fontWeight: 600, color: "#1A1917" }}>Reason (optional)</span>
+          <input
+            type="text"
+            placeholder="e.g. Customer dissatisfied, partial service…"
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, boxSizing: "border-box" }}
+          />
+        </label>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+          <button onClick={onClose} disabled={busy} style={{ padding: "9px 18px", border: "1px solid #E5E2DC", backgroundColor: "transparent", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+          <button onClick={submit} disabled={busy} style={{ padding: "9px 18px", border: "none", backgroundColor: "#7C3AED", color: "#FFFFFF", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+            {busy ? "Processing..." : `Refund $${(parseFloat(amount) || 0).toFixed(2)}`}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
