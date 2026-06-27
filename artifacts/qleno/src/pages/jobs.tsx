@@ -7109,9 +7109,9 @@ export default function JobsPage() {
                 <div style={{ fontSize: 12, color: "#9E9B94" }}>Tap "+ New Job" to schedule one</div>
               </div>
             ) : mobileViewMode === "grid" ? (
-              <MobileTimeGrid jobs={allJobs} onJobClick={setSelectedJob} />
-            ) : mobileViewMode === "team" ? (
               <MobileCalendarView jobs={allJobs} onJobClick={setSelectedJob} isToday={isToday} />
+            ) : mobileViewMode === "team" ? (
+              <MobileTimeGrid jobs={allJobs} onJobClick={setSelectedJob} />
             ) : (
               <>
                 {allJobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
