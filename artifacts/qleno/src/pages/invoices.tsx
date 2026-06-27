@@ -206,6 +206,8 @@ function NewInvoiceModal({ onClose, onDone }: { onClose: () => void; onDone: () 
 // list view — so office records check / ACH / Zelle / cash without opening each
 // invoice. Posts { method } to /mark-paid (amount + date default server-side).
 const PAY_METHODS: { value: string; label: string }[] = [
+  { value: "square", label: "Square (card on file)" },
+  { value: "stripe", label: "Stripe (online card)" },
   { value: "check", label: "Check" },
   { value: "ach", label: "ACH / Bank transfer" },
   { value: "zelle", label: "Zelle" },
