@@ -19,7 +19,7 @@ interface Convo {
 interface Msg {
   id: number; direction: string; body: string; from_number: string | null;
   to_number: string | null; status: string; read_at: string | null; created_at: string;
-  media_urls?: string[] | null;
+  media_urls?: string[] | null; sent_by_name?: string | null;
 }
 interface ScheduledMsg {
   id: number; message: string; media_urls?: string[] | null;
@@ -33,7 +33,11 @@ function fmtPhone(p: string) {
 }
 function fmtTime(s: string) {
   if (!s) return "";
-  const d = new Date(s);
+  // Normalize to UTC: replace space separator and append Z if no timezone marker
+  const iso = s.includes("T") ? s : s.replace(" ", "T");
+  const withTZ = /Z$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + "Z";
+  const d = new Date(withTZ);
+  if (isNaN(d.getTime())) return s;
   const today = new Date();
   const sameDay = d.toDateString() === today.toDateString();
   return sameDay
@@ -124,6 +128,16 @@ export default function MessagesPage() {
     try {
       const r = await fetch(`${API}/api/sms/thread?phone=${encodeURIComponent(c.contact_phone)}`, { headers: getAuthHeaders() });
       if (r.ok) { const d = await r.json(); setThread(d.messages || []); }
+    } catch { /* silent */ }
+  }, []);
+
+  const markRead = useCallback(async (c: Convo) => {
+    try {
+      await fetch(`${API}/api/sms/mark-read`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: c.contact_phone }),
+      });
       setConvos(cs => cs.map(x => x.contact_phone === c.contact_phone ? { ...x, unread: 0 } : x));
     } catch { /* silent */ }
   }, []);
@@ -418,6 +432,12 @@ export default function MessagesPage() {
                       )}
                       <div style={{ fontSize: 12, color: MUTE }}>{fmtPhone(active.contact_phone)}{active.client_id ? " · Client" : active.lead_id ? " · Lead" : ""}</div>
                     </div>
+                    {active.unread > 0 && (
+                      <button onClick={() => markRead(active)}
+                        style={{ padding: "6px 12px", background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: INK, cursor: "pointer", fontFamily: FF, flexShrink: 0 }}>
+                        Mark as read
+                      </button>
+                    )}
                   </div>
 
                   {/* Thread messages */}
@@ -448,7 +468,10 @@ export default function MessagesPage() {
                       const inbound = m.direction === "inbound";
                       const mediaKeys = Array.isArray(m.media_urls) ? m.media_urls : [];
                       return (
-                        <div key={m.id} style={{ display: "flex", justifyContent: inbound ? "flex-start" : "flex-end" }}>
+                        <div key={m.id} style={{ display: "flex", flexDirection: "column", alignItems: inbound ? "flex-start" : "flex-end" }}>
+                          {!inbound && m.sent_by_name && (
+                            <div style={{ fontSize: 10, color: MUTE, fontWeight: 600, marginBottom: 2, paddingRight: 4 }}>{m.sent_by_name}</div>
+                          )}
                           <div style={{ maxWidth: "75%", padding: "9px 12px", borderRadius: 12, background: inbound ? "#F1F0EC" : BRAND, color: inbound ? INK : "#04241d",
                             borderBottomLeftRadius: inbound ? 3 : 12, borderBottomRightRadius: inbound ? 12 : 3 }}>
                             {m.body && (

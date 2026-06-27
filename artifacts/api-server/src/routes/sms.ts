@@ -57,7 +57,8 @@ router.get("/conversations", requireAuth, requireRole("owner", "admin", "office"
   }
 });
 
-// ── GET /api/sms/thread?phone=|client_id=|lead_id= — full thread, marks read ───
+// ── GET /api/sms/thread?phone=|client_id=|lead_id= — full thread ───────────────
+// Does NOT mark messages read — staff must do that manually via POST /mark-read.
 router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
@@ -65,12 +66,24 @@ router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), asyn
     const clientId = req.query.client_id ? parseInt(String(req.query.client_id)) : null;
     const leadId = req.query.lead_id ? parseInt(String(req.query.lead_id)) : null;
     const messages = await getThread(companyId, { clientId, leadId, phone });
-    // Mark inbound read for the thread's contact phone.
     const cp = phone10(phone || (messages[0] as any)?.contact_phone || "");
-    if (cp) await markThreadRead(companyId, cp);
     return res.json({ contact_phone: cp, messages });
   } catch (err) {
     console.error("GET /sms/thread:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/sms/mark-read — manually mark a thread's inbound messages read ──
+router.post("/mark-read", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const phone = String(req.body?.phone ?? "");
+    if (!phone) return res.status(400).json({ error: "phone required" });
+    await markThreadRead(companyId, phone);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("POST /sms/mark-read:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

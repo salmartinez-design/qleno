@@ -113,17 +113,20 @@ export async function recordOutboundSms(args: {
 }
 
 // Read a contact's SMS thread (chronological) by client_id, lead_id, or phone.
+// Returns sent_by_name so the UI can show which team member sent each outbound message.
 export async function getThread(companyId: number, key: { clientId?: number | null; leadId?: number | null; phone?: string | null }) {
   let where;
-  if (key.clientId != null) where = sql`client_id = ${key.clientId}`;
-  else if (key.leadId != null) where = sql`lead_id = ${key.leadId}`;
-  else where = sql`contact_phone = ${phone10(key.phone)}`;
+  if (key.clientId != null) where = sql`m.client_id = ${key.clientId}`;
+  else if (key.leadId != null) where = sql`m.lead_id = ${key.leadId}`;
+  else where = sql`m.contact_phone = ${phone10(key.phone)}`;
   const r = await db.execute(sql`
-    SELECT id, direction, body, from_number, to_number, status, read_at, created_at,
-           contact_phone, client_id, lead_id, media_urls
-      FROM sms_messages
-     WHERE company_id = ${companyId} AND ${where}
-     ORDER BY created_at ASC`);
+    SELECT m.id, m.direction, m.body, m.from_number, m.to_number, m.status, m.read_at, m.created_at,
+           m.contact_phone, m.client_id, m.lead_id, m.media_urls, m.sent_by,
+           NULLIF(trim(u.first_name || ' ' || coalesce(u.last_name, '')), '') AS sent_by_name
+      FROM sms_messages m
+      LEFT JOIN users u ON u.id = m.sent_by
+     WHERE m.company_id = ${companyId} AND ${where}
+     ORDER BY m.created_at ASC`);
   return r.rows;
 }
 
