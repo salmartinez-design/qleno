@@ -133,6 +133,76 @@ export async function runCutoverDataMigration(): Promise<void> {
       err,
     );
   }
+  try {
+    await ensureClockSequenceMileageFallback();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] clock_sequence mileage fallback schema failed (non-fatal):",
+      err,
+    );
+  }
+}
+
+/**
+ * Clock-sequence mileage fallback — adds the schema pieces that let
+ * the mileage engine derive legs from consecutive clock-in/out pairs
+ * when a tech didn't tap "On My Way".
+ *
+ * Three idempotent changes:
+ *   1. Create `mileage_leg_source` enum ('on_my_way' | 'clock_sequence').
+ *   2. Add `leg_source` column to mileage_legs (default 'on_my_way' so
+ *      all existing rows are unchanged).
+ *   3. Drop NOT NULL on source_on_my_way_event_id so clock_sequence
+ *      rows can leave it NULL.
+ *   4. Create partial unique index for clock_sequence legs
+ *      (company_id, user_id, from_job_id, to_job_id) — prevents
+ *      duplicate synthetic legs on recompute without touching the
+ *      existing OMW unique index.
+ */
+async function ensureClockSequenceMileageFallback(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      -- 1. Enum type
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'mileage_leg_source') THEN
+        CREATE TYPE mileage_leg_source AS ENUM ('on_my_way', 'clock_sequence');
+      END IF;
+
+      -- 2. leg_source column
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'mileage_legs' AND column_name = 'leg_source'
+      ) THEN
+        ALTER TABLE mileage_legs
+          ADD COLUMN leg_source mileage_leg_source NOT NULL DEFAULT 'on_my_way';
+      END IF;
+
+      -- 3. Drop NOT NULL on source_on_my_way_event_id (idempotent)
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'mileage_legs'
+          AND column_name = 'source_on_my_way_event_id'
+          AND is_nullable = 'NO'
+      ) THEN
+        ALTER TABLE mileage_legs
+          ALTER COLUMN source_on_my_way_event_id DROP NOT NULL;
+      END IF;
+
+      -- 4. Partial unique index for clock_sequence deduplication
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes WHERE indexname = 'mileage_legs_clock_seq_uq'
+      ) THEN
+        CREATE UNIQUE INDEX mileage_legs_clock_seq_uq
+          ON mileage_legs (company_id, user_id, from_job_id, to_job_id)
+          WHERE leg_source = 'clock_sequence';
+      END IF;
+
+      RAISE NOTICE 'cutover-migration: clock_sequence mileage fallback installed';
+    END
+    $$;
+    `),
+  );
 }
 
 /**

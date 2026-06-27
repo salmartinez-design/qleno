@@ -49,6 +49,14 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+
+// Discriminates how a mileage leg was sourced: from an explicit
+// "On My Way" tap, or inferred from consecutive clock-in/out pairs
+// when the tech didn't use On My Way.
+export const mileageLegSourceEnum = pgEnum("mileage_leg_source", [
+  "on_my_way",
+  "clock_sequence",
+]);
 import { companiesTable } from "./companies";
 import { usersTable } from "./users";
 import { jobsTable } from "./jobs";
@@ -115,12 +123,13 @@ export const mileageLegsTable = pgTable(
     user_id: integer("user_id")
       .notNull()
       .references(() => usersTable.id),
-    // Idempotency key. Partial unique index installed by
-    // cutover-data-migration: prevents a recompute from creating two
-    // rows for the same OMW event.
+    // Idempotency key for OMW-sourced legs. NULL for clock_sequence
+    // legs (those are deduplicated by mileage_legs_clock_seq_uq).
     source_on_my_way_event_id: integer("source_on_my_way_event_id")
-      .notNull()
       .references(() => onMyWayEventsTable.id),
+    // How this leg was derived: explicit OMW tap vs clock-sequence
+    // fallback (tech clocked in+out at consecutive jobs, no OMW fired).
+    leg_source: mileageLegSourceEnum("leg_source").notNull().default("on_my_way"),
     from_job_id: integer("from_job_id")
       .notNull()
       .references(() => jobsTable.id),

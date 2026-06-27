@@ -16,7 +16,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2, MoreVertical,
-  Languages, Pencil,
+  Languages, Pencil, Paperclip, Image,
 } from "lucide-react";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS, mutedFill } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
@@ -1509,6 +1509,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [smsMessage, setSmsMessage] = useState("");
   const [smsBusy, setSmsBusy] = useState(false);
   const [smsTwilioOk, setSmsTwilioOk] = useState<boolean | null>(null);
+  const [smsAttachments, setSmsAttachments] = useState<{ file: File; objectUrl: string; r2Key?: string; uploading: boolean }[]>([]);
+  const [smsScheduleOpen, setSmsScheduleOpen] = useState(false);
+  const [smsScheduleDate, setSmsScheduleDate] = useState("");
+  const [smsScheduleTime, setSmsScheduleTime] = useState("");
+  const [smsScheduling, setSmsScheduling] = useState(false);
+  const smsFileInputRef = useRef<HTMLInputElement | null>(null);
   // [AG] Edit modal state — triggered by the Edit button in the drawer footer.
   const [editOpen, setEditOpen] = useState(false);
 
@@ -3535,17 +3541,46 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         );
       })()}
 
-      {/* SMS Compose Sheet */}
+      {/* SMS Compose Sheet — supports MMS attachments + scheduled sends */}
       {smsOpen && (() => {
         const CHIPS = ["On my way", "Running 15 minutes late", "Outside your home", "Job complete — thank you"];
+        const canSend = (smsMessage.trim() || smsAttachments.length > 0) && !smsBusy && !smsScheduling && smsAttachments.every(a => !a.uploading);
+        const pendingUploads = smsAttachments.some(a => a.uploading);
+
+        const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+          const files = Array.from(e.target.files || []);
+          if (!files.length) return;
+          e.target.value = "";
+          const newAttachments = files.map(f => ({ file: f, objectUrl: URL.createObjectURL(f), uploading: true }));
+          setSmsAttachments(prev => [...prev, ...newAttachments]);
+          for (const att of newAttachments) {
+            try {
+              const form = new FormData();
+              form.append("file", att.file);
+              const r = await fetch(`${_API2}/api/sms/upload-media`, { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: form });
+              const d = await r.json();
+              if (r.ok && d.key) {
+                setSmsAttachments(prev => prev.map(a => a.objectUrl === att.objectUrl ? { ...a, r2Key: d.key, uploading: false } : a));
+              } else {
+                setSmsAttachments(prev => prev.filter(a => a.objectUrl !== att.objectUrl));
+                toast({ title: "Upload failed", description: d.message || "Could not upload image", variant: "destructive" });
+              }
+            } catch {
+              setSmsAttachments(prev => prev.filter(a => a.objectUrl !== att.objectUrl));
+              toast({ title: "Upload error", description: "Network error uploading image", variant: "destructive" });
+            }
+          }
+        };
+
         const handleSend = async () => {
-          if (!smsMessage.trim() || smsBusy) return;
+          if (!canSend) return;
           setSmsBusy(true);
           try {
-            const r = await fetch(`${_API2}/api/communications/sms`, {
+            const mediaUrls = smsAttachments.filter(a => a.r2Key).map(a => a.r2Key as string);
+            const r = await fetch(`${_API2}/api/sms/send`, {
               method: "POST",
               headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ customer_id: job.client_id, job_id: job.id, message: smsMessage.trim() }),
+              body: JSON.stringify({ contact_phone: job.client_phone, client_id: job.client_id, job_id: job.id, message: smsMessage.trim(), media_urls: mediaUrls }),
             });
             const d = await r.json();
             if (!r.ok) {
@@ -3556,7 +3591,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               }
             } else {
               toast({ title: "Message sent" });
-              setSmsOpen(false);
+              setSmsOpen(false); setSmsMessage(""); setSmsAttachments([]); setSmsScheduleOpen(false);
             }
           } catch {
             toast({ title: "Network error", description: "Could not send message", variant: "destructive" });
@@ -3564,14 +3599,42 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             setSmsBusy(false);
           }
         };
+
+        const handleSchedule = async () => {
+          if (!smsScheduleDate || !smsScheduleTime || !canSend) return;
+          setSmsScheduling(true);
+          try {
+            const scheduledFor = new Date(`${smsScheduleDate}T${smsScheduleTime}:00`).toISOString();
+            const mediaUrls = smsAttachments.filter(a => a.r2Key).map(a => a.r2Key as string);
+            const r = await fetch(`${_API2}/api/sms/schedule`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ contact_phone: job.client_phone, client_id: job.client_id, job_id: job.id, message: smsMessage.trim(), media_urls: mediaUrls, scheduled_for: scheduledFor }),
+            });
+            const d = await r.json();
+            if (!r.ok) {
+              toast({ title: "Schedule failed", description: d.message || "Could not schedule message", variant: "destructive" });
+            } else {
+              toast({ title: "Message scheduled" });
+              setSmsOpen(false); setSmsMessage(""); setSmsAttachments([]); setSmsScheduleOpen(false); setSmsScheduleDate(""); setSmsScheduleTime("");
+            }
+          } catch {
+            toast({ title: "Network error", description: "Could not schedule message", variant: "destructive" });
+          } finally {
+            setSmsScheduling(false);
+          }
+        };
+
         return (
           <>
-            <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 399 }} onClick={() => !smsBusy && setSmsOpen(false)} />
-            <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 400, backgroundColor: "#FFFFFF", borderRadius: "20px 20px 0 0", boxShadow: "0 -8px 40px rgba(0,0,0,0.18)", fontFamily: FF, maxHeight: "85vh", display: "flex", flexDirection: "column" }}>
+            <input ref={smsFileInputRef} type="file" accept="image/*,video/mp4" multiple
+              style={{ display: "none" }} onChange={handleFileSelect} />
+            <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 399 }} onClick={() => !smsBusy && !smsScheduling && setSmsOpen(false)} />
+            <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 400, backgroundColor: "#FFFFFF", borderRadius: "20px 20px 0 0", boxShadow: "0 -8px 40px rgba(0,0,0,0.18)", fontFamily: FF, maxHeight: "88vh", display: "flex", flexDirection: "column" }}>
               <div style={{ width: 40, height: 4, backgroundColor: "#E5E2DC", borderRadius: 2, margin: "12px auto 0", flexShrink: 0 }} />
               <div style={{ padding: "16px 20px 14px", borderBottom: "1px solid #EEECE7", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
                 <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Send SMS</span>
-                <button onClick={() => setSmsOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={18} /></button>
+                <button onClick={() => { setSmsOpen(false); setSmsAttachments([]); setSmsScheduleOpen(false); }} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={18} /></button>
               </div>
               <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
                 {smsTwilioOk === false && (
@@ -3596,21 +3659,78 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     ))}
                   </div>
                 </div>
-                <div style={{ marginBottom: 16 }}>
+                <div style={{ marginBottom: 10 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>Message</span>
                   <textarea value={smsMessage} onChange={e => setSmsMessage(e.target.value)}
                     placeholder="Type a message..."
-                    rows={4}
-                    style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 10, fontSize: 14, fontFamily: FF, resize: "vertical", outline: "none", boxSizing: "border-box", color: "#1A1917", lineHeight: 1.5 }} />
-                  <p style={{ margin: "4px 0 0", fontSize: 11, color: "#9E9B94", textAlign: "right" }}>{smsMessage.length}/160</p>
+                    rows={3}
+                    style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 10, fontSize: 14, fontFamily: FF, resize: "none", outline: "none", boxSizing: "border-box", color: "#1A1917", lineHeight: 1.5 }} />
+                  {/* Toolbar: attach + schedule */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 8 }}>
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={() => smsFileInputRef.current?.click()}
+                        title="Attach photo"
+                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid #E5E2DC", background: smsAttachments.length > 0 ? "#ECFDF5" : "#F9F8F7", color: smsAttachments.length > 0 ? "#059669" : "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        <Paperclip size={13} /> {smsAttachments.length > 0 ? `${smsAttachments.length} photo${smsAttachments.length > 1 ? "s" : ""}` : "Attach"}
+                      </button>
+                      <button onClick={() => setSmsScheduleOpen(o => !o)}
+                        title="Schedule for later"
+                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid #E5E2DC", background: smsScheduleOpen ? "#EFF6FF" : "#F9F8F7", color: smsScheduleOpen ? "#2563EB" : "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        <Clock size={13} /> Schedule
+                      </button>
+                    </div>
+                    <p style={{ margin: 0, fontSize: 11, color: "#9E9B94" }}>{smsMessage.length}/160</p>
+                  </div>
                 </div>
+                {/* Attachment previews */}
+                {smsAttachments.length > 0 && (
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                    {smsAttachments.map((a, i) => (
+                      <div key={a.objectUrl} style={{ position: "relative", width: 72, height: 72, borderRadius: 8, overflow: "hidden", border: "1px solid #E5E2DC", flexShrink: 0 }}>
+                        <img src={a.objectUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: a.uploading ? 0.5 : 1 }} />
+                        {a.uploading && (
+                          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.6)" }}>
+                            <div style={{ width: 16, height: 16, border: "2px solid #E5E2DC", borderTopColor: "#059669", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
+                          </div>
+                        )}
+                        {!a.uploading && (
+                          <button onClick={() => { URL.revokeObjectURL(a.objectUrl); setSmsAttachments(prev => prev.filter((_, j) => j !== i)); }}
+                            style={{ position: "absolute", top: 2, right: 2, width: 18, height: 18, borderRadius: "50%", border: "none", background: "rgba(0,0,0,0.55)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", padding: 0 }}>
+                            <X size={10} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {/* Schedule picker */}
+                {smsScheduleOpen && (
+                  <div style={{ marginBottom: 12, padding: "12px 14px", background: "#F0F4FF", border: "1px solid #BFDBFE", borderRadius: 10 }}>
+                    <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 700, color: "#1E40AF" }}>Schedule for later</p>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input type="date" value={smsScheduleDate} onChange={e => setSmsScheduleDate(e.target.value)}
+                        min={new Date().toISOString().slice(0, 10)}
+                        style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #BFDBFE", fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#fff", outline: "none" }} />
+                      <input type="time" value={smsScheduleTime} onChange={e => setSmsScheduleTime(e.target.value)}
+                        style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #BFDBFE", fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#fff", outline: "none" }} />
+                    </div>
+                  </div>
+                )}
               </div>
-              <div style={{ padding: "12px 20px 28px", borderTop: "1px solid #EEECE7", flexShrink: 0 }}>
-                <button onClick={handleSend} disabled={smsBusy || !smsMessage.trim()}
-                  style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", backgroundColor: smsMessage.trim() && !smsBusy ? "#059669" : "#E5E2DC", color: smsMessage.trim() && !smsBusy ? "#FFFFFF" : "#9E9B94", fontSize: 15, fontWeight: 700, cursor: smsMessage.trim() && !smsBusy ? "pointer" : "not-allowed", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "background 0.15s" }}>
-                  <Send size={16} />
-                  {smsBusy ? "Sending..." : "Send Message"}
-                </button>
+              <div style={{ padding: "12px 20px 28px", borderTop: "1px solid #EEECE7", flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                {smsScheduleOpen ? (
+                  <button onClick={handleSchedule} disabled={!smsScheduleDate || !smsScheduleTime || !canSend || smsScheduling || pendingUploads}
+                    style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", backgroundColor: smsScheduleDate && smsScheduleTime && canSend && !pendingUploads ? "#2563EB" : "#E5E2DC", color: smsScheduleDate && smsScheduleTime && canSend && !pendingUploads ? "#FFFFFF" : "#9E9B94", fontSize: 15, fontWeight: 700, cursor: smsScheduleDate && smsScheduleTime && canSend && !pendingUploads ? "pointer" : "not-allowed", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    <Clock size={16} />
+                    {smsScheduling ? "Scheduling..." : "Schedule Message"}
+                  </button>
+                ) : (
+                  <button onClick={handleSend} disabled={!canSend || pendingUploads}
+                    style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", backgroundColor: canSend && !pendingUploads ? "#059669" : "#E5E2DC", color: canSend && !pendingUploads ? "#FFFFFF" : "#9E9B94", fontSize: 15, fontWeight: 700, cursor: canSend && !pendingUploads ? "pointer" : "not-allowed", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "background 0.15s" }}>
+                    <Send size={16} />
+                    {smsBusy ? "Sending..." : pendingUploads ? "Uploading..." : "Send Message"}
+                  </button>
+                )}
               </div>
             </div>
           </>
@@ -4099,6 +4219,146 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
           )}
         </div>
         <span style={{ fontSize: 11, color: "#9E9B94" }}>Tap to view &rarr;</span>
+      </div>
+    </div>
+  );
+}
+
+// ─── MOBILE CALENDAR VIEW ─────────────────────────────────────────────────────
+// HCP-style per-tech column calendar. Columns = techs (horizontally scrollable),
+// rows = time (vertical). Zone color drives each job block background — the
+// critical invariant the user called out. Rich content scales with block height.
+function MobileCalendarView({ jobs, onJobClick, isToday }: {
+  jobs: DispatchJob[]; onJobClick: (j: DispatchJob) => void; isToday: boolean;
+}) {
+  const PX_PER_MIN = 1.15;
+  const CAL_COL_W = 140;
+  const TIME_W = 44;
+  const HEADER_H = 54;
+
+  const timed = jobs.filter(j => timeToMins(j.scheduled_time) > 0);
+  const minStart = timed.length ? Math.min(...timed.map(j => timeToMins(j.scheduled_time))) : 8 * 60;
+  const maxEnd = timed.length ? Math.max(...timed.map(j => timeToMins(j.scheduled_time) + Math.max(j.duration_minutes || 0, 30))) : 18 * 60;
+  const startHour = Math.max(5, Math.min(8, Math.floor(minStart / 60)));
+  const endHour = Math.min(24, Math.max(18, Math.ceil(maxEnd / 60)));
+  const dayStart = startHour * 60;
+  const gridH = (endHour - startHour) * 60 * PX_PER_MIN;
+  const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => startHour + i);
+
+  // Group by tech, unassigned first
+  const techMap = new Map<string, DispatchJob[]>();
+  for (const j of jobs) {
+    const key = j.assigned_user_name || "Unassigned";
+    if (!techMap.has(key)) techMap.set(key, []);
+    techMap.get(key)!.push(j);
+  }
+  const techs = [...techMap.entries()].sort(([a], [b]) => {
+    if (a === "Unassigned") return -1;
+    if (b === "Unassigned") return 1;
+    return a.localeCompare(b);
+  }).map(([name, techJobs]) => ({ name, jobs: techJobs }));
+
+  const now = isToday ? new Date() : null;
+  const nowY = now ? ((now.getHours() * 60 + now.getMinutes() - dayStart) * PX_PER_MIN) : -1;
+
+  function fmtHourLabel(h: number) {
+    if (h === 0 || h === 24) return "12a";
+    if (h === 12) return "12p";
+    return h < 12 ? `${h}a` : `${h - 12}p`;
+  }
+
+  return (
+    <div style={{ overflowX: "auto", fontFamily: FF }}>
+      <div style={{ display: "flex", minWidth: TIME_W + techs.length * CAL_COL_W }}>
+        {/* Sticky time-label column */}
+        <div style={{ width: TIME_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, backgroundColor: "#F7F6F3", borderRight: "1px solid #E5E2DC" }}>
+          <div style={{ height: HEADER_H, borderBottom: "1px solid #E5E2DC" }} />
+          <div style={{ position: "relative", height: gridH }}>
+            {hours.map(h => (
+              <div key={h} style={{ position: "absolute", top: (h * 60 - dayStart) * PX_PER_MIN - 7, right: 6, textAlign: "right" }}>
+                <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 600 }}>{fmtHourLabel(h)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Per-tech columns */}
+        {techs.map((tech, ti) => {
+          const isUn = tech.name === "Unassigned";
+          const dur = (j: DispatchJob) => Math.max(j.duration_minutes || 0, 30);
+          return (
+            <div key={tech.name} style={{ width: CAL_COL_W, flexShrink: 0, borderLeft: "1px solid #E5E2DC" }}>
+              {/* Column header */}
+              <div style={{ height: HEADER_H, borderBottom: "1px solid #E5E2DC", padding: "8px 10px", display: "flex", alignItems: "center", gap: 8, backgroundColor: "#FFFFFF", position: "sticky", top: 0, zIndex: 5 }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, backgroundColor: isUn ? "#9CA3AF" : techAvatarColor(tech.name), color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800 }}>
+                  {isUn ? "?" : techInitials(tech.name)}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: isUn ? "#B45309" : "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tech.name}</div>
+                  <div style={{ fontSize: 9, color: "#9E9B94", fontWeight: 600 }}>{tech.jobs.length} job{tech.jobs.length !== 1 ? "s" : ""}</div>
+                </div>
+              </div>
+
+              {/* Time grid + job blocks */}
+              <div style={{ position: "relative", height: gridH, backgroundColor: ti % 2 === 0 ? "#FAFAF9" : "#F7F6F3" }}>
+                {/* Hour grid lines */}
+                {hours.map(h => (
+                  <div key={h} style={{ position: "absolute", top: (h * 60 - dayStart) * PX_PER_MIN, left: 0, right: 0, borderTop: "1px solid #EEECE7" }}>
+                    <div style={{ position: "absolute", top: 30 * PX_PER_MIN, left: 0, right: 0, borderTop: "1px dotted #E9E7E2" }} />
+                  </div>
+                ))}
+                {/* Now line */}
+                {nowY >= 0 && nowY <= gridH && (
+                  <div style={{ position: "absolute", top: nowY, left: 0, right: 0, height: 2, backgroundColor: "#EF4444", zIndex: 4, pointerEvents: "none" }} />
+                )}
+                {/* Job blocks — zone color is the required invariant */}
+                {tech.jobs.filter(j => timeToMins(j.scheduled_time) > 0).map(j => {
+                  const top = (timeToMins(j.scheduled_time) - dayStart) * PX_PER_MIN;
+                  const height = Math.max(dur(j) * PX_PER_MIN, 32);
+                  const bgColor = j.zone_color || "#9CA3AF";
+                  const onDark = (zoneLuminance(bgColor) / 255) < 0.62;
+                  const ink = onDark ? "#FFFFFF" : "#0A0E1A";
+                  const muted = onDark ? "rgba(255,255,255,0.72)" : "rgba(10,14,26,0.55)";
+                  const sMin = timeToMins(j.scheduled_time);
+                  const eMin = sMin + (j.duration_minutes || 0);
+                  const sh = Math.floor(sMin / 60); const sm = sMin % 60;
+                  const eh = Math.floor(eMin / 60) % 24; const em = eMin % 60;
+                  const timeStr = `${sh % 12 || 12}:${String(sm).padStart(2, "0")}${sh >= 12 ? "p" : "a"}–${eh % 12 || 12}:${String(em).padStart(2, "0")}${eh >= 12 ? "p" : "a"}`;
+                  const visual = STATUS_VISUALS[getJobVisualStatus(j)];
+                  return (
+                    <button key={j.id} onClick={() => onJobClick(j)} style={{
+                      position: "absolute", top: top + 2, left: 4, right: 4,
+                      height: height - 4, minHeight: 28,
+                      backgroundColor: bgColor, borderRadius: 8,
+                      padding: height < 38 ? "2px 6px" : "6px 8px",
+                      overflow: "hidden", cursor: "pointer", border: "none",
+                      textAlign: "left", zIndex: 2, fontFamily: FF,
+                      opacity: visual.bodyOpacity,
+                      filter: visual.desaturate ? "grayscale(1)" : "none",
+                      boxShadow: visual.stripe ? `0 0 0 2px ${visual.stripe}` : undefined,
+                      display: "flex", flexDirection: "column", gap: 1,
+                    }}>
+                      <div style={{ fontSize: height < 38 ? 9.5 : 11.5, fontWeight: 700, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2, textDecoration: visual.strikethrough ? "line-through" : "none" }}>
+                        {j.display_name ?? j.client_name}
+                      </div>
+                      {height >= 44 && (
+                        <div style={{ fontSize: 9.5, color: muted, lineHeight: 1.2, whiteSpace: "nowrap" }}>{timeStr}</div>
+                      )}
+                      {height >= 80 && j.address && (
+                        <div style={{ fontSize: 9.5, color: muted, lineHeight: 1.25, overflow: "hidden", maxHeight: 30 }}>{j.address}</div>
+                      )}
+                      {height >= 110 && (
+                        <div style={{ fontSize: 9.5, color: muted, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: "auto" }}>
+                          {[j.service_type ? fmtSvc(j.service_type) : "", j.amount ? `$${j.amount.toFixed(0)}` : ""].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -6609,18 +6869,9 @@ export default function JobsPage() {
       <DashboardLayout>
         {/* Negative margins cancel DashboardLayout's main padding so sections go edge-to-edge */}
         <div style={{ margin: "-16px -14px 0", fontFamily: FF }}>
-          {/* Header — date + new job */}
+          {/* Header — date nav */}
           <div style={{ backgroundColor: "#FFFFFF", borderBottom: "1px solid #EEECE7", padding: "12px 16px 10px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Jobs</div>
-              <button
-                onClick={() => setShowWizard(true)}
-                title=""
-                style={{ display: "flex", alignItems: "center", gap: 6, backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: 1 }}>
-                <Plus size={14} /> New Job
-                <kbd style={{ fontSize: 10, border: '1px solid rgba(255,255,255,0.45)', borderRadius: 3, padding: '1px 5px', color: 'rgba(255,255,255,0.8)', fontFamily: 'inherit' }}>⇧J</kbd>
-              </button>
-            </div>
+            <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", marginBottom: 10 }}>Jobs</div>
             {/* Date navigation */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <button onClick={() => setSelectedDate(d => addDays(d, -1))} style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#6B7280" }}><ChevronLeft size={16} /></button>
@@ -6860,40 +7111,7 @@ export default function JobsPage() {
             ) : mobileViewMode === "grid" ? (
               <MobileTimeGrid jobs={allJobs} onJobClick={setSelectedJob} />
             ) : mobileViewMode === "team" ? (
-              /* [schedule-views] BY EMPLOYEE — group the focal day's jobs under
-                 each assigned tech (Unassigned floats to the top so nothing
-                 hides). Header shows the tech, their job count, and total job
-                 hours. Cards keep their zone color so they still match desktop. */
-              (() => {
-                const groups = new Map<string, DispatchJob[]>();
-                for (const j of allJobs) {
-                  const key = j.assigned_user_name || "Unassigned";
-                  if (!groups.has(key)) groups.set(key, []);
-                  groups.get(key)!.push(j);
-                }
-                const ordered = [...groups.entries()].sort((a, b) => {
-                  if (a[0] === "Unassigned") return -1;
-                  if (b[0] === "Unassigned") return 1;
-                  return a[0].localeCompare(b[0]);
-                });
-                return ordered.map(([name, jobs]) => {
-                  const mins = jobs.reduce((s, j) => s + (j.duration_minutes || 0), 0);
-                  const hrs = mins % 60 === 0 ? String(mins / 60) : (mins / 60).toFixed(1);
-                  const isUn = name === "Unassigned";
-                  return (
-                    <div key={name} style={{ marginBottom: 4 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 9, margin: "12px 2px 8px" }}>
-                        <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isUn ? "#9CA3AF" : techAvatarColor(name) }}>
-                          {isUn ? "?" : techInitials(name)}
-                        </div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: isUn ? "#B45309" : "#1A1917", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
-                        <div style={{ fontSize: 11, color: "#9E9B94", fontWeight: 600, flexShrink: 0 }}>{jobs.length} {jobs.length !== 1 ? "jobs" : "job"} · {hrs}h</div>
-                      </div>
-                      {jobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
-                    </div>
-                  );
-                });
-              })()
+              <MobileCalendarView jobs={allJobs} onJobClick={setSelectedJob} isToday={isToday} />
             ) : (
               <>
                 {allJobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}

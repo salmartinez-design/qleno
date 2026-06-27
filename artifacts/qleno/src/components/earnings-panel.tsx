@@ -150,8 +150,8 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
       {/* Total rewards tracker — this week / this month / year-to-date */}
       {roll && (
         <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 12, padding: "14px 16px" }}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-            <p style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em", margin: 0 }}>Your total rewards</p>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+            <p style={{ fontSize: 12, fontWeight: 800, color: "#1A1917", margin: 0 }}>Your total rewards</p>
             {runningRate != null && (
               <span style={{ fontSize: 12, color: "#0A6E5A", fontWeight: 700 }}>Running average: ${runningRate.toFixed(2)}/hr</span>
             )}
@@ -240,13 +240,13 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
 
 function SummaryCard({ icon, label, value, accent, strong, sub }: { icon: React.ReactNode; label: string; value: string; accent?: boolean; strong?: boolean; sub?: string }) {
   return (
-    <div style={{ background: "#fff", border: `1px solid ${accent ? "#99E6D5" : "#E5E2DC"}`, borderRadius: 12, padding: "12px 14px" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, color: accent ? "var(--brand, #00C9A0)" : "#6B7280", marginBottom: 6 }}>
+    <div style={{ background: "#fff", border: `1px solid ${accent ? "#99E6D5" : "#E5E2DC"}`, borderRadius: 12, padding: "14px 10px", textAlign: "center" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, color: accent ? "var(--brand, #00C9A0)" : "#6B7280", marginBottom: 8 }}>
         {icon}
         <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
       </div>
-      <p style={{ fontSize: strong ? 22 : 20, fontWeight: 700, color: "#1A1917", margin: 0, lineHeight: 1 }}>{value}</p>
-      {sub && <p style={{ fontSize: 11, fontWeight: 600, color: "#0A6E5A", margin: "4px 0 0", lineHeight: 1 }}>{sub}</p>}
+      <p style={{ fontSize: strong ? 22 : 20, fontWeight: 800, color: "#1A1917", margin: 0, lineHeight: 1 }}>{value}</p>
+      {sub && <p style={{ fontSize: 11, fontWeight: 600, color: "#0A6E5A", margin: "5px 0 0", lineHeight: 1 }}>{sub}</p>}
     </div>
   );
 }

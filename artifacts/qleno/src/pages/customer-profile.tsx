@@ -5674,7 +5674,6 @@ export default function CustomerProfilePage() {
 
   const isMobile = useIsMobile();
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
-  const [showMessageDrawer, setShowMessageDrawer] = useState(false);
   const [showEditProfileDrawer, setShowEditProfileDrawer] = useState(false);
   const [showAlarmCode, setShowAlarmCode] = useState(false);
   const [activeTab, setActiveTab] = useState<ProfileTab>("client");
@@ -5819,7 +5818,7 @@ export default function CustomerProfilePage() {
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", flexShrink: 0 }}>
           <button onClick={() => setShowJobWizard(true)} style={{ padding: "7px 13px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Schedule Job</button>
           <button onClick={() => navigate(`/quotes/new?client_id=${clientId}`)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Quote</button>
-          <button onClick={() => setShowMessageDrawer(true)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Message</button>
+          <button onClick={() => profile.phone && navigate(`/messages?phone=${encodeURIComponent(profile.phone)}&clientId=${clientId}`)} disabled={!profile.phone} title={!profile.phone ? "No phone on file" : undefined} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: profile.phone ? "#1A1917" : "#9E9B94", fontSize: 13, fontWeight: 500, cursor: profile.phone ? "pointer" : "not-allowed", fontFamily: FF }}>Message</button>
           <button onClick={() => setShowEditProfileDrawer(true)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Edit</button>
         </div>
       </div>
@@ -6258,7 +6257,6 @@ export default function CustomerProfilePage() {
     return (
       <DashboardLayout fullBleed>
         {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
-        {showMessageDrawer && <SendMessageDrawer client={profile} onClose={() => setShowMessageDrawer(false)} onToast={showToast} />}
         {showEditProfileDrawer && <EditProfileDrawer client={profile} onClose={() => setShowEditProfileDrawer(false)} onSave={updateMut.mutateAsync} onToast={showToast} />}
         <JobWizard
           open={showJobWizard}
@@ -6316,7 +6314,7 @@ export default function CustomerProfilePage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 12 }}>
               <button onClick={() => setShowJobWizard(true)} style={{ padding: "9px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Schedule Job</button>
               <button onClick={() => navigate(`/quotes/new?client_id=${clientId}`)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Quote</button>
-              <button onClick={() => setShowMessageDrawer(true)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Message</button>
+              <button onClick={() => profile.phone && navigate(`/messages?phone=${encodeURIComponent(profile.phone)}&clientId=${clientId}`)} disabled={!profile.phone} title={!profile.phone ? "No phone on file" : undefined} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: profile.phone ? "#1A1917" : "#9E9B94", fontSize: 12, fontWeight: 600, cursor: profile.phone ? "pointer" : "not-allowed", fontFamily: FF, minHeight: 40 }}>Message</button>
               <button onClick={() => setShowEditProfileDrawer(true)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Edit</button>
             </div>
             {/* Mobile tab bar */}
@@ -6428,7 +6426,6 @@ export default function CustomerProfilePage() {
   return (
     <DashboardLayout fullBleed>
       {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
-      {showMessageDrawer && <SendMessageDrawer client={profile} onClose={() => setShowMessageDrawer(false)} onToast={showToast} />}
       {showEditProfileDrawer && <EditProfileDrawer client={profile} onClose={() => setShowEditProfileDrawer(false)} onSave={updateMut.mutateAsync} onToast={showToast} />}
       <JobWizard
         open={showJobWizard}

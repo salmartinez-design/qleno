@@ -37,6 +37,7 @@ import {
   onMyWayEventsTable,
   mileageRatesTable,
   mileageLegsTable,
+  timeclockTable,
 } from "@workspace/db/schema";
 import {
   detectCarpoolCandidates,
@@ -64,6 +65,8 @@ import {
 } from "../lib/pay-export.js";
 import {
   computeMileageForLegs,
+  roundMiles,
+  computeAmountCents,
   type JobCoords,
   type MileageLegInput,
   type DateToCalendarDay,
@@ -289,7 +292,180 @@ async function recomputeMileageForPeriod(
     if (result.length > 0) inserted += 1;
   }
 
-  return { legs_considered: legs.length, inserted, skipped };
+  // Build a set of (userId|fromJobId|toJobId) pairs covered by OMW
+  // so the clock-sequence fallback can skip them.
+  const omwPairs = new Set<string>();
+  for (const outcome of outcomes) {
+    if (outcome.kind === "eligible") {
+      omwPairs.add(`${outcome.spec.user_id}|${outcome.spec.from_job_id}|${outcome.spec.to_job_id}`);
+    }
+  }
+
+  const seqResult = await recomputeClockSequenceLegsForPeriod(
+    companyId, periodId, startDate, endDate, provider, toCalendarDay, rateForDate, omwPairs,
+  );
+
+  return {
+    legs_considered: legs.length,
+    inserted: inserted + seqResult.inserted,
+    skipped: { ...skipped, ...Object.fromEntries(Object.entries(seqResult.skipped).map(([k, v]) => [`seq_${k}`, v])) },
+    clock_seq: seqResult,
+  };
+}
+
+const METERS_PER_MILE_PAY = 1609.344;
+
+/**
+ * Fallback mileage engine — clock-sequence path.
+ *
+ * When a tech clocks in and out at consecutive jobs without tapping
+ * "On My Way", this function derives the client-to-client leg from
+ * the clock sequence. It runs AFTER the OMW path so it naturally
+ * defers to any OMW leg for the same pair (covered by `omwPairs`).
+ *
+ * Bookend exclusion is structural: the first job of the day has no
+ * "from" predecessor in the clock list (home→first-job is excluded
+ * by data shape, not code). The last-job→home leg similarly has no
+ * subsequent clock-in, so it never appears.
+ *
+ * Each leg is idempotent via the partial unique index
+ * `mileage_legs_clock_seq_uq (company_id, user_id, from_job_id, to_job_id)
+ * WHERE leg_source = 'clock_sequence'`.
+ */
+async function recomputeClockSequenceLegsForPeriod(
+  companyId: number,
+  periodId: number,
+  startDate: string,
+  endDate: string,
+  provider: DistanceProvider,
+  toCalendarDay: DateToCalendarDay,
+  rateForDate: (date: string) => number | null,
+  omwPairs: Set<string>,
+): Promise<{ inserted: number; skipped: Record<string, number> }> {
+  const skipped: Record<string, number> = {};
+  let inserted = 0;
+
+  const periodStartTs = new Date(`${startDate}T00:00:00Z`);
+  const periodEndTs = new Date(`${endDate}T23:59:59.999Z`);
+
+  // Only "punched" (real) clock entries with both in and out filled.
+  // Estimated synthetic entries (stamped by /complete) are excluded
+  // since they don't represent actual travel.
+  const clockRows = await db
+    .select({
+      id: timeclockTable.id,
+      job_id: timeclockTable.job_id,
+      user_id: timeclockTable.user_id,
+      clock_in_at: timeclockTable.clock_in_at,
+      clock_out_at: timeclockTable.clock_out_at,
+    })
+    .from(timeclockTable)
+    .where(
+      and(
+        eq(timeclockTable.company_id, companyId),
+        eq(timeclockTable.source, "punched"),
+        isNotNull(timeclockTable.clock_out_at),
+        gte(timeclockTable.clock_in_at, periodStartTs),
+        lte(timeclockTable.clock_in_at, periodEndTs),
+      ),
+    );
+
+  if (clockRows.length < 2) return { inserted, skipped };
+
+  // Group by (user_id, calendar_day), sort each group by clock_in_at.
+  type ClockRow = (typeof clockRows)[number];
+  const groups = new Map<string, ClockRow[]>();
+  for (const row of clockRows) {
+    if (!row.clock_out_at) continue;
+    const key = `${row.user_id}|${toCalendarDay(row.clock_in_at)}`;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key)!.push(row);
+  }
+  for (const group of groups.values()) {
+    group.sort((a, b) => a.clock_in_at.getTime() - b.clock_in_at.getTime());
+  }
+
+  // Collect all job IDs needed for coord lookup.
+  const jobIds = new Set<number>();
+  for (const group of groups.values()) {
+    for (const r of group) jobIds.add(r.job_id);
+  }
+  if (jobIds.size === 0) return { inserted, skipped };
+
+  const coordRows = await db
+    .select({ job_id: jobsTable.id, lat: clientsTable.lat, lng: clientsTable.lng })
+    .from(jobsTable)
+    .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
+    .where(and(eq(jobsTable.company_id, companyId), inArray(jobsTable.id, Array.from(jobIds))));
+  const coordsByJobId = new Map<number, JobCoords>();
+  for (const r of coordRows) {
+    if (r.lat != null && r.lng != null) {
+      coordsByJobId.set(r.job_id, { lat: Number(r.lat), lng: Number(r.lng) });
+    }
+  }
+
+  // Process each (user, day) group — consecutive pairs only.
+  for (const group of groups.values()) {
+    for (let i = 1; i < group.length; i++) {
+      const from = group[i - 1];
+      const to = group[i];
+      const fromJobId = from.job_id;
+      const toJobId = to.job_id;
+      const userId = from.user_id;
+
+      if (fromJobId === toJobId) {
+        skipped.same_job = (skipped.same_job ?? 0) + 1;
+        continue;
+      }
+      // OMW already covered this pair — trust the more-precise signal.
+      if (omwPairs.has(`${userId}|${fromJobId}|${toJobId}`)) {
+        skipped.covered_by_omw = (skipped.covered_by_omw ?? 0) + 1;
+        continue;
+      }
+
+      const legDate = toCalendarDay(from.clock_in_at);
+      const rate = rateForDate(legDate);
+      if (rate == null) { skipped.no_rate = (skipped.no_rate ?? 0) + 1; continue; }
+
+      const fromCoords = coordsByJobId.get(fromJobId);
+      const toCoords = coordsByJobId.get(toJobId);
+      if (!fromCoords) { skipped.no_from_coords = (skipped.no_from_coords ?? 0) + 1; continue; }
+      if (!toCoords) { skipped.no_to_coords = (skipped.no_to_coords ?? 0) + 1; continue; }
+
+      const measurement = await provider.measureLeg(fromCoords.lat, fromCoords.lng, toCoords.lat, toCoords.lng);
+      if (!measurement) { skipped.provider_null = (skipped.provider_null ?? 0) + 1; continue; }
+
+      const miles = roundMiles(measurement.meters / METERS_PER_MILE_PAY);
+      const amountCents = computeAmountCents(miles, rate);
+
+      const result = await db
+        .insert(mileageLegsTable)
+        .values({
+          company_id: companyId,
+          pay_period_id: periodId,
+          user_id: userId,
+          source_on_my_way_event_id: null,
+          leg_source: "clock_sequence",
+          from_job_id: fromJobId,
+          to_job_id: toJobId,
+          leg_date: legDate,
+          miles: miles.toFixed(2),
+          minutes: measurement.minutes,
+          rate_per_mile: rate.toFixed(4),
+          amount: centsToDollarString(amountCents),
+          measurement_source: measurement.source,
+          measurement_is_estimated: measurement.is_estimated,
+          status: "computed",
+        } as any) // leg_source added by migration; Drizzle schema now includes it
+        .onConflictDoNothing()
+        .returning({ id: mileageLegsTable.id });
+
+      if (result.length > 0) inserted += 1;
+      else skipped.conflict = (skipped.conflict ?? 0) + 1;
+    }
+  }
+
+  return { inserted, skipped };
 }
 
 /** Internal: compute + write the per-user summaries for a period. */

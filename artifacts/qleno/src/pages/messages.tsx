@@ -136,6 +136,26 @@ export default function MessagesPage() {
   }, []);
 
   useEffect(() => { loadConvos(); }, [loadConvos]);
+
+  // Auto-open a thread when navigating from the client profile (?phone=&clientId=)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const phone = params.get("phone");
+    const clientIdParam = params.get("clientId");
+    if (!phone) return;
+    const p10 = phone.replace(/\D/g, "").slice(-10);
+    if (!p10) return;
+    const synth: Convo = {
+      contact_phone: p10, last_at: "", last_body: "", last_dir: "outbound",
+      unread: 0, client_id: clientIdParam ? parseInt(clientIdParam, 10) : null, lead_id: null, name: null,
+    };
+    setActive(synth);
+    loadThread(synth);
+    loadScheduled(synth);
+    window.history.replaceState({}, "", window.location.pathname);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const authToken = useAuthStore(s => s.token);
   useEffect(() => {
     setActive(null); setThread([]); setScheduled([]); setReply(""); setAttachments([]);
