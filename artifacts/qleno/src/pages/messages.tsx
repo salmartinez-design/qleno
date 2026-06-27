@@ -521,17 +521,19 @@ export default function MessagesPage() {
                       <Paperclip size={15} color={MUTE} />
                     </button>
                     <textarea value={reply} onChange={e => setReply(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-                      placeholder="Type a reply…" rows={1}
-                      style={{ flex: 1, resize: "none", padding: "10px 12px", border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 14, fontFamily: FF, maxHeight: 120 }} />
+                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !scheduleOpen) { e.preventDefault(); send(); } }}
+                      placeholder={scheduleOpen ? "Type message to schedule…" : "Type a reply…"} rows={1}
+                      style={{ flex: 1, resize: "none", padding: "10px 12px", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, fontSize: 14, fontFamily: FF, maxHeight: 120 }} />
                     <button onClick={openSchedulePicker} title="Schedule message"
                       style={{ padding: 10, background: scheduleOpen ? "#E8FAF6" : "#F1F0EC", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 }}>
                       <Clock size={15} color={scheduleOpen ? BRAND : MUTE} />
                     </button>
-                    <button onClick={send} disabled={!canSend || sending}
-                      style={{ padding: "0 16px", background: BRAND, color: "#04241d", border: "none", borderRadius: 10, fontWeight: 800, cursor: canSend && !sending ? "pointer" : "default", opacity: canSend && !sending ? 1 : 0.5, display: "flex", alignItems: "center", gap: 6, height: 44, flexShrink: 0 }}>
-                      <Send size={15} /> {sending ? "…" : "Send"}
-                    </button>
+                    {!scheduleOpen && (
+                      <button onClick={send} disabled={!canSend || sending}
+                        style={{ padding: "0 16px", background: BRAND, color: "#04241d", border: "none", borderRadius: 10, fontWeight: 800, cursor: canSend && !sending ? "pointer" : "default", opacity: canSend && !sending ? 1 : 0.5, display: "flex", alignItems: "center", gap: 6, height: 44, flexShrink: 0 }}>
+                        <Send size={15} /> {sending ? "…" : "Send"}
+                      </button>
+                    )}
                   </div>
                 </>
               )}
