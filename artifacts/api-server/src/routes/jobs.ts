@@ -5290,9 +5290,17 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
     newBilled = base + modsTotal;
   }
 
+  // For residential hourly jobs (hourly_rate set, not commercial), keep billed_hours
+  // in sync with billed_amount so the invoice line item shows the right qty×rate.
+  // Commercial jobs drive hours via allowed_hours (adjustAllowedHours); skip them.
+  const updateFields: Record<string, unknown> = { billed_amount: newBilled.toFixed(2) };
+  if (!isCommercial && rate > 0) {
+    updateFields.billed_hours = (newBilled / rate).toFixed(2);
+  }
+
   await db
     .update(jobsTable)
-    .set({ billed_amount: newBilled.toFixed(2) })
+    .set(updateFields as any)
     .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
   return newBilled;
 }
@@ -5446,6 +5454,7 @@ router.delete("/:id/rate-mods/:modId", requireAuth, async (req, res) => {
     const newBilled = await recomputeJobBilledAmount(jobId, companyId);
     const newAllowedHours = mod.mod_type === "time" && mod.minutes
       ? await adjustAllowedHours(jobId, companyId, -Number(mod.minutes)) : null;
+    syncJobInvoiceDraft(jobId, companyId).catch(e => console.error("[rate-mod-delete] invoice draft sync non-fatal:", e));
     logAudit(req, "DELETE", "job_rate_mod", modId, null, null);
     return res.json({ success: true, billed_amount: newBilled.toFixed(2), allowed_hours: newAllowedHours });
   } catch (err) {
