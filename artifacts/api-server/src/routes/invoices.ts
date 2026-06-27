@@ -119,7 +119,8 @@ router.get("/", requireAuth, async (req, res) => {
       const idMatch = digits ? sql` OR ${invoicesTable.id} = ${parseInt(digits, 10)}` : sql``;
       conditions.push(sql`(
         ${invoicesTable.invoice_number} ILIKE ${like}
-        OR concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name}) ILIKE ${like}${idMatch}
+        OR concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name}) ILIKE ${like}
+        OR (SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id}) ILIKE ${like}${idMatch}
       )`);
     }
 
@@ -127,7 +128,8 @@ router.get("/", requireAuth, async (req, res) => {
       .select({
         id: invoicesTable.id,
         client_id: invoicesTable.client_id,
-        client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
+        client_name: sql<string>`COALESCE(NULLIF(concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name}), ' '), (SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id}), 'Unknown')`,
+        account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
         client_email: clientsTable.email,
         job_id: invoicesTable.job_id,
         invoice_number: invoicesTable.invoice_number,
