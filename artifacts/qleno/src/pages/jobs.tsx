@@ -4104,6 +4104,146 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
   );
 }
 
+// ─── MOBILE CALENDAR VIEW ─────────────────────────────────────────────────────
+// HCP-style per-tech column calendar. Columns = techs (horizontally scrollable),
+// rows = time (vertical). Zone color drives each job block background — the
+// critical invariant the user called out. Rich content scales with block height.
+function MobileCalendarView({ jobs, onJobClick, isToday }: {
+  jobs: DispatchJob[]; onJobClick: (j: DispatchJob) => void; isToday: boolean;
+}) {
+  const PX_PER_MIN = 1.15;
+  const CAL_COL_W = 140;
+  const TIME_W = 44;
+  const HEADER_H = 54;
+
+  const timed = jobs.filter(j => timeToMins(j.scheduled_time) > 0);
+  const minStart = timed.length ? Math.min(...timed.map(j => timeToMins(j.scheduled_time))) : 8 * 60;
+  const maxEnd = timed.length ? Math.max(...timed.map(j => timeToMins(j.scheduled_time) + Math.max(j.duration_minutes || 0, 30))) : 18 * 60;
+  const startHour = Math.max(5, Math.min(8, Math.floor(minStart / 60)));
+  const endHour = Math.min(24, Math.max(18, Math.ceil(maxEnd / 60)));
+  const dayStart = startHour * 60;
+  const gridH = (endHour - startHour) * 60 * PX_PER_MIN;
+  const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => startHour + i);
+
+  // Group by tech, unassigned first
+  const techMap = new Map<string, DispatchJob[]>();
+  for (const j of jobs) {
+    const key = j.assigned_user_name || "Unassigned";
+    if (!techMap.has(key)) techMap.set(key, []);
+    techMap.get(key)!.push(j);
+  }
+  const techs = [...techMap.entries()].sort(([a], [b]) => {
+    if (a === "Unassigned") return -1;
+    if (b === "Unassigned") return 1;
+    return a.localeCompare(b);
+  }).map(([name, techJobs]) => ({ name, jobs: techJobs }));
+
+  const now = isToday ? new Date() : null;
+  const nowY = now ? ((now.getHours() * 60 + now.getMinutes() - dayStart) * PX_PER_MIN) : -1;
+
+  function fmtHourLabel(h: number) {
+    if (h === 0 || h === 24) return "12a";
+    if (h === 12) return "12p";
+    return h < 12 ? `${h}a` : `${h - 12}p`;
+  }
+
+  return (
+    <div style={{ overflowX: "auto", fontFamily: FF }}>
+      <div style={{ display: "flex", minWidth: TIME_W + techs.length * CAL_COL_W }}>
+        {/* Sticky time-label column */}
+        <div style={{ width: TIME_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, backgroundColor: "#F7F6F3", borderRight: "1px solid #E5E2DC" }}>
+          <div style={{ height: HEADER_H, borderBottom: "1px solid #E5E2DC" }} />
+          <div style={{ position: "relative", height: gridH }}>
+            {hours.map(h => (
+              <div key={h} style={{ position: "absolute", top: (h * 60 - dayStart) * PX_PER_MIN - 7, right: 6, textAlign: "right" }}>
+                <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 600 }}>{fmtHourLabel(h)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Per-tech columns */}
+        {techs.map((tech, ti) => {
+          const isUn = tech.name === "Unassigned";
+          const dur = (j: DispatchJob) => Math.max(j.duration_minutes || 0, 30);
+          return (
+            <div key={tech.name} style={{ width: CAL_COL_W, flexShrink: 0, borderLeft: "1px solid #E5E2DC" }}>
+              {/* Column header */}
+              <div style={{ height: HEADER_H, borderBottom: "1px solid #E5E2DC", padding: "8px 10px", display: "flex", alignItems: "center", gap: 8, backgroundColor: "#FFFFFF", position: "sticky", top: 0, zIndex: 5 }}>
+                <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, backgroundColor: isUn ? "#9CA3AF" : techAvatarColor(tech.name), color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800 }}>
+                  {isUn ? "?" : techInitials(tech.name)}
+                </div>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: isUn ? "#B45309" : "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tech.name}</div>
+                  <div style={{ fontSize: 9, color: "#9E9B94", fontWeight: 600 }}>{tech.jobs.length} job{tech.jobs.length !== 1 ? "s" : ""}</div>
+                </div>
+              </div>
+
+              {/* Time grid + job blocks */}
+              <div style={{ position: "relative", height: gridH, backgroundColor: ti % 2 === 0 ? "#FAFAF9" : "#F7F6F3" }}>
+                {/* Hour grid lines */}
+                {hours.map(h => (
+                  <div key={h} style={{ position: "absolute", top: (h * 60 - dayStart) * PX_PER_MIN, left: 0, right: 0, borderTop: "1px solid #EEECE7" }}>
+                    <div style={{ position: "absolute", top: 30 * PX_PER_MIN, left: 0, right: 0, borderTop: "1px dotted #E9E7E2" }} />
+                  </div>
+                ))}
+                {/* Now line */}
+                {nowY >= 0 && nowY <= gridH && (
+                  <div style={{ position: "absolute", top: nowY, left: 0, right: 0, height: 2, backgroundColor: "#EF4444", zIndex: 4, pointerEvents: "none" }} />
+                )}
+                {/* Job blocks — zone color is the required invariant */}
+                {tech.jobs.filter(j => timeToMins(j.scheduled_time) > 0).map(j => {
+                  const top = (timeToMins(j.scheduled_time) - dayStart) * PX_PER_MIN;
+                  const height = Math.max(dur(j) * PX_PER_MIN, 32);
+                  const bgColor = j.zone_color || "#9CA3AF";
+                  const onDark = (zoneLuminance(bgColor) / 255) < 0.62;
+                  const ink = onDark ? "#FFFFFF" : "#0A0E1A";
+                  const muted = onDark ? "rgba(255,255,255,0.72)" : "rgba(10,14,26,0.55)";
+                  const sMin = timeToMins(j.scheduled_time);
+                  const eMin = sMin + (j.duration_minutes || 0);
+                  const sh = Math.floor(sMin / 60); const sm = sMin % 60;
+                  const eh = Math.floor(eMin / 60) % 24; const em = eMin % 60;
+                  const timeStr = `${sh % 12 || 12}:${String(sm).padStart(2, "0")}${sh >= 12 ? "p" : "a"}–${eh % 12 || 12}:${String(em).padStart(2, "0")}${eh >= 12 ? "p" : "a"}`;
+                  const visual = STATUS_VISUALS[getJobVisualStatus(j)];
+                  return (
+                    <button key={j.id} onClick={() => onJobClick(j)} style={{
+                      position: "absolute", top: top + 2, left: 4, right: 4,
+                      height: height - 4, minHeight: 28,
+                      backgroundColor: bgColor, borderRadius: 8,
+                      padding: height < 38 ? "2px 6px" : "6px 8px",
+                      overflow: "hidden", cursor: "pointer", border: "none",
+                      textAlign: "left", zIndex: 2, fontFamily: FF,
+                      opacity: visual.bodyOpacity,
+                      filter: visual.desaturate ? "grayscale(1)" : "none",
+                      boxShadow: visual.stripe ? `0 0 0 2px ${visual.stripe}` : undefined,
+                      display: "flex", flexDirection: "column", gap: 1,
+                    }}>
+                      <div style={{ fontSize: height < 38 ? 9.5 : 11.5, fontWeight: 700, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2, textDecoration: visual.strikethrough ? "line-through" : "none" }}>
+                        {j.display_name ?? j.client_name}
+                      </div>
+                      {height >= 44 && (
+                        <div style={{ fontSize: 9.5, color: muted, lineHeight: 1.2, whiteSpace: "nowrap" }}>{timeStr}</div>
+                      )}
+                      {height >= 80 && j.address && (
+                        <div style={{ fontSize: 9.5, color: muted, lineHeight: 1.25, overflow: "hidden", maxHeight: 30 }}>{j.address}</div>
+                      )}
+                      {height >= 110 && (
+                        <div style={{ fontSize: 9.5, color: muted, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: "auto" }}>
+                          {[j.service_type ? fmtSvc(j.service_type) : "", j.amount ? `$${j.amount.toFixed(0)}` : ""].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // [schedule-views 2026-06-05] MOBILE TIME-GRID (HCP-style). Renders the focal
 // day's jobs on an hour grid: vertical position = start time, height =
 // duration, concurrent jobs packed into PARALLEL COLUMNS. Column packing is
@@ -6851,40 +6991,7 @@ export default function JobsPage() {
             ) : mobileViewMode === "grid" ? (
               <MobileTimeGrid jobs={allJobs} onJobClick={setSelectedJob} />
             ) : mobileViewMode === "team" ? (
-              /* [schedule-views] BY EMPLOYEE — group the focal day's jobs under
-                 each assigned tech (Unassigned floats to the top so nothing
-                 hides). Header shows the tech, their job count, and total job
-                 hours. Cards keep their zone color so they still match desktop. */
-              (() => {
-                const groups = new Map<string, DispatchJob[]>();
-                for (const j of allJobs) {
-                  const key = j.assigned_user_name || "Unassigned";
-                  if (!groups.has(key)) groups.set(key, []);
-                  groups.get(key)!.push(j);
-                }
-                const ordered = [...groups.entries()].sort((a, b) => {
-                  if (a[0] === "Unassigned") return -1;
-                  if (b[0] === "Unassigned") return 1;
-                  return a[0].localeCompare(b[0]);
-                });
-                return ordered.map(([name, jobs]) => {
-                  const mins = jobs.reduce((s, j) => s + (j.duration_minutes || 0), 0);
-                  const hrs = mins % 60 === 0 ? String(mins / 60) : (mins / 60).toFixed(1);
-                  const isUn = name === "Unassigned";
-                  return (
-                    <div key={name} style={{ marginBottom: 4 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 9, margin: "12px 2px 8px" }}>
-                        <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isUn ? "#9CA3AF" : techAvatarColor(name) }}>
-                          {isUn ? "?" : techInitials(name)}
-                        </div>
-                        <div style={{ fontSize: 14, fontWeight: 700, color: isUn ? "#B45309" : "#1A1917", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
-                        <div style={{ fontSize: 11, color: "#9E9B94", fontWeight: 600, flexShrink: 0 }}>{jobs.length} {jobs.length !== 1 ? "jobs" : "job"} · {hrs}h</div>
-                      </div>
-                      {jobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
-                    </div>
-                  );
-                });
-              })()
+              <MobileCalendarView jobs={allJobs} onJobClick={setSelectedJob} isToday={isToday} />
             ) : (
               <>
                 {allJobs.map(j => <MobileJobCard key={j.id} job={j} onClick={() => setSelectedJob(j)} />)}
