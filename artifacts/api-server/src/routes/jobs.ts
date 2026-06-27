@@ -1371,6 +1371,13 @@ router.put("/:id", requireAuth, async (req, res) => {
 
     logAudit(req, "UPDATE", "job", jobId, null, updated[0]);
 
+    // Sync draft invoice due_date when PUT reschedule shifts the job date.
+    if (scheduled_date !== undefined) {
+      syncJobInvoiceDraft(jobId, req.auth!.companyId!, {
+        newDate: String(scheduled_date),
+      }).catch(e => console.error("[PUT invoice-sync] non-fatal:", e));
+    }
+
     // [push 2026-06-03] Schedule-change push to the assigned tech. Strictly
     // gated on a date/time change so office-notes / status-only saves don't
     // fire it. Fire-and-forget; no-op unless COMMS_ENABLED + a device exists.
@@ -5002,6 +5009,9 @@ router.post("/v2/bulk", requireAuth, async (req, res) => {
     switch (action) {
       case "mark_complete": {
         await db.execute(sql`UPDATE jobs SET status = 'complete' WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        // Fire invoice creation for every newly-completed job (idempotent — skips if invoice exists).
+        Promise.allSettled(idList.map(id => ensureInvoiceForCompletedJob(companyId, id, req.auth!.userId ?? null)))
+          .catch(e => console.error("[bulk mark_complete] invoice creation non-fatal:", e));
         return res.json({ success: true, affected: idList.length });
       }
       case "mark_paid": {
@@ -5011,6 +5021,9 @@ router.post("/v2/bulk", requireAuth, async (req, res) => {
       case "cancel": {
         const reason = String(payload?.reason || "cancelled").slice(0, 200);
         await db.execute(sql`UPDATE jobs SET status = 'cancelled', notes = COALESCE(notes, '') || ${` [Cancelled: ${reason}]`} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        // Void any draft invoices tied to these now-cancelled jobs.
+        Promise.allSettled(idList.map(id => syncJobInvoiceDraft(id, companyId, { cancel: true })))
+          .catch(e => console.error("[bulk cancel] invoice void non-fatal:", e));
         return res.json({ success: true, affected: idList.length });
       }
       case "reassign": {
@@ -5028,6 +5041,9 @@ router.post("/v2/bulk", requireAuth, async (req, res) => {
         } else {
           await db.execute(sql`UPDATE jobs SET scheduled_date = ${date} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
         }
+        // Shift due_date on any draft invoices for these rescheduled jobs.
+        Promise.allSettled(idList.map(id => syncJobInvoiceDraft(id, companyId, { newDate: date })))
+          .catch(e => console.error("[bulk reschedule] invoice sync non-fatal:", e));
         return res.json({ success: true, affected: idList.length });
       }
       case "flag": {
