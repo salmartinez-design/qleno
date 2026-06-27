@@ -3,6 +3,10 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { phone10, recordOutboundSms, getThread, markThreadRead, matchContact } from "../lib/sms-store.js";
+import multer from "multer";
+import crypto from "node:crypto";
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const router = Router();
 
@@ -71,19 +75,16 @@ router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), asyn
   }
 });
 
-// ── POST /api/sms/send — reply / send in thread ────────────────────────────────
-// Resolves the recipient (explicit phone, or a client/lead's number), sends via
-// the tenant's own number (resolveSender — full comms-gate ladder), persists the
-// outbound into sms_messages, and marks the thread read. Respects the gate: when
-// suppressed, nothing is sent and the row is logged with status='suppressed'.
+// ── POST /api/sms/send — reply / send in thread (supports MMS via media_urls) ──
 router.post("/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const { message } = req.body || {};
+    const { message, media_urls } = req.body || {};
     let { contact_phone, client_id, lead_id } = req.body || {};
-    if (!message || typeof message !== "string") return res.status(400).json({ error: "message required" });
+    const bodyText = typeof message === "string" ? message : "";
+    const mediaKeys: string[] = Array.isArray(media_urls) ? media_urls.filter(Boolean) : [];
+    if (!bodyText && mediaKeys.length === 0) return res.status(400).json({ error: "message or media required" });
 
-    // Resolve recipient phone from client/lead if not given explicitly.
     let toPhone: string | null = contact_phone || null;
     if (!toPhone && client_id) {
       const r = await db.execute(sql`SELECT phone FROM clients WHERE id = ${client_id} AND company_id = ${companyId} LIMIT 1`);
@@ -95,10 +96,21 @@ router.post("/send", requireAuth, requireRole("owner", "admin", "office"), async
     }
     if (!toPhone) return res.status(400).json({ error: "No recipient phone" });
 
-    // Link to a contact if not provided (so the message threads correctly).
     if (client_id == null && lead_id == null) {
       const m = await matchContact(companyId, toPhone);
       client_id = m.client_id; lead_id = m.lead_id;
+    }
+
+    // For MMS, generate a short-lived signed URL for each media key so Twilio
+    // can fetch the object. Twilio fetches within seconds of sending.
+    let twilioMediaUrls: string[] = [];
+    if (mediaKeys.length > 0) {
+      try {
+        const { r2Configured, r2SignedGetUrl } = await import("../lib/r2.js");
+        if (r2Configured()) {
+          twilioMediaUrls = await Promise.all(mediaKeys.map(k => r2SignedGetUrl(k, 3600)));
+        }
+      } catch (e) { console.warn("[sms/send] media sign error:", e); }
     }
 
     let twilioResult: any = null, fromNumber: string | null = null, status = "suppressed", reason: string | null = null;
@@ -107,13 +119,17 @@ router.post("/send", requireAuth, requireRole("owner", "admin", "office"), async
       const sender = await resolveSender(companyId, null);
       fromNumber = sender.from_number;
       if (sender.reason) { reason = sender.reason; }
-      else { twilioResult = await sendSmsVia(sender, toPhone, message); status = "sent"; }
+      else {
+        twilioResult = await sendSmsVia(sender, toPhone, bodyText, twilioMediaUrls.length ? twilioMediaUrls : undefined);
+        status = "sent";
+      }
     } catch (e: any) { status = "failed"; reason = e?.message || "send_error"; }
 
     const { id } = await recordOutboundSms({
-      companyId, toRaw: toPhone, fromNumber, body: message,
+      companyId, toRaw: toPhone, fromNumber, body: bodyText,
       providerId: twilioResult?.sid ?? null, sentBy: req.auth!.userId,
       clientId: client_id ?? null, leadId: lead_id ?? null, status,
+      mediaUrls: mediaKeys.length ? mediaKeys : null,
     });
     await markThreadRead(companyId, toPhone);
     return res.status(201).json({ id, status, reason, sent: status === "sent", twilio: twilioResult });
@@ -167,6 +183,158 @@ router.get("/unread-count", requireAuth, requireRole("owner", "admin", "office")
        WHERE company_id = ${req.auth!.companyId} AND direction = 'inbound' AND read_at IS NULL`);
     return res.json({ unread: (r.rows[0] as any)?.n ?? 0 });
   } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/sms/upload-media — upload a file to R2 for MMS attachment ────────
+// Accepts multipart/form-data with a single "file" field. Returns { key, url }
+// where key is the R2 object key to pass in media_urls when sending, and url is
+// a 1-hour signed URL for previewing the upload.
+router.post("/upload-media", requireAuth, requireRole("owner", "admin", "office"), upload.single("file"), async (req, res) => {
+  try {
+    const { r2Configured, r2Upload, r2SignedGetUrl } = await import("../lib/r2.js");
+    if (!r2Configured()) return res.status(503).json({ error: "r2_not_configured", message: "R2 storage is not configured." });
+    if (!req.file) return res.status(400).json({ error: "file required" });
+
+    const contentType = req.file.mimetype || "application/octet-stream";
+    const ext = (contentType.split("/")[1] || "bin").replace(/[^a-z0-9]/gi, "").toLowerCase() || "bin";
+    const rand = crypto.randomBytes(12).toString("hex");
+    const companyId = req.auth!.companyId;
+    const key = `sms-media/${companyId}/${rand}.${ext}`;
+
+    await r2Upload(key, req.file.buffer, contentType);
+    const url = await r2SignedGetUrl(key, 3600);
+    return res.status(201).json({ key, url, content_type: contentType });
+  } catch (err) {
+    console.error("POST /sms/upload-media:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── GET /api/sms/media/:msgId/:idx — serve media for a message ──────────────────
+// Returns a 302 redirect to a signed R2 URL. The idx is the 0-based index into
+// media_urls. Auth required (Bearer token) — the img/video tag in the UI should
+// use a blob URL obtained via fetch().
+router.get("/media/:msgId/:idx", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const msgId = parseInt(req.params.msgId);
+    const idx = parseInt(req.params.idx) || 0;
+    if (isNaN(msgId)) return res.status(400).json({ error: "invalid msgId" });
+
+    const r = await db.execute(sql`
+      SELECT media_urls FROM sms_messages WHERE id = ${msgId} AND company_id = ${companyId} LIMIT 1`);
+    const row = r.rows[0] as any;
+    if (!row) return res.status(404).json({ error: "not found" });
+    const urls: string[] = Array.isArray(row.media_urls) ? row.media_urls : [];
+    if (idx >= urls.length) return res.status(404).json({ error: "media index out of range" });
+
+    const key = urls[idx];
+    const { r2Configured, r2SignedGetUrl } = await import("../lib/r2.js");
+    if (!r2Configured()) return res.status(503).json({ error: "r2_not_configured" });
+
+    const signedUrl = await r2SignedGetUrl(key, 3600);
+    return res.redirect(302, signedUrl);
+  } catch (err) {
+    console.error("GET /sms/media:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/sms/schedule — create a future-dated message ──────────────────────
+router.post("/schedule", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const { message, media_urls, scheduled_for } = req.body || {};
+    let { contact_phone, client_id, lead_id } = req.body || {};
+
+    const bodyText = typeof message === "string" ? message : "";
+    const mediaKeys: string[] = Array.isArray(media_urls) ? media_urls.filter(Boolean) : [];
+    if (!bodyText && mediaKeys.length === 0) return res.status(400).json({ error: "message or media required" });
+    if (!scheduled_for) return res.status(400).json({ error: "scheduled_for required" });
+
+    const scheduledAt = new Date(scheduled_for);
+    if (isNaN(scheduledAt.getTime()) || scheduledAt <= new Date()) {
+      return res.status(400).json({ error: "scheduled_for must be a future datetime" });
+    }
+
+    let toPhone: string | null = contact_phone || null;
+    if (!toPhone && client_id) {
+      const r = await db.execute(sql`SELECT phone FROM clients WHERE id = ${client_id} AND company_id = ${companyId} LIMIT 1`);
+      toPhone = (r.rows[0] as any)?.phone ?? null;
+    }
+    if (!toPhone && lead_id) {
+      const r = await db.execute(sql`SELECT phone FROM leads WHERE id = ${lead_id} AND company_id = ${companyId} LIMIT 1`);
+      toPhone = (r.rows[0] as any)?.phone ?? null;
+    }
+    if (!toPhone) return res.status(400).json({ error: "No recipient phone" });
+
+    if (client_id == null && lead_id == null) {
+      const m = await matchContact(companyId, toPhone);
+      client_id = m.client_id; lead_id = m.lead_id;
+    }
+
+    const cp = phone10(toPhone);
+    const mediaPg = mediaKeys.length > 0
+      ? sql`ARRAY[${sql.join(mediaKeys.map(u => sql`${u}`), sql`, `)}]::text[]`
+      : sql`NULL`;
+
+    const r = await db.execute(sql`
+      INSERT INTO scheduled_sms
+        (company_id, contact_phone, client_id, lead_id, message, media_urls, scheduled_for, status, created_by)
+      VALUES
+        (${companyId}, ${cp}, ${client_id ?? null}, ${lead_id ?? null}, ${bodyText},
+         ${mediaPg}, ${scheduledAt.toISOString()}, 'pending', ${req.auth!.userId})
+      RETURNING id`);
+    const id = Number((r.rows[0] as any)?.id);
+    return res.status(201).json({ id, scheduled_for: scheduledAt.toISOString() });
+  } catch (err) {
+    console.error("POST /sms/schedule:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── GET /api/sms/scheduled — list pending scheduled messages for a thread ────────
+router.get("/scheduled", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const phone = req.query.phone ? phone10(String(req.query.phone)) : null;
+    const clientId = req.query.client_id ? parseInt(String(req.query.client_id)) : null;
+    const leadId = req.query.lead_id ? parseInt(String(req.query.lead_id)) : null;
+
+    let where = sql`company_id = ${companyId} AND status = 'pending'`;
+    if (phone) where = sql`${where} AND contact_phone = ${phone}`;
+    else if (clientId) where = sql`${where} AND client_id = ${clientId}`;
+    else if (leadId) where = sql`${where} AND lead_id = ${leadId}`;
+
+    const r = await db.execute(sql`
+      SELECT id, contact_phone, client_id, lead_id, message, media_urls, scheduled_for, status, created_at
+        FROM scheduled_sms
+       WHERE ${where}
+       ORDER BY scheduled_for ASC`);
+    return res.json(r.rows);
+  } catch (err) {
+    console.error("GET /sms/scheduled:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── DELETE /api/sms/scheduled/:id — cancel a scheduled message ──────────────────
+router.delete("/scheduled/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "invalid id" });
+
+    const r = await db.execute(sql`
+      UPDATE scheduled_sms SET status = 'cancelled'
+       WHERE id = ${id} AND company_id = ${companyId} AND status = 'pending'
+      RETURNING id`);
+    if (!r.rows[0]) return res.status(404).json({ error: "not found or already sent" });
+    return res.json({ cancelled: true });
+  } catch (err) {
+    console.error("DELETE /sms/scheduled:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

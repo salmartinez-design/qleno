@@ -3,7 +3,7 @@ import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Search, Send, ChevronLeft, Plus, X } from "lucide-react";
+import { MessageSquare, Search, Send, ChevronLeft, Plus, X, Paperclip, Clock, Trash2, Image } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -19,7 +19,13 @@ interface Convo {
 interface Msg {
   id: number; direction: string; body: string; from_number: string | null;
   to_number: string | null; status: string; read_at: string | null; created_at: string;
+  media_urls?: string[] | null;
 }
+interface ScheduledMsg {
+  id: number; message: string; media_urls?: string[] | null;
+  scheduled_for: string; status: string; contact_phone: string;
+}
+interface AttachPreview { file: File; objectUrl: string; r2Key?: string; uploading: boolean; }
 
 function fmtPhone(p: string) {
   const d = String(p || "").replace(/\D/g, "").slice(-10);
@@ -34,6 +40,52 @@ function fmtTime(s: string) {
     ? d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
     : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+function fmtScheduled(s: string) {
+  const d = new Date(s);
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+// Authenticated media component — fetches via Bearer token, creates blob URL.
+// Supports both image and video based on the media key extension.
+function AuthMedia({ msgId, idx, mediaKey }: { msgId: number; idx: number; mediaKey: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [err, setErr] = useState(false);
+  const blobRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    const src = `${API}/api/sms/media/${msgId}/${idx}`;
+    fetch(src, { headers: getAuthHeaders() })
+      .then(r => { if (!r.ok) throw new Error("fetch failed"); return r.blob(); })
+      .then(b => {
+        if (!alive) return;
+        const url = URL.createObjectURL(b);
+        blobRef.current = url;
+        setBlobUrl(url);
+      })
+      .catch(() => { if (alive) setErr(true); });
+    return () => {
+      alive = false;
+      if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+    };
+  }, [msgId, idx]);
+
+  const isVideo = /\.(mp4|mov|webm|avi|mkv)$/i.test(mediaKey);
+
+  if (err) return <div style={{ fontSize: 11, color: MUTE, marginTop: 4 }}>[Media unavailable]</div>;
+  if (!blobUrl) return (
+    <div style={{ width: 160, height: 90, background: "#E5E2DC", borderRadius: 8, marginTop: 4, display: "flex", alignItems: "center", justifyContent: "center" }}>
+      <Image size={20} color={MUTE} />
+    </div>
+  );
+  if (isVideo) return (
+    <video controls src={blobUrl} style={{ maxWidth: 260, maxHeight: 180, borderRadius: 8, marginTop: 4, display: "block" }} />
+  );
+  return (
+    <img src={blobUrl} alt="media" style={{ maxWidth: 260, maxHeight: 180, borderRadius: 8, marginTop: 4, display: "block", cursor: "pointer" }}
+      onClick={() => window.open(blobUrl, "_blank")} />
+  );
+}
 
 export default function MessagesPage() {
   const isMobile = useIsMobile();
@@ -42,9 +94,17 @@ export default function MessagesPage() {
   const [q, setQ] = useState("");
   const [active, setActive] = useState<Convo | null>(null);
   const [thread, setThread] = useState<Msg[]>([]);
+  const [scheduled, setScheduled] = useState<ScheduledMsg[]>([]);
   const [reply, setReply] = useState("");
   const [sending, setSending] = useState(false);
+  const [attachments, setAttachments] = useState<AttachPreview[]>([]);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [scheduleDate, setScheduleDate] = useState("");
+  const [scheduleTime, setScheduleTime] = useState("");
+  const [scheduling, setScheduling] = useState(false);
   const threadEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Compose ("New message") state
   const [composeOpen, setComposeOpen] = useState(false);
   const [cQuery, setCQuery] = useState("");
@@ -64,50 +124,141 @@ export default function MessagesPage() {
     try {
       const r = await fetch(`${API}/api/sms/thread?phone=${encodeURIComponent(c.contact_phone)}`, { headers: getAuthHeaders() });
       if (r.ok) { const d = await r.json(); setThread(d.messages || []); }
-      // Opening clears the unread badge locally.
       setConvos(cs => cs.map(x => x.contact_phone === c.contact_phone ? { ...x, unread: 0 } : x));
     } catch { /* silent */ }
   }, []);
 
+  const loadScheduled = useCallback(async (c: Convo) => {
+    try {
+      const r = await fetch(`${API}/api/sms/scheduled?phone=${encodeURIComponent(c.contact_phone)}`, { headers: getAuthHeaders() });
+      if (r.ok) setScheduled(await r.json());
+    } catch { /* silent */ }
+  }, []);
+
   useEffect(() => { loadConvos(); }, [loadConvos]);
-  // Re-scope on company switch: the auth token changes on every switch-company,
-  // so clear the open thread + reload the conversation list for the new tenant
-  // immediately (no manual refresh, no stale co1 data lingering under co4).
   const authToken = useAuthStore(s => s.token);
   useEffect(() => {
-    setActive(null); setThread([]); setReply("");
+    setActive(null); setThread([]); setScheduled([]); setReply(""); setAttachments([]);
     loadConvos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authToken]);
-  // Light polling so new inbound shows up without a manual refresh.
   useEffect(() => {
-    const t = setInterval(() => { loadConvos(); if (active) loadThread(active); }, 15000);
+    const t = setInterval(() => {
+      loadConvos();
+      if (active) { loadThread(active); loadScheduled(active); }
+    }, 15000);
     return () => clearInterval(t);
-  }, [loadConvos, loadThread, active]);
+  }, [loadConvos, loadThread, loadScheduled, active]);
   useEffect(() => { threadEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [thread]);
 
-  function openConvo(c: Convo) { setActive(c); loadThread(c); }
+  function openConvo(c: Convo) {
+    setActive(c); loadThread(c); loadScheduled(c);
+    setAttachments([]); setReply(""); setScheduleOpen(false);
+  }
 
+  // ── File attachment ────────────────────────────────────────────────────────
+  async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? []);
+    if (!files.length) return;
+    e.target.value = "";
+    const toAdd: AttachPreview[] = files.slice(0, 4 - attachments.length).map(f => ({
+      file: f, objectUrl: URL.createObjectURL(f), uploading: true,
+    }));
+    setAttachments(prev => [...prev, ...toAdd]);
+
+    for (const item of toAdd) {
+      try {
+        const fd = new FormData();
+        fd.append("file", item.file);
+        const r = await fetch(`${API}/api/sms/upload-media`, {
+          method: "POST", headers: getAuthHeaders(), body: fd,
+        });
+        if (!r.ok) throw new Error("upload failed");
+        const { key } = await r.json();
+        setAttachments(prev => prev.map(a => a.objectUrl === item.objectUrl ? { ...a, r2Key: key, uploading: false } : a));
+      } catch {
+        toast({ title: "Upload failed", description: item.file.name, variant: "destructive" as any });
+        setAttachments(prev => prev.filter(a => a.objectUrl !== item.objectUrl));
+        URL.revokeObjectURL(item.objectUrl);
+      }
+    }
+  }
+
+  function removeAttachment(objectUrl: string) {
+    setAttachments(prev => {
+      const a = prev.find(x => x.objectUrl === objectUrl);
+      if (a) URL.revokeObjectURL(a.objectUrl);
+      return prev.filter(x => x.objectUrl !== objectUrl);
+    });
+  }
+
+  // ── Send ───────────────────────────────────────────────────────────────────
   async function send() {
-    if (!reply.trim() || !active || sending) return;
+    if ((!reply.trim() && attachments.length === 0) || !active || sending) return;
+    if (attachments.some(a => a.uploading)) { toast({ title: "Please wait for uploads to finish" }); return; }
     setSending(true);
     try {
+      const mediaKeys = attachments.filter(a => a.r2Key).map(a => a.r2Key!);
       const r = await fetch(`${API}/api/sms/send`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ contact_phone: active.contact_phone, client_id: active.client_id, lead_id: active.lead_id, message: reply.trim() }),
+        body: JSON.stringify({
+          contact_phone: active.contact_phone, client_id: active.client_id, lead_id: active.lead_id,
+          message: reply.trim(), media_urls: mediaKeys,
+        }),
       });
       const d = await r.json().catch(() => ({}));
       if (r.ok && d.sent) { toast({ title: "Sent" }); }
       else if (r.ok && !d.sent) { toast({ title: "Not sent", description: `Comms paused (${d.reason || "gated"}) — recorded only`, variant: "destructive" as any }); }
       else { toast({ title: "Failed to send", variant: "destructive" as any }); }
-      setReply("");
+      setReply(""); setAttachments([]);
       await loadThread(active); await loadConvos();
     } catch { toast({ title: "Failed to send", variant: "destructive" as any }); }
     finally { setSending(false); }
   }
 
-  // ── Compose: recipient search (clients + leads) ──────────────────────────────
+  // ── Schedule send ──────────────────────────────────────────────────────────
+  async function scheduleSend() {
+    if (!active || scheduling) return;
+    if (!reply.trim() && attachments.length === 0) return;
+    if (!scheduleDate || !scheduleTime) { toast({ title: "Pick a date and time" }); return; }
+    const scheduledFor = new Date(`${scheduleDate}T${scheduleTime}`);
+    if (isNaN(scheduledFor.getTime()) || scheduledFor <= new Date()) {
+      toast({ title: "Scheduled time must be in the future", variant: "destructive" as any }); return;
+    }
+    if (attachments.some(a => a.uploading)) { toast({ title: "Please wait for uploads to finish" }); return; }
+    setScheduling(true);
+    try {
+      const mediaKeys = attachments.filter(a => a.r2Key).map(a => a.r2Key!);
+      const r = await fetch(`${API}/api/sms/schedule`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contact_phone: active.contact_phone, client_id: active.client_id, lead_id: active.lead_id,
+          message: reply.trim(), media_urls: mediaKeys,
+          scheduled_for: scheduledFor.toISOString(),
+        }),
+      });
+      if (r.ok) {
+        toast({ title: "Message scheduled", description: `Will send ${fmtScheduled(scheduledFor.toISOString())}` });
+        setReply(""); setAttachments([]); setScheduleOpen(false); setScheduleDate(""); setScheduleTime("");
+        await loadScheduled(active);
+      } else {
+        const d = await r.json().catch(() => ({}));
+        toast({ title: "Failed to schedule", description: d.error || "", variant: "destructive" as any });
+      }
+    } catch { toast({ title: "Failed to schedule", variant: "destructive" as any }); }
+    finally { setScheduling(false); }
+  }
+
+  async function cancelScheduled(id: number) {
+    try {
+      const r = await fetch(`${API}/api/sms/scheduled/${id}`, { method: "DELETE", headers: getAuthHeaders() });
+      if (r.ok) { toast({ title: "Scheduled message cancelled" }); if (active) await loadScheduled(active); }
+    } catch { /* silent */ }
+  }
+
+  // ── Compose ────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!composeOpen || cPick || cQuery.trim().length < 2) { setCResults([]); return; }
     let alive = true;
@@ -139,7 +290,6 @@ export default function MessagesPage() {
       if (r.ok && d.sent) toast({ title: "Sent" });
       else if (r.ok && !d.sent) toast({ title: "Not sent", description: `Comms paused (${d.reason || "gated"}) — recorded only`, variant: "destructive" as any });
       else { toast({ title: "Failed to send", variant: "destructive" as any }); setCSending(false); return; }
-      // Open the (new or existing) conversation threaded by contact_phone.
       const p10 = composeRecipientPhone.replace(/\D/g, "").slice(-10);
       const convo: Convo = {
         contact_phone: p10, last_at: new Date().toISOString(), last_body: cBody.trim(), last_dir: "outbound",
@@ -147,13 +297,20 @@ export default function MessagesPage() {
         name: cPick?.name ?? null,
       };
       setComposeOpen(false);
-      setActive(convo); loadThread(convo); loadConvos();
+      setActive(convo); loadThread(convo); loadScheduled(convo); loadConvos();
     } catch { toast({ title: "Failed to send", variant: "destructive" as any }); }
     finally { setCSending(false); }
   }
 
   const showList = !isMobile || !active;
   const showThread = !isMobile || !!active;
+
+  const canSend = (reply.trim() || attachments.length > 0) && !attachments.some(a => a.uploading);
+
+  // Min datetime for schedule picker: now + 1 minute
+  const nowPlusMins = new Date(Date.now() + 60_000);
+  const minDate = nowPlusMins.toISOString().slice(0, 10);
+  const minTime = nowPlusMins.toTimeString().slice(0, 5);
 
   return (
     <DashboardLayout>
@@ -191,7 +348,7 @@ export default function MessagesPage() {
                     </div>
                     <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 3, alignItems: "center" }}>
                       <span style={{ fontSize: 12, color: c.unread > 0 ? INK : MUTE, fontWeight: c.unread > 0 ? 600 : 400, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {c.last_dir === "outbound" ? "You: " : ""}{c.last_body}
+                        {c.last_dir === "outbound" ? "You: " : ""}{c.last_body || "[media]"}
                       </span>
                       {c.unread > 0 && <span style={{ background: BRAND, color: "#04241d", fontSize: 11, fontWeight: 800, borderRadius: 999, padding: "1px 7px", flexShrink: 0 }}>{c.unread}</span>}
                     </div>
@@ -210,13 +367,13 @@ export default function MessagesPage() {
                 </div>
               ) : (
                 <>
+                  {/* Thread header */}
                   <div style={{ padding: "12px 14px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 10 }}>
                     {isMobile && <button onClick={() => setActive(null)} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0 }}><ChevronLeft size={20} color={INK} /></button>}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       {active.client_id ? (
                         <button
                           onClick={() => window.open(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/customers/${active.client_id}`, "_blank")}
-                          title="Open client profile in a new tab"
                           style={{ fontSize: 15, fontWeight: 700, color: INK, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                           {active.name || fmtPhone(active.contact_phone)}
                           <span style={{ fontSize: 11, color: "var(--brand, #5B9BD5)", marginLeft: 8, fontWeight: 600 }}>Open profile ↗</span>
@@ -227,14 +384,44 @@ export default function MessagesPage() {
                       <div style={{ fontSize: 12, color: MUTE }}>{fmtPhone(active.contact_phone)}{active.client_id ? " · Client" : active.lead_id ? " · Lead" : ""}</div>
                     </div>
                   </div>
+
+                  {/* Thread messages */}
                   <div style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 8, background: "#FAFAF9" }}>
+
+                    {/* Scheduled messages (pending) shown at top with indicator */}
+                    {scheduled.map(s => (
+                      <div key={`sched-${s.id}`} style={{ display: "flex", justifyContent: "flex-end" }}>
+                        <div style={{ maxWidth: "75%", padding: "9px 12px", borderRadius: 12, background: "#F1F0EC", border: `1px dashed ${BORDER}`,
+                          borderBottomRightRadius: 3, position: "relative" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
+                            <Clock size={11} color={MUTE} />
+                            <span style={{ fontSize: 10, color: MUTE, fontWeight: 600 }}>Scheduled · {fmtScheduled(s.scheduled_for)}</span>
+                            <button onClick={() => cancelScheduled(s.id)} title="Cancel scheduled message"
+                              style={{ marginLeft: "auto", border: "none", background: "transparent", cursor: "pointer", padding: 0, display: "flex" }}>
+                              <Trash2 size={11} color={MUTE} />
+                            </button>
+                          </div>
+                          <div style={{ fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", color: INK }}>
+                            {s.message}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                    {/* Sent/received messages */}
                     {thread.map(m => {
                       const inbound = m.direction === "inbound";
+                      const mediaKeys = Array.isArray(m.media_urls) ? m.media_urls : [];
                       return (
                         <div key={m.id} style={{ display: "flex", justifyContent: inbound ? "flex-start" : "flex-end" }}>
                           <div style={{ maxWidth: "75%", padding: "9px 12px", borderRadius: 12, background: inbound ? "#F1F0EC" : BRAND, color: inbound ? INK : "#04241d",
                             borderBottomLeftRadius: inbound ? 3 : 12, borderBottomRightRadius: inbound ? 12 : 3 }}>
-                            <div style={{ fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.body}</div>
+                            {m.body && (
+                              <div style={{ fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.body}</div>
+                            )}
+                            {mediaKeys.map((key, idx) => (
+                              <AuthMedia key={idx} msgId={m.id} idx={idx} mediaKey={key} />
+                            ))}
                             <div style={{ fontSize: 10, marginTop: 4, opacity: 0.7, textAlign: "right" }}>
                               {fmtTime(m.created_at)}{!inbound && m.status && m.status !== "sent" ? ` · ${m.status}` : ""}
                             </div>
@@ -244,13 +431,70 @@ export default function MessagesPage() {
                     })}
                     <div ref={threadEndRef} />
                   </div>
-                  <div style={{ padding: 10, borderTop: `1px solid ${BORDER}`, display: "flex", gap: 8 }}>
+
+                  {/* Attachment previews */}
+                  {attachments.length > 0 && (
+                    <div style={{ padding: "6px 10px 0", borderTop: `1px solid ${BORDER}`, display: "flex", gap: 8, flexWrap: "wrap", background: "#fff" }}>
+                      {attachments.map(a => (
+                        <div key={a.objectUrl} style={{ position: "relative", width: 60, height: 60, borderRadius: 8, overflow: "hidden", border: `1px solid ${BORDER}` }}>
+                          {a.file.type.startsWith("video/") ? (
+                            <video src={a.objectUrl} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          ) : (
+                            <img src={a.objectUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                          )}
+                          {a.uploading && (
+                            <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                              <div style={{ width: 16, height: 16, border: "2px solid #fff", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
+                            </div>
+                          )}
+                          <button onClick={() => removeAttachment(a.objectUrl)}
+                            style={{ position: "absolute", top: 2, right: 2, background: "rgba(10,14,26,0.7)", border: "none", borderRadius: "50%", width: 18, height: 18, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", padding: 0 }}>
+                            <X size={10} color="#fff" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Schedule picker */}
+                  {scheduleOpen && (
+                    <div style={{ padding: "8px 10px", borderTop: `1px solid ${BORDER}`, background: "#F7F6F3", display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      <Clock size={13} color={MUTE} />
+                      <span style={{ fontSize: 12, color: MUTE, fontWeight: 600 }}>Send at:</span>
+                      <input type="date" value={scheduleDate} min={minDate} onChange={e => setScheduleDate(e.target.value)}
+                        style={{ padding: "5px 8px", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 13, fontFamily: FF }} />
+                      <input type="time" value={scheduleTime} min={scheduleDate === minDate ? minTime : undefined} onChange={e => setScheduleTime(e.target.value)}
+                        style={{ padding: "5px 8px", border: `1px solid ${BORDER}`, borderRadius: 6, fontSize: 13, fontFamily: FF }} />
+                      <button onClick={scheduleSend} disabled={!canSend || !scheduleDate || !scheduleTime || scheduling}
+                        style={{ padding: "5px 12px", background: BRAND, color: "#04241d", border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, cursor: "pointer",
+                          opacity: !canSend || !scheduleDate || !scheduleTime || scheduling ? 0.5 : 1, fontFamily: FF }}>
+                        {scheduling ? "Scheduling…" : "Schedule"}
+                      </button>
+                      <button onClick={() => setScheduleOpen(false)}
+                        style={{ background: "transparent", border: "none", cursor: "pointer", padding: 4, display: "flex" }}>
+                        <X size={14} color={MUTE} />
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Composer */}
+                  <div style={{ padding: 10, borderTop: `1px solid ${BORDER}`, display: "flex", gap: 8, alignItems: "flex-end", background: "#fff" }}>
+                    {/* Hidden file input */}
+                    <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" style={{ display: "none" }} onChange={handleFileSelect} />
+                    <button onClick={() => fileInputRef.current?.click()} title="Attach image or video"
+                      style={{ padding: 10, background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 }}>
+                      <Paperclip size={15} color={MUTE} />
+                    </button>
                     <textarea value={reply} onChange={e => setReply(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
                       placeholder="Type a reply…" rows={1}
                       style={{ flex: 1, resize: "none", padding: "10px 12px", border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 14, fontFamily: FF, maxHeight: 120 }} />
-                    <button onClick={send} disabled={!reply.trim() || sending}
-                      style={{ padding: "0 16px", background: BRAND, color: "#04241d", border: "none", borderRadius: 10, fontWeight: 800, cursor: reply.trim() && !sending ? "pointer" : "default", opacity: reply.trim() && !sending ? 1 : 0.5, display: "flex", alignItems: "center", gap: 6 }}>
+                    <button onClick={() => setScheduleOpen(s => !s)} title="Schedule message"
+                      style={{ padding: 10, background: scheduleOpen ? "#E8FAF6" : "#F1F0EC", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 }}>
+                      <Clock size={15} color={scheduleOpen ? BRAND : MUTE} />
+                    </button>
+                    <button onClick={send} disabled={!canSend || sending}
+                      style={{ padding: "0 16px", background: BRAND, color: "#04241d", border: "none", borderRadius: 10, fontWeight: 800, cursor: canSend && !sending ? "pointer" : "default", opacity: canSend && !sending ? 1 : 0.5, display: "flex", alignItems: "center", gap: 6, height: 44, flexShrink: 0 }}>
                       <Send size={15} /> {sending ? "…" : "Send"}
                     </button>
                   </div>
@@ -261,7 +505,7 @@ export default function MessagesPage() {
         </div>
       </div>
 
-      {/* Compose / New message modal (desktop + mobile) */}
+      {/* Compose / New message modal */}
       {composeOpen && (
         <div onClick={() => setComposeOpen(false)}
           style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", padding: isMobile ? 0 : 18, zIndex: 60 }}>
@@ -272,7 +516,6 @@ export default function MessagesPage() {
               <button onClick={() => setComposeOpen(false)} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 4 }}><X size={18} color={MUTE} /></button>
             </div>
 
-            {/* Recipient */}
             {cPick ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, padding: "10px 12px", border: `1px solid ${BORDER}`, borderRadius: 10, marginBottom: 12, background: "#F7F6F3" }}>
                 <div>
@@ -319,6 +562,8 @@ export default function MessagesPage() {
           </div>
         </div>
       )}
+
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </DashboardLayout>
   );
 }
