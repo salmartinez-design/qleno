@@ -707,10 +707,14 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       import("../services/followUpService.js").then(({ stopEnrollmentsForQuote }) => {
         stopEnrollmentsForQuote(id, "booked").catch(() => {});
       });
-      // Quote→lead: advance to Booked (non-blocking).
+      // Quote→lead: advance to Booked + link first generated job (non-blocking).
       import("../lib/lead-sync.js").then(async ({ upsertLeadForQuote, advanceLeadStage }) => {
         const leadId = await upsertLeadForQuote(companyId, { ...(q as any), id });
-        if (leadId) await advanceLeadStage(companyId, leadId, "booked", { userId: req.auth!.userId });
+        if (leadId) {
+          const firstJobRow = await db.execute(sql`SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId} ORDER BY scheduled_date ASC, id ASC LIMIT 1`);
+          const firstJobId = (firstJobRow.rows[0] as any)?.id ?? null;
+          await advanceLeadStage(companyId, leadId, "booked", { jobId: firstJobId ?? undefined, userId: req.auth!.userId });
+        }
       }).catch(() => {});
       return res.json({
         success: true, quote: q, recurring_schedule_id: sched.id, jobs_generated: generated.created,
