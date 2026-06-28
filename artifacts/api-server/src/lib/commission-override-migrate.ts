@@ -1,4 +1,4 @@
-import { db } from "@workspace/db/client";
+import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
 export async function ensureCommissionOverrideColumn(): Promise<void> {
