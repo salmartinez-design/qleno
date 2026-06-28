@@ -187,6 +187,35 @@ router.get("/offer-settings/:slug", rateLimit, async (req, res) => {
   }
 });
 
+// ── GET /api/public/referral-sources/:slug ──────────────────────────────────
+// Returns active acquisition sources for the booking widget. Falls back to
+// hardcoded defaults when no custom sources have been configured.
+router.get("/referral-sources/:slug", rateLimit, async (req, res) => {
+  const { sql: drSql } = await import("drizzle-orm");
+  const DEFAULTS = [
+    { name: "Google", slug: "google" },
+    { name: "Facebook", slug: "facebook" },
+    { name: "Instagram", slug: "instagram" },
+    { name: "Nextdoor", slug: "nextdoor" },
+    { name: "Friend / Family", slug: "client_referral" },
+    { name: "Other", slug: "other" },
+  ];
+  try {
+    const slug = req.params.slug;
+    const companyRow = await db.execute(drSql`SELECT id FROM companies WHERE slug = ${slug} LIMIT 1`);
+    if (!companyRow.rows.length) return res.json(DEFAULTS);
+    const companyId = (companyRow.rows[0] as any).id;
+    const result = await db.execute(drSql`
+      SELECT name, slug FROM acquisition_sources
+       WHERE company_id = ${companyId} AND is_active = true
+       ORDER BY display_order, id
+    `);
+    return res.json((result as any).rows.length ? (result as any).rows : DEFAULTS);
+  } catch {
+    return res.json(DEFAULTS);
+  }
+});
+
 // ── GET /api/public/booking-settings/:slug ──────────────────────────────────
 router.get("/booking-settings/:slug", rateLimit, async (req, res) => {
   const { sql: drSql } = await import("drizzle-orm");
@@ -480,26 +509,6 @@ export async function runCalculate(params: {
     }
   }
 
-  // [auto-promos 2026-06-21] Auto-applied promotions honored at checkout. Only
-  // the deep-clean promo is determinable from a single quote (the 2nd-recurring
-  // promo is contextual to a schedule occurrence and lands at invoice build).
-  // Computed against the cleaning base price and REPORTED in a dedicated field —
-  // we deliberately do NOT mutate final_total, so a booked job's stored base_fee
-  // stays PRE-promo and the discount is applied exactly once, at invoice time,
-  // by the single chokepoint (see lib/auto-promos.ts ensureAutoPromosForJob).
-  // The booking widget displays final_total_after_auto_promo so the advertised
-  // price is honored at checkout. This keeps "stored price = pre-promo" an
-  // invariant — there is no path where the promo can double-apply.
-  const { computeCheckoutPromo } = await import("../lib/auto-promos.js");
-  const autoPromo = await computeCheckoutPromo({
-    companyId: company_id,
-    serviceType: scopeNameToServiceType(scope.name),
-    basePrice: base_price,
-  });
-  const final_total_after_auto_promo = autoPromo
-    ? Math.max(0, Math.round((final_total - autoPromo.amount) * 100) / 100)
-    : Math.round(final_total * 100) / 100;
-
   return {
     scope_id,
     scope_name: scope.name,
@@ -520,14 +529,6 @@ export async function runCalculate(params: {
     discount_amount: Math.round(discount_amount * 100) / 100,
     discount_valid: discount_code ? discount_valid : undefined,
     final_total: Math.round(final_total * 100) / 100,
-    // [auto-promos] Auto-applied promotions (deep-clean at checkout). final_total
-    // stays PRE-promo (= the stored base); final_total_after_auto_promo is the
-    // advertised price the widget shows. Discount itemizes on the invoice.
-    auto_promos: autoPromo
-      ? [{ kind: autoPromo.kind, label: autoPromo.label, pct: autoPromo.pct, amount: autoPromo.amount }]
-      : [],
-    auto_promo_discount: autoPromo ? autoPromo.amount : 0,
-    final_total_after_auto_promo,
   };
 }
 
@@ -674,6 +675,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       drizzleSql`SELECT id FROM clients WHERE email = ${email} AND company_id = ${company_id} LIMIT 1`
     );
 
+    const isReturningClient = existingClients.rows.length > 0;
     let clientId: number;
     if (existingClients.rows.length > 0) {
       clientId = (existingClients.rows[0] as any).id;
@@ -931,6 +933,58 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const emailWindowLabel = arrivalWindowVal === "morning" ? "9:00 AM – 12:00 PM" : arrivalWindowVal === "afternoon" ? "12:00 PM – 2:00 PM" : "To be confirmed";
     const emailAddonBreakdown: Array<{ name: string; amount: number }> = (pricing.addon_breakdown || []).map((a: any) => ({ name: a.name, amount: parseFloat(String(a.amount || 0)) }));
     const emailBundleDiscount = bundleDiscount ? Math.abs(parseFloat(String(bundleDiscount))) : 0;
+
+    // Zone lookup for office notification subject and body
+    let bookingZoneName: string | null = null;
+    let bookingZoneColor: string | null = null;
+    try {
+      const zipForZone = (address_zip || zip || "").trim().replace(/\D/g, "").slice(0, 5);
+      if (zipForZone.length === 5) {
+        const zoneResult = await db.execute(drizzleSql`
+          SELECT name, color FROM service_zones
+          WHERE company_id = ${company_id}
+            AND is_active = true
+            AND zip_codes @> ARRAY[${zipForZone}]::text[]
+          LIMIT 1
+        `);
+        if ((zoneResult as any).rows?.length > 0) {
+          bookingZoneName = (zoneResult as any).rows[0].name || null;
+          bookingZoneColor = (zoneResult as any).rows[0].color || null;
+        }
+      }
+    } catch {}
+
+    // Available techs: active techs with no jobs assigned on the booking date
+    let availableTechs: Array<{ name: string }> | null = null;
+    try {
+      if (preferred_date) {
+        const techResult = await db.execute(drizzleSql`
+          SELECT u.first_name, u.last_name
+          FROM users u
+          WHERE u.company_id = ${company_id}
+            AND u.role = 'tech'
+            AND u.is_active = true
+            AND u.id NOT IN (
+              SELECT jt.user_id FROM job_technicians jt
+              JOIN jobs j ON j.id = jt.job_id
+              WHERE j.company_id = ${company_id}
+                AND j.scheduled_date = ${preferred_date}::date
+                AND j.status != 'cancelled'
+              UNION
+              SELECT j.assigned_user_id FROM jobs j
+              WHERE j.company_id = ${company_id}
+                AND j.scheduled_date = ${preferred_date}::date
+                AND j.assigned_user_id IS NOT NULL
+                AND j.status != 'cancelled'
+            )
+          ORDER BY u.first_name
+        `);
+        availableTechs = ((techResult as any).rows ?? []).map((r: any) => ({
+          name: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
+        }));
+      }
+    } catch {}
+
     const emailParams = {
       firstName: first_name,
       lastName: last_name,
@@ -961,6 +1015,10 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       pets: pets ? parseInt(String(pets)) : null,
       cleanlinessRating: cleanliness ? parseInt(String(cleanliness)) : null,
       acquisitionSource: normalizeReferral(referral_source),
+      isReturningClient,
+      zoneName: bookingZoneName,
+      zoneColor: bookingZoneColor,
+      availableTechs,
     };
     if (resendKey) {
       try {

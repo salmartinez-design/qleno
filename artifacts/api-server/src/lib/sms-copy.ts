@@ -9,7 +9,7 @@ import { sql } from "drizzle-orm";
 
 // Booking confirmation (job_scheduled SMS template body_text).
 export const BOOKING_SMS =
-  "{{company_name}}: your cleaning is confirmed for {{appointment_date}} at {{appointment_time}}. Details: {{appointment_link}}";
+  "Hi {{first_name}}! {{company_name}} has your cleaning confirmed for {{appointment_date}} at {{appointment_time}}. View details: {{appointment_link}}";
 
 // Post-job satisfaction survey (companies.survey_message_template + fallback).
 export const SURVEY_SMS =
@@ -29,6 +29,9 @@ export const QUOTE_LAST_SMS =
 const OLD = {
   booking:
     "Hi {{first_name}}, your cleaning with {{company_name}} is confirmed for {{appointment_date}} at {{appointment_time}} — {{service_type}} at {{service_address}}. View your appointment: {{appointment_link}} Questions? {{company_phone}}.",
+  // Previous iteration of booking SMS (upgraded below alongside the original)
+  bookingV2:
+    "{{company_name}}: your cleaning is confirmed for {{appointment_date}} at {{appointment_time}}. Details: {{appointment_link}}",
   survey:
     "Hi {{first_name}}, thanks for choosing us! How was your cleaning today? Tap to rate: {{survey_link}}",
   quote:
@@ -47,6 +50,9 @@ export async function upgradeCustomerSmsCopy(): Promise<void> {
     await db.execute(sql`
       UPDATE notification_templates SET body_text = ${BOOKING_SMS}
       WHERE trigger = 'job_scheduled' AND channel = 'sms' AND body_text = ${OLD.booking}`);
+    await db.execute(sql`
+      UPDATE notification_templates SET body_text = ${BOOKING_SMS}
+      WHERE trigger = 'job_scheduled' AND channel = 'sms' AND body_text = ${OLD.bookingV2}`);
     await db.execute(sql`
       UPDATE companies SET survey_message_template = ${SURVEY_SMS}
       WHERE survey_message_template = ${OLD.survey}`);
