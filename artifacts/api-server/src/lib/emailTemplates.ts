@@ -1,5 +1,19 @@
 import { BranchConfig } from "./branchRouter";
-import { appBaseUrl } from "./app-url.js";
+import { readFileSync } from "fs";
+import { resolve } from "path";
+
+// Embed logo as base64 at module load — avoids broken images from URL resolution
+// issues across environments. Falls back to empty string (header still renders).
+function loadLogoDataUri(): string {
+  try {
+    const uploadsDir = process.env.UPLOADS_DIR || resolve(process.cwd(), "artifacts/api-server/uploads");
+    const data = readFileSync(resolve(uploadsDir, "logos", "phes-logo.jpeg"));
+    return `data:image/jpeg;base64,${data.toString("base64")}`;
+  } catch {
+    return "";
+  }
+}
+const LOGO_DATA_URI = loadLogoDataUri();
 
 export interface ConfirmationEmailParams {
   firstName: string;
@@ -74,17 +88,17 @@ const BORDER = "#E5E2DC";
 const BG = "#F7F6F3";
 
 function emailWrapper(body: string): string {
-  const logoUrl = `${appBaseUrl()}/api/uploads/logos/phes-logo.jpeg`;
+  const logoImg = LOGO_DATA_URI
+    ? `<img src="${LOGO_DATA_URI}" alt="Phes" style="display:block;height:40px;width:auto;max-width:130px;object-fit:contain;" />`
+    : "";
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:${BG};">
 <div style="max-width:600px;margin:0 auto;padding:24px 16px;">
   <div style="background:#fff;border:1px solid ${BORDER};border-radius:12px;overflow:hidden;">
     <div style="background:${NAVY};padding:20px 28px;">
       <table cellpadding="0" cellspacing="0" border="0"><tr>
-        <td style="vertical-align:middle;">
-          <img src="${logoUrl}" alt="Phes" width="48" height="48" style="display:block;width:48px;height:48px;object-fit:contain;border-radius:6px;" />
-        </td>
-        <td style="vertical-align:middle;padding-left:12px;">
+        <td style="vertical-align:middle;">${logoImg}</td>
+        <td style="vertical-align:middle;padding-left:14px;">
           <span style="display:block;color:#fff;font-size:18px;font-weight:800;${BASE};letter-spacing:-0.01em;line-height:1.2;">Phes</span>
           <span style="display:block;color:#9DA3B0;font-size:12px;font-weight:500;${BASE};margin-top:2px;">Residential &amp; Commercial Cleaning</span>
         </td>
@@ -315,19 +329,28 @@ export function buildOfficeNotificationEmail(p: ConfirmationEmailParams): { subj
     : "";
 
   const body = `
-    <div style="background:${NAVY};border-radius:8px;padding:18px 22px;margin-bottom:22px;">
-      <p style="margin:0 0 4px;color:${MINT};font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">New Online Booking</p>
-      <p style="margin:0 0 10px;color:#fff;font-size:18px;font-weight:800;line-height:1.2;">${p.firstName} ${p.lastName}${clientBadge}</p>
-      <table cellpadding="0" cellspacing="0" border="0">
+    <div style="background:${NAVY};border-radius:8px;padding:20px 24px;margin-bottom:24px;">
+      <p style="margin:0 0 3px;color:${MINT};font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">New Online Booking</p>
+      <p style="margin:0 0 16px;color:#fff;font-size:20px;font-weight:800;line-height:1.2;">${p.firstName} ${p.lastName}${clientBadge}</p>
+      <table cellpadding="0" cellspacing="0" border="0" style="width:100%;">
         <tr>
-          <td style="color:#9DA3B0;font-size:13px;padding-right:18px;white-space:nowrap;padding-bottom:4px;">${p.serviceType}</td>
-          <td style="color:#9DA3B0;font-size:13px;padding-right:18px;white-space:nowrap;padding-bottom:4px;">${dateLabel}</td>
-          <td style="color:#9DA3B0;font-size:13px;padding-right:18px;white-space:nowrap;padding-bottom:4px;">${p.arrivalWindow}</td>
+          <td style="color:#9DA3B0;font-size:12px;width:90px;padding-bottom:6px;">Service</td>
+          <td style="color:#fff;font-size:13px;font-weight:600;padding-bottom:6px;">${p.serviceType}</td>
         </tr>
         <tr>
-          <td colspan="3" style="color:${MINT};font-size:16px;font-weight:800;white-space:nowrap;">$${p.firstVisitTotal.toFixed(2)}<span style="color:#9DA3B0;font-size:12px;font-weight:400;margin-left:10px;">${p.branchConfig.branch.replace("_", " ").toUpperCase()} branch</span></td>
+          <td style="color:#9DA3B0;font-size:12px;padding-bottom:6px;">Date</td>
+          <td style="color:#fff;font-size:13px;font-weight:600;padding-bottom:6px;">${dateLabel}</td>
+        </tr>
+        <tr>
+          <td style="color:#9DA3B0;font-size:12px;padding-bottom:6px;">Window</td>
+          <td style="color:#fff;font-size:13px;font-weight:600;padding-bottom:6px;">${p.arrivalWindow}</td>
+        </tr>
+        <tr>
+          <td style="color:#9DA3B0;font-size:12px;padding-bottom:2px;">Branch</td>
+          <td style="color:#9DA3B0;font-size:13px;padding-bottom:2px;">${p.branchConfig.branch.replace("_", " ").toUpperCase()}</td>
         </tr>
       </table>
+      <p style="margin:14px 0 0;color:${MINT};font-size:22px;font-weight:800;">$${p.firstVisitTotal.toFixed(2)}</p>
     </div>
 
     <p style="margin:0 0 6px;font-weight:700;font-size:13px;color:${DARK};">Contact</p>
