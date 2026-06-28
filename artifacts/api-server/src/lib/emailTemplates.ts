@@ -167,15 +167,6 @@ function whatNextSection(preferredContactMethod: string): string {
 </div>`;
 }
 
-function homeAccessSection(): string {
-  return `
-<div style="margin-bottom:24px;">
-  <h3 style="color:${DARK};font-size:15px;font-weight:700;margin:0 0 12px;border-bottom:1px solid ${BORDER};padding-bottom:8px;">Home Access</h3>
-  <p style="margin:0 0 6px;"><strong>1. Be Home</strong> &mdash; Wait for our arrival during your window.</p>
-  <p style="margin:0 0 6px;"><strong>2. Keys / Entry Code</strong> &mdash; Leave a spare key or provide an electronic code.</p>
-  <p style="margin:0;"><strong>3. Secure Lockbox</strong> &mdash; We can provide a master lockbox for $50. It must be returned upon termination of service or a $75 fee applies.</p>
-</div>`;
-}
 
 function serviceSpecificNotes(kind: "deep" | "standard" | "moveinout" | "recurring"): string {
   if (kind === "deep") {
@@ -211,7 +202,7 @@ function condensedPolicies(): string {
   <h3 style="color:${DARK};font-size:15px;font-weight:700;margin:0 0 12px;border-bottom:1px solid ${BORDER};padding-bottom:8px;">Policies &amp; Terms</h3>
 
   <p style="margin:0 0 4px;font-weight:700;font-size:13px;color:${DARK};">Cancellation &amp; Rescheduling</p>
-  <p style="margin:0 0 10px;font-size:13px;color:${MID};">We require <strong>48 business hours</strong> notice (Sundays excluded). Monday appointments: notify us by Friday 6 PM CT. Tuesday appointments: by Saturday 12 PM CT. Late cancellations and no-shows are charged in full. Each appointment allows <strong>one reschedule</strong> — additional reschedule requests are treated as late cancellations. Our team waits up to 20 minutes for access; if we cannot enter, the appointment is forfeited and billed.</p>
+  <p style="margin:0 0 10px;font-size:13px;color:${MID};">We require <strong>48 business hours</strong> notice for all cancellations and reschedules (Sundays excluded). Monday appointments: notify us by Friday 6 PM CT. Tuesday appointments: by Saturday 12 PM CT. Late cancellations and no-shows are charged in full. Each appointment allows <strong>one reschedule — provided the 48-hour notice window is met</strong>. Rescheduling with less than 48 hours notice is treated as a late cancellation regardless. Additional reschedule requests beyond the first are also treated as late cancellations. Our team waits up to 20 minutes for access; if we cannot enter, the appointment is forfeited and billed.</p>
 
   <p style="margin:0 0 4px;font-weight:700;font-size:13px;color:${DARK};">Our 24-Hour Guarantee</p>
   <p style="margin:0 0 10px;font-size:13px;color:${MID};">If we miss a spot, contact us within 24 hours and we will return to re-clean it at no cost. As a labor-based service we do not offer refunds — re-cleaning is our remedy for any quality concern.</p>
@@ -227,9 +218,15 @@ function condensedPolicies(): string {
 function recurringUpsellSection(branchConfig: BranchConfig): string {
   return `
 <div style="background:#EBF7F4;border:1px solid #B2E8DB;border-radius:8px;padding:18px 20px;margin-bottom:24px;">
-  <p style="margin:0 0 6px;font-weight:700;color:${NAVY};font-size:15px;">Interested in Regular Cleaning?</p>
-  <p style="margin:0 0 10px;color:${DARK};font-size:13px;">Recurring clients get <strong>discounted rates</strong>, a consistent team, and priority scheduling. Weekly, biweekly, and monthly plans are available.</p>
-  <p style="margin:0;color:${DARK};font-size:13px;">Call or text <strong>${branchConfig.clientPhoneFormatted}</strong> or reply to this email to set up a recurring plan.</p>
+  <p style="margin:0 0 4px;font-weight:800;color:${NAVY};font-size:16px;">Save 15% on your next cleaning</p>
+  <p style="margin:0 0 12px;color:${MID};font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">For new recurring clients only</p>
+  <p style="margin:0 0 10px;color:${DARK};font-size:13px;">Set up a recurring plan after your first clean and get <strong>15% off your second service</strong>. Most clients who start with a deep clean switch to biweekly maintenance — your home stays at this level for less effort and less cost each visit.</p>
+  <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">
+    <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Same team every visit — they learn your home</td></tr>
+    <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Priority scheduling — your slot is held every week/biweekly</td></tr>
+    <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Lower per-visit rate than one-time bookings</td></tr>
+  </table>
+  <p style="margin:0;color:${DARK};font-size:13px;">Call or text <strong>${branchConfig.clientPhoneFormatted}</strong> or reply to this email — mention this offer and we will apply the 15% to your second visit when you set up your plan.</p>
 </div>`;
 }
 
@@ -254,8 +251,6 @@ export function buildClientConfirmationEmail(p: ConfirmationEmailParams): { subj
     ${serviceDetailsTable(p)}
 
     ${whatNextSection(p.preferredContactMethod)}
-
-    ${homeAccessSection()}
 
     ${serviceSpecificNotes(kind)}
 
