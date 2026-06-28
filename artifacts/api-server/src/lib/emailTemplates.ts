@@ -1,4 +1,5 @@
 import { BranchConfig } from "./branchRouter";
+import { appBaseUrl } from "./app-url.js";
 
 export interface ConfirmationEmailParams {
   firstName: string;
@@ -69,14 +70,21 @@ const BORDER = "#E5E2DC";
 const BG = "#F7F6F3";
 
 function emailWrapper(body: string): string {
+  const logoUrl = `${appBaseUrl()}/phes-logo.jpeg`;
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:${BG};">
 <div style="max-width:600px;margin:0 auto;padding:24px 16px;">
   <div style="background:#fff;border:1px solid ${BORDER};border-radius:12px;overflow:hidden;">
-    <div style="background:${NAVY};padding:20px 28px;display:flex;align-items:center;gap:12px;">
-      <div style="width:10px;height:10px;border-radius:50%;background:${MINT};flex-shrink:0;"></div>
-      <span style="color:#fff;font-size:20px;font-weight:800;${BASE};letter-spacing:-0.01em;">Phes</span>
-      <span style="color:#9DA3B0;font-size:12px;font-weight:500;${BASE};margin-left:4px;">Residential &amp; Commercial Cleaning</span>
+    <div style="background:${NAVY};padding:20px 28px;">
+      <table cellpadding="0" cellspacing="0" border="0"><tr>
+        <td style="vertical-align:middle;">
+          <img src="${logoUrl}" alt="Phes" width="48" height="48" style="display:block;width:48px;height:48px;object-fit:contain;border-radius:6px;" />
+        </td>
+        <td style="vertical-align:middle;padding-left:12px;">
+          <span style="display:block;color:#fff;font-size:18px;font-weight:800;${BASE};letter-spacing:-0.01em;line-height:1.2;">Phes</span>
+          <span style="display:block;color:#9DA3B0;font-size:12px;font-weight:500;${BASE};margin-top:2px;">Residential &amp; Commercial Cleaning</span>
+        </td>
+      </tr></table>
     </div>
     <div style="padding:28px;${BASE};color:${DARK};font-size:14px;line-height:1.6;">
       ${body}
@@ -112,7 +120,7 @@ function serviceDetailsTable(p: ConfirmationEmailParams): string {
       <td style="padding:10px 0;color:${DARK};text-align:right;font-weight:700;font-size:15px;"><strong>$${p.firstVisitTotal.toFixed(2)}</strong></td>
     </tr>
   </table>
-  <p style="margin:10px 0 0;font-size:12px;color:${MID};">Your card on file will be charged upon job completion.</p>
+  <p style="margin:10px 0 0;font-size:12px;color:${MID};">Your card on file will be charged on the day of service.</p>
 </div>`;
 }
 
@@ -153,8 +161,7 @@ function whatNextSection(preferredContactMethod: string): string {
   <h3 style="color:${DARK};font-size:15px;font-weight:700;margin:0 0 12px;border-bottom:1px solid ${BORDER};padding-bottom:8px;">What Happens Next</h3>
   <ol style="margin:0;padding-left:20px;color:${DARK};">
     <li style="margin-bottom:8px;">Our office will contact you via <strong>${preferredContactMethod}</strong> to lock in your exact arrival time within your window</li>
-    <li style="margin-bottom:8px;">You will receive SMS &amp; email reminders <strong>72 hours</strong> and <strong>24 hours</strong> before your appointment</li>
-    <li style="margin-bottom:8px;">Your technician arrives during your selected window — please ensure the home is accessible</li>
+    <li style="margin-bottom:8px;">Your technician will text you when they are on their way</li>
     <li style="margin-bottom:0;">After your clean, we will follow up to make sure you are 100% satisfied</li>
   </ol>
 </div>`;
