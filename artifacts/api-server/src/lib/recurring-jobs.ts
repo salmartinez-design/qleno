@@ -673,15 +673,17 @@ export async function generateRecurringJobs(
 
   let clientZipMap: Record<number, string | null> = {};
   let clientNameMap: Record<number, string | null> = {};
+  let clientAccountIdMap: Record<number, number | null> = {};
   if (customerIds.length > 0) {
     const clientRows = await db
-      .select({ id: clientsTable.id, zip: clientsTable.zip, first_name: clientsTable.first_name, last_name: clientsTable.last_name })
+      .select({ id: clientsTable.id, zip: clientsTable.zip, first_name: clientsTable.first_name, last_name: clientsTable.last_name, account_id: clientsTable.account_id })
       .from(clientsTable)
       .where(inArray(clientsTable.id, customerIds));
     for (const row of clientRows) {
       clientZipMap[row.id] = row.zip || null;
       const parts = [row.first_name, row.last_name].filter((p): p is string => !!p);
       clientNameMap[row.id] = parts.length ? parts.join(" ") : null;
+      clientAccountIdMap[row.id] = (row as any).account_id ?? null;
     }
   }
 
@@ -746,7 +748,11 @@ export async function generateRecurringJobs(
       // [zero-fee-commercial 2026-06-08] $0 is legitimate for COMMERCIAL
       // schedules (split-billed / contract visits). Generate those; keep
       // skipping non-numeric fees and $0 on RESIDENTIAL schedules (phantom guard).
-      const isCommercialSchedule = COMMERCIAL_SERVICE_TYPES.has(String(schedule.service_type || "").toLowerCase());
+      // [zero-fee-account 2026-06-28] Also allow $0 for any client under an
+      // Account (account_id != null) — realtors, commercial accounts, etc.
+      // use the account as the billing entity so base_fee on the schedule is 0.
+      const isCommercialSchedule = COMMERCIAL_SERVICE_TYPES.has(String(schedule.service_type || "").toLowerCase())
+        || (clientId != null && clientAccountIdMap[clientId] != null);
       if (!Number.isFinite(feeNum) || (feeNum === 0 && !isCommercialSchedule)) {
         console.warn(`[recurring-engine] SKIP schedule id=${schedule.id} client=${clientId} — base_fee is 0 (residential/unusable)`);
         skippedZeroFee++;
