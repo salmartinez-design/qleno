@@ -405,6 +405,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "tracked_links.recipient", stmt: `ALTER TABLE tracked_links ADD COLUMN IF NOT EXISTS recipient TEXT` },
     // [estimate-industry 2026-06-26] Facility type for win-rate-by-industry. Additive.
     { label: "estimates.facility_type", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS facility_type TEXT` },
+    // [lead-drip 2026-06-28] Capture origin: web_quote (booking widget), phone_in (office on call), manual.
+    { label: "leads.lead_source", stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_source TEXT NOT NULL DEFAULT 'manual'` },
+    // [lead-drip] follow_up_enrollments.paused_at for per-lead drip pause.
+    { label: "follow_up_enrollments.paused_at", stmt: `ALTER TABLE follow_up_enrollments ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ` },
     // [agreement-esign 2026-06-26] DocuSign-grade audit trail for client agreements.
     { label: "client_agreements.signer_email", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS signer_email TEXT` },
     { label: "client_agreements.user_agent", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS user_agent TEXT` },
@@ -5168,6 +5172,97 @@ export async function runPhesDataMigration(): Promise<void> {
   // office turns it on. Idempotent (skips if estimate_followup already exists).
   await runEstimateSequenceSeed();
   await runAgreementTemplateSeed();
+
+  // [lead-drip 2026-06-28] Seed the two lead-capture drip sequences.
+  // is_active=FALSE by default — inert until office turns them on.
+  await runLeadDripSequenceSeed();
+}
+
+// ── Lead Drip Sequence Seed (all companies, INACTIVE by default) ──────────────
+// Two separate sequences: web_quote (online form) and phone_in (called in).
+// Tone/content differ — web leads need to establish trust; phone leads just
+// need a follow-through nudge. Both seeded is_active=FALSE so nothing fires
+// until the office enables them. Standard COMMS_ENABLED gate still applies.
+async function runLeadDripSequenceSeed(): Promise<void> {
+  try {
+    const companies = await db.execute(sql`SELECT id FROM companies`);
+    for (const co of (companies.rows as any[])) {
+      const cid = co.id;
+
+      // ── Web Quote drip (7 touches) ──────────────────────────────────────────
+      const existsWeb = await db.execute(sql`
+        SELECT id FROM follow_up_sequences
+        WHERE company_id = ${cid} AND sequence_type = 'lead_drip_web' LIMIT 1
+      `);
+      if (!existsWeb.rows.length) {
+        const seqWeb = await db.execute(sql`
+          INSERT INTO follow_up_sequences (company_id, sequence_type, name, is_active)
+          VALUES (${cid}, 'lead_drip_web', 'Web Lead Drip', false)
+          RETURNING id
+        `);
+        const webId = (seqWeb.rows[0] as any).id;
+        const webSteps = [
+          { n: 1, h: 0,   ch: 'sms',   s: null,
+            t: 'Hi {{first_name}}! We saw your online quote — we’d love to help you get on the schedule. Any questions? Just text back. — {{company_name}}' },
+          { n: 2, h: 2,   ch: 'email', s: 'Your quote from {{company_name}} is saved',
+            t: 'Hi {{first_name}},\n\nThank you for starting a quote with us! Your estimate is saved and ready whenever you are.\n\nWe’re known for arriving on time, being thorough, and treating every home like our own. Most clients tell us they noticed the difference in the first visit.\n\nHave questions or want to get scheduled? Just reply here or call us at {{company_phone}}.\n\n— {{company_name}}' },
+          { n: 3, h: 24,  ch: 'sms',   s: null,
+            t: '{{first_name}}, still thinking it over? We have openings this week — one text gets you on the schedule.' },
+          { n: 4, h: 48,  ch: 'email', s: 'Why our clients choose {{company_name}}',
+            t: 'Hi {{first_name}},\n\nWe wanted to share why hundreds of families in the area trust us with their homes:\n\n• Background-checked, insured, and trained professionals\n• Consistent team so you’re not meeting someone new every visit\n• Eco-friendly products available on request\n• Satisfaction guarantee on every clean\n\nIf you’re ready to get started, just reply here and we’ll find a time that works.\n\n— {{company_name}}' },
+          { n: 5, h: 72,  ch: 'sms',   s: null,
+            t: 'Last check-in for now — if you’re ready, just reply “book” and we’ll take it from there. — {{company_name}}' },
+          { n: 6, h: 120, ch: 'email', s: 'A few spots left this week',
+            t: 'Hi {{first_name}},\n\nWe have a few openings left this week if you’d like to get on the schedule. It’s quick — just reply here with a preferred day and morning or afternoon, and we’ll confirm.\n\n— {{company_name}}' },
+          { n: 7, h: 168, ch: 'sms',   s: null,
+            t: 'We’ll pause our follow-ups here, {{first_name}}. Whenever you’re ready, just reach out. — {{company_name}}' },
+        ];
+        for (const st of webSteps) {
+          await db.execute(sql`
+            INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template)
+            VALUES (${webId}, ${st.n}, ${st.h}, ${st.ch}, ${st.s ?? null}, ${st.t})
+          `);
+        }
+      }
+
+      // ── Phone-In drip (6 touches) ───────────────────────────────────────────
+      const existsPhone = await db.execute(sql`
+        SELECT id FROM follow_up_sequences
+        WHERE company_id = ${cid} AND sequence_type = 'lead_drip_phone' LIMIT 1
+      `);
+      if (!existsPhone.rows.length) {
+        const seqPhone = await db.execute(sql`
+          INSERT INTO follow_up_sequences (company_id, sequence_type, name, is_active)
+          VALUES (${cid}, 'lead_drip_phone', 'Phone Lead Drip', false)
+          RETURNING id
+        `);
+        const phoneId = (seqPhone.rows[0] as any).id;
+        const phoneSteps = [
+          { n: 1, h: 0,   ch: 'sms',   s: null,
+            t: 'Hi {{first_name}}, great talking with you! Here’s your quote recap from {{company_name}}. Questions? Just reply here.' },
+          { n: 2, h: 24,  ch: 'sms',   s: null,
+            t: '{{first_name}}, following up from {{company_name}}. Ready to get on the schedule? Just say the word.' },
+          { n: 3, h: 48,  ch: 'email', s: 'Your quote from our call',
+            t: 'Hi {{first_name}},\n\nIt was great speaking with you! Per our conversation, here is a quick recap of what we discussed.\n\nWhen you’re ready to get scheduled, just reply here and I’ll take care of it.\n\n— {{company_name}}' },
+          { n: 4, h: 72,  ch: 'sms',   s: null,
+            t: '{{first_name}}, we’d love to get your home sparkling. Want me to find you a morning or afternoon slot this week?' },
+          { n: 5, h: 120, ch: 'email', s: 'Still here whenever you’re ready',
+            t: 'Hi {{first_name}},\n\nJust checking in one more time. We’d love to earn your business and make your home shine.\n\nReply here or call {{company_phone}} anytime.\n\n— {{company_name}}' },
+          { n: 6, h: 168, ch: 'sms',   s: null,
+            t: 'We’ll wrap up here for now, {{first_name}}. Reach out anytime — {{company_name}}' },
+        ];
+        for (const st of phoneSteps) {
+          await db.execute(sql`
+            INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template)
+            VALUES (${phoneId}, ${st.n}, ${st.h}, ${st.ch}, ${st.s ?? null}, ${st.t})
+          `);
+        }
+      }
+    }
+    console.log("[lead-drip-seed] Lead drip sequences seeded for all companies.");
+  } catch (err) {
+    console.error("[lead-drip-seed] Seed error (non-fatal):", err);
+  }
 }
 
 // ── Estimate Follow-Up Sequence Seed (PHES, INACTIVE by default) ────────────
