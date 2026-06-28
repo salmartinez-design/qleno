@@ -245,6 +245,11 @@ router.patch("/me", requireAuth, async (req, res) => {
         if (cv !== undefined) patch[f] = cv;
       }
     }
+    // [office-email-settings] Zone + available-techs toggles for office booking email.
+    const { office_email_show_zone, office_email_show_available_techs } = req.body;
+    if (office_email_show_zone !== undefined) patch.office_email_show_zone = !!office_email_show_zone;
+    if (office_email_show_available_techs !== undefined) patch.office_email_show_available_techs = !!office_email_show_available_techs;
+
     const { online_booking_lead_hours } = req.body;
     if (online_booking_lead_hours !== undefined) patch.online_booking_lead_hours = online_booking_lead_hours;
     const { dispatch_start_hour, dispatch_end_hour } = req.body;

@@ -1885,7 +1885,106 @@ function NotificationsTab() {
         );
       })}
 
+      <OfficeNotificationsCard />
       <SmsSmsSettingsCard />
+    </div>
+  );
+}
+
+function OfficeNotificationsCard() {
+  const { toast } = useToast();
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const [showZone, setShowZone] = useState(true);
+  const [showTechs, setShowTechs] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/api/companies/me`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        const c = d.data ?? d;
+        setShowZone(c.office_email_show_zone !== false);
+        setShowTechs(c.office_email_show_available_techs !== false);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/companies/me`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ office_email_show_zone: showZone, office_email_show_available_techs: showTechs }),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: "Office notification settings saved" });
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setSaving(false); }
+  }
+
+  if (loading) return null;
+
+  const rows = [
+    {
+      key: "zone",
+      checked: showZone,
+      onChange: setShowZone,
+      label: "Zone in subject line",
+      desc: "Adds the booking zone (e.g. Evergreen Park) to the email subject so you can scan at a glance before opening.",
+    },
+    {
+      key: "techs",
+      checked: showTechs,
+      onChange: setShowTechs,
+      label: "Available technicians",
+      desc: "Lists techs with no conflicting jobs on the booking date. Pulled live from dispatch at send time.",
+    },
+  ];
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '18px 20px', marginBottom: 12, fontFamily: FF }}>
+      <div style={{ marginBottom: 14 }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Office Booking Notification</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Controls what appears in the email your office receives when a new booking comes in online.</p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+        {rows.map(row => (
+          <div key={row.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#F7F6F3', borderRadius: 8 }}>
+            <div style={{ flex: 1, paddingRight: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 2px' }}>{row.label}</p>
+              <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{row.desc}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => row.onChange(!row.checked)}
+              style={{
+                width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+                background: row.checked ? 'var(--brand, #00C9A0)' : '#E5E2DC',
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+              }}
+            >
+              <div style={{
+                width: 18, height: 18, borderRadius: 9, background: '#fff',
+                position: 'absolute', top: 3, left: row.checked ? 23 : 3,
+                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+              }} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          onClick={save}
+          disabled={saving}
+          style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand, #00C9A0)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF, opacity: saving ? 0.7 : 1 }}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
     </div>
   );
 }

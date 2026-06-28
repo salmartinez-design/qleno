@@ -187,6 +187,10 @@ export const companiesTable = pgTable("companies", {
   // route to an owner's personal inbox without landing in the public mailbox.
   lead_notify_email: text("lead_notify_email"),
   lead_notify_phone: text("lead_notify_phone"),
+  // [office-email-settings] Per-tenant toggles for office booking notification
+  // content. Both default ON — toggling off strips that section from the email.
+  office_email_show_zone: boolean("office_email_show_zone").notNull().default(true),
+  office_email_show_available_techs: boolean("office_email_show_available_techs").notNull().default(true),
   twilio_account_sid: text("twilio_account_sid"),
   twilio_auth_token: text("twilio_auth_token"),
   created_at: timestamp("created_at").notNull().defaultNow(),
