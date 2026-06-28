@@ -168,19 +168,25 @@ function KpiStrip({ counts, filter, onFilter }: {
 
 // ── Lead Row ──────────────────────────────────────────────────────────────────
 
-function LeadRow({ lead, selected, onClick }: { lead: Lead; selected: boolean; onClick: () => void }) {
+function LeadRow({ lead, selected, onClick, checked, onCheck }: {
+  lead: Lead; selected: boolean; onClick: () => void;
+  checked: boolean; onCheck: (e: React.ChangeEvent<HTMLInputElement>) => void;
+}) {
   const { cfg } = leadSourceTag(lead);
   const done = lead.status === "booked" ? 100 : lead.status === "quoted" ? 57 : lead.status === "contacted" ? 29 : lead.status === "needs_contacted" ? 14 : 0;
   const accent = accentColor(lead);
 
   return (
-    <div onClick={onClick} style={{
+    <div style={{
       padding: "11px 14px 11px 17px", borderBottom: "0.5px solid #F2EFE9", cursor: "pointer",
-      background: selected ? "#F5FEFA" : "transparent", display: "flex", alignItems: "flex-start",
+      background: checked ? "#FFF8F8" : selected ? "#F5FEFA" : "transparent", display: "flex", alignItems: "flex-start",
       position: "relative", transition: "background .1s",
     }}>
       <div style={{ width: 3, borderRadius: 2, background: accent, position: "absolute", left: 0, top: 10, bottom: 10 }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <input type="checkbox" checked={checked} onChange={onCheck}
+        onClick={e => e.stopPropagation()}
+        style={{ marginRight: 8, marginTop: 2, flexShrink: 0, cursor: "pointer", accentColor: "#DC2626" }} />
+      <div style={{ flex: 1, minWidth: 0 }} onClick={onClick}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 2 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>
             {[lead.first_name, lead.last_name].filter(Boolean).join(" ")}
@@ -202,7 +208,7 @@ function LeadRow({ lead, selected, onClick }: { lead: Lead; selected: boolean; o
             {(STATUS_CONFIG[lead.status] || STATUS_CONFIG["needs_contacted"]).label}
           </span>
           <span style={{ fontSize: 9, color: "#C4C0B8", fontFamily: FF }}>
-            {cfg.label} · {fmtDate(lead.created_at)}
+            {cfg.label} &middot; {fmtDate(lead.created_at)}
           </span>
         </div>
       </div>
@@ -493,7 +499,7 @@ function MessagesTab({ lead }: { lead: Lead }) {
               </div>
             </div>
             <div style={{ fontSize: 9, color: "#9E9B94", textAlign: m.direction === "outbound" ? "right" : "left", marginBottom: 6, fontFamily: FF }}>
-              {m.step_number ? `Drip touch ${m.step_number} · ${(m.channel || "sms").toUpperCase()} · ` : ""}{fmtDateTime(m.created_at)}
+              {m.step_number ? `Drip touch ${m.step_number} - ${(m.channel || "sms").toUpperCase()} - ` : ""}{fmtDateTime(m.created_at)}
             </div>
           </div>
         ))}
@@ -680,7 +686,7 @@ function JobsTab({ lead }: { lead: Lead }) {
                   {j.service_type || "Cleaning"} — {fmtDate(j.scheduled_date)}
                 </div>
                 <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, marginTop: 2 }}>
-                  {j.status} {j.base_fee ? `· $${parseFloat(j.base_fee).toFixed(0)}` : ""}
+                  {j.status} {j.base_fee ? `- $${parseFloat(j.base_fee).toFixed(0)}` : ""}
                 </div>
               </div>
             </div>
@@ -1193,6 +1199,9 @@ export default function LeadsPage() {
   const [partners, setPartners] = useState<PartnerOpt[]>([]);
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [checkedIds, setCheckedIds] = useState<Set<number>>(new Set());
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const { toast } = useToast();
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadLeads = useCallback(async () => {
@@ -1230,6 +1239,26 @@ export default function LeadsPage() {
 
   useEffect(() => { loadLeads(); }, [loadLeads]);
   useEffect(() => { loadCounts(); }, [loadCounts]);
+
+  async function handleBulkDelete() {
+    if (!checkedIds.size) return;
+    if (!confirm(`Delete ${checkedIds.size} lead${checkedIds.size > 1 ? "s" : ""}? This cannot be undone.`)) return;
+    setBulkDeleting(true);
+    try {
+      const r = await fetch(`${API}/api/leads/bulk-delete`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: Array.from(checkedIds) }),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: `${checkedIds.size} lead${checkedIds.size > 1 ? "s" : ""} deleted` });
+      setCheckedIds(new Set());
+      if (selectedLead && checkedIds.has(selectedLead.id)) setSelectedLead(null);
+      loadLeads(); loadCounts();
+    } catch {
+      toast({ title: "Failed to delete", variant: "destructive" });
+    } finally { setBulkDeleting(false); }
+  }
 
   function handleSearch(val: string) {
     setSearch(val);
@@ -1282,6 +1311,21 @@ export default function LeadsPage() {
                     style={{ width: "100%", fontSize: 12, padding: "6px 10px 6px 28px", border: "0.5px solid #E5E2DC", borderRadius: 7, outline: "none", color: "#1A1917", background: "#F7F6F3", fontFamily: FF }} />
                 </div>
               </div>
+              {checkedIds.size > 0 && (
+                <div style={{ padding: "8px 14px", background: "#FEF2F2", borderBottom: "1px solid #FECACA", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "#DC2626", fontFamily: FF }}>{checkedIds.size} selected</span>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => setCheckedIds(new Set())}
+                      style={{ fontSize: 10, padding: "4px 8px", borderRadius: 5, border: "0.5px solid #FECACA", background: "#fff", color: "#6B6860", cursor: "pointer", fontFamily: FF }}>
+                      Clear
+                    </button>
+                    <button onClick={handleBulkDelete} disabled={bulkDeleting}
+                      style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, border: "none", background: "#DC2626", color: "#fff", cursor: "pointer", fontFamily: FF }}>
+                      {bulkDeleting ? <Loader2 size={10} className="animate-spin" /> : `Delete ${checkedIds.size}`}
+                    </button>
+                  </div>
+                </div>
+              )}
               <div style={{ flex: 1, overflowY: "auto" }}>
                 {loading ? (
                   <div style={{ padding: 20, display: "flex", justifyContent: "center" }}><Loader2 size={18} className="animate-spin" color="#9E9B94" /></div>
@@ -1293,7 +1337,13 @@ export default function LeadsPage() {
                       key={lead.id}
                       lead={lead}
                       selected={selectedLead?.id === lead.id}
-                      onClick={() => setSelectedLead(lead)}
+                      onClick={() => { setSelectedLead(lead); setCheckedIds(new Set()); }}
+                      checked={checkedIds.has(lead.id)}
+                      onCheck={e => {
+                        const next = new Set(checkedIds);
+                        e.target.checked ? next.add(lead.id) : next.delete(lead.id);
+                        setCheckedIds(next);
+                      }}
                     />
                   ))
                 )}
