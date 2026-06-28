@@ -194,11 +194,15 @@ function LeadRow({ lead, selected, onClick }: { lead: Lead; selected: boolean; o
           <div style={{ height: "100%", width: `${done}%`, background: accent, borderRadius: 1 }} />
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: cfg.color, fontFamily: FF }}>
-            {cfg.label}
+          <span style={{
+            fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 4, fontFamily: FF,
+            background: (STATUS_CONFIG[lead.status] || STATUS_CONFIG["needs_contacted"]).bg,
+            color: (STATUS_CONFIG[lead.status] || STATUS_CONFIG["needs_contacted"]).color,
+          }}>
+            {(STATUS_CONFIG[lead.status] || STATUS_CONFIG["needs_contacted"]).label}
           </span>
-          <span style={{ fontSize: 9, color: "#9E9B94", fontFamily: FF }}>
-            {lead.status === "booked" ? "Drip complete" : `Added ${fmtDate(lead.created_at)}`}
+          <span style={{ fontSize: 9, color: "#C4C0B8", fontFamily: FF }}>
+            {cfg.label} · {fmtDate(lead.created_at)}
           </span>
         </div>
       </div>
@@ -1155,9 +1159,12 @@ export default function LeadsPage() {
   const loadCounts = useCallback(async () => {
     const r = await fetch(`${API}/api/leads/status-counts`, { headers: getAuthHeaders() });
     if (r.ok) {
-      const rows: Array<{ status: string; count: string }> = await r.json();
+      const obj: Record<string, number> = await r.json();
       const map: Record<string, number> = { all: 0 };
-      for (const row of rows) { map[row.status] = parseInt(row.count); map.all = (map.all || 0) + parseInt(row.count); }
+      for (const [status, n] of Object.entries(obj)) {
+        map[status] = Number(n);
+        map.all = (map.all || 0) + Number(n);
+      }
       setCounts(map);
     }
   }, []);
