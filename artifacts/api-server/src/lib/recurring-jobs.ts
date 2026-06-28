@@ -751,7 +751,10 @@ export async function generateRecurringJobs(
       // [zero-fee-account 2026-06-28] Also allow $0 for any client under an
       // Account (account_id != null) — realtors, commercial accounts, etc.
       // use the account as the billing entity so base_fee on the schedule is 0.
-      const isCommercialSchedule = COMMERCIAL_SERVICE_TYPES.has(String(schedule.service_type || "").toLowerCase())
+      // Normalize to slug: "Commercial Cleaning" → "commercial_cleaning" so old
+      // records saved with the display name match the same as new slug-based ones.
+      const serviceSlug = String(schedule.service_type || "").toLowerCase().replace(/\s+/g, "_");
+      const isCommercialSchedule = COMMERCIAL_SERVICE_TYPES.has(serviceSlug)
         || (clientId != null && clientAccountIdMap[clientId] != null);
       if (!Number.isFinite(feeNum) || (feeNum === 0 && !isCommercialSchedule)) {
         console.warn(`[recurring-engine] SKIP schedule id=${schedule.id} client=${clientId} — base_fee is 0 (residential/unusable)`);
