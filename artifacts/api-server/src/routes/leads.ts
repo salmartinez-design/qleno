@@ -8,6 +8,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { enrollForLeadDrip, stopEnrollmentsForLead, sendSingleEnrollmentTouch } from "../services/followUpService.js";
 
 const router = Router();
 
@@ -188,37 +189,50 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       first_name, last_name, email, phone,
       address, city, state, zip,
       source = "manual", status = "needs_contacted",
+      lead_source,
       scope, sqft, bedrooms, bathrooms, notes,
       quote_amount, assigned_to,
     } = req.body;
 
     if (!first_name) return res.status(400).json({ error: "first_name required" });
 
+    // Resolve lead_source: explicit > infer from source > default 'manual'.
+    const resolvedLeadSource = lead_source || (source === "website" || source === "booking_widget" ? "web_quote" : "manual");
+
+    // Auto-assign phone-in leads to the creating user (the rep on the call).
+    const resolvedAssignedTo = assigned_to
+      ? parseInt(assigned_to)
+      : resolvedLeadSource === "phone_in" ? userId
+      : null;
+
     const result = await db.execute(sql`
       INSERT INTO leads (
         company_id, first_name, last_name, email, phone,
-        address, city, state, zip, source, status,
+        address, city, state, zip, source, status, lead_source,
         scope, sqft, bedrooms, bathrooms, notes,
         quote_amount, assigned_to, created_at, updated_at
       ) VALUES (
         ${companyId}, ${first_name}, ${last_name || null}, ${email || null}, ${phone || null},
         ${address || null}, ${city || null}, ${state || null}, ${zip || null},
-        ${source}, ${status},
+        ${source}, ${status}, ${resolvedLeadSource},
         ${scope || null}, ${sqft ? parseInt(sqft) : null},
         ${bedrooms ? parseInt(bedrooms) : null}, ${bathrooms ? parseInt(bathrooms) : null},
         ${notes || null}, ${quote_amount ? parseFloat(quote_amount) : null},
-        ${assigned_to ? parseInt(assigned_to) : null},
+        ${resolvedAssignedTo},
         NOW(), NOW()
       ) RETURNING id
     `);
     const leadId = (result.rows[0] as any).id;
 
     await logActivity(leadId, companyId, "status_change", `Lead created with status: ${status}`, userId);
-    await logAudit(req, "lead.create", "lead", leadId, null, { first_name, last_name, email, phone, source, status });
+    await logAudit(req, "lead.create", "lead", leadId, null, { first_name, last_name, email, phone, source, lead_source: resolvedLeadSource, status });
 
     fireOfficeNotification(companyId, leadId, first_name, last_name, source, phone, scope).catch(() => {});
 
-    return res.status(201).json({ id: leadId });
+    // Enroll in the appropriate lead drip sequence (fires only if sequence is active).
+    enrollForLeadDrip(companyId, leadId, resolvedLeadSource).catch(() => {});
+
+    return res.status(201).json({ id: leadId, lead_source: resolvedLeadSource, assigned_to: resolvedAssignedTo });
   } catch (err) {
     console.error("POST /leads:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -279,6 +293,10 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
 
     if (stageChanged) {
       await logActivity(leadId, companyId, "status_change", `Status changed from ${prev} to ${status}`, userId);
+      // Stop lead drip when the lead books — they're now a client.
+      if (status === "booked") {
+        stopEnrollmentsForLead(leadId, "lead_booked").catch(() => {});
+      }
     }
     await logAudit(req, "lead.update", "lead", leadId,
       stageChanged ? { status: prev } : null,
@@ -594,5 +612,212 @@ export async function fireOfficeNotification(
     console.error("[leads] office email error:", err);
   }
 }
+
+// ── GET /api/leads/reports ─────────────────────────────────────────────────────
+router.get("/reports", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const { from, to } = req.query as Record<string, string>;
+    const fromClause = from ? `AND l.created_at >= '${from}'::date` : "";
+    const toClause = to ? `AND l.created_at < ('${to}'::date + interval '1 day')` : "";
+
+    const [totals, bySource, byOwner, touchConv] = await Promise.all([
+      db.execute(sql.raw(`
+        SELECT
+          COUNT(*) FILTER (WHERE TRUE) AS total,
+          COUNT(*) FILTER (WHERE status = 'booked') AS booked,
+          COUNT(*) FILTER (WHERE status IN ('no_response','not_interested','closed')) AS lost,
+          COUNT(*) FILTER (WHERE status NOT IN ('booked','no_response','not_interested','closed')) AS active
+        FROM leads l WHERE company_id = ${companyId} ${fromClause} ${toClause}
+      `)),
+      db.execute(sql.raw(`
+        SELECT
+          COALESCE(lead_source, source, 'manual') AS source_label,
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE status = 'booked') AS booked,
+          ROUND(COUNT(*) FILTER (WHERE status = 'booked') * 100.0 / NULLIF(COUNT(*),0), 1) AS close_rate
+        FROM leads l WHERE company_id = ${companyId} ${fromClause} ${toClause}
+        GROUP BY 1 ORDER BY total DESC
+      `)),
+      db.execute(sql.raw(`
+        SELECT
+          u.first_name || ' ' || COALESCE(u.last_name,'') AS owner_name,
+          COUNT(l.id) AS total,
+          COUNT(l.id) FILTER (WHERE l.status = 'booked') AS booked,
+          ROUND(COUNT(l.id) FILTER (WHERE l.status = 'booked') * 100.0 / NULLIF(COUNT(l.id),0), 1) AS close_rate
+        FROM leads l
+        LEFT JOIN users u ON u.id = l.assigned_to
+        WHERE l.company_id = ${companyId} ${fromClause} ${toClause}
+        GROUP BY 1 ORDER BY booked DESC
+      `)),
+      db.execute(sql.raw(`
+        SELECT
+          fst.step_number,
+          fst.channel,
+          COUNT(ml.id) AS sent,
+          COUNT(fe.id) FILTER (WHERE fe.completed_at IS NOT NULL OR fe.stopped_reason = 'lead_booked') AS converted
+        FROM follow_up_enrollments fe
+        JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+        JOIN follow_up_steps fst ON fst.sequence_id = fe.sequence_id
+        LEFT JOIN message_log ml ON ml.enrollment_id = fe.id AND ml.step_number = fst.step_number
+        WHERE fe.company_id = ${companyId}
+          AND fs.sequence_type IN ('lead_drip_web','lead_drip_phone')
+          ${from ? `AND fe.enrolled_at >= '${from}'::date` : ""}
+          ${to ? `AND fe.enrolled_at < ('${to}'::date + interval '1 day')` : ""}
+        GROUP BY fst.step_number, fst.channel
+        ORDER BY fst.step_number
+      `)),
+    ]);
+
+    return res.json({
+      totals: totals.rows[0],
+      bySource: bySource.rows,
+      byOwner: byOwner.rows,
+      touchConversion: touchConv.rows,
+    });
+  } catch (err) {
+    console.error("GET /leads/reports:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── GET /api/leads/:id/drip ────────────────────────────────────────────────────
+router.get("/:id/drip", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const leadId = parseInt(req.params.id);
+
+    const enrollment = await db.execute(sql`
+      SELECT fe.id, fe.sequence_id, fe.current_step, fe.enrolled_at, fe.next_fire_at,
+             fe.completed_at, fe.stopped_at, fe.stopped_reason, fe.paused_at,
+             fs.name AS sequence_name, fs.sequence_type
+      FROM follow_up_enrollments fe
+      JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+      WHERE fe.lead_id = ${leadId} AND fe.company_id = ${companyId}
+        AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+      ORDER BY fe.enrolled_at DESC LIMIT 1
+    `);
+
+    if (!enrollment.rows.length) {
+      return res.json({ enrollment: null, steps: [] });
+    }
+
+    const enr = enrollment.rows[0] as any;
+    const steps = await db.execute(sql`
+      SELECT fst.id, fst.step_number, fst.delay_hours, fst.channel, fst.subject, fst.message_template,
+             ml.id AS log_id, ml.sent_at, ml.status AS send_status
+      FROM follow_up_steps fst
+      LEFT JOIN message_log ml ON ml.enrollment_id = ${enr.id} AND ml.step_number = fst.step_number
+      WHERE fst.sequence_id = ${enr.sequence_id}
+      ORDER BY fst.step_number ASC
+    `);
+
+    return res.json({ enrollment: enr, steps: steps.rows });
+  } catch (err) {
+    console.error("GET /leads/:id/drip:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/leads/:id/drip/send-now ─────────────────────────────────────────
+router.post("/:id/drip/send-now", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const leadId = parseInt(req.params.id);
+
+    const enrRows = await db.execute(sql`
+      SELECT fe.id FROM follow_up_enrollments fe
+      WHERE fe.lead_id = ${leadId} AND fe.company_id = ${companyId}
+        AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+      ORDER BY fe.enrolled_at DESC LIMIT 1
+    `);
+    if (!enrRows.rows.length) return res.status(404).json({ error: "No active enrollment" });
+
+    const enrollmentId = (enrRows.rows[0] as any).id;
+    const result = await sendSingleEnrollmentTouch(companyId, enrollmentId);
+    return res.json(result ?? { ok: true });
+  } catch (err) {
+    console.error("POST /leads/:id/drip/send-now:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/leads/:id/drip/skip ─────────────────────────────────────────────
+router.post("/:id/drip/skip", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const leadId = parseInt(req.params.id);
+
+    const enrRows = await db.execute(sql`
+      SELECT fe.id, fe.current_step, fe.sequence_id FROM follow_up_enrollments fe
+      WHERE fe.lead_id = ${leadId} AND fe.company_id = ${companyId}
+        AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+      ORDER BY fe.enrolled_at DESC LIMIT 1
+    `);
+    if (!enrRows.rows.length) return res.status(404).json({ error: "No active enrollment" });
+
+    const enr = enrRows.rows[0] as any;
+    const nextStep = enr.current_step + 1;
+
+    const nextStepRows = await db.execute(sql`
+      SELECT delay_hours FROM follow_up_steps
+      WHERE sequence_id = ${enr.sequence_id} AND step_number = ${nextStep}
+      LIMIT 1
+    `);
+
+    if (!nextStepRows.rows.length) {
+      await db.execute(sql`
+        UPDATE follow_up_enrollments SET completed_at = NOW() WHERE id = ${enr.id}
+      `);
+      return res.json({ ok: true, completed: true });
+    }
+
+    const delayHours = (nextStepRows.rows[0] as any).delay_hours as number;
+    await db.execute(sql`
+      UPDATE follow_up_enrollments
+      SET current_step = ${nextStep},
+          next_fire_at = NOW() + (${delayHours} * interval '1 hour')
+      WHERE id = ${enr.id}
+    `);
+
+    return res.json({ ok: true, next_step: nextStep });
+  } catch (err) {
+    console.error("POST /leads/:id/drip/skip:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── PATCH /api/leads/:id/drip/pause ───────────────────────────────────────────
+router.patch("/:id/drip/pause", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const leadId = parseInt(req.params.id);
+
+    await db.execute(sql`
+      UPDATE follow_up_enrollments
+      SET paused_at = CASE WHEN paused_at IS NULL THEN NOW() ELSE NULL END
+      WHERE lead_id = ${leadId} AND company_id = ${companyId}
+        AND completed_at IS NULL AND stopped_at IS NULL
+    `);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("PATCH /leads/:id/drip/pause:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── PATCH /api/leads/:id/drip/stop ────────────────────────────────────────────
+router.patch("/:id/drip/stop", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const leadId = parseInt(req.params.id);
+    await stopEnrollmentsForLead(leadId, (req.body as any)?.reason || "office_stopped");
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("PATCH /leads/:id/drip/stop:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 export default router;
