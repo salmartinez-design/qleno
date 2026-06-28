@@ -251,6 +251,8 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
   const [excluded, setExcluded] = useState<Set<number>>(new Set()); // invoice ids to leave out
   const [busyClient, setBusyClient] = useState<number | null>(null);
+  // Preview step: the client being previewed before consolidation fires
+  const [previewClient, setPreviewClient] = useState<any | null>(null);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["weekly-invoicing", cadence, anchor],
@@ -344,9 +346,10 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
                       <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>{incl.length} visit{incl.length !== 1 ? "s" : ""}{excluded.size ? ` · ${(c.visits || []).length - incl.length} excluded` : ""}</p>
                     </div>
                     <span style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>${inclTotal.toFixed(2)}</span>
-                    <button onClick={() => consolidate(c.client_id)} disabled={busyClient === c.client_id || incl.length === 0}
+                    <button onClick={() => incl.length > 0 && setPreviewClient({ ...c, inclVisits: incl, inclTotal })}
+                      disabled={busyClient === c.client_id || incl.length === 0}
                       style={{ backgroundColor: incl.length === 0 ? "#C4C0BB" : "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: incl.length === 0 ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
-                      {busyClient === c.client_id ? "Working…" : "Generate invoice"}
+                      {busyClient === c.client_id ? "Working…" : "Preview invoice"}
                     </button>
                   </div>
                   {isOpen && (
@@ -376,6 +379,78 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
         <div style={{ padding: "14px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, backgroundColor: "#FAFAF9" }}>
           <p style={{ margin: 0, fontSize: 11, color: "#9E9B94" }}>One invoice per client, one line per visit (service date), due on receipt. Pushes a single document to QuickBooks.</p>
         </div>
+
+        {/* Preview slide — full-height panel that covers the list when a client is selected */}
+        {previewClient && (() => {
+          const pc = previewClient;
+          const periodLabel = fmtRange(data?.period_start, data?.period_end);
+          return (
+            <div style={{ position: "absolute", inset: 0, backgroundColor: "#FFFFFF", display: "flex", flexDirection: "column", zIndex: 10 }}>
+              {/* Header */}
+              <div style={{ padding: "20px 24px", borderBottom: "1px solid #EEECE7", flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
+                <button onClick={() => setPreviewClient(null)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7280", padding: 0, display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontFamily: FF }}>
+                  ‹ Back
+                </button>
+                <div style={{ flex: 1 }}>
+                  <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>Invoice Preview</h2>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>Review before creating</p>
+                </div>
+                <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={20} /></button>
+              </div>
+
+              {/* Invoice mock */}
+              <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+                {/* Client + period */}
+                <div style={{ marginBottom: 20 }}>
+                  <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>{pc.client_name || `Client #${pc.client_id}`}</p>
+                  {periodLabel && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6B7280" }}>Period: {periodLabel}</p>}
+                  <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9E9B94" }}>Due on receipt · {cadence === "weekly" ? "Weekly" : "Monthly"} invoice</p>
+                </div>
+
+                {/* Line items */}
+                <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 0, backgroundColor: "#F7F6F3", padding: "10px 16px", borderBottom: "1px solid #E5E2DC" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em" }}>Description</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right" }}>Amount</span>
+                  </div>
+                  {(pc.inclVisits || []).map((v: any, i: number) => (
+                    <div key={v.invoice_id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 0, padding: "12px 16px", borderBottom: i < pc.inclVisits.length - 1 ? "1px solid #F0EDE8" : "none" }}>
+                      <div>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{v.service_label || v.service_date}</p>
+                        {v.service_type && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#9E9B94" }}>{(v.service_type || "").replace(/_/g, " ")}</p>}
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", alignSelf: "center" }}>${(v.total || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", padding: "12px 16px", backgroundColor: "#F7F6F3", borderTop: "2px solid #E5E2DC" }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>Total</span>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>${(pc.inclTotal || 0).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <p style={{ fontSize: 12, color: "#9E9B94", margin: 0, lineHeight: 1.5 }}>
+                  This will create one consolidated invoice. Individual visit records will be marked superseded.
+                  You can then send or charge from the invoice detail page.
+                </p>
+              </div>
+
+              {/* Footer actions */}
+              <div style={{ padding: "16px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                <button
+                  onClick={async () => { await consolidate(pc.client_id); setPreviewClient(null); }}
+                  disabled={busyClient === pc.client_id}
+                  style={{ width: "100%", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "13px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
+                  {busyClient === pc.client_id ? "Creating…" : `Create Invoice · $${(pc.inclTotal || 0).toFixed(2)}`}
+                </button>
+                <button onClick={() => setPreviewClient(null)}
+                  style={{ width: "100%", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#9E9B94", padding: "6px 0", fontFamily: FF }}>
+                  Go back and adjust
+                </button>
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </>
   );
@@ -385,11 +460,9 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
   const { toast } = useToast();
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [autoSend, setAutoSend] = useState(false);
-  const [autoCharge, setAutoCharge] = useState(false);
   const [search, setSearch] = useState("");
   const [progress, setProgress] = useState<{ done: number; total: number; current: string; errors: number } | null>(null);
-  const [summary, setSummary] = useState<{ created: number; sent: number; charged: number; errors: number } | null>(null);
+  const [summary, setSummary] = useState<{ created: number; errors: number; invoices: { id: number; clientName: string; amount: number }[] } | null>(null);
 
   const { data: rawJobs = [], isLoading } = useQuery({
     queryKey: ["uninvoiced-jobs"],
@@ -423,36 +496,28 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
   async function handleGenerate() {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-    let created = 0; let sent = 0; let charged = 0; let errors = 0;
+    let created = 0; let errors = 0;
+    const invoices: { id: number; clientName: string; amount: number }[] = [];
     setProgress({ done: 0, total: ids.length, current: "", errors: 0 });
 
     for (const jobId of ids) {
       const job = allJobs.find((j: any) => j.id === jobId);
       setProgress(p => p ? { ...p, current: job?.client_name || `Job #${jobId}` } : null);
       try {
-        await apiFetch("/api/invoices", {
+        // Always create as draft so the office can review each invoice before sending.
+        const inv = await apiFetch("/api/invoices", {
           method: "POST",
-          body: JSON.stringify({ job_id: jobId, auto_send: autoSend, auto_charge: autoCharge }),
+          body: JSON.stringify({ job_id: jobId, auto_send: false, auto_charge: false }),
         });
+        invoices.push({ id: inv.id, clientName: job?.client_name || `Job #${jobId}`, amount: parseFloat(job?.base_fee || "0") });
         created++;
-        if (autoSend) sent++;
-        if (autoCharge) charged++;
       } catch { errors++; }
       setProgress(p => p ? { ...p, done: created + errors, errors } : null);
     }
-    setSummary({ created, sent, charged, errors });
+    setSummary({ created, errors, invoices });
     qc.invalidateQueries({ queryKey: ["invoices"] });
     qc.invalidateQueries({ queryKey: ["uninvoiced-jobs"] });
-    if (errors === 0) toast({ title: `${created} invoice${created !== 1 ? "s" : ""} created successfully` });
   }
-
-  const TOGGLE_ROW: React.CSSProperties = {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "12px 0",
-    borderBottom: "1px solid #F0EDE8",
-  };
 
   return (
     <>
@@ -476,29 +541,40 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
 
         <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
           {summary ? (
-            <div style={{ padding: 32, display: "flex", flexDirection: "column", alignItems: "center", gap: 20, flex: 1 }}>
-              <div style={{ width: 64, height: 64, backgroundColor: "#D1FAE5", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Check size={30} style={{ color: "#16A34A" }} />
+            <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: 20, flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <div style={{ width: 48, height: 48, backgroundColor: "#D1FAE5", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Check size={24} style={{ color: "#16A34A" }} />
+                </div>
+                <div>
+                  <h3 style={{ margin: "0 0 2px", fontSize: 17, fontWeight: 800, color: "#1A1917" }}>
+                    {summary.created} draft invoice{summary.created !== 1 ? "s" : ""} created
+                  </h3>
+                  <p style={{ margin: 0, fontSize: 12, color: "#6B7280" }}>
+                    Review each one, then send or charge from the invoice page.
+                    {summary.errors > 0 && <span style={{ color: "#DC2626" }}> {summary.errors} failed.</span>}
+                  </p>
+                </div>
               </div>
-              <div style={{ textAlign: "center" }}>
-                <h3 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 800, color: "#1A1917" }}>Batch Complete</h3>
-                <p style={{ margin: 0, fontSize: 13, color: "#6B7280" }}>All invoices have been processed</p>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, width: "100%" }}>
-                {[
-                  { label: "Invoices Created", value: summary.created, color: "#1A1917", bg: "#F0F7FF" },
-                  ...(autoSend ? [{ label: "Emails Sent", value: summary.sent, color: "#1D4ED8", bg: "#DBEAFE" }] : []),
-                  ...(autoCharge ? [{ label: "Payments Collected", value: summary.charged, color: "#16A34A", bg: "#DCFCE7" }] : []),
-                  ...(summary.errors > 0 ? [{ label: "Failed / Skipped", value: summary.errors, color: "#DC2626", bg: "#FEE2E2" }] : []),
-                ].map(s => (
-                  <div key={s.label} style={{ backgroundColor: s.bg, borderRadius: 10, padding: "18px 16px", textAlign: "center" }}>
-                    <div style={{ fontSize: 32, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: s.color, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 6 }}>{s.label}</div>
+
+              {/* Invoice list with View links */}
+              <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", flex: 1, overflowY: "auto" }}>
+                {summary.invoices.map((inv, i) => (
+                  <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderBottom: i < summary.invoices.length - 1 ? "1px solid #F0EDE8" : "none" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.clientName}</p>
+                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "#9E9B94" }}>Draft · ${inv.amount.toFixed(2)}</p>
+                    </div>
+                    <a href={`/invoices/${inv.id}`}
+                      style={{ fontSize: 12, fontWeight: 700, color: "var(--brand)", textDecoration: "none", whiteSpace: "nowrap", padding: "5px 10px", border: "1px solid #D1FAE5", borderRadius: 6, backgroundColor: "#ECFDF5" }}>
+                      Review →
+                    </a>
                   </div>
                 ))}
               </div>
+
               <button onClick={() => { onDone(); onClose(); }}
-                style={{ width: "100%", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: "auto" }}>
+                style={{ width: "100%", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
                 Done
               </button>
             </div>
@@ -582,35 +658,7 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
 
         {!progress && !summary && (
           <div style={{ padding: "16px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, backgroundColor: "#FAFAF9" }}>
-            <div style={TOGGLE_ROW}>
-              <div>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>Auto-Send</p>
-                <p style={{ margin: "2px 0 0", fontSize: 11, color: autoSend ? "#1D4ED8" : "#9E9B94" }}>
-                  {autoSend ? "Invoice will be sent via email using your Resend account" : "Email invoice to client automatically"}
-                </p>
-              </div>
-              <label style={{ position: "relative", display: "inline-flex", alignItems: "center", cursor: "pointer" }}>
-                <input type="checkbox" checked={autoSend} onChange={e => setAutoSend(e.target.checked)} style={{ display: "none" }} />
-                <div style={{ width: 42, height: 24, backgroundColor: autoSend ? "var(--brand)" : "#E5E2DC", borderRadius: 12, position: "relative", transition: "background 0.2s" }}>
-                  <div style={{ position: "absolute", top: 3, left: autoSend ? 21 : 3, width: 18, height: 18, backgroundColor: "#FFFFFF", borderRadius: 9, boxShadow: "0 1px 4px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
-                </div>
-              </label>
-            </div>
-            <div style={TOGGLE_ROW}>
-              <div>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>Auto-Charge</p>
-                <p style={{ margin: "2px 0 0", fontSize: 11, color: autoCharge ? "#D97706" : "#9E9B94" }}>
-                  {autoCharge ? "Client must have a saved payment method. Failed charges will be skipped and flagged." : "Charge card on file automatically"}
-                </p>
-              </div>
-              <label style={{ position: "relative", display: "inline-flex", alignItems: "center", cursor: "pointer" }}>
-                <input type="checkbox" checked={autoCharge} onChange={e => setAutoCharge(e.target.checked)} style={{ display: "none" }} />
-                <div style={{ width: 42, height: 24, backgroundColor: autoCharge ? "#D97706" : "#E5E2DC", borderRadius: 12, position: "relative", transition: "background 0.2s" }}>
-                  <div style={{ position: "absolute", top: 3, left: autoCharge ? 21 : 3, width: 18, height: 18, backgroundColor: "#FFFFFF", borderRadius: 9, boxShadow: "0 1px 4px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
-                </div>
-              </label>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ fontSize: 13, color: "#6B7280", fontWeight: 600 }}>
                 {selected.size} job{selected.size !== 1 ? "s" : ""} selected
               </span>
@@ -618,11 +666,14 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
                 Total: ${selectedTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             </div>
+            <p style={{ margin: "0 0 10px", fontSize: 11, color: "#9E9B94" }}>
+              Invoices are created as drafts. Review and send each one individually from the invoice page.
+            </p>
             <button
               onClick={handleGenerate}
               disabled={selected.size === 0}
               style={{ width: "100%", backgroundColor: selected.size === 0 ? "#C4C0BB" : "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 700, cursor: selected.size === 0 ? "default" : "pointer", marginBottom: 8 }}>
-              Generate Invoice{selected.size !== 1 ? "s" : ""} {selected.size > 0 ? `(${selected.size})` : ""}
+              Create Draft{selected.size !== 1 ? "s" : ""} {selected.size > 0 ? `(${selected.size})` : ""}
             </button>
             <button onClick={onClose} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#9E9B94", padding: "6px 0" }}>
               Cancel
@@ -1048,6 +1099,11 @@ export default function InvoicesPage() {
                         <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF }}>
                           {effectiveStatus}
                         </span>
+                        {inv.refunded_amount != null && Number(inv.refunded_amount) > 0 && (
+                          <span style={{ marginLeft: 4, display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF, backgroundColor: "#EDE9FE", color: "#6D28D9", border: "1px solid #DDD6FE" }}>
+                            {Number(inv.refunded_amount) >= Number(inv.total) ? "REFUNDED" : `REFUNDED $${Number(inv.refunded_amount).toFixed(2)}`}
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: "13px 18px", textAlign: "right", whiteSpace: "nowrap" }} onClick={e => e.stopPropagation()}>
                         {(effectiveStatus === "sent" || effectiveStatus === "overdue") && inv.has_card_on_file && (

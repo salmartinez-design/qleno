@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { cancellationLogTable, jobsTable, clientsTable, companiesTable, usersTable } from "@workspace/db/schema";
+import { cancellationLogTable, jobsTable, clientsTable, companiesTable, usersTable, invoicesTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import {
@@ -622,6 +622,18 @@ router.post("/undo", requireAuth, requireRole("owner", "admin", "office"), async
         `);
       }
     });
+
+    // Restore any voided draft invoice that was voided when this job was cancelled.
+    // Only unvoid 'void' invoices — never touch sent/paid ones.
+    // Fire-and-forget so an invoice hiccup never blocks the undo response.
+    db.update(invoicesTable)
+      .set({ status: "draft" })
+      .where(and(
+        eq(invoicesTable.job_id, jobId),
+        eq(invoicesTable.company_id, companyId),
+        eq(invoicesTable.status, "void"),
+      ))
+      .catch(e => console.error("[cancellations undo] invoice restore non-fatal:", e));
 
     return res.json({ ok: true, restored_status: isPast ? "cancelled" : "scheduled" });
   } catch (err) {

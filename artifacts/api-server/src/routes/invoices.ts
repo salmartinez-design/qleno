@@ -31,6 +31,7 @@ function formatInvoice(inv: any) {
     subtotal: parseFloat(inv.subtotal || "0"),
     tips: parseFloat(inv.tips || "0"),
     total: parseFloat(inv.total || "0"),
+    refunded_amount: inv.refunded_amount != null ? parseFloat(inv.refunded_amount) : null,
     status: overdue ? "overdue" : inv.status,
     days_overdue: daysOverdue(inv.due_date),
     invoice_number: inv.invoice_number || generateInvoiceNumber(inv.id),
@@ -165,6 +166,8 @@ router.get("/", requireAuth, async (req, res) => {
           (${clientsTable.stripe_payment_method_id} IS NOT NULL AND ${clientsTable.stripe_customer_id} IS NOT NULL)
           OR ${clientsTable.square_customer_id} IS NOT NULL
         )`,
+        refunded_amount: invoicesTable.refunded_amount,
+        refunded_at: invoicesTable.refunded_at,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
@@ -290,6 +293,10 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
         total: total.toString(),
         due_date: dueDateStr,
         status: auto_send ? "sent" : "draft",
+        // Always stamp sent_at when the invoice is finalized 'sent' — whether
+        // by auto_send OR by an explicit status='sent' in the request body.
+        // Without this, BatchInvoiceDrawer-created invoices without auto_send
+        // ended up with status='sent' but sent_at=null, showing "Sent: —".
         sent_at: auto_send ? new Date() : null,
         created_by: req.auth!.userId,
         po_number: po_number || null,
@@ -431,6 +438,12 @@ router.get("/:id", requireAuth, async (req, res) => {
           (${clientsTable.stripe_payment_method_id} IS NOT NULL AND ${clientsTable.stripe_customer_id} IS NOT NULL)
           OR ${clientsTable.square_customer_id} IS NOT NULL
         )`,
+        // Needed for refund modal: routes Stripe API call vs offline-only notice.
+        stripe_payment_intent_id: invoicesTable.stripe_payment_intent_id,
+        payment_source: invoicesTable.payment_source,
+        refunded_amount: invoicesTable.refunded_amount,
+        refund_reason: invoicesTable.refund_reason,
+        refunded_at: invoicesTable.refunded_at,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
@@ -952,6 +965,108 @@ router.post("/:id/recalc", requireAuth, requireRole("owner", "admin", "office"),
   } catch (err) {
     console.error("Recalc invoice error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to recalc invoice" });
+  }
+});
+
+// ── Refund (partial or full) ────────────────────────────────────────────────
+// Issues a refund against a paid invoice. For Stripe-charged invoices the
+// refund is initiated via the Stripe API before the DB is updated — so money
+// actually moves. For manual payments (check, ACH, Square) the refund is
+// recorded in the DB only; money is returned offline by the office.
+//
+// Guards:
+//   - Invoice must be 'paid' (not draft / sent / void / superseded)
+//   - amount must be > 0 and ≤ total (no double-refunding beyond face value)
+//   - Re-refunding is blocked when refunded_amount already equals total
+//
+// Status stays 'paid' — a refunded invoice is still a completed transaction;
+// the net owed is (total − refunded_amount). No new enum value needed.
+router.post("/:id/refund", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const invoiceId = parseInt(req.params.id);
+    if (isNaN(invoiceId)) return res.status(400).json({ error: "Bad Request", message: "Invalid invoice id" });
+
+    const { amount, reason } = req.body ?? {};
+    const refundAmount = parseFloat(amount);
+    if (!refundAmount || refundAmount <= 0) {
+      return res.status(400).json({ error: "Bad Request", message: "amount must be a positive number" });
+    }
+
+    const [invoice] = await db
+      .select({
+        id: invoicesTable.id,
+        status: invoicesTable.status,
+        total: invoicesTable.total,
+        refunded_amount: invoicesTable.refunded_amount,
+        stripe_payment_intent_id: invoicesTable.stripe_payment_intent_id,
+        payment_source: invoicesTable.payment_source,
+      })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .limit(1);
+
+    if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+    if (invoice.status !== "paid") {
+      return res.status(409).json({ error: "Conflict", message: "Only paid invoices can be refunded" });
+    }
+
+    const invoiceTotal = parseFloat(invoice.total || "0");
+    const alreadyRefunded = parseFloat(invoice.refunded_amount || "0");
+    const maxRefundable = invoiceTotal - alreadyRefunded;
+
+    if (maxRefundable <= 0) {
+      return res.status(409).json({ error: "Conflict", message: "This invoice has already been fully refunded" });
+    }
+    if (refundAmount > maxRefundable + 0.005) {
+      return res.status(400).json({
+        error: "Bad Request",
+        message: `Refund amount $${refundAmount.toFixed(2)} exceeds the refundable balance of $${maxRefundable.toFixed(2)}`,
+      });
+    }
+
+    // For Stripe-charged invoices, initiate the refund via the API so money
+    // actually moves. Fire before the DB write so a Stripe failure aborts the
+    // request before any local state changes.
+    if (invoice.stripe_payment_intent_id && invoice.payment_source === "stripe") {
+      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      if (!stripeKey || stripeKey === "payments disabled") {
+        return res.status(503).json({ error: "Service Unavailable", message: "Stripe is not configured" });
+      }
+      const Stripe = (await import("stripe")).default;
+      const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" as any });
+      await stripe.refunds.create({
+        payment_intent: invoice.stripe_payment_intent_id,
+        amount: Math.round(refundAmount * 100), // cents
+      });
+    }
+
+    const newRefundedTotal = alreadyRefunded + refundAmount;
+    const [updated] = await db
+      .update(invoicesTable)
+      .set({
+        refunded_amount: newRefundedTotal.toFixed(2),
+        refund_reason: (reason as string | undefined) || null,
+        refunded_at: new Date(),
+      })
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .returning();
+
+    logAudit(req, "UPDATE", "invoice", invoiceId, { refunded_amount: alreadyRefunded }, {
+      refunded_amount: newRefundedTotal,
+      refund_reason: reason || null,
+      source: invoice.stripe_payment_intent_id ? "stripe" : "manual",
+    });
+
+    return res.json({
+      ...formatInvoice({ ...updated, client_name: null }),
+      refunded_amount: newRefundedTotal,
+      refund_reason: reason || null,
+      refunded_at: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error("Refund invoice error:", err);
+    const msg = err?.message || "Failed to issue refund";
+    return res.status(500).json({ error: "Internal Server Error", message: msg });
   }
 });
 

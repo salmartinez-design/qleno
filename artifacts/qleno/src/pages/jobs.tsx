@@ -78,7 +78,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; clock_in_distance_ft?: number | null; clock_out_distance_ft?: number | null; clock_in_outside_geofence?: boolean; clock_out_outside_geofence?: boolean; gps_missing?: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; pricing_addon_id?: number | null; add_on_id?: number | null; }
-interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
+interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [dispatch-invoice 2026-06-27] Live invoice for this job — null until the job completes and the engine fires. */ invoice_id?: number | null; invoice_status?: string | null; invoice_total?: string | null; /* [commission-override 2026-06-27] */ commission_override_pct?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
 interface Employee { id: number; name: string; role: string; is_trainee?: boolean; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: string | null; time_off_unit?: 'full_day' | 'morning' | 'afternoon' | null; time_off_color?: string | null; time_off_label?: string | null; commission_rate?: number | null; avatar_url?: string | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -1524,6 +1524,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [overrideOpen, setOverrideOpen] = useState<Record<number, boolean>>({});
   const [overrideVal, setOverrideVal] = useState<Record<number, string>>({});
   const [overrideBusy, setOverrideBusy] = useState(false);
+  // [commission-override 2026-06-27] Job-level pool rate override state
+  const [rateEditOpen, setRateEditOpen] = useState(false);
+  const [rateVal, setRateVal] = useState("");
+  const [rateBusy, setRateBusy] = useState(false);
   // [job-card-redesign 2026-06-25] Bug #6: edit commission straight from the top
   // tile (Maribel) instead of hunting for the buried Commission section.
   const [tileCommEdit, setTileCommEdit] = useState(false);
@@ -1764,6 +1768,30 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       toast({ title: "Error saving override", variant: "destructive" });
     } finally {
       setOverrideBusy(false);
+    }
+  }
+
+  async function savePoolRate(clearOverride?: boolean) {
+    setRateBusy(true);
+    try {
+      const pct = clearOverride ? null : parseFloat(rateVal) / 100;
+      if (!clearOverride && (!Number.isFinite(pct) || pct! <= 0 || pct! > 1)) {
+        toast({ title: "Enter a valid rate (1–100)", variant: "destructive" });
+        return;
+      }
+      const r = await fetch(`${API2}/api/jobs/${job.id}`, {
+        method: "PATCH",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ commission_override_pct: pct }),
+      });
+      if (!r.ok) throw new Error();
+      onUpdate?.({ ...job, commission_override_pct: pct ?? null });
+      setRateEditOpen(false);
+      toast({ title: clearOverride ? "Pool rate reset to company default" : `Pool rate set to ${(pct! * 100).toFixed(0)}%` });
+    } catch {
+      toast({ title: "Error saving pool rate", variant: "destructive" });
+    } finally {
+      setRateBusy(false);
     }
   }
 
@@ -2630,6 +2658,60 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           {/* Commission Section — visible to owner/admin/office */}
           {canManageCommission && (job.estimated_hours ?? 0) > 0 && (
             <PS label="Commission">
+              {/* [commission-override 2026-06-27] Pool rate row — shows company default or override */}
+              {job.commission_basis !== "commercial_hourly" && (() => {
+                const effectivePct = job.commission_override_pct != null
+                  ? job.commission_override_pct
+                  : (job.company_res_pct ?? 0.32);
+                const isOverridden = job.commission_override_pct != null;
+                return (
+                  <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #F0EDE8" }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                      <span style={{ fontSize: 11, color: "#9E9B94" }}>Pool rate</span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: isOverridden ? "#D97706" : "#1A1917" }}>
+                          {(effectivePct * 100).toFixed(0)}%
+                        </span>
+                        {isOverridden && (
+                          <span style={{ fontSize: 9, fontWeight: 800, background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 4, padding: "1px 5px" }}>OVERRIDE</span>
+                        )}
+                        {canManageCommission && !isLocked && (
+                          <button
+                            onClick={() => { setRateEditOpen(o => !o); setRateVal(isOverridden ? String((effectivePct * 100).toFixed(0)) : ""); }}
+                            style={{ fontSize: 10, color: "#6B7280", border: "1px solid #E5E2DC", background: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF }}
+                          >
+                            {rateEditOpen ? "Cancel" : "Override"}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    {rateEditOpen && (
+                      <div style={{ display: "flex", gap: 6, marginTop: 6, alignItems: "center" }}>
+                        <input
+                          type="number" step="1" min="1" max="100"
+                          value={rateVal}
+                          onChange={e => setRateVal(e.target.value)}
+                          placeholder={(effectivePct * 100).toFixed(0)}
+                          style={{ width: 64, height: 28, padding: "0 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, outline: "none" }}
+                        />
+                        <span style={{ fontSize: 11, color: "#9E9B94" }}>%</span>
+                        <button
+                          onClick={() => savePoolRate()}
+                          disabled={rateBusy}
+                          style={{ fontSize: 11, fontWeight: 600, color: "#fff", background: "var(--brand)", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: FF }}
+                        >Save</button>
+                        {isOverridden && (
+                          <button
+                            onClick={() => savePoolRate(true)}
+                            disabled={rateBusy}
+                            style={{ fontSize: 11, color: "#EF4444", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}
+                          >Reset</button>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
               {commTechs.length > 0 ? commTechs.map(t => (
                 <div key={t.user_id} style={{ marginBottom: 8 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
@@ -3156,6 +3238,29 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               style={{ padding: "10px 12px", border: "1px solid #6EE7B7", borderRadius: 8, backgroundColor: "#ECFDF5", color: "#065F46", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
               <DollarSign size={13} /> Charge Client
             </button>
+          )}
+          {/* Invoice status — completed jobs only. Shows View Invoice link + paid/unpaid badge. */}
+          {job.status === "complete" && job.invoice_id && (() => {
+            const inv = job.invoice_id!;
+            const st = job.invoice_status || "sent";
+            const total = job.invoice_total ? `$${parseFloat(job.invoice_total).toFixed(2)}` : "";
+            const { bg, color, border, label } =
+              st === "paid"    ? { bg: "#DCFCE7", color: "#166534", border: "#BBF7D0", label: "PAID" } :
+              st === "overdue" ? { bg: "#FEE2E2", color: "#991B1B", border: "#FECACA", label: "OVERDUE" } :
+              st === "draft"   ? { bg: "#F3F4F6", color: "#374151", border: "#D1D5DB", label: "DRAFT" } :
+                                 { bg: "#FEF3C7", color: "#92400E", border: "#FDE68A", label: "UNPAID" };
+            return (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F7F6F3" }}>
+                <span style={{ fontSize: 12, color: "#6B6963", fontFamily: FF }}>Invoice{total ? ` ${total}` : ""}</span>
+                <span style={{ padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", backgroundColor: bg, color, border: `1px solid ${border}`, fontFamily: FF }}>{label}</span>
+                <a href={`/invoices/${inv}`} style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "#00C9A0", textDecoration: "none", fontFamily: FF }}>View →</a>
+              </div>
+            );
+          })()}
+          {job.status === "complete" && !job.invoice_id && job.scheduled_date >= "2026-06-27" && (
+            <div style={{ padding: "9px 12px", border: "1px solid #FDE68A", borderRadius: 8, backgroundColor: "#FFFBEB", fontSize: 12, color: "#92400E", fontFamily: FF }}>
+              No invoice — <a href="/invoices" style={{ color: "#92400E", fontWeight: 700 }}>create one</a>
+            </div>
           )}
           {/* [edit-decouple 2026-04-29] Edit button is ALWAYS enabled,
               even on completed/cancelled/locked jobs. Per-field lock
