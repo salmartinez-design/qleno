@@ -940,7 +940,9 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       serviceType: scopeName,
       scheduledDate: emailDateStr,
       arrivalWindow: emailWindowLabel,
-      serviceAddress: address || addrStreet || "",
+      serviceAddress: addrStreet
+        ? [addrStreet, addrCity, addrState && addrZip ? `${addrState} ${addrZip}` : (addrState || addrZip || "")].filter(Boolean).join(", ")
+        : (address || ""),
       addressLine2: address_line2 || null,
       preferredContactMethod: preferred_contact_method || "Phone",
       basePrice: pricing.base_price || 0,
