@@ -1470,6 +1470,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // 06-01 (recreated as 5976/5977). Property change is an atomic
       // FK rewrite — it must NEVER delete or archive the job row.
       account_property_id,
+      // [commission-override 2026-06-27] Per-job pool rate override for demanding jobs.
+      // null = clear override (revert to company rate); undefined = not sent (no change).
+      commission_override_pct,
     } = req.body ?? {};
 
     // [PR / 2026-04-30] Cascade dry-run mode. Counters-only for v1
@@ -1871,6 +1874,20 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // id. Fixes the lost-job repro from 06-01.
       if (account_property_id !== undefined && Number(account_property_id ?? null) !== Number(before.account_property_id ?? null)) {
         setParts.account_property_id = account_property_id == null ? null : Number(account_property_id);
+      }
+      // [commission-override 2026-06-27] Write job-level rate + propagate to
+      // all job_technicians.commission_pct so the payroll engine picks it up
+      // without any engine code changes.
+      if (commission_override_pct !== undefined) {
+        const pct = commission_override_pct == null ? null : parseFloat(String(commission_override_pct));
+        if (pct === null || (Number.isFinite(pct) && pct > 0 && pct <= 1)) {
+          await tx.execute(sql`
+            UPDATE jobs SET commission_override_pct = ${pct} WHERE id = ${jobId} AND company_id = ${companyId}
+          `);
+          await tx.execute(sql`
+            UPDATE job_technicians SET commission_pct = ${pct} WHERE job_id = ${jobId} AND company_id = ${companyId}
+          `);
+        }
       }
 
       // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
@@ -4121,11 +4138,15 @@ router.post("/:id/technicians", requireAuth, async (req, res) => {
     if (!user_id) return res.status(400).json({ error: "user_id required" });
 
     const jobRows = await db.execute(sql`
-      SELECT id, assigned_user_id FROM jobs
+      SELECT id, assigned_user_id, commission_override_pct FROM jobs
       WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `);
     if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
-    const oldAssignedUserId = (jobRows.rows[0] as any).assigned_user_id ?? null;
+    const jobRow = jobRows.rows[0] as any;
+    const oldAssignedUserId = jobRow.assigned_user_id ?? null;
+    const inheritedCommPct = jobRow.commission_override_pct != null
+      ? parseFloat(String(jobRow.commission_override_pct))
+      : null;
 
     // Decide primary status: explicit request wins; else auto-promote when
     // there's no existing primary (covers unassigned jobs and any legacy
@@ -4152,11 +4173,20 @@ router.post("/:id/technicians", requireAuth, async (req, res) => {
         `);
       }
       // Upsert the (job, tech) row with the resolved primary flag.
-      await tx.execute(sql`
-        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
-        VALUES (${jobId}, ${user_id}, ${companyId}, ${willBePrimary})
-        ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
-      `);
+      // [commission-override] Inherit job-level commission_override_pct when set.
+      if (inheritedCommPct != null) {
+        await tx.execute(sql`
+          INSERT INTO job_technicians (job_id, user_id, company_id, is_primary, commission_pct)
+          VALUES (${jobId}, ${user_id}, ${companyId}, ${willBePrimary}, ${inheritedCommPct})
+          ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary, commission_pct = EXCLUDED.commission_pct
+        `);
+      } else {
+        await tx.execute(sql`
+          INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+          VALUES (${jobId}, ${user_id}, ${companyId}, ${willBePrimary})
+          ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+        `);
+      }
       // Mirror primary onto jobs.assigned_user_id so the dispatch grid sees the change.
       if (willBePrimary) {
         await tx.execute(sql`

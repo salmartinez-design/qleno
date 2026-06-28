@@ -20,6 +20,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { AccountJobsCalendar } from "@/components/account-jobs-calendar";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -139,19 +140,16 @@ export default function AccountDetailPage() {
   const [showProperty, setShowProperty] = useState(false);
   const [editProp, setEditProp] = useState<any>(null);
   const [propForm, setPropForm] = useState({ property_name: "", address: "", city: "", state: "IL", zip: "", unit_count: "", property_type: "apartment_building", default_service_type: "", access_notes: "", notes: "" });
-  // Google Places autocomplete on the Add/Edit Property street field — the
-  // same help every other address form gets. Picking a suggestion fills
-  // street + city + state + zip in one shot so the office isn't hand-typing.
   const propAddrRef = useRef<HTMLInputElement>(null);
-  useAddressAutocomplete(propAddrRef, showProperty, (p) => {
+  useAddressAutocomplete(propAddrRef, showProperty, (p) =>
     setPropForm((f) => ({
       ...f,
       address: p.street || f.address,
       city: p.city || f.city,
       state: p.state || f.state,
       zip: p.zip || f.zip,
-    }));
-  });
+    })),
+  );
   const [propSaving, setPropSaving] = useState(false);
 
   // Contact

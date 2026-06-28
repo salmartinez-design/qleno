@@ -386,6 +386,15 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] ensureInvoiceRefundColumns — non-fatal:", err?.message ?? err);
   }
+  // [commission-override 2026-06-27] jobs.commission_override_pct — per-job pool rate override.
+  try {
+    await withBootTimeout("ensureCommissionOverrideColumn", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureCommissionOverrideColumn } = await import("./lib/commission-override-migrate.js");
+      await ensureCommissionOverrideColumn();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureCommissionOverrideColumn — non-fatal:", err?.message ?? err);
+  }
 }
 
 // [boot-resilience 2026-06-24] Bind the port FIRST, then run the migration

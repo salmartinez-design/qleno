@@ -254,6 +254,8 @@ async function buildDispatchPayload(
         invoice_id: sql<number | null>`(SELECT iv.id FROM invoices iv WHERE iv.job_id = ${jobsTable.id} AND iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') ORDER BY iv.created_at DESC LIMIT 1)`,
         invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.job_id = ${jobsTable.id} AND iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') ORDER BY iv.created_at DESC LIMIT 1)`,
         invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.job_id = ${jobsTable.id} AND iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') ORDER BY iv.created_at DESC LIMIT 1)`,
+        // [commission-override 2026-06-27] Office-set pool rate override for demanding jobs.
+        commission_override_pct: sql<number | null>`(SELECT commission_override_pct FROM jobs WHERE id = ${jobsTable.id} LIMIT 1)`,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -986,7 +988,12 @@ async function buildDispatchPayload(
         // [tiered-residential] Returns the rate that applies to THIS job
         // (32% for deep clean / move in-out, else 35%). Frontend renders
         // "Pool rate: X% of job total" — was always 35% before tiering.
-        company_res_pct: tierResPct,
+        company_res_pct: (j as any).commission_override_pct != null
+          ? parseFloat(String((j as any).commission_override_pct))
+          : tierResPct,
+        commission_override_pct: (j as any).commission_override_pct != null
+          ? parseFloat(String((j as any).commission_override_pct))
+          : null,
         // [pay-matrix 2026-04-29] commission_basis now reflects the
         // primary tech's matrix cell, not a hardcoded company-wide
         // value. Surfaces that need richer per-tech data should read
