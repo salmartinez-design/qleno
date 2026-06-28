@@ -4429,15 +4429,6 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
         </div>
       )}
 
-      {/* Rate History */}
-      <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 8 }}>Rate History</div>
-        <div style={{ fontSize: 13, color: "#9E9B94" }}>
-          {client.rate_increase_last_date
-            ? `Last increase: ${fmtDate(client.rate_increase_last_date)}${client.rate_increase_last_pct ? ` · ${client.rate_increase_last_pct}%` : ""}`
-            : "No rate changes recorded"}
-        </div>
-      </div>
     </div>
   );
 }
@@ -6095,12 +6086,6 @@ export default function CustomerProfilePage() {
             <div style={CS}>
               <SectionHead title="Recurring Schedule" />
               <ServiceDetailsSection client={profile} onUpdate={updateMut.mutateAsync} refetch={refetchProfile} recurringSchedule={recurringSchedule} onToast={showToast} />
-            </div>
-
-            {/* Rate History */}
-            <div style={CS}>
-              <SectionHead title="Rate History" />
-              <div style={{ fontSize: 12, color: "#9E9B94", textAlign: "center" as const, padding: "24px 0" }}>No rate changes recorded</div>
             </div>
 
             {/* Rate Locks */}

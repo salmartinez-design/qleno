@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useLayoutEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from "react";
 import { useSearch, useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { EmployeeAvatar } from "@/components/employee-avatar";
@@ -477,6 +477,19 @@ async function fetchDispatch(date: string, token: string, branchId?: number | "a
     throw new Error(msg);
   }
   return r.json();
+}
+
+// Module-level dispatch cache — keyed by "YYYY-MM-DD:branchId".
+// Survives day navigation within a session; clears on full page reload.
+// Populated after each successful fetch + background prefetch of ±1 days.
+const _dispatchCache = new Map<string, DispatchData>();
+function _dispatchCacheKey(date: string, branchId: number | "all") {
+  return `${date}:${branchId}`;
+}
+function _adjacentDateKey(base: Date, offset: number): string {
+  const d = new Date(base);
+  d.setDate(d.getDate() + offset);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 // ─── INLINE EDIT: TECHNICIAN DROPDOWN ─────────────────────────────────────────
@@ -1286,7 +1299,9 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
   const addOnSum = initAddOns.reduce((s, a) => s + Number(a.subtotal ?? 0), 0);
   const baseInit = Math.max(0, Math.round((total - addOnSum) * 100) / 100);
 
-  const isLocked = !!job.locked_at || job.status === "complete" || job.status === "cancelled";
+  // Completed jobs stay editable until actually paid/invoiced (locked_at set).
+  // Cancelled jobs are always locked. Mirrors the adjUnlocked logic in JobPanel.
+  const isLocked = !!job.locked_at || job.status === "cancelled";
   const rateDriven = (job.account_id != null || job.client_type === "commercial")
     && !job.manual_rate_override
     && job.hourly_rate != null && job.hourly_rate > 0
@@ -6602,10 +6617,18 @@ export default function JobsPage() {
 
   const load = useCallback(async () => {
     const id = ++refreshRef.current;
-    setLoading(true);
+    const cacheKey = _dispatchCacheKey(dateKey(selectedDate), activeBranchId);
+    // Serve from cache immediately (no spinner) then revalidate in background
+    const cached = _dispatchCache.get(cacheKey);
+    if (cached) {
+      setData(cached);
+    } else {
+      setLoading(true);
+    }
     try {
       const d = await fetchDispatch(dateKey(selectedDate), token, activeBranchId);
       if (id !== refreshRef.current) return;
+      _dispatchCache.set(cacheKey, d);
       setData(d);
       // [cancel-ghost-job-diagnostics 2026-06-01] Expose the freshest
       // dispatch payload to window so the JobPanel cancelJob() handler can
@@ -6619,6 +6642,16 @@ export default function JobsPage() {
         allJobs.forEach((j: DispatchJob) => next.add(j.scheduled_date));
         return next;
       });
+      // Background prefetch ±1 days so adjacent navigation is instant
+      for (const offset of [-1, 1]) {
+        const adjDate = _adjacentDateKey(selectedDate, offset);
+        const adjKey = _dispatchCacheKey(adjDate, activeBranchId);
+        if (!_dispatchCache.has(adjKey)) {
+          fetchDispatch(adjDate, token, activeBranchId)
+            .then(adj => _dispatchCache.set(adjKey, adj))
+            .catch(() => {}); // silent — prefetch is best-effort
+        }
+      }
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
       // [AI.7.5.hotfix2] Surface the real error so the user can paste it
@@ -6874,28 +6907,31 @@ export default function JobsPage() {
     return groups;
   })();
 
-  // Zone + location filtered dispatch data
-  // Zone ids belonging to the selected branch (null = no branch filter).
-  const branchZoneIds = selectedBranchFilter === "all"
-    ? null
-    : new Set(zones.filter(z => z.location === selectedBranchFilter).map(z => z.id));
-  const passesBranch = (zoneId: number | null | undefined) =>
-    !branchZoneIds || (zoneId != null && branchZoneIds.has(zoneId));
-  const filteredData = data ? {
-    employees: data.employees.map(e => ({
-      ...e,
-      jobs: e.jobs.filter(j => {
+  // Zone + location filtered dispatch data — memoized so zone/branch filter
+  // changes don't re-run on every unrelated state update.
+  const filteredData = useMemo(() => {
+    if (!data) return null;
+    const branchZoneIds = selectedBranchFilter === "all"
+      ? null
+      : new Set(zones.filter(z => z.location === selectedBranchFilter).map(z => z.id));
+    const passesBranch = (zoneId: number | null | undefined) =>
+      !branchZoneIds || (zoneId != null && branchZoneIds.has(zoneId));
+    return {
+      employees: data.employees.map(e => ({
+        ...e,
+        jobs: e.jobs.filter(j => {
+          if (selectedZoneFilter !== null && j.zone_id !== selectedZoneFilter) return false;
+          if (!passesBranch(j.zone_id)) return false;
+          return true;
+        }),
+      })),
+      unassigned_jobs: data.unassigned_jobs.filter(j => {
         if (selectedZoneFilter !== null && j.zone_id !== selectedZoneFilter) return false;
         if (!passesBranch(j.zone_id)) return false;
         return true;
       }),
-    })),
-    unassigned_jobs: data.unassigned_jobs.filter(j => {
-      if (selectedZoneFilter !== null && j.zone_id !== selectedZoneFilter) return false;
-      if (!passesBranch(j.zone_id)) return false;
-      return true;
-    }),
-  } : null;
+    };
+  }, [data, zones, selectedZoneFilter, selectedBranchFilter]);
 
   // [BUG-3F2 follow-up / 2026-06-02] Dedupe by job.id BEFORE rolling up day
   // counts. The multi-tech fan-out (PR #232) pushes each job onto every
@@ -6908,7 +6944,8 @@ export default function JobsPage() {
   // Per-row badge math is OK to keep duplicates because each row only
   // reduces over its own jobs[]; it's the cross-employee flatten that
   // needs the dedupe.
-  const allJobs = filteredData ? (() => {
+  const allJobs = useMemo((): DispatchJob[] => {
+    if (!filteredData) return [];
     const flat = [
       ...filteredData.unassigned_jobs,
       ...filteredData.employees.flatMap(e => e.jobs.map(j => ({ ...j, assigned_user_name: e.name }))),
@@ -6921,9 +6958,9 @@ export default function JobsPage() {
       out.push(j);
     }
     return out.sort((a, b) => timeToMins(a.scheduled_time) - timeToMins(b.scheduled_time));
-  })() : [];
+  }, [filteredData]);
 
-  const stats = {
+  const stats = useMemo(() => ({
     // [count-rule 2026-06-08] Every job on the board counts EXCEPT office
     // events / meetings (job_kind). $0 jobs are real jobs and still count.
     total: allJobs.filter(j => (j as any).job_kind !== "office_event" && (j as any).job_kind !== "meeting").length,
@@ -6931,7 +6968,7 @@ export default function JobsPage() {
     inProgress: allJobs.filter(j => j.status === "in_progress").length,
     revenue: allJobs.reduce((s, j) => s + (j.amount || 0), 0),
     unassigned: data?.unassigned_jobs.length || 0,
-  };
+  }), [allJobs, data]);
 
   const dayLabel = selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
   const isToday = dateKey(selectedDate) === dateKey(new Date());

@@ -212,7 +212,7 @@ export async function seedIfNeeded() {
           city: "Oak Lawn",
           state: "IL",
           zip: "60453",
-          logo_url: "/api/uploads/logos/phes-logo.jpeg",
+          logo_url: "/images/phes-logo.jpeg",
           business_hours: "Monday \u2013 Friday: 9:00 AM \u2013 6:00 PM\nSaturday: 9:00 AM \u2013 12:00 PM\nSunday: Closed",
         })
         .where(eq(companiesTable.slug, "phes-cleaning"));
