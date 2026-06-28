@@ -31,6 +31,10 @@ export interface ConfirmationEmailParams {
   pets?: number | null;
   cleanlinessRating?: number | null;
   acquisitionSource?: string | null;
+  isReturningClient?: boolean;
+  zoneName?: string | null;
+  zoneColor?: string | null;
+  availableTechs?: Array<{ name: string }> | null;
 }
 
 export interface ReminderEmailParams {
@@ -70,7 +74,7 @@ const BORDER = "#E5E2DC";
 const BG = "#F7F6F3";
 
 function emailWrapper(body: string): string {
-  const logoUrl = `${appBaseUrl()}/phes-logo.jpeg`;
+  const logoUrl = `${appBaseUrl()}/api/uploads/logos/phes-logo.jpeg`;
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:${BG};">
 <div style="max-width:600px;margin:0 auto;padding:24px 16px;">
@@ -98,26 +102,26 @@ function serviceDetailsTable(p: ConfirmationEmailParams): string {
   const addonRows = p.addons.map(a => `
   <tr>
     <td style="padding:8px 0;color:${DARK};border-bottom:1px solid #F0EEEB;">${a.name}</td>
-    <td style="padding:8px 0;color:${DARK};text-align:right;border-bottom:1px solid #F0EEEB;">+$${a.amount.toFixed(2)}</td>
+    <td style="padding:8px 0;color:${DARK};text-align:right;white-space:nowrap;border-bottom:1px solid #F0EEEB;">+$${a.amount.toFixed(2)}</td>
   </tr>`).join("");
   const discountRow = p.bundleDiscount > 0 ? `
   <tr>
     <td style="padding:8px 0;color:#2D6A4F;border-bottom:1px solid #F0EEEB;">Appliance Bundle Discount</td>
-    <td style="padding:8px 0;color:#2D6A4F;text-align:right;border-bottom:1px solid #F0EEEB;">-$${p.bundleDiscount.toFixed(2)}</td>
+    <td style="padding:8px 0;color:#2D6A4F;text-align:right;white-space:nowrap;border-bottom:1px solid #F0EEEB;">-$${p.bundleDiscount.toFixed(2)}</td>
   </tr>` : "";
   return `
 <div style="background:${BG};border:1px solid ${BORDER};border-radius:8px;padding:16px 20px;margin-bottom:24px;">
   <p style="margin:0 0 12px;font-weight:700;color:${DARK};font-size:14px;">Your Service Summary</p>
   <table style="width:100%;border-collapse:collapse;font-size:14px;">
     <tr>
-      <td style="padding:8px 0;color:${DARK};border-bottom:1px solid #E5E2DC;">${p.serviceType}${p.sqft ? ` &mdash; ${p.sqft.toLocaleString()} sqft` : ""}</td>
-      <td style="padding:8px 0;color:${DARK};text-align:right;border-bottom:1px solid #E5E2DC;">$${p.basePrice.toFixed(2)}</td>
+      <td style="padding:8px 0;color:${DARK};border-bottom:1px solid #E5E2DC;">${p.serviceType}${p.sqft ? ` (${p.sqft.toLocaleString()} sqft)` : ""}</td>
+      <td style="padding:8px 0;color:${DARK};text-align:right;white-space:nowrap;border-bottom:1px solid #E5E2DC;">$${p.basePrice.toFixed(2)}</td>
     </tr>
     ${addonRows}
     ${discountRow}
     <tr>
       <td style="padding:10px 0;color:${DARK};font-weight:700;font-size:15px;"><strong>Total</strong></td>
-      <td style="padding:10px 0;color:${DARK};text-align:right;font-weight:700;font-size:15px;"><strong>$${p.firstVisitTotal.toFixed(2)}</strong></td>
+      <td style="padding:10px 0;color:${DARK};text-align:right;white-space:nowrap;font-weight:700;font-size:15px;"><strong>$${p.firstVisitTotal.toFixed(2)}</strong></td>
     </tr>
   </table>
   <p style="margin:10px 0 0;font-size:12px;color:${MID};">Your card on file will be charged on the day of service.</p>
@@ -172,7 +176,7 @@ function serviceSpecificNotes(kind: "deep" | "standard" | "moveinout" | "recurri
   if (kind === "deep") {
     return `
 <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:14px 18px;margin-bottom:24px;">
-  <p style="margin:0 0 6px;font-weight:700;color:#92400E;font-size:14px;">Deep Clean — What to Expect</p>
+  <p style="margin:0 0 6px;font-weight:700;color:#92400E;font-size:14px;">Deep Clean: What to Expect</p>
   <p style="margin:0 0 6px;color:${DARK};font-size:13px;">A deep clean is more thorough than a standard service and covers areas often skipped in routine cleanings (inside appliances if selected, baseboards, light fixtures, etc.).</p>
   <p style="margin:0 0 6px;color:${DARK};font-size:13px;"><strong>Please have your home decluttered</strong> before we arrive — cleared countertops, sinks, and floors let our team focus on the actual cleaning rather than tidying.</p>
   <p style="margin:0;color:${DARK};font-size:13px;"><strong>Condition note:</strong> If the home's condition significantly differs from what was selected, we will contact you before proceeding with any additional charges. Extra time beyond the estimate is billed at $65/hr per cleaner.</p>
@@ -181,7 +185,7 @@ function serviceSpecificNotes(kind: "deep" | "standard" | "moveinout" | "recurri
   if (kind === "moveinout") {
     return `
 <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:14px 18px;margin-bottom:24px;">
-  <p style="margin:0 0 6px;font-weight:700;color:#92400E;font-size:14px;">Move In / Out Clean — What to Expect</p>
+  <p style="margin:0 0 6px;font-weight:700;color:#92400E;font-size:14px;">Move In / Out Clean: What to Expect</p>
   <p style="margin:0 0 6px;color:${DARK};font-size:13px;">The property should be empty of furniture and personal belongings. We will work around any items left behind, but cleaning quality around those items cannot be guaranteed and no adjustment will be issued for those areas.</p>
   <p style="margin:0;color:${DARK};font-size:13px;"><strong>Utilities must be active</strong> — running water, electricity, and sufficient lighting are required. If utilities are off, we reserve the right to cancel and the full fee still applies.</p>
 </div>`;
@@ -220,11 +224,11 @@ function recurringUpsellSection(branchConfig: BranchConfig): string {
 <div style="background:#EBF7F4;border:1px solid #B2E8DB;border-radius:8px;padding:18px 20px;margin-bottom:24px;">
   <p style="margin:0 0 4px;font-weight:800;color:${NAVY};font-size:16px;">Save 15% on your next cleaning</p>
   <p style="margin:0 0 12px;color:${MID};font-size:12px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">For new recurring clients only</p>
-  <p style="margin:0 0 10px;color:${DARK};font-size:13px;">Set up a recurring plan after your first clean and get <strong>15% off your second service</strong>. Most clients who start with a deep clean switch to biweekly maintenance — your home stays at this level for less effort and less cost each visit.</p>
+  <p style="margin:0 0 10px;color:${DARK};font-size:13px;">Set up a recurring plan after your first clean and get <strong>15% off your second service</strong>. Most clients who start with a deep clean switch to biweekly maintenance. Your home stays at this level for less effort and less cost each visit.</p>
   <table cellpadding="0" cellspacing="0" border="0" style="margin-bottom:12px;">
-    <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Same team every visit — they learn your home</td></tr>
-    <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Priority scheduling — your slot is held every week/biweekly</td></tr>
-    <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Lower per-visit rate than one-time bookings</td></tr>
+    <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Same team every visit. They learn your home.</td></tr>
+    <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Priority scheduling. Your slot is held weekly or biweekly.</td></tr>
+    <tr><td style="padding:3px 8px 3px 0;color:${MINT};font-size:16px;vertical-align:top;">&#10003;</td><td style="padding:3px 0;font-size:13px;color:${DARK};">Lower per-visit rate than one-time bookings.</td></tr>
   </table>
   <p style="margin:0;color:${DARK};font-size:13px;">Call or text <strong>${branchConfig.clientPhoneFormatted}</strong> or reply to this email — mention this offer and we will apply the 15% to your second visit when you set up your plan.</p>
 </div>`;
@@ -274,48 +278,94 @@ export function buildClientConfirmationEmail(p: ConfirmationEmailParams): { subj
 
 export function buildOfficeNotificationEmail(p: ConfirmationEmailParams): { subject: string; html: string } {
   const dateLabel = p.scheduledDate;
-  const subject = `New Booking — ${p.firstName} ${p.lastName} — ${p.serviceType} — ${dateLabel}`;
+  const subject = p.zoneName
+    ? `New Booking | ${p.zoneName} | ${p.firstName} ${p.lastName} - ${p.serviceType} | ${dateLabel}`
+    : `New Booking - ${p.firstName} ${p.lastName} - ${p.serviceType} - ${dateLabel}`;
+
   const fullAddress = p.addressLine2 ? `${p.serviceAddress}, ${p.addressLine2}` : p.serviceAddress;
-  const addonsStr = p.addons.length > 0 ? p.addons.map(a => a.name).join(", ") : "None";
-  const bundleStr = p.bundleDiscount > 0 ? `$${p.bundleDiscount.toFixed(2)}` : "N/A";
 
   const cleanlinessLabel = (r?: number | null) => {
     if (!r) return "N/A";
-    if (r === 1) return "1 — Very Clean";
-    if (r === 2) return "2 — Moderately Clean";
-    if (r === 3) return "3 — Very Dirty";
+    if (r === 1) return "Very Clean";
+    if (r === 2) return "Moderately Clean";
+    if (r === 3) return "Very Dirty";
     return String(r);
   };
 
+  const clientBadge = p.isReturningClient === true
+    ? `<span style="display:inline-block;background:#EAF7F3;color:#0A7C63;border:1px solid #B2E8DB;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;letter-spacing:0.05em;margin-left:8px;vertical-align:middle;">RETURNING</span>`
+    : p.isReturningClient === false
+      ? `<span style="display:inline-block;background:#FEF3E2;color:#B26B00;border:1px solid #FDE68A;border-radius:4px;padding:2px 8px;font-size:11px;font-weight:700;letter-spacing:0.05em;margin-left:8px;vertical-align:middle;">NEW CLIENT</span>`
+      : "";
+
+  const zoneDot = p.zoneColor
+    ? `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${p.zoneColor};margin-right:5px;vertical-align:middle;"></span>`
+    : "";
+  const zoneDisplay = p.zoneName ? `${zoneDot}<strong>${p.zoneName}</strong>` : "Unknown";
+
+  const techsSection = p.availableTechs !== undefined && p.availableTechs !== null
+    ? (p.availableTechs.length > 0
+        ? `<div style="background:#F0FBF7;border:1px solid #B2E8DB;border-radius:8px;padding:12px 16px;margin-bottom:20px;">
+            <p style="margin:0 0 4px;font-weight:700;font-size:12px;color:${DARK};letter-spacing:0.04em;text-transform:uppercase;">Available This Window</p>
+            <p style="margin:0;font-size:13px;color:${DARK};">${p.availableTechs.map(t => t.name).join(", ")}</p>
+          </div>`
+        : `<div style="background:${BG};border:1px solid ${BORDER};border-radius:8px;padding:12px 16px;margin-bottom:20px;">
+            <p style="margin:0;font-size:13px;color:${MID};">No available techs found for this date. Check the dispatch board.</p>
+          </div>`)
+    : "";
+
   const body = `
-    <h2 style="color:${DARK};font-size:18px;font-weight:800;margin:0 0 20px;">NEW ONLINE BOOKING</h2>
-    <table style="width:100%;border-collapse:collapse;font-size:14px;">
-      <tr><td style="padding:8px 0;color:${MID};width:180px;border-bottom:1px solid #F0EEEB;">Client</td><td style="padding:8px 0;font-weight:700;border-bottom:1px solid #F0EEEB;">${p.firstName} ${p.lastName}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Phone</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.phone}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Email</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.email}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Branch</td><td style="padding:8px 0;font-weight:700;border-bottom:1px solid #F0EEEB;">${p.branchConfig.branch.replace("_", " ").toUpperCase()}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Service</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.serviceType}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Date</td><td style="padding:8px 0;font-weight:700;border-bottom:1px solid #F0EEEB;">${dateLabel}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Arrival Window</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.arrivalWindow}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Address</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${fullAddress}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Square Footage</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.sqft ? `${p.sqft.toLocaleString()} sqft` : "N/A"}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Bedrooms</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.bedrooms ?? "N/A"}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Bathrooms</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.fullBathrooms ?? 0} full / ${p.halfBathrooms ?? 0} half</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Floors</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.floors ?? "N/A"}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">People in Household</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.people ?? "N/A"}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Pets</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.pets ?? 0}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Cleanliness Rating</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${cleanlinessLabel(p.cleanlinessRating)}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Add-ons</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${addonsStr}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Bundle Discount</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${bundleStr}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Special Notes</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.specialNotes || "None"}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Preferred Contact</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.preferredContactMethod}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">How They Found Us</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.acquisitionSource || "N/A"}</td></tr>
-      <tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">First Visit Total</td><td style="padding:8px 0;font-weight:700;border-bottom:1px solid #F0EEEB;">$${p.firstVisitTotal.toFixed(2)}</td></tr>
-      ${p.stripeCustomerId ? `<tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Stripe Customer ID</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.stripeCustomerId}</td></tr>` : ""}
-      ${p.stripePaymentMethodId ? `<tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Stripe Payment Method</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">${p.stripePaymentMethodId}</td></tr>` : ""}
-      ${p.clientId ? `<tr><td style="padding:8px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Client ID</td><td style="padding:8px 0;border-bottom:1px solid #F0EEEB;">#${p.clientId}</td></tr>` : ""}
-      ${p.jobId ? `<tr><td style="padding:8px 0;color:${MID};">Job ID</td><td style="padding:8px 0;">#${p.jobId}</td></tr>` : ""}
-    </table>`;
+    <div style="background:${NAVY};border-radius:8px;padding:18px 22px;margin-bottom:22px;">
+      <p style="margin:0 0 4px;color:${MINT};font-size:11px;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;">New Online Booking</p>
+      <p style="margin:0 0 10px;color:#fff;font-size:18px;font-weight:800;line-height:1.2;">${p.firstName} ${p.lastName}${clientBadge}</p>
+      <table cellpadding="0" cellspacing="0" border="0">
+        <tr>
+          <td style="color:#9DA3B0;font-size:13px;padding-right:18px;white-space:nowrap;padding-bottom:4px;">${p.serviceType}</td>
+          <td style="color:#9DA3B0;font-size:13px;padding-right:18px;white-space:nowrap;padding-bottom:4px;">${dateLabel}</td>
+          <td style="color:#9DA3B0;font-size:13px;padding-right:18px;white-space:nowrap;padding-bottom:4px;">${p.arrivalWindow}</td>
+        </tr>
+        <tr>
+          <td colspan="3" style="color:${MINT};font-size:16px;font-weight:800;white-space:nowrap;">$${p.firstVisitTotal.toFixed(2)}<span style="color:#9DA3B0;font-size:12px;font-weight:400;margin-left:10px;">${p.branchConfig.branch.replace("_", " ").toUpperCase()} branch</span></td>
+        </tr>
+      </table>
+    </div>
+
+    <p style="margin:0 0 6px;font-weight:700;font-size:13px;color:${DARK};">Contact</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:22px;">
+      <tr><td style="padding:6px 0;color:${MID};border-bottom:1px solid #F0EEEB;width:140px;">Phone</td><td style="padding:6px 0;border-bottom:1px solid #F0EEEB;">${p.phone}</td></tr>
+      <tr><td style="padding:6px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Email</td><td style="padding:6px 0;border-bottom:1px solid #F0EEEB;"><a href="mailto:${p.email}" style="color:${MINT};">${p.email}</a></td></tr>
+      <tr><td style="padding:6px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Contact Via</td><td style="padding:6px 0;border-bottom:1px solid #F0EEEB;">${p.preferredContactMethod}</td></tr>
+      ${p.acquisitionSource ? `<tr><td style="padding:6px 0;color:${MID};">Source</td><td style="padding:6px 0;">${p.acquisitionSource}</td></tr>` : ""}
+    </table>
+
+    <p style="margin:0 0 6px;font-weight:700;font-size:13px;color:${DARK};">Property</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:22px;">
+      <tr><td style="padding:6px 0;color:${MID};border-bottom:1px solid #F0EEEB;width:140px;">Address</td><td style="padding:6px 0;border-bottom:1px solid #F0EEEB;">${fullAddress}</td></tr>
+      <tr><td style="padding:6px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Zone</td><td style="padding:6px 0;border-bottom:1px solid #F0EEEB;">${zoneDisplay}</td></tr>
+      <tr><td style="padding:6px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Sqft</td><td style="padding:6px 0;border-bottom:1px solid #F0EEEB;">${p.sqft ? `${p.sqft.toLocaleString()} sqft` : "N/A"}</td></tr>
+      <tr><td style="padding:6px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Beds / Baths</td><td style="padding:6px 0;border-bottom:1px solid #F0EEEB;">${p.bedrooms ?? "N/A"} bed / ${p.fullBathrooms ?? 0} full, ${p.halfBathrooms ?? 0} half</td></tr>
+      <tr><td style="padding:6px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Cleanliness</td><td style="padding:6px 0;border-bottom:1px solid #F0EEEB;">${cleanlinessLabel(p.cleanlinessRating)}</td></tr>
+      <tr><td style="padding:6px 0;color:${MID};">Pets</td><td style="padding:6px 0;">${p.pets ?? 0}</td></tr>
+    </table>
+
+    ${techsSection}
+
+    <p style="margin:0 0 6px;font-weight:700;font-size:13px;color:${DARK};">Pricing</p>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:22px;">
+      <tr><td style="padding:6px 0;color:${MID};border-bottom:1px solid #F0EEEB;width:140px;">Base</td><td style="padding:6px 0;border-bottom:1px solid #F0EEEB;">$${p.basePrice.toFixed(2)}</td></tr>
+      ${p.addons.length > 0 ? `<tr><td style="padding:6px 0;color:${MID};border-bottom:1px solid #F0EEEB;">Add-ons</td><td style="padding:6px 0;border-bottom:1px solid #F0EEEB;">${p.addons.map(a => a.name).join(", ")}</td></tr>` : ""}
+      ${p.bundleDiscount > 0 ? `<tr><td style="padding:6px 0;color:#2D6A4F;border-bottom:1px solid #F0EEEB;">Bundle Discount</td><td style="padding:6px 0;color:#2D6A4F;border-bottom:1px solid #F0EEEB;">-$${p.bundleDiscount.toFixed(2)}</td></tr>` : ""}
+      <tr><td style="padding:6px 0;color:${MID};font-weight:700;">Total</td><td style="padding:6px 0;font-weight:700;font-size:14px;">$${p.firstVisitTotal.toFixed(2)}</td></tr>
+    </table>
+
+    ${p.specialNotes ? `<div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:6px;padding:10px 14px;margin-bottom:20px;font-size:13px;color:${DARK};"><strong>Notes:</strong> ${p.specialNotes}</div>` : ""}
+
+    <div style="background:${BG};border-radius:6px;padding:10px 14px;font-size:12px;color:${MID};">
+      ${p.jobId ? `<span style="margin-right:14px;">Job <strong style="color:${DARK};">#${p.jobId}</strong></span>` : ""}
+      ${p.clientId ? `<span style="margin-right:14px;">Client <strong style="color:${DARK};">#${p.clientId}</strong></span>` : ""}
+      ${p.stripeCustomerId ? `<span style="display:block;margin-top:4px;">Stripe customer: <code style="font-size:11px;">${p.stripeCustomerId}</code></span>` : ""}
+      ${p.stripePaymentMethodId ? `<span style="display:block;margin-top:2px;">Payment method: <code style="font-size:11px;">${p.stripePaymentMethodId}</code></span>` : ""}
+    </div>`;
 
   return { subject, html: emailWrapper(body) };
 }

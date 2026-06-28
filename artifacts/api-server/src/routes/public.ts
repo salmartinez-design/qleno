@@ -675,6 +675,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       drizzleSql`SELECT id FROM clients WHERE email = ${email} AND company_id = ${company_id} LIMIT 1`
     );
 
+    const isReturningClient = existingClients.rows.length > 0;
     let clientId: number;
     if (existingClients.rows.length > 0) {
       clientId = (existingClients.rows[0] as any).id;
@@ -932,6 +933,58 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const emailWindowLabel = arrivalWindowVal === "morning" ? "9:00 AM – 12:00 PM" : arrivalWindowVal === "afternoon" ? "12:00 PM – 2:00 PM" : "To be confirmed";
     const emailAddonBreakdown: Array<{ name: string; amount: number }> = (pricing.addon_breakdown || []).map((a: any) => ({ name: a.name, amount: parseFloat(String(a.amount || 0)) }));
     const emailBundleDiscount = bundleDiscount ? Math.abs(parseFloat(String(bundleDiscount))) : 0;
+
+    // Zone lookup for office notification subject and body
+    let bookingZoneName: string | null = null;
+    let bookingZoneColor: string | null = null;
+    try {
+      const zipForZone = (address_zip || zip || "").trim().replace(/\D/g, "").slice(0, 5);
+      if (zipForZone.length === 5) {
+        const zoneResult = await db.execute(drizzleSql`
+          SELECT name, color FROM service_zones
+          WHERE company_id = ${company_id}
+            AND is_active = true
+            AND zip_codes @> ARRAY[${zipForZone}]::text[]
+          LIMIT 1
+        `);
+        if ((zoneResult as any).rows?.length > 0) {
+          bookingZoneName = (zoneResult as any).rows[0].name || null;
+          bookingZoneColor = (zoneResult as any).rows[0].color || null;
+        }
+      }
+    } catch {}
+
+    // Available techs: active techs with no jobs assigned on the booking date
+    let availableTechs: Array<{ name: string }> | null = null;
+    try {
+      if (preferred_date) {
+        const techResult = await db.execute(drizzleSql`
+          SELECT u.first_name, u.last_name
+          FROM users u
+          WHERE u.company_id = ${company_id}
+            AND u.role = 'tech'
+            AND u.is_active = true
+            AND u.id NOT IN (
+              SELECT jt.user_id FROM job_technicians jt
+              JOIN jobs j ON j.id = jt.job_id
+              WHERE j.company_id = ${company_id}
+                AND j.scheduled_date = ${preferred_date}::date
+                AND j.status != 'cancelled'
+              UNION
+              SELECT j.assigned_user_id FROM jobs j
+              WHERE j.company_id = ${company_id}
+                AND j.scheduled_date = ${preferred_date}::date
+                AND j.assigned_user_id IS NOT NULL
+                AND j.status != 'cancelled'
+            )
+          ORDER BY u.first_name
+        `);
+        availableTechs = ((techResult as any).rows ?? []).map((r: any) => ({
+          name: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
+        }));
+      }
+    } catch {}
+
     const emailParams = {
       firstName: first_name,
       lastName: last_name,
@@ -962,6 +1015,10 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       pets: pets ? parseInt(String(pets)) : null,
       cleanlinessRating: cleanliness ? parseInt(String(cleanliness)) : null,
       acquisitionSource: normalizeReferral(referral_source),
+      isReturningClient,
+      zoneName: bookingZoneName,
+      zoneColor: bookingZoneColor,
+      availableTechs,
     };
     if (resendKey) {
       try {
