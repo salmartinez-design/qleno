@@ -1299,7 +1299,9 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
   const addOnSum = initAddOns.reduce((s, a) => s + Number(a.subtotal ?? 0), 0);
   const baseInit = Math.max(0, Math.round((total - addOnSum) * 100) / 100);
 
-  const isLocked = !!job.locked_at || job.status === "complete" || job.status === "cancelled";
+  // Completed jobs stay editable until actually paid/invoiced (locked_at set).
+  // Cancelled jobs are always locked. Mirrors the adjUnlocked logic in JobPanel.
+  const isLocked = !!job.locked_at || job.status === "cancelled";
   const rateDriven = (job.account_id != null || job.client_type === "commercial")
     && !job.manual_rate_override
     && job.hourly_rate != null && job.hourly_rate > 0
