@@ -210,6 +210,60 @@ function LeadRow({ lead, selected, onClick }: { lead: Lead; selected: boolean; o
   );
 }
 
+// ── Enroll Drip Panel ─────────────────────────────────────────────────────────
+
+function EnrollDripPanel({ leadId, onEnrolled }: { leadId: number; onEnrolled: () => void }) {
+  const { toast } = useToast();
+  const [enrolling, setEnrolling] = useState<string | null>(null);
+
+  async function enroll(sequenceType: string) {
+    setEnrolling(sequenceType);
+    try {
+      const r = await fetch(`${API}/api/leads/${leadId}/drip/enroll`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ sequence_type: sequenceType }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Failed");
+      toast({ title: "Drip started" });
+      onEnrolled();
+    } catch (e: any) {
+      toast({ title: e.message || "Could not start drip", variant: "destructive" });
+    } finally { setEnrolling(null); }
+  }
+
+  return (
+    <div style={{ padding: "16px 20px" }}>
+      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "20px 18px" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 4 }}>No drip running</div>
+        <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, marginBottom: 16 }}>
+          Start a sequence manually or enable auto-enroll in Sequences settings.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <button onClick={() => enroll("lead_drip_phone")} disabled={!!enrolling}
+            style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid #E8E5E0", background: "#F7F6F3", cursor: "pointer", textAlign: "left", fontFamily: FF }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>
+              {enrolling === "lead_drip_phone" ? <Loader2 size={12} className="animate-spin" /> : "Phone-In Drip"}
+            </div>
+            <div style={{ fontSize: 10, color: "#6B6860" }}>6-touch SMS + email — for leads who called in</div>
+          </button>
+          <button onClick={() => enroll("lead_drip_web")} disabled={!!enrolling}
+            style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid #E8E5E0", background: "#F7F6F3", cursor: "pointer", textAlign: "left", fontFamily: FF }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>
+              {enrolling === "lead_drip_web" ? <Loader2 size={12} className="animate-spin" /> : "Web Quote Drip"}
+            </div>
+            <div style={{ fontSize: 10, color: "#6B6860" }}>7-touch SMS + email — for leads from the booking widget</div>
+          </button>
+        </div>
+        <div style={{ fontSize: 10, color: "#C4C0B8", fontFamily: FF, marginTop: 12 }}>
+          Drip will only send if the sequence is active in Sequences settings
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Drip Tab ──────────────────────────────────────────────────────────────────
 
 function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
@@ -256,12 +310,7 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
   return (
     <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
       {!enr ? (
-        <div style={{ background: "#FAFAF8", border: "1px solid #E8E5E0", borderRadius: 10, padding: "20px 16px", textAlign: "center" }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#6B6860", fontFamily: FF, marginBottom: 6 }}>No drip running</div>
-          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
-            Enable a lead drip sequence in Communication Settings to auto-enroll new leads.
-          </div>
-        </div>
+        <EnrollDripPanel leadId={lead.id} onEnrolled={load} />
       ) : (
         <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "14px 16px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
@@ -408,10 +457,11 @@ function MessagesTab({ lead }: { lead: Lead }) {
     if (!msgText.trim()) return;
     setSending(true);
     try {
-      const r = await fetch(`${API}/api/leads/${lead.id}/messages`, {
+      const path = channel === "sms" ? "communications/sms" : "communications/email";
+      const r = await fetch(`${API}/api/leads/${lead.id}/${path}`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ body: msgText, channel }),
+        body: JSON.stringify({ message: msgText, body: msgText }),
       });
       if (!r.ok) throw new Error();
       setMsgText("");
@@ -433,7 +483,7 @@ function MessagesTab({ lead }: { lead: Lead }) {
           <div key={m.id} style={{ marginBottom: 8 }}>
             <div style={{ display: "flex", justifyContent: m.direction === "outbound" ? "flex-end" : "flex-start" }}>
               <div style={{
-                fontSize: 11, lineHeight: 1.45, padding: "7px 10px", borderRadius: 10, display: "inline-block",
+                fontSize: 11, lineHeight: 1.45, padding: "7px 10px", display: "inline-block",
                 maxWidth: "78%", fontFamily: FF,
                 background: m.direction === "outbound" ? "#0A0E1A" : "#F2EFE9",
                 color: m.direction === "outbound" ? "#fff" : "#1A1917",
@@ -443,7 +493,7 @@ function MessagesTab({ lead }: { lead: Lead }) {
               </div>
             </div>
             <div style={{ fontSize: 9, color: "#9E9B94", textAlign: m.direction === "outbound" ? "right" : "left", marginBottom: 6, fontFamily: FF }}>
-              {fmtDateTime(m.created_at)}
+              {m.step_number ? `Drip touch ${m.step_number} · ${(m.channel || "sms").toUpperCase()} · ` : ""}{fmtDateTime(m.created_at)}
             </div>
           </div>
         ))}

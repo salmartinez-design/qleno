@@ -453,15 +453,23 @@ router.post("/:id/activity", requireAuth, requireRole("owner", "admin", "office"
 });
 
 // ── GET /api/leads/:id/messages ───────────────────────────────────────────────
-// The lead's SMS conversation thread (inbound + outbound), chronological.
+// Union of direct SMS thread + drip message_log, chronological.
 router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const leadId = parseInt(req.params.id);
     const rows = await db.execute(sql`
-      SELECT id, direction, body, from_number, to_number, status, read_at, created_at
+      SELECT id, direction, body, NULL AS channel, status, created_at, NULL AS step_number
         FROM sms_messages
        WHERE company_id = ${companyId} AND lead_id = ${leadId}
+      UNION ALL
+      SELECT ml.id, 'outbound' AS direction, ml.body, fs.channel, ml.status, ml.sent_at AS created_at,
+             fst.step_number
+        FROM message_log ml
+        JOIN follow_up_enrollments fe ON fe.id = ml.enrollment_id
+        JOIN follow_up_steps fst ON fst.id = ml.step_id
+        JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+       WHERE fe.company_id = ${companyId} AND fe.lead_id = ${leadId}
        ORDER BY created_at ASC`);
     return res.json(rows.rows);
   } catch (err) {
@@ -816,6 +824,21 @@ router.patch("/:id/drip/stop", requireAuth, requireRole("owner", "admin", "offic
     return res.json({ ok: true });
   } catch (err) {
     console.error("PATCH /leads/:id/drip/stop:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/leads/:id/drip/enroll ──────────────────────────────────────────
+router.post("/:id/drip/enroll", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const leadId = parseInt(req.params.id);
+    const { sequence_type } = req.body as { sequence_type?: string };
+    if (!sequence_type) return res.status(400).json({ error: "sequence_type required" });
+    await enrollForLeadDrip(companyId, leadId, sequence_type === "lead_drip_web" ? "web_quote" : "phone_in");
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("POST /leads/:id/drip/enroll:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
