@@ -2493,7 +2493,29 @@ export default function BookPage() {
                   })()}
                   onClick={() => {
                     if (isCommercial) { setStep(3); }
-                    else { runCalc(); setStep(2); }
+                    else {
+                      runCalc();
+                      setStep(2);
+                      // Fire abandon-track so the office is notified even if the
+                      // visitor never completes payment. Bypass is intentional —
+                      // this is an inbound lead signal, not an automated comm.
+                      if (company?.id) {
+                        pubFetch("/api/public/book/abandon-track", {
+                          method: "POST",
+                          body: JSON.stringify({
+                            company_id: company.id,
+                            first_name: firstName,
+                            last_name: lastName,
+                            email,
+                            phone,
+                            address,
+                            zip,
+                            scope: scopeName || scope,
+                            step_abandoned: 2,
+                          }),
+                        }).catch(() => {});
+                      }
+                    }
                   }}
                 >
                   Continue

@@ -921,6 +921,9 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     }
 
     // ── Confirmation emails ───────────────────────────────────────────────────
+    // COMMS_ENABLED does NOT gate transactional booking confirmations — only
+    // automated outbound (reminders, drip, promos) is suppressed by that flag.
+    // This is the same bypass used by /api/contact for inbound lead signals.
     const resendKey = process.env.RESEND_API_KEY;
     const emailDateStr = preferred_date
       ? new Date(preferred_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
@@ -959,9 +962,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       cleanlinessRating: cleanliness ? parseInt(String(cleanliness)) : null,
       acquisitionSource: normalizeReferral(referral_source),
     };
-    if (process.env.COMMS_ENABLED !== "true") {
-      console.log("[COMMS BLOCKED] Booking confirmation email suppressed:", { to: email, name: `${first_name} ${last_name}`, branch: branchConfig.branch, jobId });
-    } else if (resendKey) {
+    if (resendKey) {
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(resendKey);
@@ -1403,6 +1404,55 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
     `);
     const newAbId = (inserted.rows[0] as any)?.id;
     if (newAbId) await enrollForAbandonedBooking(company_id, newAbId);
+
+    // Immediate office notification — bypass COMMS_ENABLED (this is an inbound
+    // lead signal, not automated outbound). Same bypass logic as /api/contact.
+    try {
+      const resendKey = process.env.RESEND_API_KEY;
+      const cfgRows = await db.execute(drizzleSql`
+        SELECT lead_notify_email, email AS company_email, email_from_address
+        FROM companies WHERE id = ${company_id} LIMIT 1
+      `);
+      const cfg: any = cfgRows.rows[0] ?? {};
+      const notifyEmail = cfg.lead_notify_email || cfg.company_email || null;
+      const fromAddr = cfg.email_from_address ? `Qleno <${cfg.email_from_address}>` : "Qleno <noreply@phes.io>";
+      const fullName = [first_name, last_name].filter(Boolean).join(" ") || "Unknown";
+      if (resendKey && notifyEmail) {
+        const { Resend } = await import("resend");
+        const resend = new Resend(resendKey);
+        await resend.emails.send({
+          from: fromAddr,
+          to: [notifyEmail],
+          subject: `New Quote Request — ${fullName}`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#F7F6F3;">
+<div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
+<div style="background:#00C9A0;padding:14px 20px;border-radius:4px;margin-bottom:20px;">
+  <span style="color:#fff;font-size:16px;font-weight:bold;">New Quote Request — ${fullName}</span>
+</div>
+<p style="color:#6B6860;font-size:13px;margin:0 0 16px;">Someone requested a quote on the website but has not yet completed their booking.</p>
+<table style="width:100%;font-size:14px;color:#1A1917;border-collapse:collapse;">
+  <tr><td style="padding:6px 0;color:#6B6860;width:120px;">Name</td><td style="padding:6px 0;font-weight:600;">${fullName}</td></tr>
+  ${email ? `<tr><td style="padding:6px 0;color:#6B6860;">Email</td><td style="padding:6px 0;">${email}</td></tr>` : ""}
+  ${phone ? `<tr><td style="padding:6px 0;color:#6B6860;">Phone</td><td style="padding:6px 0;">${phone}</td></tr>` : ""}
+  ${address ? `<tr><td style="padding:6px 0;color:#6B6860;">Address</td><td style="padding:6px 0;">${address}${zip ? ` ${zip}` : ""}</td></tr>` : ""}
+  ${scope ? `<tr><td style="padding:6px 0;color:#6B6860;">Service</td><td style="padding:6px 0;">${scope}</td></tr>` : ""}
+</table>
+<p style="margin:20px 0 0;font-size:13px;color:#6B6860;">Log in to Qleno to follow up with this lead.</p>
+</div></div>`,
+        });
+      }
+      // Office SMS alert via per-tenant sender
+      const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+      const sender = await resolveSender(Number(company_id), null);
+      const notifyRows = await db.execute(drizzleSql`SELECT lead_notify_phone FROM companies WHERE id = ${company_id} LIMIT 1`);
+      const officeTo = (notifyRows.rows[0] as any)?.lead_notify_phone || null;
+      if (!sender.reason && officeTo) {
+        await sendSmsVia(sender, officeTo, `New quote request — ${fullName}${phone ? ` — ${phone}` : ""}${scope ? ` — ${scope}` : ""}. Did not complete booking.`);
+      }
+    } catch (notifyErr) {
+      console.error("[abandon-track] Office notification error:", notifyErr);
+    }
+
     return res.json({ ok: true, action: "created" });
   } catch (err: any) {
     console.error("POST /public/book/abandon-track:", err);
