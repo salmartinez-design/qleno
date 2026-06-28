@@ -75,10 +75,8 @@ interface CalcResult {
   final_total_after_auto_promo?: number;
 }
 
-// Effective customer-facing per-visit total after any auto-applied promotion.
-// Falls back to final_total when the API hasn't supplied the promo fields.
 function effectiveTotal(c: CalcResult): number {
-  return c.final_total_after_auto_promo != null ? c.final_total_after_auto_promo : c.final_total;
+  return c.final_total;
 }
 
 // ── Stepper counter component ────────────────────────────────────────────────
@@ -357,6 +355,14 @@ export default function BookPage() {
   const [email, setEmail] = useState("");
   const [zip, setZip] = useState("");
   const [referral, setReferral] = useState("");
+  const [referralSources, setReferralSources] = useState<Array<{ name: string; slug: string }>>([
+    { name: "Google", slug: "google" },
+    { name: "Facebook", slug: "facebook" },
+    { name: "Instagram", slug: "instagram" },
+    { name: "Nextdoor", slug: "nextdoor" },
+    { name: "Friend / Family", slug: "client_referral" },
+    { name: "Other", slug: "other" },
+  ]);
   const [smsConsent, setSmsConsent] = useState(false);
   const [termsConsent, setTermsConsent] = useState(false);
 
@@ -418,7 +424,7 @@ export default function BookPage() {
   const [mobilePoliciesOpen, setMobilePoliciesOpen] = useState(false);
   const [sidebarOpenCats, setSidebarOpenCats] = useState<Set<number>>(new Set());
   const [mobileOpenCats, setMobileOpenCats] = useState<Set<number>>(new Set());
-  const [mobilePriceExpanded, setMobilePriceExpanded] = useState(false);
+  const [mobilePriceExpanded, setMobilePriceExpanded] = useState(true);
 
   // Upsell state (Deep Clean recurring upsell)
   const [upsellCadence, setUpsellCadence] = useState("");
@@ -495,6 +501,7 @@ export default function BookPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCleanedRef = useRef<HTMLDivElement>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
+  const pageTopRef = useRef<HTMLDivElement>(null);
   const [inputMounted, setInputMounted] = useState(false);
   const addressRefCallback = useCallback((node: HTMLInputElement | null) => {
     addressInputRef.current = node;
@@ -553,15 +560,17 @@ export default function BookPage() {
   }, []);
 
   // ── Scroll to top on every step change ────────────────────────────────────
-  // After "Book" goes through we jump to the confirmation step, but the scroll
-  // position stays down on the prior step's content, leaving the customer
-  // staring at the middle of the page. Reset to the top on each transition.
-  // window.scrollTo handles the standalone page (and an iframe that scrolls
-  // internally); the postMessage lets a host page (phes.io embed) scroll its
-  // own frame to the top if it listens for it.
   useEffect(() => {
-    try { window.scrollTo({ top: 0, behavior: "smooth" }); } catch { window.scrollTo(0, 0); }
-    try { window.parent?.postMessage({ type: "qleno-booking-scroll-top", step }, "*"); } catch { /* not embedded */ }
+    const doScroll = () => {
+      try { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); } catch { window.scrollTo(0, 0); }
+      try { document.documentElement.scrollTop = 0; } catch {}
+      try { document.body.scrollTop = 0; } catch {}
+      if (pageTopRef.current) pageTopRef.current.scrollIntoView({ behavior: "auto", block: "start" });
+      try { window.parent?.postMessage({ type: "qleno-booking-scroll-top", step }, "*"); } catch {}
+    };
+    // Small delay lets React commit the new step's DOM before scrolling
+    const t = setTimeout(doScroll, 30);
+    return () => clearTimeout(t);
   }, [step]);
 
   // ── Wire autocomplete after Maps is ready AND input is in the DOM ──────────
@@ -612,6 +621,7 @@ export default function BookPage() {
         pubFetch(`/api/public/bundles/${d.id}`).then(bs => setBundles(bs)).catch(() => {});
         pubFetch(`/api/public/offer-settings/${slug}`).then(os => setOfferSettings(os)).catch(() => {});
         pubFetch(`/api/public/booking-settings/${slug}`).then(bs => setBookingSettings(bs)).catch(() => {});
+        pubFetch(`/api/public/referral-sources/${slug}`).then(rs => { if (Array.isArray(rs) && rs.length) setReferralSources(rs); }).catch(() => {});
       })
       .catch(() => { setNotFound(true); setLoading(false); });
   }, [slug]);
@@ -1321,9 +1331,6 @@ export default function BookPage() {
       {calcResult.discount_amount > 0 && (
         <Row label="Discount code applied" value={`-$${calcResult.discount_amount.toFixed(2)}`} green />
       )}
-      {(calcResult.auto_promos ?? []).filter(p => p.amount > 0).map((p, i) => (
-        <Row key={`promo-${i}`} label={p.label} value={`-$${p.amount.toFixed(2)}`} green />
-      ))}
       {calcResult.minimum_applied && (
         <p style={{ fontSize: 11, color: "#F59E0B", margin: "2px 0 0" }}>Minimum applied</p>
       )}
@@ -1527,7 +1534,7 @@ export default function BookPage() {
 
   // ── Page wrapper ──────────────────────────────────────────────────────────
   return (
-    <div className="bw-root" style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="bw-root" style={{ minHeight: step < 5 ? "100vh" : "auto", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: `
         .bw-policies-mobile { display: none; }
         .bw-price-sticky { display: none; }
@@ -1608,7 +1615,7 @@ export default function BookPage() {
         </div>
       )}
 
-      <div className="bw-body" style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px", display: "flex", gap: 32, alignItems: "flex-start" }}>
+      <div ref={pageTopRef} className="bw-body" style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px", display: "flex", gap: 32, alignItems: "flex-start" }}>
         <div className="bw-form" style={{ flex: 1, minWidth: 0 }}>
 
           {/* ── Step 0: Contact Info ────────────────────────────────────────── */}
@@ -1640,7 +1647,7 @@ export default function BookPage() {
                 <FieldWrap label="How did you hear about us?">
                   <select style={{ ...s.input, width: "100%" }} value={referral} onChange={e => setReferral(e.target.value)}>
                     <option value="">Select...</option>
-                    {["Google","Facebook","Instagram","Nextdoor","Friend/Family","Other"].map(v => <option key={v} value={v}>{v}</option>)}
+                    {referralSources.map(src => <option key={src.slug} value={src.slug}>{src.name}</option>)}
                   </select>
                 </FieldWrap>
               </div>
@@ -2270,7 +2277,7 @@ export default function BookPage() {
 
                   {/* ── Deep Clean Recurring Upsell ──────────────────────────── */}
                   {(showUpsellOffer || showUpsellConfirmed || showSoftNudge) && offerSettings?.upsell_enabled !== false && (
-                    <div style={{ marginTop: 16, background: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: `3px solid ${brand}`, borderRadius: 10, padding: 20 }}>
+                    <div style={{ marginTop: 16, background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: 20 }}>
                       {showUpsellOffer && (
                         <>
                           <p style={{ margin: "0 0 4px", fontSize: 11, fontWeight: 700, color: brand, textTransform: "uppercase", letterSpacing: "0.08em" }}>Limited Offer</p>
@@ -3241,9 +3248,9 @@ export default function BookPage() {
               </div>
 
               {(bookResult.branch_phone || bookResult.branch_email) && (
-                <div style={{ background: "#EBF4FF", borderLeft: `4px solid ${brand}`, borderRadius: "0 6px 6px 0", padding: "14px 16px", marginBottom: 24, fontSize: 14, color: "#1A1917" }}>
-                  <strong>Questions?</strong> Call us at <strong>{bookResult.branch_phone}</strong> or email{" "}
-                  <a href={`mailto:${bookResult.branch_email}`} style={{ color: brand }}>{bookResult.branch_email}</a>
+                <div style={{ background: "#EBF4FF", border: `1px solid ${brand}25`, borderRadius: 8, padding: "14px 16px", marginBottom: 24, fontSize: 14, color: "#1A1917", wordBreak: "break-word" }}>
+                  <strong>Questions?</strong> Call or text <strong><a href={`tel:${bookResult.branch_phone?.replace(/[^\d+]/g, "")}`} style={{ color: "#1A1917", textDecoration: "none" }}>{bookResult.branch_phone}</a></strong>
+                  {bookResult.branch_email && <> or email <a href={`mailto:${bookResult.branch_email}`} style={{ color: brand }}>{bookResult.branch_email}</a></>}
                 </div>
               )}
 
@@ -3265,7 +3272,26 @@ export default function BookPage() {
                     <Row label="Estimated Time" value={`${(bookResult.pricing?.total_hours ?? bookResult.pricing?.base_hours ?? calcResult?.total_hours ?? calcResult?.base_hours ?? 0).toFixed(1)} hrs`} />
                   )}
                   {bookResult.pricing?.final_total !== undefined && <Row label="First Visit Total" value={`$${bookResult.pricing.final_total.toFixed(2)}`} bold />}
+                  {(calcResult?.addon_breakdown ?? []).filter(a => a.amount > 0).map(a => (
+                    <Row key={a.id} label={a.name.split(" — ")[0].split(" (")[0].trim()} value={`+$${a.amount.toFixed(2)}`} />
+                  ))}
+                  {bookResult.pricing?.discount_amount > 0 && (
+                    <Row label="Discount applied" value={`-$${bookResult.pricing.discount_amount.toFixed(2)}`} green />
+                  )}
                 </div>
+              </div>
+
+              {/* Cancellation policy notice */}
+              <div style={{ background: "#FEF9EC", border: "1px solid #F59E0B30", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#92400E", lineHeight: 1.6 }}>
+                <strong>Cancellation:</strong> Please provide at least 48 hours notice to cancel or reschedule. Cancellations within 24 hours may be subject to a fee. Reply STOP to SMS to opt out of reminders.
+              </div>
+
+              {/* Referral section */}
+              <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 18px", marginBottom: 20, textAlign: "center" as const }}>
+                <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 14, color: "#1A1917" }}>Know someone who could use a cleaning?</p>
+                <p style={{ margin: 0, fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
+                  Refer a friend and ask our office about our referral program — both of you could save on your next clean.
+                </p>
               </div>
 
               {upsellAccepted && (

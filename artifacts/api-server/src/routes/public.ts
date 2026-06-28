@@ -187,6 +187,35 @@ router.get("/offer-settings/:slug", rateLimit, async (req, res) => {
   }
 });
 
+// ── GET /api/public/referral-sources/:slug ──────────────────────────────────
+// Returns active acquisition sources for the booking widget. Falls back to
+// hardcoded defaults when no custom sources have been configured.
+router.get("/referral-sources/:slug", rateLimit, async (req, res) => {
+  const { sql: drSql } = await import("drizzle-orm");
+  const DEFAULTS = [
+    { name: "Google", slug: "google" },
+    { name: "Facebook", slug: "facebook" },
+    { name: "Instagram", slug: "instagram" },
+    { name: "Nextdoor", slug: "nextdoor" },
+    { name: "Friend / Family", slug: "client_referral" },
+    { name: "Other", slug: "other" },
+  ];
+  try {
+    const slug = req.params.slug;
+    const companyRow = await db.execute(drSql`SELECT id FROM companies WHERE slug = ${slug} LIMIT 1`);
+    if (!companyRow.rows.length) return res.json(DEFAULTS);
+    const companyId = (companyRow.rows[0] as any).id;
+    const result = await db.execute(drSql`
+      SELECT name, slug FROM acquisition_sources
+       WHERE company_id = ${companyId} AND is_active = true
+       ORDER BY display_order, id
+    `);
+    return res.json((result as any).rows.length ? (result as any).rows : DEFAULTS);
+  } catch {
+    return res.json(DEFAULTS);
+  }
+});
+
 // ── GET /api/public/booking-settings/:slug ──────────────────────────────────
 router.get("/booking-settings/:slug", rateLimit, async (req, res) => {
   const { sql: drSql } = await import("drizzle-orm");
@@ -480,26 +509,6 @@ export async function runCalculate(params: {
     }
   }
 
-  // [auto-promos 2026-06-21] Auto-applied promotions honored at checkout. Only
-  // the deep-clean promo is determinable from a single quote (the 2nd-recurring
-  // promo is contextual to a schedule occurrence and lands at invoice build).
-  // Computed against the cleaning base price and REPORTED in a dedicated field —
-  // we deliberately do NOT mutate final_total, so a booked job's stored base_fee
-  // stays PRE-promo and the discount is applied exactly once, at invoice time,
-  // by the single chokepoint (see lib/auto-promos.ts ensureAutoPromosForJob).
-  // The booking widget displays final_total_after_auto_promo so the advertised
-  // price is honored at checkout. This keeps "stored price = pre-promo" an
-  // invariant — there is no path where the promo can double-apply.
-  const { computeCheckoutPromo } = await import("../lib/auto-promos.js");
-  const autoPromo = await computeCheckoutPromo({
-    companyId: company_id,
-    serviceType: scopeNameToServiceType(scope.name),
-    basePrice: base_price,
-  });
-  const final_total_after_auto_promo = autoPromo
-    ? Math.max(0, Math.round((final_total - autoPromo.amount) * 100) / 100)
-    : Math.round(final_total * 100) / 100;
-
   return {
     scope_id,
     scope_name: scope.name,
@@ -520,14 +529,6 @@ export async function runCalculate(params: {
     discount_amount: Math.round(discount_amount * 100) / 100,
     discount_valid: discount_code ? discount_valid : undefined,
     final_total: Math.round(final_total * 100) / 100,
-    // [auto-promos] Auto-applied promotions (deep-clean at checkout). final_total
-    // stays PRE-promo (= the stored base); final_total_after_auto_promo is the
-    // advertised price the widget shows. Discount itemizes on the invoice.
-    auto_promos: autoPromo
-      ? [{ kind: autoPromo.kind, label: autoPromo.label, pct: autoPromo.pct, amount: autoPromo.amount }]
-      : [],
-    auto_promo_discount: autoPromo ? autoPromo.amount : 0,
-    final_total_after_auto_promo,
   };
 }
 

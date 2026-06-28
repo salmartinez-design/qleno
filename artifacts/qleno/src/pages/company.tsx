@@ -2351,6 +2351,52 @@ function OnlineBookingTab() {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Referral source management
+  const [refSources, setRefSources] = useState<Array<{ id: number; name: string; slug: string; is_active: boolean; display_order: number }>>([]);
+  const [refLoaded, setRefLoaded] = useState(false);
+  const [newRefName, setNewRefName] = useState('');
+  const [addingRef, setAddingRef] = useState(false);
+
+  useEffect(() => {
+    fetch(`${BASE}/api/acquisition-sources?include_inactive=true`, { headers: getAuthHeaders() })
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setRefSources(d); setRefLoaded(true); })
+      .catch(() => setRefLoaded(true));
+  }, [BASE]);
+
+  async function toggleRefSource(id: number, is_active: boolean) {
+    try {
+      await fetch(`${BASE}/api/acquisition-sources/${id}`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active }),
+      });
+      setRefSources(prev => prev.map(s => s.id === id ? { ...s, is_active } : s));
+    } catch {
+      toast({ title: 'Error', description: 'Could not update source.', variant: 'destructive' });
+    }
+  }
+
+  async function addRefSource() {
+    if (!newRefName.trim()) return;
+    setAddingRef(true);
+    try {
+      const r = await fetch(`${BASE}/api/acquisition-sources`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newRefName.trim() }),
+      });
+      if (!r.ok) throw new Error('Failed');
+      const created = await r.json();
+      setRefSources(prev => [...prev, created]);
+      setNewRefName('');
+    } catch {
+      toast({ title: 'Error', description: 'Could not add source.', variant: 'destructive' });
+    } finally {
+      setAddingRef(false);
+    }
+  }
+
   useEffect(() => {
     fetch(`${BASE}/api/companies/booking-settings`, { headers: getAuthHeaders() })
       .then(r => r.json())
@@ -2473,6 +2519,57 @@ function OnlineBookingTab() {
             Unassigned (required)
           </div>
         </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>"How did you hear about us?" Options</div>
+        <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16, fontFamily: FF }}>
+          These appear in the referral dropdown on your booking form. Toggle off to hide a source without deleting it.
+        </p>
+        {!refLoaded ? (
+          <p style={{ fontSize: 13, color: '#9E9B94', fontFamily: FF }}>Loading…</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {refSources.map(src => (
+              <div key={src.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', border: '1px solid #E5E2DC', borderRadius: 8, background: src.is_active ? '#fff' : '#F7F6F3' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: src.is_active ? '#1A1917' : '#9E9B94', fontFamily: FF }}>{src.name}</span>
+                <button
+                  onClick={() => toggleRefSource(src.id, !src.is_active)}
+                  style={{
+                    padding: '5px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: FF,
+                    border: `1.5px solid ${src.is_active ? '#E5E2DC' : 'var(--brand, #00C9A0)'}`,
+                    background: src.is_active ? '#fff' : 'transparent',
+                    color: src.is_active ? '#6B7280' : 'var(--brand, #00C9A0)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {src.is_active ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <input
+                value={newRefName}
+                onChange={e => setNewRefName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addRefSource(); }}
+                placeholder="Add new source (e.g. Yard Sign)"
+                style={{ flex: 1, padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF, outline: 'none', color: '#1A1917' }}
+              />
+              <button
+                onClick={addRefSource}
+                disabled={addingRef || !newRefName.trim()}
+                style={{
+                  padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: FF,
+                  background: 'var(--brand, #00C9A0)', color: '#fff', border: 'none',
+                  cursor: (addingRef || !newRefName.trim()) ? 'not-allowed' : 'pointer',
+                  opacity: (addingRef || !newRefName.trim()) ? 0.6 : 1,
+                }}
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <button
