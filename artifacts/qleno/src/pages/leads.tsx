@@ -1260,10 +1260,7 @@ export default function LeadsPage() {
             </button>
           ))}
         </div>
-        <button onClick={() => setShowAdd(true)}
-          style={{ background: "#00C9A0", color: "#0A0E1A", border: "none", borderRadius: 7, padding: "6px 14px", fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
-          + Add Lead
-        </button>
+        <div />
       </div>
 
       {mainView === "reports" && <ReportsView />}
@@ -1329,7 +1326,6 @@ export default function LeadsPage() {
         </div>
       )}
 
-      {showAdd && <AddLeadDrawer onClose={() => setShowAdd(false)} onSaved={() => { loadLeads(); loadCounts(); }} />}
     </DashboardLayout>
   );
 }
