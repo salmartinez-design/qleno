@@ -81,7 +81,7 @@ const ALL_STATUSES = Object.keys(STATUS_CONFIG);
 const SOURCE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   web_quote:            { label: "Web",     color: "#7C3AED", bg: "#EDE9FE" },
   phone_in:             { label: "Phone",   color: "#059669", bg: "#D1FAE5" },
-  manual:               { label: "Manual",  color: "#374151", bg: "#F3F4F6" },
+  manual:               { label: "Office",  color: "#374151", bg: "#F3F4F6" },
   google_local_services:{ label: "Google",  color: "#1D4ED8", bg: "#DBEAFE" },
   google_search:        { label: "Google",  color: "#3B82F6", bg: "#EFF6FF" },
   facebook:             { label: "Facebook",color: "#4338CA", bg: "#EEF2FF" },
@@ -1056,7 +1056,7 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               {[
                 { value: "phone_in", label: "Phone call" },
                 { value: "web_quote", label: "Online form" },
-                { value: "manual",  label: "Manual entry" },
+                { value: "manual",  label: "Office entry" },
               ].map(opt => (
                 <button key={opt.value} onClick={() => set("lead_source", opt.value)}
                   style={{ flex: 1, padding: "7px 8px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700,
