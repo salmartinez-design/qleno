@@ -1522,6 +1522,45 @@ export default function QuoteBuilderPage() {
         {/* ── LEFT: Wizard ──────────────────────────────────────────────── */}
         <div style={{ minWidth: 0 }}>
 
+          {/* Sticky client context bar — shows on steps 1-4 so the team
+              always knows who they're quoting without going back to step 1 */}
+          {activeSection > 0 && (leadFirstName || clientLoaded) && (
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 20px" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>
+                {clientLoaded
+                  ? `${clientLoaded.first_name ?? ""} ${clientLoaded.last_name ?? ""}`.trim() || clientLoaded.name
+                  : `${leadFirstName} ${leadLastName}`.trim()}
+              </span>
+              {(leadPhone || clientLoaded?.phone) && (
+                <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                  {leadPhone || clientLoaded?.phone}
+                </span>
+              )}
+              {(leadEmail || clientLoaded?.email) && (
+                <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                  {leadEmail || clientLoaded?.email}
+                </span>
+              )}
+              {address && (
+                <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                  {address}{zipCode ? `, ${zipCode}` : ""}
+                </span>
+              )}
+              {zipZone && zipZone !== "uncovered" && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, fontFamily: FF, color: (zipZone as any).color }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: (zipZone as any).color, flexShrink: 0 }} />
+                  {(zipZone as any).name}
+                </span>
+              )}
+              <button
+                onClick={() => setActiveSection(0)}
+                style={{ marginLeft: "auto", fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600, fontFamily: FF, whiteSpace: "nowrap" }}
+              >
+                Edit
+              </button>
+            </div>
+          )}
+
           {/* Step tabs */}
           <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
             {SECTION_LABELS.map((label, i) => {
