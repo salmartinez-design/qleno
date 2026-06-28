@@ -52,21 +52,21 @@ export function QlenoLogo({
 
   return (
     <div
-      style={{ display: "flex", alignItems: "center", gap: 3 }}
+      style={{ display: "flex", alignItems: "center", gap: 8 }}
       className={className}
     >
       <QlenoMark size={markSize} />
       <span
         style={{
           fontFamily: "'Plus Jakarta Sans', sans-serif",
-          fontWeight: 700,
+          fontWeight: 800,
           fontSize: wordFont,
           color: textColor,
-          letterSpacing: "-0.5px",
+          letterSpacing: "-0.8px",
           lineHeight: 1,
         }}
       >
-        leno
+        Qleno
       </span>
     </div>
   );
