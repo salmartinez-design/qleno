@@ -109,7 +109,12 @@ function actionLabel(type: string) {
   return ({
     status_change: "Status changed", note_added: "Note added", call_logged: "Call logged",
     email_sent: "Email sent", sms_sent: "SMS sent", quote_sent: "Quote sent", converted: "Converted",
-  } as Record<string, string>)[type] || type;
+    created: "Lead created", stage_booked: "Status changed to Booked",
+    stage_needs_contacted: "Status changed to Needs Contact",
+    stage_contacted: "Status changed to Contacted", stage_quoted: "Status changed to Quoted",
+    drip_enrolled: "Enrolled in drip", drip_stopped: "Drip stopped", drip_paused: "Drip paused",
+    drip_touch_sent: "Drip message sent", assigned: "Assignee updated",
+  } as Record<string, string>)[type] || type.replace(/_/g, " ");
 }
 
 const lbl: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 5, fontFamily: FF };
