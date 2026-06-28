@@ -81,7 +81,7 @@ const ALL_STATUSES = Object.keys(STATUS_CONFIG);
 const SOURCE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   web_quote:            { label: "Web",     color: "#7C3AED", bg: "#EDE9FE" },
   phone_in:             { label: "Phone",   color: "#059669", bg: "#D1FAE5" },
-  manual:               { label: "Manual",  color: "#374151", bg: "#F3F4F6" },
+  manual:               { label: "Office",  color: "#374151", bg: "#F3F4F6" },
   google_local_services:{ label: "Google",  color: "#1D4ED8", bg: "#DBEAFE" },
   google_search:        { label: "Google",  color: "#3B82F6", bg: "#EFF6FF" },
   facebook:             { label: "Facebook",color: "#4338CA", bg: "#EEF2FF" },
@@ -194,12 +194,70 @@ function LeadRow({ lead, selected, onClick }: { lead: Lead; selected: boolean; o
           <div style={{ height: "100%", width: `${done}%`, background: accent, borderRadius: 1 }} />
         </div>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4, color: cfg.color, fontFamily: FF }}>
-            {cfg.label}
+          <span style={{
+            fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 4, fontFamily: FF,
+            background: (STATUS_CONFIG[lead.status] || STATUS_CONFIG["needs_contacted"]).bg,
+            color: (STATUS_CONFIG[lead.status] || STATUS_CONFIG["needs_contacted"]).color,
+          }}>
+            {(STATUS_CONFIG[lead.status] || STATUS_CONFIG["needs_contacted"]).label}
           </span>
-          <span style={{ fontSize: 9, color: "#9E9B94", fontFamily: FF }}>
-            {lead.status === "booked" ? "Drip complete" : `Added ${fmtDate(lead.created_at)}`}
+          <span style={{ fontSize: 9, color: "#C4C0B8", fontFamily: FF }}>
+            {cfg.label} · {fmtDate(lead.created_at)}
           </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Enroll Drip Panel ─────────────────────────────────────────────────────────
+
+function EnrollDripPanel({ leadId, onEnrolled }: { leadId: number; onEnrolled: () => void }) {
+  const { toast } = useToast();
+  const [enrolling, setEnrolling] = useState<string | null>(null);
+
+  async function enroll(sequenceType: string) {
+    setEnrolling(sequenceType);
+    try {
+      const r = await fetch(`${API}/api/leads/${leadId}/drip/enroll`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ sequence_type: sequenceType }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || "Failed");
+      toast({ title: "Drip started" });
+      onEnrolled();
+    } catch (e: any) {
+      toast({ title: e.message || "Could not start drip", variant: "destructive" });
+    } finally { setEnrolling(null); }
+  }
+
+  return (
+    <div style={{ padding: "16px 20px" }}>
+      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "20px 18px" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 4 }}>No drip running</div>
+        <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, marginBottom: 16 }}>
+          Start a sequence manually or enable auto-enroll in Sequences settings.
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <button onClick={() => enroll("lead_drip_phone")} disabled={!!enrolling}
+            style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid #E8E5E0", background: "#F7F6F3", cursor: "pointer", textAlign: "left", fontFamily: FF }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>
+              {enrolling === "lead_drip_phone" ? <Loader2 size={12} className="animate-spin" /> : "Phone-In Drip"}
+            </div>
+            <div style={{ fontSize: 10, color: "#6B6860" }}>6-touch SMS + email — for leads who called in</div>
+          </button>
+          <button onClick={() => enroll("lead_drip_web")} disabled={!!enrolling}
+            style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid #E8E5E0", background: "#F7F6F3", cursor: "pointer", textAlign: "left", fontFamily: FF }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>
+              {enrolling === "lead_drip_web" ? <Loader2 size={12} className="animate-spin" /> : "Web Quote Drip"}
+            </div>
+            <div style={{ fontSize: 10, color: "#6B6860" }}>7-touch SMS + email — for leads from the booking widget</div>
+          </button>
+        </div>
+        <div style={{ fontSize: 10, color: "#C4C0B8", fontFamily: FF, marginTop: 12 }}>
+          Drip will only send if the sequence is active in Sequences settings
         </div>
       </div>
     </div>
@@ -252,12 +310,7 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
   return (
     <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
       {!enr ? (
-        <div style={{ background: "#FAFAF8", border: "1px solid #E8E5E0", borderRadius: 10, padding: "20px 16px", textAlign: "center" }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: "#6B6860", fontFamily: FF, marginBottom: 6 }}>No drip running</div>
-          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
-            Enable a lead drip sequence in Communication Settings to auto-enroll new leads.
-          </div>
-        </div>
+        <EnrollDripPanel leadId={lead.id} onEnrolled={load} />
       ) : (
         <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "14px 16px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
@@ -404,10 +457,11 @@ function MessagesTab({ lead }: { lead: Lead }) {
     if (!msgText.trim()) return;
     setSending(true);
     try {
-      const r = await fetch(`${API}/api/leads/${lead.id}/messages`, {
+      const path = channel === "sms" ? "communications/sms" : "communications/email";
+      const r = await fetch(`${API}/api/leads/${lead.id}/${path}`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ body: msgText, channel }),
+        body: JSON.stringify({ message: msgText, body: msgText }),
       });
       if (!r.ok) throw new Error();
       setMsgText("");
@@ -429,7 +483,7 @@ function MessagesTab({ lead }: { lead: Lead }) {
           <div key={m.id} style={{ marginBottom: 8 }}>
             <div style={{ display: "flex", justifyContent: m.direction === "outbound" ? "flex-end" : "flex-start" }}>
               <div style={{
-                fontSize: 11, lineHeight: 1.45, padding: "7px 10px", borderRadius: 10, display: "inline-block",
+                fontSize: 11, lineHeight: 1.45, padding: "7px 10px", display: "inline-block",
                 maxWidth: "78%", fontFamily: FF,
                 background: m.direction === "outbound" ? "#0A0E1A" : "#F2EFE9",
                 color: m.direction === "outbound" ? "#fff" : "#1A1917",
@@ -439,7 +493,7 @@ function MessagesTab({ lead }: { lead: Lead }) {
               </div>
             </div>
             <div style={{ fontSize: 9, color: "#9E9B94", textAlign: m.direction === "outbound" ? "right" : "left", marginBottom: 6, fontFamily: FF }}>
-              {fmtDateTime(m.created_at)}
+              {m.step_number ? `Drip touch ${m.step_number} · ${(m.channel || "sms").toUpperCase()} · ` : ""}{fmtDateTime(m.created_at)}
             </div>
           </div>
         ))}
@@ -1052,7 +1106,7 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               {[
                 { value: "phone_in", label: "Phone call" },
                 { value: "web_quote", label: "Online form" },
-                { value: "manual",  label: "Manual entry" },
+                { value: "manual",  label: "Office entry" },
               ].map(opt => (
                 <button key={opt.value} onClick={() => set("lead_source", opt.value)}
                   style={{ flex: 1, padding: "7px 8px", borderRadius: 7, border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700,
@@ -1155,9 +1209,12 @@ export default function LeadsPage() {
   const loadCounts = useCallback(async () => {
     const r = await fetch(`${API}/api/leads/status-counts`, { headers: getAuthHeaders() });
     if (r.ok) {
-      const rows: Array<{ status: string; count: string }> = await r.json();
+      const obj: Record<string, number> = await r.json();
       const map: Record<string, number> = { all: 0 };
-      for (const row of rows) { map[row.status] = parseInt(row.count); map.all = (map.all || 0) + parseInt(row.count); }
+      for (const [status, n] of Object.entries(obj)) {
+        map[status] = Number(n);
+        map.all = (map.all || 0) + Number(n);
+      }
       setCounts(map);
     }
   }, []);
@@ -1203,10 +1260,7 @@ export default function LeadsPage() {
             </button>
           ))}
         </div>
-        <button onClick={() => setShowAdd(true)}
-          style={{ background: "#00C9A0", color: "#0A0E1A", border: "none", borderRadius: 7, padding: "6px 14px", fontSize: 11, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
-          + Add Lead
-        </button>
+        <div />
       </div>
 
       {mainView === "reports" && <ReportsView />}
@@ -1272,7 +1326,6 @@ export default function LeadsPage() {
         </div>
       )}
 
-      {showAdd && <AddLeadDrawer onClose={() => setShowAdd(false)} onSaved={() => { loadLeads(); loadCounts(); }} />}
     </DashboardLayout>
   );
 }
