@@ -3796,8 +3796,8 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
             scope:            labelServiceType(jd.service_type),
             service_address:  addr,
           };
-          sendNotification("job_completed", "email", companyId, cl.email, null, mv).catch(() => {});
-          sendNotification("job_completed", "sms",   companyId, null, cl.phone, mv).catch(() => {});
+          sendNotification("job_completed", "email", companyId, cl.email, null, mv, false, undefined, clientId).catch(() => {});
+          sendNotification("job_completed", "sms",   companyId, null, cl.phone, mv, false, undefined, clientId).catch(() => {});
         }).catch(() => {});
     }
     // ─────────────────────────────────────────────────────────────────────

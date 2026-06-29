@@ -84,6 +84,12 @@ export async function sendNotification(
   // other transactional emails are byte-for-byte unchanged. Gating + logging are
   // untouched. Used solely by the job_scheduled confirmation email.
   renderEmail?: (mergedBodyHtml: string, vars: Record<string, string>) => string,
+  // [notif-prefs] ADDITIVE, opt-in: the client this send is for. When provided
+  // (and the send isn't transactional), the per-client/per-account message+
+  // channel preference gate runs. Omitting it preserves the exact prior
+  // behavior — no gate. Callers for the six customer messages pass it; every
+  // other caller (transactional, invoice, payment, welcome) leaves it undefined.
+  prefClientId?: number | null,
 ): Promise<void> {
   let status = "sent";
   let errorMsg: string | null = null;
@@ -120,6 +126,21 @@ export async function sendNotification(
     if (!transactional && !(commsRow.rows[0] as any)?.comms_enabled) {
       await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "suppressed", "company_comms_disabled", {});
       return;
+    }
+
+    // [notif-prefs] Per-client/account message + channel preference gate. EXTRA
+    // filter on top of the tenant + opt-out gates, never a replacement. Safe
+    // default: isMessageEnabledForJob returns true on any missing input or error,
+    // so only an explicit OFF override suppresses — a wrong gate here can't
+    // silence a client who didn't opt out. Skipped for transactional sends and
+    // when no client is supplied.
+    if (!transactional && prefClientId != null) {
+      const { isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
+      const enabled = await isMessageEnabledForJob({ companyId, clientId: prefClientId }, templateKey, channel);
+      if (!enabled) {
+        await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "suppressed", "client_pref_off", {});
+        return;
+      }
     }
 
     // Fetch company info for merge vars
@@ -641,6 +662,11 @@ export async function runScheduledJobMessages(): Promise<void> {
           service_address: serviceAddress,
         };
 
+        // [notif-prefs] Resolve this job's preference scope (account vs client)
+        // ONCE per job; the per-channel gate below reuses it. Never throws.
+        const { resolveScopeForClient, isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
+        const prefScope = await resolveScopeForClient(job.client_id);
+
         for (const channel of channels) {
           if (channel !== "email" && channel !== "sms") continue;
           // Ledger guard — the hard idempotency gate. One row = already fired.
@@ -648,6 +674,16 @@ export async function runScheduledJobMessages(): Promise<void> {
             SELECT 1 FROM job_message_sends
              WHERE job_id = ${job.id} AND schedule_key = ${sched.key} AND channel = ${channel} LIMIT 1`);
           if (((led as any).rows ?? []).length) { _ledgerSkipped++; continue; }
+
+          // [notif-prefs] Per-client/account preference gate — EXTRA filter on
+          // top of the template-active + opt-out checks. Safe default ON; only
+          // an explicit OFF suppresses. Logged as client_pref_off. No ledger row
+          // is written, so flipping the pref back on lets a future run send.
+          const prefOn = await isMessageEnabledForJob({ companyId: job.company_id, scope: prefScope }, sched.key, channel);
+          if (!prefOn) {
+            await logNotification(job.company_id, (channel === "email" ? job.email : job.phone) || "unknown", channel, sched.key, "suppressed", "client_pref_off", { job_id: String(job.id) });
+            continue;
+          }
 
           const tpl = await renderCustomerTemplate(job.company_id, sched.key, channel as "email" | "sms", vars);
           if (tpl && !tpl.is_active) continue; // channel paused by office
@@ -792,8 +828,8 @@ export async function runReviewRequestCron(): Promise<void> {
         review_link: job.review_link || "https://g.page/r/phes/review",
         scope:       labelServiceType(job.service_type),
       };
-      await sendNotification("review_request", "email", job.company_id, job.email, null, mergeVars);
-      await sendNotification("review_request", "sms",   job.company_id, null, job.phone, mergeVars);
+      await sendNotification("review_request", "email", job.company_id, job.email, null, mergeVars, false, undefined, job.client_id);
+      await sendNotification("review_request", "sms",   job.company_id, null, job.phone, mergeVars, false, undefined, job.client_id);
       // Update survey_last_sent
       await db.execute(
         (await import("drizzle-orm")).sql`UPDATE clients SET survey_last_sent = NOW() WHERE id = ${job.client_id}`
