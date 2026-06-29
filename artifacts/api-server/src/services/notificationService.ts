@@ -618,7 +618,12 @@ export async function runScheduledJobMessages(): Promise<void> {
           company_phone: branchConfig.clientPhone,
           company_email: branchConfig.officeEmail,
           service_type: labelServiceType(job.service_type),
-          date: formatDate(job.scheduled_date),
+          // [reminder-crash-fix 2026-06-29] The query aliases scheduled_date to
+          // `sdate`, so job.scheduled_date is undefined here — formatDate(undefined)
+          // threw "Cannot read properties of undefined (reading 'split')" on the
+          // FIRST job of every run, which is why the reminder cron produced zero
+          // sends and zero log rows. Use the already-normalized `sdate` string.
+          date: formatDate(sdate),
           arrival_window: arrivalWindowLabel,
           service_address: serviceAddress,
         };
@@ -788,8 +793,16 @@ export async function runReviewRequestCron(): Promise<void> {
 }
 
 // ── Helper formatters ─────────────────────────────────────────────────────────
-function formatDate(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
+function formatDate(dateStr: string | Date | null | undefined): string {
+  // [reminder-crash-fix 2026-06-29] Defense in depth: never throw on a null,
+  // undefined, or Date value. A bad date should degrade the label, not crash the
+  // whole reminder run for the tenant.
+  if (!dateStr) return "";
+  const s = dateStr instanceof Date
+    ? `${dateStr.getFullYear()}-${String(dateStr.getMonth() + 1).padStart(2, "0")}-${String(dateStr.getDate()).padStart(2, "0")}`
+    : String(dateStr).slice(0, 10);
+  const [y, m, d] = s.split("-").map(Number);
+  if (!y || !m || !d) return "";
   const dt = new Date(y, m - 1, d);
   return dt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }
