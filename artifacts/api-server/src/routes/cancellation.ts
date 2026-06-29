@@ -105,19 +105,25 @@ router.get("/", requireAuth, async (req, res) => {
 // POST /api/cancellations — log a cancellation or reschedule event
 router.post("/", requireAuth, async (req, res) => {
   try {
-    const { job_id, customer_id, cancel_reason, notes } = req.body;
+    const { job_id, customer_id, cancel_reason, notes, cancel_action } = req.body;
     if (!job_id || !customer_id || !cancel_reason) {
       return res.status(400).json({ error: "job_id, customer_id, and cancel_reason required" });
     }
     const companyId = req.auth!.companyId!;
     const mappedReason = REASON_MAP[cancel_reason as string] ?? "other";
 
+    // [audit-label-fix 2026-06-29] Persist cancel_action so the client Activity
+    // feed can distinguish a reschedule from a cancellation. This endpoint is
+    // called by the reschedule modal, which sends cancel_action:'move'. Without
+    // it the row stored NULL and the feed (which labels anything not move/bump as
+    // "Cancelled") showed every reschedule as "Cancelled — customer request".
     const [row] = await db.insert(cancellationLogTable).values({
       company_id: companyId,
       job_id: parseInt(job_id),
       customer_id: parseInt(customer_id),
       cancelled_by: req.auth!.userId,
       cancel_reason: mappedReason,
+      cancel_action: typeof cancel_action === "string" ? cancel_action : null,
       notes: notes ?? null,
     }).returning();
 

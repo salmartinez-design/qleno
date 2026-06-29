@@ -626,7 +626,16 @@ export async function runScheduledJobMessages(): Promise<void> {
           if (!tpl) continue; // no copy row — skip (built-ins always have one)
 
           if (channel === "email") {
-            if (!resendKey || !job.email || job.email_opt_out_at) continue;
+            // [reminder-send-fix 2026-06-29] Log every skip with its reason. The
+            // old code `continue`d silently, so a missing key or opted-out client
+            // produced ZERO log rows — indistinguishable from "cron never ran".
+            const emailSkip = !resendKey ? "no_resend_key"
+              : !job.email ? "no_recipient_email"
+              : job.email_opt_out_at ? "email_opted_out" : null;
+            if (emailSkip) {
+              await logNotification(job.company_id, job.email || "", "email", sched.key, "suppressed", emailSkip, { job_id: String(job.id) });
+              continue;
+            }
             try {
               const htmlBody = /<[a-z][\s\S]*>/i.test(tpl.body) ? tpl.body : tpl.body.replace(/\n/g, "<br>");
               let emailHtml = wrapEmailHtml(htmlBody);
@@ -650,27 +659,46 @@ export async function runScheduledJobMessages(): Promise<void> {
               console.error(`[scheduled-messages] email failed key=${sched.key} job=${job.id}:`, e);
             }
           } else {
-            if (!accountSid || !authToken || !job.phone || job.sms_opt_out_at) continue;
+            // [reminder-send-fix 2026-06-29] Resolve Twilio creds the SAME way
+            // booking confirmations do — resolveSender (DB creds with env-var
+            // fallback) — instead of reading process.env directly. If the creds
+            // live in the DB but not the process env, the old code hit !accountSid
+            // and skipped SILENTLY: that is why booking confirmations sent while
+            // reminders produced zero with no log trace. Keep the per-branch From
+            // (getBranchByZip) and fall back to the resolved number. Every skip and
+            // every Twilio failure is now logged with a reason.
+            const sender = await resolveSender(job.company_id, null);
+            const smsSkip = sender.reason ? sender.reason
+              : !job.phone ? "no_recipient_phone"
+              : job.sms_opt_out_at ? "sms_opted_out" : null;
+            if (smsSkip) {
+              await logNotification(job.company_id, job.phone || "", "sms", sched.key, "suppressed", smsSkip, { job_id: String(job.id) });
+              continue;
+            }
+            const fromNumber = branchConfig.twilioFrom || sender.from_number!;
             try {
               const smsRes = await fetch(
-                `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+                `https://api.twilio.com/2010-04-01/Accounts/${sender.account_sid}/Messages.json`,
                 {
                   method: "POST",
                   headers: {
-                    Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+                    Authorization: `Basic ${Buffer.from(`${sender.account_sid}:${sender.auth_token}`).toString("base64")}`,
                     "Content-Type": "application/x-www-form-urlencoded",
                   },
-                  body: new URLSearchParams({ To: job.phone, From: branchConfig.twilioFrom, Body: tpl.body }).toString(),
+                  body: new URLSearchParams({ To: job.phone, From: fromNumber, Body: tpl.body }).toString(),
                 }
               );
               if (smsRes.ok) {
                 await recordJobMessageSend(job, sched.key, "sms", "sent", job.phone);
                 await logNotification(job.company_id, job.phone, "sms", sched.key, "sent", null, { job_id: String(job.id) });
               } else {
-                console.error(`[scheduled-messages] twilio failed key=${sched.key} job=${job.id}:`, (await smsRes.text()).slice(0, 200));
+                const errText = (await smsRes.text()).slice(0, 200);
+                console.error(`[scheduled-messages] twilio failed key=${sched.key} job=${job.id}:`, errText);
+                await logNotification(job.company_id, job.phone, "sms", sched.key, "failed", errText, { job_id: String(job.id) });
               }
             } catch (e) {
               console.error(`[scheduled-messages] sms error key=${sched.key} job=${job.id}:`, e);
+              await logNotification(job.company_id, job.phone, "sms", sched.key, "failed", String((e as any)?.message ?? e).slice(0, 200), { job_id: String(job.id) });
             }
           }
         }
