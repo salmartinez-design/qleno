@@ -55,13 +55,14 @@ ${contentHtml}
 // path (process.env.TWILIO_FROM_NUMBER = the Oak Lawn / MaidCentral number
 // +17737869902) is GONE — Qleno must never send from a shared global number
 // again. Honors the full gate ladder (global + company + twilio + creds + from).
-async function sendTenantSms(companyId: number, to: string, body: string): Promise<void> {
+async function sendTenantSms(companyId: number, to: string, body: string): Promise<string | null> {
   const sender = await resolveSender(companyId, null);
   if (sender.reason) {
     console.log(`[COMMS BLOCKED] SMS suppressed (${sender.reason}) company=${companyId} to=${to}`);
-    return;
+    return sender.reason;
   }
   await sendSmsVia(sender, to, body);
+  return null;
 }
 
 // ── Core send function ───────────────────────────────────────────────────────
@@ -212,7 +213,11 @@ export async function sendNotification(
       const bodyText = applyMerge(tpl.body_text || tpl.body || "", fullVars);
       // Per-tenant send only — resolveSender(companyId) picks THIS company's
       // creds + from-number. Never the global env number.
-      await sendTenantSms(companyId, recipientPhone, bodyText);
+      const suppressReason = await sendTenantSms(companyId, recipientPhone, bodyText);
+      if (suppressReason) {
+        await logNotification(companyId, recipientPhone, channel, templateKey, "suppressed", suppressReason, fullVars);
+        return;
+      }
     }
 
   } catch (err: any) {

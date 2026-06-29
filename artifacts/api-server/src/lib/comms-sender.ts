@@ -1,5 +1,6 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { getBranchByZip } from "./branchRouter";
 
 export interface ResolvedSender {
   enabled: boolean;               // company twilio_enabled gate (Twilio go-live)
@@ -50,9 +51,24 @@ export async function resolveSender(companyId: number, branchId?: number | null)
        LIMIT 1`);
     from_number = (fb.rows[0] as any)?.twilio_from_number ?? null;
   }
-  const account_sid = c.twilio_account_sid ?? null;
-  const auth_token = c.twilio_auth_token ?? null;
-  const enabled = !!c.twilio_enabled;
+  // [env-var-creds-fallback 2026-06-29] Phes stores Twilio creds in Railway env
+  // vars, not per-company DB rows. Event-driven sends (job_started, job_completed,
+  // review_request, on_my_way) were silently blocked because account_sid/auth_token
+  // resolved null. Fall back to global env vars so these sends work without DB
+  // config. The cron path already does this via branchRouter; this makes the
+  // event path consistent.
+  const account_sid = c.twilio_account_sid ?? process.env.TWILIO_ACCOUNT_SID ?? null;
+  const auth_token = c.twilio_auth_token ?? process.env.TWILIO_AUTH_TOKEN ?? null;
+  // When env-var creds are present, treat twilio_enabled as on — env presence IS
+  // the go-live signal when the DB column hasn't been explicitly set.
+  const enabled = !!(c.twilio_enabled || (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN));
+  // If from_number is still null and we have env-var creds, use the Oak Lawn
+  // primary number as the default sender. Event-driven sends don't carry zip
+  // context so we can't route per-branch here; callers that DO have zip should
+  // call getBranchByZip() upstream and pass the resolved branchId instead.
+  if (!from_number && account_sid) {
+    from_number = getBranchByZip("").twilioFrom; // empty string → Oak Lawn default
+  }
   const company_comms_enabled = !!c.comms_enabled;
   // Branch gate ONLY applies when the passed branchId actually maps to a branch
   // of THIS company. When no branch is specified — OR a branchId is passed that

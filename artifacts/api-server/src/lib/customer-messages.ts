@@ -131,8 +131,8 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     group: "before",
     anchor: "before_appointment",
     offsetDays: 1,
-    sendHour: 16,
-    timing: "4:00 PM CT, the day before the appointment",
+    sendHour: 12,
+    timing: "12:00 PM CT, 1 day before the appointment",
     description: "Final reminder the afternoon before, with an access note.",
     channels: [
       {
@@ -333,6 +333,18 @@ export async function runCustomerMessagesMigration(): Promise<void> {
     }
   }
 
+  // [on-my-way-activate 2026-06-29] The on_my_way SMS template was seeded with
+  // is_active=false in an earlier pass because the companyToggleColumn gate was
+  // confused with the template gate. Flip false→true so the tech's On My Way tap
+  // actually fires. Only touches rows that are still false — won't override an
+  // explicit office pause.
+  await db.execute(sql`
+    UPDATE notification_templates
+       SET is_active = true
+     WHERE trigger = 'on_my_way'
+       AND channel = 'sms'
+       AND is_active = false`);
+
   // Seed the built-in schedule rows for EVERY tenant now, at boot — not lazily on
   // first page view. Without this the offset cron would find zero schedules and
   // silently stop sending reminders until someone opened the settings page.
@@ -366,7 +378,7 @@ export async function ensureCustomerMessageSchedules(companyId: number): Promise
               ${def.offsetDays ?? null}, ${def.sendHour ?? null},
               ${channelsLiteral}::text[],
               true, true, ${order})
-      ON CONFLICT (company_id, key) DO NOTHING`);
+      ON CONFLICT (company_id, key) DO UPDATE SET send_hour = EXCLUDED.send_hour`);
   }
 }
 
