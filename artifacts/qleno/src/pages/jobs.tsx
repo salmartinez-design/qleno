@@ -3464,7 +3464,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             await fetch(`${_API2}/api/cancellations`, {
               method: "POST",
               headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ job_id: job.id, customer_id: job.client_id, cancel_reason: rescheduleReason, notes: notesText }),
+              // [audit-label-fix] This modal is a RESCHEDULE. Tag the log row as
+              // 'move' so the Activity feed shows "Rescheduled", not "Cancelled".
+              body: JSON.stringify({ job_id: job.id, customer_id: job.client_id, cancel_reason: rescheduleReason, notes: notesText, cancel_action: "move" }),
             }).catch(() => {});
             const newCount = (rescheduleCount ?? 0) + 1;
             const isRecurring = job.frequency && job.frequency !== "on_demand";
