@@ -97,7 +97,16 @@ export default function DiscountsPage() {
         scope: form.scope,
       };
       if (form.max_uses) body.max_uses = parseInt(form.max_uses);
-      if (form.expires_at) body.expires_at = new Date(form.expires_at).toISOString();
+      // [date-tz-fix] expires_at is a date-only "YYYY-MM-DD" from the picker.
+      // new Date(d) parses it as UTC midnight, which is the evening BEFORE in
+      // US Central, so the discount expired a day early. Anchor to end of the
+      // chosen day in local time so it stays valid through that whole day.
+      if (form.expires_at) {
+        const v = form.expires_at;
+        body.expires_at = /^\d{4}-\d{2}-\d{2}$/.test(v)
+          ? new Date(v + "T23:59:59").toISOString()
+          : new Date(v).toISOString();
+      }
 
       const res = await fetch('/api/discounts', {
         method: 'POST',
