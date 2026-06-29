@@ -35,7 +35,11 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
 
 function fmtDate(d?: string | null) {
   if (!d) return "Never";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  // [date-tz-fix] A bare "YYYY-MM-DD" is parsed as UTC midnight and renders one
+  // day early in US Central. Anchor date-only values to local noon so the day
+  // never shifts. Full timestamps (with a time) are left untouched.
+  const s = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T12:00:00" : d;
+  return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function fmtCurrency(v?: number | string | null) {

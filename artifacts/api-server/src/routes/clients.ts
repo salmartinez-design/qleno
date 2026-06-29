@@ -449,6 +449,15 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       ...i,
       service_date: i.job_id ? (invJobDates.get(i.job_id) ?? null) : null,
     }));
+    // [invoice-order-fix] The base query orders by created_at, but the UI shows
+    // (and users reason about) the SERVICE date. When an invoice is entered out
+    // of sequence (late-billed or backfilled), created order and service-date
+    // order disagree and the list looks scrambled. Re-sort by the displayed date
+    // — service_date, falling back to created_at — newest first.
+    invoicesWithService.sort((a: any, b: any) => {
+      const key = (x: any) => String(x.service_date || x.created_at || "").slice(0, 10);
+      return key(b).localeCompare(key(a));
+    });
 
     return res.json({
       ...client,

@@ -1010,7 +1010,7 @@ export default function InvoicesPage() {
                     <p style={{ color: "#6B7280", fontSize: 13, margin: 0, fontFamily: FF }}>No invoices found.</p>
                   </div>
                 ) : invoices.map((inv: any) => {
-                  const effectiveStatus = (inv.status === "sent" && inv.due_date && new Date(inv.due_date) < new Date()) ? "overdue" : inv.status;
+                  const effectiveStatus = (inv.status === "sent" && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
                   const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
                   return (
                     <div key={inv.id}
@@ -1060,7 +1060,7 @@ export default function InvoicesPage() {
                     </td>
                   </tr>
                 ) : invoices.map((inv: any) => {
-                  const effectiveStatus = (inv.status === "sent" && inv.due_date && new Date(inv.due_date) < new Date()) ? "overdue" : inv.status;
+                  const effectiveStatus = (inv.status === "sent" && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
                   const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
                   return (
                     <tr key={inv.id}

@@ -104,7 +104,10 @@ export default function AgreementTemplatesPage() {
 
   function fmtDate(d?: string | null) {
     if (!d) return "—";
-    return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    // [date-tz-fix] Anchor date-only "YYYY-MM-DD" to local noon (avoids the
+    // one-day-early shift in US Central). Full timestamps untouched.
+    const s = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T12:00:00" : d;
+    return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   }
 
   return (

@@ -38,7 +38,10 @@ async function apiFetchJSON(path: string, opts: RequestInit = {}) {
 
 function fmtDate(d?: string | null) {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  // [date-tz-fix] Anchor date-only "YYYY-MM-DD" to local noon so it does not
+  // render one day early in US Central. Full timestamps untouched.
+  const s = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T12:00:00" : d;
+  return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function fmtCurrency(v?: number | string | null) {

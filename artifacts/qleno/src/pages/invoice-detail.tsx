@@ -355,7 +355,9 @@ export default function InvoiceDetailPage() {
     );
   }
 
-  const isOverdue = invoice.status === "overdue" || (invoice.status === "sent" && invoice.due_date && new Date(invoice.due_date) < new Date());
+  // [date-tz-fix] Anchor the date-only due_date to end of day so an invoice is
+  // not flagged overdue a day early (bare YYYY-MM-DD parses as UTC midnight).
+  const isOverdue = invoice.status === "overdue" || (invoice.status === "sent" && invoice.due_date && new Date(invoice.due_date + "T23:59:59") < new Date());
   const effectiveStatus = isOverdue ? "overdue" : invoice.status;
   const lineItems: any[] = Array.isArray(invoice.line_items) ? invoice.line_items : [];
   // [invoice-redesign] "<city>, <state> <zip>" — canonical address second line.
