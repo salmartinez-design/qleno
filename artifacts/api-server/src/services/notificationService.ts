@@ -294,7 +294,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
       hoursAhead === 72
         ? drizzleSql`
             SELECT j.id, j.company_id, co.name AS company_name,
-                   j.scheduled_date, j.service_type, j.arrival_window,
+                   j.scheduled_date, j.scheduled_time, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
                    c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
@@ -311,7 +311,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
           `
         : drizzleSql`
             SELECT j.id, j.company_id, co.name AS company_name,
-                   j.scheduled_date, j.service_type, j.arrival_window,
+                   j.scheduled_date, j.scheduled_time, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
                    c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
@@ -341,11 +341,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
       // address is shown.
       const stateZip = [job.address_state, job.address_zip].filter(Boolean).join(" ");
       const serviceAddress = [job.address_street, job.address_city, stateZip].filter(Boolean).join(", ") || "On file";
-      const arrivalWindowLabel = job.arrival_window === "morning"
-        ? "9:00 AM – 12:00 PM"
-        : job.arrival_window === "afternoon"
-        ? "12:00 PM – 2:00 PM"
-        : "scheduled window";
+      const arrivalWindowLabel = computeArrivalWindow(job.scheduled_time, job.arrival_window);
       const scheduledDate = formatDate(job.scheduled_date);
       const serviceType = labelServiceType(job.service_type);
 
@@ -555,7 +551,7 @@ export async function runScheduledJobMessages(): Promise<void> {
         isBefore
           ? drizzleSql`
               SELECT j.id, j.company_id, j.client_id, co.name AS company_name,
-                     j.scheduled_date::date AS sdate, j.service_type, j.arrival_window,
+                     j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
                      j.address_street, j.address_city, j.address_state, j.address_zip,
                      c.first_name, c.last_name, c.email, c.phone, c.zip,
                      c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
@@ -570,7 +566,7 @@ export async function runScheduledJobMessages(): Promise<void> {
                  AND (a.id IS NULL OR a.comms_enabled = true)`
           : drizzleSql`
               SELECT j.id, j.company_id, j.client_id, co.name AS company_name,
-                     j.scheduled_date::date AS sdate, j.service_type, j.arrival_window,
+                     j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
                      j.address_street, j.address_city, j.address_state, j.address_zip,
                      c.first_name, c.last_name, c.email, c.phone, c.zip,
                      c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
@@ -599,8 +595,7 @@ export async function runScheduledJobMessages(): Promise<void> {
         const branchConfig = getBranchByZip(jobZip);
         const stateZip = [job.address_state, job.address_zip].filter(Boolean).join(" ");
         const serviceAddress = [job.address_street, job.address_city, stateZip].filter(Boolean).join(", ") || "On file";
-        const arrivalWindowLabel = job.arrival_window === "morning" ? "9:00 AM – 12:00 PM"
-          : job.arrival_window === "afternoon" ? "12:00 PM – 2:00 PM" : "scheduled window";
+        const arrivalWindowLabel = computeArrivalWindow(job.scheduled_time, job.arrival_window);
         const vars: Record<string, string> = {
           first_name: job.first_name || "there",
           client_name: [job.first_name, job.last_name].filter(Boolean).join(" ") || "there",
@@ -773,4 +768,45 @@ function formatTimeOffset(timeStr: string, hoursOffset: number): string {
 export function labelServiceType(raw: string | null): string {
   if (!raw) return "Cleaning Service";
   return raw.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+// How wide the arrival window is (start time → start time + N minutes).
+// Change this constant when a settings UI is added — it will become a DB
+// column on companies (arrival_window_minutes) read at send time.
+const ARRIVAL_WINDOW_MINUTES = 45;
+
+/**
+ * Compute a human-readable arrival window from a scheduled time.
+ * e.g. "9:00 AM" → "9:00 AM – 9:45 AM" (with ARRIVAL_WINDOW_MINUTES = 45)
+ * Falls back to the legacy morning/afternoon labels if no scheduled_time is set.
+ */
+export function computeArrivalWindow(
+  scheduledTime: string | null | undefined,
+  arrivalWindowStr: string | null | undefined,
+  windowMins: number = ARRIVAL_WINDOW_MINUTES,
+): string {
+  if (scheduledTime) {
+    const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?/i.exec(scheduledTime.trim());
+    if (m) {
+      let hh = parseInt(m[1], 10);
+      const mm = parseInt(m[2], 10);
+      const ampm = m[4]?.toUpperCase();
+      if (ampm === "PM" && hh < 12) hh += 12;
+      if (ampm === "AM" && hh === 12) hh = 0;
+      const startMins = hh * 60 + mm;
+      const endMins = startMins + windowMins;
+      const fmtTime = (totalMins: number) => {
+        const h = Math.floor(totalMins / 60) % 24;
+        const m2 = totalMins % 60;
+        const ap = h < 12 ? "AM" : "PM";
+        const h12 = h % 12 || 12;
+        return `${h12}:${String(m2).padStart(2, "0")} ${ap}`;
+      };
+      return `${fmtTime(startMins)} – ${fmtTime(endMins)}`;
+    }
+  }
+  // Legacy fallback when no scheduled_time is stored on the job
+  if (arrivalWindowStr === "morning") return "9:00 AM – 12:00 PM";
+  if (arrivalWindowStr === "afternoon") return "12:00 PM – 2:00 PM";
+  return "scheduled window";
 }
