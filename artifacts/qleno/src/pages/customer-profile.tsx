@@ -5630,7 +5630,11 @@ const PROFILE_TABS = [
   { id: "client",        label: "Client"        },
   { id: "property",      label: "Property"      },
   { id: "jobs",          label: "Jobs"          },
-  { id: "messages",      label: "Messages"      },
+  // [comm-log-dedupe 2026-06-29] The "Messages" tab duplicated the Communication
+  // Log card (CommLog2) on the Client tab — same sends, two places. Removed the
+  // tab; the Communication Log card (with the channel dropdown + Detail/List) is
+  // the single source. The activeTab === "messages" render branches below are now
+  // unreachable and harmless.
   { id: "admin",         label: "Admin"         },
   { id: "activity",      label: "Activity"      },
   { id: "profitability", label: "Profitability" },
