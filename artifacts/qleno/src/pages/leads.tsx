@@ -99,7 +99,10 @@ const SOURCE_CONFIG: Record<string, { label: string; color: string; bg: string }
 
 function fmtDate(str: string | null) {
   if (!str) return "—";
-  return new Date(str).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  // [date-tz-fix] Anchor date-only "YYYY-MM-DD" to local noon so it does not
+  // render one day early in US Central. Full timestamps untouched.
+  const s = /^\d{4}-\d{2}-\d{2}$/.test(str) ? str + "T12:00:00" : str;
+  return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 function fmtDateTime(str: string | null) {
   if (!str) return "—";
