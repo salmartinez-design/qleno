@@ -120,6 +120,49 @@ router.get("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   }
 });
 
+// ─── CUSTOMER NOTIFICATION PREFERENCES (account scope) ──────────────────────
+// Which automated customer messages every job under this account receives, per
+// channel. Applies to all of the account's properties/clients. This is the
+// granular companion to the existing accounts.comms_enabled master pause.
+router.get("/:id/notification-preferences", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+  try {
+    const companyId = req.auth!.companyId!;
+    const [account] = await db.select({ id: accountsTable.id })
+      .from(accountsTable).where(and(eq(accountsTable.id, id), eq(accountsTable.company_id, companyId)));
+    if (!account) return res.status(404).json({ error: "Account not found" });
+    const { PREFERENCE_CATALOG, getScopeOverrides } = await import("../lib/notification-preferences.js");
+    const overrides = await getScopeOverrides(companyId, "account", id);
+    return res.json({ catalog: PREFERENCE_CATALOG, overrides, scope_type: "account" });
+  } catch (err) {
+    console.error("[notif-prefs] GET account prefs error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.put("/:id/notification-preferences", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+  try {
+    const companyId = req.auth!.companyId!;
+    const [account] = await db.select({ id: accountsTable.id })
+      .from(accountsTable).where(and(eq(accountsTable.id, id), eq(accountsTable.company_id, companyId)));
+    if (!account) return res.status(404).json({ error: "Account not found" });
+    const { setScopeOverrides, setAllOff } = await import("../lib/notification-preferences.js");
+    if (req.body?.all_off === true) {
+      await setAllOff(companyId, "account", id);
+    } else {
+      const overrides = Array.isArray(req.body?.overrides) ? req.body.overrides : [];
+      await setScopeOverrides(companyId, "account", id, overrides);
+    }
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[notif-prefs] PUT account prefs error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // POST /api/accounts
 router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   const {
