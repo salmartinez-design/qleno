@@ -88,6 +88,10 @@ export async function sendNotification(
   let status = "sent";
   let errorMsg: string | null = null;
   let providerId: string | null = null;
+  // [comm-log-body 2026-06-29] Capture the actual rendered text that goes to the
+  // customer so the Communication Log can show "what the client received".
+  let sentBody = "";
+  let sentSubject: string | null = null;
 
   try {
     // Fetch template
@@ -198,6 +202,8 @@ export async function sendNotification(
       // rejected send isn't logged as success.
       if (sendRes?.error) throw new Error(`Resend error: ${sendRes.error?.message ?? JSON.stringify(sendRes.error)}`);
       providerId = sendRes?.data?.id ?? null;
+      sentSubject = subject;
+      sentBody = applyMerge(tpl.body_text || tpl.body || "", fullVars);
 
     } else if (channel === "sms") {
       if (!recipientPhone) {
@@ -218,6 +224,7 @@ export async function sendNotification(
         await logNotification(companyId, recipientPhone, channel, templateKey, "suppressed", suppressReason, fullVars);
         return;
       }
+      sentBody = bodyText;
     }
 
   } catch (err: any) {
@@ -233,8 +240,14 @@ export async function sendNotification(
     templateKey,
     status,
     errorMsg,
-    // Stamp the Resend provider id into metadata for delivery traceability.
-    { ...mergeVars, ...(providerId ? { _provider_id: providerId } : {}) },
+    // Stamp the Resend provider id + the rendered body/subject into metadata so
+    // the Communication Log can show what the customer actually received.
+    {
+      ...mergeVars,
+      ...(providerId ? { _provider_id: providerId } : {}),
+      ...(sentBody ? { body: sentBody } : {}),
+      ...(sentSubject ? { subject: sentSubject } : {}),
+    },
   );
 }
 
@@ -669,7 +682,7 @@ export async function runScheduledJobMessages(): Promise<void> {
                 ...(Object.keys(headers).length ? { headers } : {}),
               });
               await recordJobMessageSend(job, sched.key, "email", "sent", job.email);
-              await logNotification(job.company_id, job.email, "email", sched.key, "sent", null, { job_id: String(job.id) });
+              await logNotification(job.company_id, job.email, "email", sched.key, "sent", null, { job_id: String(job.id), subject: tpl.subject || sched.label, body: tpl.body });
             } catch (e) {
               console.error(`[scheduled-messages] email failed key=${sched.key} job=${job.id}:`, e);
             }
@@ -705,7 +718,7 @@ export async function runScheduledJobMessages(): Promise<void> {
               );
               if (smsRes.ok) {
                 await recordJobMessageSend(job, sched.key, "sms", "sent", job.phone);
-                await logNotification(job.company_id, job.phone, "sms", sched.key, "sent", null, { job_id: String(job.id) });
+                await logNotification(job.company_id, job.phone, "sms", sched.key, "sent", null, { job_id: String(job.id), body: tpl.body });
               } else {
                 const errText = (await smsRes.text()).slice(0, 200);
                 console.error(`[scheduled-messages] twilio failed key=${sched.key} job=${job.id}:`, errText);
