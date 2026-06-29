@@ -284,6 +284,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const [commercialScheduledTime, setCommercialScheduledTime] = useState("09:00");
   const [commercialDuration, setCommercialDuration] = useState(120);
   const [commercialFrequency, setCommercialFrequency] = useState("on_demand");
+  // Selected weekdays for the "Custom days" cadence (0=Sun..6=Sat). Only used
+  // when commercialFrequency === "custom_days"; the server needs these to
+  // generate the recurring series (without them custom_days can't repeat).
+  const [commercialDaysOfWeek, setCommercialDaysOfWeek] = useState<number[]>([]);
   const [commercialNotes, setCommercialNotes] = useState("");
 
   // Step 3 — Assign
@@ -380,7 +384,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       setRateLookupDone(false); setRateOverride(false); setOverrideRate(""); setEstimatedHours("");
       setManualBillingMethod("hourly"); setManualRate("");
       setCommercialScheduledDate(todayStr()); setCommercialScheduledTime("09:00");
-      setCommercialDuration(120); setCommercialFrequency("on_demand"); setCommercialNotes("");
+      setCommercialDuration(120); setCommercialFrequency("on_demand"); setCommercialDaysOfWeek([]); setCommercialNotes("");
       setSelectedEmployees([]); setSubmitting(false); setError("");
       setSuggestions([]); setSuggestionsLoading(false); setSuggestionsDismissed(false);
       setSelectedAddons(new Map()); setAddonPriceOverrides(new Map());
@@ -779,6 +783,12 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   }
 
   async function submit() {
+    // "Custom days" can't repeat without at least one weekday — block before
+    // we create a one-off the operator thinks is a series.
+    if (clientType === "commercial" && commercialFrequency === "custom_days" && commercialDaysOfWeek.length === 0) {
+      setError("Pick at least one day for the Custom days schedule.");
+      return;
+    }
     setSubmitting(true); setError("");
     try {
       let body: any;
@@ -810,6 +820,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           base_fee: (baseFee + addOnsTotal) || undefined,
           add_ons: buildAddOnsPayload(),
           frequency: commercialFrequency,
+          // Only "Custom days" carries selected weekdays; every other cadence
+          // anchors on the scheduled date.
+          days_of_week: commercialFrequency === "custom_days" ? commercialDaysOfWeek : undefined,
           notes: commercialNotes || undefined,
           assigned_user_id: selectedEmployees[0] || undefined,
           status: "scheduled",
@@ -1836,6 +1849,32 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       </button>
                     ))}
                   </div>
+                  {/* Day picker — only for "Custom days". Without at least one
+                      day selected the series can't be generated, so we surface
+                      a hint and the Schedule step blocks on it. 0=Sun..6=Sat. */}
+                  {commercialFrequency === "custom_days" && (
+                    <div style={{ marginTop: 10 }}>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Which days</p>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {["S", "M", "T", "W", "T", "F", "S"].map((lbl, idx) => {
+                          const on = commercialDaysOfWeek.includes(idx);
+                          return (
+                            <button key={idx} type="button"
+                              onClick={() => setCommercialDaysOfWeek(on ? commercialDaysOfWeek.filter(d => d !== idx) : [...commercialDaysOfWeek, idx].sort())}
+                              style={{ flex: 1, padding: "8px 0", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700,
+                                border: `1.5px solid ${on ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                                background: on ? "var(--brand, #00C9A0)" : "#fff",
+                                color: on ? "#fff" : "#6B7280" }}>
+                              {lbl}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {commercialDaysOfWeek.length === 0 && (
+                        <p style={{ fontSize: 11, color: "#B45309", margin: "6px 0 0" }}>Pick at least one day for the visits to repeat on.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Notes (optional)</p>

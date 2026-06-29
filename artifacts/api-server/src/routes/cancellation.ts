@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { cancellationLogTable, jobsTable, clientsTable, companiesTable, usersTable, invoicesTable } from "@workspace/db/schema";
 import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { resolveAccountBillingClientId } from "../lib/account-billing-client.js";
 import {
   resolveCancellationPolicy,
   CANCEL_ACTIONS,
@@ -224,7 +225,8 @@ router.post("/action", requireAuth, async (req, res) => {
   // rows resolve those columns to NULL and fall through to company
   // defaults, which is the existing intended behavior for commercial.
   const ctx = await db.execute(sql`
-    SELECT j.id, j.client_id, j.account_id, j.status::text AS status, j.billed_amount, j.base_fee,
+    SELECT j.id, j.client_id, j.account_id, j.account_property_id,
+           j.status::text AS status, j.billed_amount, j.base_fee,
            j.notes AS job_notes, j.recurring_schedule_id,
            c.cancel_fee_pct AS client_cancel_pct, c.lockout_fee_pct AS client_lockout_pct,
            c.first_name || ' ' || COALESCE(c.last_name,'') AS client_name,
@@ -239,6 +241,22 @@ router.post("/action", requireAuth, async (req, res) => {
   `);
   const row = ctx.rows[0] as any;
   if (!row) return res.status(404).json({ error: "Not Found", message: "Job not found" });
+
+  // [account-cancel 2026-06-29] Commercial/account jobs have NULL client_id —
+  // their identity is the account. cancellation_log.customer_id used to be
+  // NOT NULL, so the log insert threw and the whole skip/cancel transaction
+  // 500'd ("Cancellation failed") for every account job. (The earlier BUG-4
+  // fix only stopped the SELECT 404 — the write still failed.) Borrow the
+  // account's billing contact so the audit row still names a real client; the
+  // column is now nullable as a safety net for accounts with no contact at all.
+  let logCustomerId: number | null = row.client_id ?? null;
+  if (logCustomerId == null && row.account_id != null) {
+    try {
+      logCustomerId = await resolveAccountBillingClientId(companyId, row.account_id, row.account_property_id);
+    } catch (e) {
+      console.warn("[cancellation] account billing-client resolve failed:", e);
+    }
+  }
 
   // [reclassify-lockout 2026-06-17] A completed job can be reclassified as a
   // charged cancellation/lockout after the fact (office learns the tech was
@@ -387,7 +405,7 @@ router.post("/action", requireAuth, async (req, res) => {
       .values({
         company_id: companyId,
         job_id: body.job_id!,
-        customer_id: row.client_id,
+        customer_id: logCustomerId,
         cancelled_by: userId,
         cancel_reason: ACTION_TO_LEGACY_REASON[action],
         cancel_action: action,
