@@ -6,6 +6,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOffSet, type PrefData } from "@/components/notification-preference-grid";
 import {
   ArrowLeft, Home, CreditCard, FileText, Bell, Star, UserX, StickyNote, Globe,
   Plus, Trash2, Edit2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check, X, Eye, EyeOff,
@@ -1560,6 +1561,88 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
 // ─── Contacts & Notifications Tab ─────────────────────────────────────────────
 const TRIGGERS = ["3_days_before","1_day_before","day_of","on_the_way","job_started","job_complete","scorecard_request","invoice_sent"];
 const TRIGGER_LABELS: Record<string,string> = { "3_days_before":"3 Days Before","1_day_before":"1 Day Before","day_of":"Day Of","on_the_way":"On the Way","job_started":"Job Started","job_complete":"Job Complete","scorecard_request":"Scorecard Request","invoice_sent":"Invoice Sent" };
+
+// ─── Notification Preferences ──────────────────────────────────────────────
+// Per-client (or per-account) control over WHICH automated customer messages
+// fire and on WHICH channel. A toggle is ON by default (inherit tenant); the
+// office turns specific ones off. Stored as sparse overrides server-side. The
+// grid + helpers live in a shared component so the account-detail page reuses
+// the exact same UI.
+function NotificationPreferencesCard({ clientId }: { clientId: number }) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<PrefData>({
+    queryKey: ["notif-prefs", clientId],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/notification-preferences`),
+  });
+  const [offs, setOffs] = useState<Set<string>>(new Set());
+  const [baseline, setBaseline] = useState<string>("");
+
+  useEffect(() => {
+    if (!data) return;
+    const initial = offsFromOverrides(data.overrides || {});
+    setOffs(initial);
+    setBaseline(JSON.stringify([...initial].sort()));
+  }, [data]);
+
+  const managed = !!data?.managed_by_account;
+  const dirty = JSON.stringify([...offs].sort()) !== baseline;
+
+  const saveMut = useMutation({
+    mutationFn: () => apiFetch(`/api/clients/${clientId}/notification-preferences`, {
+      method: "PUT",
+      body: JSON.stringify({ overrides: buildPrefPayload(data!.catalog, offs) }),
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["notif-prefs", clientId] }); },
+  });
+
+  if (isLoading || !data) {
+    return <div style={{ padding: 24, color: "#9E9B94", fontSize: 13 }}>Loading notification preferences…</div>;
+  }
+
+  const toggle = (key: string) => setOffs((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const allOff = () => setOffs(allOffSet(data.catalog));
+  const allOn = () => setOffs(new Set());
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Notification Preferences</h3>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6B6860", maxWidth: 520 }}>
+            Choose which automated messages this customer receives. Everything is on by default — turn off what they don't want.
+          </p>
+        </div>
+        {!managed && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={allOff} style={{ padding: "7px 12px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Turn all off</button>
+            <button onClick={allOn} style={{ padding: "7px 12px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Reset to all on</button>
+          </div>
+        )}
+      </div>
+
+      {managed && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", background: "var(--brand-dim)", border: "1px solid #E5E2DC", borderRadius: 8 }}>
+          <Bell size={14} style={{ color: "var(--brand)", marginTop: 1, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: "#1A1917" }}>
+            This customer belongs to a commercial account, so notifications are managed at the account level and apply to all of its properties.{" "}
+            {data.account_id != null && <a href={`/accounts/${data.account_id}`} style={{ color: "var(--brand)", fontWeight: 600, textDecoration: "none" }}>Open account settings →</a>}
+          </span>
+        </div>
+      )}
+
+      <NotificationPreferenceGrid catalog={data.catalog} offs={offs} disabled={managed} onToggle={toggle} />
+
+      {!managed && (
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          {dirty && <button onClick={() => setOffs(offsFromOverrides(data.overrides || {}))} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer" }}>Cancel</button>}
+          <button onClick={() => saveMut.mutate()} disabled={!dirty || saveMut.isPending} style={{ padding: "8px 18px", background: dirty ? "var(--brand)" : "#D4D1CB", border: "none", borderRadius: 7, color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: dirty ? "pointer" : "default" }}>
+            {saveMut.isPending ? "Saving…" : "Save preferences"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ContactsTab({ clientId, notifications, refetch }: { clientId: number; notifications: any[]; refetch: () => void }) {
   const [showForm, setShowForm] = useState(false);
@@ -6179,6 +6262,11 @@ export default function CustomerProfilePage() {
                 <PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} />
               </div>
 
+              {/* Notification Preferences */}
+              <div style={CS}>
+                <NotificationPreferencesCard clientId={clientId} />
+              </div>
+
               {/* Contacts & Notifications */}
               <div style={CS}>
                 <SectionHead title="Contacts & Notifications" action={<span style={{ fontSize: 11, color: "#9E9B94" }}>{(profile.notification_settings || []).length} configured</span>} />
@@ -6407,6 +6495,7 @@ export default function CustomerProfilePage() {
               <CollapsibleSection title="Quotes"><QuotesTab clientId={clientId} client={profile} /></CollapsibleSection>
               <CollapsibleSection title="Agreements" count={(profile.agreements || []).length || undefined}><AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} /></CollapsibleSection>
               <CollapsibleSection title="Scorecards" count={(profile.scorecards || []).length || undefined}><ScorecardsTab scorecards={profile.scorecards || []} /></CollapsibleSection>
+              <CollapsibleSection title="Notification Preferences"><NotificationPreferencesCard clientId={clientId} /></CollapsibleSection>
               <CollapsibleSection title="Contacts" count={(profile.notification_settings || []).length || undefined}><ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} /></CollapsibleSection>
               <CollapsibleSection title="Portal"><PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} /></CollapsibleSection>
               <CollapsibleSection title="Tech Preferences"><TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} /></CollapsibleSection>
