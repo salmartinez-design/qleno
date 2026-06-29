@@ -934,56 +934,75 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const emailAddonBreakdown: Array<{ name: string; amount: number }> = (pricing.addon_breakdown || []).map((a: any) => ({ name: a.name, amount: parseFloat(String(a.amount || 0)) }));
     const emailBundleDiscount = bundleDiscount ? Math.abs(parseFloat(String(bundleDiscount))) : 0;
 
-    // Zone lookup for office notification subject and body
-    let bookingZoneName: string | null = null;
-    let bookingZoneColor: string | null = null;
+    // Read per-tenant office email settings to gate zone + techs queries
+    let officeEmailShowZone = true;
+    let officeEmailShowTechs = true;
     try {
-      const zipForZone = (address_zip || zip || "").trim().replace(/\D/g, "").slice(0, 5);
-      if (zipForZone.length === 5) {
-        const zoneResult = await db.execute(drizzleSql`
-          SELECT name, color FROM service_zones
-          WHERE company_id = ${company_id}
-            AND is_active = true
-            AND zip_codes @> ARRAY[${zipForZone}]::text[]
-          LIMIT 1
-        `);
-        if ((zoneResult as any).rows?.length > 0) {
-          bookingZoneName = (zoneResult as any).rows[0].name || null;
-          bookingZoneColor = (zoneResult as any).rows[0].color || null;
-        }
+      const settingsRow = await db.execute(drizzleSql`
+        SELECT office_email_show_zone, office_email_show_available_techs
+        FROM companies WHERE id = ${company_id} LIMIT 1
+      `);
+      if ((settingsRow as any).rows?.length > 0) {
+        const r = (settingsRow as any).rows[0];
+        officeEmailShowZone = r.office_email_show_zone !== false;
+        officeEmailShowTechs = r.office_email_show_available_techs !== false;
       }
     } catch {}
 
+    // Zone lookup for office notification subject and body
+    let bookingZoneName: string | null = null;
+    let bookingZoneColor: string | null = null;
+    if (officeEmailShowZone) {
+      try {
+        const zipForZone = (address_zip || zip || "").trim().replace(/\D/g, "").slice(0, 5);
+        if (zipForZone.length === 5) {
+          const zoneResult = await db.execute(drizzleSql`
+            SELECT name, color FROM service_zones
+            WHERE company_id = ${company_id}
+              AND is_active = true
+              AND zip_codes @> ARRAY[${zipForZone}]::text[]
+            LIMIT 1
+          `);
+          if ((zoneResult as any).rows?.length > 0) {
+            bookingZoneName = (zoneResult as any).rows[0].name || null;
+            bookingZoneColor = (zoneResult as any).rows[0].color || null;
+          }
+        }
+      } catch {}
+    }
+
     // Available techs: active techs with no jobs assigned on the booking date
     let availableTechs: Array<{ name: string }> | null = null;
-    try {
-      if (preferred_date) {
-        const techResult = await db.execute(drizzleSql`
-          SELECT u.first_name, u.last_name
-          FROM users u
-          WHERE u.company_id = ${company_id}
-            AND u.role = 'tech'
-            AND u.is_active = true
-            AND u.id NOT IN (
-              SELECT jt.user_id FROM job_technicians jt
-              JOIN jobs j ON j.id = jt.job_id
-              WHERE j.company_id = ${company_id}
-                AND j.scheduled_date = ${preferred_date}::date
-                AND j.status != 'cancelled'
-              UNION
-              SELECT j.assigned_user_id FROM jobs j
-              WHERE j.company_id = ${company_id}
-                AND j.scheduled_date = ${preferred_date}::date
-                AND j.assigned_user_id IS NOT NULL
-                AND j.status != 'cancelled'
-            )
-          ORDER BY u.first_name
-        `);
-        availableTechs = ((techResult as any).rows ?? []).map((r: any) => ({
-          name: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
-        }));
-      }
-    } catch {}
+    if (officeEmailShowTechs) {
+      try {
+        if (preferred_date) {
+          const techResult = await db.execute(drizzleSql`
+            SELECT u.first_name, u.last_name
+            FROM users u
+            WHERE u.company_id = ${company_id}
+              AND u.role = 'tech'
+              AND u.is_active = true
+              AND u.id NOT IN (
+                SELECT jt.user_id FROM job_technicians jt
+                JOIN jobs j ON j.id = jt.job_id
+                WHERE j.company_id = ${company_id}
+                  AND j.scheduled_date = ${preferred_date}::date
+                  AND j.status != 'cancelled'
+                UNION
+                SELECT j.assigned_user_id FROM jobs j
+                WHERE j.company_id = ${company_id}
+                  AND j.scheduled_date = ${preferred_date}::date
+                  AND j.assigned_user_id IS NOT NULL
+                  AND j.status != 'cancelled'
+              )
+            ORDER BY u.first_name
+          `);
+          availableTechs = ((techResult as any).rows ?? []).map((r: any) => ({
+            name: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
+          }));
+        }
+      } catch {}
+    }
 
     const emailParams = {
       firstName: first_name,
