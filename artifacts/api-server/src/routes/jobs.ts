@@ -12,6 +12,7 @@ import { geocodeAddress } from "../lib/geocode.js";
 import { resolveZoneForZip } from "./zones.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
+import { resolveAccountBillingClientId } from "../lib/account-billing-client.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
 import multer from "multer";
@@ -337,7 +338,7 @@ router.post("/", requireAuth, async (req, res) => {
       client_id, assigned_user_id, service_type, scheduled_date, scheduled_time,
       frequency, base_fee, allowed_hours, notes,
       account_id, account_property_id, billing_method, hourly_rate, estimated_hours,
-      branch_id, add_ons, team_user_ids,
+      branch_id, add_ons, team_user_ids, days_of_week,
     } = req.body;
 
     // [multi-tech-create 2026-06-04] The wizard's tech picker is multi-select.
@@ -515,33 +516,90 @@ router.post("/", requireAuth, async (req, res) => {
     // generate the next 90 days. Calls generateJobsFromSchedule directly, so it
     // works regardless of the disabled RECURRING_ENGINE cron. Gated by a
     // FEE-GUARD: never fan out a $0/blank series (the 744-phantom-job incident).
-    const RECURRING_FREQS = new Set(["weekly", "biweekly", "monthly", "weekdays", "every_3_weeks"]);
-    const _feeNum = Number(base_fee);
+    // [account-recurrence 2026-06-29] Commercial/account jobs carry
+    // account_id + account_property_id but NO client_id — their identity is
+    // the account, not a person. The old guard required `client_id`, so
+    // scheduling a recurrence under an account silently produced only the
+    // first visit (Francisco's report). Resolve the account's billing
+    // contact (recurring_schedules.customer_id is NOT NULL) and fan out the
+    // same way residential does. $0 is legitimate for account series (the
+    // account is the billing entity — monthly-batch invoicing), so the
+    // positive-fee guard only applies to RESIDENTIAL (744-phantom guard).
+    const RECURRING_FREQS = new Set(["weekly", "biweekly", "monthly", "weekdays", "every_3_weeks", "daily", "custom_days"]);
+    // custom_days needs the operator's selected weekdays (0=Sun..6=Sat); every
+    // other cadence anchors on start_date and ignores this. Sanitize to a valid
+    // 0–6 int set so a bad payload can't poison the schedule.
+    const _daysOfWeek = Array.isArray(days_of_week)
+      ? [...new Set(days_of_week.map((n: any) => Number(n)).filter((n: number) => Number.isInteger(n) && n >= 0 && n <= 6))]
+      : [];
+    const _feeNum = Number(base_fee ?? 0);
+    const _isAccountJob = !!account_id;
+    let _scheduleCustomerId: number | null = client_id ? Number(client_id) : null;
+    if (!_scheduleCustomerId && _isAccountJob) {
+      try {
+        _scheduleCustomerId = await resolveAccountBillingClientId(
+          req.auth!.companyId!, account_id, account_property_id,
+        );
+        if (!_scheduleCustomerId) {
+          console.warn(`[job-create recurrence] account ${account_id} has no billing contact — cannot fan out recurring series (job ${jobId} stays single)`);
+        }
+      } catch (e) {
+        console.warn("[job-create recurrence] account billing-client resolve failed:", e);
+      }
+    }
+    const _feeOk = Number.isFinite(_feeNum) && (_feeNum > 0 || _isAccountJob);
+    // custom_days can't generate a series without at least one selected weekday.
+    const _freqOk = typeof frequency === "string" && RECURRING_FREQS.has(frequency) &&
+      (frequency !== "custom_days" || _daysOfWeek.length > 0);
     if (
-      client_id &&
-      typeof frequency === "string" && RECURRING_FREQS.has(frequency) &&
-      Number.isFinite(_feeNum) && _feeNum > 0
+      _scheduleCustomerId &&
+      _freqOk &&
+      _feeOk
     ) {
       try {
         const _durationMin = allowed_hours != null && Number(allowed_hours) > 0
           ? Math.round(Number(allowed_hours) * 60)
           : (estimated_hours != null && Number(estimated_hours) > 0 ? Math.round(Number(estimated_hours) * 60) : null);
 
+        // Stamp the property's structured address onto the schedule so every
+        // generated occurrence carries the right service location (the engine
+        // reads service_address_* off the schedule for account jobs).
+        let _svcStreet: string | null = null, _svcCity: string | null = null,
+            _svcState: string | null = null, _svcZip: string | null = null;
+        if (account_property_id) {
+          const [p] = await db
+            .select({ address: accountPropertiesTable.address, city: accountPropertiesTable.city, state: accountPropertiesTable.state, zip: accountPropertiesTable.zip })
+            .from(accountPropertiesTable)
+            .where(eq(accountPropertiesTable.id, account_property_id))
+            .limit(1);
+          if (p) { _svcStreet = p.address ?? null; _svcCity = p.city ?? null; _svcState = p.state ?? null; _svcZip = p.zip ?? null; }
+        }
+
         const [sched] = await db
           .insert(recurringSchedulesTable)
           .values({
             company_id: req.auth!.companyId!,
-            customer_id: client_id,
+            customer_id: _scheduleCustomerId,
             frequency: frequency as any, // narrowed to string; column wants the freq enum union
             day_of_week: null, // cadence anchors on start_date's weekday when null
+            // Multi-day weekday pattern — only custom_days carries it; daily/
+            // weekdays resolve their own pattern in the engine, single-day
+            // cadences anchor on start_date. (See recurring_schedules invariant.)
+            days_of_week: frequency === "custom_days" && _daysOfWeek.length ? _daysOfWeek : null,
             start_date: scheduled_date,
             end_date: null,
             assigned_employee_id: primaryTechId ? Number(primaryTechId) : null,
             service_type,
             scheduled_time: scheduled_time || null,
             duration_minutes: _durationMin,
-            base_fee: String(base_fee),
+            base_fee: String(base_fee ?? "0"),
             notes: notes || null,
+            account_id: account_id || null,
+            account_property_id: account_property_id || null,
+            service_address_street: _svcStreet,
+            service_address_city: _svcCity,
+            service_address_state: _svcState,
+            service_address_zip: _svcZip,
           })
           .returning();
 

@@ -12,7 +12,11 @@ export const cancellationLogTable = pgTable("cancellation_log", {
   id: serial("id").primaryKey(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
   job_id: integer("job_id").references(() => jobsTable.id).notNull(),
-  customer_id: integer("customer_id").references(() => clientsTable.id).notNull(),
+  // Nullable: commercial/account jobs have no client (identity is the
+  // account). Callers borrow the account's billing contact when one exists;
+  // null only when the account has no contact at all. Was NOT NULL — that
+  // 500'd skip/cancel on every account job. [account-cancel 2026-06-29]
+  customer_id: integer("customer_id").references(() => clientsTable.id),
   cancelled_by: integer("cancelled_by").references(() => usersTable.id),
   cancel_reason: cancelReasonEnum("cancel_reason").notNull(),
   cancelled_at: timestamp("cancelled_at").notNull().defaultNow(),

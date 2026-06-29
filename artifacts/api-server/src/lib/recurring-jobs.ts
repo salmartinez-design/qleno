@@ -191,11 +191,25 @@ export async function insertJobFromSchedule(
   bookingLocation: string | null = null,
   clientZip: string | null = null,
 ): Promise<number> {
+  // [account-recurrence 2026-06-29] Commercial/account schedules carry the
+  // account link + service address on the template; stamp them onto every
+  // generated occurrence so the children stay attached to the account (and
+  // the commission engine — which routes on !!jobs.account_id — treats them
+  // as commercial, not a residential 35% pool). Mirror the route's first
+  // visit: account jobs set account_id + account_property_id and leave
+  // client_id NULL (identity is the account). Residential is unchanged:
+  // no account_id → client_id = customer_id and only address_zip is set.
+  const _isAcct = (schedule as any).account_id != null;
   const [row] = await txOrDb
     .insert(jobsTable)
     .values({
       company_id: schedule.company_id,
-      client_id: schedule.customer_id,
+      client_id: _isAcct ? null : schedule.customer_id,
+      account_id: (schedule as any).account_id ?? null,
+      account_property_id: (schedule as any).account_property_id ?? null,
+      address_street: _isAcct ? ((schedule as any).service_address_street ?? null) : null,
+      address_city: _isAcct ? ((schedule as any).service_address_city ?? null) : null,
+      address_state: _isAcct ? ((schedule as any).service_address_state ?? null) : null,
       assigned_user_id: schedule.assigned_employee_id ?? null,
       service_type: mapServiceType(schedule.service_type) as any,
       status: "scheduled" as const,
@@ -217,7 +231,7 @@ export async function insertJobFromSchedule(
       notes: schedule.notes ?? null,
       recurring_schedule_id: schedule.id,
       booking_location: (bookingLocation ?? null) as any,
-      address_zip: (clientZip ?? null) as any,
+      address_zip: (_isAcct ? ((schedule as any).service_address_zip ?? clientZip ?? null) : (clientZip ?? null)) as any,
     })
     .returning({ id: jobsTable.id });
   return Number(row.id);
@@ -755,7 +769,11 @@ export async function generateRecurringJobs(
       // records saved with the display name match the same as new slug-based ones.
       const serviceSlug = String(schedule.service_type || "").toLowerCase().replace(/\s+/g, "_");
       const isCommercialSchedule = COMMERCIAL_SERVICE_TYPES.has(serviceSlug)
-        || (clientId != null && clientAccountIdMap[clientId] != null);
+        || (clientId != null && clientAccountIdMap[clientId] != null)
+        // [account-recurrence 2026-06-29] Schedules created from an account job
+        // carry account_id directly (the borrowed billing contact may not have
+        // clients.account_id set), so trust the schedule's own link too.
+        || (schedule as any).account_id != null;
       if (!Number.isFinite(feeNum) || (feeNum === 0 && !isCommercialSchedule)) {
         console.warn(`[recurring-engine] SKIP schedule id=${schedule.id} client=${clientId} — base_fee is 0 (residential/unusable)`);
         skippedZeroFee++;
