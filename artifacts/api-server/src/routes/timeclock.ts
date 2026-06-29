@@ -8,6 +8,8 @@ import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
 import type { CommissionInputJob } from "../lib/commission-compute.js";
+import { sendNotification, labelServiceType } from "../services/notificationService.js";
+import { isClientAccountCommsPaused } from "../lib/account-comms.js";
 
 const router = Router();
 
@@ -557,6 +559,30 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
           import("../services/followUpService.js").then(({ enrollForJobComplete }) =>
             enrollForJobComplete(req.auth!.companyId, jobId, clientId).catch(() => {})
           ).catch(() => {});
+          // ── job_completed notification — mirrors jobs.ts PATCH path ──
+          Promise.resolve().then(async () => {
+            try {
+              if (await isClientAccountCommsPaused(clientId)) return;
+              const [cl] = await db.select({
+                email: clientsTable.email, phone: clientsTable.phone,
+                first_name: clientsTable.first_name,
+                address: clientsTable.address, city: clientsTable.city, state: clientsTable.state,
+              }).from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
+              if (!cl) return;
+              const [jobRow] = await db.select({ service_type: jobsTable.service_type, scheduled_date: jobsTable.scheduled_date })
+                .from(jobsTable).where(eq(jobsTable.id, jobId)).limit(1);
+              const mv = {
+                first_name: cl.first_name || "",
+                appointment_date: String(jobRow?.scheduled_date || "").slice(0, 10),
+                scope: labelServiceType((jobRow as any)?.service_type),
+                service_address: [cl.address, cl.city, cl.state].filter(Boolean).join(", "),
+              };
+              sendNotification("job_completed", "email", req.auth!.companyId, cl.email, null, mv).catch(() => {});
+              sendNotification("job_completed", "sms", req.auth!.companyId, null, cl.phone, mv).catch(() => {});
+            } catch (e) {
+              console.error("[timeclock] job_completed notify non-fatal:", (e as Error).message);
+            }
+          }).catch(() => {});
         }
       }
     } catch (e) {
