@@ -640,7 +640,7 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
       SELECT * FROM (
         SELECT nl.sent_at AS at, nl.channel::text AS channel, 'outbound'::text AS direction,
                nl.trigger::text AS type, nl.recipient::text AS recipient, nl.status::text AS status,
-               NULL::text AS subject, NULL::text AS body, 'automated'::text AS source,
+               (nl.metadata->>'subject')::text AS subject, (nl.metadata->>'body')::text AS body, 'automated'::text AS source,
                CASE WHEN nl.trigger = 'invoice_sent' THEN 'invoice' END::text AS doc_type,
                CASE WHEN nl.trigger = 'invoice_sent'
                     THEN (SELECT i.id FROM invoices i
