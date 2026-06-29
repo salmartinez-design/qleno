@@ -291,6 +291,18 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] runCustomerMessagesMigration — non-fatal:", err?.message ?? err);
   }
+  // [reschedule-label-backfill 2026-06-29] correct historical reschedules that the
+  // legacy cancellation-log path stored with a NULL action, so the Activity feed
+  // stops showing past reschedules as "Cancelled". Scoped to rows whose note marks
+  // them a reschedule; never touches a genuine cancellation. Idempotent.
+  try {
+    await withBootTimeout("runRescheduleLabelBackfill", SCHEMA_TIMEOUT_MS, async () => {
+      const { runRescheduleLabelBackfill } = await import("./lib/reschedule-label-backfill.js");
+      await runRescheduleLabelBackfill();
+    });
+  } catch (err: any) {
+    console.error("[startup] runRescheduleLabelBackfill — non-fatal:", err?.message ?? err);
+  }
   // [booking-confirmation GAP1] token column + job_scheduled SMS template (all tenants)
   try {
     await withBootTimeout("ensureBookingConfirmationSetup", SCHEMA_TIMEOUT_MS, async () => {
