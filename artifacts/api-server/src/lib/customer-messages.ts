@@ -131,7 +131,7 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     group: "before",
     anchor: "before_appointment",
     offsetDays: 1,
-    sendHour: 16,
+    sendHour: 12,
     timing: "4:00 PM CT, the day before the appointment",
     description: "Final reminder the afternoon before, with an access note.",
     channels: [
@@ -366,7 +366,7 @@ export async function ensureCustomerMessageSchedules(companyId: number): Promise
               ${def.offsetDays ?? null}, ${def.sendHour ?? null},
               ${channelsLiteral}::text[],
               true, true, ${order})
-      ON CONFLICT (company_id, key) DO NOTHING`);
+      ON CONFLICT (company_id, key) DO UPDATE SET send_hour = EXCLUDED.send_hour`);
   }
 }
 
