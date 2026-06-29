@@ -535,6 +535,13 @@ export async function runScheduledJobMessages(): Promise<void> {
     return;
   }
 
+  // [reminder-diag 2026-06-29] Flow logging so a zero-send run is no longer a
+  // mystery: how many active offset schedules matched, and (below) per schedule
+  // how many candidate jobs were found and how many were skipped as already-sent
+  // by the idempotency ledger. Without this a job bailing BEFORE the per-message
+  // code (no schedules / no jobs / all ledger-skipped) produced no trace at all.
+  console.log(`[scheduled-messages] tick ctHour=${ctHour} today=${todayStr} activeSchedules=${schedules.length} keys=[${schedules.map((s: any) => `${s.key}@co${s.company_id}/h${s.send_hour}`).join(", ")}]`);
+
   for (const sched of schedules) {
     try {
       const offset = Number(sched.offset_days);
@@ -586,6 +593,9 @@ export async function runScheduledJobMessages(): Promise<void> {
                  AND (a.id IS NULL OR a.comms_enabled = true)`
       );
       const jobs: any[] = (rows as any).rows ?? [];
+      // [reminder-diag 2026-06-29] Per-schedule candidate count + skip tally.
+      let _ledgerSkipped = 0, _hourGated = 0;
+      console.log(`[scheduled-messages] sched=${sched.key} co=${sched.company_id} offset=${offset} sendHour=${sendHour} candidateJobs=${jobs.length}`);
 
       for (const job of jobs) {
         // Hour gate ONLY on the exact target day — earlier (a missed prior day,
@@ -594,7 +604,7 @@ export async function runScheduledJobMessages(): Promise<void> {
         const targetStr = isBefore
           ? new Date(Date.parse(`${todayStr}T00:00:00Z`) + offset * 86400000).toISOString().slice(0, 10)
           : new Date(Date.parse(`${todayStr}T00:00:00Z`) - offset * 86400000).toISOString().slice(0, 10);
-        if (sdate === targetStr && ctHour < sendHour) continue;
+        if (sdate === targetStr && ctHour < sendHour) { _hourGated++; continue; }
 
         const jobZip = job.address_zip || job.zip || "";
         const branchConfig = getBranchByZip(jobZip);
@@ -619,7 +629,7 @@ export async function runScheduledJobMessages(): Promise<void> {
           const led = await db.execute(drizzleSql`
             SELECT 1 FROM job_message_sends
              WHERE job_id = ${job.id} AND schedule_key = ${sched.key} AND channel = ${channel} LIMIT 1`);
-          if (((led as any).rows ?? []).length) continue;
+          if (((led as any).rows ?? []).length) { _ledgerSkipped++; continue; }
 
           const tpl = await renderCustomerTemplate(job.company_id, sched.key, channel as "email" | "sms", vars);
           if (tpl && !tpl.is_active) continue; // channel paused by office
@@ -703,6 +713,7 @@ export async function runScheduledJobMessages(): Promise<void> {
           }
         }
       }
+      console.log(`[scheduled-messages] sched=${sched.key} co=${sched.company_id} done — ledgerSkipped=${_ledgerSkipped} hourGated=${_hourGated}`);
     } catch (err) {
       console.error(`[scheduled-messages] schedule ${sched.key} (co ${sched.company_id}) error:`, err);
     }
