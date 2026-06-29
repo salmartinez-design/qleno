@@ -471,6 +471,78 @@ function BranchContactCard({ branchId }: { branchId: number }) {
   );
 }
 
+// Company-level outbound comms MASTER switch (companies.comms_enabled). This is
+// the tenant gate that sits ABOVE every location toggle: a message only sends
+// when the global COMMS_ENABLED, this company master, AND (for branch sends) the
+// location toggle are all on. The column defaults OFF and previously had no UI,
+// so a tenant with valid creds could silently send nothing. Owner/admin only.
+function CompanyCommsCard() {
+  const { toast } = useToast();
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const canEdit = ['owner', 'admin'].includes(getTokenRole() || '');
+  const { data: status } = useQuery({
+    queryKey: ['comms-status'],
+    queryFn: async () => {
+      const r = await fetch(`${API}/api/comms-status`, { headers: getAuthHeaders() });
+      if (!r.ok) throw new Error();
+      return r.json();
+    },
+  });
+  const qc = useQueryClient();
+  const enabled = !!status?.company_comms_enabled;
+  const globalEnabled = status?.global_enabled !== false;
+  const [saving, setSaving] = useState(false);
+  const toggle = async () => {
+    if (!canEdit) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/comms-status`, {
+        method: 'PATCH', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comms_enabled: !enabled }),
+      });
+      if (!r.ok) throw new Error();
+      qc.invalidateQueries({ queryKey: ['comms-status'] });
+      toast({ title: `Company communications ${!enabled ? 'ENABLED' : 'disabled'}` });
+    } catch { toast({ variant: 'destructive', title: 'Failed to update communications setting' }); }
+    setSaving(false);
+  };
+  return (
+    <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(91,155,213,0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div>
+        <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 14, color: 'var(--brand)', margin: '0 0 4px' }}>Company Communications</p>
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>
+          Master switch for all SMS &amp; email for this business. When off, NO automated
+          notifications are sent to any customer, including booking confirmations and
+          appointment reminders. This must be on for any message to send. Defaults off.
+        </p>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={toggle} disabled={saving || !canEdit} aria-pressed={enabled}
+          style={{ position: 'relative', width: 46, height: 26, borderRadius: 999, border: 'none',
+            cursor: (saving || !canEdit) ? 'not-allowed' : 'pointer', backgroundColor: enabled ? 'var(--brand)' : '#CBD2D9',
+            transition: 'background-color 0.15s', flexShrink: 0 }}>
+          <span style={{ position: 'absolute', top: 3, left: enabled ? 23 : 3, width: 20, height: 20,
+            borderRadius: '50%', backgroundColor: '#fff', transition: 'left 0.15s' }} />
+        </button>
+        <span style={{ fontFamily: FF, fontSize: 13, fontWeight: 600, color: enabled ? 'var(--brand)' : '#6B7280' }}>
+          {enabled ? 'Sending enabled for this business' : 'Sending OFF — no messages will send'}
+        </span>
+      </div>
+      {enabled && !globalEnabled && (
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#B45309', margin: 0 }}>
+          Company switch is on, but the platform-wide comms master is currently off, so
+          sends are still paused. Contact your administrator.
+        </p>
+      )}
+      {!canEdit && (
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>
+          Only an owner or admin can change this.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function BranchCommsCard({ branchId }: { branchId: number }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -576,6 +648,7 @@ function GeneralTab() {
   return (
     <div style={{ maxWidth: '560px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {activeBranchId !== "all" && <BranchContactCard branchId={activeBranchId as number} />}
+      <CompanyCommsCard />
       {activeBranchId !== "all" && <BranchCommsCard branchId={activeBranchId as number} />}
       <Section title="Company Name" desc="">
         <input
