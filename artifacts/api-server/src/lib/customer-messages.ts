@@ -345,6 +345,19 @@ export async function runCustomerMessagesMigration(): Promise<void> {
        AND channel = 'sms'
        AND is_active = false`);
 
+  // [reminder-1day-noon 2026-06-29] The Next-Day Reminder default moved from
+  // 4 PM (send_hour 16) to noon (12), but ensureCustomerMessageSchedules skips
+  // any schedule that already exists (the `have.has(trigger)` guard) BEFORE it
+  // reaches the INSERT ... ON CONFLICT DO UPDATE, so the new default never
+  // reached tenants seeded before the change — their rows kept 16. Reconcile the
+  // specific stale value here. Only rows still at the old hardcoded 4 PM are
+  // touched; any office customization to a different hour is left alone.
+  await db.execute(sql`
+    UPDATE customer_message_schedules
+       SET send_hour = 12
+     WHERE key = 'reminder_1day'
+       AND send_hour = 16`);
+
   // Seed the built-in schedule rows for EVERY tenant now, at boot — not lazily on
   // first page view. Without this the offset cron would find zero schedules and
   // silently stop sending reminders until someone opened the settings page.
