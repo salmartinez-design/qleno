@@ -707,15 +707,13 @@ export async function runReviewRequestCron(): Promise<void> {
     return;
   }
   try {
-    const cutoffMs  = 24 * 60 * 60 * 1000;
-    const now       = new Date();
-    const from      = new Date(now.getTime() - cutoffMs - 30 * 60 * 1000); // 24h30m ago
-    const to        = new Date(now.getTime() - cutoffMs + 30 * 60 * 1000); // 23h30m ago
-    const fromStr   = from.toISOString().slice(0, 10);
-
+    // Match jobs SERVICED yesterday (scheduled_date = yesterday). Using
+    // scheduled_date rather than created_at so recurring jobs (booked weeks
+    // in advance) still trigger the review request the morning after service.
+    // The 30-day survey_last_sent throttle prevents double-sends per client.
     const rows = await db.execute(
       (await import("drizzle-orm")).sql`
-        SELECT j.id, j.company_id, j.client_id, j.created_at, j.scheduled_date, j.service_type,
+        SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.service_type,
                c.first_name, c.last_name, c.email, c.phone,
                c.address, c.city, c.state, c.survey_last_sent,
                co.review_link
@@ -724,7 +722,8 @@ export async function runReviewRequestCron(): Promise<void> {
           JOIN companies co ON co.id = j.company_id
           LEFT JOIN accounts a ON a.id = c.account_id
          WHERE j.status = 'complete'
-           AND DATE(j.created_at) = ${fromStr}
+           AND j.scheduled_date = (CURRENT_DATE - INTERVAL '1 day')::date
+           AND co.comms_enabled = true
            AND (a.id IS NULL OR a.comms_enabled = true)
            AND (c.survey_last_sent IS NULL OR c.survey_last_sent < NOW() - INTERVAL '30 days')
       `

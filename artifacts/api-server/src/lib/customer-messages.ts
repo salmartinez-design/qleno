@@ -165,6 +165,27 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     ],
   },
   {
+    trigger: "job_started",
+    label: "Cleaning Started",
+    group: "during",
+    anchor: "on_my_way",
+    timing: "Real time, when the cleaner clocks in at the home",
+    description: "Lets the customer know their cleaner has arrived and work has begun.",
+    channels: [
+      {
+        channel: "sms",
+        body:
+          "{{company_name}}: your cleaner {{tech_name}} has arrived and started your {{service_type}}. We'll let you know when we're done!",
+      },
+      {
+        channel: "email",
+        subject: "Your {{company_name}} cleaning has started",
+        body:
+          "Hi {{first_name}},\n\nYour {{company_name}} cleaner {{tech_name}} has arrived and started your {{service_type}} at {{service_address}}.\n\nWe'll send you another message when the job is complete.\n\nThank you!\n\n{{company_name}}",
+      },
+    ],
+  },
+  {
     trigger: "job_completed",
     label: "Thank-You After Service",
     group: "after",

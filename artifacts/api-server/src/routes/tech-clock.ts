@@ -40,6 +40,8 @@ import { estimateEtaMinutes } from "../lib/eta.js";
 import { sendOnMyWaySms, type OnMyWaySmsResult } from "../lib/comms.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
+import { sendNotification, labelServiceType } from "../services/notificationService.js";
+import { isClientAccountCommsPaused } from "../lib/account-comms.js";
 
 const router = Router();
 
@@ -528,6 +530,36 @@ async function handleClockEvent(
         .where(
           and(eq(jobsTable.company_id, companyId), eq(jobsTable.id, job.id)),
         );
+      // ── job_started notification (non-blocking) ───────────────────────
+      // Fires once: gated on the status transition above so only the FIRST
+      // tech to clock in notifies the client (multi-tech job = one message).
+      if (job.client_id) {
+        Promise.resolve().then(async () => {
+          try {
+            if (await isClientAccountCommsPaused(job.client_id!)) return;
+            const [cl] = await db.select({
+              email: clientsTable.email, phone: clientsTable.phone,
+              first_name: clientsTable.first_name,
+              address: clientsTable.address, city: clientsTable.city, state: clientsTable.state,
+            }).from(clientsTable).where(eq(clientsTable.id, job.client_id!)).limit(1);
+            if (!cl) return;
+            const [jobRow] = await db.select({ service_type: jobsTable.service_type })
+              .from(jobsTable).where(eq(jobsTable.id, job.id)).limit(1);
+            const [tech] = await db.select({ first_name: usersTable.first_name, last_name: usersTable.last_name })
+              .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+            const mv = {
+              first_name: cl.first_name || "",
+              tech_name: [tech?.first_name, tech?.last_name].filter(Boolean).join(" ") || "Your cleaner",
+              service_type: labelServiceType((jobRow as any)?.service_type),
+              service_address: [cl.address, cl.city, cl.state].filter(Boolean).join(", "),
+            };
+            sendNotification("job_started", "sms", companyId, null, cl.phone, mv).catch(() => {});
+            sendNotification("job_started", "email", companyId, cl.email, null, mv).catch(() => {});
+          } catch (e) {
+            console.error("[tech-clock] job_started notify non-fatal:", (e as Error).message);
+          }
+        }).catch(() => {});
+      }
     } else if (eventType === "clock_out" && job.status !== "complete") {
       await db
         .update(jobsTable)
@@ -541,6 +573,45 @@ async function handleClockEvent(
       // is internally non-fatal and skips if an invoice already exists).
       ensureInvoiceForCompletedJob(companyId, job.id, userId)
         .catch((e: Error) => console.error("[tech-clock invoice] non-fatal:", e));
+      // ── job_completed notification + satisfaction survey (non-blocking) ─
+      if (job.client_id) {
+        Promise.resolve().then(async () => {
+          try {
+            if (await isClientAccountCommsPaused(job.client_id!)) return;
+            const [cl] = await db.select({
+              email: clientsTable.email, phone: clientsTable.phone,
+              first_name: clientsTable.first_name,
+              address: clientsTable.address, city: clientsTable.city, state: clientsTable.state,
+            }).from(clientsTable).where(eq(clientsTable.id, job.client_id!)).limit(1);
+            if (!cl) return;
+            const [jobRow] = await db.select({ service_type: jobsTable.service_type })
+              .from(jobsTable).where(eq(jobsTable.id, job.id)).limit(1);
+            const addr = [cl.address, cl.city, cl.state].filter(Boolean).join(", ");
+            const mv = {
+              first_name: cl.first_name || "",
+              appointment_date: job.scheduled_date,
+              scope: labelServiceType((jobRow as any)?.service_type),
+              service_address: addr,
+            };
+            sendNotification("job_completed", "email", companyId, cl.email, null, mv).catch(() => {});
+            sendNotification("job_completed", "sms", companyId, null, cl.phone, mv).catch(() => {});
+          } catch (e) {
+            console.error("[tech-clock] job_completed notify non-fatal:", (e as Error).message);
+          }
+        }).catch(() => {});
+        // Satisfaction survey — same trigger as the office path (jobs.ts PATCH)
+        Promise.resolve().then(async () => {
+          try {
+            await fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": req.headers.authorization || "" },
+              body: JSON.stringify({ job_id: job.id, customer_id: job.client_id }),
+            });
+          } catch (e) {
+            console.error("[tech-clock] satisfaction survey trigger non-fatal:", (e as Error).message);
+          }
+        }).catch(() => {});
+      }
     }
 
     return res.json({
