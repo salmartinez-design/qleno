@@ -439,6 +439,67 @@ export async function enrollForEstimateSent(
   }
 }
 
+// ── Enroll a lead in the appropriate drip sequence ────────────────────────────
+// Selects lead_drip_web or lead_drip_phone by leadSource. Both are seeded
+// is_active=FALSE so nothing fires until the office enables the sequence.
+// Even when active, sends still pass through the COMMS_ENABLED gate.
+export async function enrollForLeadDrip(
+  companyId: number,
+  leadId: number,
+  leadSource: string,
+): Promise<void> {
+  try {
+    const seqType = leadSource === 'phone_in' ? 'lead_drip_phone' : 'lead_drip_web';
+    const seqRows = await db.execute(sql`
+      SELECT id FROM follow_up_sequences
+      WHERE company_id = ${companyId} AND sequence_type = ${seqType} AND is_active = true
+      LIMIT 1
+    `);
+    if (!seqRows.rows.length) {
+      console.log(`[follow-up] No active ${seqType} sequence for company ${companyId} — lead ${leadId} not enrolled (drip inert).`);
+      return;
+    }
+    const sequenceId = (seqRows.rows[0] as any).id;
+
+    const existing = await db.execute(sql`
+      SELECT id FROM follow_up_enrollments
+      WHERE sequence_id = ${sequenceId} AND lead_id = ${leadId}
+        AND completed_at IS NULL AND stopped_at IS NULL
+      LIMIT 1
+    `);
+    if (existing.rows.length > 0) return;
+
+    await db.execute(sql`
+      INSERT INTO follow_up_enrollments
+        (company_id, sequence_id, lead_id, current_step, next_fire_at)
+      VALUES
+        (${companyId}, ${sequenceId}, ${leadId}, 1, NOW())
+    `);
+    console.log(`[follow-up] Enrolled lead ${leadId} in ${seqType} sequence ${sequenceId}`);
+  } catch (err) {
+    console.error("[follow-up] enrollForLeadDrip error (non-fatal):", err);
+  }
+}
+
+// ── Stop all drip enrollments for a lead (booked / opted out) ────────────────
+export async function stopEnrollmentsForLead(
+  leadId: number,
+  reason: string,
+): Promise<void> {
+  try {
+    await db.execute(sql`
+      UPDATE follow_up_enrollments
+      SET stopped_at = NOW(), stopped_reason = ${reason}
+      WHERE lead_id = ${leadId}
+        AND completed_at IS NULL
+        AND stopped_at IS NULL
+    `);
+    console.log(`[follow-up] Stopped lead enrollments for lead ${leadId} — reason: ${reason}`);
+  } catch (err) {
+    console.error("[follow-up] stopEnrollmentsForLead error (non-fatal):", err);
+  }
+}
+
 // ── Stop enrollments for an estimate (accepted / declined) ──────────────────────
 export async function stopEnrollmentsForEstimate(
   estimateId: number,
