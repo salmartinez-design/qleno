@@ -5145,6 +5145,8 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
+  // Hover preview card for a calendar job (MaidCentral-style quick look).
+  const [hoverCard, setHoverCard] = useState<{ job: any; x: number; y: number } | null>(null);
 
   const months: Date[] = [anchor, addMonths(anchor, 1), addMonths(anchor, 2)];
   const from = toLocalDateStr(startOfMonth(months[0]));
@@ -5308,9 +5310,13 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
               <div
                 key={j.id}
                 draggable={!ro}
-                onDragStart={e => onDragStart(e, j)}
+                onDragStart={e => { onDragStart(e, j); setHoverCard(null); }}
                 onClick={() => openJobCard(j)}
-                title={`${chip.tooltip}${j.scheduled_time ? " | " + String(j.scheduled_time).slice(0,5).replace(/^(\d+):(\d+)$/, (_, h, m) => `${parseInt(h) % 12 || 12}:${m} ${parseInt(h) < 12 ? "AM" : "PM"}`) : ""}${j.technician_name ? " · " + j.technician_name : ""}`}
+                onMouseEnter={e => {
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setHoverCard({ job: j, x: r.right, y: r.top });
+                }}
+                onMouseLeave={() => setHoverCard(null)}
                 style={{
                   background: chip.bg, borderLeft: `3px solid ${chip.border}`, color: chip.text,
                   borderRadius: "0 4px 4px 0", fontSize: 10, fontWeight: 700, padding: "2px 5px",
@@ -5350,6 +5356,52 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
 
   return (
     <div style={{ fontFamily: FF, overflow: "hidden" }}>
+      {/* Hover quick-look card — MaidCentral-style, Qleno data. position:fixed so
+          it escapes the calendar's overflow:hidden; pointerEvents none so it never
+          steals the hover. */}
+      {hoverCard && (() => {
+        const j = hoverCard.job;
+        const ch = STATUS_CHIP[chipKeyFor(j)] || STATUS_CHIP.scheduled;
+        const fmtT = (s: any) => s ? String(s).slice(0,5).replace(/^(\d+):(\d+)$/, (_, h, m) => `${parseInt(h) % 12 || 12}:${m} ${parseInt(h) < 12 ? "AM" : "PM"}`) : null;
+        const svc = String(j.service_type || "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+        const amt = j.billed_amount ?? j.base_fee;
+        const hrs = j.estimated_hours ?? j.actual_hours;
+        const addr = [j.address_street, j.address_city].filter(Boolean).join(", ");
+        const W = 256;
+        const left = Math.min(hoverCard.x + 8, (typeof window !== "undefined" ? window.innerWidth : 1200) - W - 10);
+        const top = Math.max(8, hoverCard.y - 6);
+        const Row = ({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) => (
+          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#374151", padding: "3px 0" }}>
+            <span style={{ color: "#9E9B94", display: "flex", width: 14, flexShrink: 0 }}>{icon}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children}</span>
+          </div>
+        );
+        return (
+          <div style={{ position: "fixed", left, top, width: W, zIndex: 9999, pointerEvents: "none",
+            background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, boxShadow: "0 8px 28px rgba(10,14,26,0.16)", padding: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{svc || "Job"}</span>
+              <span style={{ flexShrink: 0, background: ch.bg, borderLeft: `3px solid ${ch.border}`, color: ch.text, borderRadius: "0 4px 4px 0", fontSize: 10, fontWeight: 700, padding: "2px 7px" }}>{ch.label}</span>
+            </div>
+            <Row icon={<Clock size={13} />}>
+              {new Date(String(j.scheduled_date).split("T")[0] + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+              {fmtT(j.scheduled_time) ? ` · ${fmtT(j.scheduled_time)}` : ""}
+            </Row>
+            <Row icon={<Wrench size={13} />}>{j.technician_name || "Unassigned"}</Row>
+            {addr && <Row icon={<MapPin size={13} />}>{addr}</Row>}
+            <div style={{ display: "flex", gap: 8, marginTop: 8, paddingTop: 8, borderTop: "1px solid #F0EEE9" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const }}>Amount</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#0A0E1A" }}>{amt != null ? `$${Number(amt).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const }}>Hours</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#0A0E1A" }}>{hrs != null ? `${Number(hrs)}h` : "—"}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", borderBottom: "1px solid #E5E2DC", gap: 8 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em", flexShrink: 0 }}>
