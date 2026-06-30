@@ -6,6 +6,7 @@ import { renderConfirmationEmail, extractPolicyCopy, fmtTime12h } from "./confir
 import { shortenUrl } from "./short-link.js";
 import { appBaseUrl } from "./app-url.js";
 import { BOOKING_SMS } from "./sms-copy.js";
+import { buildAppointmentVars } from "./appointment-vars.js";
 
 // [booking-confirmation GAP1] Customer booking confirmation: a no-login,
 // token-based "your appointment" view (like /quote/:token, /estimate/:token)
@@ -137,6 +138,10 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       service_type: labelService(j.service_type),
       service_address: serviceAddress,
       appointment_link: link || "",
+      // [appointment-vars] Add the short-name aliases ({{date}} / {{time}}) and
+      // {{appointment_window}}, and normalize the time to "9:00 AM". Present
+      // values override the raw fields above; missing ones keep the fallback.
+      ...buildAppointmentVars({ scheduledDate: j.scheduled_date, scheduledTime: j.scheduled_time }),
     };
 
     // Dedicated confirmation-email renderer (Pass 2). Cleaner first name + photo

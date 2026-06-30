@@ -6,6 +6,8 @@ import { buildReminderEmail } from "../lib/emailTemplates";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { isSmsOptedOut, isEmailOptedOut, buildEmailUnsubData, buildUnsubDataFromToken } from "../lib/opt-out.js";
 import { renderCustomerTemplate } from "../lib/customer-messages.js";
+import { buildAppointmentVars } from "../lib/appointment-vars.js";
+import { emailLogoUrl } from "../lib/app-url.js";
 import { Resend } from "resend";
 
 // ── Email brand constants ────────────────────────────────────────────────────
@@ -25,7 +27,18 @@ function applyMerge(template: string, vars: Record<string, string>): string {
 }
 
 // ── Email HTML wrapper ───────────────────────────────────────────────────────
-function wrapEmailHtml(contentHtml: string): string {
+// `brand` carries the tenant's logo + name so the header shows the real logo
+// image (absolute URL — relative paths don't load in email clients) with a text
+// fallback. Omitting it keeps the legacy "Phes" text header for any caller that
+// hasn't been updated.
+function wrapEmailHtml(contentHtml: string, brand?: { logoUrl?: string | null; companyName?: string | null }): string {
+  const name = brand?.companyName || "Phes";
+  const header = brand?.logoUrl
+    ? `<img src="${brand.logoUrl}" alt="${name}" height="40" style="height:40px;width:auto;max-width:220px;display:block;border:0;background:#ffffff;border-radius:6px;" />`
+    : `<span style="color:#ffffff;font-size:20px;font-weight:bold;font-family:${BRAND.font};">${name}</span>`;
+  // A logo image needs a light backdrop to read on any artwork; keep the text
+  // fallback on the accent color.
+  const headerBg = brand?.logoUrl ? "#ffffff" : BRAND.accent;
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Notification</title></head>
@@ -33,8 +46,8 @@ function wrapEmailHtml(contentHtml: string): string {
 <table width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.bg};padding:32px 16px;">
 <tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:${BRAND.card};border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border};">
-<tr><td style="background:${BRAND.accent};padding:20px 32px;">
-  <span style="color:#ffffff;font-size:20px;font-weight:bold;font-family:${BRAND.font};">Phes</span>
+<tr><td style="background:${headerBg};padding:20px 32px;border-bottom:1px solid ${BRAND.border};">
+  ${header}
 </td></tr>
 <tr><td style="padding:32px;color:${BRAND.textMain};font-size:15px;line-height:1.6;font-family:${BRAND.font};">
 ${contentHtml}
@@ -113,8 +126,10 @@ export async function sendNotification(
 
     // Per-tenant comms gate + per-tenant send-from address. Raw SQL to avoid
     // coupling to the regenerated drizzle column types.
-    const commsRow = await db.execute(sql`SELECT comms_enabled, email_from_address FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const commsRow = await db.execute(sql`SELECT comms_enabled, email_from_address, logo_url, name FROM companies WHERE id = ${companyId} LIMIT 1`);
     const fromAddr = (commsRow.rows[0] as any)?.email_from_address || "info@phes.io";
+    // [email-logo] Tenant logo for the wrapper header (absolutized for email).
+    const emailBrand = { logoUrl: emailLogoUrl((commsRow.rows[0] as any)?.logo_url), companyName: (commsRow.rows[0] as any)?.name };
     // Marketing/notification sends require the tenant's comms gate. Transactional
     // sends (reset/invite) skip it — they must always reach the user.
     if (!transactional && !(commsRow.rows[0] as any)?.comms_enabled) {
@@ -169,7 +184,7 @@ export async function sendNotification(
       // for this send only; all other emails keep wrapEmailHtml unchanged.
       let wrapped  = renderEmail
         ? applyMerge(renderEmail(rawHtml, fullVars), fullVars)
-        : applyMerge(wrapEmailHtml(rawHtml), fullVars);
+        : applyMerge(wrapEmailHtml(rawHtml, emailBrand), fullVars);
 
       // [comms-opt-out] Tokenized unsubscribe: append the footer link + set the
       // List-Unsubscribe (+ one-click) headers for transactional-marketing
@@ -311,7 +326,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
     const rows = await db.execute(
       hoursAhead === 72
         ? drizzleSql`
-            SELECT j.id, j.company_id, co.name AS company_name,
+            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo,
                    j.scheduled_date, j.scheduled_time, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
@@ -328,7 +343,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
                AND j.reminder_72h_sent = false
           `
         : drizzleSql`
-            SELECT j.id, j.company_id, co.name AS company_name,
+            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo,
                    j.scheduled_date, j.scheduled_time, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
@@ -379,8 +394,9 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
         company_phone: branchConfig.clientPhone,
         company_email: branchConfig.officeEmail,
         service_type: serviceType,
-        date: scheduledDate,
-        arrival_window: arrivalWindowLabel,
+        // [appointment-vars] Emit date/appointment_date, time/appointment_time,
+        // arrival_window/appointment_window so both naming conventions resolve.
+        ...buildAppointmentVars({ scheduledDate: job.scheduled_date, scheduledTime: job.scheduled_time, arrivalWindow: arrivalWindowLabel }),
         service_address: serviceAddress,
       };
       const logMeta = { job_id: String(job.id) };
@@ -398,7 +414,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
             if (emailTpl) {
               subject = emailTpl.subject || `Reminder: your cleaning on ${scheduledDate}`;
               const htmlBody = /<[a-z][\s\S]*>/i.test(emailTpl.body) ? emailTpl.body : emailTpl.body.replace(/\n/g, "<br>");
-              html = wrapEmailHtml(htmlBody);
+              html = wrapEmailHtml(htmlBody, { logoUrl: emailLogoUrl(job.company_logo), companyName: job.company_name });
             } else {
               ({ subject, html } = buildReminderEmail({
                 firstName: job.first_name || "",
@@ -575,7 +591,7 @@ export async function runScheduledJobMessages(): Promise<void> {
       const rows = await db.execute(
         isBefore
           ? drizzleSql`
-              SELECT j.id, j.company_id, j.client_id, co.name AS company_name,
+              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo,
                      j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
                      j.address_street, j.address_city, j.address_state, j.address_zip,
                      c.first_name, c.last_name, c.email, c.phone, c.zip,
@@ -590,7 +606,7 @@ export async function runScheduledJobMessages(): Promise<void> {
                  AND j.status NOT IN ('cancelled', 'complete')
                  AND (a.id IS NULL OR a.comms_enabled = true)`
           : drizzleSql`
-              SELECT j.id, j.company_id, j.client_id, co.name AS company_name,
+              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo,
                      j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
                      j.address_street, j.address_city, j.address_state, j.address_zip,
                      c.first_name, c.last_name, c.email, c.phone, c.zip,
@@ -631,13 +647,13 @@ export async function runScheduledJobMessages(): Promise<void> {
           company_phone: branchConfig.clientPhone,
           company_email: branchConfig.officeEmail,
           service_type: labelServiceType(job.service_type),
-          // [reminder-crash-fix 2026-06-29] The query aliases scheduled_date to
-          // `sdate`, so job.scheduled_date is undefined here — formatDate(undefined)
-          // threw "Cannot read properties of undefined (reading 'split')" on the
-          // FIRST job of every run, which is why the reminder cron produced zero
-          // sends and zero log rows. Use the already-normalized `sdate` string.
-          date: formatDate(sdate),
-          arrival_window: arrivalWindowLabel,
+          // [appointment-vars 2026-06-29] Emit BOTH naming conventions
+          // (date/appointment_date, time/appointment_time, arrival_window/
+          // appointment_window). The deployed Phes reminder templates use the
+          // appointment_* names; previously this object only set `date` +
+          // `arrival_window` (and no time), so reminders rendered blank dates.
+          // `sdate` is the query's normalized scheduled_date string.
+          ...buildAppointmentVars({ scheduledDate: sdate, scheduledTime: job.scheduled_time, arrivalWindow: arrivalWindowLabel }),
           service_address: serviceAddress,
         };
 
@@ -666,7 +682,7 @@ export async function runScheduledJobMessages(): Promise<void> {
             }
             try {
               const htmlBody = /<[a-z][\s\S]*>/i.test(tpl.body) ? tpl.body : tpl.body.replace(/\n/g, "<br>");
-              let emailHtml = wrapEmailHtml(htmlBody);
+              let emailHtml = wrapEmailHtml(htmlBody, { logoUrl: emailLogoUrl(job.company_logo), companyName: job.company_name });
               const headers: Record<string, string> = {};
               if (job.email_unsub_token) {
                 const u = buildUnsubDataFromToken(job.email_unsub_token);
@@ -791,6 +807,10 @@ export async function runReviewRequestCron(): Promise<void> {
         first_name:  job.first_name || "",
         review_link: job.review_link || "https://g.page/r/phes/review",
         scope:       labelServiceType(job.service_type),
+        service_type: labelServiceType(job.service_type),
+        // [appointment-vars] So a review template referencing the visit date
+        // ({{date}} / {{appointment_date}}) resolves instead of rendering blank.
+        ...buildAppointmentVars({ scheduledDate: job.scheduled_date }),
       };
       await sendNotification("review_request", "email", job.company_id, job.email, null, mergeVars);
       await sendNotification("review_request", "sms",   job.company_id, null, job.phone, mergeVars);
