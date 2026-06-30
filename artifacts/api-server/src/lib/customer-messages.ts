@@ -208,22 +208,22 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
   },
   {
     trigger: "review_request",
-    label: "Review Request",
+    label: "Satisfaction Survey",
     group: "after",
     anchor: "after_review",
-    timing: "About a day after the visit (max once per customer / 30 days)",
-    description: "Asks for a rating or review after a completed visit.",
+    timing: "After a completed visit (max once per customer / 30 days)",
+    description: "Asks the customer to rate their cleaning; the rating feeds the cleaner's Performance Score. {{review_link}} opens the private rating page.",
     channels: [
       {
         channel: "email",
         subject: "How did we do, {{first_name}}?",
         body:
-          "Hi {{first_name}},\n\nWe'd love your feedback on your recent cleaning with {{company_name}}. It only takes a minute: {{review_link}}\n\nThank you!\n\n{{company_name}}",
+          "Hi {{first_name}},\n\nWe hope your home is feeling great! We'd love to hear how your cleaning went — it takes less than a minute.\n\nRate your cleaning: {{review_link}}\n\nYour feedback goes straight to your cleaning team and helps us keep improving. Thank you for choosing {{company_name}}!",
       },
       {
         channel: "sms",
         body:
-          "Hi {{first_name}}, thanks for choosing {{company_name}}! We'd love your feedback: {{review_link}} Reply STOP to unsubscribe.",
+          "Hi {{first_name}}, thanks for choosing {{company_name}}! How did we do? Rate your cleaning: {{review_link}} Reply STOP to unsubscribe.",
       },
     ],
   },
