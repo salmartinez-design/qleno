@@ -10,19 +10,6 @@ import crypto from "crypto";
 
 const router = Router();
 
-// Send an SMS via the tenant's Twilio REST credentials. No SDK dependency.
-async function sendTwilioSms(sid: string, authToken: string, from: string, to: string, body: string): Promise<void> {
-  const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: "POST",
-    headers: {
-      "Authorization": "Basic " + Buffer.from(`${sid}:${authToken}`).toString("base64"),
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ From: from, To: to, Body: body }).toString(),
-  });
-  if (!resp.ok) throw new Error(`Twilio ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
-}
-
 // ── POST /api/satisfaction/send — with 30-day throttle ──
 router.post("/send", requireAuth, async (req, res) => {
   try {
@@ -59,19 +46,16 @@ router.post("/send", requireAuth, async (req, res) => {
       return res.json({ sent: false, reason: "throttled", survey });
     }
 
-    // Tenant survey/Twilio config + customer phone. The SMS only actually sends
-    // when survey + Twilio are enabled, creds present, COMMS on, and a phone
-    // exists — otherwise the survey row is created but suppressed with the
-    // reason (Twilio is OFF until go-live, so today it suppresses, by design).
+    // Tenant survey config + customer phone. Twilio creds/number are resolved
+    // below via the shared resolveSender() (env-var creds + branch numbers), NOT
+    // the companies row — Phes stores them there, so reading the row directly
+    // (the old behavior) falsely reported "twilio_unconfigured" for the survey
+    // while every other message sent fine.
     const [company] = await db
       .select({
         name: companiesTable.name,
         survey_enabled: companiesTable.survey_enabled,
         survey_message_template: companiesTable.survey_message_template,
-        twilio_enabled: companiesTable.twilio_enabled,
-        twilio_account_sid: companiesTable.twilio_account_sid,
-        twilio_auth_token: companiesTable.twilio_auth_token,
-        twilio_from_number: companiesTable.twilio_from_number,
       })
       .from(companiesTable).where(eq(companiesTable.id, companyId)).limit(1);
     const [client] = await db
@@ -112,11 +96,16 @@ router.post("/send", requireAuth, async (req, res) => {
       console.error("[satisfaction/send] survey_last_sent stamp failed (non-fatal):", e?.message ?? e);
     }
 
+    // [survey-twilio-fix] Resolve the sender via the shared comms helper so the
+    // survey uses the SAME Twilio config as every other message — env-var creds
+    // + branch from-numbers. resolveSender's reason already covers the global
+    // COMMS gate, per-tenant comms, twilio creds/number. The survey's own master
+    // toggle (survey_enabled) gates on top.
+    const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+    const sender = await resolveSender(companyId);
     const gate =
       !company?.survey_enabled ? "survey_disabled"
-      : !company?.twilio_enabled ? "twilio_disabled"
-      : !(company.twilio_account_sid && company.twilio_auth_token && company.twilio_from_number) ? "twilio_unconfigured"
-      : process.env.COMMS_ENABLED !== "true" ? "comms_disabled"
+      : sender.reason ? sender.reason
       : !client?.phone ? "no_phone"
       : smsOptedOut ? "sms_opt_out"
       : null;
@@ -129,15 +118,14 @@ router.post("/send", requireAuth, async (req, res) => {
       return res.status(201).json({ sent: false, reason: gate, survey, survey_url: `/survey/${token}` });
     }
 
-    const base = (process.env.APP_BASE_URL || "https://app.qleno.com").replace(/\/$/, "");
     // Clean short link instead of the long hex token URL.
-    const link = (await shortenUrl(`${base}/survey/${token}`, companyId)) || `${base}/survey/${token}`;
+    const link = (await shortenUrl(surveyUrl, companyId)) || surveyUrl;
     const body = (company.survey_message_template || SURVEY_SMS)
       .replace(/\{\{\s*company_name\s*\}\}/g, company.name || "We")
       .replace(/\{\{\s*first_name\s*\}\}/g, client!.first_name || "there")
       .replace(/\{\{\s*survey_link\s*\}\}/g, link);
     try {
-      await sendTwilioSms(company.twilio_account_sid!, company.twilio_auth_token!, company.twilio_from_number!, client!.phone!, body);
+      await sendSmsVia(sender, client!.phone!, body);
     } catch (e: any) {
       const [survey] = await db.insert(satisfactionSurveysTable).values({
         company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
