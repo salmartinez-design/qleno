@@ -12,7 +12,7 @@
 // session overwrites those files with no content change.
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import { TECH_GUIDES } from "./guides-content.js";
+import { TECH_GUIDES, OFFICE_GUIDES } from "./guides-content.js";
 
 export async function runGuidesMigration(): Promise<void> {
   try {
@@ -44,7 +44,10 @@ export async function runGuidesMigration(): Promise<void> {
     // Upsert each authored guide. ON CONFLICT (slug) DO UPDATE so redeploying
     // after a wording edit refreshes the live row. `updated_at` is bumped only
     // on a real change.
-    for (const g of TECH_GUIDES) {
+    // Tech guides (audience 'tech') + office guides (audience 'office'). The
+    // list/read endpoints wall techs to tech+all, so office guides never reach
+    // a technician/team_lead — including by direct URL.
+    for (const g of [...TECH_GUIDES, ...OFFICE_GUIDES]) {
       await db.execute(sql`
         INSERT INTO guides
           (slug, audience, category, icon, sort_order, published,
@@ -67,7 +70,7 @@ export async function runGuidesMigration(): Promise<void> {
           updated_at = now()
       `);
     }
-    console.log(`[help-guides] migration ok — guides table ready + ${TECH_GUIDES.length} tech guides upserted`);
+    console.log(`[help-guides] migration ok — guides table ready + ${TECH_GUIDES.length} tech + ${OFFICE_GUIDES.length} office guides upserted`);
   } catch (err) {
     console.error("[help-guides] migration error (non-fatal):", err);
   }

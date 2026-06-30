@@ -336,3 +336,37 @@ export const TECH_GUIDES: GuideContent[] = [
     ],
   },
 ];
+
+// Office guides — visible to office + owner/admin (audience filter in
+// routes/guides.ts). Captions carry the content; the reader hides any missing
+// step image, so these read cleanly as numbered steps.
+export const OFFICE_GUIDES: GuideContent[] = [
+  {
+    slug: "add-a-tip",
+    audience: "office",
+    category: "Tips & payments",
+    icon: "DollarSign",
+    sort_order: 1,
+    title_en: "Add a tip to a job",
+    title_es: "Agregar una propina a un trabajo",
+    summary_en: "When a client tips after the cleaning — pay the cleaner and update the bill in one save.",
+    summary_es: "Cuando un cliente da propina después de la limpieza: paga al limpiador y actualiza la factura en un solo guardado.",
+    steps: [
+      step("add-a-tip", 1,
+        "Open the job. This works even after the job is completed and paid — the usual case when a client calls in a tip later.",
+        "Abre el trabajo. Funciona incluso después de que el trabajo esté completado y pagado, que es lo normal cuando un cliente llama para dar propina más tarde."),
+      step("add-a-tip", 2,
+        "Scroll to the Tips section (just below Commission) and tap Add tip.",
+        "Baja a la sección de Propinas (justo debajo de Comisión) y toca Agregar propina."),
+      step("add-a-tip", 3,
+        "Type the tip amount. It splits automatically across the cleaners by how long each was on the job — you can adjust any cleaner's amount.",
+        "Escribe el monto de la propina. Se reparte automáticamente entre los limpiadores según cuánto tiempo estuvo cada uno en el trabajo; puedes ajustar el monto de cualquiera."),
+      step("add-a-tip", 4,
+        "Keep 'Add this tip to the customer's bill' on so the invoice total matches. For Square or cash, run the tip the way you normally do and leave 'Charge their card now' off. For a Stripe client with a card on file, tick 'Charge their card now' to charge it.",
+        "Deja activado 'Agregar esta propina a la factura del cliente' para que el total coincida. Para Square o efectivo, cobra la propina como siempre y deja 'Cobrar su tarjeta ahora' desactivado. Para un cliente de Stripe con tarjeta guardada, marca 'Cobrar su tarjeta ahora' para cobrarla."),
+      step("add-a-tip", 5,
+        "Tap Save. The cleaner(s) get paid, the invoice updates to the new total, and it shows on payroll. To remove a tip, tap the × next to it.",
+        "Toca Guardar. El o los limpiadores reciben el pago, la factura se actualiza al nuevo total y aparece en la nómina. Para quitar una propina, toca la × al lado."),
+    ],
+  },
+];
