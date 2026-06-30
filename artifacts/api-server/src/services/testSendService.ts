@@ -21,6 +21,15 @@ import { renderCustomerTemplate, applyMergeTags, CUSTOMER_MESSAGE_TRIGGERS, type
 import { wrapEmailHtml } from "./notificationService.js";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { emailLogoUrl } from "../lib/app-url.js";
+// Reuse the exact production render paths for the two non-template card groups:
+// the hardcoded job-status SMS bodies and the office booking-notification email.
+import { SMS_MESSAGES } from "../routes/job-sms.js";
+import { buildOfficeNotificationEmail } from "../lib/emailTemplates.js";
+import { getBranchByZip } from "../lib/branchRouter.js";
+
+// Special (non customer-message-catalog) test template keys.
+const OFFICE_BOOKING_KEY = "office_booking";
+const JOBSTATUS_PREFIX = "jobstatus_"; // jobstatus_on_my_way | _arrived | _paused | _complete
 
 // Typed error so the route can map a failure to the right HTTP status without
 // leaking internals. `code` is a stable string the frontend can branch on.
@@ -50,6 +59,33 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
   appointment_link: "https://app.qleno.com/appointments/test-sample",
   review_link: "https://phes.io/review/test-sample",
 };
+
+// Sample booking used to render the office-notification email test. branchConfig
+// comes from the sample address zip via getBranchByZip (same as the live booking
+// path). Cast to any so we don't couple to the full ConfirmationEmailParams shape
+// — the unset fields are all optional and render fine.
+function sampleOfficeBookingParams(): any {
+  return {
+    firstName: "Maria",
+    lastName: "Sample",
+    email: "maria.sample@example.com",
+    phone: "(708) 974-5517",
+    serviceType: "Standard Cleaning",
+    scheduledDate: "Friday, June 27, 2026",
+    arrivalWindow: "9:00 AM to 12:00 PM",
+    serviceAddress: "123 Oak St, Oak Lawn, IL 60453",
+    preferredContactMethod: "text",
+    basePrice: 180,
+    addons: [{ name: "Inside Fridge", amount: 25 }],
+    bundleDiscount: 0,
+    firstVisitTotal: 205,
+    sqft: 1800,
+    branchConfig: getBranchByZip("60453"),
+    jobId: 0,
+    zoneName: "Oak Lawn",
+    availableTechs: [{ name: "Ana" }, { name: "Guadalupe" }],
+  };
+}
 
 export type Fixture = "sample" | { appointment_id: string | number };
 
@@ -93,8 +129,18 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
   if (channel !== "email" && channel !== "sms") {
     throw new TestSendError("bad_channel", 400, "channel must be 'email' or 'sms'");
   }
-  if (!CUSTOMER_MESSAGE_TRIGGERS.has(templateKey) && !templateKey.startsWith("custom_")) {
+  const isOfficeBooking = templateKey === OFFICE_BOOKING_KEY;
+  const isJobStatus = templateKey.startsWith(JOBSTATUS_PREFIX);
+  const isCatalog = CUSTOMER_MESSAGE_TRIGGERS.has(templateKey) || templateKey.startsWith("custom_");
+  if (!isCatalog && !isOfficeBooking && !isJobStatus) {
     throw new TestSendError("unknown_template", 400, `Unknown template '${templateKey}'`);
+  }
+  // Channel constraints for the two special groups.
+  if (isOfficeBooking && channel !== "email") {
+    throw new TestSendError("bad_channel", 400, "Office Booking Notification is email-only.");
+  }
+  if (isJobStatus && channel !== "sms") {
+    throw new TestSendError("bad_channel", 400, "Job status messages are text-only.");
   }
 
   // ── Merge data ──────────────────────────────────────────────────────────────
@@ -134,10 +180,25 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
 
   // ── Render via the production path ────────────────────────────────────────────
   // is_active is intentionally ignored — testing a PAUSED template is the most
-  // common reason to send a test.
-  const rendered = await renderCustomerTemplate(companyId, templateKey, channel, fullVars);
-  if (!rendered) {
-    throw new TestSendError("template_not_found", 404, `No ${channel} template found for '${templateKey}'.`);
+  // common reason to send a test. Three render sources, each reused verbatim:
+  //   office booking → buildOfficeNotificationEmail (a full HTML email shell)
+  //   job status sms → SMS_MESSAGES[...] (hardcoded one-liners)
+  //   everything else → renderCustomerTemplate (notification_templates + {{tags}})
+  let rendered: { subject: string | null; body: string };
+  let bodyIsFullHtml = false; // office booking builds its own complete email shell
+  if (isOfficeBooking) {
+    const { subject, html } = buildOfficeNotificationEmail(sampleOfficeBookingParams());
+    rendered = { subject, body: html };
+    bodyIsFullHtml = true;
+  } else if (isJobStatus) {
+    const k = templateKey.slice(JOBSTATUS_PREFIX.length);
+    const fn = SMS_MESSAGES[k];
+    if (!fn) throw new TestSendError("template_not_found", 404, `No job-status message '${k}'.`);
+    rendered = { subject: null, body: fn(SAMPLE_CUSTOMER_VARS.tech_name, SAMPLE_CUSTOMER_VARS.first_name, SAMPLE_CUSTOMER_VARS.service_address) };
+  } else {
+    const r = await renderCustomerTemplate(companyId, templateKey, channel, fullVars);
+    if (!r) throw new TestSendError("template_not_found", 404, `No ${channel} template found for '${templateKey}'.`);
+    rendered = r;
   }
 
   // ── Send ──────────────────────────────────────────────────────────────────────
@@ -151,10 +212,12 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
   try {
     if (channel === "email") {
       previewSubject = `[TEST] ${rendered.subject || ""}`.trimEnd();
-      const brand = { logoUrl: emailLogoUrl(c.logo_url), companyName: c.name };
-      // Re-merge after wrapping so the shell's own footer tags resolve — mirrors
-      // sendNotification's double-merge.
-      const html = applyMergeTags(wrapEmailHtml(rendered.body, brand), fullVars);
+      // Office booking already returns a complete HTML email — wrapping it again
+      // would double the shell. Catalog emails get the standard wrap + a re-merge
+      // so the shell's own footer tags resolve (mirrors sendNotification).
+      const html = bodyIsFullHtml
+        ? rendered.body
+        : applyMergeTags(wrapEmailHtml(rendered.body, { logoUrl: emailLogoUrl(c.logo_url), companyName: c.name }), fullVars);
       previewBody = html;
       if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY not configured");
       const fromAddr = c.email_from_address || "info@phes.io";
