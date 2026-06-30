@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useLocation } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -1200,6 +1201,7 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
 const LIMIT = 50;
 
 export default function LeadsPage() {
+  const [, navigate] = useLocation();
   const [mainView, setMainView] = useState<"pipeline" | "reports" | "sequences">("pipeline");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
