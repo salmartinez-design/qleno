@@ -3790,11 +3790,16 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
           const { isClientAccountCommsPaused } = await import("../lib/account-comms.js");
           if (await isClientAccountCommsPaused(clientId)) return;
           const addr = [cl.address, cl.city, cl.state].filter(Boolean).join(", ");
+          // [appointment-vars] Format the date ("Friday, June 27, 2026" instead
+          // of a raw ISO string) and emit every date/time/window alias so a
+          // completion template resolves whichever tag it uses.
+          const { buildAppointmentVars } = await import("../lib/appointment-vars.js");
           const mv = {
             first_name:       cl.first_name || "",
-            appointment_date: jd.scheduled_date || new Date().toISOString().slice(0, 10),
             scope:            labelServiceType(jd.service_type),
+            service_type:     labelServiceType(jd.service_type),
             service_address:  addr,
+            ...buildAppointmentVars({ scheduledDate: jd.scheduled_date, scheduledTime: jd.scheduled_time }),
           };
           sendNotification("job_completed", "email", companyId, cl.email, null, mv).catch(() => {});
           sendNotification("job_completed", "sms",   companyId, null, cl.phone, mv).catch(() => {});
