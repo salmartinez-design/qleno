@@ -31,10 +31,10 @@ export default function ScorecardsReportPage() {
   ];
 
   return (
-    <DashboardLayout title="Scorecard Results">
+    <DashboardLayout title="Performance Score Results">
       <div style={{ padding: "24px 28px", maxWidth: 1100 }}>
         <ReportHeader
-          title="Scorecard Results"
+          title="Performance Score Results"
           subtitle="Client ratings and feedback by employee."
           printable
           filters={
@@ -53,7 +53,7 @@ export default function ScorecardsReportPage() {
         />
 
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
-          <KpiCard label="Total Scorecards" value={String(s?.total ?? 0)} />
+          <KpiCard label="Total Ratings" value={String(s?.total ?? 0)} />
           <KpiCard label="Avg Score" value={`${(s?.avg_score ?? 0).toFixed(2)}/4`} color={(s?.avg_score ?? 0) >= 3.5 ? clr.green : (s?.avg_score ?? 0) >= 2.5 ? clr.amber : clr.red} />
           {s?.distribution.map(d => (
             <div key={d.score} style={{ backgroundColor: clr.card, border: `1px solid ${clr.border}`, borderRadius: 8, padding: "12px 16px", minWidth: 80 }}>

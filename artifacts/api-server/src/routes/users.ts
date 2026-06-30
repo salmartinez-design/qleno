@@ -66,7 +66,7 @@ router.get("/", requireAuth, async (req, res) => {
     const usersRows = await db.execute(sql`
       SELECT u.id, u.email, u.first_name, u.last_name, u.role::text AS role,
              u.pay_rate, u.pay_type::text AS pay_type, u.is_active,
-             u.hire_date, u.avatar_url, u.scorecard_pct,
+             u.hire_date, u.avatar_url, u.scorecard_pct, u.scorecard_composite_90d,
              -- [payroll-roster 2026-06-12] Sandbox/archive/termination flags so
              -- list consumers (the payroll page's billableEmployees filter) can
              -- exclude test fixtures and former staff. The filter already

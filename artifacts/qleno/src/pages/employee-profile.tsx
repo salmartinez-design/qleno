@@ -69,7 +69,7 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6 };
 const TABS = [
   'Information','Pay','Earnings','Attendance','Availability',
-  'User Account','Contacts','Scorecards','Pay Configuration','Additional Pay',
+  'User Account','Contacts','Performance Score','Pay Configuration','Additional Pay',
   'Payroll History',
   'Contact Tickets','Jobs','Notes','Incentives',
   'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
@@ -729,16 +729,25 @@ export default function EmployeeProfilePage() {
   const { data: scorecardsData, refetch: refetchScores } = useQuery({
     queryKey: ['scorecards-emp', userId],
     queryFn: () => apiFetch(`/users/${userId}/scorecards`),
-    enabled: activeTab === 'Scorecards',
+    enabled: activeTab === 'Performance Score',
   });
 
   // MaidCentral % model: per-job history (scorecard_entries) + authoritative %.
   const { data: scEntriesData, refetch: refetchScEntries } = useQuery({
     queryKey: ['scorecard-entries', userId],
     queryFn: () => apiFetch(`/scorecards/entries/${userId}`),
-    enabled: activeTab === 'Scorecards',
+    enabled: activeTab === 'Performance Score',
   });
   const scEntries: any[] = scEntriesData?.entries || [];
+
+  // [90d-composite] Live 90-day rolling composite: three sub-scores + the
+  // blended headline + counts. Drives the headline number and the breakdown
+  // card below.
+  const { data: compositeData } = useQuery({
+    queryKey: ['scorecard-composite', userId],
+    queryFn: () => apiFetch(`/scorecards/composite/${userId}`),
+    enabled: activeTab === 'Performance Score',
+  });
 
   // [GAP3] Office reply to customer feedback on a scorecard entry.
   const canReplyToFeedback = ['owner', 'admin', 'office'].includes(getTokenRole() || '');
@@ -926,6 +935,12 @@ export default function EmployeeProfilePage() {
   // to deriving from the legacy star average (score/4) until MC data is loaded.
   const scorePct = user.scorecard_pct != null ? parseFloat(user.scorecard_pct)
     : (scoreAvg != null ? Math.round(scoreAvg / 4 * 100) : null);
+
+  // [90d-composite] Displayed headline = the rolling composite (falls back to
+  // the satisfaction-only scorePct until the composite computes). Sub-scores +
+  // counts power the breakdown card.
+  const comp: any = compositeData || null;
+  const compositeScore = comp?.composite != null ? Number(comp.composite) : scorePct;
 
   return (
     <DashboardLayout>
@@ -1668,28 +1683,51 @@ export default function EmployeeProfilePage() {
           )}
 
           {/* ── SCORECARDS TAB ── */}
-          {activeTab === 'Scorecards' && (
+          {activeTab === 'Performance Score' && (
             <div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 2fr', gap:20, marginBottom:20 }}>
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'24px', display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
                   <p style={{ fontSize:44,fontWeight:700,color:'var(--brand)',margin:0 }}>
-                    {scorePct != null ? `${scorePct.toFixed(0)}%` : '—'}
+                    {compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—'}
                   </p>
-                  <p style={{ fontSize:13,color:'#9E9B94',margin:0,textTransform:'uppercase',letterSpacing:'0.05em' }}>Scorecard Score</p>
-                  {scEntries.length > 0 && <p style={{ fontSize:12,color:'#6B7280',margin:0 }}>{scEntries.length} job{scEntries.length === 1 ? '' : 's'} scored</p>}
+                  <p style={{ fontSize:13,color:'#9E9B94',margin:0,textTransform:'uppercase',letterSpacing:'0.05em' }}>Performance Score</p>
+                  <p style={{ fontSize:12,color:'#6B7280',margin:0 }}>Rolling composite · trailing 90 days</p>
                 </div>
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'20px 24px' }}>
-                  <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Trend — Recent Jobs</p>
-                  <ScoreTrendChart scores={scEntries.slice(0, 12).reverse().map((s: any, i: number) => ({
-                    month: String(i),
-                    score: parseFloat(s.max_value) > 0 ? (parseFloat(s.score_value) / parseFloat(s.max_value)) * 4 : 0,
-                  }))}/>
+                  <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Breakdown — Trailing 90 Days</p>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
+                    {[
+                      { key:'satisfaction', label:'Customer Satisfaction', value: comp?.satisfaction, weight: comp?.weights?.satisfaction ?? 60,
+                        sub: comp ? `${comp.counts?.survey_responses ?? 0} survey${(comp.counts?.survey_responses ?? 0) === 1 ? '' : 's'}` : '' },
+                      { key:'attendance', label:'Attendance', value: comp?.attendance, weight: comp?.weights?.attendance ?? 25,
+                        sub: comp ? `${comp.counts?.attendance_violations ?? 0} issue${(comp.counts?.attendance_violations ?? 0) === 1 ? '' : 's'} · ${comp.counts?.scheduled_days ?? 0} day${(comp.counts?.scheduled_days ?? 0) === 1 ? '' : 's'}` : '' },
+                      { key:'complaint_free', label:'Complaint-Free', value: comp?.complaint_free, weight: comp?.weights?.complaint_free ?? 15,
+                        sub: comp ? `${comp.counts?.valid_complaints ?? 0} complaint${(comp.counts?.valid_complaints ?? 0) === 1 ? '' : 's'} · ${comp.counts?.completed_jobs ?? 0} job${(comp.counts?.completed_jobs ?? 0) === 1 ? '' : 's'}` : '' },
+                    ].map((m) => (
+                      <div key={m.key} style={{ background:'#F7F6F3', border:'1px solid #EEECE7', borderRadius:8, padding:'12px 14px', display:'flex', flexDirection:'column', gap:4 }}>
+                        <span style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.04em' }}>{m.label}</span>
+                        <span style={{ fontSize:26, fontWeight:700, color: m.value != null ? '#1A1917' : '#C4C1BA' }}>
+                          {m.value != null ? `${Number(m.value).toFixed(0)}%` : '—'}
+                        </span>
+                        <span style={{ fontSize:11, color:'#6B7280' }}>{m.weight}% weight</span>
+                        <span style={{ fontSize:11, color:'#9E9B94' }}>{m.sub}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              </div>
+
+              <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'20px 24px', marginBottom:20 }}>
+                <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Satisfaction Trend — Recent Jobs</p>
+                <ScoreTrendChart scores={scEntries.slice(0, 12).reverse().map((s: any, i: number) => ({
+                  month: String(i),
+                  score: parseFloat(s.max_value) > 0 ? (parseFloat(s.score_value) / parseFloat(s.max_value)) * 4 : 0,
+                }))}/>
               </div>
 
               <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
                 <div style={{ padding:'14px 20px', borderBottom:'1px solid #EEECE7', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <p style={{ fontSize:13,fontWeight:700,color:'#1A1917',margin:0 }}>Scorecard Entries</p>
+                  <p style={{ fontSize:13,fontWeight:700,color:'#1A1917',margin:0 }}>Rating History</p>
                 </div>
                 <table style={{ width:'100%', borderCollapse:'collapse' }}>
                   <thead>

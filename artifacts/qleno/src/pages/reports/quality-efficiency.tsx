@@ -12,8 +12,8 @@ const PERIODS: { id: Period; label: string }[] = [
 
 interface ScorecardReport {
   scope: string; window: { from: string; to: string; label: string };
-  score_pct: number | null; responses: number;
-  employees?: { employee_id: number; name: string; score_pct: number | null; responses: number }[];
+  score_pct: number | null; responses: number; composite_pct?: number | null;
+  employees?: { employee_id: number; name: string; score_pct: number | null; responses: number; composite_pct?: number | null }[];
 }
 interface EffReport {
   scope: string; window: { from: string; to: string; label: string };
@@ -59,11 +59,13 @@ export default function QualityEfficiencyReport() {
       <div style={{ padding: "24px 28px", maxWidth: 1000 }}>
         <ReportHeader
           title="Quality & Efficiency"
-          subtitle={win ? `${win.label} · ${win.from} → ${win.to}` : "Scorecard + efficiency by service"}
+          subtitle={win ? `${win.label} · ${win.from} → ${win.to}` : "Performance Score + efficiency by service"}
           filters={pillRow}
         />
       <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginBottom: 24 }}>
-        <KpiCard label="Scorecard" value={sc.data?.score_pct != null ? `${sc.data.score_pct.toFixed(1)}%` : "—"}
+        <KpiCard label="Performance Score" value={sc.data?.composite_pct != null ? `${sc.data.composite_pct.toFixed(1)}%` : (sc.data?.score_pct != null ? `${sc.data.score_pct.toFixed(1)}%` : "—")}
+          sub="Rolling · trailing 90 days" />
+        <KpiCard label="Satisfaction" value={sc.data?.score_pct != null ? `${sc.data.score_pct.toFixed(1)}%` : "—"}
           sub={`${sc.data?.responses ?? 0} survey responses`} />
         <KpiCard label="Efficiency" value={eff.data?.overall != null ? `${eff.data.overall.toFixed(1)}%` : "—"}
           sub="Allowed ÷ actual hours" color={effColor(eff.data?.overall ?? null)} />
@@ -86,13 +88,14 @@ export default function QualityEfficiencyReport() {
       {/* Scorecard — per-tech only in company scope */}
       {empId === "company" && (
         <>
-          <h3 style={{ fontSize: 13, fontWeight: 700, color: clr.text, margin: "24px 0 10px" }}>Scorecard by technician</h3>
+          <h3 style={{ fontSize: 13, fontWeight: 700, color: clr.text, margin: "24px 0 10px" }}>Performance Score by technician</h3>
           <DataTable
             loading={loading}
             emptyMsg="No survey responses for this period."
             cols={[
               { header: "Technician", render: (r: any) => r.name },
-              { header: "Score", render: (r: any) => <span style={{ fontWeight: 600, color: clr.brand }}>{r.score_pct != null ? `${r.score_pct.toFixed(1)}%` : "—"}</span> },
+              { header: "90-Day", render: (r: any) => <span style={{ fontWeight: 700, color: clr.brand }}>{r.composite_pct != null ? `${r.composite_pct.toFixed(1)}%` : "—"}</span> },
+              { header: "Satisfaction", render: (r: any) => <span style={{ fontWeight: 600, color: clr.text }}>{r.score_pct != null ? `${r.score_pct.toFixed(1)}%` : "—"}</span> },
               { header: "Responses", render: (r: any) => r.responses },
             ]}
             rows={sc.data?.employees || []}

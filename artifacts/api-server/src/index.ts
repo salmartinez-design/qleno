@@ -15,6 +15,7 @@ import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
 import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./lib/job-history-sync.js";
 import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
 import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
+import { runScorecardCompositeCron } from "./lib/scorecard-composite.js";
 import { setAppReady } from "./lib/readiness.js";
 import { processScheduledSms } from "./lib/sms-scheduler.js";
 
@@ -107,6 +108,14 @@ function startNotificationCron() {
     if (ctH === 2 && fired["leave_accrual"] !== `${ctDate}-2`) {
       fired["leave_accrual"] = `${ctDate}-2`;
       runLeaveAccrualCron(ctDate).catch((e: Error) => console.error("[cron] leave_accrual error:", e));
+    }
+    // 3 AM CT → recompute the 90-day rolling composite scorecard for every tech
+    // so the trailing window advances daily even on days with no survey /
+    // attendance / complaint events. Event-driven recomputes (survey response,
+    // attendance confirm, complaint) keep it fresh in between.
+    if (ctH === 3 && fired["scorecard_composite"] !== `${ctDate}-3`) {
+      fired["scorecard_composite"] = `${ctDate}-3`;
+      runScorecardCompositeCron().catch((e: Error) => console.error("[cron] scorecard_composite error:", e));
     }
     // December 1 at 9 AM CT → annual re-acknowledgment cycle auto-open
     // for every tenant. Idempotent: skips tenants with an existing
@@ -340,6 +349,16 @@ async function runStartupMigrations() {
     });
   } catch (err: any) {
     console.error("[startup] ensureScorecardReplyColumns — non-fatal:", err?.message ?? err);
+  }
+  // [90d-composite] users.score_*_90d / scorecard_composite_90d + companies
+  // .score_weight_* columns for the rolling composite scorecard.
+  try {
+    await withBootTimeout("ensureCompositeScoreColumns", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureCompositeScoreColumns } = await import("./lib/scorecard-composite.js");
+      await ensureCompositeScoreColumns();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureCompositeScoreColumns — non-fatal:", err?.message ?? err);
   }
   // [sms Pass3] short-link table + customer-facing SMS copy upgrade
   try {

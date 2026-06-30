@@ -93,7 +93,7 @@ const TABS = [
   { id: "attachments", label: "Attachments", icon: Paperclip },
   { id: "quickbooks", label: "QuickBooks", icon: BookOpen },
   { id: "contacts", label: "Contacts & Notifications", icon: Bell },
-  { id: "scorecards", label: "Scorecards", icon: Star },
+  { id: "scorecards", label: "Performance Score", icon: Star },
   { id: "tech", label: "Tech Preferences", icon: UserX },
   { id: "notes", label: "Notes", icon: StickyNote },
   { id: "portal", label: "Portal Account", icon: Globe },
@@ -3270,7 +3270,7 @@ const NAV_PILLS = [
   { id: "sec-billing",     label: "Billing & Payments" },
   { id: "sec-quotes",      label: "Quotes" },
   { id: "sec-agreements",  label: "Agreements" },
-  { id: "sec-scorecards",  label: "Scorecards" },
+  { id: "sec-scorecards",  label: "Performance Score" },
   { id: "sec-contacts",    label: "Contacts & Notifications" },
   { id: "sec-portal",      label: "Client Portal" },
   { id: "sec-tech",        label: "Technician Preferences" },
@@ -3602,7 +3602,7 @@ function JobDetailSlideOver({ row, profile, onClose }: { row: any; profile?: any
           {/* Linked scorecard */}
           {scorecard && (
             <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "12px 14px", borderLeft: "3px solid var(--brand)" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Scorecard</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Performance Score</div>
               <div style={{ fontSize: 20, fontWeight: 900, color: scorecard.score >= 4 ? "#16A34A" : scorecard.score >= 3 ? "#D97706" : "#DC2626" }}>{scorecard.score} / 5</div>
               {scorecard.comments && <div style={{ fontSize: 12, color: "#374151", marginTop: 4 }}>{scorecard.comments}</div>}
             </div>
@@ -3814,7 +3814,7 @@ function ClientIntelligencePanel({ jhStats, profile, noCard }: { jhStats: any; p
       </div>
       {profile?.stats?.scorecard_avg && (
         <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 14 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Avg Scorecard</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Avg Performance Score</div>
           <div style={{ fontSize: 20, fontWeight: 800, color: profile.stats.scorecard_avg >= 4 ? "#16A34A" : profile.stats.scorecard_avg >= 3 ? "#D97706" : "#DC2626" }}>
             {profile.stats.scorecard_avg.toFixed(1)} / 5
           </div>
@@ -5993,7 +5993,7 @@ export default function CustomerProfilePage() {
         </>)}
         {profile?.stats?.scorecard_avg && (
           <SR2
-            label="Avg Scorecard"
+            label="Avg Performance Score"
             value={`${profile.stats.scorecard_avg.toFixed(1)} / 5`}
             color={profile.stats.scorecard_avg >= 4 ? "#16A34A" : profile.stats.scorecard_avg >= 3 ? "#D97706" : "#DC2626"}
           />
@@ -6216,7 +6216,7 @@ export default function CustomerProfilePage() {
 
           {/* Scorecards */}
           <div style={CS}>
-            <SectionHead title="Scorecards" action={<span style={{ fontSize: 11, color: "#9E9B94" }}>{(profile.scorecards || []).length} total</span>} />
+            <SectionHead title="Performance Score" action={<span style={{ fontSize: 11, color: "#9E9B94" }}>{(profile.scorecards || []).length} total</span>} />
             <ScorecardsTab scorecards={profile.scorecards || []} />
           </div>
 

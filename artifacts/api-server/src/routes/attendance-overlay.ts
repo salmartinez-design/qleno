@@ -428,15 +428,32 @@ router.post("/proposals/:id/confirm", async (req, res) => {
     protected?: boolean;
   };
 
-  return await db.transaction(async (tx) => {
-    const r = await confirmProposalWithTx(tx as any, {
+  const r = await db.transaction(async (tx) => {
+    return await confirmProposalWithTx(tx as any, {
       companyId,
       actingUserId,
       id,
       body,
     });
-    return res.status(r.status).json(r.body);
   });
+  // [90d-composite] A confirmed attendance violation changes the tech's
+  // attendance sub-score → recompute the rolling composite. Non-fatal; runs
+  // after the confirm tx commits so a recompute failure can't roll it back.
+  if (r.status === 200) {
+    try {
+      const u = await db.execute(
+        sql`SELECT user_id FROM attendance_proposals WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`,
+      );
+      const uid = Number((u as { rows?: any[] }).rows?.[0]?.user_id);
+      if (uid) {
+        const { recomputeCompositeScore } = await import("../lib/scorecard-composite.js");
+        await recomputeCompositeScore(companyId, uid);
+      }
+    } catch (e: any) {
+      console.error("[scorecard-composite] recompute after attendance confirm failed (non-fatal):", e?.message ?? e);
+    }
+  }
+  return res.status(r.status).json(r.body);
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
