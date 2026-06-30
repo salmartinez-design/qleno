@@ -215,8 +215,13 @@ function LeadRow({ lead, selected, onClick, checked, onCheck }: {
           }}>
             {(STATUS_CONFIG[lead.status] || STATUS_CONFIG["needs_contacted"]).label}
           </span>
-          <span style={{ fontSize: 9, color: "#C4C0B8", fontFamily: FF }}>
-            {cfg.label} &middot; {fmtDate(lead.created_at)}
+          <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+            {lead.quote_amount && Number(lead.quote_amount) > 0 && (
+              <span style={{ fontSize: 11, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>${Number(lead.quote_amount).toFixed(0)}</span>
+            )}
+            <span style={{ fontSize: 9, color: "#C4C0B8", fontFamily: FF }}>
+              {cfg.label} &middot; {fmtDate(lead.created_at)}
+            </span>
           </span>
         </div>
       </div>
@@ -1285,7 +1290,7 @@ export default function LeadsPage() {
       <div style={{ background: "#0A0E1A", padding: "0 20px", height: 48, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 22, height: 22, borderRadius: 5, background: "#00C9A0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#0A0E1A", fontFamily: FF }}>Q</div>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: -0.3, fontFamily: FF }}>Lead Pipeline</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: -0.3, fontFamily: FF }}>Pipeline</span>
         </div>
         <div style={{ display: "flex", gap: 2 }}>
           {(["pipeline", "reports", "sequences"] as const).map(v => (
@@ -1296,6 +1301,12 @@ export default function LeadsPage() {
               {v}
             </button>
           ))}
+          {/* Quotes folds into the Pipeline section — the quotes list + "Mark as
+              Sent" (which triggers the quote follow-up drip) live there. */}
+          <button onClick={() => navigate("/quotes")}
+            style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF, background: "transparent", color: "#6B9A8E" }}>
+            Quotes
+          </button>
         </div>
         <div />
       </div>
