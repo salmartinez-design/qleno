@@ -216,9 +216,19 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
     channels: [
       {
         channel: "email",
+        // [seamless] Tappable rating buttons — one tap from the inbox records the
+        // answer (each links to the survey with ?score=N, which auto-submits).
         subject: "How did we do, {{first_name}}?",
         body:
-          "Hi {{first_name}},\n\nWe hope your home is feeling great! We'd love to hear how your cleaning went — it takes less than a minute.\n\nRate your cleaning: {{review_link}}\n\nYour feedback goes straight to your cleaning team and helps us keep improving. Thank you for choosing {{company_name}}!",
+          '<p style="margin:0 0 16px">Hi {{first_name}},</p>' +
+          '<p style="margin:0 0 20px">We hope your home is feeling great! How was your cleaning? Tap your answer below — that’s it.</p>' +
+          '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 18px">' +
+          '<tr><td style="padding:0 0 10px"><a href="{{review_link}}?score=4" style="display:block;background:#16A34A;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 18px;border-radius:8px;text-align:center">Thrilled — Great Work</a></td></tr>' +
+          '<tr><td style="padding:0 0 10px"><a href="{{review_link}}?score=3" style="display:block;background:#65A30D;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 18px;border-radius:8px;text-align:center">Happy — Good Work</a></td></tr>' +
+          '<tr><td style="padding:0 0 10px"><a href="{{review_link}}?score=2" style="display:block;background:#D97706;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 18px;border-radius:8px;text-align:center">A Few Concerns</a></td></tr>' +
+          '<tr><td style="padding:0"><a href="{{review_link}}?score=1" style="display:block;background:#DC2626;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 18px;border-radius:8px;text-align:center">Major Concerns</a></td></tr>' +
+          '</table>' +
+          '<p style="margin:0;color:#6B7280;font-size:13px">Your feedback goes straight to your cleaning team. Thank you for choosing {{company_name}}!</p>',
       },
       {
         channel: "sms",
