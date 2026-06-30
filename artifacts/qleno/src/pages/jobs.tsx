@@ -1549,6 +1549,92 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const canManageCommission = (userRole === "owner" || userRole === "admin" || userRole === "office");
   const canEditOfficeNotes  = (userRole === "owner" || userRole === "admin" || userRole === "office");
 
+  // [tips 2026-06-29] Office-entered tips → the tech(s) on this job. A tip is a
+  // pass-through to the cleaner (lands in additional_pay type='tips'); it shows
+  // in the tech's earnings and flows into payroll as its own line, and NEVER
+  // touches commission. Works on COMPLETED jobs — the client usually calls a
+  // tip in after the visit. Default per-tech split is proportional to clocked
+  // time (mirrors commission), editable before save. Office/owner only.
+  const [tips, setTips] = useState<Array<{ id: number; user_id: number; name: string; amount: number; notes: string | null }>>([]);
+  const [tipsTotal, setTipsTotal] = useState(0);
+  const [tipFormOpen, setTipFormOpen] = useState(false);
+  const [tipAmount, setTipAmount] = useState("");
+  const [tipNote, setTipNote] = useState("");
+  const [tipAllocs, setTipAllocs] = useState<Array<{ user_id: number; name: string; is_primary: boolean; hours: number; amount: string }>>([]);
+  const [tipBasis, setTipBasis] = useState<"clocked_hours" | "even">("even");
+  const [tipBusy, setTipBusy] = useState(false);
+  const [tipRemoving, setTipRemoving] = useState<number | null>(null);
+
+  const loadTips = useCallback(async () => {
+    try {
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/tips`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return;
+      const d = await r.json();
+      setTips(d.data ?? []);
+      setTipsTotal(d.total ?? 0);
+    } catch {}
+  }, [job.id, token, _API3]);
+  useEffect(() => { if (canManageCommission) loadTips(); }, [canManageCommission, loadTips]);
+
+  // Pull the per-tech suggested split for an amount (server is the single
+  // source of truth for the clock-time math). Returns ALL techs so the office
+  // can hand a share to a tech who didn't clock; never drops a tech.
+  async function refreshTipSplit(amountStr: string) {
+    const amt = parseFloat(amountStr);
+    const qs = Number.isFinite(amt) && amt > 0 ? `?total=${amt}` : "";
+    try {
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/tips/split-preview${qs}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) return;
+      const d = await r.json();
+      setTipBasis(d.basis ?? "even");
+      setTipAllocs((d.data ?? []).map((t: any) => ({
+        user_id: t.user_id, name: t.name, is_primary: t.is_primary, hours: t.hours,
+        amount: t.amount > 0 ? t.amount.toFixed(2) : "",
+      })));
+    } catch {}
+  }
+
+  function openTipForm() {
+    setTipFormOpen(true);
+    setTipAmount(""); setTipNote("");
+    refreshTipSplit("");
+  }
+
+  async function saveTip() {
+    const allocations = tipAllocs
+      .map(a => ({ user_id: a.user_id, amount: parseFloat(a.amount) }))
+      .filter(a => Number.isFinite(a.amount) && a.amount > 0);
+    if (!allocations.length) { toast({ title: "Enter a tip amount for at least one tech", variant: "destructive" }); return; }
+    setTipBusy(true);
+    try {
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/tips`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ allocations, note: tipNote || null }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Failed to add tip");
+      setTips(d.data ?? []); setTipsTotal(d.total ?? 0);
+      setTipFormOpen(false);
+      toast({ title: d.reslotted ? "Tip added — moved to the current open pay period" : "Tip added" });
+    } catch (e: any) {
+      toast({ title: e.message || "Error adding tip", variant: "destructive" });
+    } finally { setTipBusy(false); }
+  }
+
+  async function removeTip(tipId: number) {
+    setTipRemoving(tipId);
+    try {
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/tips/${tipId}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || "Failed to remove tip");
+      setTips(d.data ?? []); setTipsTotal(d.total ?? 0);
+      toast({ title: "Tip removed" });
+    } catch (e: any) {
+      toast({ title: e.message || "Error removing tip", variant: "destructive" });
+    } finally { setTipRemoving(null); }
+  }
+
   // [office-clock 2026-06-05] Desktop office clock in/out. The field-app tech
   // clock isn't shipped, so the office clocks the team in/out from the board to
   // start collecting real clocked minutes — which feed payroll hours and the
@@ -2843,6 +2929,89 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 style={{ marginTop: 8, width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: job.status === "cancelled" ? "#9E9B94" : "#2D9B83", border: `1px dashed ${job.status === "cancelled" ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
                 <Plus size={12} /> Add tech
               </button>
+            </PS>
+          )}
+
+          {/* [tips 2026-06-29] Tips — office records a tip after the visit and
+              attributes it to the tech(s). Pass-through pay (never commission);
+              shows in the tech's earnings + payroll. Works on completed jobs.
+              Default split is proportional to clocked time, editable per tech. */}
+          {canManageCommission && (
+            <PS label="Tips">
+              {tips.length > 0 && (
+                <div style={{ marginBottom: tipFormOpen ? 10 : 8 }}>
+                  {tips.map(t => (
+                    <div key={t.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+                      <span style={{ fontSize: 12, color: "#1A1917", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {t.name}{t.notes ? <span style={{ color: "#9E9B94" }}> · {t.notes}</span> : null}
+                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#16A34A" }}>${t.amount.toFixed(2)}</span>
+                        <button onClick={() => removeTip(t.id)} disabled={tipRemoving === t.id} title="Remove tip" aria-label={`Remove tip for ${t.name}`}
+                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "#B91C1C", border: "1px solid #F3D2D2", background: "#FEF2F2", borderRadius: 5, cursor: tipRemoving === t.id ? "wait" : "pointer", opacity: tipRemoving === t.id ? 0.6 : 1 }}>
+                          <X size={13} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #F0EDE8", paddingTop: 4, marginTop: 2 }}>
+                    <span style={{ fontSize: 11, color: "#9E9B94" }}>Total tips</span>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: "#16A34A" }}>${tipsTotal.toFixed(2)}</span>
+                  </div>
+                </div>
+              )}
+              {!tipFormOpen ? (
+                <button onClick={openTipForm}
+                  style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#2D9B83", border: "1px dashed #2D9B83", borderRadius: 8, background: "transparent", cursor: "pointer", fontFamily: FF }}>
+                  <Plus size={12} /> Add tip
+                </button>
+              ) : (
+                <div style={{ border: "1px solid #E5E2DC", borderRadius: 8, padding: 10 }}>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: 11, color: "#6B7280" }}>Tip $</span>
+                    <input type="number" step="0.01" min="0" value={tipAmount} autoFocus
+                      onChange={e => { setTipAmount(e.target.value); refreshTipSplit(e.target.value); }}
+                      placeholder="0.00"
+                      style={{ width: 90, height: 30, padding: "0 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF, outline: "none" }} />
+                    <span style={{ fontSize: 10, color: "#9E9B94" }}>{tipBasis === "clocked_hours" ? "split by clocked time" : "split evenly"}</span>
+                  </div>
+                  {tipAllocs.length === 0 && (
+                    <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 8 }}>No technician on this job to tip.</div>
+                  )}
+                  {tipAllocs.map((a, i) => (
+                    <div key={a.user_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, color: "#1A1917", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+                        {a.is_primary && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#2D9B83", background: "rgba(45,155,131,0.1)", padding: "1px 5px", borderRadius: 10 }}>PRIMARY</span>}
+                        <span style={{ flexShrink: 0, fontSize: 10, color: "#C4C0BB" }}>{a.hours > 0 ? `${a.hours.toFixed(2)}h` : "no clock"}</span>
+                      </span>
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+                        <span style={{ fontSize: 11, color: "#6B7280" }}>$</span>
+                        <input type="number" step="0.01" min="0" value={a.amount}
+                          onChange={e => setTipAllocs(prev => prev.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))}
+                          placeholder="0.00"
+                          style={{ width: 72, height: 28, padding: "0 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, outline: "none" }} />
+                      </div>
+                    </div>
+                  ))}
+                  <input value={tipNote} onChange={e => setTipNote(e.target.value)} placeholder="Note (e.g. client called in tip)"
+                    style={{ width: "100%", height: 30, padding: "0 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, outline: "none", marginBottom: 8, boxSizing: "border-box" }} />
+                  {(() => {
+                    const allocSum = tipAllocs.reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
+                    return (
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <span style={{ fontSize: 11, color: "#9E9B94" }}>Allocated: <strong style={{ color: "#1A1917" }}>${allocSum.toFixed(2)}</strong></span>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button onClick={() => setTipFormOpen(false)} disabled={tipBusy}
+                            style={{ fontSize: 11, color: "#6B7280", border: "1px solid #E5E2DC", background: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                          <button onClick={saveTip} disabled={tipBusy}
+                            style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "var(--brand)", border: "none", borderRadius: 6, padding: "5px 12px", cursor: tipBusy ? "wait" : "pointer", fontFamily: FF }}>Save tip</button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
             </PS>
           )}
 

@@ -1325,6 +1325,11 @@ async function buildExportRowsForPeriod(
     overtime_hours: Number(r.overtime_hours),
     regular_pay_cents: dollarsToCents(r.regular_pay),
     overtime_pay_cents: dollarsToCents(r.overtime_pay),
+    // This legacy period-summary path stores a single adjustments_total lump
+    // (tips already folded in), with no separate tips column. Emit a zero tips
+    // value and leave the lump in adjustments so gross still balances. The live
+    // payroll-snapshot engine (the office's actual export) breaks tips out.
+    tips_cents: 0,
     adjustments_cents: dollarsToCents(r.adjustments_total),
     gross_cents: dollarsToCents(r.gross_total),
   }));
