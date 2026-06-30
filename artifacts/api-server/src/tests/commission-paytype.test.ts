@@ -155,16 +155,67 @@ describe("pay-type engine — DB bridge (computePerTechCommissionRows)", () => {
     pay_deduction_pct: o.pay_deduction_pct ?? null, pay_deduction_flat: o.pay_deduction_flat ?? null,
   });
 
-  it("GUARD: no clocked hours → legacy single-basis fallback (primary only)", () => {
+  it("GUARD: single tech, no clocked hours → legacy single-basis fallback (whole commission)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 10, assigned_user_id: 1, billed_amount: "200", service_type: "standard_clean" })],
+      jobTechs: [tech(10, 1, { is_primary: true })],
+      techHoursByKey: new Map(),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].user_id, 1);
+    assert.equal(rows[0].amount, 70.0); // $200 × 35%
+  });
+
+  it("PRE-CLOCK: two cleaners, no clocked hours → EVEN split by headcount (not primary-only)", () => {
+    // Reported bug: before any punches, the Time Clocks grid paid the primary
+    // the whole $70 commission and the second cleaner $0. CLAUDE.md spec says
+    // pre-clock-in commission splits evenly among assigned techs → $35 each.
     const rows = computePerTechCommissionRows({
       jobs: [job({ id: 10, assigned_user_id: 1, billed_amount: "200", service_type: "standard_clean" })],
       jobTechs: [tech(10, 1, { is_primary: true }), tech(10, 2)],
       techHoursByKey: new Map(),
       serviceTypePctBySlug: new Map(), resRates, commercial,
     });
-    assert.equal(rows.length, 1);
-    assert.equal(rows[0].user_id, 1);
-    assert.equal(rows[0].amount, 70.0);
+    assert.equal(rows.length, 2);
+    assert.equal(rows.find(r => r.user_id === 1)!.amount, 35.0);
+    assert.equal(rows.find(r => r.user_id === 2)!.amount, 35.0);
+    // Consistency: the two shares reconcile to the job's total commission pool.
+    assert.equal(rows.reduce((s, r) => s + r.amount, 0), 70.0);
+  });
+
+  it("PRE-CLOCK: three cleaners, no clocked hours → even thirds", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 11, assigned_user_id: 1, billed_amount: "300", service_type: "standard_clean" })],
+      jobTechs: [tech(11, 1, { is_primary: true }), tech(11, 2), tech(11, 3)],
+      techHoursByKey: new Map(),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows.length, 3); // $300 × 35% = $105 → $35 each
+    for (const r of rows) assert.equal(r.amount, 35.0);
+  });
+
+  it("PRE-CLOCK commercial: two cleaners, no clocked hours → allowed-hours budget split evenly", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 12, account_id: 9, base_fee: "0", allowed_hours: "4" })],
+      jobTechs: [tech(12, 1, { is_primary: true }), tech(12, 2)],
+      techHoursByKey: new Map(),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    assert.equal(rows.length, 2); // 4h allowed × $20 = $80 → 2h × $20 = $40 each
+    for (const r of rows) assert.equal(r.amount, 40.0);
+  });
+
+  it("PRE-CLOCK: an HOURLY timesheet with no punches stays $0 (can't pre-split actual time)", () => {
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 13, assigned_user_id: 1, billed_amount: "200", service_type: "standard_clean" })],
+      jobTechs: [tech(13, 1, { is_primary: true }), tech(13, 2, { pay_type: "hourly", hourly_rate: "20" })],
+      techHoursByKey: new Map(),
+      serviceTypePctBySlug: new Map(), resRates, commercial,
+    });
+    // Fee-split cleaner takes the even share; the hourly one earns nothing until clocked.
+    assert.equal(rows.find(r => r.user_id === 1)!.amount, 35.0);
+    assert.equal(rows.find(r => r.user_id === 2), undefined);
   });
 
   it("clocked: Cusimano mixed pay types reproduce MC ($94.66 + $63.40)", () => {

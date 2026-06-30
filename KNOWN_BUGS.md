@@ -1,5 +1,44 @@
 # Known Bugs
 
+## RESOLVED — Time Clocks fee split paid the primary 100% pre-clock (multi-cleaner) (2026-06-30)
+
+**Severity:** High — wrong per-cleaner commission shown on the Time Clocks grid
+(and written at period-lock) whenever 2+ cleaners were assigned but nobody had
+clocked yet. Reported by Francisco: "the fee split in Time Clocks does not match
+the assigned splits."
+
+**Symptom:** A job with two (or more) assigned cleaners and NO clock entries yet
+showed the whole job commission on the primary's row and `—` ($0) on every other
+cleaner. CLAUDE.md's commission spec says the opposite: "pre-clock-in: equal
+split among assigned techs."
+
+**Root cause:** `computePerTechCommissionRows` (`lib/commission-paytype.ts`) guards
+the time-weighted split with `if (totalTechHours <= 0)` and fell back to the
+legacy single-basis `computeCommissionRows`, which emits ONE row for
+`jobs.assigned_user_id` only (multi-tech splitting is deferred to the route
+layer). So with no clocked hours, only the primary was paid.
+
+**Fix:** The `totalTechHours <= 0` branch now splits by headcount when 2+ cleaners
+are assigned:
+- Single assigned tech → legacy fallback unchanged (byte-identical, no regression).
+- Multiple cleaners → split the whole-job commission pool EVENLY, penny-exact via
+  `splitPoolEvenly` (integer-cent largest-remainder, so the shares always
+  reconcile to the job total — no $0.01 drift). Residential pool = `base × scope%`,
+  commercial = `allowed_hours × $/hr`.
+- An HOURLY timesheet stays $0 pre-clock (hourly pays clocked time only) and still
+  holds a slot in the denominator, so a fee-split cleaner sharing the job with an
+  hourly one gets their 1/N slice — matching how hours will weight it post-clock.
+- A hand-set `final_pay` override is still honored verbatim.
+- Once any punch is entered, the existing proportional-by-minutes path takes over
+  (unchanged).
+
+Affects both the Time Clocks `/day` grid and the period-lock commission writer
+(same engine). Covered by new tests in `commission-paytype.test.ts`
+("PRE-CLOCK: …"). The previous GUARD test that asserted primary-only was updated
+to the single-tech case.
+
+---
+
 ## RESOLVED — Bug E: "(current) standard_clean" raw enum showing in commercial dropdown (2026-04-27, AI.3)
 
 **Status:** Resolved structurally by AI.3's tenant-managed commercial service

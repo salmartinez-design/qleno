@@ -78,7 +78,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; clock_in_distance_ft?: number | null; clock_out_distance_ft?: number | null; clock_in_outside_geofence?: boolean; clock_out_outside_geofence?: boolean; gps_missing?: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; pricing_addon_id?: number | null; add_on_id?: number | null; }
-interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [dispatch-invoice 2026-06-27] Live invoice for this job — null until the job completes and the engine fires. */ invoice_id?: number | null; invoice_status?: string | null; invoice_total?: string | null; /* [commission-override 2026-06-27] */ commission_override_pct?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
+interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; /* [time-change-notice] same-day time bump raises a manual "notify the client of the new arrival time" note on the card; time_change_from is the prior "HH:MM" */ time_change_pending?: boolean; time_change_from?: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [dispatch-invoice 2026-06-27] Live invoice for this job — null until the job completes and the engine fires. */ invoice_id?: number | null; invoice_status?: string | null; invoice_total?: string | null; /* [commission-override 2026-06-27] */ commission_override_pct?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
 interface Employee { id: number; name: string; role: string; is_trainee?: boolean; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: string | null; time_off_unit?: 'full_day' | 'morning' | 'afternoon' | null; time_off_color?: string | null; time_off_label?: string | null; commission_rate?: number | null; avatar_url?: string | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -1480,6 +1480,40 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     }
   }
 
+  // [time-change-notice] Office clicked "Send notification" on the same-day
+  // time-change note → fire the client text/email, then refresh so the note
+  // clears. The toast is honest about comms being paused.
+  const [timeNoticeBusy, setTimeNoticeBusy] = useState(false);
+  async function sendTimeChangeNotice() {
+    setTimeNoticeBusy(true);
+    try {
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/notify-time-change`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || "Could not send");
+      toast(d.sent
+        ? { title: "Client notified of the new time" }
+        : { title: "Note cleared — nothing sent", description: "Texts/emails are paused, so no message went out." });
+      onUpdate();
+    } catch (err: any) {
+      toast({ title: err.message || "Could not send notification" });
+    } finally {
+      setTimeNoticeBusy(false);
+    }
+  }
+  async function dismissTimeChangeNotice() {
+    setTimeNoticeBusy(true);
+    try {
+      await fetch(`${_API3}/api/jobs/${job.id}/time-change/dismiss`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      });
+      onUpdate();
+    } catch { /* non-fatal */ } finally { setTimeNoticeBusy(false); }
+  }
+
   // Show charge button when: completed + can charge + not already charged + Stripe client.
   // Prefer the LIVE dispatch amount (base_fee + adjustments + add-ons) over the
   // billed_amount cache — that cache isn't refreshed on price/fee edits, so it
@@ -2359,6 +2393,25 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+          {/* [time-change-notice 2026-06-30] Same-day time move → manual "tell the
+              client the new arrival time" note. Office controls the send (Maribel:
+              keep control, don't auto-send). A cross-day reschedule doesn't show
+              this — that's the separate email flow. */}
+          {job.time_change_pending && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12, padding: "10px 12px", background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 10 }}>
+              <span style={{ fontSize: 12.5, color: "#92400E", flex: 1, minWidth: 150 }}>
+                Time updated{job.time_change_from ? ` from ${fmtMins(timeToMins(job.time_change_from))}` : ""}{job.scheduled_time ? ` to ${fmtMins(timeToMins(job.scheduled_time))}` : ""} — notify the client of the new arrival time?
+              </span>
+              <button onClick={sendTimeChangeNotice} disabled={timeNoticeBusy}
+                style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 6, border: "none", cursor: timeNoticeBusy ? "default" : "pointer", color: "#fff", background: "#92400E", opacity: timeNoticeBusy ? 0.6 : 1, whiteSpace: "nowrap" }}>
+                Send notification
+              </button>
+              <button onClick={dismissTimeChangeNotice} disabled={timeNoticeBusy} title="Dismiss without sending"
+                style={{ fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 6, border: "1px solid #FCD34D", cursor: timeNoticeBusy ? "default" : "pointer", color: "#92400E", background: "transparent", whiteSpace: "nowrap" }}>
+                Dismiss
+              </button>
+            </div>
+          )}
           {/* [panel-revamp step 1] Unified tag row — status + recurring +
               residential/commercial. Wraps cleanly on the mobile bottom-sheet. */}
           <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 10 }}>
