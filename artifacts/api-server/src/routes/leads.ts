@@ -232,8 +232,14 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
 
     fireOfficeNotification(companyId, leadId, first_name, last_name, source, phone, scope).catch(() => {});
 
-    // Enroll in the appropriate lead drip sequence (fires only if sequence is active).
-    enrollForLeadDrip(companyId, leadId, resolvedLeadSource).catch(() => {});
+    // Enroll in the lead drip ONLY for top-of-funnel leads (new / needs contact).
+    // A lead created already contacted/quoted/booked (e.g. office logs a won job)
+    // must NOT start a nurture drip — that's the "booked leads at step 1" bug.
+    // (Option A: stage tracks manual status; the drip runs on its own schedule for
+    // un-worked leads, so needs_contacted still enrolls.)
+    if (!status || status === "new" || status === "needs_contacted") {
+      enrollForLeadDrip(companyId, leadId, resolvedLeadSource).catch(() => {});
+    }
 
     return res.status(201).json({ id: leadId, lead_source: resolvedLeadSource, assigned_to: resolvedAssignedTo });
   } catch (err) {
