@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { BranchProvider } from "@/contexts/branch-context";
 import { EmployeeViewProvider } from "@/contexts/employee-view-context";
-import { useAuthStore, getTokenRole } from "@/lib/auth";
+import { useAuthStore, getTokenRole, isTokenExpired, startTokenRefresh } from "@/lib/auth";
 
 const Login               = lazy(() => import("@/pages/login"));
 const Dashboard           = lazy(() => import("@/pages/dashboard"));
@@ -209,7 +209,10 @@ function TechRouteGuard({ children }: { children: React.ReactNode }) {
 // bounces technicians/team_leads to /my-jobs.
 function RootIndex() {
   const token = useAuthStore((s) => s.token);
-  if (!token) return <Redirect to="/login" />;
+  // [tech-session 2026-06-30] An expired pass is treated as logged-out → the
+  // login screen, never a blank authenticated shell. startTokenRefresh (started
+  // in App) also clears the dead pass; this makes the redirect synchronous.
+  if (!token || isTokenExpired()) return <Redirect to="/login" />;
   return <Dashboard />;
 }
 
@@ -351,6 +354,15 @@ function Router() {
 }
 
 function App() {
+  // [tech-session 2026-06-30] Start the login-pass keep-alive on app open. It
+  // slides the pass forward each open (active techs never run it out) and, if a
+  // pass has gone fully stale, logs out to the login screen instead of leaving
+  // them on a blank "No jobs today". Previously defined but never called.
+  useEffect(() => {
+    const interval = startTokenRefresh();
+    return () => { if (interval) clearInterval(interval); };
+  }, []);
+
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>

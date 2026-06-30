@@ -34,8 +34,15 @@ if (!process.env.JWT_SECRET) {
   );
 }
 
+// [tech-session 2026-06-30] 30-day login lifetime so field techs who keep the
+// app pinned aren't silently logged out after a day (the "No jobs today" /
+// reinstall-to-fix complaint). The frontend slides this forward on every app
+// open (startTokenRefresh), so an active tech effectively never re-logs in; a
+// truly stale (30-day-idle) pass routes to the login screen, never a blank
+// screen. Trade-off: no server-side revocation yet — a lost/offboarded device
+// stays valid until expiry. Add a revocation list as the proper follow-up.
 export function signToken(payload: AuthPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "30d" });
 }
 
 export function verifyToken(token: string): AuthPayload {
