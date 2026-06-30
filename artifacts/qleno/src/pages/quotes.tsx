@@ -342,10 +342,10 @@ export default function QuotesPage() {
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
             <button onClick={() => navigate("/leads")} className="text-xs font-semibold text-[#6B7280] hover:text-[#1A1917] mb-1 flex items-center gap-1">
-              <ArrowRight className="w-3 h-3 rotate-180" /> Pipeline
+              <ArrowRight className="w-3 h-3 rotate-180" /> Leads
             </button>
             <h1 className="text-2xl font-bold text-[#1A1917]">Quotes</h1>
-            <p className="text-sm text-[#6B7280] mt-1">Manage and track client quotes — part of your Pipeline.</p>
+            <p className="text-sm text-[#6B7280] mt-1">Manage and track client quotes — part of Leads.</p>
           </div>
           <Button
             className={`gap-2 text-white ${activeBranchId === "all" ? "bg-gray-400 cursor-not-allowed hover:bg-gray-400" : "bg-[#5B9BD5] hover:bg-[#4a8ac4]"}`}

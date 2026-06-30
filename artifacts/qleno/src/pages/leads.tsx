@@ -1292,7 +1292,7 @@ export default function LeadsPage() {
       <div style={{ background: "#0A0E1A", padding: "0 20px", height: 48, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <div style={{ width: 22, height: 22, borderRadius: 5, background: "#00C9A0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#0A0E1A", fontFamily: FF }}>Q</div>
-          <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: -0.3, fontFamily: FF }}>Pipeline</span>
+          <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: -0.3, fontFamily: FF }}>Leads</span>
         </div>
         <div style={{ display: "flex", gap: 2 }}>
           {(["pipeline", "reports", "sequences"] as const).map(v => (
@@ -1300,7 +1300,7 @@ export default function LeadsPage() {
               style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF,
                 background: mainView === v ? "rgba(255,255,255,.12)" : "transparent",
                 color: mainView === v ? "#fff" : "#6B9A8E", textTransform: "capitalize" }}>
-              {v}
+              {v === "pipeline" ? "Leads" : v}
             </button>
           ))}
           {/* Quotes folds into the Pipeline section — the quotes list + "Mark as
