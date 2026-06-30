@@ -6,6 +6,7 @@ import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { useToast } from "@/hooks/use-toast";
 import { mapsDirectionsUrl } from "@/lib/format-address";
+import { FREQUENCY_LABELS, frequencyLabel } from "@/lib/frequency-labels";
 import { JobWizard } from "@/components/job-wizard";
 import EditJobModal from "@/components/edit-job-modal";
 import {
@@ -130,18 +131,14 @@ function fmtTime(t: string | null): string {
 }
 function fmtSvc(s: string) { return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()); }
 
-// [freq-consistency 2026-06-08] Canonical recurring-frequency label — ONE source
-// of truth so the Gantt chip, hover card, repeat-badge, and panel header never
-// disagree. monthly AND every_4_weeks both read "Monthly" (Sal's call). Returns
+// [freq-consistency 2026-06-19] Canonical recurring-frequency labels live in
+// lib/frequency-labels (plain language everywhere — "Every 2/4 Weeks", never
+// "Biweekly"/"Monthly"). monthly AND every_4_weeks both read "Every 4 Weeks".
+// Keep the fmtSvc fallback for any value not yet in the shared map; returns
 // "" for non-recurring so callers can gate on it.
-const RECURRENCE_LABELS: Record<string, string> = {
-  weekly: "Weekly", biweekly: "Biweekly", every_2_weeks: "Biweekly",
-  every_3_weeks: "Every 3 Weeks", monthly: "Monthly", every_4_weeks: "Monthly",
-  daily: "Daily", weekdays: "Weekdays", custom_days: "Custom Days",
-};
 function recurrenceLabel(f?: string | null): string {
   if (!f || f === "on_demand") return "";
-  return RECURRENCE_LABELS[f] ?? fmtSvc(f);
+  return FREQUENCY_LABELS[f] ?? fmtSvc(f);
 }
 
 // [hotfix 2026-04-29 / closes #4] Walk up the DOM to find the nearest
@@ -163,17 +160,11 @@ function getScrollParent(el: HTMLElement | null): HTMLElement | null {
 }
 
 // [X] scopeLabel — card-facing "scope" label. Prefers frequency when the
-// job is recurring (Weekly / Biweekly / Every 4 Weeks), falls back to
+// job is recurring (Weekly / Every 2 Weeks / Every 4 Weeks), falls back to
 // service_type when one-off. Matches MC's Job Schedule card convention.
 function scopeLabel(job: { service_type?: string | null; frequency?: string | null }): string {
-  const FREQ: Record<string, string> = {
-    weekly: "Weekly",
-    biweekly: "Biweekly",
-    every_3_weeks: "Every 3 Weeks",
-    monthly: "Monthly",
-    every_4_weeks: "Monthly",
-  };
-  if (job.frequency && FREQ[job.frequency]) return FREQ[job.frequency];
+  const RECURRING_FREQS = ["weekly", "biweekly", "every_3_weeks", "monthly", "every_4_weeks"];
+  if (job.frequency && RECURRING_FREQS.includes(job.frequency)) return frequencyLabel(job.frequency);
   const SVC: Record<string, string> = {
     standard_clean: "Standard Clean",
     deep_clean: "Deep Clean",

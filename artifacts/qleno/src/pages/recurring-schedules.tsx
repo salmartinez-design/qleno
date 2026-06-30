@@ -3,6 +3,7 @@ import { Link } from "wouter";
 import { RefreshCw, Clock, Search, AlertTriangle } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
+import { FREQUENCY_LABELS } from "@/lib/frequency-labels";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -22,11 +23,8 @@ type Schedule = {
   is_active: boolean;
 };
 
-const FREQ_LABEL: Record<string, string> = {
-  weekly: "Weekly", biweekly: "Every 2 weeks", every_3_weeks: "Every 3 weeks",
-  monthly: "Monthly", semi_monthly: "Twice a month", custom: "Custom",
-  daily: "Daily", weekdays: "Weekdays", custom_days: "Custom days",
-};
+// Canonical plain-language labels — see lib/frequency-labels.
+const FREQ_LABEL = FREQUENCY_LABELS;
 
 function fmtTime(t: string | null) {
   if (!t) return null;

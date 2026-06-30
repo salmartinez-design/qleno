@@ -13,7 +13,7 @@ const PHES_RESIDENTIAL_SCHEMA = [
   { id: "f_city_state_zip", type: "text", label: "City, State, Zip", required: true, variable: "client_city_state_zip" },
   { id: "f_phone", type: "tel", label: "Cell Phone", required: true, variable: "client_phone" },
   { id: "f_email", type: "email", label: "Email Address", required: true, variable: "client_email" },
-  { id: "f_frequency", type: "select", label: "Service Frequency", required: true, variable: "service_frequency", options: ["Weekly", "Bi-Weekly", "Monthly", "One-Time"] },
+  { id: "f_frequency", type: "select", label: "Service Frequency", required: true, variable: "service_frequency", options: ["Weekly", "Every 2 Weeks", "Every 4 Weeks", "One-Time"] },
   { id: "f_entry", type: "select", label: "How do we gain entrance?", required: true, variable: "entry_method", options: ["Client home at time of cleaning", "Garage code", "Key in lockbox", "Key provided to PHES", "Door left unlocked"] },
   { id: "f_contact_tech_change", type: "select", label: "If technician changes, notify via:", required: false, variable: "contact_tech_change", options: ["Text", "Email", "Phone call", "No preference"] },
   { id: "f_contact_during", type: "select", label: "Preferred contact during service:", required: false, variable: "contact_during", options: ["Text", "Phone call", "Do not contact unless emergency"] },
@@ -185,7 +185,7 @@ router.post("/seed-defaults", requireAuth, async (req, res) => {
           { id: "f_address", type: "text", label: "Property Address", required: true, variable: "property_address" },
           { id: "f_phone", type: "tel", label: "Phone", required: true, variable: "contact_phone" },
           { id: "f_email", type: "email", label: "Email", required: true, variable: "contact_email" },
-          { id: "f_frequency", type: "select", label: "Service Frequency", required: true, variable: "service_frequency", options: ["Daily", "Weekly", "Bi-Weekly", "Monthly"] },
+          { id: "f_frequency", type: "select", label: "Service Frequency", required: true, variable: "service_frequency", options: ["Daily", "Weekly", "Every 2 Weeks", "Every 4 Weeks"] },
           { id: "f_scope", type: "textarea", label: "Scope of Work", required: true, variable: "scope_of_work" },
         ] as any,
         terms_body: `COMMERCIAL CLEANING AGREEMENT

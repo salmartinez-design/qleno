@@ -4,6 +4,7 @@ import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
+import { FREQUENCY_LABELS, frequencyLabel } from "@/lib/frequency-labels";
 import { formatAddress } from "@/lib/format-address";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOffSet, type PrefData } from "@/components/notification-preference-grid";
@@ -890,7 +891,7 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
     } catch { /* silent */ }
     finally { setVoiding(false); }
   };
-  const cadenceLabel = (c: string) => ({ weekly: "Weekly", biweekly: "Every 2 Weeks", monthly: "Every 4 Weeks" }[c] ?? c);
+  const cadenceLabel = (c: string) => frequencyLabel(c) || c;
   const lockDaysLeft = rateLock?.active && rateLock?.lock_expires_at
     ? Math.max(0, Math.ceil((new Date(rateLock.lock_expires_at).getTime() - Date.now()) / 86400000))
     : null;
@@ -2622,7 +2623,7 @@ function RecurringTab({ clientId }: { clientId: number }) {
     refetch();
   }
 
-  const FREQ_LABELS: Record<string, string> = { weekly: "Every week", biweekly: "Every 2 weeks", monthly: "Monthly", custom: "Custom", semi_monthly: "Twice a month", every_3_weeks: "Every 3 weeks" };
+  const FREQ_LABELS: Record<string, string> = { ...FREQUENCY_LABELS, custom: "Custom" };
   const DAY_LABELS: Record<string, string> = { monday: "Mon", tuesday: "Tue", wednesday: "Wed", thursday: "Thu", friday: "Fri", saturday: "Sat", sunday: "Sun" };
 
   return (
@@ -3201,22 +3202,14 @@ function TechAvatar({ name, size = 24 }: { name: string; size?: number }) {
   );
 }
 
-// [PR #58] Plain-English frequency labels. Operator-facing strings —
-// reads like how you'd describe the cadence to a customer on the phone.
-// Canonical enum values stay the same in DB.
+// Canonical plain-language frequency labels (lib/frequency-labels) so the
+// recurring-schedule dropdown matches dispatch, quotes, and the booking
+// widget. Keep the descriptive hints for custom / weekdays since this is a
+// scheduling dropdown. Canonical enum values stay the same in DB.
 const FREQ_LABELS: Record<string, string> = {
-  weekly: "Every week",
-  biweekly: "Every 2 weeks",
-  every_3_weeks: "Every 3 weeks",
-  monthly: "Monthly",
-  semi_monthly: "Twice a month",
+  ...FREQUENCY_LABELS,
   custom: "Custom (every N weeks)",
-  on_demand: "One-time",
-  // [AI.1] Commercial multi-day frequencies. Surfaced in dropdowns when
-  // the client is commercial; hidden for residential clients.
-  daily: "Daily",
   weekdays: "Weekdays (M–F)",
-  custom_days: "Custom days",
 };
 
 // [PR #58] Frequency options for residential / standard recurring. Order

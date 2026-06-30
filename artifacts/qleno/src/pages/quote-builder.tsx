@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { calculateCommissionSplit } from "@/lib/commission";
 import { AddonIcon } from "@/lib/addon-icons";
+import { frequencyLabel } from "@/lib/frequency-labels";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -1644,13 +1645,8 @@ export default function QuoteBuilderPage() {
 
                       {/* Results */}
                       {!clientSearchLoading && clientResults.map(c => {
-                        // Frequency label
-                        const freqMap: Record<string, string> = {
-                          weekly: "Weekly", every_2_weeks: "Biweekly", biweekly: "Biweekly",
-                          every_4_weeks: "Monthly", monthly: "Monthly",
-                          onetime: "One-Time", one_time: "One-Time",
-                        };
-                        const freqLabel = c.frequency ? (freqMap[c.frequency] ?? null) : null;
+                        // Frequency label (canonical — lib/frequency-labels)
+                        const freqLabel = c.frequency ? (frequencyLabel(c.frequency) || null) : null;
 
                         // Last service date
                         const fmtSvcDate = (d: string | null | undefined) => {
@@ -1889,8 +1885,7 @@ export default function QuoteBuilderPage() {
                           return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
                         } catch { return svc.last_date; }
                       })();
-                      const freqMap: Record<string, string> = { weekly: "Weekly", every_2_weeks: "Biweekly", biweekly: "Biweekly", every_4_weeks: "Monthly", monthly: "Monthly", onetime: "One-Time", one_time: "One-Time" };
-                      const freqLabel = svc.frequency ? (freqMap[svc.frequency] ?? svc.frequency) : null;
+                      const freqLabel = svc.frequency ? (frequencyLabel(svc.frequency) || null) : null;
                       return (
                         <div
                           key={i}

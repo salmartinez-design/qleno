@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
+import { frequencyLabel } from "@/lib/frequency-labels";
 import { Plus, Trash2, ChevronDown, ChevronRight, Save, ToggleLeft, ToggleRight, Edit2, X, Check, Tag } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarPopover } from "@/components/calendar-popover";
@@ -139,12 +140,11 @@ interface Addon { id: number; name: string; price: string | null; price_type: st
 interface Discount { id: number; code: string; description: string; discount_type: string; discount_value: string; is_active: boolean; }
 interface FeeRule { id: number; rule_type: string; label: string; charge_percent: string; tech_split_percent: string; window_hours: number | null; is_active: boolean; }
 
-const FREQUENCIES = [
-  { frequency: "onetime", label: "One Time" },
-  { frequency: "weekly", label: "Weekly" },
-  { frequency: "biweekly", label: "Bi-Weekly" },
-  { frequency: "monthly", label: "Monthly" },
-];
+// Labels via canonical map (lib/frequency-labels) for cross-app consistency.
+const FREQUENCIES = ["onetime", "weekly", "biweekly", "monthly"].map((frequency) => ({
+  frequency,
+  label: frequencyLabel(frequency),
+}));
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useQuery, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
+import { FREQUENCY_LABELS } from "@/lib/frequency-labels";
 import { formatAddress } from "@/lib/format-address";
 import { useBranch } from "@/contexts/branch-context";
 import { Link } from "wouter";
@@ -63,10 +64,8 @@ const SERVICE_LABELS: Record<string, string> = {
   medical_office: "Medical", ppm_turnover: "PPM Turnover", post_event: "Post Event",
 };
 
-const FREQ_LABELS: Record<string, string> = {
-  weekly: "Weekly", biweekly: "Biweekly", every_3_weeks: "Every 3 Wks",
-  monthly: "Monthly", on_demand: "One Time",
-};
+// Canonical plain-language labels — see lib/frequency-labels.
+const FREQ_LABELS = FREQUENCY_LABELS;
 
 // ── Period presets ────────────────────────────────────────────────────────────
 function getDateRange(preset: string): { from: string; to: string } {
