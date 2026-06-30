@@ -217,9 +217,9 @@ function LeadRow({ lead, selected, onClick, checked, onCheck }: {
             {(STATUS_CONFIG[lead.status] || STATUS_CONFIG["needs_contacted"]).label}
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            {lead.quote_amount && Number(lead.quote_amount) > 0 && (
-              <span style={{ fontSize: 11, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>${Number(lead.quote_amount).toFixed(0)}</span>
-            )}
+            {(() => { const amt = Number(lead.quote_amount || (lead as any).linked_quote_price || 0); return amt > 0 ? (
+              <span style={{ fontSize: 11, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>${amt.toFixed(0)}</span>
+            ) : null; })()}
             <span style={{ fontSize: 9, color: "#C4C0B8", fontFamily: FF }}>
               {cfg.label} &middot; {fmtDate(lead.created_at)}
             </span>
