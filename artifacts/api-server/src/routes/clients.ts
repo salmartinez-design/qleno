@@ -1395,10 +1395,44 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
       ORDER BY job_date DESC
     `);
 
-    const records = rows.rows as Array<{
+    const histRecords = rows.rows as Array<{
       id: number; job_date: string; revenue: string;
       service_type: string | null; technician: string | null; notes: string | null;
     }>;
+
+    // [history-unify 2026-06-30] job_history is the frozen MaidCentral import; it
+    // stops at the cutover and never grows. After we switch off MC, completed work
+    // lives in `jobs`, so Job History / Total Visits / Lifetime Revenue would
+    // silently freeze. Append completed live jobs dated STRICTLY AFTER this
+    // client's last imported visit — that keeps every historical number identical
+    // (no double-count, no shift) while letting post-cutover work flow in. A
+    // client with no import history (born in Qleno) gets all their completed jobs.
+    const lastHistDate = histRecords.reduce<string | null>(
+      (mx, r) => (r.job_date && (!mx || r.job_date > mx) ? r.job_date : mx), null);
+    const liveRes = await db.execute(sql`
+      SELECT j.id, j.scheduled_date::text AS job_date, j.billed_amount,
+             j.service_type, (u.first_name || ' ' || u.last_name) AS technician
+      FROM jobs j
+      LEFT JOIN users u ON u.id = j.assigned_user_id
+      WHERE j.client_id = ${clientId} AND j.company_id = ${companyId}
+        AND j.status::text IN ('complete','invoiced')
+        ${lastHistDate ? sql`AND j.scheduled_date > ${lastHistDate}::date` : sql``}
+      ORDER BY j.scheduled_date DESC
+    `);
+    const liveRecords = (liveRes.rows as any[]).map(r => ({
+      // Negative id: live jobs and job_history share an id space, and the table
+      // uses id as its React key. Negating the (positive) job id guarantees a
+      // unique, collision-free key distinct from every positive job_history id.
+      id: -Number(r.id),
+      job_date: String(r.job_date),
+      revenue: String(r.billed_amount ?? 0),
+      service_type: r.service_type ?? null,
+      technician: (r.technician && String(r.technician).trim()) || null,
+      notes: null as string | null,
+    }));
+    // Live rows are strictly newer than every imported row, so plain concat keeps
+    // the overall newest-first order the response and stats rely on.
+    const records = [...liveRecords, ...histRecords];
 
     // [last-next-fix 2026-06-18] Last = most recent COMPLETED job on/before
     // today (records[0] could be a future or non-completed row → showed a
@@ -1427,21 +1461,27 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
     `);
     const is_recurring = recurrRes.rows.length > 0;
 
-    // Skips and bumps — cast status to text to avoid enum validation errors if values not yet in enum
+    // [stats-fix 2026-06-30] Skips and bumps. These USED to read jobs.status =
+    // 'skipped'/'bumped', but the job_status enum only has
+    // scheduled/in_progress/complete/cancelled — those values never exist, so
+    // the counters were permanently 0. Skip/bump/move are recorded as
+    // cancellation_log actions, so count them there. (move = customer-initiated
+    // reschedule, bump = office-initiated; both surface as "Bumps".)
     let skips = 0;
     let bumps = 0;
     try {
       const statusRes = await db.execute(sql`
         SELECT
-          COUNT(*) FILTER (WHERE status::text = 'skipped') AS skips,
-          COUNT(*) FILTER (WHERE status::text = 'bumped') AS bumps
-        FROM jobs
-        WHERE client_id = ${clientId} AND company_id = ${companyId}
+          COUNT(*) FILTER (WHERE cl.cancel_action = 'skip') AS skips,
+          COUNT(*) FILTER (WHERE cl.cancel_action IN ('bump','move')) AS bumps
+        FROM cancellation_log cl
+        JOIN jobs j ON j.id = cl.job_id
+        WHERE j.client_id = ${clientId} AND j.company_id = ${companyId}
       `);
       skips = parseInt(String((statusRes.rows[0] as any)?.skips ?? 0));
       bumps = parseInt(String((statusRes.rows[0] as any)?.bumps ?? 0));
     } catch (_err) {
-      // Status enum may not include these values yet — default to 0
+      // Defensive: if cancellation_log is unavailable, fall back to 0.
     }
 
     const now = new Date();
@@ -1456,6 +1496,11 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
       .reduce((s, r) => s + parseFloat(r.revenue), 0);
     const total_visits = records.length;
     const unique_techs = new Set(records.map(r => r.technician).filter(Boolean)).size;
+    // Earliest real visit — drives the "Since" date on the Lifetime Value card.
+    // Previously the card fell back to clients.created_at (the Qleno import date),
+    // which misreported a 2024 client as "Since Mar 2026".
+    const first_cleaning = records.reduce<string | null>(
+      (mn, r) => (r.job_date && (!mn || r.job_date < mn) ? r.job_date : mn), null);
 
     const last12 = records.filter(r => new Date(r.job_date) >= twelveMonthsAgo);
     const revenue_last_12mo = last12.reduce((s, r) => s + parseFloat(r.revenue), 0);
@@ -1500,6 +1545,7 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
         ytd_revenue,
         total_visits,
         unique_techs,
+        first_cleaning,
         revenue_last_12mo,
         avg_bill,
         revenue_trend_pct,
@@ -2385,11 +2431,14 @@ router.get("/:id/calendar-jobs", requireAuth, async (req, res) => {
         j.scheduled_time, j.address_street, j.address_city,
         u.first_name || ' ' || u.last_name AS technician_name,
         u.id AS technician_id,
-        -- Charged cancel/lockout keeps status='complete' so the calendar must
-        -- not show it as "Done" — surface the action so the chip reads
-        -- "Cancelled (fee)" / "Lockout" instead.
+        -- Latest cancellation_log action (any type). The calendar resolves the
+        -- chip off this: charged cancel/lockout keep status='complete' so they
+        -- must read "Cancel fee"/"Lockout" not "Done"; cancelled jobs that were
+        -- skipped/moved read "Skipped"/"Moved" not the generic "Cancelled". A
+        -- completed job is still shown Done by the client (see chipKeyFor) — a
+        -- stale historical move/skip never downgrades a finished visit.
         (SELECT cl.cancel_action FROM cancellation_log cl
-          WHERE cl.job_id = j.id AND cl.cancel_action IN ('cancel','lockout')
+          WHERE cl.job_id = j.id
           ORDER BY cl.cancelled_at DESC LIMIT 1) AS cancel_action
       FROM jobs j
       LEFT JOIN users u ON u.id = j.assigned_user_id
@@ -2397,6 +2446,25 @@ router.get("/:id/calendar-jobs", requireAuth, async (req, res) => {
         AND j.company_id = ${companyId}
         ${from ? sql`AND j.scheduled_date >= ${from}::date` : sql``}
         ${to   ? sql`AND j.scheduled_date <= ${to}::date`   : sql``}
+        -- [ghost-suppression 2026-06-30] The recurring engine double-generated
+        -- some schedules and CANCELLED (not deleted) the duplicate, leaving a
+        -- ghost "Cancelled" row stacked on the live job → every recurring date
+        -- painted both a Scheduled and a Cancelled chip. Hide a cancelled row
+        -- ONLY when it has no cancellation_log entry (so it's an engine artifact,
+        -- never a real office cancellation) AND a live job already occupies the
+        -- same date for this client. A standalone cancellation still shows.
+        AND NOT (
+          j.status::text = 'cancelled'
+          AND NOT EXISTS (SELECT 1 FROM cancellation_log clx WHERE clx.job_id = j.id)
+          AND EXISTS (
+            SELECT 1 FROM jobs s
+            WHERE s.company_id = j.company_id
+              AND s.client_id = j.client_id
+              AND s.scheduled_date = j.scheduled_date
+              AND s.id <> j.id
+              AND s.status::text IN ('scheduled','in_progress','complete','invoiced')
+          )
+        )
       ORDER BY j.scheduled_date ASC
     `);
     return res.json(rows.rows);

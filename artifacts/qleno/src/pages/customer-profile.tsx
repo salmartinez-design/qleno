@@ -5091,12 +5091,23 @@ const STATUS_CHIP: Record<string, { bg: string; border: string; text: string; la
   // from cancel_action so the calendar reads the truth, not "Done".
   cancelled_fee: { bg: "#FEF3C7", border: "#F59E0B", text: "#B45309", label: "Cancel fee", tooltip: "Cancelled — fee charged (not a completed visit)" },
 };
-// A charged cancel/lockout is stored status='complete'; resolve it to the right
-// chip key off cancel_action so the day doesn't read "Done".
+// Resolve a job to its chip key. cancel_action (latest cancellation_log row)
+// adds nuance the bare status can't carry:
+//   • charged cancel/lockout are stored status='complete' for revenue — surface
+//     them as "Cancel fee"/"Lockout" instead of "Done".
+//   • a cancelled job that was skipped/moved reads "Skipped"/"Moved".
+// A finished visit always wins: a completed/invoiced job stays "Done" even if it
+// carries a stale historical move/skip action, so the calendar never downgrades
+// real work that got done.
 function chipKeyFor(j: any): string {
-  if (j?.cancel_action === "lockout") return "lockout";
-  if (j?.cancel_action === "cancel") return "cancelled_fee";
-  return String(j?.status);
+  const status = String(j?.status);
+  const action = j?.cancel_action;
+  if (action === "lockout") return "lockout";
+  if (action === "cancel") return "cancelled_fee";
+  if (status === "complete" || status === "completed" || status === "invoiced") return status;
+  if (action === "skip") return "skipped";
+  if (action === "bump" || action === "move") return "bumped";
+  return status;
 }
 const RESCHEDULE_REASONS = [
   "Client Request", "Tech Unavailable", "Weather", "Holiday / Observed Holiday",
@@ -5276,17 +5287,18 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
           onClick={isEmptyFuture ? handleEmptyClick : undefined}
           title={isEmptyFuture ? `Schedule a job on ${ds}` : undefined}
           style={{
-            minHeight: 56, padding: "2px 3px", borderRadius: 5,
-            border: isHover ? "2px dashed #3B82F6" : isToday ? "1.5px solid #3B82F6" : "1.5px solid transparent",
-            background: isHover ? "#EFF6FF" : "transparent",
+            minHeight: 60, padding: "2px 3px", borderRadius: 6,
+            border: isHover ? "2px dashed #00C9A0" : isToday ? "1.5px solid #00C9A0" : "1px solid #EDEAE4",
+            background: isHover ? "#ECFBF6" : isPast ? "#FBFAF8" : "#FFFFFF",
+            boxShadow: isToday ? "0 0 0 1px #00C9A0" : "none",
             transition: "border 0.1s, background 0.1s",
             cursor: isEmptyFuture ? "pointer" : "default",
           }}
-          onMouseOver={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "#F8FAFC"; }}
-          onMouseOut={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+          onMouseOver={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "#F4FBF9"; }}
+          onMouseOut={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = isPast ? "#FBFAF8" : "#FFFFFF"; }}
         >
           <div style={{
-            fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? "#1D4ED8" : isPast ? "#9E9B94" : "#1A1917",
+            fontSize: 11, fontWeight: isToday ? 800 : 600, color: isToday ? "#00876d" : isPast ? "#B7B3AB" : "#1A1917",
             textAlign: "right", marginBottom: 1, lineHeight: "16px",
           }}>{d}</div>
           {jobs.map(j => {
@@ -5300,10 +5312,10 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
                 onClick={() => openJobCard(j)}
                 title={`${chip.tooltip}${j.scheduled_time ? " | " + String(j.scheduled_time).slice(0,5).replace(/^(\d+):(\d+)$/, (_, h, m) => `${parseInt(h) % 12 || 12}:${m} ${parseInt(h) < 12 ? "AM" : "PM"}`) : ""}${j.technician_name ? " · " + j.technician_name : ""}`}
                 style={{
-                  background: chip.bg, border: `1px solid ${chip.border}`, color: chip.text,
-                  borderRadius: 3, fontSize: 10, fontWeight: 600, padding: "1px 4px",
+                  background: chip.bg, borderLeft: `3px solid ${chip.border}`, color: chip.text,
+                  borderRadius: "0 4px 4px 0", fontSize: 10, fontWeight: 700, padding: "2px 5px",
                   marginBottom: 2, cursor: ro ? "default" : "grab", whiteSpace: "nowrap",
-                  overflow: "hidden", textOverflow: "ellipsis", lineHeight: "16px",
+                  overflow: "hidden", textOverflow: "ellipsis", lineHeight: "15px",
                   userSelect: "none",
                 }}
               >
