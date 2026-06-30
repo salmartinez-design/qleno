@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Upload, X, ImageIcon, CheckCircle, AlertCircle, RefreshCw, Link, Unlink, Clock, BarChart2, Mail, MessageSquare, ChevronDown, ChevronUp, Edit2, Save, Lock } from "lucide-react";
 import { HRPoliciesTab } from "./company/hr-policies";
 import { DocumentsTab } from "./company/documents";
+import { RichTextEditor, cleanHtml } from "@/components/rich-text-editor";
 import { PricingTab } from "./company/pricing";
 import { AddonsTab } from "./company/addons-tab";
 
@@ -1616,6 +1617,21 @@ const CM_SAMPLE: Record<string, string> = {
 function cmFill(s: string): string {
   return (s || "").replace(/\{\{([^}]+)\}\}/g, (_, k) => CM_SAMPLE[String(k).trim()] ?? "");
 }
+// Strip HTML to a clean one-line text excerpt for the collapsed message cards —
+// imported template bodies are full HTML (tags + inline styles), which read as
+// garbage when shown raw. Renders block boundaries as spaces and drops tags.
+function cmStrip(html: string): string {
+  if (!html) return "";
+  if (typeof document === "undefined") return html.replace(/<[^>]+>/g, " ");
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  return (el.textContent || "").replace(/\s+/g, " ").trim();
+}
+// Is this body raw HTML (vs plain text)? Decides email render path: HTML bodies
+// render via the editor + a rendered preview; plain bodies keep \n handling.
+function cmIsHtml(s: string): boolean {
+  return /<[a-z][\s\S]*>/i.test(s || "");
+}
 const CM_GROUPS: { key: string; title: string; sub: string }[] = [
   { key: "before", title: "Before the visit", sub: "Confirmation and reminders" },
   { key: "during", title: "During the visit", sub: "Day-of, while the team is en route" },
@@ -1732,7 +1748,11 @@ function NotificationsTab() {
 
   function startEdit(ch: any) {
     setEditingId(ch.id);
-    setEditBody(ch.body || "");
+    // [import-cleanup] Email bodies are HTML — many were imported from
+    // MaidCentral full of data-path-to-node cruft + bloated inline styles.
+    // Clean them as they're opened so the office edits (and re-saves) tidy
+    // markup. SMS bodies are plain text and left untouched.
+    setEditBody(ch.channel === "email" ? cleanHtml(ch.body || "") : (ch.body || ""));
     setEditSubject(ch.subject || "");
   }
 
@@ -1799,8 +1819,12 @@ function NotificationsTab() {
                 <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Email (leave blank to skip)</p>
                 <input value={addForm.email_subject} onChange={e => setAddForm({ ...addForm, email_subject: e.target.value })} placeholder="Email subject"
                   style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: 'border-box', marginBottom: 6 }} />
-                <textarea value={addForm.email_body} onChange={e => setAddForm({ ...addForm, email_body: e.target.value })} placeholder="Hi {{first_name}}, ..."
-                  style={{ width: '100%', height: 96, padding: '9px 11px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 12, fontFamily: FF, resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }} />
+                <RichTextEditor
+                  value={addForm.email_body}
+                  onChange={v => setAddForm({ ...addForm, email_body: v })}
+                  minHeight={120}
+                  mergeTags={(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => ({ key: `{{${v}}}`, desc: v }))}
+                />
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 <span style={{ fontSize: 10, color: '#9E9B94', alignSelf: 'center', marginRight: 2 }}>Tags:</span>
@@ -1891,8 +1915,8 @@ function NotificationsTab() {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: chTags[ch.channel]?.color }}>{chTags[ch.channel]?.label}</span>
                             {editingId !== ch.id && (
-                              <p style={{ fontSize: 12, color: ch.is_active ? '#374151' : '#9E9B94', margin: '4px 0 0', lineHeight: 1.5, whiteSpace: 'pre-wrap', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
-                                {ch.channel === 'email' && ch.subject ? <><strong>{cmFill(ch.subject)}</strong>{"\n"}</> : ""}{cmFill(ch.body)}
+                              <p style={{ fontSize: 12, color: ch.is_active ? '#374151' : '#9E9B94', margin: '4px 0 0', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                                {ch.channel === 'email' && ch.subject ? <><strong>{cmFill(ch.subject)}</strong>{" — "}</> : ""}{ch.channel === 'email' ? cmStrip(cmFill(ch.body)) : cmFill(ch.body)}
                               </p>
                             )}
                           </div>
@@ -1919,22 +1943,44 @@ function NotificationsTab() {
                             )}
                             <div>
                               <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{ch.channel === 'email' ? 'Email Body' : 'Text Message'}</p>
-                              <textarea value={editBody} onChange={e => setEditBody(e.target.value)}
-                                style={{ width: '100%', height: ch.channel === 'email' ? 150 : 90, padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 12, fontFamily: FF, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }}/>
+                              {ch.channel === 'email' ? (
+                                /* Rich editor — the office edits formatted text, never raw HTML.
+                                   Its toolbar carries the merge-tag inserts, so the separate chip
+                                   row below is SMS-only. */
+                                <RichTextEditor
+                                  value={editBody}
+                                  onChange={setEditBody}
+                                  minHeight={180}
+                                  mergeTags={(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => ({ key: `{{${v}}}`, desc: v }))}
+                                />
+                              ) : (
+                                <textarea value={editBody} onChange={e => setEditBody(e.target.value)}
+                                  style={{ width: '100%', height: 90, padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 12, fontFamily: FF, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }}/>
+                              )}
                             </div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                              <span style={{ fontSize: 10, color: '#9E9B94', alignSelf: 'center', marginRight: 2 }}>Insert:</span>
-                              {(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => (
-                                <button key={v} onClick={() => setEditBody(b => b + `{{${v}}}`)}
-                                  style={{ fontSize: 10, color: '#7C3AED', background: '#EDE9FE', border: 'none', borderRadius: 4, padding: '2px 7px', cursor: 'pointer', fontFamily: FF }}>
-                                  {`{{${v}}}`}
-                                </button>
-                              ))}
-                            </div>
+                            {ch.channel !== 'email' && (
+                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                                <span style={{ fontSize: 10, color: '#9E9B94', alignSelf: 'center', marginRight: 2 }}>Insert:</span>
+                                {(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => (
+                                  <button key={v} onClick={() => setEditBody(b => b + `{{${v}}}`)}
+                                    style={{ fontSize: 10, color: '#7C3AED', background: '#EDE9FE', border: 'none', borderRadius: 4, padding: '2px 7px', cursor: 'pointer', fontFamily: FF }}>
+                                    {`{{${v}}}`}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
                             <div style={{ background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 7, padding: '10px 12px' }}>
                               <p style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Preview (sample customer)</p>
-                              {ch.channel === 'email' && editSubject && <p style={{ fontSize: 12, fontWeight: 700, color: '#1A1917', margin: '0 0 4px' }}>{cmFill(editSubject)}</p>}
-                              <p style={{ fontSize: 12, color: '#374151', margin: 0, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{cmFill(editBody)}</p>
+                              {ch.channel === 'email' ? (
+                                <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 6, padding: '14px 16px' }}>
+                                  {editSubject && <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 8px', paddingBottom: 8, borderBottom: '1px solid #F0EEE9' }}>{cmFill(editSubject)}</p>}
+                                  {cmIsHtml(editBody)
+                                    ? <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: cmFill(editBody) }}/>
+                                    : <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{cmFill(editBody)}</p>}
+                                </div>
+                              ) : (
+                                <p style={{ fontSize: 12, color: '#374151', margin: 0, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{cmFill(editBody)}</p>
+                              )}
                             </div>
                             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
                               <button onClick={() => setEditingId(null)}

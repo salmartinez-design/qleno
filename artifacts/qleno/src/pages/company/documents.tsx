@@ -2,10 +2,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders } from "@/lib/auth";
 import {
-  Plus, Edit2, Eye, X, Save, ChevronLeft, Bold, Italic, Underline,
-  List, ListOrdered, Minus, AlignLeft, FileText, AlertTriangle,
+  Plus, Edit2, Eye, X, Save, ChevronLeft, FileText, AlertTriangle,
   ToggleLeft, ToggleRight, CheckSquare, Square,
 } from "lucide-react";
+import { RichTextEditor } from "@/components/rich-text-editor";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -63,105 +63,6 @@ type Template = {
 };
 
 type EditorMode = "list" | "editor" | "preview";
-
-function RichTextEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const isInternalChange = useRef(false);
-
-  useEffect(() => {
-    if (ref.current && !isInternalChange.current && ref.current.innerHTML !== value) {
-      ref.current.innerHTML = value;
-    }
-    isInternalChange.current = false;
-  }, [value]);
-
-  const exec = useCallback((cmd: string, val?: string) => {
-    ref.current?.focus();
-    document.execCommand(cmd, false, val);
-    ref.current?.focus();
-    if (ref.current) {
-      isInternalChange.current = true;
-      onChange(ref.current.innerHTML);
-    }
-  }, [onChange]);
-
-  const onInput = useCallback(() => {
-    if (ref.current) {
-      isInternalChange.current = true;
-      onChange(ref.current.innerHTML);
-    }
-  }, [onChange]);
-
-  const insertVariable = (key: string) => {
-    ref.current?.focus();
-    document.execCommand("insertText", false, key);
-    if (ref.current) {
-      isInternalChange.current = true;
-      onChange(ref.current.innerHTML);
-    }
-  };
-
-  const toolBtn = (onClick: () => void, icon: React.ReactNode, title: string) => (
-    <button
-      key={title}
-      onMouseDown={e => { e.preventDefault(); onClick(); }}
-      title={title}
-      style={{
-        width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center",
-        background: "none", border: "1px solid #E5E2DC", borderRadius: 5,
-        cursor: "pointer", color: "#6B7280",
-      }}
-    >{icon}</button>
-  );
-
-  return (
-    <div style={{ border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
-      <div style={{
-        display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 10px",
-        borderBottom: "1px solid #E5E2DC", background: "#F7F6F3",
-      }}>
-        {toolBtn(() => exec("bold"), <Bold size={13}/>, "Bold")}
-        {toolBtn(() => exec("italic"), <Italic size={13}/>, "Italic")}
-        {toolBtn(() => exec("underline"), <Underline size={13}/>, "Underline")}
-        <div style={{ width: 1, background: "#E5E2DC", margin: "2px 2px" }}/>
-        {toolBtn(() => exec("formatBlock", "<h2>"), <span style={{ fontSize: 11, fontWeight: 700 }}>H2</span>, "Heading 2")}
-        {toolBtn(() => exec("formatBlock", "<h3>"), <span style={{ fontSize: 11, fontWeight: 700 }}>H3</span>, "Heading 3")}
-        {toolBtn(() => exec("formatBlock", "<p>"), <AlignLeft size={13}/>, "Paragraph")}
-        <div style={{ width: 1, background: "#E5E2DC", margin: "2px 2px" }}/>
-        {toolBtn(() => exec("insertUnorderedList"), <List size={13}/>, "Bullet list")}
-        {toolBtn(() => exec("insertOrderedList"), <ListOrdered size={13}/>, "Numbered list")}
-        {toolBtn(() => exec("insertHorizontalRule"), <Minus size={13}/>, "Divider")}
-        <div style={{ width: 1, background: "#E5E2DC", margin: "2px 2px" }}/>
-        <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
-          <span style={{ fontSize: 11, color: "#9E9B94", fontWeight: 600 }}>Insert:</span>
-          {VARIABLES.map(v => (
-            <button
-              key={v.key}
-              onMouseDown={e => { e.preventDefault(); insertVariable(v.key); }}
-              title={v.desc}
-              style={{
-                padding: "2px 7px", fontSize: 10, fontWeight: 600, color: "var(--brand, #00C9A0)",
-                background: "var(--brand-dim, #E8FDF8)", border: "1px solid var(--brand, #00C9A0)",
-                borderRadius: 4, cursor: "pointer", fontFamily: "inherit",
-              }}
-            >{v.key.replace(/[{}]/g, "")}</button>
-          ))}
-        </div>
-      </div>
-      <div
-        ref={ref}
-        contentEditable
-        suppressContentEditableWarning
-        onInput={onInput}
-        style={{
-          minHeight: 320, padding: 16, outline: "none",
-          fontSize: 14, lineHeight: 1.6, color: "#1A1917",
-          fontFamily: "'Plus Jakarta Sans', sans-serif",
-        }}
-      />
-    </div>
-  );
-}
 
 function TemplateEditor({
   template,
@@ -276,7 +177,7 @@ function TemplateEditor({
 
       <div>
         <label style={label}>Document Content</label>
-        <RichTextEditor value={content} onChange={setContent}/>
+        <RichTextEditor value={content} onChange={setContent} mergeTags={VARIABLES}/>
       </div>
 
       <div style={{ background: "#FEF9EC", border: "1px solid #FDE68A", borderRadius: 8, padding: "12px 16px", display: "flex", gap: 10, alignItems: "flex-start" }}>
