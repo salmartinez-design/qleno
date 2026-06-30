@@ -1610,8 +1610,15 @@ function SmsSmsSettingsCard() {
 const CM_SAMPLE: Record<string, string> = {
   first_name: "Maria", client_name: "Maria Gomez", company_name: "Phes",
   company_phone: "(708) 974-5517", company_email: "info@phes.io",
-  service_type: "Standard Cleaning", date: "Fri, Jun 26", time: "9:00 AM",
-  arrival_window: "9:00 AM – 12:00 PM", service_address: "123 Oak St, Oak Lawn, IL 60453",
+  service_type: "Standard Cleaning", date: "Friday, June 27, 2026", time: "9:00 AM",
+  // The deployed templates use the appointment_* tag names (matching what the
+  // send paths now supply via buildAppointmentVars). Keep these in the preview
+  // sample so the on-screen preview never shows a blank date/time/window while
+  // the real message fills it. Mirror date/time/window across both naming
+  // conventions.
+  appointment_date: "Friday, June 27, 2026", appointment_time: "9:00 AM",
+  arrival_window: "9:00 AM – 12:00 PM", appointment_window: "9:00 AM – 12:00 PM",
+  service_address: "123 Oak St, Oak Lawn, IL 60453",
   tech_name: "Ana", appointment_link: "https://phes.io/appt/1234", review_link: "https://phes.io/review/1234",
 };
 function cmFill(s: string): string {
