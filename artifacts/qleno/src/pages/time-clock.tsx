@@ -42,17 +42,31 @@ function isoToHHMM(iso: string | null): string {
 function hhmmToISO(dateStr: string, hhmm: string): string { return `${dateStr}T${hhmm}:00`; }
 // Typed-time parsing so the field is a plain text box ("9:16 AM") instead of
 // the native time-wheel — reliable to type for humans and trivial for an
-// automation agent to fill. Accepts "9:16 AM", "9:16am", "13:05", "09:16".
-// Returns 24h "HH:MM" or null when unparseable.
+// automation agent to fill. The colon is OPTIONAL: bare digits autocomplete
+// (916 → 9:16, 1305 → 13:05, 9 → 9:00, 930pm → 9:30 PM) so the office can punch
+// times fast without reaching for ":". onBlur reformats to "9:16 AM" via
+// hh24ToDisplay. Also accepts "9:16 AM", "9:16am", "13:05", "09:16". Returns
+// 24h "HH:MM" or null when unparseable.
 function parseTimeInput(raw: string): string | null {
-  const s = (raw || "").trim().toLowerCase().replace(/\s+/g, " ");
+  let s = (raw || "").trim().toLowerCase().replace(/\s+/g, "");
   if (!s) return null;
-  const m = s.match(/^(\d{1,2}):(\d{2})\s*(a\.?m\.?|p\.?m\.?)?$/);
-  if (!m) return null;
-  let h = parseInt(m[1], 10);
-  const min = parseInt(m[2], 10);
-  if (min > 59) return null;
-  const mer = m[3] ? m[3][0] : "";
+  // Peel a trailing am/pm (with or without dots) off first: "930pm", "9p", "12a.m."
+  let mer = "";
+  const mm = s.match(/(a|p)\.?m?\.?$/);
+  if (mm) { mer = mm[1]; s = s.slice(0, mm.index); }
+  let h: number, min: number;
+  if (s.includes(":")) {
+    const m = s.match(/^(\d{1,2}):(\d{2})$/);
+    if (!m) return null;
+    h = parseInt(m[1], 10); min = parseInt(m[2], 10);
+  } else {
+    // Bare digits: 1–2 → hour only (min 00), 3 → H:MM, 4 → HH:MM.
+    if (!/^\d{1,4}$/.test(s)) return null;
+    if (s.length <= 2) { h = parseInt(s, 10); min = 0; }
+    else if (s.length === 3) { h = parseInt(s.slice(0, 1), 10); min = parseInt(s.slice(1), 10); }
+    else { h = parseInt(s.slice(0, 2), 10); min = parseInt(s.slice(2), 10); }
+  }
+  if (!Number.isFinite(h) || !Number.isFinite(min) || min > 59) return null;
   if (mer) {
     if (h < 1 || h > 12) return null;
     if (mer === "p" && h !== 12) h += 12;
@@ -70,6 +84,10 @@ function hh24ToDisplay(hhmm: string): string {
 }
 function isoToDisplay(iso: string | null): string { return hh24ToDisplay(isoToHHMM(iso)); }
 function fmtHrs(min: number) { const h = Math.floor(min / 60), m = min % 60; return h > 0 ? `${h}h ${m}m` : `${m}m`; }
+// Decimal-hours form of a minute count, shown ALONGSIDE the standard h/m form
+// (Francisco's request: see "4h 30m" and "4.5h" together). Trailing zeros are
+// trimmed so a whole hour reads "4h", not "4.00h".
+function fmtHrsDec(min: number) { return `${(min / 60).toFixed(2).replace(/\.?0+$/, "")}h`; }
 function fmtClock(iso: string | null) {
   const hhmm = isoToHHMM(iso);
   return hhmm ? hh24ToDisplay(hhmm) : "—";
@@ -329,8 +347,9 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
           onBlur={() => { const p = parseTimeInput(outVal); if (p) setOutVal(hh24ToDisplay(p)); }}
           style={{ ...inputStyle, borderColor: outInvalid ? "#EF4444" : outEmpty ? "#ECEAE5" : "#E5E2DC", background: outEmpty ? "#FAFAF8" : "#fff" }} />
       </div>
-      <div style={{ width: 56, textAlign: "right", fontSize: 12, fontWeight: 700, color: liveMins != null ? "#1A1917" : "#C4C0BB" }}>
-        {liveMins != null ? fmtHrs(liveMins) : (parsedIn && !parsedOut ? "open" : "—")}
+      <div style={{ width: 66, textAlign: "right", color: liveMins != null ? "#1A1917" : "#C4C0BB" }}>
+        <div style={{ fontSize: 12, fontWeight: 700 }}>{liveMins != null ? fmtHrs(liveMins) : (parsedIn && !parsedOut ? "open" : "—")}</div>
+        {liveMins != null && <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94" }}>{fmtHrsDec(liveMins)}</div>}
       </div>
       <div style={{ width: 70, textAlign: "right", fontSize: 13, fontWeight: 800, color: row.pay_kind === "cancellation" ? "#B45309" : (row.pay != null && row.pay > 0 ? "#0A7C66" : "#C4C0BB") }}
         title={row.pay_kind === "cancellation"
@@ -543,7 +562,7 @@ export default function TimeClockPage() {
           <Stat label="People" value={String(employees.length)} />
           <Stat label="Jobs" value={String(jobCount)} />
           <Stat label="Punched" value={`${totalPunches}/${totalRows}`} accent={totalPunches < totalRows ? "#B45309" : "#16A34A"} />
-          <Stat label="Worked hours" value={fmtHrs(totalWorked)} />
+          <Stat label="Worked hours" value={fmtHrs(totalWorked)} sub={fmtHrsDec(totalWorked)} />
           <Stat label="Revenue" value={`$${revenue.toFixed(2)}`} />
           <Stat label="Commission" value={`$${totalPay.toFixed(2)}`} accent="#0A7C66" />
           <Stat label="Payroll %" value={payrollPct != null ? `${payrollPct.toFixed(1)}%` : "—"}
@@ -581,7 +600,7 @@ export default function TimeClockPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 12, color: "#6B6860" }}>
                     {emp.day_start && <span>{fmtClock(emp.day_start)} – {emp.open ? "on clock" : fmtClock(emp.day_end)}</span>}
                     <span style={{ color: punched < emp.rows.length ? "#B45309" : "#16A34A", fontWeight: 700 }}>{punched}/{emp.rows.length} punched</span>
-                    <span style={{ fontWeight: 800, color: "#1A1917" }}>{fmtHrs(emp.worked_minutes)}</span>
+                    <span style={{ fontWeight: 800, color: "#1A1917" }}>{fmtHrs(emp.worked_minutes)} <span style={{ fontWeight: 600, color: "#9E9B94" }}>· {fmtHrsDec(emp.worked_minutes)}</span></span>
                     {emp.pay_total != null && <span style={{ fontWeight: 800, color: "#0A7C66" }}>${emp.pay_total.toFixed(2)}</span>}
                   </div>
                 </div>
@@ -601,14 +620,17 @@ export default function TimeClockPage() {
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
+function Stat({ label, value, accent, sub }: { label: string; value: string; accent?: string; sub?: string }) {
   // The parent grid owns the column width (fixed, content-independent), so each
   // metric always lands in the same place day to day. minWidth:0 lets the cell
   // be governed by the grid track rather than the stat's own content width.
+  // `sub` is an optional secondary line (e.g. the decimal-hours form under the
+  // standard h/m worked total).
   return (
     <div style={{ minWidth: 0 }}>
       <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", whiteSpace: "nowrap" }}>{label}</div>
       <div style={{ fontSize: 18, fontWeight: 800, color: accent ?? "#1A1917", marginTop: 2, whiteSpace: "nowrap" }}>{value}</div>
+      {sub && <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", whiteSpace: "nowrap" }}>{sub}</div>}
     </div>
   );
 }
