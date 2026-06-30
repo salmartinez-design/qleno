@@ -71,7 +71,7 @@ const NAV_SECTIONS = [
   {
     label: "Sales",
     items: [
-      { title: "Pipeline", url: "/leads", icon: UserPlus, roles: ["owner", "admin", "office", "super_admin"], badge: "needs_contacted" },
+      { title: "Leads", url: "/leads", icon: UserPlus, roles: ["owner", "admin", "office", "super_admin"], badge: "needs_contacted" },
       { title: "Estimates", url: "/estimates", icon: Calculator, roles: ["owner", "admin", "office", "super_admin"] },
     ],
   },

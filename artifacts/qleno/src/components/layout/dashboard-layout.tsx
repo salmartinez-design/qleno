@@ -90,7 +90,7 @@ function getBottomTabs(role?: string) {
 
 const MORE_CARDS = [
   // Sales / pipeline (were unreachable on mobile)
-  { title: 'Pipeline',       href: '/leads',              icon: UserPlus    },
+  { title: 'Leads',          href: '/leads',              icon: UserPlus    },
   { title: 'Estimates',      href: '/estimates',          icon: ClipboardList },
   { title: 'Accounts',       href: '/accounts',           icon: Building2   },
   // Team / time
