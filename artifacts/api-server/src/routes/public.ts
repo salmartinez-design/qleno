@@ -11,7 +11,7 @@ import { companiesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getBranchByZip } from "../lib/branchRouter";
 import { buildClientConfirmationEmail, buildOfficeNotificationEmail } from "../lib/emailTemplates";
-import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking } from "../services/followUpService.js";
+import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
 
 const router = Router();
 
@@ -1556,6 +1556,11 @@ router.post("/leads", rateLimit, async (req, res) => {
     `);
     const leadId = (insertResult.rows[0] as any)?.id;
 
+    // [lead-drip-autoenroll] Un-booked online lead → start the online-quote
+    // nurture drip (lead_drip_web), same as the office path does. Idempotent +
+    // fire-and-forget; no-ops if the sequence is inactive.
+    if (leadId) enrollForLeadDrip(Number(company_id), leadId, "web_quote").catch(() => {});
+
     // Office SMS alert (per-tenant) — FROM the tenant's own number via
     // resolveSender, TO the tenant's lead_notify_phone. No global-env / Oak Lawn.
     try {
@@ -1631,12 +1636,16 @@ router.post("/leads/post-construction", rateLimit, async (req, res) => {
 
     // ── Insert lead ───────────────────────────────────────────────────────────
     const { sql: drizzleSql } = await import("drizzle-orm");
-    await db.execute(drizzleSql`
+    const pcInsert = await db.execute(drizzleSql`
       INSERT INTO leads (company_id, first_name, last_name, email, phone, address, lead_type, source, status, construction_type, completion_date, notes, sqft, created_at, updated_at)
       VALUES (${company_id}, ${first_name}, ${last_name || null}, ${email}, ${phone || null}, ${address || null},
               'post_construction', 'widget', 'new', ${construction_type}, ${completion_date}, ${notes || null},
               ${sqft ? parseInt(sqft) : null}, NOW(), NOW())
+      RETURNING id
     `);
+    // [lead-drip-autoenroll] Online post-construction inquiry → online-quote drip.
+    const pcLeadId = (pcInsert.rows[0] as any)?.id;
+    if (pcLeadId) enrollForLeadDrip(Number(company_id), pcLeadId, "web_quote").catch(() => {});
 
     // ── Send email to PHES office ─────────────────────────────────────────────
     const resendKey = process.env.RESEND_API_KEY;
