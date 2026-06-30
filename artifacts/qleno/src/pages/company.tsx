@@ -1493,7 +1493,7 @@ const SMS_TOGGLES = [
   { key: "sms_complete_enabled",   label: "Job Complete", desc: "Sent when employee clocks out after completing the job" },
 ] as const;
 
-function SmsSmsSettingsCard() {
+function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: string; channel: string }) => void }) {
   const { toast } = useToast();
   const FF = "'Plus Jakarta Sans', sans-serif";
   const [settings, setSettings] = useState<Record<string, boolean>>({
@@ -1554,18 +1554,24 @@ function SmsSmsSettingsCard() {
               <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 2px' }}>{t.label}</p>
               <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{t.desc}</p>
             </div>
-            <button
-              onClick={() => setSettings(prev => ({ ...prev, [t.key]: !prev[t.key] }))}
-              style={{
-                width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                background: settings[t.key] ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-              }}>
-              <div style={{
-                width: 18, height: 18, borderRadius: 9, background: '#fff',
-                position: 'absolute', top: 3, left: settings[t.key] ? 23 : 3,
-                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-              }} />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+              <button onClick={() => onTest({ key: `jobstatus_${t.key.replace(/^sms_/, '').replace(/_enabled$/, '')}`, label: t.label, channel: 'sms' })} title="Send a [TEST] copy to yourself"
+                style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
+                Send Test
+              </button>
+              <button
+                onClick={() => setSettings(prev => ({ ...prev, [t.key]: !prev[t.key] }))}
+                style={{
+                  width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+                  background: settings[t.key] ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                }}>
+                <div style={{
+                  width: 18, height: 18, borderRadius: 9, background: '#fff',
+                  position: 'absolute', top: 3, left: settings[t.key] ? 23 : 3,
+                  transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                }} />
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -1649,6 +1655,7 @@ const CM_GROUPS: { key: string; title: string; sub: string }[] = [
 
 function NotificationsTab() {
   const { toast } = useToast();
+  const { activeBranchId } = useBranch();
   const [messages, setMessages] = useState<any[]>([]);
   const [mergeTags, setMergeTags] = useState<string[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
@@ -1665,6 +1672,45 @@ function NotificationsTab() {
   const blankAdd = { label: "", anchor: "before_appointment", offset_days: 1, send_hour: 9, email_subject: "", email_body: "", sms_body: "" };
   const [addForm, setAddForm] = useState<any>(blankAdd);
   const [addBusy, setAddBusy] = useState(false);
+  // Send Test: open a small confirm with an editable recipient, then deliver a
+  // [TEST]-tagged copy of THIS template (sample data) to staff via the test-send
+  // API. Isolated from Recent Sends + all automations (backend guarantees it).
+  const [testFor, setTestFor] = useState<{ key: string; label: string; channel: string } | null>(null);
+  const [testRecipient, setTestRecipient] = useState("");
+  const [testBusy, setTestBusy] = useState(false);
+
+  function openTest(t: { key: string; label: string; channel: string }) {
+    setTestFor(t);
+    setTestRecipient("");
+  }
+  async function sendTest() {
+    if (!testFor) return;
+    const isSms = testFor.channel === "sms";
+    const rec = testRecipient.trim();
+    if (isSms && !rec) { toast({ title: "Enter a phone number for the test text", variant: "destructive" }); return; }
+    setTestBusy(true);
+    try {
+      const r = await fetch(`${API}/api/notifications/test-send`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template_key: testFor.key,
+          channel: testFor.channel,
+          fixture: "sample",
+          recipient_override: rec || null,
+          branch_id: activeBranchId === "all" ? null : activeBranchId,
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.status === "failed") {
+        toast({ title: j.message || j.error || "Test failed to send", variant: "destructive" });
+      } else {
+        toast({ title: `Test ${isSms ? "text" : "email"} sent to ${j.recipient}` });
+        setTestFor(null);
+      }
+    } catch { toast({ title: "Test failed to send", variant: "destructive" }); }
+    finally { setTestBusy(false); }
+  }
 
   async function load() {
     try {
@@ -1940,6 +1986,10 @@ function NotificationsTab() {
                               style={{ fontSize: 11, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
                               {editingId === ch.id ? "Cancel" : "Edit"}
                             </button>
+                            <button onClick={() => openTest({ key: msg.key, label: msg.label, channel: ch.channel })} title="Send a [TEST] copy to yourself"
+                              style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
+                              Send Test
+                            </button>
                           </div>
                         </div>
 
@@ -1966,13 +2016,40 @@ function NotificationsTab() {
         );
       })}
 
-      <OfficeNotificationsCard />
-      <SmsSmsSettingsCard />
+      <OfficeNotificationsCard onTest={openTest} />
+      <SmsSmsSettingsCard onTest={openTest} />
+
+      {testFor && (
+        <div onClick={() => !testBusy && setTestFor(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 24, width: 400, maxWidth: '100%', fontFamily: FF }}>
+            <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 6px' }}>Send a test {testFor.channel === 'sms' ? 'text' : 'email'}</p>
+            <p style={{ fontSize: 12.5, color: '#6B7280', margin: '0 0 14px', lineHeight: 1.5 }}>
+              “{testFor.label}” will be sent to YOU with sample data, tagged <strong>[TEST]</strong>. The customer never receives it.
+              {testFor.channel === 'sms' && <span style={{ color: '#B45309' }}> This sends a real text via Twilio (about 1¢).</span>}
+            </p>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{testFor.channel === 'sms' ? 'Send text to (phone)' : 'Send email to'}</label>
+            <input
+              type={testFor.channel === 'sms' ? 'tel' : 'email'}
+              value={testRecipient}
+              onChange={e => setTestRecipient(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') sendTest(); }}
+              placeholder={testFor.channel === 'sms' ? '+1 555 123 4567' : 'you@yourcompany.com'}
+              autoFocus
+              style={{ width: '100%', boxSizing: 'border-box', padding: '9px 11px', border: '1px solid #E5E2DC', borderRadius: 8, fontFamily: FF, fontSize: 13, margin: '6px 0 4px' }}
+            />
+            <p style={{ fontSize: 11, color: '#9E9B94', margin: '0 0 18px' }}>{testFor.channel === 'sms' ? 'Required — the cell you’ll check.' : 'Leave blank to use your login email.'}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button disabled={testBusy} onClick={() => setTestFor(null)} style={{ fontSize: 12, color: '#6B7280', background: 'none', border: 'none', cursor: testBusy ? 'not-allowed' : 'pointer', fontFamily: FF }}>Cancel</button>
+              <button disabled={testBusy} onClick={sendTest} style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--brand, #5B9BD5)', border: 'none', borderRadius: 6, padding: '8px 16px', cursor: testBusy ? 'not-allowed' : 'pointer', fontFamily: FF }}>{testBusy ? 'Sending…' : 'Send Test'}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function OfficeNotificationsCard() {
+function OfficeNotificationsCard({ onTest }: { onTest: (t: { key: string; label: string; channel: string }) => void }) {
   const { toast } = useToast();
   const FF = "'Plus Jakarta Sans', sans-serif";
   const [showZone, setShowZone] = useState(true);
@@ -2028,9 +2105,15 @@ function OfficeNotificationsCard() {
 
   return (
     <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '18px 20px', marginBottom: 12, fontFamily: FF }}>
-      <div style={{ marginBottom: 14 }}>
-        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Office Booking Notification</p>
-        <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Controls what appears in the email your office receives when a new booking comes in online.</p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+        <div>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Office Booking Notification</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Controls what appears in the email your office receives when a new booking comes in online.</p>
+        </div>
+        <button onClick={() => onTest({ key: 'office_booking', label: 'Office Booking Notification', channel: 'email' })} title="Send a [TEST] copy to yourself"
+          style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600, flexShrink: 0 }}>
+          Send Test
+        </button>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
         {rows.map(row => (

@@ -9,6 +9,7 @@ import {
   ensureCustomerMessageTemplates,
   ensureCustomerMessageSchedules,
 } from "../lib/customer-messages.js";
+import { sendTestNotification, assertUnderRateLimit, TestSendError } from "../services/testSendService.js";
 
 // Friendly "when does it send" string for an offset (cron-driven) message.
 function formatOffsetTiming(anchor: string, days: number | null, hour: number | null): string {
@@ -282,6 +283,48 @@ router.post("/templates/:id/test", requireAuth, requireRole("owner", "admin"), a
     return res.json({ success: true, message: `Test notification logged for trigger: ${template.trigger}` });
   } catch (err) {
     console.error("Test notification error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Send Test ────────────────────────────────────────────────────────────────
+// Render a real customer-message template with sample data and deliver it to the
+// logged-in staff member (or an entered override), tagged "[TEST]". Isolated
+// from Recent Sends and all automations — see services/testSendService.ts.
+//   Body: { template_key, channel: "email"|"sms",
+//           fixture: "sample" | { appointment_id }, recipient_override?, branch_id? }
+router.post("/test-send", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const b = req.body ?? {};
+    const templateKey = String(b.template_key || "").trim();
+    const channel = b.channel === "sms" ? "sms" : b.channel === "email" ? "email" : null;
+    if (!templateKey) return res.status(400).json({ error: "template_key required" });
+    if (!channel) return res.status(400).json({ error: "channel must be 'email' or 'sms'" });
+    const fixture = b.fixture === "sample" || (b.fixture && typeof b.fixture === "object" && b.fixture.appointment_id != null)
+      ? b.fixture
+      : "sample";
+    const branchIdRaw = b.branch_id;
+    const branchId = branchIdRaw == null || branchIdRaw === "all" ? null : Number(branchIdRaw);
+
+    await assertUnderRateLimit(userId);
+    const result = await sendTestNotification({
+      companyId,
+      userId,
+      userLoginEmail: req.auth!.email,
+      branchId: Number.isFinite(branchId as number) ? (branchId as number) : null,
+      templateKey,
+      channel,
+      fixture,
+      recipientOverride: b.recipient_override ?? null,
+    });
+    return res.json(result);
+  } catch (err) {
+    if (err instanceof TestSendError) {
+      return res.status(err.httpStatus).json({ error: err.code, message: err.message });
+    }
+    console.error("Test send error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

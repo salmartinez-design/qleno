@@ -8,7 +8,9 @@ import { isSmsOptedOut } from "../lib/opt-out.js";
 
 const router = Router();
 
-const SMS_MESSAGES: Record<string, (name: string, client: string, addr: string) => string> = {
+// Exported so the Send Test feature can render the exact same job-status SMS
+// bodies with sample data (testSendService) — keep this the single source.
+export const SMS_MESSAGES: Record<string, (name: string, client: string, addr: string) => string> = {
   on_my_way: (name, client, addr) => `Hi ${client}! Your cleaner ${name} is on their way to ${addr}. They'll arrive shortly!`,
   arrived:   (name, client, addr) => `Hi ${client}! ${name} has arrived at ${addr} and is starting your clean.`,
   paused:    (name, client, addr) => `Hi ${client}! ${name} has paused your clean at ${addr} and will resume shortly.`,

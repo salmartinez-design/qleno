@@ -1,6 +1,7 @@
 export * from "./companies";
 export * from "./branches";
 export * from "./users";
+export * from "./test_sends";
 export * from "./message_templates";
 export * from "./referral_partners";
 // [lead-pipeline-foundation 2026-06-25] Typed lead pipeline + cadence engine
