@@ -125,27 +125,49 @@ export default function SurveyPage() {
   // already saved; a note is a bonus, never required.
   if (submitted) {
     const chosen = OPTIONS.find(o => o.score === score);
+    // [review-funnel] Only happy raters (3–4) are routed to a public Google
+    // review; everyone else gets a private "make it right" note instead.
+    const happy = score != null && score >= 3;
+    const reviewLink: string | null = meta?.google_review_link || null;
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "flex-start", justifyContent: "center", background: "#F8F7F4", fontFamily: FF, padding: "24px 16px" }}>
         <div style={{ background: "#FFFFFF", borderRadius: 16, padding: "40px 28px", maxWidth: 440, width: "100%", textAlign: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", marginTop: 24 }}>
           <CheckCircle size={48} style={{ color: brand, marginBottom: 14 }} />
-          <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 8px" }}>Thank you for your feedback.</h2>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 8px" }}>
+            {happy ? "So glad we hit the mark!" : "Thank you for your feedback."}
+          </h2>
           {chosen && (
-            <p style={{ fontSize: 14, color: "#6B7280", margin: "0 0 4px" }}>
+            <p style={{ fontSize: 14, color: "#6B7280", margin: "0 0 16px" }}>
               You rated us <span style={{ color: chosen.color, fontWeight: 700 }}>{chosen.label}</span>.
             </p>
           )}
-          <p style={{ fontSize: 14, color: "#6B7280", margin: "0 0 22px", lineHeight: "1.6" }}>
-            We appreciate you trusting us with your home.
-          </p>
+
+          {happy && reviewLink && (
+            <div style={{ marginBottom: 22 }}>
+              <p style={{ fontSize: 14, color: "#1A1917", margin: "0 0 14px", lineHeight: "1.6" }}>
+                Would you mind sharing that with a quick Google review? It means the world to our team.
+              </p>
+              <a href={reviewLink} target="_blank" rel="noopener noreferrer" style={{
+                display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                padding: "13px 0", backgroundColor: brand, color: "#FFFFFF", textDecoration: "none",
+                borderRadius: 10, fontSize: 14, fontWeight: 700, fontFamily: FF,
+              }}>Leave a Google review</a>
+            </div>
+          )}
+
+          {!happy && (
+            <p style={{ fontSize: 14, color: "#6B7280", margin: "0 0 22px", lineHeight: "1.6" }}>
+              We're sorry we missed the mark — we'd like to make it right.
+            </p>
+          )}
 
           {!commentSent ? (
             <div style={{ textAlign: "left" }}>
               <label style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", display: "block", marginBottom: 8 }}>
-                Want to add a quick note? <span style={{ color: "#9E9B94", fontWeight: 400 }}>(optional)</span>
+                {happy ? "Want to add a quick note?" : "Tell us what we can do better"} <span style={{ color: "#9E9B94", fontWeight: 400 }}>(optional)</span>
               </label>
               <textarea value={comment} onChange={e => setComment(e.target.value)} rows={3}
-                placeholder="Tell us anything that stood out."
+                placeholder={happy ? "Tell us anything that stood out." : "We read every note and will follow up."}
                 style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, resize: "vertical" as const, fontFamily: FF, outline: "none", boxSizing: "border-box" as const, marginBottom: 12 }} />
               <button onClick={sendComment} disabled={!comment.trim() || savingComment}
                 style={{
