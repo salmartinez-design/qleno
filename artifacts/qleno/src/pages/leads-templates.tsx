@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Link } from "wouter";
 import { Plus, X, Loader2, MessageSquare, Mail, ChevronLeft, Copy, Trash2, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { MessagePreview } from "@/components/message-preview";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -100,10 +101,11 @@ function TemplateDrawer({ template, onClose, onSaved }:
             <textarea value={form.body} onChange={e => set("body", e.target.value)}
               placeholder={"Hi {{first_name}}, just following up on your quote…"}
               style={{ ...taStyle, minHeight: form.channel === "sms" ? 120 : 200 }} />
-            <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 6 }}>
+            <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 6, marginBottom: 10 }}>
               Merge fields use <code style={{ background: "#F2F1ED", padding: "1px 5px", borderRadius: 4 }}>{"{{first_name}}"}</code>,
               {" "}<code style={{ background: "#F2F1ED", padding: "1px 5px", borderRadius: 4 }}>{"{{quote_amount}}"}</code>, etc.
             </div>
+            <MessagePreview channel={form.channel === "sms" ? "sms" : "email"} subject={form.channel === "email" ? form.subject : undefined} body={form.body} />
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, alignItems: "end" }}>
             <div>
