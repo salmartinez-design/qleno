@@ -179,6 +179,32 @@ async function runBookingSchemaGuard(): Promise<void> {
     // /api/auth/login on success. Distinct from lms_enrollments.
     // last_activity_at (quiz-submit ticks only).
     { label: "users.last_login_at", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ" },
+    // [notification-test-sends 2026-06-30] Backend for the "Send Test" feature.
+    // Optional dedicated test destinations on users + an isolated ledger table.
+    // test_sends is intentionally separate from notification_log so test sends
+    // never pollute "Recent Sends" and never touch a real customer record.
+    { label: "users.test_email", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS test_email TEXT" },
+    { label: "users.test_phone", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS test_phone TEXT" },
+    { label: "test_sends table", stmt: `
+      CREATE TABLE IF NOT EXISTS test_sends (
+        id                  SERIAL PRIMARY KEY,
+        company_id          INTEGER NOT NULL,
+        branch_id           INTEGER,
+        user_id             INTEGER,
+        template_key        TEXT NOT NULL,
+        channel             TEXT NOT NULL,
+        recipient           TEXT,
+        subject             TEXT,
+        body                TEXT,
+        merge_data_json     JSONB,
+        fixture_source      TEXT,
+        status              TEXT NOT NULL,
+        provider_message_id TEXT,
+        error               TEXT,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )` },
+    { label: "test_sends company index", stmt: "CREATE INDEX IF NOT EXISTS idx_test_sends_company ON test_sends(company_id)" },
+    { label: "test_sends rate-limit index", stmt: "CREATE INDEX IF NOT EXISTS idx_test_sends_user_created ON test_sends(user_id, created_at)" },
     { label: "companies.default_residential_pay_type", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_type TEXT DEFAULT 'commission'" },
     { label: "companies.default_residential_pay_rate", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
     { label: "companies.default_commercial_pay_type",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_type  TEXT DEFAULT 'hourly'" },

@@ -149,6 +149,13 @@ export const usersTable = pgTable("users", {
   home_lng: numeric("home_lng", { precision: 10, scale: 7 }),
   default_team: text("default_team"),
   default_position: text("default_position"),
+  // [notification-test-sends 2026-06-30] Optional dedicated destinations for the
+  // "Send Test" feature so staff can verify customer message templates without
+  // bombing their personal email/phone. Null = fall back to the login email
+  // (test_email) / prompt each time (test_phone). Read by the test-send endpoint;
+  // an editable profile UI lands in a later pass.
+  test_email: text("test_email"),
+  test_phone: text("test_phone"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 
