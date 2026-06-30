@@ -733,15 +733,33 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
   onUpdated: () => void; onClose: () => void;
 }) {
   const { toast } = useToast();
-  const [tab, setTab] = useState("drip");
+  const [tab, setTab] = useState("quote");
   const [editStatus, setEditStatus] = useState(lead.status);
   const [statusChanging, setStatusChanging] = useState(false);
   const [savingField, setSavingField] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [, navigate] = useLocation();
+  const [sendingQuote, setSendingQuote] = useState(false);
 
   // Sync status if lead prop changes
   useEffect(() => { setEditStatus(lead.status); }, [lead.id, lead.status]);
+
+  // Mark the lead's linked quote as Sent — this is the trigger that starts the
+  // quote follow-up drip (enrollForQuoteSent). Lives on the record so the
+  // workflow is preserved now that the standalone Quotes list isn't a tab.
+  async function markQuoteSent() {
+    const qid = (lead as any).linked_quote_id;
+    if (!qid) return;
+    setSendingQuote(true);
+    try {
+      const r = await fetch(`${API}/api/quotes/${qid}/send`, { method: "POST", headers: getAuthHeaders() });
+      if (!r.ok) throw new Error();
+      toast({ title: "Quote marked as sent — follow-up started" });
+      onUpdated();
+    } catch { toast({ title: "Failed to mark sent", variant: "destructive" }); }
+    finally { setSendingQuote(false); }
+  }
 
   const { cfg } = leadSourceTag(lead);
   const name = [lead.first_name, lead.last_name].filter(Boolean).join(" ");
@@ -789,6 +807,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
   }
 
   const TABS = [
+    { key: "quote",    label: "Quote",    Icon: Briefcase },
     { key: "drip",     label: "Drip",     Icon: Zap },
     { key: "messages", label: "Messages", Icon: MessageSquare },
     { key: "activity", label: "Activity", Icon: Activity },
@@ -898,6 +917,38 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
 
       {/* Tab content */}
       <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+        {tab === "quote" && (() => {
+          const qid = (lead as any).linked_quote_id;
+          const qprice = Number((lead as any).quote_amount || (lead as any).linked_quote_price || 0);
+          const qstatus = String((lead as any).linked_quote_status || "");
+          const sent = ["sent", "viewed", "accepted", "converted", "booked"].includes(qstatus.toLowerCase());
+          const btn = (label: string, onClick: () => void, primary = false) => (
+            <button onClick={onClick} style={{ fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 7, cursor: "pointer", fontFamily: FF,
+              border: primary ? "none" : "1px solid #E5E2DC", background: primary ? "var(--brand, #00C9A0)" : "#fff", color: primary ? "#fff" : "#374151" }}>{label}</button>
+          );
+          return (
+            <div style={{ padding: 20, overflow: "auto" }}>
+              {qid ? (
+                <div style={{ background: "#fff", border: "1px solid #E8E5E0", borderRadius: 10, padding: 16 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+                    <span style={{ fontSize: 22, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>{qprice > 0 ? `$${qprice.toFixed(2)}` : "—"}</span>
+                    {qstatus && <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "3px 8px", borderRadius: 4, background: sent ? "#E1F5EE" : "#F3F4F6", color: sent ? "#0F6E56" : "#6B7280", fontFamily: FF }}>{qstatus}</span>}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                    {btn("Open / edit quote", () => navigate(`/quotes/${qid}`))}
+                    {!sent && btn(sendingQuote ? "Sending…" : "Mark as sent", markQuoteSent, true)}
+                  </div>
+                  <p style={{ fontSize: 11, color: "#9E9B94", margin: "12px 0 0", fontFamily: FF }}>"Mark as sent" starts the quote follow-up drip for this customer.</p>
+                </div>
+              ) : (
+                <div style={{ textAlign: "center", padding: "30px 16px", color: "#9E9B94" }}>
+                  <p style={{ fontSize: 13, fontFamily: FF, margin: "0 0 14px" }}>No quote for this lead yet.</p>
+                  {btn("Build a quote", () => navigate("/quotes/new"), true)}
+                </div>
+              )}
+            </div>
+          );
+        })()}
         {tab === "drip"     && <DripTab lead={lead} onRefresh={() => {}} />}
         {tab === "messages" && <MessagesTab lead={lead} />}
         {tab === "activity" && <ActivityTab lead={lead} />}
@@ -1290,25 +1341,22 @@ export default function LeadsPage() {
     <DashboardLayout>
       {/* Top bar */}
       <div style={{ background: "#0A0E1A", padding: "0 20px", height: 48, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {/* Title doubles as the "back to the list" affordance — no redundant
+            "Leads" tab, and Quotes is no longer a tab: the quote lives on each
+            lead's record (Quote tab in the detail panel). */}
+        <button onClick={() => setMainView("pipeline")} style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
           <div style={{ width: 22, height: 22, borderRadius: 5, background: "#00C9A0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#0A0E1A", fontFamily: FF }}>Q</div>
           <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: -0.3, fontFamily: FF }}>Leads</span>
-        </div>
+        </button>
         <div style={{ display: "flex", gap: 2 }}>
-          {(["pipeline", "reports", "sequences"] as const).map(v => (
+          {(["reports", "sequences"] as const).map(v => (
             <button key={v} onClick={() => setMainView(v)}
               style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF,
                 background: mainView === v ? "rgba(255,255,255,.12)" : "transparent",
                 color: mainView === v ? "#fff" : "#6B9A8E", textTransform: "capitalize" }}>
-              {v === "pipeline" ? "Leads" : v}
+              {v}
             </button>
           ))}
-          {/* Quotes folds into the Pipeline section — the quotes list + "Mark as
-              Sent" (which triggers the quote follow-up drip) live there. */}
-          <button onClick={() => navigate("/quotes")}
-            style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF, background: "transparent", color: "#6B9A8E" }}>
-            Quotes
-          </button>
         </div>
         <div />
       </div>
