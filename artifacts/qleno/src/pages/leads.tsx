@@ -1251,9 +1251,65 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
 
 const LIMIT = 50;
 
+// Website vs Office — the source differentiator shown on every card.
+function leadChannel(lead: any): "Website" | "Office" {
+  const s = String(lead.lead_source || lead.source || "").toLowerCase();
+  return /web|widget|online|quote|form|very_dirty/.test(s) ? "Website" : "Office";
+}
+
+// Kanban board grouping the loaded leads by stage so you watch them move
+// New → Contacted → Quoted → Booked. Each card carries price + Website/Office +
+// (for booked) "drip stopped". Clicking a card opens the same detail panel.
+function BoardView({ leads, selectedId, onSelect }: { leads: Lead[]; selectedId: number | null; onSelect: (l: Lead) => void }) {
+  const COLS = [
+    { key: "needs", label: "Needs contact", color: "#B91C1C", match: (s: string) => !["contacted", "quoted", "booked", "no_response", "not_interested", "closed"].includes(s) },
+    { key: "contacted", label: "Contacted", color: "#C2410C", match: (s: string) => s === "contacted" },
+    { key: "quoted", label: "Quoted", color: "#1D4ED8", match: (s: string) => s === "quoted" },
+    { key: "booked", label: "Booked", color: "#0F6E56", match: (s: string) => s === "booked" },
+  ];
+  return (
+    <div style={{ flex: 1, overflow: "auto", padding: 12, background: "#F7F6F3" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(190px,1fr))", gap: 10, minWidth: 800, height: "100%" }}>
+        {COLS.map(col => {
+          const items = leads.filter(l => col.match(String(l.status || "")));
+          return (
+            <div key={col.key} style={{ background: "#F0EEE9", borderRadius: 10, padding: 8, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 6px 8px", fontSize: 10, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF }}>
+                <span style={{ color: col.color }}>{col.label}</span><span style={{ color: "#9E9B94" }}>{items.length}</span>
+              </div>
+              <div style={{ overflowY: "auto", flex: 1 }}>
+                {items.map(l => {
+                  const booked = String(l.status) === "booked";
+                  const ch = leadChannel(l);
+                  const price = Number((l as any).quote_amount || (l as any).linked_quote_price || 0);
+                  return (
+                    <div key={l.id} onClick={() => onSelect(l)} style={{ background: "#fff", border: `1px solid ${selectedId === l.id ? "#00C9A0" : "#E8E5E0"}`, boxShadow: selectedId === l.id ? "0 0 0 2px rgba(0,201,160,.18)" : "none", borderRadius: 8, padding: "9px 10px", marginBottom: 7, cursor: "pointer" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 }}>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{[l.first_name, l.last_name].filter(Boolean).join(" ") || "—"}</span>
+                        {price > 0 && <span style={{ fontSize: 12.5, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>${price.toFixed(0)}</span>}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: "#8A8780", margin: "2px 0 6px", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.scope || "—"}</span>
+                        <span style={{ fontSize: 8.5, fontWeight: 800, padding: "1px 6px", borderRadius: 4, flexShrink: 0, background: ch === "Website" ? "#EDE9FE" : "#EEF1F4", color: ch === "Website" ? "#6D28D9" : "#475569" }}>{ch}</span>
+                      </div>
+                      <div style={{ fontSize: 9.5, color: booked ? "#0F6E56" : "#B4B2A9", fontFamily: FF }}>{booked ? "✓ Booked — drip stopped" : fmtDate(l.created_at)}</div>
+                    </div>
+                  );
+                })}
+                {items.length === 0 && <div style={{ fontSize: 10, color: "#C4C0B8", textAlign: "center", padding: "14px 0", fontFamily: FF }}>—</div>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export default function LeadsPage() {
   const [, navigate] = useLocation();
   const [mainView, setMainView] = useState<"pipeline" | "reports" | "sequences">("pipeline");
+  const [view, setView] = useState<"board" | "list">("board");
   const [filter, setFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -1358,7 +1414,17 @@ export default function LeadsPage() {
             </button>
           ))}
         </div>
-        <div />
+        {mainView === "pipeline" ? (
+          <div style={{ display: "inline-flex", border: "1px solid rgba(255,255,255,.18)", borderRadius: 7, overflow: "hidden" }}>
+            {(["board", "list"] as const).map(vw => (
+              <button key={vw} onClick={() => setView(vw)}
+                style={{ fontSize: 11, fontWeight: 700, padding: "5px 12px", border: "none", cursor: "pointer", fontFamily: FF, textTransform: "capitalize",
+                  background: view === vw ? "#fff" : "transparent", color: view === vw ? "#0A0E1A" : "#6B9A8E" }}>
+                {vw}
+              </button>
+            ))}
+          </div>
+        ) : <div />}
       </div>
 
       {mainView === "reports" && <ReportsView />}
@@ -1369,7 +1435,10 @@ export default function LeadsPage() {
           <KpiStrip counts={counts} filter={filter} onFilter={handleFilter} />
 
           <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-            {/* Lead list */}
+            {view === "board" && (
+              <BoardView leads={leads} selectedId={selectedLead?.id ?? null} onSelect={l => { setSelectedLead(l); setCheckedIds(new Set()); }} />
+            )}
+            {view === "list" && (
             <div style={{ width: 300, flexShrink: 0, borderRight: "1px solid #E8E5E0", background: "#fff", display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <div style={{ padding: "10px 14px", borderBottom: "0.5px solid #E8E5E0" }}>
                 <div style={{ position: "relative" }}>
@@ -1423,9 +1492,12 @@ export default function LeadsPage() {
                 )}
               </div>
             </div>
+            )}
 
-            {/* Detail panel */}
-            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+            {/* Detail — beside the list, or a right drawer over the board.
+                In board mode it only opens once a card is selected. */}
+            {(view === "list" || selectedLead) && (
+            <div style={{ flex: view === "board" ? "0 0 460px" : 1, overflow: "hidden", display: "flex", flexDirection: "column", borderLeft: view === "board" ? "1px solid #E8E5E0" : "none" }}>
               {selectedLead ? (
                 <LeadDetailPanel
                   key={selectedLead.id}
@@ -1441,6 +1513,7 @@ export default function LeadsPage() {
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
       )}
