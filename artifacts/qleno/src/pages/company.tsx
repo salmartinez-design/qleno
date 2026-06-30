@@ -12,6 +12,7 @@ import { HRPoliciesTab } from "./company/hr-policies";
 import { DocumentsTab } from "./company/documents";
 import { RichTextEditor, cleanHtml } from "@/components/rich-text-editor";
 import { EasyMessageEditor } from "@/components/easy-message-editor";
+import { MessagePreview } from "@/components/message-preview";
 import { PricingTab } from "./company/pricing";
 import { AddonsTab } from "./company/addons-tab";
 
@@ -3290,6 +3291,7 @@ function FollowUpSequencesTab() {
                                     Variables: {"{{client_name}}"} {"{{company_name}}"} {"{{phone}}"} {"{{quote_link}}"}
                                   </p>
                                 </div>
+                                <MessagePreview channel={step.channel === "email" ? "email" : "sms"} subject={step.channel === "email" ? editSubject : undefined} body={editTemplate} />
                                 <div style={{ display: "flex", gap: 8 }}>
                                   <button
                                     onClick={() => saveStep(seq.id, step.id)}
@@ -3420,7 +3422,8 @@ function CustomerSurveyTab() {
           <label style={label}>Message template</label>
           <textarea rows={3} style={{ ...input, resize: "vertical" }} value={f.survey_message_template}
             onChange={e => setF(p => ({ ...p, survey_message_template: e.target.value }))} />
-          <p style={{ fontSize: 11, color: "#9E9B94", margin: "6px 0 0" }}>Variables: <code>{"{{first_name}}"}</code>, <code>{"{{survey_link}}"}</code></p>
+          <p style={{ fontSize: 11, color: "#9E9B94", margin: "6px 0 8px" }}>Variables: <code>{"{{first_name}}"}</code>, <code>{"{{survey_link}}"}</code></p>
+          <MessagePreview channel="sms" body={f.survey_message_template} />
         </div>
         <div style={{ maxWidth: 220 }}>
           <label style={label}>Send delay after completion (hours)</label>
