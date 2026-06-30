@@ -332,6 +332,16 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] ensureBookingConfirmationSetup — non-fatal:", err?.message ?? err);
   }
+  // [time-change-notice 2026-06-30] jobs.time_change_pending / time_change_from
+  // columns + job_time_updated SMS+email templates (all tenants).
+  try {
+    await withBootTimeout("ensureTimeChangeNoticeSetup", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureTimeChangeNoticeSetup } = await import("./lib/time-change-notice.js");
+      await ensureTimeChangeNoticeSetup();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureTimeChangeNoticeSetup — non-fatal:", err?.message ?? err);
+  }
   // [invoicing-engine] backfill clients.payment_source (stripe if card on file, else square)
   try {
     await withBootTimeout("ensurePaymentSourceBackfill", SCHEMA_TIMEOUT_MS, async () => {

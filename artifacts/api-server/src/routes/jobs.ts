@@ -15,6 +15,7 @@ import { sendNotification, labelServiceType } from "../services/notificationServ
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { resolveAccountBillingClientId } from "../lib/account-billing-client.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
+import { isSameDayTimeChange, markTimeChangePending, clearTimeChangePending, sendTimeChangeNotification } from "../lib/time-change-notice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
 import multer from "multer";
 import crypto from "node:crypto";
@@ -1374,6 +1375,15 @@ router.put("/:id", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const { assigned_user_id, service_type, status, scheduled_date, scheduled_time, frequency, base_fee, allowed_hours, notes, office_notes } = req.body;
 
+    // [time-change-notice] Capture the prior date/time BEFORE the update so we
+    // can tell a same-day time bump (→ raise the manual client-notify note) from
+    // a cross-day reschedule (a different flow). Cheap single-row read.
+    let priorSched: { scheduled_date: any; scheduled_time: any } | null = null;
+    if (scheduled_time !== undefined || scheduled_date !== undefined) {
+      const pr = await db.execute(sql`SELECT scheduled_date, scheduled_time FROM jobs WHERE id = ${jobId} AND company_id = ${req.auth!.companyId} LIMIT 1`);
+      priorSched = (pr.rows[0] as any) ?? null;
+    }
+
     const updated = await db
       .update(jobsTable)
       .set({
@@ -1459,6 +1469,19 @@ router.put("/:id", requireAuth, async (req, res) => {
       })).catch(() => {});
     }
 
+    // [time-change-notice] Same-day time bump → flag the job so the detail card
+    // shows the "Time updated … Send notification" note. A cross-day reschedule
+    // clears any stale flag (it's the email-reschedule flow, not this note).
+    if (priorSched) {
+      const nextDate = scheduled_date !== undefined ? scheduled_date : priorSched.scheduled_date;
+      const nextTime = scheduled_time !== undefined ? scheduled_time : priorSched.scheduled_time;
+      if (isSameDayTimeChange(priorSched.scheduled_date, priorSched.scheduled_time, nextDate, nextTime)) {
+        await markTimeChangePending(jobId, req.auth!.companyId!, priorSched.scheduled_time ? String(priorSched.scheduled_time).slice(0, 5) : null);
+      } else if (scheduled_date !== undefined && String(priorSched.scheduled_date ?? "").slice(0, 10) !== String(nextDate ?? "").slice(0, 10)) {
+        await clearTimeChangePending(jobId, req.auth!.companyId!);
+      }
+    }
+
     return res.json({
       ...updated[0],
       client_name: "",
@@ -1469,6 +1492,41 @@ router.put("/:id", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Update job error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to update job" });
+  }
+});
+
+// [time-change-notice 2026-06-30] Office clicks "Send notification" on the
+// same-day time-change note → text/email the client the new arrival time, then
+// clear the flag so the note disappears. Gate-respecting (suppressed while comms
+// are paused); returns whether a send could actually go out so the UI can show
+// "Sent" vs "Comms are paused — not sent".
+router.post("/:id/notify-time-change", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: "Bad Request", message: "Invalid job id" });
+    const result = await sendTimeChangeNotification(jobId, companyId);
+    if (!result.ok) return res.status(400).json({ error: "Bad Request", message: result.reason ?? "Could not send" });
+    await clearTimeChangePending(jobId, companyId);
+    return res.json({ ok: true, sent: result.sent, reason: result.reason ?? null });
+  } catch (err) {
+    console.error("notify-time-change error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to notify client" });
+  }
+});
+
+// [time-change-notice] Office dismisses the note without sending (e.g. already
+// told the client by phone). Just clears the flag.
+router.post("/:id/time-change/dismiss", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: "Bad Request", message: "Invalid job id" });
+    await clearTimeChangePending(jobId, companyId);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("time-change dismiss error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to dismiss" });
   }
 });
 
@@ -3330,6 +3388,19 @@ router.patch("/:id", requireAuth, async (req, res) => {
         if (newAssigned) await notifyUser({ companyId, userId: newAssigned, type: "job_changed", title: "Job time changed", body: `${svc} now ${dateStr}`, link, meta: { job_id: jobId } });
       }
     } catch (e) { console.warn("[jobs PATCH] notify failed:", e); }
+
+    // [time-change-notice] Same-day time bump on THIS job → raise the manual
+    // "Send notification" note on its card (before.scheduled_time is the prior
+    // time). A date change is a cross-day reschedule (a separate flow) and
+    // clears any stale flag instead.
+    try {
+      const tcFields = new Set(changes.map((c: any) => c.field));
+      if (tcFields.has("scheduled_time") && !tcFields.has("scheduled_date")) {
+        await markTimeChangePending(jobId, companyId, before.scheduled_time ? String(before.scheduled_time).slice(0, 5) : null);
+      } else if (tcFields.has("scheduled_date")) {
+        await clearTimeChangePending(jobId, companyId);
+      }
+    } catch (e) { console.warn("[jobs PATCH] time-change-notice failed:", e); }
 
     return res.json({
       ok: true,

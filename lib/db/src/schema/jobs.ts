@@ -58,6 +58,12 @@ export const jobsTable = pgTable("jobs", {
   status: jobStatusEnum("status").notNull().default("scheduled"),
   scheduled_date: date("scheduled_date").notNull(),
   scheduled_time: text("scheduled_time"),
+  // [time-change-notice 2026-06-30] Raise the manual "notify the client of the
+  // new arrival time" note on the job card after a SAME-DAY time move. Columns
+  // are created at boot by ensureTimeChangeNoticeSetup(); declared here so the
+  // query builder can read them. time_change_from holds the prior "HH:MM".
+  time_change_pending: boolean("time_change_pending").notNull().default(false),
+  time_change_from: text("time_change_from"),
   frequency: frequencyEnum("frequency").notNull().default("on_demand"),
   base_fee: numeric("base_fee", { precision: 10, scale: 2 }).notNull(),
   fee_split_pct: numeric("fee_split_pct", { precision: 5, scale: 2 }),

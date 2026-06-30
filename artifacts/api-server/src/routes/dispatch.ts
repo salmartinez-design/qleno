@@ -126,6 +126,8 @@ async function buildDispatchPayload(
         job_kind: jobsTable.job_kind,
         scheduled_date: jobsTable.scheduled_date,
         scheduled_time: jobsTable.scheduled_time,
+        time_change_pending: jobsTable.time_change_pending,
+        time_change_from: jobsTable.time_change_from,
         frequency: jobsTable.frequency,
         base_fee: jobsTable.base_fee,
         allowed_hours: jobsTable.allowed_hours,
@@ -846,6 +848,8 @@ async function buildDispatchPayload(
         job_kind: (j as any).job_kind ?? "cleaning",
         scheduled_date: j.scheduled_date,
         scheduled_time: j.scheduled_time,
+        time_change_pending: (j as any).time_change_pending ?? false,
+        time_change_from: (j as any).time_change_from ?? null,
         frequency: j.frequency,
         // [BUG-6 follow-up / 2026-06-02] Compute amount LIVE from the three
         // sources of truth: base_fee + SUM(rate_mods) + SUM(add_on subtotals).
