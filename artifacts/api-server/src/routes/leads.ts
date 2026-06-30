@@ -99,7 +99,9 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
         u.first_name as assignee_first_name,
         u.last_name as assignee_last_name,
         rp.name as referral_partner_name,
-        (SELECT q.total_price FROM quotes q WHERE q.lead_id = l.id ORDER BY q.created_at DESC LIMIT 1) as linked_quote_price
+        (SELECT q.total_price FROM quotes q WHERE q.lead_id = l.id ORDER BY q.created_at DESC LIMIT 1) as linked_quote_price,
+        (SELECT q.id FROM quotes q WHERE q.lead_id = l.id ORDER BY q.created_at DESC LIMIT 1) as linked_quote_id,
+        (SELECT q.status FROM quotes q WHERE q.lead_id = l.id ORDER BY q.created_at DESC LIMIT 1) as linked_quote_status
       FROM leads l
       LEFT JOIN users u ON u.id = l.assigned_to
       LEFT JOIN referral_partners rp ON rp.id = l.referral_partner_id
