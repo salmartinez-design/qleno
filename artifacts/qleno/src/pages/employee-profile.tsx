@@ -1698,7 +1698,9 @@ export default function EmployeeProfilePage() {
                   <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
                     {[
                       { key:'satisfaction', label:'Customer Satisfaction', value: comp?.satisfaction, weight: comp?.weights?.satisfaction ?? 60,
-                        sub: comp ? `${comp.counts?.survey_responses ?? 0} survey${(comp.counts?.survey_responses ?? 0) === 1 ? '' : 's'}` : '' },
+                        sub: !comp ? '' : comp.satisfaction_source === 'mc_lifetime'
+                          ? 'MaidCentral history'
+                          : `${comp.counts?.survey_responses ?? 0} survey${(comp.counts?.survey_responses ?? 0) === 1 ? '' : 's'} (90d)` },
                       { key:'attendance', label:'Attendance', value: comp?.attendance, weight: comp?.weights?.attendance ?? 25,
                         sub: comp ? `${comp.counts?.attendance_violations ?? 0} issue${(comp.counts?.attendance_violations ?? 0) === 1 ? '' : 's'} · ${comp.counts?.scheduled_days ?? 0} day${(comp.counts?.scheduled_days ?? 0) === 1 ? '' : 's'}` : '' },
                       { key:'complaint_free', label:'Complaint-Free', value: comp?.complaint_free, weight: comp?.weights?.complaint_free ?? 15,

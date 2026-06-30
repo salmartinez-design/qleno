@@ -40,6 +40,9 @@ export interface CompositeResult {
   weights: CompositeWeights;
   // Sub-scores are 0–100 or null when there's no signal in the window.
   satisfaction: number | null;
+  // How the satisfaction sub-score was sourced: the 90-day rolling window, the
+  // imported MaidCentral / lifetime fallback, or null when neither exists.
+  satisfaction_source: "rolling_90d" | "mc_lifetime" | null;
   attendance: number | null;
   complaint_free: number | null;
   composite: number | null;
@@ -110,15 +113,26 @@ export async function computeCompositeForEmployee(
   );
   const fromDate = String((fromRow.rows[0] as any).f).slice(0, 10);
 
-  // 1. Satisfaction — mean of non-excluded 0–4 responses in the window.
+  // 1. Satisfaction — mean of non-excluded 0–4 responses in the window. When a
+  // tech has NO ratings in the 90-day window, fall back to their imported
+  // MaidCentral / lifetime headline (users.scorecard_pct) so the history isn't
+  // dropped and they don't inflate to a fake-perfect score off the absence of
+  // complaints. `satisfaction_source` records which was used.
   const satRow = await db.execute(sql`
     SELECT ROUND(AVG(score_value / NULLIF(max_value, 0)) * 100, 2) AS pct, COUNT(*)::int AS n
       FROM scorecard_entries
      WHERE company_id = ${companyId} AND employee_id = ${employeeId} AND excluded = false
        AND entry_date >= ${fromDate} AND entry_date <= ${toDate}`);
   const satN = Number((satRow.rows[0] as any)?.n ?? 0);
-  const satisfaction = satN > 0 && (satRow.rows[0] as any)?.pct != null
+  let satisfaction = satN > 0 && (satRow.rows[0] as any)?.pct != null
     ? clampPct(Number((satRow.rows[0] as any).pct)) : null;
+  let satisfaction_source: "rolling_90d" | "mc_lifetime" | null = satisfaction != null ? "rolling_90d" : null;
+  if (satisfaction == null) {
+    const lifeRow = await db.execute(sql`
+      SELECT scorecard_pct FROM users WHERE id = ${employeeId} AND company_id = ${companyId} LIMIT 1`);
+    const lifetime = (lifeRow.rows[0] as any)?.scorecard_pct;
+    if (lifetime != null) { satisfaction = clampPct(Number(lifetime)); satisfaction_source = "mc_lifetime"; }
+  }
 
   // 2. Attendance — scheduled tech-days (distinct, non-cancelled) vs weighted
   // violations from the confirmed attendance log.
@@ -165,12 +179,16 @@ export async function computeCompositeForEmployee(
     ? clampPct(100 * (1 - validComplaints / completedJobs)) : null;
 
   // Composite — weighted average over the non-null sub-scores (re-normalized).
+  // A satisfaction signal (rolling OR MC-lifetime fallback) is REQUIRED: without
+  // any customer-rating data a "Performance Score" is meaningless, and blending
+  // attendance/complaint-free alone would inflate to ~100% off the absence of
+  // complaints. Such techs return composite = null (UI shows "—").
   const parts: Array<{ v: number; w: number }> = [];
   if (satisfaction != null) parts.push({ v: satisfaction, w: weights.satisfaction });
   if (attendance != null) parts.push({ v: attendance, w: weights.attendance });
   if (complaint_free != null) parts.push({ v: complaint_free, w: weights.complaint_free });
   const totalW = parts.reduce((s, p) => s + p.w, 0);
-  const composite = parts.length > 0 && totalW > 0
+  const composite = satisfaction != null && parts.length > 0 && totalW > 0
     ? clampPct(parts.reduce((s, p) => s + p.v * p.w, 0) / totalW) : null;
 
   return {
@@ -178,6 +196,7 @@ export async function computeCompositeForEmployee(
     window: { from: fromDate, to: toDate, days: COMPOSITE_WINDOW_DAYS },
     weights,
     satisfaction,
+    satisfaction_source,
     attendance,
     complaint_free,
     composite,
