@@ -164,8 +164,11 @@ router.post("/backfill-from-quotes", requireAuth, requireRole("owner", "admin"),
 });
 
 // ── GET /api/leads/:id ─────────────────────────────────────────────────────────
-router.get("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+router.get("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res, next) => {
   try {
+    // Non-numeric ids (e.g. "reports") are sibling routes registered later —
+    // fall through so GET /leads/reports isn't swallowed here (the "No data" bug).
+    if (!/^\d+$/.test(String(req.params.id))) return next();
     const companyId = req.auth!.companyId!;
     const id = parseInt(req.params.id);
     const rows = await db.execute(sql`
