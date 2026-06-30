@@ -128,6 +128,23 @@ function round2(n: number): number {
 }
 
 /**
+ * Split a dollar pool into `parts` even shares that sum EXACTLY to the pool.
+ * Works in integer cents and hands the leftover cents to the first shares
+ * (largest-remainder), so e.g. $56.00 / 3 → [18.67, 18.67, 18.66] (sum 56.00),
+ * never 3 × 18.67 = 56.01. Used for the pre-clock even-by-headcount split so a
+ * job's per-cleaner commission always reconciles to the job's total.
+ */
+function splitPoolEvenly(pool: number, parts: number): number[] {
+  if (parts <= 0) return [];
+  const cents = Math.round(pool * 100);
+  const base = Math.trunc(cents / parts);
+  let remainder = cents - base * parts; // 0..parts-1, sign follows `cents`
+  const step = remainder >= 0 ? 1 : -1;
+  remainder = Math.abs(remainder);
+  return Array.from({ length: parts }, (_, i) => (base + (i < remainder ? step : 0)) / 100);
+}
+
+/**
  * Compute one tech's pay from their pay type. Pure — all inputs resolved
  * by the caller. Returns the dollar amount plus the effective rate/hours
  * used (so the UI can render MC-style "Fee Split: 16%" or "3 hrs × $20").
@@ -306,14 +323,6 @@ export function computePerTechCommissionRows(input: {
     const hoursOf = (uid: number) => round2(input.techHoursByKey.get(`${j.id}:${uid}`) ?? 0);
     const totalTechHours = techs.reduce((s, t) => s + hoursOf(t.user_id), 0);
 
-    // GUARD: no clocked hours → legacy single-basis fallback (no regression).
-    if (totalTechHours <= 0) {
-      for (const r of computeCommissionRows({ jobs: [j], resRates: input.resRates, commercial: input.commercial, overrides })) {
-        out.push(r);
-      }
-      continue;
-    }
-
     const servicePct = input.serviceTypePctBySlug.get((j.service_type ?? "").toLowerCase());
     const scopePct = servicePct ?? resolveResidentialPayPct(j.service_type, input.resRates);
     const defaults = defaultPayForJob({
@@ -328,15 +337,26 @@ export function computePerTechCommissionRows(input: {
     // LOWERS billed below base, and max() ignores it so the credit never docks
     // the tech (locked rule). For a plain job base==billed → unchanged, so
     // every job that already matched stays matched.
-    const ctx: JobPayContext = {
-      baseFee: Math.max(n(j.base_fee) ?? 0, n(j.billed_amount) ?? 0),
-      allowedHours: n(j.allowed_hours) ?? 0,
-      totalTechHours,
-    };
+    const baseFee = Math.max(n(j.base_fee) ?? 0, n(j.billed_amount) ?? 0);
+    const allowedHours = n(j.allowed_hours) ?? 0;
 
-    for (const t of techs) {
+    const pushRow = (user_id: number, amount: number) => {
+      if (amount === 0) return;
+      out.push({
+        user_id,
+        job_id: j.id,
+        amount,
+        basis: isCommercial ? "commercial_hourly" : "residential_pool",
+        branch_id: j.branch_id,
+        scheduled_date: j.scheduled_date,
+      });
+    };
+    // Emit one tech's commission row from the time-weighted pay engine. `ctx`
+    // carries the split denominator (totalTechHours) and `techHours` this tech's
+    // weight in it; the per-tech pay type, rate/%, deductions and any hand-set
+    // final_pay override all apply.
+    const emitTech = (t: JobTechRow, ctx: JobPayContext, techHours: number) => {
       const overrideKey = `${t.user_id}:${j.id}`;
-      const techHours = hoursOf(t.user_id);
       let amount: number;
       if (overrides.has(overrideKey)) {
         amount = Math.round((overrides.get(overrideKey) as number) * 100) / 100;
@@ -353,16 +373,57 @@ export function computePerTechCommissionRows(input: {
         payInput.deductionFlat = n(t.pay_deduction_flat) ?? 0;
         amount = computeTechPay(ctx, payInput).amount;
       }
-      if (amount === 0) continue;
-      out.push({
-        user_id: t.user_id,
-        job_id: j.id,
-        amount,
-        basis: isCommercial ? "commercial_hourly" : "residential_pool",
-        branch_id: j.branch_id,
-        scheduled_date: j.scheduled_date,
+      pushRow(t.user_id, amount);
+    };
+
+    // GUARD: no clocked hours yet — can't weight by time.
+    if (totalTechHours <= 0) {
+      // Single assigned tech → legacy single-basis fallback (byte-identical,
+      // no regression: the lone tech gets the whole job commission).
+      if (techs.length <= 1) {
+        for (const r of computeCommissionRows({ jobs: [j], resRates: input.resRates, commercial: input.commercial, overrides })) {
+          out.push(r);
+        }
+        continue;
+      }
+      // Two or more cleaners assigned but none clocked → split the job's
+      // commission EVENLY by headcount (CLAUDE.md: "pre-clock-in: equal split
+      // among assigned techs"). The old fallback paid only the primary, leaving
+      // the other cleaners at $0 on the Time Clocks grid — the reported "fee
+      // split doesn't match the assigned splits" bug. We split the whole-job
+      // commission pool (penny-exact via splitPoolEvenly) so the per-cleaner
+      // amounts always reconcile to the job total. Once real punches are entered
+      // the proportional-by-minutes path below takes over.
+      // Whole-job commission at the job's default basis: residential fee split
+      // → base × scope%; commercial allowed-hours → allowed × $/hr.
+      const pool = defaults.payType === "allowed_hours"
+        ? round2(allowedHours * defaults.hourlyRate)
+        : round2(baseFee * defaults.scopePct);
+      // Every assigned cleaner holds one equal slot in the split denominator —
+      // exactly how their clocked hours will weight it once punches arrive. So:
+      //   - a fee-split / allowed-hours cleaner is paid their 1/N slice now;
+      //   - an HOURLY cleaner's slot is unpaid until they clock (hourly pays
+      //     actual time, and it dilutes the others' shares just as it will
+      //     post-clock — so the fee-split cleaner gets 1/N, not the whole pool);
+      //   - a hand-set final_pay override is paid verbatim (independent).
+      // Penny-exact: the emitted slices sum to the pool minus any hourly/override
+      // slots (which pay on their own basis).
+      const shares = splitPoolEvenly(pool, techs.length);
+      techs.forEach((t, i) => {
+        const overrideKey = `${t.user_id}:${j.id}`;
+        if (overrides.has(overrideKey)) {
+          pushRow(t.user_id, Math.round((overrides.get(overrideKey) as number) * 100) / 100);
+          return;
+        }
+        const payType = asPayType(t.pay_type) ?? defaults.payType;
+        if (payType === "hourly") return;
+        pushRow(t.user_id, shares[i]);
       });
+      continue;
     }
+
+    const ctx: JobPayContext = { baseFee, allowedHours, totalTechHours };
+    for (const t of techs) emitTech(t, ctx, hoursOf(t.user_id));
   }
   return out;
 }
