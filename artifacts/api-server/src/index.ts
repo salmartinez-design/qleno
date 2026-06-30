@@ -5,7 +5,7 @@ import { runPhesDataMigration } from "./phes-data-migration";
 import { runCutoverDataMigration } from "./cutover-data-migration";
 import { verifyClockIntegrityConstraint } from "./lib/clock-integrity-self-check";
 import { runUserCompaniesMigration } from "./user-companies-migration.js";
-import { runReminderCron, runReviewRequestCron, runScheduledJobMessages } from "./services/notificationService.js";
+import { runReminderCron, runScheduledJobMessages } from "./services/notificationService.js";
 import { runRateLockNightlyChecks } from "./utils/rateLock.js";
 import { processDueEnrollments } from "./services/followUpService.js";
 import { runSmokeTests } from "./lib/smoke-test.js";
@@ -89,12 +89,16 @@ function startNotificationCron() {
       fired["scheduled_messages"] = schedKey;
       runScheduledJobMessages().catch((e: Error) => console.error("[cron] scheduled_messages error:", e));
     }
-    // Every hour → review_request
-    const hrKey = `${ctDate}-${ctH}`;
-    if (fired["review_request"] !== hrKey) {
-      fired["review_request"] = hrKey;
-      runReviewRequestCron().catch((e: Error) => console.error("[cron] review_request error:", e));
-    }
+    // [scorecard-only 2026-06-30] The generic Google-review ask (runReviewRequestCron)
+    // is DISABLED — per owner decision, the only post-job feedback message is the
+    // scorecard satisfaction survey (sent on job completion from /api/satisfaction/send,
+    // SMS + the review_request EMAIL template carrying the tokenized survey link).
+    // Re-enable here if a separate public-review ask is wanted again.
+    // const hrKey = `${ctDate}-${ctH}`;
+    // if (fired["review_request"] !== hrKey) {
+    //   fired["review_request"] = hrKey;
+    //   runReviewRequestCron().catch((e: Error) => console.error("[cron] review_request error:", e));
+    // }
     // 1 AM CT → rate lock nightly checks (service gap voids, expiry voids, renewal alerts)
     if (ctH === 1 && fired["rate_lock_nightly"] !== `${ctDate}-1`) {
       fired["rate_lock_nightly"] = `${ctDate}-1`;
