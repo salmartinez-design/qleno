@@ -6165,9 +6165,15 @@ export default function CustomerProfilePage() {
               </button>
             </div>
 
-            {/* Client Notes */}
+            {/* Internal Notes — office + techs. The standing memo (clients.notes)
+                sits on top; photo-capable notes below distinguish every-visit
+                (blue) from single-job (yellow) via TeamPhotoNotes. */}
             <div style={CS}>
-              <SectionHead title="Client Notes" />
+              <SectionHead title="Internal Notes" />
+              <div style={{ fontSize: 12, color: "#9E9B94", margin: "-2px 0 10px" }}>
+                For the office and techs — never shown to the client.
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", marginBottom: 4 }}>Standing note</div>
               <textarea
                 defaultValue={profile.notes || ""}
                 onBlur={async (e) => {
@@ -6176,10 +6182,12 @@ export default function CustomerProfilePage() {
                     catch { showToast("Failed to save notes", "error"); }
                   }
                 }}
-                placeholder="Internal notes about this client (auto-saves on blur)..."
-                rows={5}
+                placeholder="A standing internal note about this client (auto-saves on blur)..."
+                rows={4}
                 style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#374151", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, lineHeight: 1.5, background: "#FAFAF8" }}
               />
+              <div style={{ borderTop: "1px solid #F0EEE9", margin: "16px 0 12px" }} />
+              <TeamPhotoNotes clientId={clientId} title="Notes & photos" />
             </div>
           </div>
 

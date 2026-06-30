@@ -150,8 +150,8 @@ export function TeamPhotoNotes(props: TeamPhotoNotesProps) {
         {isJobContext && jobHasCustomer && (
           <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12, color: INK, cursor: "pointer" }}>
             <input type="checkbox" checked={sticky} onChange={(e) => setSticky(e.target.checked)} style={{ accentColor: MINT }} />
-            <Pin size={13} color={sticky ? MINT : MUTE} />
-            Show on every visit for this customer (sticky)
+            <Pin size={13} color={sticky ? "#3B82F6" : MUTE} />
+            Show on every visit for this customer (blue) — otherwise just this job (yellow)
           </label>
         )}
 
@@ -174,7 +174,10 @@ export function TeamPhotoNotes(props: TeamPhotoNotesProps) {
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {notes.map((n) => (
-            <div key={n.id} style={{ display: "flex", gap: 10, border: `1px solid ${n.is_sticky ? "#99E6D5" : BORDER}`, background: n.is_sticky ? "#F0FDFB" : "#FFFFFF", borderRadius: 10, padding: 10 }}>
+            // Color encodes scope: blue = shows on every visit for this customer
+            // (sticky), light yellow = note for this one job only. Keeps the two
+            // purposes visually distinct at a glance.
+            <div key={n.id} style={{ display: "flex", gap: 10, border: `1px solid ${n.is_sticky ? "#BBD3F5" : "#F5DFA6"}`, background: n.is_sticky ? "#EFF5FE" : "#FEFCE8", borderRadius: 10, padding: 10 }}>
               {n.image_url && (
                 <a href={`${API}${n.image_url}`} target="_blank" rel="noreferrer" style={{ flexShrink: 0 }}>
                   <img src={`${API}${n.image_url}`} alt="" style={{ width: 56, height: 56, objectFit: "cover", borderRadius: 8, border: `1px solid ${BORDER}` }} />
@@ -182,8 +185,8 @@ export function TeamPhotoNotes(props: TeamPhotoNotesProps) {
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 {n.is_sticky && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#0F766E", background: "#CCFBEF", borderRadius: 999, padding: "2px 7px", marginBottom: 4 }}>
-                    <Pin size={10} /> Sticky
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#1D4ED8", background: "#D9E7FA", borderRadius: 999, padding: "2px 7px", marginBottom: 4 }}>
+                    <Pin size={10} /> Every visit
                   </span>
                 )}
                 {n.note && <p style={{ fontSize: 13, color: INK, margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{n.note}</p>}
