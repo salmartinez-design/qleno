@@ -652,7 +652,12 @@ router.get("/reports", requireAuth, requireRole("owner", "admin", "office"), asy
       `)),
       db.execute(sql.raw(`
         SELECT
-          COALESCE(lead_source, source, 'manual') AS source_label,
+          -- Show the real intake channel (source: quote / very_dirty /
+          -- booking_widget / widget / manual). lead_source is NOT NULL with a
+          -- 'manual' default that's never overridden, so reading it first made
+          -- every lead read as "manual" — fall back to it only when source is
+          -- null.
+          COALESCE(NULLIF(source, ''), lead_source, 'manual') AS source_label,
           COUNT(*) AS total,
           COUNT(*) FILTER (WHERE status = 'booked') AS booked,
           ROUND(COUNT(*) FILTER (WHERE status = 'booked') * 100.0 / NULLIF(COUNT(*),0), 1) AS close_rate
