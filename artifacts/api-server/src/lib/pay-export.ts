@@ -20,6 +20,11 @@ export type PayExportRow = {
   overtime_hours: number;
   regular_pay_cents: number;
   overtime_pay_cents: number;
+  // Tips broken out of adjustments into their own column. Tips are a
+  // pass-through to the tech (never commissionable), so payroll wants them on
+  // their own line, not folded into adjustments. A downstream tip-field mapping
+  // lives in the tenant adapter, not here (provider-neutral).
+  tips_cents: number;
   adjustments_cents: number;
   gross_cents: number;
 };
@@ -40,6 +45,7 @@ const COLUMNS = [
   "overtime_hours",
   "regular_pay",
   "overtime_pay",
+  "tips",
   "adjustments_total",
   "gross_total",
 ] as const;
@@ -59,6 +65,7 @@ export function buildPayExportCsv(input: PayExportInput): string {
         r.overtime_hours.toFixed(2),
         centsToDollarString(r.regular_pay_cents),
         centsToDollarString(r.overtime_pay_cents),
+        centsToDollarString(r.tips_cents),
         centsToDollarString(r.adjustments_cents),
         centsToDollarString(r.gross_cents),
       ].join(","),
@@ -80,7 +87,8 @@ export function buildPayExportCsv(input: PayExportInput): string {
  *   - overtime_pay  = overtime additional_pay (this comp model carries OT as a
  *                     dollar entry, not an hours decomposition, so
  *                     overtime_hours is 0)
- *   - adjustments   = tips + bonus + everything else (sick/holiday/mileage/etc.)
+ *   - tips          = tips (broken out on its own column)
+ *   - adjustments   = bonus + everything else (sick/holiday/mileage/etc.)
  *   - gross         = base + tips + overtime + bonus + adjustments
  */
 export function snapshotToExportRow(s: {
@@ -96,7 +104,8 @@ export function snapshotToExportRow(s: {
     overtime_hours: 0,
     regular_pay_cents: c(s.base),
     overtime_pay_cents: c(s.overtime),
-    adjustments_cents: c(s.tips) + c(s.bonus) + c(s.adjustments),
+    tips_cents: c(s.tips),
+    adjustments_cents: c(s.bonus) + c(s.adjustments),
     gross_cents: c(s.gross),
   };
 }

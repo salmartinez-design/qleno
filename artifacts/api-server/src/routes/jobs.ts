@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable } from "@workspace/db/schema";
+import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable, additionalPayTable } from "@workspace/db/schema";
+import { computeTipSplit, type TipSplitTech } from "../lib/tip-split.js";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { getResendEmailStatus } from "../lib/comms-sender.js";
@@ -4518,6 +4519,231 @@ router.put("/:id/technicians/:techId/override", requireAuth, async (req, res) =>
     return res.json({ data: result });
   } catch (err) {
     console.error("PUT /jobs/:id/technicians/:techId/override error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── TIPS ─────────────────────────────────────────────────────────────────
+//
+// Office-entered tips on a job, attributed to the tech(s) who worked it. A tip
+// is a pass-through to the cleaner — it lands in additional_pay as type='tips'
+// (the canonical tip ledger that already feeds the tech earnings panel, the
+// Tips Report, and the payroll snapshot's tips bucket). It NEVER feeds the
+// commission engine (commission reads the job total, never additional_pay).
+//
+// The default per-tech split mirrors the commission minute-split: proportional
+// to each tech's actual clocked hours on the job (see lib/tip-split.ts). The
+// office can override the per-tech amounts in the UI before saving (e.g. the
+// customer named one cleaner). Works on COMPLETED jobs — that's the main case
+// (client calls in a tip after the visit).
+
+interface JobTipCtx {
+  scheduledDate: string;
+  techs: Array<TipSplitTech & { name: string }>;
+}
+
+// Load the job's techs + each one's clocked hours, using the SAME clock basis
+// the payroll/commission engine uses (timeclock, punched + clocked-out pairs).
+async function loadJobTipContext(jobId: number, companyId: number): Promise<JobTipCtx | null> {
+  const jr = await db.execute(sql`
+    SELECT scheduled_date::text AS scheduled_date, assigned_user_id
+    FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+  if (!jr.rows.length) return null;
+  const job = jr.rows[0] as any;
+
+  const tr = await db.execute(sql`
+    SELECT jt.user_id, jt.is_primary, u.first_name, u.last_name
+    FROM job_technicians jt JOIN users u ON u.id = jt.user_id
+    WHERE jt.job_id = ${jobId} ORDER BY jt.is_primary DESC, jt.id`);
+  let techRows = tr.rows as any[];
+  if (!techRows.length && job.assigned_user_id) {
+    const u = await db.execute(sql`SELECT id AS user_id, first_name, last_name FROM users WHERE id = ${job.assigned_user_id} LIMIT 1`);
+    techRows = (u.rows as any[]).map((r) => ({ ...r, is_primary: true }));
+  }
+
+  const ch = await db.execute(sql`
+    SELECT user_id, ROUND(SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at)) / 3600.0)::numeric, 2) AS hrs
+    FROM timeclock
+    WHERE company_id = ${companyId} AND job_id = ${jobId} AND clock_out_at IS NOT NULL AND source = 'punched'
+    GROUP BY user_id`);
+  const hoursByUser = new Map<number, number>();
+  for (const r of ch.rows as any[]) hoursByUser.set(Number(r.user_id), parseFloat(String(r.hrs || 0)));
+
+  return {
+    scheduledDate: job.scheduled_date,
+    techs: techRows.map((t) => ({
+      user_id: Number(t.user_id),
+      name: `${t.first_name ?? ""} ${t.last_name ?? ""}`.trim(),
+      is_primary: !!t.is_primary,
+      hours: hoursByUser.get(Number(t.user_id)) ?? 0,
+    })),
+  };
+}
+
+// List a job's live tips (voided rows hidden — they're gone from pay too).
+async function listJobTips(jobId: number, companyId: number) {
+  const r = await db.execute(sql`
+    SELECT ap.id, ap.user_id, ap.amount, ap.notes, ap.status, ap.created_at,
+           TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) AS name
+    FROM additional_pay ap LEFT JOIN users u ON u.id = ap.user_id
+    WHERE ap.company_id = ${companyId} AND ap.job_id = ${jobId}
+      AND ap.type = 'tips' AND ap.status <> 'voided'
+    ORDER BY ap.created_at DESC, ap.id DESC`);
+  return (r.rows as any[]).map((t) => ({
+    id: Number(t.id), user_id: Number(t.user_id), name: t.name,
+    amount: parseFloat(String(t.amount || 0)), notes: t.notes,
+    status: t.status, created_at: t.created_at,
+  }));
+}
+
+// Period guard: a tip's natural pay period is the JOB DATE. If that period is
+// already approved/exported, the tip can't ride in it — bucket it into the
+// current OPEN period (via created_at, the column the snapshot buckets on) and
+// tag the note so the reslot is traceable. No pay_periods rows / period open →
+// no-op (tip dates to the job, the normal case). NEVER silently drops the tip.
+async function resolveTipPeriodDate(
+  companyId: number,
+  naturalDateStr: string,
+): Promise<{ createdAt: Date; tag: string | null }> {
+  const natural = new Date(`${naturalDateStr}T12:00:00Z`);
+  try {
+    const pr = await db.execute(sql`
+      SELECT status FROM pay_periods
+      WHERE company_id = ${companyId} AND start_date <= ${naturalDateStr} AND end_date >= ${naturalDateStr}
+      ORDER BY start_date DESC LIMIT 1`);
+    const p = pr.rows[0] as any;
+    if (p && (p.status === "approved" || p.status === "exported")) {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const op = await db.execute(sql`
+        SELECT start_date::text AS start_date, end_date::text AS end_date FROM pay_periods
+        WHERE company_id = ${companyId} AND status = 'open'
+        ORDER BY (start_date <= ${todayStr} AND end_date >= ${todayStr}) DESC, end_date DESC LIMIT 1`);
+      const o = op.rows[0] as any;
+      if (o) {
+        const within = todayStr >= o.start_date && todayStr <= o.end_date;
+        const createdAt = new Date(`${within ? todayStr : o.end_date}T12:00:00Z`);
+        return { createdAt, tag: `[tip reslotted from ${naturalDateStr}: pay period ${p.status}]` };
+      }
+      // No open period to receive it — keep the job date but flag it for review.
+      return { createdAt: natural, tag: `[tip on ${naturalDateStr}: pay period ${p.status}]` };
+    }
+  } catch { /* pay_periods table absent / not in use — natural date stands */ }
+  return { createdAt: natural, tag: null };
+}
+
+// GET /api/jobs/:id/tips — list this job's tips + total
+router.get("/:id/tips", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const data = await listJobTips(jobId, companyId);
+    const total = Math.round(data.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+    return res.json({ data, total });
+  } catch (err) {
+    console.error("GET /jobs/:id/tips error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// GET /api/jobs/:id/tips/split-preview?total=40 — per-tech default split for
+// the UI to pre-fill (editable). Returns ALL techs (0 default) so the office
+// can hand a share to a tech who didn't clock; never drops a tech.
+router.get("/:id/tips/split-preview", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const total = Number(req.query.total);
+    const ctx = await loadJobTipContext(jobId, companyId);
+    if (!ctx) return res.status(404).json({ error: "Job not found" });
+    const allocs = Number.isFinite(total) && total > 0 ? computeTipSplit(total, ctx.techs) : [];
+    const byUser = new Map(allocs.map((a) => [a.user_id, a.amount]));
+    const anyClocked = ctx.techs.some((t) => t.hours > 0);
+    const data = ctx.techs.map((t) => ({
+      user_id: t.user_id, name: t.name, is_primary: t.is_primary, hours: t.hours,
+      amount: byUser.get(t.user_id) ?? 0,
+    }));
+    return res.json({ data, basis: anyClocked ? "clocked_hours" : "even" });
+  } catch (err) {
+    console.error("GET /jobs/:id/tips/split-preview error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// POST /api/jobs/:id/tips — record a tip on a job, attributed to its tech(s).
+// Body: { total?: number, allocations?: [{user_id, amount}], note?: string }.
+//   - allocations present → use them verbatim (the UI's edited per-tech rows).
+//   - else total present  → compute the clocked-hours split server-side
+//                           (lets scripts/tests post a single number).
+// One additional_pay row (type='tips') per tech. Office/owner only.
+router.post("/:id/tips", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const { total, allocations, note } = req.body ?? {};
+
+    const ctx = await loadJobTipContext(jobId, companyId);
+    if (!ctx) return res.status(404).json({ error: "Job not found" });
+    if (!ctx.techs.length) return res.status(400).json({ error: "Job has no assigned technician to attribute the tip to" });
+    const validIds = new Set(ctx.techs.map((t) => t.user_id));
+
+    let allocs: Array<{ user_id: number; amount: number }>;
+    if (Array.isArray(allocations) && allocations.length) {
+      allocs = [];
+      for (const a of allocations) {
+        const uid = Number(a?.user_id);
+        const amt = Math.round((Number(a?.amount) || 0) * 100) / 100;
+        if (!validIds.has(uid)) return res.status(400).json({ error: `User ${uid} is not on this job` });
+        if (amt > 0) allocs.push({ user_id: uid, amount: amt });
+      }
+      if (!allocs.length) return res.status(400).json({ error: "No positive tip amounts provided" });
+    } else {
+      const t = Number(total);
+      if (!Number.isFinite(t) || t <= 0) return res.status(400).json({ error: "Provide a positive total or allocations" });
+      allocs = computeTipSplit(t, ctx.techs);
+      if (!allocs.length) return res.status(400).json({ error: "Tip total too small to split" });
+    }
+
+    const { createdAt, tag } = await resolveTipPeriodDate(companyId, ctx.scheduledDate);
+    const baseNote = note ? String(note).slice(0, 300).trim() : "";
+    const finalNote = [baseNote, tag].filter(Boolean).join(" ").trim() || null;
+
+    for (const a of allocs) {
+      await db.insert(additionalPayTable).values({
+        company_id: companyId, user_id: a.user_id, amount: a.amount.toFixed(2),
+        type: "tips", notes: finalNote, job_id: jobId, status: "pending", created_at: createdAt,
+      });
+    }
+    try { await logAudit(req, "job_tip.add", "job", jobId, null, { allocations: allocs, note: finalNote, reslotted: !!tag }); } catch {}
+
+    const data = await listJobTips(jobId, companyId);
+    const totalNow = Math.round(data.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+    return res.status(201).json({ data, total: totalNow, reslotted: !!tag });
+  } catch (err) {
+    console.error("POST /jobs/:id/tips error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// DELETE /api/jobs/:id/tips/:tipId — remove a tip (void: keeps the audit trail
+// and drops it from pay since the snapshot ignores voided rows). Works after a
+// period locks too — voiding just removes future inclusion.
+router.delete("/:id/tips/:tipId", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const tipId = parseInt(req.params.tipId);
+    const companyId = req.auth!.companyId!;
+    const upd = await db.execute(sql`
+      UPDATE additional_pay SET status = 'voided', voided_at = now(), voided_by = ${req.auth!.userId}
+      WHERE id = ${tipId} AND job_id = ${jobId} AND company_id = ${companyId}
+        AND type = 'tips' AND status <> 'voided'
+      RETURNING id`);
+    if (!upd.rows.length) return res.status(404).json({ error: "Tip not found or already removed" });
+    try { await logAudit(req, "job_tip.void", "job", jobId, null, { tip_id: tipId }); } catch {}
+    const data = await listJobTips(jobId, companyId);
+    const total = Math.round(data.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+    return res.json({ data, total });
+  } catch (err) {
+    console.error("DELETE /jobs/:id/tips/:tipId error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
