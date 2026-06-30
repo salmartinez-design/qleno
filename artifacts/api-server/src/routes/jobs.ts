@@ -4631,6 +4631,102 @@ async function resolveTipPeriodDate(
   return { createdAt: natural, tag: null };
 }
 
+// ── Tip → invoice (the "no manual invoice editing" piece) ───────────────────
+// A tip the customer adds AFTER the job is paid needs to land on their bill so
+// the invoice total matches what was actually collected — without making the
+// office hand-edit a paid invoice (which the normal edit path blocks on
+// purpose). The office collects the tip in Square/cash (or, for Stripe clients
+// with a card on file, Qleno can charge it). Either way `applyTipToInvoice`
+// adds the tip to the invoice AND records a matching payment row, so a paid
+// invoice goes from paid-in-full → still-paid-in-full at the new total. The
+// books never drift: total goes up by the tip, payments go up by the tip.
+
+interface JobBilling {
+  client_id: number | null;
+  payment_source: string | null; // 'stripe' | 'square' | 'check' | 'ach' | null
+  stripe_customer_id: string | null;
+  stripe_payment_method_id: string | null;
+  card_last_four: string | null;
+  card_brand: string | null;
+  invoice: { id: number; subtotal: number; tips: number; total: number; status: string } | null;
+}
+
+async function loadJobBilling(jobId: number, companyId: number): Promise<JobBilling | null> {
+  const r = await db.execute(sql`
+    SELECT j.client_id,
+           c.payment_source, c.stripe_customer_id, c.stripe_payment_method_id,
+           COALESCE(c.card_last_four, c.square_card_last4) AS card_last_four,
+           COALESCE(c.card_brand, c.square_card_brand) AS card_brand,
+           inv.id AS invoice_id, inv.subtotal, inv.tips, inv.total, inv.status
+    FROM jobs j
+    LEFT JOIN clients c ON c.id = j.client_id
+    LEFT JOIN invoices inv ON inv.id = (
+      SELECT id FROM invoices WHERE job_id = j.id AND company_id = ${companyId}
+        AND status <> 'void' AND status <> 'superseded'
+      ORDER BY created_at DESC LIMIT 1)
+    WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1`);
+  if (!r.rows.length) return null;
+  const x = r.rows[0] as any;
+  return {
+    client_id: x.client_id != null ? Number(x.client_id) : null,
+    payment_source: x.payment_source ?? null,
+    stripe_customer_id: x.stripe_customer_id ?? null,
+    stripe_payment_method_id: x.stripe_payment_method_id ?? null,
+    card_last_four: x.card_last_four ?? null,
+    card_brand: x.card_brand ?? null,
+    invoice: x.invoice_id != null ? {
+      id: Number(x.invoice_id),
+      subtotal: parseFloat(String(x.subtotal || 0)),
+      tips: parseFloat(String(x.tips || 0)),
+      total: parseFloat(String(x.total || 0)),
+      status: String(x.status),
+    } : null,
+  };
+}
+
+// Add `tipTotal` to the job's invoice and record a matching payment so the
+// invoice stays balanced. `paymentMeta` is the Stripe result when Qleno charged
+// the card, or null when the office collected it externally (Square/cash).
+async function applyTipToInvoice(
+  companyId: number, jobId: number, billing: JobBilling, tipTotal: number,
+  processedByUserId: number,
+  paymentMeta: { stripe_payment_id?: string; method: string; last_4?: string | null; card_brand?: string | null },
+): Promise<{ id: number; tips: number; total: number; status: string } | null> {
+  if (!billing.invoice) return null;
+  const inv = billing.invoice;
+  const newTips = Math.round((inv.tips + tipTotal) * 100) / 100;
+  const newTotal = Math.round((inv.subtotal + newTips) * 100) / 100;
+
+  await db.execute(sql`
+    UPDATE invoices SET tips = ${newTips.toFixed(2)}, total = ${newTotal.toFixed(2)}
+    WHERE id = ${inv.id} AND company_id = ${companyId}`);
+
+  // Balancing payment row — the tip was collected (externally or via Stripe).
+  await db.insert(paymentsTable).values({
+    company_id: companyId,
+    client_id: billing.client_id!,
+    invoice_id: inv.id,
+    job_id: jobId,
+    amount: String(tipTotal.toFixed(2)),
+    method: paymentMeta.method,
+    status: "completed",
+    stripe_payment_id: paymentMeta.stripe_payment_id ?? null,
+    last_4: paymentMeta.last_4 ?? null,
+    card_brand: paymentMeta.card_brand ?? null,
+    processed_by: processedByUserId,
+    attempted_at: new Date(),
+  });
+
+  // QB re-push (one-way, fire-and-forget, no-op when not connected).
+  import("../services/quickbooks-sync.js").then(({ syncInvoice, syncPayment }) => {
+    syncInvoice(companyId, inv.id).catch(() => {});
+    syncPayment?.(companyId, inv.id).catch?.(() => {});
+  }).catch(() => {});
+
+  try { await logAudit({ auth: { companyId, userId: processedByUserId } } as any, "invoice_tip.add", "invoice", inv.id, { tips: inv.tips, total: inv.total }, { tips: newTips, total: newTotal, added: tipTotal }); } catch {}
+  return { id: inv.id, tips: newTips, total: newTotal, status: inv.status };
+}
+
 // GET /api/jobs/:id/tips — list this job's tips + total
 router.get("/:id/tips", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
@@ -4662,24 +4758,49 @@ router.get("/:id/tips/split-preview", requireAuth, requireRole("owner", "admin",
       user_id: t.user_id, name: t.name, is_primary: t.is_primary, hours: t.hours,
       amount: byUser.get(t.user_id) ?? 0,
     }));
-    return res.json({ data, basis: anyClocked ? "clocked_hours" : "even" });
+    // Billing context so the UI can show the right options: whether there's an
+    // invoice to update, and whether Qleno can charge the card (Stripe only).
+    const billing = await loadJobBilling(jobId, companyId);
+    const canChargeCard = !!billing && billing.payment_source === "stripe"
+      && !!billing.stripe_customer_id && !!billing.stripe_payment_method_id;
+    return res.json({
+      data,
+      basis: anyClocked ? "clocked_hours" : "even",
+      billing: {
+        has_invoice: !!billing?.invoice,
+        invoice_status: billing?.invoice?.status ?? null,
+        payment_source: billing?.payment_source ?? null,
+        can_charge_card: canChargeCard,
+        card_label: canChargeCard ? `${billing!.card_brand ?? "card"} ···· ${billing!.card_last_four ?? "----"}` : null,
+      },
+    });
   } catch (err) {
     console.error("GET /jobs/:id/tips/split-preview error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// POST /api/jobs/:id/tips — record a tip on a job, attributed to its tech(s).
-// Body: { total?: number, allocations?: [{user_id, amount}], note?: string }.
-//   - allocations present → use them verbatim (the UI's edited per-tech rows).
-//   - else total present  → compute the clocked-hours split server-side
-//                           (lets scripts/tests post a single number).
-// One additional_pay row (type='tips') per tech. Office/owner only.
+// POST /api/jobs/:id/tips — record a tip on a job, attributed to its tech(s),
+// and (by default) reflect it on the customer's invoice — no manual editing.
+// Body: {
+//   total?: number, allocations?: [{user_id, amount}], note?: string,
+//   update_invoice?: boolean (default true)  — add the tip to the job's invoice
+//                                               + record a balancing payment,
+//   charge_card?: boolean (default false)    — Stripe clients only: charge the
+//                                               card on file for the tip now.
+// }
+// Order of operations protects money: if charging a card, that happens FIRST
+// and the whole request aborts on failure (no payout, no invoice change). For
+// Square/cash the office already collected the tip externally; Qleno just
+// records it. Office/owner only.
 router.post("/:id/tips", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId!;
-    const { total, allocations, note } = req.body ?? {};
+    const userId = req.auth!.userId!;
+    const { total, allocations, note, update_invoice, charge_card } = req.body ?? {};
+    const updateInvoice = update_invoice !== false; // default true
+    const chargeCard = charge_card === true;        // default false
 
     const ctx = await loadJobTipContext(jobId, companyId);
     if (!ctx) return res.status(404).json({ error: "Job not found" });
@@ -4702,22 +4823,68 @@ router.post("/:id/tips", requireAuth, requireRole("owner", "admin", "office"), a
       allocs = computeTipSplit(t, ctx.techs);
       if (!allocs.length) return res.status(400).json({ error: "Tip total too small to split" });
     }
+    const tipTotal = Math.round(allocs.reduce((s, a) => s + a.amount, 0) * 100) / 100;
 
+    // Billing side. Resolve the invoice + figure out how the tip was/will be collected.
+    const billing = updateInvoice ? await loadJobBilling(jobId, companyId) : null;
+    let paymentMeta: { stripe_payment_id?: string; method: string; last_4?: string | null; card_brand?: string | null } | null = null;
+
+    if (chargeCard) {
+      // Stripe-only auto-charge. Must succeed BEFORE we pay anyone out.
+      if (!billing || billing.payment_source !== "stripe" || !billing.stripe_customer_id || !billing.stripe_payment_method_id) {
+        return res.status(400).json({ error: "Can't charge a card for this client — no Stripe card on file. Collect the tip in Square/cash and leave 'charge card' off." });
+      }
+      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      if (!stripeKey) return res.status(503).json({ error: "Stripe not configured" });
+      try {
+        const Stripe = (await import("stripe")).default;
+        const stripe = new Stripe(stripeKey, { apiVersion: "2024-12-18.acacia" });
+        const pi = await stripe.paymentIntents.create({
+          amount: Math.round(tipTotal * 100), currency: "usd",
+          customer: billing.stripe_customer_id, payment_method: billing.stripe_payment_method_id,
+          confirm: true, off_session: true,
+          description: `Tip — Job #${jobId}`,
+          metadata: { job_id: String(jobId), company_id: String(companyId), kind: "tip" },
+        });
+        if (pi.status !== "succeeded") throw new Error(`Payment status: ${pi.status}`);
+        paymentMeta = { stripe_payment_id: pi.id, method: "stripe", last_4: billing.card_last_four, card_brand: billing.card_brand };
+      } catch (e: any) {
+        return res.status(402).json({ error: `Card charge failed: ${e?.message || "declined"}. Nothing was saved.` });
+      }
+    } else if (updateInvoice && billing?.invoice) {
+      // Office collected it externally (Square/cash/etc.) — record it as such.
+      paymentMeta = { method: billing.payment_source || "manual", last_4: null, card_brand: null };
+    }
+
+    // Pay the tech(s).
     const { createdAt, tag } = await resolveTipPeriodDate(companyId, ctx.scheduledDate);
     const baseNote = note ? String(note).slice(0, 300).trim() : "";
     const finalNote = [baseNote, tag].filter(Boolean).join(" ").trim() || null;
-
     for (const a of allocs) {
       await db.insert(additionalPayTable).values({
         company_id: companyId, user_id: a.user_id, amount: a.amount.toFixed(2),
         type: "tips", notes: finalNote, job_id: jobId, status: "pending", created_at: createdAt,
       });
     }
-    try { await logAudit(req, "job_tip.add", "job", jobId, null, { allocations: allocs, note: finalNote, reslotted: !!tag }); } catch {}
+    try { await logAudit(req, "job_tip.add", "job", jobId, null, { allocations: allocs, note: finalNote, reslotted: !!tag, update_invoice: updateInvoice, charged: chargeCard }); } catch {}
+
+    // Reflect on the invoice (bump tip + total, record the balancing payment).
+    let invoiceResult: { id: number; tips: number; total: number; status: string } | null = null;
+    let invoiceNote: string | null = null;
+    if (updateInvoice) {
+      if (billing?.invoice && paymentMeta) {
+        invoiceResult = await applyTipToInvoice(companyId, jobId, billing, tipTotal, userId, paymentMeta);
+      } else if (!billing?.invoice) {
+        invoiceNote = "No invoice on this job yet — tip paid to the cleaner, nothing to add to a bill.";
+      }
+    }
 
     const data = await listJobTips(jobId, companyId);
     const totalNow = Math.round(data.reduce((s, t) => s + t.amount, 0) * 100) / 100;
-    return res.status(201).json({ data, total: totalNow, reslotted: !!tag });
+    return res.status(201).json({
+      data, total: totalNow, reslotted: !!tag,
+      charged: chargeCard, invoice: invoiceResult, invoice_note: invoiceNote,
+    });
   } catch (err) {
     console.error("POST /jobs/:id/tips error:", err);
     return res.status(500).json({ error: "Internal Server Error" });

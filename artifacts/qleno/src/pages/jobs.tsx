@@ -1564,6 +1564,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [tipBasis, setTipBasis] = useState<"clocked_hours" | "even">("even");
   const [tipBusy, setTipBusy] = useState(false);
   const [tipRemoving, setTipRemoving] = useState<number | null>(null);
+  // Billing options for the tip: whether to add it to the customer's invoice
+  // (default on), and — Stripe clients only — whether Qleno should charge the
+  // card now. For Square/cash the office collects it externally; Qleno just
+  // updates the bill to match.
+  const [tipBilling, setTipBilling] = useState<{ has_invoice: boolean; invoice_status: string | null; payment_source: string | null; can_charge_card: boolean; card_label: string | null }>({ has_invoice: false, invoice_status: null, payment_source: null, can_charge_card: false, card_label: null });
+  const [tipAddToBill, setTipAddToBill] = useState(true);
+  const [tipChargeCard, setTipChargeCard] = useState(false);
 
   const loadTips = useCallback(async () => {
     try {
@@ -1587,6 +1594,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       if (!r.ok) return;
       const d = await r.json();
       setTipBasis(d.basis ?? "even");
+      if (d.billing) setTipBilling(d.billing);
       setTipAllocs((d.data ?? []).map((t: any) => ({
         user_id: t.user_id, name: t.name, is_primary: t.is_primary, hours: t.hours,
         amount: t.amount > 0 ? t.amount.toFixed(2) : "",
@@ -1597,6 +1605,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   function openTipForm() {
     setTipFormOpen(true);
     setTipAmount(""); setTipNote("");
+    setTipAddToBill(true); setTipChargeCard(false);
     refreshTipSplit("");
   }
 
@@ -1610,13 +1619,24 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       const r = await fetch(`${_API3}/api/jobs/${job.id}/tips`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ allocations, note: tipNote || null }),
+        body: JSON.stringify({
+          allocations, note: tipNote || null,
+          update_invoice: tipAddToBill,
+          charge_card: tipAddToBill && tipBilling.can_charge_card && tipChargeCard,
+        }),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Failed to add tip");
       setTips(d.data ?? []); setTipsTotal(d.total ?? 0);
       setTipFormOpen(false);
-      toast({ title: d.reslotted ? "Tip added — moved to the current open pay period" : "Tip added" });
+      const bits: string[] = [];
+      if (d.charged) bits.push("card charged");
+      if (d.invoice) bits.push(`invoice now $${Number(d.invoice.total).toFixed(2)}`);
+      toast({
+        title: d.reslotted ? "Tip added — moved to the current open pay period" : "Tip added",
+        description: bits.length ? bits.join(" · ") : (d.invoice_note || undefined),
+      });
+      if (d.invoice || d.charged) onUpdate?.();
     } catch (e: any) {
       toast({ title: e.message || "Error adding tip", variant: "destructive" });
     } finally { setTipBusy(false); }
@@ -2995,7 +3015,31 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     </div>
                   ))}
                   <input value={tipNote} onChange={e => setTipNote(e.target.value)} placeholder="Note (e.g. client called in tip)"
-                    style={{ width: "100%", height: 30, padding: "0 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, outline: "none", marginBottom: 8, boxSizing: "border-box" }} />
+                    style={{ width: "100%", height: 30, padding: "0 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, outline: "none", marginBottom: 10, boxSizing: "border-box" }} />
+
+                  {/* Billing options — add to the customer's bill (default on) and,
+                      for Stripe clients with a card on file, charge it now. */}
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: tipAddToBill && tipBilling.can_charge_card ? 6 : 10, cursor: "pointer" }}>
+                    <input type="checkbox" checked={tipAddToBill} onChange={e => { setTipAddToBill(e.target.checked); if (!e.target.checked) setTipChargeCard(false); }} style={{ marginTop: 2 }} />
+                    <span style={{ fontSize: 12, color: "#1A1917", lineHeight: 1.4 }}>
+                      Add this tip to the customer's bill
+                      <span style={{ display: "block", fontSize: 10.5, color: "#9E9B94" }}>
+                        {tipBilling.has_invoice
+                          ? "Updates the invoice total to match what you collected"
+                          : "No invoice on this job yet — just pays the cleaner"}
+                      </span>
+                    </span>
+                  </label>
+                  {tipAddToBill && tipBilling.can_charge_card && (
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 10, marginLeft: 22, cursor: "pointer" }}>
+                      <input type="checkbox" checked={tipChargeCard} onChange={e => setTipChargeCard(e.target.checked)} style={{ marginTop: 2 }} />
+                      <span style={{ fontSize: 12, color: "#1A1917", lineHeight: 1.4 }}>
+                        Charge their card now{tipBilling.card_label ? ` (${tipBilling.card_label})` : ""}
+                        <span style={{ display: "block", fontSize: 10.5, color: "#9E9B94" }}>Leave off if you already collected it (Square / cash)</span>
+                      </span>
+                    </label>
+                  )}
+
                   {(() => {
                     const allocSum = tipAllocs.reduce((s, a) => s + (parseFloat(a.amount) || 0), 0);
                     return (
