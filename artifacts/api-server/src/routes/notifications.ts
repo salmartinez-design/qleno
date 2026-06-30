@@ -406,4 +406,70 @@ router.put("/settings", requireAuth, async (req, res) => {
   }
 });
 
+// ── AI rewrite — "make it warmer / shorter / friendlier / translate" ──────────
+// Office-only helper that rewrites a customer-message body with Claude. It only
+// transforms text supplied in the request — it never sends anything and reads no
+// tenant data, so it's safe. CRITICAL: merge tags ({{first_name}} etc.) must
+// survive verbatim, so the system prompt forbids touching them.
+const AI_MODES: Record<string, string> = {
+  warmer: "Rewrite it to sound warmer, friendlier, and more personable, while keeping the same meaning and length roughly the same.",
+  shorter: "Make it noticeably shorter and punchier without losing any essential information. Aim for about half the length.",
+  friendlier: "Make it clearer and more conversational — plain, friendly language a homeowner would appreciate.",
+  proofread: "Fix any spelling, grammar, and punctuation problems. Keep the wording and tone otherwise unchanged.",
+  spanish: "Translate it into natural, friendly Mexican Spanish that a homeowner would understand. Output only the Spanish version.",
+};
+
+router.post("/ai-rewrite", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const text = typeof req.body?.text === "string" ? req.body.text : "";
+    const mode = typeof req.body?.mode === "string" ? req.body.mode : "";
+    const channel = req.body?.channel === "sms" ? "sms" : "email";
+    if (!text.trim()) { res.status(400).json({ error: "text required" }); return; }
+    if (text.length > 6000) { res.status(400).json({ error: "text too long" }); return; }
+    const instruction = AI_MODES[mode];
+    if (!instruction) { res.status(400).json({ error: `mode must be one of: ${Object.keys(AI_MODES).join(", ")}` }); return; }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      res.status(503).json({ error: "AI assist is not configured — set ANTHROPIC_API_KEY in Railway" });
+      return;
+    }
+
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const client = new Anthropic();
+    const channelNote = channel === "sms"
+      ? "This is an SMS text message — keep it concise and do not add HTML."
+      : "This is an email body — you may keep simple HTML tags (p, strong, em, ul, li, a, br, h2, h3) but add no styles, classes, or new wrappers.";
+    const system =
+      `You edit automated customer messages for a residential cleaning company. ` +
+      `${instruction} ${channelNote} ` +
+      `ABSOLUTE RULE: the text contains merge tags wrapped in double curly braces like {{first_name}}, {{appointment_date}}, {{appointment_window}}. ` +
+      `Preserve every merge tag EXACTLY — same spelling, same braces — and never invent, remove, or translate a tag. ` +
+      `Output ONLY the rewritten message — no quotes, no preamble, no commentary.`;
+
+    const response = await client.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 2048,
+      system,
+      messages: [{ role: "user", content: text }],
+    });
+    const result = response.content
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("")
+      .trim();
+    if (!result) { res.status(502).json({ error: "AI returned an empty result" }); return; }
+    res.json({ result });
+  } catch (e: any) {
+    if (e?.constructor?.name === "AuthenticationError") {
+      res.status(503).json({ error: "AI auth failed — check ANTHROPIC_API_KEY" });
+      return;
+    }
+    if (e?.constructor?.name === "RateLimitError") {
+      res.status(429).json({ error: "AI is busy — try again in a moment" });
+      return;
+    }
+    console.error("[notifications/ai-rewrite] error:", e);
+    res.status(500).json({ error: "AI rewrite failed", message: e?.message });
+  }
+});
+
 export default router;

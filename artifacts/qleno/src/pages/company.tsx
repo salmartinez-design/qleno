@@ -11,6 +11,7 @@ import { Upload, X, ImageIcon, CheckCircle, AlertCircle, RefreshCw, Link, Unlink
 import { HRPoliciesTab } from "./company/hr-policies";
 import { DocumentsTab } from "./company/documents";
 import { RichTextEditor, cleanHtml } from "@/components/rich-text-editor";
+import { EasyMessageEditor } from "@/components/easy-message-editor";
 import { PricingTab } from "./company/pricing";
 import { AddonsTab } from "./company/addons-tab";
 
@@ -1695,15 +1696,17 @@ function NotificationsTab() {
     }
   }
 
-  async function save(id: number, ch: any) {
+  // The EasyMessageEditor owns its own subject/body state and hands them back on
+  // save, so this persists the passed values directly (no shared edit* state).
+  async function saveDirect(id: number, ch: any, subject: string, body: string) {
     setSaving(id);
     try {
       await fetch(`${API}/api/notifications/templates/${id}`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active: ch.is_active, subject: editSubject, body: editBody }),
+        body: JSON.stringify({ is_active: ch.is_active, subject, body }),
       });
-      setMessages(prev => prev.map(m => ({ ...m, channels: m.channels.map((c: any) => c.id === id ? { ...c, subject: editSubject, body: editBody } : c) })));
+      setMessages(prev => prev.map(m => ({ ...m, channels: m.channels.map((c: any) => c.id === id ? { ...c, subject, body } : c) })));
       toast({ title: "Message saved" });
       setEditingId(null);
     } catch { toast({ title: "Failed to save", variant: "destructive" }); }
@@ -1940,65 +1943,16 @@ function NotificationsTab() {
                         </div>
 
                         {editingId === ch.id && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 12 }}>
-                            {ch.channel === 'email' && (
-                              <div>
-                                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Subject Line</p>
-                                <input value={editSubject} onChange={e => setEditSubject(e.target.value)}
-                                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, outline: 'none', boxSizing: 'border-box' }}/>
-                              </div>
-                            )}
-                            <div>
-                              <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{ch.channel === 'email' ? 'Email Body' : 'Text Message'}</p>
-                              {ch.channel === 'email' ? (
-                                /* Rich editor — the office edits formatted text, never raw HTML.
-                                   Its toolbar carries the merge-tag inserts, so the separate chip
-                                   row below is SMS-only. */
-                                <RichTextEditor
-                                  value={editBody}
-                                  onChange={setEditBody}
-                                  minHeight={180}
-                                  mergeTags={(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => ({ key: `{{${v}}}`, desc: v }))}
-                                />
-                              ) : (
-                                <textarea value={editBody} onChange={e => setEditBody(e.target.value)}
-                                  style={{ width: '100%', height: 90, padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 12, fontFamily: FF, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }}/>
-                              )}
-                            </div>
-                            {ch.channel !== 'email' && (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                <span style={{ fontSize: 10, color: '#9E9B94', alignSelf: 'center', marginRight: 2 }}>Insert:</span>
-                                {(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => (
-                                  <button key={v} onClick={() => setEditBody(b => b + `{{${v}}}`)}
-                                    style={{ fontSize: 10, color: '#7C3AED', background: '#EDE9FE', border: 'none', borderRadius: 4, padding: '2px 7px', cursor: 'pointer', fontFamily: FF }}>
-                                    {`{{${v}}}`}
-                                  </button>
-                                ))}
-                              </div>
-                            )}
-                            <div style={{ background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 7, padding: '10px 12px' }}>
-                              <p style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Preview (sample customer)</p>
-                              {ch.channel === 'email' ? (
-                                <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 6, padding: '14px 16px' }}>
-                                  {editSubject && <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 8px', paddingBottom: 8, borderBottom: '1px solid #F0EEE9' }}>{cmFill(editSubject)}</p>}
-                                  {cmIsHtml(editBody)
-                                    ? <div style={{ fontSize: 13, color: '#374151', lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: cmFill(editBody) }}/>
-                                    : <p style={{ fontSize: 13, color: '#374151', margin: 0, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{cmFill(editBody)}</p>}
-                                </div>
-                              ) : (
-                                <p style={{ fontSize: 12, color: '#374151', margin: 0, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{cmFill(editBody)}</p>
-                              )}
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                              <button onClick={() => setEditingId(null)}
-                                style={{ padding: '7px 14px', border: '1px solid #E5E2DC', borderRadius: 7, background: '#fff', fontSize: 12, cursor: 'pointer', fontFamily: FF }}>
-                                Cancel
-                              </button>
-                              <button onClick={() => save(ch.id, ch)} disabled={saving === ch.id}
-                                style={{ padding: '7px 16px', border: 'none', borderRadius: 7, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: FF }}>
-                                {saving === ch.id ? "Saving…" : "Save"}
-                              </button>
-                            </div>
+                          <div style={{ marginTop: 14 }}>
+                            <EasyMessageEditor
+                              channel={ch.channel}
+                              initialSubject={ch.channel === 'email' ? (ch.subject || '') : ''}
+                              initialBody={ch.body || ''}
+                              mergeTags={mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)}
+                              saving={saving === ch.id}
+                              onSave={(subject, body) => saveDirect(ch.id, ch, subject, body)}
+                              onCancel={() => setEditingId(null)}
+                            />
                           </div>
                         )}
                       </div>
