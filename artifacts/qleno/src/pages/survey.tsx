@@ -7,7 +7,7 @@ const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
 
 // MaidCentral 0–4 satisfaction scale — the single question that feeds the
-// employee scorecard. Highest first (reads top-down on a phone).
+// employee Performance Score. Highest first (reads top-down on a phone).
 const OPTIONS: { score: number; label: string; sub: string; color: string }[] = [
   { score: 4, label: "Thrilled — Great Work", sub: "Everything was excellent", color: "#16A34A" },
   { score: 3, label: "Happy — Good Work", sub: "A good cleaning", color: "#65A30D" },
@@ -29,6 +29,56 @@ export default function SurveyPage() {
 
   const [score, setScore] = useState<number | null>(null);
   const [comment, setComment] = useState("");
+  const [commentSent, setCommentSent] = useState(false);
+  const [savingComment, setSavingComment] = useState(false);
+
+  // [seamless] A score passed in the URL (?score=N) — set when the customer taps
+  // a rating right inside the email — is recorded automatically on arrival so a
+  // single tap from their inbox is all it takes.
+  const urlScore = (() => {
+    if (typeof window === "undefined") return null;
+    const raw = new URLSearchParams(window.location.search).get("score");
+    if (raw == null) return null;
+    const n = Math.round(Number(raw));
+    return Number.isFinite(n) && n >= 0 && n <= 4 ? n : null;
+  })();
+
+  async function submit(s: number) {
+    if (s == null || submitting || submitted) return;
+    setScore(s);
+    setSubmitting(true);
+    setSubmitError("");
+    try {
+      const r = await fetch(`${API}/api/satisfaction/respond`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, survey_score: s }),
+      });
+      const d = await r.json();
+      if (d.error) setSubmitError(d.error === "Already responded" ? "This survey has already been submitted. Thank you." : d.error);
+      else setSubmitted(true);
+    } catch {
+      setSubmitError("Couldn't record your rating. Please tap again.");
+    }
+    setSubmitting(false);
+  }
+
+  async function sendComment() {
+    if (!comment.trim() || savingComment) return;
+    setSavingComment(true);
+    try {
+      await fetch(`${API}/api/satisfaction/comment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, comment }),
+      });
+      setCommentSent(true);
+    } catch {
+      /* non-fatal — their rating is already recorded */
+      setCommentSent(true);
+    }
+    setSavingComment(false);
+  }
 
   useEffect(() => {
     if (!token) return;
@@ -37,30 +87,16 @@ export default function SurveyPage() {
       .then(d => {
         if (d.error) setErrorMsg(d.error === "Survey not found" ? "This link is no longer active." : d.error);
         else if (d.suppressed) setErrorMsg("This link is no longer active.");
-        else { setMeta(d); if (d.responded_at) setSubmitted(true); }
+        else {
+          setMeta(d);
+          if (d.responded_at) { setSubmitted(true); }
+          else if (urlScore != null) { submit(urlScore); } // one-tap from the email
+        }
       })
       .catch(() => setErrorMsg("Failed to load survey"))
       .finally(() => setLoading(false));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
-
-  async function submit() {
-    if (score === null) return;
-    setSubmitting(true);
-    setSubmitError("");
-    try {
-      const r = await fetch(`${API}/api/satisfaction/respond`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token, survey_score: score, comment }),
-      });
-      const d = await r.json();
-      if (d.error) setSubmitError(d.error === "Already responded" ? "This survey has already been submitted. Thank you." : d.error);
-      else setSubmitted(true);
-    } catch {
-      setSubmitError("Failed to submit. Please try again.");
-    }
-    setSubmitting(false);
-  }
 
   const brand = meta?.brand_color || "#00C9A0";
   const companyName = meta?.company_name || "Your cleaning company";
@@ -85,27 +121,56 @@ export default function SurveyPage() {
     );
   }
 
+  // [seamless] Thank-you doubles as the (optional) comment step. The rating is
+  // already saved; a note is a bonus, never required.
   if (submitted) {
+    const chosen = OPTIONS.find(o => o.score === score);
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F8F7F4", fontFamily: FF, padding: 24 }}>
-        <div style={{ background: "#FFFFFF", borderRadius: 16, padding: "48px 40px", maxWidth: 440, width: "100%", textAlign: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.08)" }}>
-          <CheckCircle size={48} style={{ color: brand, marginBottom: 16 }} />
-          <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 10px" }}>Thank you for your feedback.</h2>
-          <p style={{ fontSize: 14, color: "#6B7280", margin: 0, lineHeight: "1.6" }}>
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "flex-start", justifyContent: "center", background: "#F8F7F4", fontFamily: FF, padding: "24px 16px" }}>
+        <div style={{ background: "#FFFFFF", borderRadius: 16, padding: "40px 28px", maxWidth: 440, width: "100%", textAlign: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", marginTop: 24 }}>
+          <CheckCircle size={48} style={{ color: brand, marginBottom: 14 }} />
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 8px" }}>Thank you for your feedback.</h2>
+          {chosen && (
+            <p style={{ fontSize: 14, color: "#6B7280", margin: "0 0 4px" }}>
+              You rated us <span style={{ color: chosen.color, fontWeight: 700 }}>{chosen.label}</span>.
+            </p>
+          )}
+          <p style={{ fontSize: 14, color: "#6B7280", margin: "0 0 22px", lineHeight: "1.6" }}>
             We appreciate you trusting us with your home.
           </p>
+
+          {!commentSent ? (
+            <div style={{ textAlign: "left" }}>
+              <label style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", display: "block", marginBottom: 8 }}>
+                Want to add a quick note? <span style={{ color: "#9E9B94", fontWeight: 400 }}>(optional)</span>
+              </label>
+              <textarea value={comment} onChange={e => setComment(e.target.value)} rows={3}
+                placeholder="Tell us anything that stood out."
+                style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, resize: "vertical" as const, fontFamily: FF, outline: "none", boxSizing: "border-box" as const, marginBottom: 12 }} />
+              <button onClick={sendComment} disabled={!comment.trim() || savingComment}
+                style={{
+                  width: "100%", padding: "12px 0", backgroundColor: comment.trim() ? brand : "#E5E2DC",
+                  color: "#FFFFFF", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700,
+                  cursor: comment.trim() ? "pointer" : "not-allowed", fontFamily: FF,
+                  display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+                }}>
+                {savingComment ? <><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> Sending…</> : "Send note"}
+              </button>
+            </div>
+          ) : (
+            <p style={{ fontSize: 13, color: "#16A34A", fontWeight: 600, margin: 0 }}>Thanks — your note was sent.</p>
+          )}
         </div>
+        <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
       </div>
     );
   }
-
-  const canSubmit = score !== null;
 
   return (
     <div style={{ minHeight: "100vh", background: "#F8F7F4", fontFamily: FF, padding: "24px 16px", display: "flex", alignItems: "flex-start", justifyContent: "center" }}>
       <div style={{ background: "#FFFFFF", borderRadius: 16, padding: "36px 24px", maxWidth: 480, width: "100%", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", marginTop: 24 }}>
         {/* Header */}
-        <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <div style={{ textAlign: "center", marginBottom: 24 }}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 18 }}>
             <QlenoLogo size="sm" theme="light" layout="horizontal" />
           </div>
@@ -114,30 +179,29 @@ export default function SurveyPage() {
           </div>
           <h1 style={{ fontSize: 17, fontWeight: 700, color: "#1A1917", margin: "0 0 2px" }}>{companyName}</h1>
           <p style={{ fontSize: 10, color: "#9E9B94", margin: "0 0 10px", letterSpacing: "0.02em" }}>Powered by Qleno</p>
-          <p style={{ fontSize: 15, color: "#1A1917", fontWeight: 600, margin: 0 }}>How was your cleaning?</p>
+          <p style={{ fontSize: 15, color: "#1A1917", fontWeight: 600, margin: "0 0 2px" }}>How was your cleaning?</p>
+          <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>Tap your answer — that's it.</p>
         </div>
 
-        {/* 0–4 satisfaction choices */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 24 }}>
+        {/* [seamless] One tap submits — no separate button. */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           {OPTIONS.map(o => {
-            const sel = score === o.score;
+            const busy = submitting && score === o.score;
             return (
-              <button key={o.score} onClick={() => setScore(o.score)} style={{
+              <button key={o.score} onClick={() => submit(o.score)} disabled={submitting} style={{
                 display: "flex", alignItems: "center", gap: 14, textAlign: "left" as const,
-                padding: "14px 16px", borderRadius: 12, cursor: "pointer", width: "100%",
-                border: `2px solid ${sel ? o.color : "#E5E2DC"}`,
-                backgroundColor: sel ? `${o.color}12` : "#FFFFFF",
-                transition: "all 0.12s", fontFamily: FF,
+                padding: "15px 16px", borderRadius: 12, cursor: submitting ? "default" : "pointer", width: "100%",
+                border: `2px solid ${busy ? o.color : "#E5E2DC"}`,
+                backgroundColor: busy ? `${o.color}12` : "#FFFFFF",
+                transition: "all 0.12s", fontFamily: FF, opacity: submitting && !busy ? 0.5 : 1,
               }}>
                 <div style={{
                   width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
-                  backgroundColor: sel ? o.color : "#F3F4F6",
-                  color: sel ? "#FFFFFF" : "#6B7280",
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontSize: 16, fontWeight: 800,
-                }}>{o.score}</div>
+                  backgroundColor: busy ? o.color : "#F3F4F6", color: busy ? "#FFFFFF" : "#6B7280",
+                  display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800,
+                }}>{busy ? <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> : o.score}</div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: sel ? o.color : "#1A1917" }}>{o.label}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>{o.label}</div>
                   <div style={{ fontSize: 12, color: "#9E9B94" }}>{o.sub}</div>
                 </div>
               </button>
@@ -145,34 +209,11 @@ export default function SurveyPage() {
           })}
         </div>
 
-        {/* Optional comment */}
-        <div style={{ marginBottom: 22 }}>
-          <label style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", display: "block", marginBottom: 8 }}>
-            Anything else you'd like to share? <span style={{ color: "#9E9B94", fontWeight: 400 }}>(optional)</span>
-          </label>
-          <textarea value={comment} onChange={e => setComment(e.target.value)} rows={3}
-            placeholder="Your feedback helps us improve."
-            style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, resize: "vertical" as const, fontFamily: FF, outline: "none", boxSizing: "border-box" as const }} />
-        </div>
-
         {submitError && (
-          <div style={{ marginBottom: 16, padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, fontSize: 13, color: "#991B1B" }}>
+          <div style={{ marginTop: 16, padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, fontSize: 13, color: "#991B1B" }}>
             {submitError}
           </div>
         )}
-
-        <button onClick={submit} disabled={!canSubmit || submitting}
-          style={{
-            width: "100%", padding: "13px 0",
-            backgroundColor: canSubmit ? brand : "#E5E2DC",
-            color: "#FFFFFF", border: "none", borderRadius: 10,
-            fontSize: 14, fontWeight: 700,
-            cursor: canSubmit ? "pointer" : "not-allowed",
-            fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-            transition: "background-color 0.15s",
-          }}>
-          {submitting ? <><Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> Submitting…</> : "Submit Feedback"}
-        </button>
       </div>
       <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
     </div>

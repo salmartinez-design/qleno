@@ -198,6 +198,36 @@ router.post("/respond", async (req, res) => {
   }
 });
 
+// ── POST /api/satisfaction/comment — PUBLIC, optional note after rating ──
+// [seamless] The rating is recorded the instant the customer taps; a written
+// note is a no-pressure follow-up. Updates the survey comment AND mirrors it
+// onto the tech's scorecard entry so the office sees it next to the score.
+router.post("/comment", async (req, res) => {
+  try {
+    const { token, comment } = req.body;
+    if (!token) return res.status(400).json({ error: "token required" });
+    const text = (comment ?? "").toString().slice(0, 2000) || null;
+    const [updated] = await db.update(satisfactionSurveysTable)
+      .set({ comment: text })
+      .where(eq(satisfactionSurveysTable.token, token))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Survey not found" });
+    if (updated.job_id) {
+      try {
+        await db.execute(sql`
+          UPDATE scorecard_entries SET notes = ${text}
+           WHERE company_id = ${updated.company_id} AND job_id = ${updated.job_id} AND source = 'qleno'`);
+      } catch (e: any) {
+        console.error("[satisfaction/comment] scorecard note sync failed (non-fatal):", e?.message ?? e);
+      }
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("[satisfaction/comment]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ── GET /api/satisfaction/survey/:token — PUBLIC ──
 router.get("/survey/:token", async (req, res) => {
   try {
