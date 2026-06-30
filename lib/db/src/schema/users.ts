@@ -71,6 +71,18 @@ export const usersTable = pgTable("users", {
   // tracks which is currently shown.
   scorecard_pct_mc: numeric("scorecard_pct_mc", { precision: 5, scale: 2 }),
   scorecard_pct_source: text("scorecard_pct_source").default("mc"),
+  // [90d-composite] Rolling 90-day composite scorecard. The DISPLAYED headline
+  // (replaces scorecard_pct on every surface) is scorecard_composite_90d — a
+  // weighted blend of three trailing-90-day sub-scores: customer satisfaction,
+  // attendance, and complaint-free rate. scorecard_pct above stays as the
+  // satisfaction-only live value (the survey recompute still writes it). All
+  // five columns are written by lib/scorecard-composite.ts; null until the
+  // first compute. Weights live per-tenant on companies.score_weight_*.
+  score_satisfaction_90d: numeric("score_satisfaction_90d", { precision: 5, scale: 2 }),
+  score_attendance_90d: numeric("score_attendance_90d", { precision: 5, scale: 2 }),
+  score_complaint_free_90d: numeric("score_complaint_free_90d", { precision: 5, scale: 2 }),
+  scorecard_composite_90d: numeric("scorecard_composite_90d", { precision: 5, scale: 2 }),
+  score_computed_at: timestamp("score_computed_at", { withTimezone: true }),
   // [pay-matrix 2026-04-29] Per-employee 4-cell pay matrix. Replaces
   // the company-wide single-rate model. Type can be 'commission' (rate
   // is a fraction 0.00–1.00) or 'hourly' (rate is dollars/hour). The

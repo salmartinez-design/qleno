@@ -158,6 +158,26 @@ router.post("/rate", requirePortalAuth, async (req, res) => {
         comment,
       });
     }
+
+    // [client-scoring → scorecard] A portal star rating (1–4) is a customer
+    // rating of the job → flow it to the job's tech(s) Performance Score, same
+    // as a tokenized survey response. Idempotent per (job, tech); a later
+    // survey/portal rating of the same job replaces it. Non-fatal — the rating
+    // is already saved above; the scorecard write is derived.
+    try {
+      const [job] = await db.select({ dt: jobsTable.scheduled_date })
+        .from(jobsTable).where(eq(jobsTable.id, job_id)).limit(1);
+      const entryDate = job?.dt ? String(job.dt).slice(0, 10) : new Date().toISOString().slice(0, 10);
+      const { captureJobScore } = await import("../lib/scorecard-engine.js");
+      await captureJobScore({
+        companyId: req.portal!.companyId, jobId: job_id,
+        score: Math.max(0, Math.min(4, Math.round(Number(score)))),
+        entryDate, notes: comment || null,
+      });
+    } catch (e: any) {
+      console.error("[portal/rate] scorecard capture failed (non-fatal):", e?.message ?? e);
+    }
+
     return res.json({ success: true });
   } catch { return res.status(500).json({ error: "Internal Server Error" }); }
 });

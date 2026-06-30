@@ -165,6 +165,14 @@ export const companiesTable = pgTable("companies", {
     "Hi {{first_name}}, thanks for choosing us! How was your cleaning today? Tap to rate: {{survey_link}}",
   ),
   survey_send_after_hours: integer("survey_send_after_hours").notNull().default(0),
+  // [90d-composite] Per-tenant weights for the rolling 90-day composite tech
+  // scorecard (lib/scorecard-composite.ts). Stored as whole-number weights;
+  // the engine re-normalizes across whichever sub-scores are present, so they
+  // need not sum to 100. Defaults: 60 satisfaction / 25 attendance / 15
+  // complaint-free.
+  score_weight_satisfaction: integer("score_weight_satisfaction").notNull().default(60),
+  score_weight_attendance: integer("score_weight_attendance").notNull().default(25),
+  score_weight_complaint_free: integer("score_weight_complaint_free").notNull().default(15),
   // Per-tenant Twilio connection (Settings → Integrations). twilio_from_number
   // already exists above. twilio_enabled is the go-live gate — surveys/SMS only
   // actually send when this is true AND creds are set AND COMMS_ENABLED=true.

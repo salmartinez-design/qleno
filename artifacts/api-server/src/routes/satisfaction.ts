@@ -75,12 +75,43 @@ router.post("/send", requireAuth, async (req, res) => {
       })
       .from(companiesTable).where(eq(companiesTable.id, companyId)).limit(1);
     const [client] = await db
-      .select({ phone: clientsTable.phone, first_name: clientsTable.first_name })
+      .select({ phone: clientsTable.phone, first_name: clientsTable.first_name, email: clientsTable.email })
       .from(clientsTable).where(eq(clientsTable.id, parseInt(customer_id))).limit(1);
 
     // [comms-opt-out] Never survey a client who texted STOP.
     const { isSmsOptedOut } = await import("../lib/opt-out.js");
     const smsOptedOut = client?.phone ? await isSmsOptedOut(companyId, client.phone) : false;
+
+    // [survey-email] Send the survey by EMAIL too, reusing the review_request
+    // email template with the TOKENIZED survey link so an email response
+    // cascades to the tech scorecard exactly like the SMS path. sendNotification
+    // applies its OWN gates — tenant comms, per-client channel preference
+    // (prefClientId), and email opt-out — so this honors the customer's
+    // which-channel choice. Independent of the Twilio gates below: email still
+    // goes out even while SMS/Twilio is disabled. Non-fatal.
+    const appBase = (process.env.APP_BASE_URL || "https://app.qleno.com").replace(/\/$/, "");
+    const surveyUrl = `${appBase}/survey/${token}`;
+    if (client?.email) {
+      try {
+        const { sendNotification } = await import("../services/notificationService.js");
+        await sendNotification(
+          "review_request", "email", companyId, client.email, null,
+          { first_name: client.first_name || "there", review_link: surveyUrl },
+          false, undefined, parseInt(customer_id),
+        );
+      } catch (e: any) {
+        console.error("[satisfaction/send] survey email failed (non-fatal):", e?.message ?? e);
+      }
+    }
+    // [survey-dedupe] Stamp survey_last_sent so the generic review_request cron
+    // (notificationService) skips this client for 30 days — the on-completion
+    // survey is the single feedback ask, so the customer never gets two emails.
+    try {
+      await db.execute(sql`UPDATE clients SET survey_last_sent = NOW() WHERE id = ${parseInt(customer_id)} AND company_id = ${companyId}`);
+    } catch (e: any) {
+      console.error("[satisfaction/send] survey_last_sent stamp failed (non-fatal):", e?.message ?? e);
+    }
+
     const gate =
       !company?.survey_enabled ? "survey_disabled"
       : !company?.twilio_enabled ? "twilio_disabled"

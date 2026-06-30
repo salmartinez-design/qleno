@@ -33,6 +33,15 @@ router.post("/", requireAuth, LOG_ROLES, async (req, res) => {
       await checkThresholds(companyId, employee_id, loggedBy);
     }
 
+    // [90d-composite] A logged tardy/absent/ncns moves the tech's attendance
+    // sub-score → recompute the rolling composite. Non-fatal.
+    try {
+      const { recomputeCompositeScore } = await import("../lib/scorecard-composite.js");
+      await recomputeCompositeScore(companyId, employee_id);
+    } catch (e: any) {
+      console.error("[scorecard-composite] recompute after attendance log failed (non-fatal):", e?.message ?? e);
+    }
+
     return res.json(entry);
   } catch (err) {
     console.error("hr-attendance POST error:", err);

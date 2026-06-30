@@ -276,8 +276,10 @@ export default function EmployeesPage() {
                       </div>
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'center' }}>
-                      {(user as any).scorecard_pct != null ? (
-                        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--brand)' }}>{Math.round(parseFloat((user as any).scorecard_pct))}%</span>
+                      {/* [90d-composite] Show the rolling composite headline; fall
+                          back to the satisfaction-only % until the composite computes. */}
+                      {((user as any).scorecard_composite_90d ?? (user as any).scorecard_pct) != null ? (
+                        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--brand)' }}>{Math.round(parseFloat((user as any).scorecard_composite_90d ?? (user as any).scorecard_pct))}%</span>
                       ) : (
                         <span style={{ fontSize: '13px', color: '#9E9B94' }}>—</span>
                       )}

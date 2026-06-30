@@ -50,14 +50,19 @@ export async function recomputeAllScorecards(companyId: number): Promise<{ emplo
   return { employees_updated: (r.rows as any[]).length };
 }
 
-// Write per-tech scorecard_entries for a survey response (0–4), attributed to
-// every tech on the job (job_technicians; falls back to assigned_user_id), then
-// recompute each tech's scorecard. Idempotent per (job, employee) via the
-// uq_scorecard_entries_survey upsert key. Returns the employee ids written.
-export async function captureSurveyScore(args: {
-  companyId: number; jobId: number; surveyId: number; score: number; entryDate: string; notes?: string | null;
+// Write per-tech scorecard_entries for ANY customer rating of a job (0–4 scale),
+// attributed to every tech on the job (job_technicians; falls back to
+// assigned_user_id), then recompute each tech's satisfaction score AND the
+// rolling composite. Two callers feed this: the tokenized satisfaction survey
+// (surveyId set) and the customer-portal star rating (surveyId null). Idempotent
+// per (job, employee): the prior qleno entry for this job/tech is cleared and
+// replaced, so the latest customer rating of a job wins regardless of channel.
+// Returns the employee ids written.
+export async function captureJobScore(args: {
+  companyId: number; jobId: number; score: number; entryDate: string;
+  surveyId?: number | null; maxValue?: number; notes?: string | null;
 }): Promise<number[]> {
-  const { companyId, jobId, surveyId, score, entryDate, notes } = args;
+  const { companyId, jobId, score, entryDate, surveyId = null, maxValue = 4, notes } = args;
 
   // Techs on the job: job_technicians, else the primary assigned_user_id.
   const techRows = await db.execute(sql`
@@ -78,9 +83,25 @@ export async function captureSurveyScore(args: {
     `);
     await db.execute(sql`
       INSERT INTO scorecard_entries (company_id, employee_id, job_id, entry_date, score_value, max_value, source, survey_id, notes)
-      VALUES (${companyId}, ${uid}, ${jobId}, ${entryDate}, ${String(score)}, '4', 'qleno', ${surveyId}, ${notes ?? null})
+      VALUES (${companyId}, ${uid}, ${jobId}, ${entryDate}, ${String(score)}, ${String(maxValue)}, 'qleno', ${surveyId}, ${notes ?? null})
     `);
   }
   for (const uid of techIds) await recomputeEmployeeScorecard(companyId, uid);
+  // [90d-composite] Keep the rolling composite fresh on every new customer
+  // rating. Non-fatal — the satisfaction recompute above is the load-bearing
+  // write; the composite is a derived display value.
+  try {
+    const { recomputeCompositeScore } = await import("./scorecard-composite.js");
+    for (const uid of techIds) await recomputeCompositeScore(companyId, uid);
+  } catch (e: any) {
+    console.error("[scorecard-composite] recompute after rating failed (non-fatal):", e?.message ?? e);
+  }
   return techIds;
+}
+
+// Back-compat wrapper for the tokenized satisfaction survey path.
+export async function captureSurveyScore(args: {
+  companyId: number; jobId: number; surveyId: number; score: number; entryDate: string; notes?: string | null;
+}): Promise<number[]> {
+  return captureJobScore(args);
 }

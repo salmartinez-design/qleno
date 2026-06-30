@@ -94,6 +94,15 @@ router.put("/complaints/:id/validate", requireAuth, requireRole("owner", "admin"
       await checkProbationThreshold(companyId, result[0].employee_id);
     }
 
+    // [90d-composite] Validating a complaint (either direction) moves the tech's
+    // complaint-free sub-score → recompute the rolling composite. Non-fatal.
+    try {
+      const { recomputeCompositeScore } = await import("../lib/scorecard-composite.js");
+      await recomputeCompositeScore(companyId, result[0].employee_id);
+    } catch (e: any) {
+      console.error("[scorecard-composite] recompute after complaint validate failed (non-fatal):", e?.message ?? e);
+    }
+
     return res.json(result[0]);
   } catch (err) {
     console.error("quality validate error:", err);
