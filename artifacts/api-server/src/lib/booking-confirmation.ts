@@ -104,7 +104,7 @@ function originFromReq(req: Request): string {
 export async function sendJobScheduledConfirmation(req: Request, jobId: number): Promise<void> {
   try {
     const rows = await db.execute(sql`
-      SELECT j.id, j.company_id, j.scheduled_date, j.scheduled_time, j.service_type,
+      SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.scheduled_time, j.service_type,
              j.address_street, j.address_city, j.address_state, j.address_zip,
              c.first_name, c.last_name, c.email AS client_email, c.phone AS client_phone,
              u.first_name AS tech_first, u.avatar_url AS tech_avatar,
@@ -171,8 +171,8 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
     });
 
     const { sendNotification } = await import("../services/notificationService.js");
-    if (email) await sendNotification("job_scheduled", "email", j.company_id, email, null, mv, false, renderEmail).catch(() => {});
-    if (phone) await sendNotification("job_scheduled", "sms", j.company_id, null, phone, mv).catch(() => {});
+    if (email) await sendNotification("job_scheduled", "email", j.company_id, email, null, mv, false, renderEmail, j.client_id).catch(() => {});
+    if (phone) await sendNotification("job_scheduled", "sms", j.company_id, null, phone, mv, false, undefined, j.client_id).catch(() => {});
   } catch (err) {
     console.error("[booking-confirmation] sendJobScheduledConfirmation failed:", err);
   }

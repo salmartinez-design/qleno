@@ -303,6 +303,17 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] runRescheduleLabelBackfill — non-fatal:", err?.message ?? err);
   }
+  // [notif-prefs] customer_notification_preferences — per-client/per-account
+  // sparse override table controlling WHICH customer messages fire on WHICH
+  // channel. No rows seeded: absence = inherit tenant default (all on).
+  try {
+    await withBootTimeout("runNotificationPreferencesMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runNotificationPreferencesMigration } = await import("./lib/notification-preferences.js");
+      await runNotificationPreferencesMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runNotificationPreferencesMigration — non-fatal:", err?.message ?? err);
+  }
   // [booking-confirmation GAP1] token column + job_scheduled SMS template (all tenants)
   try {
     await withBootTimeout("ensureBookingConfirmationSetup", SCHEMA_TIMEOUT_MS, async () => {

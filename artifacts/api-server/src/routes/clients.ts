@@ -1171,6 +1171,60 @@ router.delete("/:id/notifications/:notifId", requireAuth, async (req, res) => {
   }
 });
 
+// ─── CUSTOMER NOTIFICATION PREFERENCES ──────────────────────────────────────
+// Which automated customer messages this client receives, per channel. For
+// clients that belong to an account, prefs are controlled at the ACCOUNT level
+// (an account has many properties/jobs) — the GET reports that so the UI can
+// redirect the office to the account page instead of editing per-client.
+router.get("/:id/notification-preferences", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const [client] = await db.select({ id: clientsTable.id, company_id: clientsTable.company_id, account_id: clientsTable.account_id })
+      .from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
+    if (!assertClientAccess(client, companyId, res)) return;
+
+    const { PREFERENCE_CATALOG, getScopeOverrides } = await import("../lib/notification-preferences.js");
+    const managedByAccount = client.account_id != null;
+    const scopeType = managedByAccount ? "account" : "client";
+    const scopeId = managedByAccount ? Number(client.account_id) : clientId;
+    const overrides = await getScopeOverrides(companyId, scopeType as any, scopeId);
+    return res.json({
+      catalog: PREFERENCE_CATALOG,
+      overrides,
+      scope_type: scopeType,
+      managed_by_account: managedByAccount,
+      account_id: managedByAccount ? Number(client.account_id) : null,
+    });
+  } catch (err) {
+    console.error("[notif-prefs] GET client prefs error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.put("/:id/notification-preferences", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const [client] = await db.select({ id: clientsTable.id, company_id: clientsTable.company_id, account_id: clientsTable.account_id })
+      .from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
+    if (!assertClientAccess(client, companyId, res)) return;
+    // Account clients are managed at the account scope — reject per-client writes
+    // so the office can't set a pref that resolution would silently ignore.
+    if (client.account_id != null) {
+      return res.status(409).json({ error: "Managed by account", account_id: Number(client.account_id) });
+    }
+    const overrides = Array.isArray(req.body?.overrides) ? req.body.overrides : [];
+    const { setScopeOverrides } = await import("../lib/notification-preferences.js");
+    await setScopeOverrides(companyId, "client", clientId, overrides);
+    await logAudit(req, "client.notification_preferences.update", "client", clientId, null, { count: overrides.length });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[notif-prefs] PUT client prefs error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── PORTAL INVITE ─────────────────────────────────────────────────────────────
 router.post("/:id/portal-invite", requireAuth, async (req, res) => {
   try {

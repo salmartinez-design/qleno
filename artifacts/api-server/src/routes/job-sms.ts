@@ -93,7 +93,7 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
       const clientEmail = await db.select({ email: clientsTable.email })
         .from(clientsTable).where(eq(clientsTable.id, job.client_id)).limit(1)
         .then(r => r[0]?.email ?? null);
-      sendNotification("on_my_way", "email", companyId, clientEmail, null, emailMv).catch(() => {});
+      sendNotification("on_my_way", "email", companyId, clientEmail, null, emailMv, false, undefined, job.client_id).catch(() => {});
     }
 
     // Check SMS enabled for this event

@@ -3801,8 +3801,8 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
             service_address:  addr,
             ...buildAppointmentVars({ scheduledDate: jd.scheduled_date, scheduledTime: jd.scheduled_time }),
           };
-          sendNotification("job_completed", "email", companyId, cl.email, null, mv).catch(() => {});
-          sendNotification("job_completed", "sms",   companyId, null, cl.phone, mv).catch(() => {});
+          sendNotification("job_completed", "email", companyId, cl.email, null, mv, false, undefined, clientId).catch(() => {});
+          sendNotification("job_completed", "sms",   companyId, null, cl.phone, mv, false, undefined, clientId).catch(() => {});
         }).catch(() => {});
     }
     // ─────────────────────────────────────────────────────────────────────

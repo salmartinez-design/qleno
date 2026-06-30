@@ -36,6 +36,7 @@ export * from "./employee_notes";
 export * from "./client_ratings";
 export * from "./messages";
 export * from "./notification_templates";
+export * from "./customer_notification_preferences";
 export * from "./job_status_logs";
 export * from "./client_homes";
 export * from "./technician_preferences";

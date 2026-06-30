@@ -20,6 +20,7 @@ import { getAuthHeaders } from "@/lib/auth";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { AccountJobsCalendar } from "@/components/account-jobs-calendar";
+import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOffSet, type PrefData } from "@/components/notification-preference-grid";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -106,6 +107,80 @@ function statusBadge(status: string) {
 function statusLabel(s: string) {
   const map: Record<string, string> = { scheduled: "Scheduled", in_progress: "In Progress", complete: "Complete", cancelled: "Cancelled" };
   return map[s] ?? s;
+}
+
+// [notif-prefs] Per-account control over which automated customer messages fire,
+// per channel. Applies to every customer/job under the account — the granular
+// companion to the master comms pause above it. When the master switch is OFF,
+// nothing goes out regardless, so the grid is shown disabled with a note.
+function AccountNotificationPreferences({ accountId, commsPaused }: { accountId: string; commsPaused: boolean }) {
+  const { toast } = useToast();
+  const [data, setData] = useState<PrefData | null>(null);
+  const [offs, setOffs] = useState<Set<string>>(new Set());
+  const [baseline, setBaseline] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    try {
+      const r = await fetch(`${API}/api/accounts/${accountId}/notification-preferences`, { headers: getAuthHeaders() });
+      if (!r.ok) return;
+      const d: PrefData = await r.json();
+      setData(d);
+      const initial = offsFromOverrides(d.overrides || {});
+      setOffs(initial);
+      setBaseline(JSON.stringify([...initial].sort()));
+    } catch {}
+  }
+  useEffect(() => { load(); }, [accountId]);
+
+  if (!data) return null;
+  const dirty = JSON.stringify([...offs].sort()) !== baseline;
+  const toggle = (key: string) => setOffs((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+
+  async function save() {
+    if (!data) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/accounts/${accountId}/notification-preferences`, {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
+        body: JSON.stringify({ overrides: buildPrefPayload(data.catalog, offs) }),
+      });
+      if (!r.ok) throw new Error();
+      setBaseline(JSON.stringify([...offs].sort()));
+      toast({ title: "Notification preferences saved for this account" });
+    } catch {
+      toast({ title: "Failed to save notification preferences", variant: "destructive" });
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="space-y-3 pt-3 border-t border-gray-100">
+      <div className="flex items-end justify-between flex-wrap gap-2">
+        <div>
+          <p className="text-sm font-medium text-[#0A0E1A]">Per-message preferences</p>
+          <p className="text-xs text-gray-500 mt-0.5 max-w-md">Fine-tune which messages this account receives. Everything is on by default.</p>
+        </div>
+        {!commsPaused && (
+          <div className="flex gap-2">
+            <button onClick={() => setOffs(allOffSet(data.catalog))} className="px-3 py-1.5 text-xs font-semibold text-gray-500 border border-gray-200 rounded-md">Turn all off</button>
+            <button onClick={() => setOffs(new Set())} className="px-3 py-1.5 text-xs font-semibold text-gray-500 border border-gray-200 rounded-md">Reset to all on</button>
+          </div>
+        )}
+      </div>
+      {commsPaused && (
+        <p className="text-xs text-amber-600">All communications are paused above, so nothing goes out regardless of these settings. Resume to use per-message control.</p>
+      )}
+      <NotificationPreferenceGrid catalog={data.catalog} offs={offs} disabled={commsPaused} onToggle={toggle} />
+      {!commsPaused && dirty && (
+        <div className="flex justify-end gap-2">
+          <button onClick={() => setOffs(offsFromOverrides(data.overrides || {}))} className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-md">Cancel</button>
+          <button onClick={save} disabled={saving} className="px-4 py-2 text-sm font-semibold text-white bg-[#00C9A0] rounded-md">{saving ? "Saving…" : "Save preferences"}</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function AccountDetailPage() {
@@ -575,6 +650,7 @@ export default function AccountDetailPage() {
                 </div>
                 <Switch checked={account.comms_enabled !== false} onCheckedChange={toggleComms} />
               </div>
+              <AccountNotificationPreferences accountId={String(id)} commsPaused={account.comms_enabled === false} />
             </div>
 
             {/* Activity Summary */}

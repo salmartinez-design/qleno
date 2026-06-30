@@ -348,6 +348,11 @@ async function sendOnMyWayForJob(
   // [account-comms-toggle] A paused account silences on-my-way for its clients.
   const { isClientAccountCommsPaused } = await import("../lib/account-comms.js");
   const accountPaused = await isClientAccountCommsPaused(job.client_id ?? null);
+  // [notif-prefs] Per-client/account on_my_way SMS preference gate. Safe default
+  // ON — only an explicit OFF override suppresses. This SMS path bypasses
+  // sendNotification, so the gate is enforced here directly.
+  const { isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
+  const omwPrefOn = await isMessageEnabledForJob({ companyId, clientId: job.client_id ?? null }, "on_my_way", "sms");
   // [on-my-way-from-number 2026-06-26] Resolve the SMS from-number the SAME way
   // the reminder/confirmation senders do — branch number → company number →
   // company's primary branch number. Tenants like Phes co1 keep their Twilio
@@ -382,7 +387,7 @@ async function sendOnMyWayForJob(
     serviceAddress,
     promisedArrivalLabel: promisedLabel,
     tenantSmsEnabled: !!tenant?.sms_on_my_way_enabled,
-    clientOptedIn: client?.wants_on_my_way_notifications !== false && !smsOptedOut && !accountPaused,
+    clientOptedIn: client?.wants_on_my_way_notifications !== false && !smsOptedOut && !accountPaused && omwPrefOn,
     bodyOverride: omwTpl?.body,
   });
 }
