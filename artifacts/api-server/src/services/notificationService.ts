@@ -31,7 +31,7 @@ function applyMerge(template: string, vars: Record<string, string>): string {
 // image (absolute URL — relative paths don't load in email clients) with a text
 // fallback. Omitting it keeps the legacy "Phes" text header for any caller that
 // hasn't been updated.
-function wrapEmailHtml(contentHtml: string, brand?: { logoUrl?: string | null; companyName?: string | null }): string {
+export function wrapEmailHtml(contentHtml: string, brand?: { logoUrl?: string | null; companyName?: string | null }): string {
   const name = brand?.companyName || "Phes";
   const header = brand?.logoUrl
     ? `<img src="${brand.logoUrl}" alt="${name}" height="40" style="height:40px;width:auto;max-width:220px;display:block;border:0;background:#ffffff;border-radius:6px;" />`

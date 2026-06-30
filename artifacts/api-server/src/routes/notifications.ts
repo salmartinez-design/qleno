@@ -6,9 +6,42 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import {
   CUSTOMER_MESSAGE_CATALOG,
   MERGE_TAGS,
+  applyMergeTags,
   ensureCustomerMessageTemplates,
   ensureCustomerMessageSchedules,
 } from "../lib/customer-messages.js";
+import { wrapEmailHtml } from "../services/notificationService.js";
+import { emailLogoUrl } from "../lib/app-url.js";
+import { SAMPLE_SERVICES_BREAKDOWN_HTML } from "../lib/services-breakdown.js";
+import { Resend } from "resend";
+
+// Sample merge-var set for test sends + (mirrored on the client) the live
+// preview. EVERY tag in MERGE_TAGS resolves to a realistic, non-empty value so a
+// test send proves the real layout — no blank {{address}}/{{service}}. Both tag
+// naming conventions (short date/time/window AND appointment_*) are filled
+// because tenant templates use either. Company name/phone/email come from the
+// real row when present.
+function buildSampleVars(co: { name?: string; phone?: string; email?: string }): Record<string, string> {
+  const date = "Friday, June 27, 2026";
+  const time = "9:00 AM CT";
+  const window = "9:00 AM – 12:00 PM";
+  return {
+    first_name: "Maria",
+    client_name: "Maria Gomez",
+    company_name: co?.name || "Phes",
+    company_phone: co?.phone || "(708) 555-0123",
+    company_email: co?.email || "info@phes.io",
+    service_type: "Standard Cleaning",
+    date, appointment_date: date,
+    time, appointment_time: time,
+    arrival_window: window, appointment_window: window,
+    service_address: "123 Oak St, Oak Lawn, IL 60453",
+    tech_name: "Ana",
+    appointment_link: "https://app.qleno.com/appt/sample",
+    review_link: "https://app.qleno.com/review/sample",
+    services_breakdown: SAMPLE_SERVICES_BREAKDOWN_HTML,
+  };
+}
 
 // Friendly "when does it send" string for an offset (cron-driven) message.
 function formatOffsetTiming(anchor: string, days: number | null, hour: number | null): string {
@@ -229,7 +262,7 @@ router.delete("/customer-messages/:key", requireAuth, requireRole("owner", "admi
 router.patch("/templates/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
     const { is_active, subject, body } = req.body;
 
     // Fetch the row first so we know its channel and can keep the editable
@@ -261,28 +294,85 @@ router.patch("/templates/:id", requireAuth, requireRole("owner", "admin"), async
   }
 });
 
+// Send a REAL test message to the logged-in office user's own inbox. The body is
+// the DRAFT (unsaved editor content) when supplied, else the saved row — so the
+// office verifies exactly what's on screen WITHOUT first saving it live to
+// customers. Self-only (req.auth.email) and DELIBERATELY bypasses the
+// COMMS_ENABLED gate: this is an office-to-self action, not a customer send, so
+// it stays usable while customer comms remain gated (mirrors the contact-form
+// exception). SMS templates are emailed as a labeled text-bubble preview so the
+// office can verify SMS copy without a Twilio round-trip.
 router.post("/templates/:id/test", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
-    const id = parseInt(req.params.id);
+    const id = parseInt(String(req.params.id));
+    const draft = req.body ?? {};
 
     const [template] = await db.select().from(notificationTemplatesTable)
       .where(and(eq(notificationTemplatesTable.id, id), eq(notificationTemplatesTable.company_id, companyId)));
-
     if (!template) return res.status(404).json({ error: "Template not found" });
+
+    const to = req.auth!.email;
+    if (!to) return res.status(400).json({ error: "Your account has no email address to send the test to." });
+    if (!process.env.RESEND_API_KEY) {
+      return res.status(503).json({ error: "Test emails aren't configured yet — set RESEND_API_KEY in Railway." });
+    }
+
+    const channel = String(template.channel) as "email" | "sms" | "in_app";
+    if (channel === "in_app") return res.status(400).json({ error: "In-app messages can't be test-sent." });
+
+    // DRAFT wins over the saved row when present.
+    const isDraft = typeof draft.body === "string" && draft.body.trim().length > 0;
+    const rawSubject = typeof draft.subject === "string" ? draft.subject : (template.subject || "");
+    const rawBody = isDraft
+      ? String(draft.body)
+      : channel === "email" ? (template.body_html || template.body || "")
+      : (template.body_text || template.body || "");
+
+    const coRow = await db.execute(sql`SELECT name, phone, email, email_from_address, logo_url FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const co = (coRow.rows[0] as any) || {};
+    const vars = buildSampleVars(co);
+    const subject = applyMergeTags(rawSubject, vars).trim() || "Test message";
+    const mergedBody = applyMergeTags(rawBody, vars);
+    const brand = { logoUrl: emailLogoUrl(co.logo_url), companyName: co.name };
+    const from = co.email_from_address || "info@phes.io";
+
+    let html: string;
+    let outSubject: string;
+    if (channel === "email") {
+      // Wrap in the branded chrome (same as real sends), then merge once more so
+      // the footer's {{company_phone}}/{{company_email}} resolve.
+      html = applyMergeTags(wrapEmailHtml(mergedBody, brand), vars);
+      outSubject = `[TEST] ${subject}`;
+    } else {
+      // SMS preview: render the plain text in a phone bubble inside the email.
+      const text = mergedBody.replace(/<[^>]+>/g, "").trim();
+      const segs = Math.max(1, Math.ceil(text.length / 160));
+      const bubble =
+        `<p style="margin:0 0 12px;font-size:13px;color:#6B6860;">This is how your text message will read:</p>` +
+        `<table cellpadding="0" cellspacing="0"><tr><td style="background:#E1F5EE;border:1px solid #9FE1CB;border-radius:16px 16px 16px 4px;padding:12px 15px;font-size:15px;line-height:1.45;color:#1A1917;white-space:pre-wrap;max-width:340px;">${text.replace(/&/g, "&amp;").replace(/</g, "&lt;")}</td></tr></table>` +
+        `<p style="margin:10px 0 0;font-size:12px;color:#9E9B94;">${text.length} characters · ${segs} SMS segment${segs === 1 ? "" : "s"}</p>`;
+      html = applyMergeTags(wrapEmailHtml(bubble, brand), vars);
+      outSubject = `[TEST] Text preview — ${template.trigger}`;
+    }
+
+    const resend = new Resend(process.env.RESEND_API_KEY);
+    const sendRes: any = await resend.emails.send({ from, replyTo: from, to, subject: outSubject, html });
+    if (sendRes?.error) throw new Error(`Resend error: ${sendRes.error?.message ?? JSON.stringify(sendRes.error)}`);
 
     await db.insert(notificationLogTable).values({
       company_id: companyId,
-      recipient: req.auth!.email || "test@example.com",
+      recipient: to,
       channel: template.channel,
       trigger: template.trigger,
       status: "test_sent",
+      metadata: { test: "1", source: isDraft ? "draft" : "saved", subject: outSubject } as any,
     });
 
-    return res.json({ success: true, message: `Test notification logged for trigger: ${template.trigger}` });
-  } catch (err) {
+    return res.json({ success: true, recipient: to, source: isDraft ? "draft" : "saved", channel });
+  } catch (err: any) {
     console.error("Test notification error:", err);
-    return res.status(500).json({ error: "Internal Server Error" });
+    return res.status(500).json({ error: err?.message || "Failed to send test" });
   }
 });
 
