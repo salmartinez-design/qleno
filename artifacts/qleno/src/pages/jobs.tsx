@@ -1863,6 +1863,37 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     }
   }
 
+  // [notes-persistence-fix 2026-07-01] The 2s debounced note saves below drop
+  // an edit if the panel closes before the timer fires, and the grid's cached
+  // job isn't refreshed after a save — so a reopened card showed the OLD note
+  // until a full page refresh (Maribel: "notes are buggy, have to refresh to
+  // save or to see what we edited"). Track latest + last-saved values in refs
+  // so we can (a) FLUSH an unsaved edit on close and (b) REFETCH the grid once
+  // on close when the notes changed.
+  const officeNotesRef = useRef(officeNotes); officeNotesRef.current = officeNotes;
+  const cleanerNotesRef = useRef(cleanerNotes); cleanerNotesRef.current = cleanerNotes;
+  const officeNotesSavedRef = useRef(job.office_notes || "");
+  const cleanerNotesSavedRef = useRef(job.notes || "");
+  const officeNotesInitRef = useRef(job.office_notes || "");
+  const cleanerNotesInitRef = useRef(job.notes || "");
+  useEffect(() => {
+    return () => {
+      const putNote = (body: Record<string, unknown>) =>
+        fetch(`${_API3}/api/jobs/${job.id}`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }).catch(() => {});
+      // Flush edits the debounce didn't get to save before the panel closed.
+      if (officeNotesRef.current !== officeNotesSavedRef.current) putNote({ office_notes: officeNotesRef.current || null });
+      if (cleanerNotesRef.current !== cleanerNotesSavedRef.current) putNote({ notes: cleanerNotesRef.current || null });
+      // If a note changed during this panel's life, refresh the grid so a
+      // reopened card shows the current note without a full page refresh.
+      if (officeNotesRef.current !== officeNotesInitRef.current || cleanerNotesRef.current !== cleanerNotesInitRef.current) onUpdate?.();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Debounced auto-save for office notes
   useEffect(() => {
     const delay = setTimeout(async () => {
@@ -1875,6 +1906,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ office_notes: officeNotes || null }),
         });
+        officeNotesSavedRef.current = officeNotes;
         setOfficeNotesSaved(true);
         setTimeout(() => setOfficeNotesSaved(false), 3000);
       } catch {}
@@ -1896,6 +1928,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
           body: JSON.stringify({ notes: cleanerNotes || null }),
         });
+        cleanerNotesSavedRef.current = cleanerNotes;
         setCleanerNotesSaved(true);
         setTimeout(() => setCleanerNotesSaved(false), 3000);
       } catch {}
