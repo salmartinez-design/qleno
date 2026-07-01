@@ -1,5 +1,20 @@
 # Known Bugs
 
+## RESOLVED — Quote "Call Notes" vanished on convert (didn't reach the job) (2026-07-01)
+
+**Severity:** Medium — Maribel: "These notes should go to office notes, idk
+where they go to now, can't find them." The quote builder's **Call Notes** field
+saved onto the quote, but converting the quote to a job never copied them
+anywhere — the job's `notes` came only from `internal_memo`, and the job's
+`office_notes` was left NULL. So the call notes were stranded on the quote.
+
+**Fix (`routes/quotes.ts` convert):** the quote's `call_notes` (plus any quote
+`office_notes`) now populate the created job's **office notes** — for both the
+one-time job insert and every generated recurring visit. The office finds them
+right on the job's Office Notes after convert.
+
+---
+
 ## RESOLVED — Couldn't edit pricing on rate-driven commercial jobs (2026-07-01)
 
 **Severity:** Medium — Maribel: "Still can't edit Pricing on this scope. This
