@@ -56,6 +56,11 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
   appointment_window: "9:00 AM to 12:00 PM",
   arrival_alert_window: "45",
   service_address: "123 Oak St, Oak Lawn, IL 60453",
+  // Short-form aliases so templates authored with {{address}} / {{service}}
+  // resolve too (the canonical tags are service_address / service_type). Mirrors
+  // the date/appointment_date + time/appointment_time aliasing.
+  address: "123 Oak St, Oak Lawn, IL 60453",
+  service: "Standard Cleaning",
   tech_name: "Ana",
   appointment_link: "https://app.qleno.com/appointments/test-sample",
   review_link: "https://phes.io/review/test-sample",

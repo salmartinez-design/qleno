@@ -37,6 +37,9 @@ const SAMPLE: Record<string, string> = {
   time: "9:00 AM", appointment_time: "9:00 AM",
   arrival_window: "9:00 AM – 12:00 PM", appointment_window: "9:00 AM – 12:00 PM",
   service_address: "123 Oak St, Oak Lawn, IL 60453", tech_name: "Ana",
+  // Short-form aliases ({{address}} / {{service}}) so the live preview fills them
+  // too — matches the server aliasing in testSendService + booking-confirmation.
+  address: "123 Oak St, Oak Lawn, IL 60453", service: "Standard Cleaning",
   appointment_link: "https://phes.io/appt", review_link: "https://phes.io/review",
   services_breakdown: SAMPLE_BREAKDOWN,
 };

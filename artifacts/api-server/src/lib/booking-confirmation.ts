@@ -137,6 +137,10 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       appointment_time: j.scheduled_time || "your scheduled window",
       service_type: labelService(j.service_type),
       service_address: serviceAddress,
+      // Short-form aliases so a template authored with {{service}} / {{address}}
+      // resolves too (canonical tags are service_type / service_address).
+      service: labelService(j.service_type),
+      address: serviceAddress,
       appointment_link: link || "",
       // [appointment-vars] Add the short-name aliases ({{date}} / {{time}}) and
       // {{appointment_window}}, and normalize the time to "9:00 AM". Present

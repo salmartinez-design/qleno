@@ -1627,6 +1627,7 @@ const CM_SAMPLE: Record<string, string> = {
   appointment_date: "Friday, June 27, 2026", appointment_time: "9:00 AM",
   arrival_window: "9:00 AM – 12:00 PM", appointment_window: "9:00 AM – 12:00 PM",
   service_address: "123 Oak St, Oak Lawn, IL 60453",
+  address: "123 Oak St, Oak Lawn, IL 60453", service: "Standard Cleaning",
   tech_name: "Ana", appointment_link: "https://phes.io/appt/1234", review_link: "https://phes.io/review/1234",
   // Collapsed-card excerpt only strips to text; the styled table renders in the
   // editor preview + test send (see easy-message-editor SAMPLE_BREAKDOWN).
