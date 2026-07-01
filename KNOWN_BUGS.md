@@ -1,5 +1,26 @@
 # Known Bugs
 
+## RESOLVED — "Failed to save profile" on client edit when Client Since is empty (2026-07-01)
+
+**Severity:** High — editing a client profile (e.g. adding a phone/email) failed
+with a generic "Failed to save profile" for any client that had no Client Since
+date. Reported by Maribel/Sal on Shannon Cohen (customer 1457).
+
+**Root cause:** `clients.client_since` is a **`date`** column. The Edit Client
+Profile drawer initializes `client_since: ""` when the client has none
+(`customer-profile.tsx`), and `PUT /api/clients/:id` passed that `""` straight
+into the column. Postgres rejects `''` for a date (`invalid input syntax for
+type date`), which threw and failed the ENTIRE update — so nothing saved (not
+the phone, email, notes, nothing). The handler only surfaced a generic 500, so
+the real cause was invisible in the UI.
+
+**Fix (`routes/clients.ts`):** coerce empty-string → `null` for the date/timestamp
+columns in the update — `client_since` (the culprit) and, defensively,
+`card_saved_at` (same class). Text columns like `card_expiry` accept `""` and are
+unaffected. Empty now correctly means "unset."
+
+---
+
 ## RESOLVED — Archived employees could not be reactivated from the UI (2026-07-01)
 
 **Severity:** Medium — an archived tech was stranded off the roster with no way
