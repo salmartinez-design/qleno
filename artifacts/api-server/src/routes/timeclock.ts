@@ -7,6 +7,7 @@ import { logAudit } from "../lib/audit.js";
 import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission-paytype.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
+import { unionHoursByKey } from "../lib/timeclock-hours.js";
 import type { CommissionInputJob } from "../lib/commission-compute.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { isClientAccountCommsPaused } from "../lib/account-comms.js";
@@ -1037,12 +1038,13 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       // counts (source='punched'). Synthetic 'estimated' pre-seeds show as a
       // row but contribute $0 until the office enters/verifies a real time
       // (which flips them to punched via PATCH).
-      const techHoursByKey = new Map<string, number>();
-      for (const e of clockRows) {
-        if (e.source !== "punched" || !e.clock_out_at || !e.clock_in_at) continue;
-        const h = (new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / 3600000;
-        if (h > 0) techHoursByKey.set(`${e.job_id}:${e.user_id}`, (techHoursByKey.get(`${e.job_id}:${e.user_id}`) ?? 0) + h);
-      }
+      // [punch-union 2026-07-01] Count the UNION of each tech's punches per job,
+      // not the raw sum — so a duplicate/overlapping entry (invisible behind the
+      // grid's single row) can't double-count the fee split. Real split shifts
+      // (disjoint punches) still add up.
+      const techHoursByKey = unionHoursByKey(
+        clockRows.filter((e: any) => e.source === "punched" && e.clock_in_at && e.clock_out_at)
+      );
       // [lockout-pay 2026-06-17] Jobs charged via Cancel/Lockout pay the tech
       // the cancellation fee (an additional_pay 'cancellation_pay' row), NOT the
       // job's normal commission — exclude them from the commission calc so the
