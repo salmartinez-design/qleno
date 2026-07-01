@@ -262,7 +262,11 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
             address: SAMPLE_CUSTOMER_VARS.service_address,
             service: SAMPLE_CUSTOMER_VARS.service_type,
             servicesBreakdownHtml: SAMPLE_SERVICES_BREAKDOWN_HTML,
-            link: SAMPLE_CUSTOMER_VARS.appointment_link,
+            scheduledDateISO: "2026-06-27",
+            scheduledTimeRaw: "9:00 AM",
+            paymentTotal: "$673.00",
+            hasCardOnFile: true,
+            checklistUrl: "https://phes.io/checklist",
           })
         : bodyIsFullHtml
         ? rendered.body

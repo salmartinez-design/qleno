@@ -112,6 +112,7 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.scheduled_time, j.service_type,
              j.address_street, j.address_city, j.address_state, j.address_zip,
              c.first_name, c.last_name, c.email AS client_email, c.phone AS client_phone,
+             c.stripe_payment_method_id,
              u.first_name AS tech_first, u.avatar_url AS tech_avatar,
              co.name AS company_name, co.logo_url AS company_logo,
              co.phone AS company_phone, co.email AS company_email,
@@ -163,9 +164,14 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
 
     // [services-breakdown] Populate {{services_breakdown}} from the job's locked
     // line items so a template that inserts the chip renders the real itemized
-    // table (never a blank tag). Empty string when the job has none.
-    const { buildServicesBreakdownForJob } = await import("./services-breakdown.js");
-    mv.services_breakdown = await buildServicesBreakdownForJob(j.company_id, j.id);
+    // table (never a blank tag). Compute the line items ONCE here so we also get
+    // the numeric total for the PHES payment row.
+    const { buildJobLineItems } = await import("./invoice-line-items.js");
+    const { renderServicesBreakdown } = await import("./services-breakdown.js");
+    const built = await buildJobLineItems(j.company_id, j.id).catch(() => null);
+    const lineItems = (built?.lineItems ?? []).map((li) => ({ description: li.description, total: Number(li.total) || 0 }));
+    mv.services_breakdown = renderServicesBreakdown(lineItems);
+    const paymentTotal = built ? `$${built.subtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "";
 
     // Dedicated confirmation-email renderer (Pass 2). Cleaner first name + photo
     // ONLY — no last name/contact. Per-tenant contact from the record, branch
@@ -200,6 +206,9 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       // chip behaves the same here as in a test send.
       servicesBreakdownHtml: mv.services_breakdown,
     });
+    const scheduledDateISO = j.scheduled_date instanceof Date
+      ? j.scheduled_date.toISOString().slice(0, 10)
+      : String(j.scheduled_date || "").slice(0, 10);
     const renderPhes = (): string => renderPhesBookingConfirmation({
       logoUrl: j.company_logo || `${origin}/phes-logo.jpeg`,
       companyName: j.company_name || "Phes",
@@ -211,7 +220,12 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       address: serviceAddress || "On file",
       service: labelService(j.service_type),
       servicesBreakdownHtml: mv.services_breakdown || "",
-      link,
+      scheduledDateISO,
+      scheduledTimeRaw: j.scheduled_time,
+      paymentTotal,
+      hasCardOnFile: !!j.stripe_payment_method_id,
+      // TODO: make the checklist URL tenant-configurable (Company Settings).
+      checklistUrl: "https://phes.io/checklist",
     });
     const renderEmail = isPhes ? renderPhes : renderStandard;
 
