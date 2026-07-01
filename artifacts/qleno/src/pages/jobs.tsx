@@ -1535,12 +1535,18 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [cancelNewDate, setCancelNewDate] = useState<string>("");
   const [cancelNewTime, setCancelNewTime] = useState<string>("");
   const [cancelNotifyClient, setCancelNotifyClient] = useState(true);
-  // [cancel-no-clock-pay 2026-07-01] Whether a charged cancellation pays the
-  // assigned tech(s) the flat cancellation fee (and thus shows on the time
-  // clock). Seeded per action when the operator picks one: a lockout defaults
-  // ON (tech drove out to a locked door), a plain cancel defaults OFF (the
-  // visit never happened — keep it off the clock). Operator can flip either.
-  const [payTechForCancel, setPayTechForCancel] = useState(false);
+  // [cancel-fee-policy 2026-07-01] Cancellation fee controls. Default rule:
+  // full charge (100% of job) + pay the tech the flat $60. Exceptions the
+  // office can pick for unexpected circumstances:
+  //   feeMode 'full'   → charge 100% of the job (default)
+  //   feeMode 'pct'    → charge feePct % of the job
+  //   feeMode 'custom' → charge a specific dollar amount (chargeOverride)
+  //   feeMode 'waive'  → charge $0 (free cancel) — also forces tech pay off
+  // payTechForCancel: whether the assigned tech gets the $60 fee. Defaults ON
+  // whenever the customer is charged; auto-off + locked when the fee is waived.
+  const [cancelFeeMode, setCancelFeeMode] = useState<"full" | "pct" | "custom" | "waive">("full");
+  const [cancelFeePct, setCancelFeePct] = useState<string>("");
+  const [payTechForCancel, setPayTechForCancel] = useState(true);
 
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState("");
@@ -2176,7 +2182,19 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       //   - flips job status (complete for charged, cancelled for free)
       //   - marks recurring schedule cancelled when action='cancel_service'
       //   - writes the cancellation_log row
-      const overrideNum = chargeOverride.trim() !== "" ? Number(chargeOverride) : undefined;
+      // [cancel-fee-policy 2026-07-01] Resolve the customer charge from the fee
+      // mode: full = server default (100%, no override), pct = %×job, custom =
+      // the entered $, waive = $0. Only charging actions (cancel/lockout) carry
+      // a fee; other actions send no override.
+      const jobAmt = Number((job as any).amount) || Number(job.billed_amount) || Number((job as any).base_fee) || 0;
+      const isCharging = cancelAction === "cancel" || cancelAction === "lockout";
+      let chargeOverrideVal: number | undefined = undefined;
+      if (isCharging) {
+        if (cancelFeeMode === "waive") chargeOverrideVal = 0;
+        else if (cancelFeeMode === "pct") chargeOverrideVal = Math.max(0, jobAmt * ((parseFloat(cancelFeePct) || 0) / 100));
+        else if (cancelFeeMode === "custom") chargeOverrideVal = Math.max(0, parseFloat(chargeOverride) || 0);
+        // 'full' → leave undefined so the server applies the 100% policy default.
+      }
       const res = await fetch(`${API2}/api/cancellations/action`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
@@ -2184,7 +2202,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           job_id: job.id,
           action: cancelAction,
           notes: cancelNote || undefined,
-          charge_amount_override: Number.isFinite(overrideNum) ? overrideNum : undefined,
+          charge_amount_override: chargeOverrideVal != null && Number.isFinite(chargeOverrideVal) ? chargeOverrideVal : undefined,
           // Move + Bump reschedule the job rather than cancelling it.
           // The backend updates jobs.scheduled_date/time and keeps
           // status='scheduled', writing the cancellation_log row for
@@ -2197,10 +2215,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           // completion. Only sent from the panel when the job is complete.
           reclassify: isLocked && job.status === "complete" ? true : undefined,
           notify_client: cancelNotifyClient || undefined,
-          // [cancel-no-clock-pay 2026-07-01] Whether to pay the assigned tech
-          // the cancellation fee. Only meaningful for charging actions
-          // (cancel/lockout); the backend ignores it otherwise.
-          pay_tech: (cancelAction === "cancel" || cancelAction === "lockout") ? payTechForCancel : undefined,
+          // [cancel-fee-policy 2026-07-01] Whether to pay the assigned tech the
+          // $60 fee. Defaults on for charging actions; forced off on a waive.
+          // Backend also skips tech pay whenever the effective charge is $0.
+          pay_tech: isCharging ? (cancelFeeMode === "waive" ? false : payTechForCancel) : undefined,
         }),
       });
       if (!res.ok) {
@@ -4185,12 +4203,24 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         // billed_amount is a cache that goes stale after price/fee edits. Fall
         // through with `||` so a literal 0 doesn't pin the fee preview to $0.
         const jobAmount = Number((job as any).amount) || Number(job.billed_amount) || Number((job as any).base_fee) || 0;
-        const previewCharge = (a: typeof ACTIONS[number]) => a.charges ? jobAmount : 0;
         const selected = ACTIONS.find(a => a.key === cancelAction);
-        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); setCancelNotifyClient(true); setPayTechForCancel(false); };
-        const overrideCharge = chargeOverride.trim() !== "" ? Number(chargeOverride) : previewCharge(selected ?? ACTIONS[0]);
+        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); setCancelNotifyClient(true); setPayTechForCancel(true); setCancelFeeMode("full"); setCancelFeePct(""); };
         const needsDate = selected?.reschedules === true;
-        const confirmDisabled = busy || (needsDate && !cancelNewDate);
+        // [cancel-fee-policy 2026-07-01] Resolve what the customer is charged
+        // from the selected fee mode. 'full' = 100% of the job (default).
+        const cancelFeeAmount = !selected?.charges ? 0
+          : cancelFeeMode === "waive"  ? 0
+          : cancelFeeMode === "full"   ? jobAmount
+          : cancelFeeMode === "pct"    ? Math.max(0, jobAmount * ((parseFloat(cancelFeePct) || 0) / 100))
+          : /* custom */                 Math.max(0, parseFloat(chargeOverride) || 0);
+        const cancelFeeWaived = !!selected?.charges && (cancelFeeMode === "waive" || cancelFeeAmount <= 0);
+        // Block confirm until an exception's amount is actually entered, so we
+        // never silently charge $0 (that's what the explicit Waive mode is for).
+        const feeInputMissing = !!selected?.charges && (
+          (cancelFeeMode === "pct"    && !(parseFloat(cancelFeePct) > 0)) ||
+          (cancelFeeMode === "custom" && !(parseFloat(chargeOverride) >= 0 && chargeOverride.trim() !== ""))
+        );
+        const confirmDisabled = busy || (needsDate && !cancelNewDate) || feeInputMissing;
         return (
           <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(10,14,26,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 300, fontFamily: FF, padding: 16 }}>
             <div style={{ backgroundColor: "#FFFFFF", borderRadius: 16, padding: "22px 24px 20px", width: 560, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 24px 70px rgba(10,14,26,0.28)" }}>
@@ -4231,8 +4261,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         }
                         setCancelAction(a.key as "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service");
                         setChargeOverride("");
-                        // Lockout defaults to paying the tech; a plain cancel does not.
-                        setPayTechForCancel(a.key === "lockout");
+                        // Default cancellation rule: full charge + pay the tech $60.
+                        setCancelFeeMode("full");
+                        setCancelFeePct("");
+                        setPayTechForCancel(true);
                         // Seed the reschedule date to the job's current
                         // date so the date picker isn't empty when shown.
                         if (a.reschedules) {
@@ -4299,11 +4331,11 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     {/* Charging actions */}
                     {selected.charges && (
                       <>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: selected.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                          Customer will be charged
+                        <div style={{ fontSize: 12, fontWeight: 700, color: cancelFeeWaived ? "#B91C1C" : selected.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                          {cancelFeeWaived ? "Fee waived" : "Customer will be charged"}
                         </div>
                         <div style={{ fontSize: 24, fontWeight: 800, color: "#0A0E1A", lineHeight: 1.1 }}>
-                          ${overrideCharge.toFixed(2)}
+                          ${cancelFeeAmount.toFixed(2)}
                         </div>
                       </>
                     )}
@@ -4360,41 +4392,78 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     </div>
                   )}
 
-                  {/* Charge override for cancel/lockout */}
+                  {/* [cancel-fee-policy 2026-07-01] Cancellation fee. Default =
+                      full charge (100% of job) + $60 to the tech. Exceptions
+                      for unexpected circumstances: % of job, custom $, or waive. */}
                   {selected.charges && (
-                    <div style={{ marginBottom: 14 }}>
-                      <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>
-                        Override charge (optional)
+                    <div style={{ marginBottom: 14, padding: "12px 12px 10px", background: "#FDFCFA", borderRadius: 10, border: "1px solid #E5E2DC" }}>
+                      <label style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>
+                        Cancellation fee
                       </label>
-                      <input type="number" min="0" step="0.01" value={chargeOverride}
-                        placeholder={previewCharge(selected).toFixed(2)}
-                        onChange={e => setChargeOverride(e.target.value)}
-                        style={{ width: "100%", height: 38, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }} />
-                    </div>
-                  )}
-
-                  {/* [cancel-no-clock-pay 2026-07-01] Pay-the-tech toggle for
-                      charged cancellations. Off for a plain cancel keeps the
-                      job off the time clock (no work happened); on pays the
-                      flat cancellation fee (default for a lockout). */}
-                  {selected.charges && (
-                    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14, padding: "10px 12px", background: payTechForCancel ? "#FEF9EC" : "#F7F6F3", borderRadius: 8, border: `1px solid ${payTechForCancel ? "#FCD34D" : "#E5E2DC"}`, cursor: "pointer" }}
-                      onClick={() => setPayTechForCancel(v => !v)}>
-                      <input
-                        type="checkbox"
-                        checked={payTechForCancel}
-                        onChange={e => setPayTechForCancel(e.target.checked)}
-                        onClick={e => e.stopPropagation()}
-                        style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#B45309", flexShrink: 0, marginTop: 2 }}
-                      />
-                      <div style={{ userSelect: "none" }}>
-                        <div style={{ fontSize: 13, color: "#1A1917", fontWeight: 600 }}>
-                          Pay the assigned tech the cancellation fee
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                        {([
+                          { m: "full",   label: "Full charge" },
+                          { m: "pct",    label: "% of job" },
+                          { m: "custom", label: "Custom $" },
+                          { m: "waive",  label: "Waive" },
+                        ] as { m: "full" | "pct" | "custom" | "waive"; label: string }[]).map(opt => {
+                          const on = cancelFeeMode === opt.m;
+                          return (
+                            <button key={opt.m} type="button"
+                              onClick={() => { setCancelFeeMode(opt.m); if (opt.m === "waive") setPayTechForCancel(false); else setPayTechForCancel(true); }}
+                              style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 600, fontFamily: FF, cursor: "pointer",
+                                border: `1px solid ${on ? (opt.m === "waive" ? "#DC2626" : "#00C9A0") : "#E5E2DC"}`,
+                                background: on ? (opt.m === "waive" ? "#FEF2F2" : "#F0FBF8") : "#FFFFFF",
+                                color: on ? (opt.m === "waive" ? "#B91C1C" : "#0A6E5A") : "#6B6860" }}>
+                              {opt.label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {cancelFeeMode === "pct" && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                          <input type="number" min="0" max="100" step="1" value={cancelFeePct} autoFocus
+                            placeholder="e.g. 50"
+                            onChange={e => setCancelFeePct(e.target.value)}
+                            style={{ width: 90, height: 36, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }} />
+                          <span style={{ fontSize: 13, color: "#6B6860" }}>% of ${jobAmount.toFixed(2)} job</span>
                         </div>
-                        <div style={{ fontSize: 11.5, color: "#9E9B94", marginTop: 2 }}>
-                          {payTechForCancel
-                            ? "A flat cancellation-fee line will show on the tech's time clock."
-                            : "The job stays off the time clock — no work happened. Customer billing is unaffected."}
+                      )}
+                      {cancelFeeMode === "custom" && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                          <span style={{ fontSize: 13, color: "#6B6860" }}>$</span>
+                          <input type="number" min="0" step="0.01" value={chargeOverride} autoFocus
+                            placeholder={jobAmount.toFixed(2)}
+                            onChange={e => setChargeOverride(e.target.value)}
+                            style={{ width: 120, height: 36, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }} />
+                        </div>
+                      )}
+                      <div style={{ fontSize: 12.5, color: cancelFeeWaived ? "#B91C1C" : "#1A1917", fontWeight: 600 }}>
+                        {cancelFeeWaived ? "Customer will not be charged (fee waived)." : `Customer charged $${cancelFeeAmount.toFixed(2)}.`}
+                      </div>
+
+                      {/* Tech $60 — defaults on when charging; locked off on waive. */}
+                      <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10, paddingTop: 10, borderTop: "1px solid #EFEDE8", opacity: cancelFeeWaived ? 0.5 : 1, cursor: cancelFeeWaived ? "default" : "pointer" }}
+                        onClick={() => { if (!cancelFeeWaived) setPayTechForCancel(v => !v); }}>
+                        <input
+                          type="checkbox"
+                          checked={payTechForCancel && !cancelFeeWaived}
+                          disabled={cancelFeeWaived}
+                          onChange={e => setPayTechForCancel(e.target.checked)}
+                          onClick={e => e.stopPropagation()}
+                          style={{ width: 15, height: 15, cursor: cancelFeeWaived ? "default" : "pointer", accentColor: "#B45309", flexShrink: 0, marginTop: 2 }}
+                        />
+                        <div style={{ userSelect: "none" }}>
+                          <div style={{ fontSize: 13, color: "#1A1917", fontWeight: 600 }}>
+                            Pay the assigned tech the $60 cancellation fee
+                          </div>
+                          <div style={{ fontSize: 11.5, color: "#9E9B94", marginTop: 2 }}>
+                            {cancelFeeWaived
+                              ? "Fee waived — the tech is not paid and nothing shows on the time clock."
+                              : (payTechForCancel
+                                ? "A $60 cancellation-fee line will show on the tech's time clock."
+                                : "Uncheck applied — the tech will not be paid for this cancellation.")}
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -4428,7 +4497,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   </div>
 
                   <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
-                    <button onClick={() => { setCancelAction(null); setCancelNewDate(""); setCancelNewTime(""); setChargeOverride(""); setCancelNotifyClient(true); }} disabled={busy}
+                    <button onClick={() => { setCancelAction(null); setCancelNewDate(""); setCancelNewTime(""); setChargeOverride(""); setCancelNotifyClient(true); setCancelFeeMode("full"); setCancelFeePct(""); setPayTechForCancel(true); }} disabled={busy}
                       style={{ padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontWeight: 600, color: "#6B6860", background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>← Back</button>
                     <button onClick={cancelJob} disabled={confirmDisabled}
                       style={{

@@ -30,43 +30,46 @@ describe("Cancellation tech-pay — action routing", () => {
     }
   });
 
-  // [cancel-no-clock-pay 2026-07-01] Default now differs by action: a lockout
-  // pays (tech showed up to a locked door); a plain cancel does NOT (the visit
-  // never happened, so it stays off payroll + the time clock).
-  it("lockout pays by default", () => {
-    const r = resolveCancellationTechPay({
-      action: "lockout", customerChargeAmount: 200, numTechs: 1, policy: flatPhes,
-    });
-    assert.equal(r.total_pay, 60);
-    assert.equal(r.pays_tech, true);
-  });
-
-  it("plain cancel does NOT pay by default", () => {
-    const r = resolveCancellationTechPay({
-      action: "cancel", customerChargeAmount: 200, numTechs: 1, policy: flatPhes,
-    });
-    assert.equal(r.total_pay, 0, "a plain cancel should not touch the clock");
-    assert.equal(r.pays_tech, false);
+  // [cancel-fee-policy 2026-07-01] Both charging actions pay the flat fee by
+  // default (Sal's rule: an inside-48hr cancel charges the customer full + pays
+  // the tech $60). Applies to cancel AND lockout.
+  it("cancel and lockout both pay by default", () => {
+    for (const action of ["cancel", "lockout"] as CancelAction[]) {
+      const r = resolveCancellationTechPay({
+        action, customerChargeAmount: 200, numTechs: 1, policy: flatPhes,
+      });
+      assert.equal(r.total_pay, 60, `${action} should pay the flat fee`);
+      assert.equal(r.pays_tech, true);
+    }
   });
 });
 
-describe("Cancellation tech-pay — payTech override", () => {
-  it("payTech:true forces a plain cancel to pay (tech had driven out)", () => {
+describe("Cancellation tech-pay — payTech override (waive)", () => {
+  it("payTech:false waives the tech fee on a cancel", () => {
     const r = resolveCancellationTechPay({
       action: "cancel", customerChargeAmount: 200, numTechs: 1, policy: flatPhes,
-      payTech: true,
+      payTech: false,
     });
-    assert.equal(r.total_pay, 60);
-    assert.equal(r.pays_tech, true);
+    assert.equal(r.total_pay, 0, "office waived the tech's cancellation fee");
+    assert.equal(r.pays_tech, false);
   });
 
-  it("payTech:false suppresses a lockout payout", () => {
+  it("payTech:false waives the tech fee on a lockout too", () => {
     const r = resolveCancellationTechPay({
       action: "lockout", customerChargeAmount: 200, numTechs: 1, policy: flatPhes,
       payTech: false,
     });
     assert.equal(r.total_pay, 0);
     assert.equal(r.pays_tech, false);
+  });
+
+  it("payTech:true is the same as the default (pays)", () => {
+    const r = resolveCancellationTechPay({
+      action: "cancel", customerChargeAmount: 200, numTechs: 1, policy: flatPhes,
+      payTech: true,
+    });
+    assert.equal(r.total_pay, 60);
+    assert.equal(r.pays_tech, true);
   });
 
   it("free actions never pay even with payTech:true", () => {

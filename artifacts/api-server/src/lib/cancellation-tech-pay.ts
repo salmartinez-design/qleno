@@ -42,19 +42,19 @@ export interface TechPayInput {
   numTechs: number;
   policy: TechPayPolicy;
   /**
-   * [cancel-no-clock-pay 2026-07-01] Explicit operator override for whether
-   * this cancellation pays the assigned tech(s) — set by the cancel modal's
-   * "Pay the assigned tech the cancellation fee" checkbox.
-   *   true      → pay per policy (even a plain cancel, e.g. the tech had
-   *               already driven out when the customer bailed).
-   *   false     → pay nothing.
-   *   undefined → fall back to the action default below.
+   * [cancel-fee-policy 2026-07-01] Explicit operator override for whether this
+   * cancellation pays the assigned tech(s) — set by the cancel modal's "Pay the
+   * assigned tech the $60 cancellation fee" checkbox.
+   *   true      → pay per policy.
+   *   false     → waive the tech's fee (pay nothing).
+   *   undefined → default (pay).
    *
-   * Default when unset (Sal, 2026-07-01: "when we cancel a job it should not
-   * have any effect on the clocks as the job was never completed"):
-   *   lockout → PAYS (tech showed up to a locked door — earned the fee).
-   *   cancel  → does NOT pay (the visit never happened; keep it off payroll
-   *             and off the time clock). The customer-side fee is unaffected.
+   * Policy (Sal, 2026-07-01): an inside-48hr cancellation charges the customer
+   * the full job amount AND pays the assigned tech the flat $60 fee — for BOTH
+   * `cancel` and `lockout`. So the default is to PAY. The office waives it
+   * per-job (payTech=false) for unexpected circumstances, and a full fee waiver
+   * (customerChargeAmount → 0) is handled by the caller, which skips this
+   * resolver entirely when nothing is charged.
    */
   payTech?: boolean;
 }
@@ -78,10 +78,10 @@ export function resolveCancellationTechPay(input: TechPayInput): TechPayResult {
   if (!CHARGING_ACTIONS.has(input.action)) return empty;
   if (input.numTechs <= 0) return empty;
 
-  // Whether this event pays the tech at all. Explicit override wins; otherwise
-  // only a lockout pays by default (a plain cancel never happened, so it stays
-  // off the clock). See TechPayInput.payTech.
-  const shouldPay = input.payTech ?? (input.action === "lockout");
+  // Whether this event pays the tech at all. A charging cancellation pays the
+  // flat fee by default (Sal's policy: cancel/lockout both owe the tech $60);
+  // the office waives it per-job via payTech=false. See TechPayInput.payTech.
+  const shouldPay = input.payTech ?? true;
   if (!shouldPay) return empty;
 
   const total = input.policy.mode === "percent"

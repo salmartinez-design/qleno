@@ -1,36 +1,39 @@
 # Known Bugs
 
-## RESOLVED — Every cancellation dumped a "cancellation fee" onto the tech's time clock (2026-07-01)
+## Cancellation fee policy + per-job exceptions (2026-07-01)
 
-**Severity:** High — a plain office cancellation paid the assigned tech a flat
-cancellation fee and surfaced a phantom "CANCELLATION FEE" line on the Time
-Clocks grid for a job that never happened. Reported by Sal (with Norma/Alma/
-Diana carrying ZZ E2E TEST cancellation lines): "right now all cancellations
-are generating this… when we cancel a job it should not have any effect on the
-clocks as the job was never completed."
+**Policy (Sal, 2026-07-01):** an inside-48hr cancellation charges the customer
+the **full job amount (100%)** and pays the assigned tech the **flat $60**. This
+holds for BOTH `cancel` and `lockout`. The 48-hour window is operator judgment
+(pick "Cancel" to charge vs "Skip" for free) — there is no automatic
+business-hours gate. **Exceptions** for unexpected circumstances: **waive** the
+fee, charge a **% of the job**, or charge a **custom $**.
 
-**Root cause:** `resolveCancellationTechPay` paid the tech on ANY charging
-action (`cancel` OR `lockout`), and a charged cancel flips the job to
-`status='complete'`, so it stayed visible on the `/timeclock/day` grid with a
-`cancellation_pay` row.
+**What was wrong:** every charging cancellation auto-paid the tech AND left a
+phantom "CANCELLATION FEE" line on the Time Clocks grid, with no way to waive or
+adjust it per-job. (ZZ E2E TEST rows made this loud — Norma/Alma/Diana carried
+cancellation lines for jobs that never happened.)
 
 **Fix:**
-- `lib/cancellation-tech-pay.ts` — new `payTech` override. Default when unset:
-  **lockout pays** (tech drove out to a locked door — earned the flat fee),
-  **plain cancel does NOT** (no visit happened → off payroll + off the clock).
-  The customer-side fee (`cancellation-policy.ts` / `cancellation_log`) is
-  untouched, so cancellation-fee revenue reports are unaffected.
-- `routes/cancellation.ts` — threads the modal's `pay_tech` flag through.
-- `routes/timeclock.ts` `/day` — hides pure-`cancel` jobs from the per-tech
-  grid unless they carry a real punch or already-granted cancellation pay
-  (legacy rows), so cancels stop cluttering the clock. Lockouts stay visible.
-- `pages/jobs.tsx` — "Pay the assigned tech the cancellation fee" checkbox in
-  the cancel modal (default: off for cancel, on for lockout) — the per-job
-  control Sal asked for.
+- `lib/cancellation-tech-pay.ts` — new `payTech` override. Default: a charged
+  cancellation **pays the $60** (both cancel + lockout, per policy). The office
+  waives it per-job via `payTech=false`.
+- `routes/cancellation.ts` — introduces `isChargedOutcome = charges_customer &&
+  finalCharge > 0`. A fully-waived fee ($0) becomes a **free cancel** (job goes
+  `cancelled`, not a $0 `complete` artifact) and pays no tech — so it leaves no
+  footprint on revenue or the clock. Threads the modal's `pay_tech` flag.
+- `routes/timeclock.ts` `/day` — hides zero-impact `cancel` jobs (no punch, no
+  granted pay) from the per-tech grid; a $60 charged cancel still shows (tech is
+  owed it), lockouts still show.
+- `pages/jobs.tsx` — cancel modal fee section: **Full charge / % of job /
+  Custom $ / Waive**, plus a "Pay the assigned tech the $60 fee" checkbox
+  (defaults on when charging; forced off + locked on waive).
+- Customer-side default (100%) already lived in `default_cancel_fee_pct = 100`
+  and `cancellation-policy.ts` — unchanged.
 - Existing ZZ E2E TEST rows are cleaned by `scripts/purge_e2e_test_jobs.sql`.
 
-Covered by updated `cancellation-tech-pay.test.ts` (lockout-pays / cancel-no-pay
-defaults + `payTech` override cases).
+Covered by updated `cancellation-tech-pay.test.ts` (cancel+lockout pay by
+default; `payTech=false` waives; free actions never pay).
 
 ---
 
