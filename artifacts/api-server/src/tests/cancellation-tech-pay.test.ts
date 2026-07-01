@@ -30,24 +30,68 @@ describe("Cancellation tech-pay — action routing", () => {
     }
   });
 
-  it("cancel and lockout both pay (charging actions)", () => {
+  // [cancel-fee-policy 2026-07-01] Both charging actions pay the flat fee by
+  // default (Sal's rule: an inside-48hr cancel charges the customer full + pays
+  // the tech $60). Applies to cancel AND lockout.
+  it("cancel and lockout both pay by default", () => {
     for (const action of ["cancel", "lockout"] as CancelAction[]) {
       const r = resolveCancellationTechPay({
         action, customerChargeAmount: 200, numTechs: 1, policy: flatPhes,
       });
-      assert.equal(r.total_pay, 60, `${action} should pay`);
+      assert.equal(r.total_pay, 60, `${action} should pay the flat fee`);
       assert.equal(r.pays_tech, true);
     }
   });
 });
 
+describe("Cancellation tech-pay — payTech override (waive)", () => {
+  it("payTech:false waives the tech fee on a cancel", () => {
+    const r = resolveCancellationTechPay({
+      action: "cancel", customerChargeAmount: 200, numTechs: 1, policy: flatPhes,
+      payTech: false,
+    });
+    assert.equal(r.total_pay, 0, "office waived the tech's cancellation fee");
+    assert.equal(r.pays_tech, false);
+  });
+
+  it("payTech:false waives the tech fee on a lockout too", () => {
+    const r = resolveCancellationTechPay({
+      action: "lockout", customerChargeAmount: 200, numTechs: 1, policy: flatPhes,
+      payTech: false,
+    });
+    assert.equal(r.total_pay, 0);
+    assert.equal(r.pays_tech, false);
+  });
+
+  it("payTech:true is the same as the default (pays)", () => {
+    const r = resolveCancellationTechPay({
+      action: "cancel", customerChargeAmount: 200, numTechs: 1, policy: flatPhes,
+      payTech: true,
+    });
+    assert.equal(r.total_pay, 60);
+    assert.equal(r.pays_tech, true);
+  });
+
+  it("free actions never pay even with payTech:true", () => {
+    for (const action of ["move", "bump", "skip", "cancel_service"] as CancelAction[]) {
+      const r = resolveCancellationTechPay({
+        action, customerChargeAmount: 200, numTechs: 1, policy: flatPhes, payTech: true,
+      });
+      assert.equal(r.pays_tech, false, `${action} must never pay`);
+    }
+  });
+});
+
+// Payout math is action-independent (mode/amount/numTechs). Exercise it via
+// `lockout`, which pays by default post-2026-07-01; a plain cancel would
+// short-circuit to $0 before the math and defeat the point of these cases.
 describe("Cancellation tech-pay — modes", () => {
   it("flat mode = fixed dollars regardless of customer charge", () => {
     const a = resolveCancellationTechPay({
-      action: "cancel", customerChargeAmount: 50, numTechs: 1, policy: flatPhes,
+      action: "lockout", customerChargeAmount: 50, numTechs: 1, policy: flatPhes,
     });
     const b = resolveCancellationTechPay({
-      action: "cancel", customerChargeAmount: 500, numTechs: 1, policy: flatPhes,
+      action: "lockout", customerChargeAmount: 500, numTechs: 1, policy: flatPhes,
     });
     assert.equal(a.total_pay, 60);
     assert.equal(b.total_pay, 60);
@@ -55,7 +99,7 @@ describe("Cancellation tech-pay — modes", () => {
 
   it("percent mode = % of customer charge", () => {
     const r = resolveCancellationTechPay({
-      action: "cancel", customerChargeAmount: 200, numTechs: 1,
+      action: "lockout", customerChargeAmount: 200, numTechs: 1,
       policy: { mode: "percent", amount: 40 },
     });
     assert.equal(r.total_pay, 80); // 200 × 0.40
@@ -63,7 +107,7 @@ describe("Cancellation tech-pay — modes", () => {
 
   it("percent mode at 0% → zero pay, pays_tech=false", () => {
     const r = resolveCancellationTechPay({
-      action: "cancel", customerChargeAmount: 200, numTechs: 1,
+      action: "lockout", customerChargeAmount: 200, numTechs: 1,
       policy: { mode: "percent", amount: 0 },
     });
     assert.equal(r.total_pay, 0);
@@ -74,7 +118,7 @@ describe("Cancellation tech-pay — modes", () => {
 describe("Cancellation tech-pay — splitting", () => {
   it("flat $60 / 2 techs = $30 each", () => {
     const r = resolveCancellationTechPay({
-      action: "cancel", customerChargeAmount: 200, numTechs: 2, policy: flatPhes,
+      action: "lockout", customerChargeAmount: 200, numTechs: 2, policy: flatPhes,
     });
     assert.equal(r.total_pay, 60);
     assert.equal(r.pay_per_tech, 30);
@@ -82,14 +126,14 @@ describe("Cancellation tech-pay — splitting", () => {
 
   it("flat $60 / 3 techs = $20 each (clean divide)", () => {
     const r = resolveCancellationTechPay({
-      action: "cancel", customerChargeAmount: 200, numTechs: 3, policy: flatPhes,
+      action: "lockout", customerChargeAmount: 200, numTechs: 3, policy: flatPhes,
     });
     assert.equal(r.pay_per_tech, 20);
   });
 
   it("percent 33.33% / 3 techs handles fractional split", () => {
     const r = resolveCancellationTechPay({
-      action: "cancel", customerChargeAmount: 100, numTechs: 3,
+      action: "lockout", customerChargeAmount: 100, numTechs: 3,
       policy: { mode: "percent", amount: 33.33 },
     });
     // 100 × 0.3333 = 33.33 → split 3 → 11.11
@@ -110,7 +154,7 @@ describe("Cancellation tech-pay — edge cases", () => {
 
   it("negative customer charge clamps to 0 (percent mode)", () => {
     const r = resolveCancellationTechPay({
-      action: "cancel", customerChargeAmount: -50, numTechs: 1,
+      action: "lockout", customerChargeAmount: -50, numTechs: 1,
       policy: { mode: "percent", amount: 50 },
     });
     assert.equal(r.total_pay, 0);
@@ -118,7 +162,7 @@ describe("Cancellation tech-pay — edge cases", () => {
 
   it("negative flat amount clamps to 0", () => {
     const r = resolveCancellationTechPay({
-      action: "cancel", customerChargeAmount: 200, numTechs: 1,
+      action: "lockout", customerChargeAmount: 200, numTechs: 1,
       policy: { mode: "flat", amount: -60 },
     });
     assert.equal(r.total_pay, 0);

@@ -19,6 +19,43 @@ in-session saves; no extra refetch per keystroke.
 
 ---
 
+## Cancellation fee policy + per-job exceptions (2026-07-01)
+
+**Policy (Sal, 2026-07-01):** an inside-48hr cancellation charges the customer
+the **full job amount (100%)** and pays the assigned tech the **flat $60**. This
+holds for BOTH `cancel` and `lockout`. The 48-hour window is operator judgment
+(pick "Cancel" to charge vs "Skip" for free) — there is no automatic
+business-hours gate. **Exceptions** for unexpected circumstances: **waive** the
+fee, charge a **% of the job**, or charge a **custom $**.
+
+**What was wrong:** every charging cancellation auto-paid the tech AND left a
+phantom "CANCELLATION FEE" line on the Time Clocks grid, with no way to waive or
+adjust it per-job. (ZZ E2E TEST rows made this loud — Norma/Alma/Diana carried
+cancellation lines for jobs that never happened.)
+
+**Fix:**
+- `lib/cancellation-tech-pay.ts` — new `payTech` override. Default: a charged
+  cancellation **pays the $60** (both cancel + lockout, per policy). The office
+  waives it per-job via `payTech=false`.
+- `routes/cancellation.ts` — introduces `isChargedOutcome = charges_customer &&
+  finalCharge > 0`. A fully-waived fee ($0) becomes a **free cancel** (job goes
+  `cancelled`, not a $0 `complete` artifact) and pays no tech — so it leaves no
+  footprint on revenue or the clock. Threads the modal's `pay_tech` flag.
+- `routes/timeclock.ts` `/day` — hides zero-impact `cancel` jobs (no punch, no
+  granted pay) from the per-tech grid; a $60 charged cancel still shows (tech is
+  owed it), lockouts still show.
+- `pages/jobs.tsx` — cancel modal fee section: **Full charge / % of job /
+  Custom $ / Waive**, plus a "Pay the assigned tech the $60 fee" checkbox
+  (defaults on when charging; forced off + locked on waive).
+- Customer-side default (100%) already lived in `default_cancel_fee_pct = 100`
+  and `cancellation-policy.ts` — unchanged.
+- Existing ZZ E2E TEST rows are cleaned by `scripts/purge_e2e_test_jobs.sql`.
+
+Covered by updated `cancellation-tech-pay.test.ts` (cancel+lockout pay by
+default; `payTech=false` waives; free actions never pay).
+
+---
+
 ## RESOLVED — "Failed to save profile" on client edit when Client Since is empty (2026-07-01)
 
 **Severity:** High — editing a client profile (e.g. adding a phone/email) failed
