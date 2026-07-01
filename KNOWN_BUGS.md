@@ -1,5 +1,24 @@
 # Known Bugs
 
+## RESOLVED — Job notes (office + cleaner) lost on quick close / stale until refresh (2026-07-01)
+
+**Severity:** Medium — office/cleaner notes on the dispatch job panel "need a
+refresh to save or to see what we edited" (Maribel).
+
+**Root cause:** both notes fields auto-save on a 2-second debounce
+(`jobs.tsx` JobPanel). Two flaws: (1) the debounce timer is cleared on unmount,
+so closing the card within 2s of typing dropped the edit; (2) after a save the
+grid's cached job wasn't refreshed, so reopening the card showed the OLD note
+until a full page reload.
+
+**Fix (`pages/jobs.tsx`):** track latest + last-saved note values in refs and add
+a close (unmount) handler that FLUSHES any not-yet-saved edit and REFETCHES the
+grid once when a note changed — so nothing is lost on a fast close and a reopened
+card shows the current note without a page refresh. The debounce still handles
+in-session saves; no extra refetch per keystroke.
+
+---
+
 ## Cancellation fee policy + per-job exceptions (2026-07-01)
 
 **Policy (Sal, 2026-07-01):** an inside-48hr cancellation charges the customer
