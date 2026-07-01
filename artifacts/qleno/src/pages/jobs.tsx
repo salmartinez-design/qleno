@@ -7731,7 +7731,11 @@ export default function JobsPage() {
         </div>
 
         {selectedJob && (
-          <JobPanel job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile />
+          // key={selectedJob.id}: a different job must get a FRESH panel. Without
+          // it React reuses the instance, so the note useState keeps the previous
+          // job's text and the debounced auto-save writes it onto the new job
+          // (the "every service shows Jirsa's notes" cross-client bleed).
+          <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile />
         )}
         <JobWizard open={showWizard} onClose={() => setShowWizard(false)} onCreated={() => { setShowWizard(false); load(); }} />
         <LegendPopover open={legendOpen} onClose={() => setLegendOpen(false)} mobile={isMobile} anchorRect={legendAnchor} />
@@ -8123,7 +8127,8 @@ export default function JobsPage() {
       </DndContext>
 
       {selectedJob && !isMobile && (
-        <JobPanel job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile={false} />
+        // key={selectedJob.id}: fresh panel per job — see note on the mobile mount.
+        <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile={false} />
       )}
       <JobWizard open={showWizard} onClose={() => setShowWizard(false)} onCreated={() => { setShowWizard(false); load(); }} />
 
