@@ -893,7 +893,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       SELECT j.id AS job_id, j.scheduled_time, j.assigned_user_id,
              j.service_type::text AS service_type, j.address_street,
              j.job_lat, j.job_lng, j.address_lat, j.address_lng,
-             j.account_id, j.client_id, j.base_fee, j.billed_amount, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
+             j.account_id, j.client_id, j.base_fee, j.billed_amount, j.commission_base, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
              c.client_type, c.lat AS client_lat, c.lng AS client_lng,
              -- Service address so the office can tell apart multiple jobs for the
              -- same client/account on one day (e.g. several PPM units) without
@@ -1063,7 +1063,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         .map((j: any) => ({
           id: Number(j.job_id), assigned_user_id: j.assigned_user_id != null ? Number(j.assigned_user_id) : null,
           service_type: j.service_type ?? null, account_id: j.account_id ?? null, base_fee: j.base_fee ?? null,
-          billed_amount: j.billed_amount ?? null, allowed_hours: j.allowed_hours ?? null, actual_hours: null,
+          billed_amount: j.billed_amount ?? null, commission_base: j.commission_base ?? null, allowed_hours: j.allowed_hours ?? null, actual_hours: null,
           branch_id: j.branch_id ?? null, scheduled_date: j.scheduled_date ?? date, client_type: j.client_type ?? null,
         })) as CommissionInputJob[];
       for (const r of computePerTechCommissionRows({ jobs: jobsForCalc, jobTechs: jobTechsForCalc, techHoursByKey, serviceTypePctBySlug, resRates, commercial })) {

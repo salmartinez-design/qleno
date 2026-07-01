@@ -1807,6 +1807,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [modMinutes, setModMinutes] = useState("");
   const [modAmount, setModAmount] = useState("");
   const [modReason, setModReason] = useState("");
+  // [commission-optin 2026-07-01] Whether this adjustment counts toward the
+  // tech's fee split. Default off — the office opts in per adjustment.
+  const [modAffectsCommission, setModAffectsCommission] = useState(false);
   const [modBusy, setModBusy] = useState(false);
   const [modError, setModError] = useState("");
 
@@ -1839,7 +1842,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     }
     setModBusy(true);
     try {
-      const body: any = { mod_type: modType, amount: amt, reason: modReason.trim() };
+      const body: any = { mod_type: modType, amount: amt, reason: modReason.trim(), affects_commission: modAffectsCommission };
       if (modType === "time") body.minutes = Number(modMinutes);
       const r = await fetch(`${_API3}/api/jobs/${job.id}/rate-mods`, {
         method: "POST",
@@ -1849,7 +1852,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || d.error || "Failed");
       setRateMods(prev => [...prev, d.mod as RateMod]);
-      setModType("time"); setModMinutes(""); setModAmount(""); setModReason("");
+      setModType("time"); setModMinutes(""); setModAmount(""); setModReason(""); setModAffectsCommission(false);
       setModAddOpen(false);
       toast({ title: "Adjustment added" });
       onUpdate();
@@ -3521,6 +3524,19 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   <input type="text" placeholder="Reason"
                     value={modReason} onChange={e => setModReason(e.target.value)}
                     style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 8, boxSizing: "border-box" }} />
+                  {/* [commission-optin 2026-07-01] Opt-in: whether this adjustment
+                      counts toward the tech's fee split / commission. */}
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 8, cursor: "pointer" }}>
+                    <input type="checkbox" checked={modAffectsCommission}
+                      onChange={e => setModAffectsCommission(e.target.checked)}
+                      style={{ width: 14, height: 14, marginTop: 1, accentColor: "#16A34A", flexShrink: 0, cursor: "pointer" }} />
+                    <span style={{ fontSize: 11, color: "#1A1917", userSelect: "none" }}>
+                      Counts toward the tech's commission / fee split
+                      <span style={{ display: "block", color: "#9E9B94", fontSize: 10.5 }}>
+                        Off = billing only, does not change tech pay
+                      </span>
+                    </span>
+                  </label>
                   {modError && <div style={{ color: "#DC2626", fontSize: 11, marginBottom: 6 }}>{modError}</div>}
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={addRateMod} disabled={modBusy}

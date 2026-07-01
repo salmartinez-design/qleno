@@ -145,7 +145,9 @@ describe("pay-type engine — DB bridge (computePerTechCommissionRows)", () => {
     return {
       id: p.id, assigned_user_id: p.assigned_user_id ?? 1, service_type: p.service_type ?? "standard_clean",
       account_id: "account_id" in p ? p.account_id! : null, base_fee: p.base_fee ?? "0",
-      billed_amount: "billed_amount" in p ? p.billed_amount! : null, allowed_hours: p.allowed_hours ?? "0",
+      billed_amount: "billed_amount" in p ? p.billed_amount! : null,
+      commission_base: "commission_base" in p ? p.commission_base! : null,
+      allowed_hours: p.allowed_hours ?? "0",
       actual_hours: p.actual_hours ?? "0", branch_id: 1, scheduled_date: "2026-06-01",
     };
   }
@@ -248,6 +250,32 @@ describe("pay-type engine — DB bridge (computePerTechCommissionRows)", () => {
       jobs: [job({ id: 40, base_fee: "210", billed_amount: "210", allowed_hours: "3", service_type: "deep_clean" })],
       jobTechs: [tech(40, 1, { is_primary: true })],
       techHoursByKey: new Map([["40:1", 3.0]]),
+      serviceTypePctBySlug: new Map([["deep_clean", 0.35]]), resRates, commercial,
+    });
+    assert.equal(rows[0].amount, 73.5);
+  });
+
+  it("[commission-optin] commission_base drives the fee split, not billed_amount", () => {
+    // Job billed $210 (base $150 + a $60 add-on the office did NOT flag), so
+    // commission_base = $150. Fee split 35%, one tech clocked. Commission must
+    // be 150 × 0.35 = $52.50 — NOT 210 × 0.35 = $73.50 (the un-opted add-on
+    // does not count toward the tech's pay).
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 41, base_fee: "150", billed_amount: "210", commission_base: "150", allowed_hours: "3", service_type: "deep_clean" })],
+      jobTechs: [tech(41, 1, { is_primary: true })],
+      techHoursByKey: new Map([["41:1", 3.0]]),
+      serviceTypePctBySlug: new Map([["deep_clean", 0.35]]), resRates, commercial,
+    });
+    assert.equal(rows[0].amount, 52.5);
+  });
+
+  it("[commission-optin] a flagged add-on raises the fee split via commission_base", () => {
+    // Same job but the $60 add-on IS flagged → commission_base = $210.
+    // Commission = 210 × 0.35 = $73.50.
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 42, base_fee: "150", billed_amount: "210", commission_base: "210", allowed_hours: "3", service_type: "deep_clean" })],
+      jobTechs: [tech(42, 1, { is_primary: true })],
+      techHoursByKey: new Map([["42:1", 3.0]]),
       serviceTypePctBySlug: new Map([["deep_clean", 0.35]]), resRates, commercial,
     });
     assert.equal(rows[0].amount, 73.5);
