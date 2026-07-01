@@ -1,5 +1,24 @@
 # Known Bugs
 
+## RESOLVED — Couldn't add permanent notes to an account (2026-07-01)
+
+**Severity:** Medium — Maribel (Office): "very important. Can't add permanent
+notes to accounts." Accounts have a `notes` column, but the account Overview only
+*displayed* it read-only (and only when present), with no editor — and the full
+`PATCH /accounts/:id` is owner/admin-only, so Office couldn't save it anyway.
+
+**Fix:**
+- `routes/accounts.ts` — new **`PATCH /:id/notes`** (owner/admin/**office**),
+  notes-only, so Office can save account notes without opening the billing PATCH.
+- `pages/account-detail.tsx` — the Overview Notes card is now an inline editor
+  (Add/Edit → textarea → Save), always shown so notes can be added when empty.
+
+Property/building notes were already editable — the property Edit modal has
+Access Notes + Internal Notes (office-editable) and both render in the property
+detail. No change needed there.
+
+---
+
 ## RESOLVED — Overlapping punches double-counted the fee split (read-side) (2026-07-01)
 
 **Severity:** High — wrong tech pay. The write-side guard (block a manual office
