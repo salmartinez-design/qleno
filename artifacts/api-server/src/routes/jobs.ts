@@ -5808,9 +5808,11 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
   // behavior untouched (residential price semantics aren't in scope here).
   const rows = await db.execute(sql`
     SELECT j.base_fee, j.hourly_rate, j.allowed_hours, j.account_id,
-           j.manual_rate_override, c.client_type
+           j.manual_rate_override, c.client_type,
+           co.commercial_hourly_rate AS company_commercial_rate
     FROM jobs j
     LEFT JOIN clients c ON c.id = j.client_id
+    LEFT JOIN companies co ON co.id = j.company_id
     WHERE j.id = ${jobId} AND j.company_id = ${companyId}
     LIMIT 1
   `);
@@ -5819,12 +5821,27 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
   const base = parseFloat(String(job.base_fee || "0"));
   const sumRows = await db.execute(sql`
     SELECT COALESCE(SUM(amount), 0)::numeric AS total,
-           COALESCE(SUM(amount) FILTER (WHERE mod_type = 'flat'), 0)::numeric AS flat_total
+           COALESCE(SUM(amount) FILTER (WHERE mod_type = 'flat'), 0)::numeric AS flat_total,
+           -- [commission-optin 2026-07-01] Only the flagged mods feed the commission base.
+           COALESCE(SUM(amount) FILTER (WHERE affects_commission), 0)::numeric AS comm_total,
+           COALESCE(SUM(amount) FILTER (WHERE affects_commission AND mod_type = 'flat'), 0)::numeric AS comm_flat_total
     FROM job_rate_mods
     WHERE job_id = ${jobId} AND company_id = ${companyId}
   `);
   const modsTotal = parseFloat(String((sumRows.rows[0] as any)?.total ?? "0"));
   const flatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.flat_total ?? "0"));
+  const commModsTotal = parseFloat(String((sumRows.rows[0] as any)?.comm_total ?? "0"));
+  const commFlatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.comm_flat_total ?? "0"));
+
+  // Add-ons split into full total (billing) and commission-flagged total.
+  const addOnRows = await db.execute(sql`
+    SELECT COALESCE(SUM(subtotal), 0)::numeric AS total,
+           COALESCE(SUM(subtotal) FILTER (WHERE affects_commission), 0)::numeric AS comm_total
+    FROM job_add_ons
+    WHERE job_id = ${jobId}
+  `);
+  const addOnsTotal = parseFloat(String((addOnRows.rows[0] as any)?.total ?? "0"));
+  const commAddOnsTotal = parseFloat(String((addOnRows.rows[0] as any)?.comm_total ?? "0"));
 
   const isCommercial = job.account_id != null || job.client_type === "commercial";
   const override = job.manual_rate_override === true;
@@ -5836,21 +5853,33 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
     // Commercial: rate × allowed_hours + add-ons + FLAT mods only. 'time' mods
     // already grew allowed_hours (PR #307), so they're in rate × hrs — adding
     // their amount again would double-count the added time.
-    const addOnRows = await db.execute(sql`
-      SELECT COALESCE(SUM(subtotal), 0)::numeric AS total
-      FROM job_add_ons
-      WHERE job_id = ${jobId}
-    `);
-    const addOnsTotal = parseFloat(String((addOnRows.rows[0] as any)?.total ?? "0"));
     newBilled = rate * hrs + flatModsTotal + addOnsTotal;
   } else {
     newBilled = base + modsTotal;
   }
 
+  // [commission-optin 2026-07-01] Commission base = the commissionable slice:
+  // base (or hrs × the TENANT commercial commission rate) + ONLY the flagged
+  // mods/add-ons. The pay engine reads this instead of billed_amount, so an
+  // add-on/adjustment counts toward the fee split only when the office opts in.
+  let commissionBase: number;
+  if (isCommercial) {
+    const commRate = parseFloat(String(job.company_commercial_rate || "0"));
+    // Mirror the engine's commercial pool (allowed_hours × commission rate),
+    // then add the flagged FLAT mods + flagged add-ons (time mods already live
+    // in allowed_hours, same reasoning as billing above).
+    commissionBase = commRate * hrs + commFlatModsTotal + commAddOnsTotal;
+  } else {
+    commissionBase = base + commModsTotal + commAddOnsTotal;
+  }
+
   // For residential hourly jobs (hourly_rate set, not commercial), keep billed_hours
   // in sync with billed_amount so the invoice line item shows the right qty×rate.
   // Commercial jobs drive hours via allowed_hours (adjustAllowedHours); skip them.
-  const updateFields: Record<string, unknown> = { billed_amount: newBilled.toFixed(2) };
+  const updateFields: Record<string, unknown> = {
+    billed_amount: newBilled.toFixed(2),
+    commission_base: commissionBase.toFixed(2),
+  };
   if (!isCommercial && rate > 0) {
     updateFields.billed_hours = (newBilled / rate).toFixed(2);
   }
@@ -5914,8 +5943,11 @@ router.post("/:id/rate-mods", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
     const userId = req.auth!.userId;
-    const { mod_type, minutes, amount, reason, dry_run } = req.body ?? {};
+    const { mod_type, minutes, amount, reason, dry_run, affects_commission } = req.body ?? {};
     const isDryRun = dry_run === true;
+    // [commission-optin 2026-07-01] Opt-in: whether this adjustment counts
+    // toward the tech's fee split. Defaults false (does not affect commission).
+    const affectsCommission = affects_commission === true;
 
     if (mod_type !== "time" && mod_type !== "flat") {
       return res.status(400).json({ error: "Bad Request", message: "mod_type must be 'time' or 'flat'" });
@@ -5960,13 +5992,13 @@ router.post("/:id/rate-mods", requireAuth, async (req, res) => {
     }
 
     const insert = await db.execute(sql`
-      INSERT INTO job_rate_mods (company_id, job_id, mod_type, minutes, amount, reason, created_by)
+      INSERT INTO job_rate_mods (company_id, job_id, mod_type, minutes, amount, reason, created_by, affects_commission)
       VALUES (
         ${companyId}, ${jobId}, ${mod_type},
         ${mod_type === "time" ? Number(minutes) : null},
-        ${amt.toFixed(2)}, ${reason.trim()}, ${userId}
+        ${amt.toFixed(2)}, ${reason.trim()}, ${userId}, ${affectsCommission}
       )
-      RETURNING id, mod_type, minutes, amount, reason, created_by, created_at
+      RETURNING id, mod_type, minutes, amount, reason, created_by, created_at, affects_commission
     `);
     const newBilled = await recomputeJobBilledAmount(jobId, companyId);
     // Time mods extend the job's allowed hours (commercial commission + block).
