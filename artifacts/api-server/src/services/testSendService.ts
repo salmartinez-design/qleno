@@ -20,6 +20,7 @@ import { Resend } from "resend";
 import { renderCustomerTemplate, applyMergeTags, CUSTOMER_MESSAGE_TRIGGERS, type MsgChannel } from "../lib/customer-messages.js";
 import { wrapEmailHtml } from "./notificationService.js";
 import { stylePolicyCopy } from "../lib/confirmation-email.js";
+import { renderPhesBookingConfirmation } from "../lib/phes-booking-confirmation.js";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { emailLogoUrl } from "../lib/app-url.js";
 import { SAMPLE_SERVICES_BREAKDOWN_HTML } from "../lib/services-breakdown.js";
@@ -243,7 +244,27 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
       // Apply the same policy-copy brand styling the real confirmation email uses
       // (heading accents + 15%/guarantee callouts), so a [TEST] previews it too.
       // No-op for bodies without those headings/sections.
-      const html = bodyIsFullHtml
+      // PHES Booking Confirmation uses the bespoke hand-crafted template in the
+      // real send path — render the SAME here so a [TEST] previews it faithfully
+      // (with sample data). Other templates keep the standard wrap.
+      const isPhesBooking = templateKey === "job_scheduled" && /phes/i.test(c.name || "");
+      const html = isPhesBooking
+        ? renderPhesBookingConfirmation({
+            logoUrl: emailLogoUrl(c.logo_url),
+            companyName: c.name || "Phes",
+            companyPhone: c.phone || "(708) 974-5517",
+            companyPhoneTel: c.phone ? String(c.phone).replace(/[^\d+]/g, "") : "+17089745517",
+            companyEmail: c.email || "info@phes.io",
+            website: "phes.io",
+            firstName: SAMPLE_CUSTOMER_VARS.first_name,
+            date: SAMPLE_CUSTOMER_VARS.appointment_date || SAMPLE_CUSTOMER_VARS.date,
+            arrivalWindow: SAMPLE_CUSTOMER_VARS.arrival_window,
+            address: SAMPLE_CUSTOMER_VARS.service_address,
+            service: SAMPLE_CUSTOMER_VARS.service_type,
+            servicesBreakdownHtml: SAMPLE_SERVICES_BREAKDOWN_HTML,
+            link: SAMPLE_CUSTOMER_VARS.appointment_link,
+          })
+        : bodyIsFullHtml
         ? rendered.body
         : applyMergeTags(wrapEmailHtml(stylePolicyCopy(rendered.body, "Arial, Helvetica, sans-serif"), { logoUrl: emailLogoUrl(c.logo_url), companyName: c.name }), fullVars);
       previewBody = html;

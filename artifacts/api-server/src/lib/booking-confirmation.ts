@@ -3,6 +3,7 @@ import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { renderConfirmationEmail, extractPolicyCopy, fmtTime12h } from "./confirmation-email.js";
+import { renderPhesBookingConfirmation } from "./phes-booking-confirmation.js";
 import { shortenUrl } from "./short-link.js";
 import { appBaseUrl } from "./app-url.js";
 import { BOOKING_SMS } from "./sms-copy.js";
@@ -175,7 +176,11 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
     const cPhone = j.company_phone || FALLBACK_PHONE;
     const cPhoneTel = j.company_phone ? String(j.company_phone).replace(/[^\d+]/g, "") : FALLBACK_PHONE_TEL;
     const cEmail = j.company_email || FALLBACK_EMAIL;
-    const renderEmail = (mergedBody: string): string => renderConfirmationEmail({
+    // PHES gets a fully hand-crafted bespoke template (copy baked in); every
+    // other tenant keeps the standard renderer. Future tenant-editable layouts
+    // are a separate PR. Gated on company name (covers both Phes branches).
+    const isPhes = /phes/i.test(j.company_name || "");
+    const renderStandard = (mergedBody: string): string => renderConfirmationEmail({
       logoUrl: j.company_logo || `${origin}/phes-logo.jpeg`,
       companyName: j.company_name || "Phes Schaumburg",
       clientFirst: (j.first_name || "").trim(),
@@ -195,6 +200,20 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       // chip behaves the same here as in a test send.
       servicesBreakdownHtml: mv.services_breakdown,
     });
+    const renderPhes = (): string => renderPhesBookingConfirmation({
+      logoUrl: j.company_logo || `${origin}/phes-logo.jpeg`,
+      companyName: j.company_name || "Phes",
+      companyPhone: cPhone, companyPhoneTel: cPhoneTel, companyEmail: cEmail,
+      website: "phes.io",
+      firstName: (j.first_name || "").trim(),
+      date: mv.appointment_date || mv.date || (j.scheduled_date ? fmtApptDate(j.scheduled_date) : "your scheduled date"),
+      arrivalWindow: arrivalWindowLabel || mv.arrival_window || fmtTime12h(j.scheduled_time),
+      address: serviceAddress || "On file",
+      service: labelService(j.service_type),
+      servicesBreakdownHtml: mv.services_breakdown || "",
+      link,
+    });
+    const renderEmail = isPhes ? renderPhes : renderStandard;
 
     const { sendNotification } = await import("../services/notificationService.js");
     if (email) await sendNotification("job_scheduled", "email", j.company_id, email, null, mv, false, renderEmail, j.client_id).catch(() => {});
