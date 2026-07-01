@@ -1,5 +1,37 @@
 # Known Bugs
 
+## RESOLVED — Dispatch Commission didn't reflect pay types set on the time clock (2026-07-01)
+
+**Severity:** High (go-live payroll) — Maribel: after changing a tech's pay type
+on the time clock, "this should update as well." The dispatch job card kept
+showing the old number.
+
+**Symptom:** Jennifer Campos deep clean (job 10085, base $480). Office set
+**Hilda = Hourly** and **Jose = Fee Split 32%** on the time clock. The time clock
+paid correctly — Hilda **$60.01** (1.8h × $33.34), Jose **$76.80** (32% of $480 ×
+his 50% hour-share). But the dispatch card's **Commission** tile still showed
+**$120** (both techs as Hourly $20 × 3h = $60 each).
+
+**Root cause — two separate pay models.** Dispatch computed each tech's pay from
+the **employee pay-matrix** (`users.residential/commercial_pay_type + rate`),
+while the time clock and payroll compute from the **per-JOB override**
+(`job_technicians.pay_type / hourly_rate / commission_pct`) + actual clocked
+hours, through `computePerTechCommissionRows`. Setting pay types on the time
+clock writes `job_technicians` — which dispatch never read. So the two surfaces
+drifted.
+
+**Fix (`routes/dispatch.ts`):** dispatch now runs the SAME engine as the time
+clock. For any job the office has actually touched — one with real punches OR a
+per-tech pay-type override — the per-tech dollars come from
+`computePerTechCommissionRows` (honoring the override type/rate, `commission_base`
+from #814, and the union of actual clocked hours), so the card matches the time
+clock and payroll to the penny. Jobs nobody has configured yet keep the existing
+matrix estimate (zero blast radius). Added `commission_base` +
+`jt.pay_type/hourly_rate/commission_pct` to the dispatch SELECTs to feed the
+engine. The Commission tile for job 10085 now reads **$136.81** ($60.01 + $76.80).
+
+---
+
 ## FEATURE — Permanent per-building notes that auto-fill every job (2026-07-01)
 
 Maribel: she was copy-pasting access/parking/office notes onto **every** job for a
