@@ -685,6 +685,29 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
     )).limit(1);
     if (open) return res.json({ ...open, already_open: true });
 
+    // [punch-dedup 2026-07-01] Also block a CLOSED entry that already COVERS this
+    // clock-in time for the same tech+job. This is the case the open-check above
+    // misses and it's exactly what skewed payroll: a completed field-app punch,
+    // then a manual office punch stacked on top of it. The commission split
+    // weights by clocked minutes summed per (job, tech), so two overlapping
+    // punches double-count the tech's minutes and over-pay them (Juliana got 2/3
+    // of a shared job, Norma 1/3, instead of 50/50). A clock-in strictly AFTER a
+    // prior clock-out (e.g. a lunch break, same job) is still allowed — only a
+    // punch whose start falls INSIDE an existing entry's span is rejected.
+    const [covered] = await db.select({ id: timeclockTable.id }).from(timeclockTable).where(and(
+      eq(timeclockTable.company_id, companyId), eq(timeclockTable.job_id, job_id),
+      eq(timeclockTable.user_id, user_id),
+      sql`${timeclockTable.clock_out_at} IS NOT NULL`,
+      sql`${timeclockTable.clock_in_at} <= ${clockInAt}`,
+      sql`${timeclockTable.clock_out_at} > ${clockInAt}`,
+    )).limit(1);
+    if (covered) {
+      return res.status(409).json({
+        error: "Duplicate punch",
+        message: "This cleaner already has a time entry covering that time on this job — edit the existing entry instead of adding a new one.",
+      });
+    }
+
     const [entry] = await db.insert(timeclockTable).values({
       job_id, user_id, company_id: companyId,
       branch_id: jobRow.branch_id ?? 1,
