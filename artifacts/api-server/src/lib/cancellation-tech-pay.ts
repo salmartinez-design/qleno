@@ -41,6 +41,22 @@ export interface TechPayInput {
   /** Number of assigned techs to split the pay across. */
   numTechs: number;
   policy: TechPayPolicy;
+  /**
+   * [cancel-no-clock-pay 2026-07-01] Explicit operator override for whether
+   * this cancellation pays the assigned tech(s) — set by the cancel modal's
+   * "Pay the assigned tech the cancellation fee" checkbox.
+   *   true      → pay per policy (even a plain cancel, e.g. the tech had
+   *               already driven out when the customer bailed).
+   *   false     → pay nothing.
+   *   undefined → fall back to the action default below.
+   *
+   * Default when unset (Sal, 2026-07-01: "when we cancel a job it should not
+   * have any effect on the clocks as the job was never completed"):
+   *   lockout → PAYS (tech showed up to a locked door — earned the fee).
+   *   cancel  → does NOT pay (the visit never happened; keep it off payroll
+   *             and off the time clock). The customer-side fee is unaffected.
+   */
+  payTech?: boolean;
 }
 
 export interface TechPayResult {
@@ -61,6 +77,12 @@ export function resolveCancellationTechPay(input: TechPayInput): TechPayResult {
 
   if (!CHARGING_ACTIONS.has(input.action)) return empty;
   if (input.numTechs <= 0) return empty;
+
+  // Whether this event pays the tech at all. Explicit override wins; otherwise
+  // only a lockout pays by default (a plain cancel never happened, so it stays
+  // off the clock). See TechPayInput.payTech.
+  const shouldPay = input.payTech ?? (input.action === "lockout");
+  if (!shouldPay) return empty;
 
   const total = input.policy.mode === "percent"
     ? round2(Math.max(0, input.customerChargeAmount) * (input.policy.amount / 100))

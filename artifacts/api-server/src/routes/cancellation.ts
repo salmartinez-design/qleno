@@ -182,6 +182,11 @@ router.post("/action", requireAuth, async (req, res) => {
     // When true, send the client a confirmation via their preferred channel
     // (clients.cancellation_notify_via). Fire-and-forget after commit.
     notify_client?: boolean;
+    // [cancel-no-clock-pay 2026-07-01] Operator override for whether the
+    // assigned tech(s) get paid the cancellation fee. undefined = use the
+    // action default (lockout pays, plain cancel doesn't). See
+    // resolveCancellationTechPay.
+    pay_tech?: boolean;
   };
   if (!body?.job_id || !Number.isFinite(Number(body.job_id))) {
     return res.status(400).json({ error: "job_id required" });
@@ -433,6 +438,9 @@ router.post("/action", requireAuth, async (req, res) => {
             mode: (row.cancellation_tech_pay_mode ?? "flat") as CancellationTechPayMode,
             amount: parseFloat(String(row.cancellation_tech_pay_amount ?? 60)),
           },
+          // Operator override from the cancel modal; falls back to the action
+          // default (lockout pays, plain cancel doesn't) when omitted.
+          payTech: typeof body.pay_tech === "boolean" ? body.pay_tech : undefined,
         });
         if (techPay.pays_tech) {
           const noteLabel = `${action === "lockout" ? "Lockout" : "Cancel"} pay — ${row.client_name ?? "Customer"} (job #${body.job_id})`;

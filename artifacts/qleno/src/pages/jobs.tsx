@@ -1535,6 +1535,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [cancelNewDate, setCancelNewDate] = useState<string>("");
   const [cancelNewTime, setCancelNewTime] = useState<string>("");
   const [cancelNotifyClient, setCancelNotifyClient] = useState(true);
+  // [cancel-no-clock-pay 2026-07-01] Whether a charged cancellation pays the
+  // assigned tech(s) the flat cancellation fee (and thus shows on the time
+  // clock). Seeded per action when the operator picks one: a lockout defaults
+  // ON (tech drove out to a locked door), a plain cancel defaults OFF (the
+  // visit never happened — keep it off the clock). Operator can flip either.
+  const [payTechForCancel, setPayTechForCancel] = useState(false);
 
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
   const [rescheduleReason, setRescheduleReason] = useState("");
@@ -2191,6 +2197,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           // completion. Only sent from the panel when the job is complete.
           reclassify: isLocked && job.status === "complete" ? true : undefined,
           notify_client: cancelNotifyClient || undefined,
+          // [cancel-no-clock-pay 2026-07-01] Whether to pay the assigned tech
+          // the cancellation fee. Only meaningful for charging actions
+          // (cancel/lockout); the backend ignores it otherwise.
+          pay_tech: (cancelAction === "cancel" || cancelAction === "lockout") ? payTechForCancel : undefined,
         }),
       });
       if (!res.ok) {
@@ -4177,7 +4187,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         const jobAmount = Number((job as any).amount) || Number(job.billed_amount) || Number((job as any).base_fee) || 0;
         const previewCharge = (a: typeof ACTIONS[number]) => a.charges ? jobAmount : 0;
         const selected = ACTIONS.find(a => a.key === cancelAction);
-        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); setCancelNotifyClient(true); };
+        const resetModal = () => { setCancelOpen(false); setCancelAction(null); setChargeOverride(""); setCancelNote(""); setCancelNewDate(""); setCancelNewTime(""); setCancelNotifyClient(true); setPayTechForCancel(false); };
         const overrideCharge = chargeOverride.trim() !== "" ? Number(chargeOverride) : previewCharge(selected ?? ACTIONS[0]);
         const needsDate = selected?.reschedules === true;
         const confirmDisabled = busy || (needsDate && !cancelNewDate);
@@ -4221,6 +4231,8 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         }
                         setCancelAction(a.key as "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service");
                         setChargeOverride("");
+                        // Lockout defaults to paying the tech; a plain cancel does not.
+                        setPayTechForCancel(a.key === "lockout");
                         // Seed the reschedule date to the job's current
                         // date so the date picker isn't empty when shown.
                         if (a.reschedules) {
@@ -4358,6 +4370,33 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         placeholder={previewCharge(selected).toFixed(2)}
                         onChange={e => setChargeOverride(e.target.value)}
                         style={{ width: "100%", height: 38, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }} />
+                    </div>
+                  )}
+
+                  {/* [cancel-no-clock-pay 2026-07-01] Pay-the-tech toggle for
+                      charged cancellations. Off for a plain cancel keeps the
+                      job off the time clock (no work happened); on pays the
+                      flat cancellation fee (default for a lockout). */}
+                  {selected.charges && (
+                    <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14, padding: "10px 12px", background: payTechForCancel ? "#FEF9EC" : "#F7F6F3", borderRadius: 8, border: `1px solid ${payTechForCancel ? "#FCD34D" : "#E5E2DC"}`, cursor: "pointer" }}
+                      onClick={() => setPayTechForCancel(v => !v)}>
+                      <input
+                        type="checkbox"
+                        checked={payTechForCancel}
+                        onChange={e => setPayTechForCancel(e.target.checked)}
+                        onClick={e => e.stopPropagation()}
+                        style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#B45309", flexShrink: 0, marginTop: 2 }}
+                      />
+                      <div style={{ userSelect: "none" }}>
+                        <div style={{ fontSize: 13, color: "#1A1917", fontWeight: 600 }}>
+                          Pay the assigned tech the cancellation fee
+                        </div>
+                        <div style={{ fontSize: 11.5, color: "#9E9B94", marginTop: 2 }}>
+                          {payTechForCancel
+                            ? "A flat cancellation-fee line will show on the tech's time clock."
+                            : "The job stays off the time clock — no work happened. Customer billing is unaffected."}
+                        </div>
+                      </div>
                     </div>
                   )}
 

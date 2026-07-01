@@ -1144,9 +1144,28 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     const minutesOf = (a: string | null, b: string | null) =>
       a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000)) : null;
 
+    // [cancel-no-clock 2026-07-01] A plain office CANCEL (not a lockout) means
+    // the visit never happened — keep it off the time clock entirely (Sal:
+    // "when we cancel a job it should not have any effect on the clocks as the
+    // job was never completed"). Hide such jobs from the per-tech grid UNLESS
+    // the tech actually punched on it OR was granted cancellation pay (legacy
+    // cancels booked before this change) — so we never hide real worked time or
+    // pay already owed. Lockouts always stay visible; the tech earned the fee.
+    const jobsWithPunch = new Set<number>(clockRows.map((e: any) => Number(e.job_id)));
+    const hiddenCancelJobIds = new Set<number>();
+    for (const [jid, act] of cancelActionByJob) {
+      if (act !== "cancel") continue;
+      if (jobsWithPunch.has(jid)) continue;
+      const anyCancelPay = [...cancelPayByKey.entries()]
+        .some(([k, amt]) => Number(String(k).split(":")[0]) === jid && (amt ?? 0) > 0);
+      if (anyCancelPay) continue;
+      hiddenCancelJobIds.add(jid);
+    }
+
     const seen = new Set<string>();
     for (const j of jobs) {
       const jid = Number(j.job_id);
+      if (hiddenCancelJobIds.has(jid)) continue;
       let techs = techsByJob.get(jid) || [];
       if (techs.length === 0 && j.assigned_user_id != null) techs = [{ user_id: Number(j.assigned_user_id), name: nameByUser.get(Number(j.assigned_user_id)) || "Tech", is_primary: true }];
       for (const t of techs) {
