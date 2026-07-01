@@ -1,5 +1,26 @@
 # Known Bugs
 
+## RESOLVED — Overlapping punches double-counted the fee split (read-side) (2026-07-01)
+
+**Severity:** High — wrong tech pay. The write-side guard (block a manual office
+punch overlapping an existing one) only covers office-created duplicates. But
+the Time Clocks grid collapses every entry for a (job, tech) into ONE row, so a
+duplicate from ANY source (a field-app double-tap) is invisible to the office
+and still double-counts: pay is split by clocked minutes summed per (job, tech),
+so two overlapping punches over-weight that cleaner (Juliana ⅔ / Norma ⅓ instead
+of 50/50). Maribel: "it only shows one row… we only edit the clock, we don't add
+clocks" — i.e. they couldn't even see or fix the duplicate.
+
+**Fix:** new `lib/timeclock-hours.ts` `unionHoursByKey` sums the UNION of each
+tech's punch intervals per job instead of the raw durations — overlapping punches
+collapse to one span, a real split shift (disjoint punches) still adds up. Wired
+into both places that drive pay: the Time Clocks `/day` grid and the payroll
+period-lock (`routes/pay.ts`, was a SQL `SUM`). Correct regardless of how the
+duplicate was created; complements the write-side guard. Covered by
+`timeclock-hours.test.ts`.
+
+---
+
 ## RESOLVED — Job notes (office + cleaner) lost on quick close / stale until refresh (2026-07-01)
 
 **Severity:** Medium — office/cleaner notes on the dispatch job panel "need a
