@@ -1265,6 +1265,43 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     logAudit(req, "TIMECLOCK_EDIT", "timeclock", id,
       { clock_in_at: existing.clock_in_at, clock_out_at: existing.clock_out_at },
       { clock_in_at: updated.clock_in_at, clock_out_at: updated.clock_out_at });
+
+    // [manual-clock-completion 2026-07-01] Mirror the field-app clock-out (GAP2):
+    // when this office edit leaves the job with a closed clock and NO open
+    // entries, the job is done — mark it complete so the dispatch card shows the
+    // completion check. Previously fixing clocks manually left status untouched,
+    // so the green check never appeared (office bug report). Guarded + idempotent
+    // (no-op if already complete/cancelled); generates the draft invoice like the
+    // field path so a manually-completed job isn't left invoice-less. The
+    // satisfaction survey is intentionally NOT fired here — an office data-fix
+    // (often days later) shouldn't message the customer about an old job.
+    const completedJobId = existing.job_id;
+    if (outAt && completedJobId != null) {
+      try {
+        const openLeft = await db.execute(sql`
+          SELECT COUNT(*)::int AS cnt FROM timeclock
+          WHERE job_id = ${completedJobId} AND clock_out_at IS NULL
+        `);
+        if (((openLeft.rows[0] as any)?.cnt ?? 0) === 0) {
+          const done = await db.execute(sql`
+            UPDATE jobs
+            SET status = 'complete', actual_end_time = ${outAt}, completed_by_user_id = ${req.auth!.userId}
+            WHERE id = ${completedJobId} AND company_id = ${companyId}
+              AND status NOT IN ('complete', 'cancelled')
+            RETURNING id
+          `);
+          if (done.rows[0]) {
+            // completedJobId is non-null (guarded above); the assertion just
+            // restores the narrowing TS drops across the awaits.
+            ensureInvoiceForCompletedJob(companyId, completedJobId!, req.auth!.userId)
+              .catch((e: Error) => console.error("[manual-clock invoice] non-fatal:", e));
+          }
+        }
+      } catch (e) {
+        console.error("[manual-clock completion] non-fatal:", e);
+      }
+    }
+
     return res.json(updated);
   } catch (err) {
     console.error("PATCH /timeclock/:id error:", err);
