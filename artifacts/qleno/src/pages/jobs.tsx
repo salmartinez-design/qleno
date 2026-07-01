@@ -1302,11 +1302,17 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
   // Completed jobs stay editable until actually paid/invoiced (locked_at set).
   // Cancelled jobs are always locked. Mirrors the adjUnlocked logic in JobPanel.
   const isLocked = !!job.locked_at || job.status === "cancelled";
-  const rateDriven = (job.account_id != null || job.client_type === "commercial")
+  const isCommercial = job.account_id != null || job.client_type === "commercial";
+  const rateDriven = isCommercial
     && !job.manual_rate_override
     && job.hourly_rate != null && job.hourly_rate > 0
     && (job as any).allowed_hours != null && (job as any).allowed_hours > 0;
-  const editable = canEdit && !isLocked && !rateDriven;
+  // [pricing-edit 2026-07-01] Pricing is now editable on EVERY scope/type,
+  // including rate-driven commercial jobs (Maribel: "should be available for all
+  // scopes and types of jobs"). Editing a rate-driven job pins the typed total
+  // as a flat price (manual_rate_override, set on save) instead of it snapping
+  // back to $/hr × hours. Only truly locked/cancelled jobs stay read-only.
+  const editable = canEdit && !isLocked;
 
   const [editing, setEditing] = useState(false);
   const [baseVal, setBaseVal] = useState(baseInit.toFixed(2));
@@ -1337,7 +1343,10 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
       const r = await fetch(`${API}/api/jobs/${job.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ base_fee: String(newBaseFee), add_ons, cascade_scope: "this_job" }),
+        // [pricing-edit 2026-07-01] On a commercial job, pin the typed total as a
+        // flat price so it doesn't snap back to $/hr × hours. Residential base_fee
+        // is already the flat price, so no override needed.
+        body: JSON.stringify({ base_fee: String(newBaseFee), add_ons, cascade_scope: "this_job", ...(isCommercial ? { manual_rate_override: true } : {}) }),
       });
       if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.message || d.error || `HTTP ${r.status}`); }
       toast({ title: "Pricing updated" });
@@ -1414,6 +1423,7 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
         </div>
         <div style={{ fontSize: 11, color: "#9E9B94", lineHeight: 1.4 }}>
           This visit only. Total = base rate + add-ons.
+          {isCommercial && rateDriven && " Saving sets this as a flat price (overrides $/hr × hours) for this visit."}
         </div>
       </div>
     </PS>
@@ -1807,6 +1817,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [modMinutes, setModMinutes] = useState("");
   const [modAmount, setModAmount] = useState("");
   const [modReason, setModReason] = useState("");
+  // [commission-optin 2026-07-01] Whether this adjustment counts toward the
+  // tech's fee split. Default off — the office opts in per adjustment.
+  const [modAffectsCommission, setModAffectsCommission] = useState(false);
   const [modBusy, setModBusy] = useState(false);
   const [modError, setModError] = useState("");
 
@@ -1839,7 +1852,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     }
     setModBusy(true);
     try {
-      const body: any = { mod_type: modType, amount: amt, reason: modReason.trim() };
+      const body: any = { mod_type: modType, amount: amt, reason: modReason.trim(), affects_commission: modAffectsCommission };
       if (modType === "time") body.minutes = Number(modMinutes);
       const r = await fetch(`${_API3}/api/jobs/${job.id}/rate-mods`, {
         method: "POST",
@@ -1849,7 +1862,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || d.error || "Failed");
       setRateMods(prev => [...prev, d.mod as RateMod]);
-      setModType("time"); setModMinutes(""); setModAmount(""); setModReason("");
+      setModType("time"); setModMinutes(""); setModAmount(""); setModReason(""); setModAffectsCommission(false);
       setModAddOpen(false);
       toast({ title: "Adjustment added" });
       onUpdate();
@@ -3521,6 +3534,19 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   <input type="text" placeholder="Reason"
                     value={modReason} onChange={e => setModReason(e.target.value)}
                     style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 8, boxSizing: "border-box" }} />
+                  {/* [commission-optin 2026-07-01] Opt-in: whether this adjustment
+                      counts toward the tech's fee split / commission. */}
+                  <label style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 8, cursor: "pointer" }}>
+                    <input type="checkbox" checked={modAffectsCommission}
+                      onChange={e => setModAffectsCommission(e.target.checked)}
+                      style={{ width: 14, height: 14, marginTop: 1, accentColor: "#16A34A", flexShrink: 0, cursor: "pointer" }} />
+                    <span style={{ fontSize: 11, color: "#1A1917", userSelect: "none" }}>
+                      Counts toward the tech's commission / fee split
+                      <span style={{ display: "block", color: "#9E9B94", fontSize: 10.5 }}>
+                        Off = billing only, does not change tech pay
+                      </span>
+                    </span>
+                  </label>
                   {modError && <div style={{ color: "#DC2626", fontSize: 11, marginBottom: 6 }}>{modError}</div>}
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={addRateMod} disabled={modBusy}

@@ -15,6 +15,60 @@ right on the job's Office Notes after convert.
 
 ---
 
+## RESOLVED — Couldn't edit pricing on rate-driven commercial jobs (2026-07-01)
+
+**Severity:** Medium — Maribel: "Still can't edit Pricing on this scope. This
+should be available for all scopes and types of jobs." On a commercial job
+priced as $/hr × hours (e.g. PPM), the dispatch pricing editor showed no Edit
+button at all.
+
+**Root cause:** `InlinePricingEditor` gated `editable = canEdit && !isLocked &&
+!rateDriven`, and `rateDriven` is true for any commercial job billed as
+hourly_rate × allowed_hours. So those jobs were read-only with no way to change
+the price.
+
+**Fix (`pages/jobs.tsx`):** pricing is editable on every scope/type now
+(`editable = canEdit && !isLocked`). Saving a commercial (rate-driven) job pins
+the typed total as a flat price via `manual_rate_override: true` (the PATCH route
+already supports it) so it doesn't snap back to $/hr × hours; residential base_fee
+is already the flat price so no override is sent. A hint in the editor explains
+the pin. Only truly locked/cancelled jobs stay read-only.
+
+---
+
+## FEATURE — Per-item commission opt-in for add-ons & adjustments (2026-07-01)
+
+Requested by Maribel/Sal (urgent for payroll): when adding an add-on or a fee
+adjustment, the office must be able to choose whether it counts toward the
+tech's fee split / commission. Default OFF (opt-in); on commercial it adds on
+top of hours × rate.
+
+**How it worked before:** add-ons/adjustments were folded into `billed_amount`,
+and commission read that total — so add-ons always raised residential commission
+and there was no per-item control (and commercial commission, being hours×rate,
+ignored them entirely).
+
+**What changed:**
+- Schema/migration: `affects_commission` flag (default false, opt-in) on
+  `job_add_ons` and `job_rate_mods`; new computed `jobs.commission_base`.
+- `recomputeJobBilledAmount` now also sets `commission_base = base_fee (or
+  allowed_hours × tenant commission rate) + ONLY the flagged add-ons/mods`.
+- The pay engine (`commission-paytype.ts`, `commission-compute.ts`) reads
+  `commission_base` as the fee-split basis instead of the billed total (NULL →
+  legacy `max(base_fee, billed_amount)` fallback). Wired through the time clock
+  and payroll period-lock.
+- `POST /jobs/:id/rate-mods` accepts `affects_commission`; the Time & Fee
+  Adjustment panel has a "counts toward commission" checkbox.
+- **Grandfather:** existing jobs' `commission_base` is backfilled to their
+  current value, so no live paycheck moves; only new items follow the opt-in.
+
+Follow-ups (not in this PR): the "counts toward commission" toggle on the
+add-on/quote UI (backend flag + default already in place), and mirroring
+`commission_base` in the dispatch commission-panel display. Covered by new
+`commission-paytype.test.ts` cases.
+
+---
+
 ## RESOLVED — Couldn't add permanent notes to an account (2026-07-01)
 
 **Severity:** Medium — Maribel (Office): "very important. Can't add permanent
