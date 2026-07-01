@@ -1050,6 +1050,30 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "users.rehire_eligible",
       stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS rehire_eligible BOOLEAN` },
 
+    // [commission-optin 2026-07-01] Per-item control over whether an add-on or
+    // rate-mod counts toward the tech's fee split. `jobs.commission_base` is the
+    // computed commissionable base the pay engine reads; add-ons/rate-mods each
+    // carry an `affects_commission` flag (default false = opt-in).
+    { label: "jobs.commission_base",
+      stmt: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS commission_base NUMERIC(10,2)` },
+    // GRANDFATHER: freeze every EXISTING job's commissionable base at its current
+    // value so no live paycheck moves when this ships. Idempotent — only fills
+    // NULLs; new/edited jobs get commission_base recomputed from the flags.
+    { label: "jobs.commission_base backfill",
+      stmt: `UPDATE jobs SET commission_base = GREATEST(COALESCE(base_fee,0), COALESCE(billed_amount, base_fee, 0)) WHERE commission_base IS NULL` },
+    // Add-ons: existing rows grandfathered to TRUE (they're commissionable
+    // today); the SET DEFAULT FALSE afterward makes NEW add-ons opt-in.
+    { label: "job_add_ons.affects_commission add",
+      stmt: `ALTER TABLE job_add_ons ADD COLUMN IF NOT EXISTS affects_commission BOOLEAN NOT NULL DEFAULT TRUE` },
+    { label: "job_add_ons.affects_commission default",
+      stmt: `ALTER TABLE job_add_ons ALTER COLUMN affects_commission SET DEFAULT FALSE` },
+    // Rate-mods (Time & Fee Adjustments): default FALSE = opt-in. Existing jobs'
+    // pay is already preserved by the commission_base backfill above, so a
+    // discount never retroactively docks a tech; a positive surcharge only stops
+    // counting if that old job is later edited (re-check it to keep it in).
+    { label: "job_rate_mods.affects_commission",
+      stmt: `ALTER TABLE job_rate_mods ADD COLUMN IF NOT EXISTS affects_commission BOOLEAN NOT NULL DEFAULT FALSE` },
+
     // Items 8 + 9 (P1 sprint, 2026-05-14): per-tenant LMS settings.
     // Single row per company. First inhabitant: admin_bypass_allowed
     // (default false). Future settings join the same row.

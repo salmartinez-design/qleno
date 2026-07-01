@@ -227,6 +227,29 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin"), async (req, res
   }
 });
 
+// PATCH /api/accounts/:id/notes — update ONLY the account's permanent notes.
+// [account-notes 2026-07-01] Office needs to add permanent notes to accounts, but
+// the full PATCH /:id (billing settings) is owner/admin-only. This notes-only
+// endpoint is office-editable (mirrors the office-admin-parity on properties
+// and account delete) without opening billing fields to the office tier.
+router.patch("/:id/notes", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+  const notes = typeof req.body?.notes === "string" ? req.body.notes : (req.body?.notes == null ? null : String(req.body.notes));
+  try {
+    const [account] = await db
+      .update(accountsTable)
+      .set({ notes, updated_at: new Date() })
+      .where(and(eq(accountsTable.id, id), eq(accountsTable.company_id, req.auth!.companyId)))
+      .returning();
+    if (!account) return res.status(404).json({ error: "Account not found" });
+    res.json(account);
+  } catch (err) {
+    console.error("PATCH /accounts/:id/notes error:", err);
+    res.status(500).json({ error: "Failed to update account notes" });
+  }
+});
+
 // DELETE /api/accounts/:id  (soft delete)
 // [office-admin-parity 2026-06-26] Office tier may delete customer accounts (Sal granted this).
 router.delete("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {

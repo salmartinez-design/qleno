@@ -1,4 +1,4 @@
-import { pgTable, integer, numeric, primaryKey } from "drizzle-orm/pg-core";
+import { pgTable, integer, numeric, boolean, primaryKey } from "drizzle-orm/pg-core";
 import { jobsTable } from "./jobs";
 import { addOnsTable } from "./add_ons";
 
@@ -11,6 +11,10 @@ export const jobAddOnsTable = pgTable("job_add_ons", {
   // [AG] Traceability link to pricing_addons.id for recalc lookups. Nullable
   // for backward compat with rows seeded before AG.
   pricing_addon_id: integer("pricing_addon_id"),
+  // [commission-optin 2026-07-01] Whether this add-on counts toward the tech's
+  // fee-split/commission. Default false = opt-in (office ticks it per item);
+  // existing rows are grandfathered to true so today's pay is unchanged.
+  affects_commission: boolean("affects_commission").notNull().default(false),
 }, (t) => [primaryKey({ columns: [t.job_id, t.add_on_id] })]);
 
 export type JobAddOn = typeof jobAddOnsTable.$inferSelect;

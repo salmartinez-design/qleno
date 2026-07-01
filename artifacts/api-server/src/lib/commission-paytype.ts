@@ -337,8 +337,20 @@ export function computePerTechCommissionRows(input: {
     // LOWERS billed below base, and max() ignores it so the credit never docks
     // the tech (locked rule). For a plain job base==billed → unchanged, so
     // every job that already matched stays matched.
-    const baseFee = Math.max(n(j.base_fee) ?? 0, n(j.billed_amount) ?? 0);
-    const allowedHours = n(j.allowed_hours) ?? 0;
+    // [commission-optin 2026-07-01] Prefer commission_base (base or hrs×rate +
+    // only the flagged add-ons/mods) over the billed total, so an add-on or
+    // adjustment feeds the fee split only when the office opted it in. NULL →
+    // legacy max(base_fee, billed_amount).
+    const commissionBase = n(j.commission_base);
+    const baseFee = commissionBase ?? Math.max(n(j.base_fee) ?? 0, n(j.billed_amount) ?? 0);
+    let allowedHours = n(j.allowed_hours) ?? 0;
+    // Commercial commission_base already encodes hrs × commission-rate + flagged
+    // extras. Feed it back through the commercial pay formula (allowedHours ×
+    // rate × share) as an effective allowed-hours so the flagged extras land in
+    // the split. Pay-scoped only — the real allowed_hours budget is untouched.
+    if (isCommercial && commissionBase != null && input.commercial.commercial_hourly_rate > 0) {
+      allowedHours = commissionBase / input.commercial.commercial_hourly_rate;
+    }
 
     const pushRow = (user_id: number, amount: number) => {
       if (amount === 0) return;
@@ -513,9 +525,14 @@ export function computePerTechPayRowsDetailed(input: {
       commercialHourlyRate: input.commercial.commercial_hourly_rate,
       scopePct,
     });
+    // [commission-optin 2026-07-01] Same commission_base preference as the main
+    // path — flagged add-ons/mods only.
+    const commissionBase = n(j.commission_base);
     const ctx: JobPayContext = {
-      baseFee: Math.max(n(j.base_fee) ?? 0, n(j.billed_amount) ?? 0),
-      allowedHours: n(j.allowed_hours) ?? 0,
+      baseFee: commissionBase ?? Math.max(n(j.base_fee) ?? 0, n(j.billed_amount) ?? 0),
+      allowedHours: (isCommercial && commissionBase != null && input.commercial.commercial_hourly_rate > 0)
+        ? commissionBase / input.commercial.commercial_hourly_rate
+        : (n(j.allowed_hours) ?? 0),
       totalTechHours,
     };
 

@@ -974,6 +974,8 @@ async function computeAndApplyCommission(
       account_id: jobsTable.account_id,
       base_fee: jobsTable.base_fee,
       billed_amount: jobsTable.billed_amount,
+      // [commission-optin 2026-07-01] commissionable base (flagged items only).
+      commission_base: jobsTable.commission_base,
       allowed_hours: jobsTable.allowed_hours,
       actual_hours: jobsTable.actual_hours,
       branch_id: jobsTable.branch_id,
