@@ -1302,11 +1302,17 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
   // Completed jobs stay editable until actually paid/invoiced (locked_at set).
   // Cancelled jobs are always locked. Mirrors the adjUnlocked logic in JobPanel.
   const isLocked = !!job.locked_at || job.status === "cancelled";
-  const rateDriven = (job.account_id != null || job.client_type === "commercial")
+  const isCommercial = job.account_id != null || job.client_type === "commercial";
+  const rateDriven = isCommercial
     && !job.manual_rate_override
     && job.hourly_rate != null && job.hourly_rate > 0
     && (job as any).allowed_hours != null && (job as any).allowed_hours > 0;
-  const editable = canEdit && !isLocked && !rateDriven;
+  // [pricing-edit 2026-07-01] Pricing is now editable on EVERY scope/type,
+  // including rate-driven commercial jobs (Maribel: "should be available for all
+  // scopes and types of jobs"). Editing a rate-driven job pins the typed total
+  // as a flat price (manual_rate_override, set on save) instead of it snapping
+  // back to $/hr × hours. Only truly locked/cancelled jobs stay read-only.
+  const editable = canEdit && !isLocked;
 
   const [editing, setEditing] = useState(false);
   const [baseVal, setBaseVal] = useState(baseInit.toFixed(2));
@@ -1337,7 +1343,10 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
       const r = await fetch(`${API}/api/jobs/${job.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ base_fee: String(newBaseFee), add_ons, cascade_scope: "this_job" }),
+        // [pricing-edit 2026-07-01] On a commercial job, pin the typed total as a
+        // flat price so it doesn't snap back to $/hr × hours. Residential base_fee
+        // is already the flat price, so no override needed.
+        body: JSON.stringify({ base_fee: String(newBaseFee), add_ons, cascade_scope: "this_job", ...(isCommercial ? { manual_rate_override: true } : {}) }),
       });
       if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.message || d.error || `HTTP ${r.status}`); }
       toast({ title: "Pricing updated" });
@@ -1414,6 +1423,7 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
         </div>
         <div style={{ fontSize: 11, color: "#9E9B94", lineHeight: 1.4 }}>
           This visit only. Total = base rate + add-ons.
+          {isCommercial && rateDriven && " Saving sets this as a flat price (overrides $/hr × hours) for this visit."}
         </div>
       </div>
     </PS>
