@@ -1,5 +1,31 @@
 # Known Bugs
 
+## RESOLVED — Archived employees could not be reactivated from the UI (2026-07-01)
+
+**Severity:** Medium — an archived tech was stranded off the roster with no way
+back. Reported by Sal about Norma Puga: her `is_active` was `true` but she still
+showed as inactive, and the "Account Active" toggle did nothing.
+
+**Root cause:** two independent flags gate an employee. `users.is_active`
+(the toggle) AND `users.archived_at`. The roster/dispatch/timeclock queries
+filter `archived_at IS NULL`, so an archived user is hidden regardless of
+`is_active`. The archive action (`POST /users/:id/lms-archive`) shipped without
+its documented `lms-restore` counterpart, and `PUT /users/:id` doesn't accept
+`archived_at` — so once archived, a user could only be restored by editing the
+DB column directly. Norma was archived 2026-05-15.
+
+**Fix:**
+- `routes/users.ts` — new **`POST /:id/lms-restore`** (owner-only, tenant-scoped,
+  idempotent) clears `archived_at` and audit-logs the restore. Mirrors
+  `lms-archive`.
+- `pages/employee-profile.tsx` — an **ARCHIVED** badge in the header when
+  `archived_at` is set, and a **Reactivate** button (owner-only) that calls the
+  restore endpoint and refetches. Fills the missing restore UI.
+
+Applies to every archived tech (e.g. also Ana Valdez, Tatiana Merchan, Katie Fry).
+
+---
+
 ## RESOLVED — Time Clocks fee split paid the primary 100% pre-clock (multi-cleaner) (2026-06-30)
 
 **Severity:** High — wrong per-cleaner commission shown on the Time Clocks grid

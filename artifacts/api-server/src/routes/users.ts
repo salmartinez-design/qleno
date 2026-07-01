@@ -1163,6 +1163,80 @@ router.post(
   },
 );
 
+// POST /:id/lms-restore — Owner only. The restore counterpart to lms-archive:
+// clears `archived_at` so the user returns to the active roster (dispatch,
+// time clock, payroll, pickers). This is what a "Reactivate" button calls.
+// [reactivate 2026-07-01] Previously missing — archive shipped without a
+// restore path, so an archived tech (e.g. Norma Puga) could not be brought
+// back from the UI at all. Idempotent: restoring a non-archived user is a
+// no-op success.
+router.post(
+  "/:id/lms-restore",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const callerCompanyId = req.auth!.companyId;
+      if (callerCompanyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const targetId = Number(req.params.id);
+      if (!Number.isFinite(targetId) || targetId <= 0) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "Invalid user id" });
+      }
+
+      const target = await db
+        .select({
+          id: usersTable.id,
+          company_id: usersTable.company_id,
+          email: usersTable.email,
+          archived_at: usersTable.archived_at,
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetId))
+        .limit(1);
+      if (!target[0] || target[0].company_id !== callerCompanyId) {
+        return res
+          .status(404)
+          .json({ error: "Not Found", message: "User not found in tenant" });
+      }
+      // Already active — nothing to clear.
+      if (!target[0].archived_at) {
+        return res.json({ data: { id: target[0].id, archived_at: null } });
+      }
+
+      const updated = await db
+        .update(usersTable)
+        .set({ archived_at: null })
+        .where(eq(usersTable.id, targetId))
+        .returning({
+          id: usersTable.id,
+          archived_at: usersTable.archived_at,
+        });
+
+      await logAudit(
+        req,
+        "users.lms_restore",
+        "user",
+        targetId,
+        { archived_at: target[0].archived_at?.toISOString?.() ?? String(target[0].archived_at) },
+        { email: target[0].email, archived_at: null },
+      );
+
+      return res.json({ data: updated[0] });
+    } catch (err) {
+      console.error("[users] /:id/lms-restore error:", err);
+      return res
+        .status(500)
+        .json({ error: "Internal Server Error", message: "Failed to restore user" });
+    }
+  },
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // LMS-scoped Add/Edit Employee endpoints (sprint 2026-05-15)
 // ─────────────────────────────────────────────────────────────────────────────

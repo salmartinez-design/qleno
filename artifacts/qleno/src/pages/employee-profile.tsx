@@ -11,6 +11,7 @@ import {
   ArrowLeft, Camera, Plus, X, ChevronLeft, ChevronRight,
   Star, Save, Trash2, Edit2, Check, AlertCircle, Mail, Phone, Eye,
   Ban, ChevronDown, ChevronUp, DollarSign, Clock, TrendingUp, Download, Users,
+  RotateCcw,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { EarningsPanel } from "@/components/earnings-panel";
@@ -574,6 +575,25 @@ export default function EmployeeProfilePage() {
     queryFn: () => apiFetch(`/users/${userId}`),
   });
 
+  // [reactivate 2026-07-01] Un-archive an archived employee. An archived tech
+  // (archived_at set) is off the active roster even though is_active=true —
+  // this clears archived_at via the restore endpoint so they return to
+  // dispatch, the time clock, payroll, and pickers.
+  const [restoring, setRestoring] = useState(false);
+  const reactivateEmployee = async () => {
+    setRestoring(true);
+    try {
+      await apiFetch(`/users/${userId}/lms-restore`, { method: 'POST' });
+      await refetchUser();
+      qc.invalidateQueries({ queryKey: ['users'] });
+      showToast('Employee reactivated');
+    } catch (e: any) {
+      showToast(e?.message || 'Reactivate failed');
+    } finally {
+      setRestoring(false);
+    }
+  };
+
   const { data: availabilityData } = useQuery({
     queryKey: ['availability', userId],
     queryFn: () => apiFetch(`/users/${userId}/availability`),
@@ -952,23 +972,44 @@ export default function EmployeeProfilePage() {
             style={{ display:'flex',alignItems:'center',gap:6,background:'none',border:'none',cursor:'pointer',color:'#6B7280',fontSize:13,padding:0,fontFamily:'inherit' }}>
             <ArrowLeft size={14}/> Back to Team
           </button>
-          {isOwner && user && user.role !== 'owner' && (
-            <button
-              onClick={async () => {
-                await activateView({ employeeId: userId, employeeName: `${user.first_name} ${user.last_name}` });
-                navigate('/my-jobs');
-              }}
-              style={{
-                display:'flex', alignItems:'center', gap:6,
-                padding:'7px 14px', borderRadius:8,
-                border:'1px solid #E5E2DC', background:'#FFFFFF',
-                color:'#1A1917', fontSize:13, fontWeight:600,
-                cursor:'pointer', fontFamily:'inherit',
-              }}
-            >
-              <Eye size={14} strokeWidth={1.5} /> View as Employee
-            </button>
-          )}
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            {/* [reactivate 2026-07-01] Un-archive control — only when the
+                employee is actually archived (the state that hides them from
+                the roster). Owner-only, mirrors the archive permission. */}
+            {isOwner && user && user.role !== 'owner' && user.archived_at && (
+              <button
+                onClick={reactivateEmployee}
+                disabled={restoring}
+                style={{
+                  display:'flex', alignItems:'center', gap:6,
+                  padding:'7px 14px', borderRadius:8,
+                  border:'1px solid #00C9A0', background:'#00C9A0',
+                  color:'#FFFFFF', fontSize:13, fontWeight:700,
+                  cursor: restoring ? 'default' : 'pointer', fontFamily:'inherit',
+                  opacity: restoring ? 0.6 : 1,
+                }}
+              >
+                <RotateCcw size={14} strokeWidth={2} /> {restoring ? 'Reactivating…' : 'Reactivate'}
+              </button>
+            )}
+            {isOwner && user && user.role !== 'owner' && (
+              <button
+                onClick={async () => {
+                  await activateView({ employeeId: userId, employeeName: `${user.first_name} ${user.last_name}` });
+                  navigate('/my-jobs');
+                }}
+                style={{
+                  display:'flex', alignItems:'center', gap:6,
+                  padding:'7px 14px', borderRadius:8,
+                  border:'1px solid #E5E2DC', background:'#FFFFFF',
+                  color:'#1A1917', fontSize:13, fontWeight:600,
+                  cursor:'pointer', fontFamily:'inherit',
+                }}
+              >
+                <Eye size={14} strokeWidth={1.5} /> View as Employee
+              </button>
+            )}
+          </div>
         </div>
 
         {/* ── PROFILE HEADER ── */}
@@ -1003,6 +1044,7 @@ export default function EmployeeProfilePage() {
                 {user.role?.replace('_',' ')}
               </span>
               {!user.is_active && <span style={{ background:'#FEE2E2', color:'#991B1B', border:'1px solid #FECACA', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>INACTIVE</span>}
+              {user.archived_at && <span title={`Archived ${new Date(user.archived_at).toLocaleDateString()}`} style={{ background:'#FEF3C7', color:'#92400E', border:'1px solid #FDE68A', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>ARCHIVED</span>}
             </div>
             <p style={{ fontSize:11, color:'#9E9B94', margin:'0 0 8px 0' }}>Employee #{String(user.id).padStart(5,'0')}</p>
             <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
