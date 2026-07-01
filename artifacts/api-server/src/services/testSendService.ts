@@ -19,6 +19,7 @@ import { sql } from "drizzle-orm";
 import { Resend } from "resend";
 import { renderCustomerTemplate, applyMergeTags, CUSTOMER_MESSAGE_TRIGGERS, type MsgChannel } from "../lib/customer-messages.js";
 import { wrapEmailHtml } from "./notificationService.js";
+import { stylePolicyCopy } from "../lib/confirmation-email.js";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { emailLogoUrl } from "../lib/app-url.js";
 import { SAMPLE_SERVICES_BREAKDOWN_HTML } from "../lib/services-breakdown.js";
@@ -52,8 +53,8 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
   appointment_date: "Friday, June 27, 2026",
   time: "9:00 AM",
   appointment_time: "9:00 AM",
-  arrival_window: "9:00 AM to 12:00 PM",
-  appointment_window: "9:00 AM to 12:00 PM",
+  arrival_window: "9:00 AM – 9:45 AM",
+  appointment_window: "9:00 AM – 9:45 AM",
   arrival_alert_window: "45",
   service_address: "123 Oak St, Oak Lawn, IL 60453",
   // Short-form aliases so templates authored with {{address}} / {{service}}
@@ -239,9 +240,12 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
       // Office booking already returns a complete HTML email — wrapping it again
       // would double the shell. Catalog emails get the standard wrap + a re-merge
       // so the shell's own footer tags resolve (mirrors sendNotification).
+      // Apply the same policy-copy brand styling the real confirmation email uses
+      // (heading accents + 15%/guarantee callouts), so a [TEST] previews it too.
+      // No-op for bodies without those headings/sections.
       const html = bodyIsFullHtml
         ? rendered.body
-        : applyMergeTags(wrapEmailHtml(rendered.body, { logoUrl: emailLogoUrl(c.logo_url), companyName: c.name }), fullVars);
+        : applyMergeTags(wrapEmailHtml(stylePolicyCopy(rendered.body, "Arial, Helvetica, sans-serif"), { logoUrl: emailLogoUrl(c.logo_url), companyName: c.name }), fullVars);
       previewBody = html;
       if (!process.env.RESEND_API_KEY) throw new Error("RESEND_API_KEY not configured");
       const fromAddr = c.email_from_address || "info@phes.io";

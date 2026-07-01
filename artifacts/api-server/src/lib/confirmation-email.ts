@@ -31,6 +31,53 @@ export function extractPolicyCopy(mergedBody: string): string {
   return mergedBody.slice(start >= 0 ? start : startKey, end > 0 ? end : mergedBody.length);
 }
 
+// ── Policy-copy brand styling ────────────────────────────────────────────────
+// The authored body's section headings + copy come through as plain HTML. Give
+// the email a branded feel: accent every <h3> heading (brand color + hairline),
+// and wrap the "15% off" and "24-hour guarantee" sections in colored callout
+// tables (single-cell <table> for email-client compatibility). All no-ops when a
+// heading/section isn't present, so an unformatted body is passed through
+// unchanged. Headings must be <h3> to be styled — plain-text lines are left as-is.
+const BRAND_ACCENT = "#5B9BD5";
+const HEAD_RULE = "#D6E3F2";
+
+// Style every <h3>/<h2> that doesn't already carry an inline style (callout
+// headings, styled below, are skipped by the negative lookahead).
+function styleHeadings(html: string, font: string): string {
+  return html
+    .replace(/<h3(?![^>]*\bstyle=)([^>]*)>/gi,
+      (_m, a) => `<h3${a} style="font-family:${font};font-size:15px;font-weight:700;color:${BRAND_ACCENT};border-bottom:2px solid ${HEAD_RULE};padding-bottom:5px;margin:22px 0 10px;">`)
+    .replace(/<h2(?![^>]*\bstyle=)([^>]*)>/gi,
+      (_m, a) => `<h2${a} style="font-family:${font};font-size:17px;font-weight:700;color:${BRAND_ACCENT};border-bottom:2px solid ${HEAD_RULE};padding-bottom:6px;margin:24px 0 12px;">`);
+}
+
+// Wrap the <h3> section whose heading text matches `re` (heading + following
+// content up to the next <h3>, or end) in a colored callout table. No-op if not
+// found. The section heading is recolored to the callout's own dark tone.
+function wrapCallout(html: string, re: RegExp, bg: string, fg: string, headFg: string, font: string): string {
+  const headings = [...html.matchAll(/<h3\b[^>]*>([\s\S]*?)<\/h3>/gi)];
+  for (const h of headings) {
+    const text = h[1].replace(/<[^>]+>/g, "");
+    if (!re.test(text)) continue;
+    const start = h.index ?? 0;
+    const afterHeading = start + h[0].length;
+    const rel = html.slice(afterHeading).search(/<h3\b/i);
+    const end = rel === -1 ? html.length : afterHeading + rel;
+    let section = html.slice(start, end).replace(/<h3\b[^>]*>/i,
+      `<h3 style="font-family:${font};font-size:15px;font-weight:700;color:${headFg};margin:0 0 6px;">`);
+    const boxed = `<table role="presentation" cellpadding="16" cellspacing="0" style="width:100%;background:${bg};border-radius:8px;margin:16px 0;"><tr><td style="font-family:${font};font-size:14px;color:${fg};line-height:1.6;">${section}</td></tr></table>`;
+    return html.slice(0, start) + boxed + html.slice(end);
+  }
+  return html;
+}
+
+export function stylePolicyCopy(html: string, font: string): string {
+  if (!html) return html;
+  let out = wrapCallout(html, /15%\s*off/i, "#E1F5EE", "#04342C", "#0F6E56", font);          // green — promo
+  out = wrapCallout(out, /24[\s-]*h(?:ou)?r\s*guarantee/i, "#E6F1FB", "#042C53", "#185FA5", font); // blue — guarantee
+  return styleHeadings(out, font);
+}
+
 export type ConfEmailOpts = {
   logoUrl: string; companyName: string; clientFirst: string;
   apptDate: string; apptTime: string; serviceType: string;
@@ -128,7 +175,7 @@ export function renderConfirmationEmail(o: ConfEmailOpts): string {
 
       ${cta}
 
-      <div style="margin:24px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;">${o.policyCopyHtml}</div>
+      <div style="margin:24px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;">${stylePolicyCopy(o.policyCopyHtml, FONT)}</div>
 
       <p style="margin:22px 0 0;text-align:center;font-family:${FONT};font-size:13px;color:${MUTE};line-height:1.6;">
         Questions? Call or text <a href="tel:${escAttr(o.phoneTel)}" style="color:${INK};font-weight:700;text-decoration:none;">${o.phone}</a> &middot; <a href="mailto:${escAttr(o.email)}" style="color:${INK};font-weight:700;text-decoration:none;">${o.email}</a>

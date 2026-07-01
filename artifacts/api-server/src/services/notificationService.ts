@@ -347,7 +347,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
     const rows = await db.execute(
       hoursAhead === 72
         ? drizzleSql`
-            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo,
+            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
                    j.scheduled_date, j.scheduled_time, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
@@ -364,7 +364,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
                AND j.reminder_72h_sent = false
           `
         : drizzleSql`
-            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo,
+            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
                    j.scheduled_date, j.scheduled_time, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
@@ -395,7 +395,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
       // address is shown.
       const stateZip = [job.address_state, job.address_zip].filter(Boolean).join(" ");
       const serviceAddress = [job.address_street, job.address_city, stateZip].filter(Boolean).join(", ") || "On file";
-      const arrivalWindowLabel = computeArrivalWindow(job.scheduled_time, job.arrival_window);
+      const arrivalWindowLabel = computeArrivalWindow(job.scheduled_time, job.arrival_window, Number(job.arrival_window_minutes) || ARRIVAL_WINDOW_MINUTES);
       const scheduledDate = formatDate(job.scheduled_date);
       const serviceType = labelServiceType(job.service_type);
 
@@ -612,7 +612,7 @@ export async function runScheduledJobMessages(): Promise<void> {
       const rows = await db.execute(
         isBefore
           ? drizzleSql`
-              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo,
+              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
                      j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
                      j.address_street, j.address_city, j.address_state, j.address_zip,
                      c.first_name, c.last_name, c.email, c.phone, c.zip,
@@ -627,7 +627,7 @@ export async function runScheduledJobMessages(): Promise<void> {
                  AND j.status NOT IN ('cancelled', 'complete')
                  AND (a.id IS NULL OR a.comms_enabled = true)`
           : drizzleSql`
-              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo,
+              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
                      j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
                      j.address_street, j.address_city, j.address_state, j.address_zip,
                      c.first_name, c.last_name, c.email, c.phone, c.zip,
@@ -660,7 +660,7 @@ export async function runScheduledJobMessages(): Promise<void> {
         const branchConfig = getBranchByZip(jobZip);
         const stateZip = [job.address_state, job.address_zip].filter(Boolean).join(" ");
         const serviceAddress = [job.address_street, job.address_city, stateZip].filter(Boolean).join(", ") || "On file";
-        const arrivalWindowLabel = computeArrivalWindow(job.scheduled_time, job.arrival_window);
+        const arrivalWindowLabel = computeArrivalWindow(job.scheduled_time, job.arrival_window, Number(job.arrival_window_minutes) || ARRIVAL_WINDOW_MINUTES);
         const vars: Record<string, string> = {
           first_name: job.first_name || "there",
           client_name: [job.first_name, job.last_name].filter(Boolean).join(" ") || "there",
@@ -896,9 +896,9 @@ export function labelServiceType(raw: string | null): string {
   return raw.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 
-// How wide the arrival window is (start time → start time + N minutes).
-// Change this constant when a settings UI is added — it will become a DB
-// column on companies (arrival_window_minutes) read at send time.
+// Default arrival window width (start time → start time + N minutes) when a
+// tenant hasn't set companies.arrival_window_minutes. Send paths pass the
+// per-tenant value; this is only the fallback.
 const ARRIVAL_WINDOW_MINUTES = 45;
 
 /**

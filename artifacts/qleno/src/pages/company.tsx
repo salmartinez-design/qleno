@@ -1502,6 +1502,7 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
   });
   const [twilioFrom, setTwilioFrom] = useState("");
   const [arrivalAlertWindow, setArrivalAlertWindow] = useState("45");
+  const [arrivalWindow, setArrivalWindow] = useState("45");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -1519,6 +1520,7 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
         });
         setTwilioFrom(c.twilio_from_number ?? "");
         setArrivalAlertWindow(String(c.arrival_alert_window_minutes ?? 45));
+        setArrivalWindow(String(c.arrival_window_minutes ?? 45));
       })
       .finally(() => setLoading(false));
   }, []);
@@ -1529,7 +1531,7 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
       const r = await fetch(`${API}/api/companies/me`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ ...settings, twilio_from_number: twilioFrom || null, arrival_alert_window_minutes: parseInt(arrivalAlertWindow) || 45 }),
+        body: JSON.stringify({ ...settings, twilio_from_number: twilioFrom || null, arrival_alert_window_minutes: parseInt(arrivalAlertWindow) || 45, arrival_window_minutes: parseInt(arrivalWindow) || 45 }),
       });
       if (!r.ok) throw new Error();
       toast({ title: "SMS settings saved" });
@@ -1591,6 +1593,21 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
         <p style={{ fontSize: 11, color: '#9E9B94', margin: '5px 0 0' }}>Used as the <span style={{ fontFamily: 'monospace' }}>&#123;&#123;arrival_alert_window&#125;&#125;</span> placeholder in SMS templates.</p>
       </div>
       <div style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Customer Arrival Window</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input
+            type="number"
+            min="5"
+            max="240"
+            value={arrivalWindow}
+            onChange={e => setArrivalWindow(e.target.value)}
+            style={{ width: 80, padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF, outline: 'none' }}
+          />
+          <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF }}>minutes — the window shown to customers (e.g. 9:00–9:45 AM)</span>
+        </div>
+        <p style={{ fontSize: 11, color: '#9E9B94', margin: '5px 0 0' }}>Sets the <span style={{ fontFamily: 'monospace' }}>&#123;&#123;arrival_window&#125;&#125;</span> range in booking confirmation + reminder emails and texts.</p>
+      </div>
+      <div style={{ marginBottom: 16 }}>
         <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Twilio From Number</p>
         <input
           value={twilioFrom}
@@ -1625,7 +1642,7 @@ const CM_SAMPLE: Record<string, string> = {
   // the real message fills it. Mirror date/time/window across both naming
   // conventions.
   appointment_date: "Friday, June 27, 2026", appointment_time: "9:00 AM",
-  arrival_window: "9:00 AM – 12:00 PM", appointment_window: "9:00 AM – 12:00 PM",
+  arrival_window: "9:00 AM – 9:45 AM", appointment_window: "9:00 AM – 9:45 AM",
   service_address: "123 Oak St, Oak Lawn, IL 60453",
   address: "123 Oak St, Oak Lawn, IL 60453", service: "Standard Cleaning",
   tech_name: "Ana", appointment_link: "https://phes.io/appt/1234", review_link: "https://phes.io/review/1234",

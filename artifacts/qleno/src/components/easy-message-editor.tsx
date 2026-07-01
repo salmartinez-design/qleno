@@ -35,7 +35,7 @@ const SAMPLE: Record<string, string> = {
   company_phone: "(708) 974-5517", company_email: "info@phes.io", service_type: "Standard Cleaning",
   date: "Friday, June 27, 2026", appointment_date: "Friday, June 27, 2026",
   time: "9:00 AM", appointment_time: "9:00 AM",
-  arrival_window: "9:00 AM – 12:00 PM", appointment_window: "9:00 AM – 12:00 PM",
+  arrival_window: "9:00 AM – 9:45 AM", appointment_window: "9:00 AM – 9:45 AM",
   service_address: "123 Oak St, Oak Lawn, IL 60453", tech_name: "Ana",
   // Short-form aliases ({{address}} / {{service}}) so the live preview fills them
   // too — matches the server aliasing in testSendService + booking-confirmation.
