@@ -35,41 +35,113 @@ interface DashboardLayoutProps {
   onNewJob?: () => void;
 }
 
+// Tab titles per route. The document title becomes "<value> — Qleno" so that
+// multiple open tabs are distinguishable at a glance (e.g. "Messages — Qleno"
+// vs "Jobs — Qleno") instead of every tab reading "Qleno — Qleno".
+// Detail/sub-routes not listed here resolve via longest-prefix match in
+// resolveRouteTitle() below (e.g. /customers/123 → "Customers").
 const ROUTE_TITLES: Record<string, string> = {
   '/dashboard':                    'Dashboard',
-  '/dispatch':                     'Jobs',
+  '/dispatch':                     'Dispatch',
   '/jobs':                         'Jobs',
+  '/reports/jobs':                 'Jobs',
   '/my-jobs':                      'My Jobs',
+  '/my-day':                       'My Day',
+  '/ops/today':                    'Ops Today',
+  '/recurring':                    'Recurring Schedules',
+  '/route-sequences':              'Route Sequences',
   '/leave':                        'Time Off',
+  '/time-clock':                   'Time Clock',
   '/employees':                    'Employees',
+  '/employees/new':                'Add Employee',
   '/employees/clocks':             'Clock Monitor',
   '/customers':                    'Customers',
+  '/customers/new':                'Add Customer',
+  '/accounts':                     'Accounts',
+  '/messages':                     'Messages',
   '/invoices':                     'Invoices',
   '/payroll':                      'Payroll',
+  '/payroll/mileage-review':       'Mileage Review',
+  '/payroll/leave-review':         'Leave Review',
   '/cleancyclopedia':              'Cleancyclopedia',
   '/loyalty':                      'Loyalty',
-  '/company':                      'Company Settings',
+  '/quotes':                       'Quotes',
+  '/quotes/new':                   'New Quote',
+  '/estimates':                    'Estimates',
+  '/estimates/new':                'New Estimate',
+  '/estimates/engagement':         'Estimate Engagement',
   '/leads':                        'Lead Pipeline',
+  '/leads/partners':               'Referral Partners',
+  '/leads/templates':              'Lead Templates',
+  '/leads/reports':                'Lead Reports',
+  '/all-locations':                'All Locations',
+  '/intelligence/churn':           'Churn Risk',
+  '/intelligence/retention':       'Retention',
+  '/training':                     'Training',
+  '/lms':                          'Training',
+  '/lms/admin':                    'LMS Admin',
+  '/lms/admin/settings':           'LMS Settings',
+  '/help':                         'Help',
+  '/company':                      'Company Settings',
+  '/company/property-groups':      'Property Groups',
+  '/company/billing':              'Billing',
+  '/company/agreements':           'Agreements',
+  '/company/forms':                'Forms',
+  '/company/quoting':              'Quoting',
+  '/company/zones':                'Service Zones',
+  '/company/addons':               'Add-on Catalog',
+  '/company/packages':             'Packages',
+  '/company/w9':                   'W-9',
+  '/company/rates':                'Rates & Add-ons',
+  '/settings/notifications':       'Notification Settings',
   '/reports':                      'Reports',
   '/reports/insights':             'Core KPIs',
   '/reports/revenue':              'Revenue Summary',
   '/reports/payroll':              'Payroll Summary',
   '/reports/employee-stats':       'Employee Stats',
   '/reports/tips':                 'Tips Report',
+  '/reports/discounts':            'Discounts Report',
+  '/reports/fees':                 'Fees Report',
   '/reports/receivables':          'Accounts Receivable',
   '/reports/job-costing':          'Job Costing',
   '/reports/payroll-to-revenue':   'Payroll % Revenue',
   '/reports/efficiency':           'Schedule Efficiency',
+  '/reports/quality-efficiency':   'Quality & Efficiency',
   '/reports/week-review':          'Week in Review',
   '/reports/scorecards':           'Scorecards',
   '/reports/cancellations':        'Cancellations',
   '/reports/contact-tickets':      'Contact Tickets',
   '/reports/hot-sheet':            'Hot Sheet',
   '/reports/first-time':           'First Time In',
-  '/company/zones':                'Service Zones',
-  '/company/rates':                'Rates & Add-ons',
+  '/reports/satisfaction':         'Satisfaction',
+  '/reports/referrals':            'Referrals',
+  '/reports/incentives':           'Incentives',
+  '/reports/revenue-goal':         'Revenue Goal',
+  '/reports/upsell-conversion':    'Upsell Conversion',
+  '/reports/message-log':          'Message Log',
   '/notifications':                'Notifications',
+  '/admin':                        'Admin',
+  '/admin/companies':              'Admin — Companies',
+  '/admin/billing':                'Admin — Billing',
+  '/admin/cleancyclopedia':        'Admin — Cleancyclopedia',
 };
+
+// Sorted longest-first once at module load so resolveRouteTitle() can do a
+// single-pass longest-prefix match without re-sorting on every navigation.
+const ROUTE_TITLE_KEYS = Object.keys(ROUTE_TITLES).sort((a, b) => b.length - a.length);
+
+// Resolve a location to its tab title. Exact match wins; otherwise the longest
+// registered route that is a path-segment prefix of the location wins, so
+// detail routes fall back to their section (e.g. /customers/123 → "Customers",
+// /invoices/42 → "Invoices"). Returns null when nothing matches so callers can
+// fall back to a bare "Qleno" title.
+function resolveRouteTitle(location: string): string | null {
+  if (ROUTE_TITLES[location]) return ROUTE_TITLES[location];
+  for (const key of ROUTE_TITLE_KEYS) {
+    if (location === key || location.startsWith(key + '/')) return ROUTE_TITLES[key];
+  }
+  return null;
+}
 
 const BOTTOM_TABS_MANAGER = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Today' },
@@ -654,8 +726,8 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   }, [location]);
 
   useEffect(() => {
-    const pt = title || ROUTE_TITLES[location] || 'Qleno';
-    document.title = `${pt} — Qleno`;
+    const pt = title || resolveRouteTitle(location);
+    document.title = pt ? `${pt} — Qleno` : 'Qleno';
   }, [location, title]);
 
   useEffect(() => {
@@ -686,7 +758,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
     );
   }
 
-  const pageTitle = title || ROUTE_TITLES[location] || 'Qleno';
+  const pageTitle = title || resolveRouteTitle(location) || 'Qleno';
   const initials = user ? `${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase() : '';
 
   if (isMobile || isTech) {
