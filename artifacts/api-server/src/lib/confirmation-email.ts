@@ -38,6 +38,11 @@ export type ConfEmailOpts = {
   techFirst: string | null; techAvatar: string | null;
   link: string | null; phone: string; phoneTel: string; email: string;
   qlenoMark: string; policyCopyHtml: string;
+  // [services-breakdown] Pre-rendered {{services_breakdown}} table HTML. This
+  // renderer rebuilds the email from structured fields and otherwise drops the
+  // authored body, so an inserted breakdown chip would silently vanish on the
+  // ONE email it matters most for — pass it through and render it explicitly.
+  servicesBreakdownHtml?: string | null;
 };
 
 export function renderConfirmationEmail(o: ConfEmailOpts): string {
@@ -75,6 +80,14 @@ export function renderConfirmationEmail(o: ConfEmailOpts): string {
       </td>
     </tr>` : "";
 
+  // Itemized booking table, rendered under the appointment details when the
+  // template body uses the {{services_breakdown}} chip.
+  const breakdown = o.servicesBreakdownHtml ? `
+    <div style="margin:22px 0 0;">
+      <div style="font-family:${FONT};font-size:13px;font-weight:700;color:${INK};margin:0 0 6px;">Your booking</div>
+      ${o.servicesBreakdownHtml}
+    </div>` : "";
+
   const cta = o.link ? `
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px auto 4px;"><tr>
       <td bgcolor="${MINT}" align="center" style="border-radius:8px;">
@@ -110,6 +123,8 @@ export function renderConfirmationEmail(o: ConfEmailOpts): string {
         ${detailRow("Address", addressVal)}
         ${cleanerRow}
       </table>
+
+      ${breakdown}
 
       ${cta}
 

@@ -137,12 +137,22 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       appointment_time: j.scheduled_time || "your scheduled window",
       service_type: labelService(j.service_type),
       service_address: serviceAddress,
+      // Short-form aliases so a template authored with {{service}} / {{address}}
+      // resolves too (canonical tags are service_type / service_address).
+      service: labelService(j.service_type),
+      address: serviceAddress,
       appointment_link: link || "",
       // [appointment-vars] Add the short-name aliases ({{date}} / {{time}}) and
       // {{appointment_window}}, and normalize the time to "9:00 AM". Present
       // values override the raw fields above; missing ones keep the fallback.
       ...buildAppointmentVars({ scheduledDate: j.scheduled_date, scheduledTime: j.scheduled_time }),
     };
+
+    // [services-breakdown] Populate {{services_breakdown}} from the job's locked
+    // line items so a template that inserts the chip renders the real itemized
+    // table (never a blank tag). Empty string when the job has none.
+    const { buildServicesBreakdownForJob } = await import("./services-breakdown.js");
+    mv.services_breakdown = await buildServicesBreakdownForJob(j.company_id, j.id);
 
     // Dedicated confirmation-email renderer (Pass 2). Cleaner first name + photo
     // ONLY — no last name/contact. Per-tenant contact from the record, branch
@@ -168,6 +178,10 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       phone: cPhone, phoneTel: cPhoneTel, email: cEmail,
       qlenoMark: `${origin}/images/logo-mark.png`,
       policyCopyHtml: extractPolicyCopy(mergedBody),
+      // Render the itemized table in the confirmation email's structured layout
+      // (the renderer drops the rest of the body), so the {{services_breakdown}}
+      // chip behaves the same here as in a test send.
+      servicesBreakdownHtml: mv.services_breakdown,
     });
 
     const { sendNotification } = await import("../services/notificationService.js");

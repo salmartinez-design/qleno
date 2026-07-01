@@ -20,10 +20,15 @@ const TAG_LABEL: Record<string, string> = {
   arrival_window: "Arrival window", appointment_window: "Arrival window",
   service_address: "Address", tech_name: "Cleaner",
   appointment_link: "Appointment link", review_link: "Review link",
+  services_breakdown: "Service breakdown",
 };
 function labelFor(key: string): string {
   return TAG_LABEL[key] || key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
+
+// Sample HTML table for {{services_breakdown}} — mirrors the server renderer in
+// lib/services-breakdown.ts so the live preview matches the test send.
+const SAMPLE_BREAKDOWN = `<table cellpadding="8" cellspacing="0" style="width:100%;border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:14px;margin:8px 0;"><tr><td style="padding:8px;">Deep Clean — 2,000 sqft</td><td style="padding:8px;text-align:right;">$608.00</td></tr><tr><td style="padding:8px;">Oven cleaning</td><td style="padding:8px;text-align:right;">+$50.00</td></tr><tr><td style="padding:8px;">Inside fridge</td><td style="padding:8px;text-align:right;">+$35.00</td></tr><tr><td style="padding:8px;">Appliance bundle discount</td><td style="padding:8px;text-align:right;color:#0F6E56;">−$20.00</td></tr><tr style="border-top:1px solid #D3D1C7;"><td style="padding:12px 8px 8px;font-weight:600;">First visit total</td><td style="padding:12px 8px 8px;text-align:right;font-weight:600;">$673.00</td></tr></table>`;
 
 const SAMPLE: Record<string, string> = {
   first_name: "Maria", client_name: "Maria Gomez", company_name: "Phes",
@@ -32,7 +37,11 @@ const SAMPLE: Record<string, string> = {
   time: "9:00 AM", appointment_time: "9:00 AM",
   arrival_window: "9:00 AM – 12:00 PM", appointment_window: "9:00 AM – 12:00 PM",
   service_address: "123 Oak St, Oak Lawn, IL 60453", tech_name: "Ana",
+  // Short-form aliases ({{address}} / {{service}}) so the live preview fills them
+  // too — matches the server aliasing in testSendService + booking-confirmation.
+  address: "123 Oak St, Oak Lawn, IL 60453", service: "Standard Cleaning",
   appointment_link: "https://phes.io/appt", review_link: "https://phes.io/review",
+  services_breakdown: SAMPLE_BREAKDOWN,
 };
 
 function escapeHtml(s: string): string {
@@ -64,13 +73,23 @@ function editableToBody(root: HTMLElement, channel: "email" | "sms"): string {
   tmp.innerHTML = html;
   return tmp.value.replace(/\n{3,}/g, "\n\n").trim();
 }
+// HTML a tag renders to in the preview. services_breakdown is raw table HTML;
+// normal values are escaped (injection-safe); a tag with NO sample value shows
+// an obvious muted placeholder so the gap is visible instead of vanishing.
+function sampleHtml(key: string): string {
+  if (key === "services_breakdown") return SAMPLE.services_breakdown || "";
+  if (key in SAMPLE) return escapeHtml(SAMPLE[key]);
+  return `<span style="color:#B4B2A9">[${escapeHtml(labelFor(key))} — populated from booking]</span>`;
+}
 // Fill pills/tags with sample values for the preview.
 function fillSample(root: HTMLElement): string {
   const clone = root.cloneNode(true) as HTMLElement;
   clone.querySelectorAll(".cm-chip").forEach((c) => {
-    c.replaceWith(document.createTextNode(SAMPLE[(c as HTMLElement).dataset.key || ""] || ""));
+    const tmp = document.createElement("div");
+    tmp.innerHTML = sampleHtml((c as HTMLElement).dataset.key || "");
+    c.replaceWith(...Array.from(tmp.childNodes));
   });
-  return clone.innerHTML.replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_, k) => SAMPLE[String(k).trim()] || "");
+  return clone.innerHTML.replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_, k) => sampleHtml(String(k).trim()));
 }
 
 const AI_ACTIONS = [
@@ -82,7 +101,7 @@ const AI_ACTIONS = [
 
 export function EasyMessageEditor({
   channel, initialSubject, initialBody, mergeTags, companyName = "Phes", logoUrl,
-  saving, onSave, onCancel,
+  templateKey, branchId, saving, onSave, onCancel,
 }: {
   channel: "email" | "sms";
   initialSubject: string;
@@ -90,6 +109,9 @@ export function EasyMessageEditor({
   mergeTags: string[];
   companyName?: string;
   logoUrl?: string | null;
+  // Message key (e.g. "job_scheduled") + active branch — needed for Send Test.
+  templateKey?: string;
+  branchId?: number | string | null;
   saving: boolean;
   onSave: (subject: string, body: string) => void;
   onCancel: () => void;
@@ -100,15 +122,61 @@ export function EasyMessageEditor({
   const [previewBody, setPreviewBody] = useState("");
   const [aiBusy, setAiBusy] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  // Send-Test state + dirty tracking. baseBody/baseSubject capture the SAVED
+  // baseline so the button can show "Sending DRAFT" (unsaved edits present) vs
+  // "Sending SAVED", and send the draft body only when it actually differs.
+  const baseBody = useRef("");
+  const baseSubject = useRef("");
+  const [bodyDirty, setBodyDirty] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const refresh = useCallback(() => {
-    if (ref.current) setPreviewBody(fillSample(ref.current));
-  }, []);
+    if (ref.current) {
+      setPreviewBody(fillSample(ref.current));
+      setBodyDirty(editableToBody(ref.current, channel) !== baseBody.current);
+    }
+  }, [channel]);
 
   useEffect(() => {
-    if (ref.current) { ref.current.innerHTML = bodyToEditable(initialBody, channel); refresh(); }
+    if (ref.current) {
+      ref.current.innerHTML = bodyToEditable(initialBody, channel);
+      baseBody.current = editableToBody(ref.current, channel);
+      baseSubject.current = initialSubject || "";
+      refresh();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const subjectDirty = subject !== baseSubject.current;
+  const dirty = bodyDirty || subjectDirty;
+
+  async function sendTest() {
+    if (!templateKey || !ref.current) return;
+    setTesting(true); setTestMsg(null);
+    try {
+      // Send the DRAFT (current editor content) when dirty; omit overrides when
+      // clean so the backend renders the SAVED template row.
+      const draft = dirty
+        ? { subject, body: editableToBody(ref.current, channel) }
+        : {};
+      const r = await fetch(`${API}/api/notifications/test-send`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template_key: templateKey,
+          channel,
+          fixture: "sample",
+          branch_id: branchId == null || branchId === "all" ? null : branchId,
+          ...draft,
+        }),
+      });
+      const data = await r.json();
+      if (!r.ok || data?.status === "failed") throw new Error(data?.message || data?.error || "Send failed");
+      setTestMsg({ ok: true, text: `Sent to ${data.recipient || "your inbox"}` });
+    } catch (e: any) { setTestMsg({ ok: false, text: e?.message || "Send failed" }); }
+    finally { setTesting(false); }
+  }
 
   const saveSel = () => {
     const s = window.getSelection();
@@ -160,7 +228,10 @@ export function EasyMessageEditor({
     finally { setAiBusy(null); }
   }
 
-  const tags = (mergeTags.length ? mergeTags : Object.keys(SAMPLE)).filter((t, i, a) => a.indexOf(t) === i);
+  const tags = (mergeTags.length ? mergeTags : Object.keys(SAMPLE))
+    .filter((t, i, a) => a.indexOf(t) === i)
+    // services_breakdown renders an HTML table — email only; meaningless in SMS.
+    .filter((t) => channel === "email" || t !== "services_breakdown");
   const tb = (onClick: () => void, icon: React.ReactNode, title: string) => (
     <button type="button" key={title} title={title} onMouseDown={(e) => { e.preventDefault(); onClick(); }}
       style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 5, cursor: "pointer", color: "#6B7280" }}>{icon}</button>
@@ -240,12 +311,28 @@ export function EasyMessageEditor({
         </div>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
-        <button type="button" onClick={onCancel} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", fontSize: 13, color: "#374151", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
-        <button type="button" disabled={saving} onClick={() => ref.current && onSave(subject, editableToBody(ref.current, channel))}
-          style={{ padding: "8px 18px", border: "none", borderRadius: 7, background: "var(--brand,#00C9A0)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
-          {saving ? "Saving…" : "Save"}
-        </button>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          {templateKey && (
+            <>
+              <button type="button" disabled={testing} onClick={sendTest} title="Send this message to your own inbox"
+                style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", fontSize: 13, fontWeight: 600, color: "#374151", cursor: testing ? "default" : "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                {testing && <Loader2 size={12} className="spin" />}{testing ? "Sending…" : "Send test"}
+              </button>
+              <span style={{ fontSize: 11, fontWeight: 700, color: dirty ? "#C2410C" : "#9E9B94" }}>
+                {dirty ? "Sending DRAFT" : "Sending SAVED"}
+              </span>
+              {testMsg && <span style={{ fontSize: 11.5, color: testMsg.ok ? "#0F6E56" : "#A32D2D" }}>{testMsg.text}</span>}
+            </>
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" onClick={onCancel} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", fontSize: 13, color: "#374151", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+          <button type="button" disabled={saving} onClick={() => ref.current && onSave(subject, editableToBody(ref.current, channel))}
+            style={{ padding: "8px 18px", border: "none", borderRadius: 7, background: "var(--brand,#00C9A0)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            {saving ? "Saving…" : "Save"}
+          </button>
+        </div>
       </div>
     </div>
   );

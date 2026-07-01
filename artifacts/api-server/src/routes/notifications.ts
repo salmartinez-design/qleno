@@ -318,6 +318,10 @@ router.post("/test-send", requireAuth, requireRole("owner", "admin"), async (req
       channel,
       fixture,
       recipientOverride: b.recipient_override ?? null,
+      // [draft-test] Unsaved editor content — when present the test renders the
+      // draft instead of the saved template row.
+      subjectOverride: typeof b.subject === "string" ? b.subject : null,
+      bodyOverride: typeof b.body === "string" ? b.body : null,
     });
     return res.json(result);
   } catch (err) {
