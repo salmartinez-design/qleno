@@ -273,6 +273,14 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (overhead_rate_pct !== undefined) patch.overhead_rate_pct = String(parseFloat(String(overhead_rate_pct)));
     if (payment_terms_days !== undefined) patch.payment_terms_days = Number(payment_terms_days);
 
+    // [arrival-window] Written via raw SQL (not the drizzle patch) so this new
+    // column doesn't require a schema/type regen. Clamped 5–240 min.
+    const { arrival_window_minutes } = req.body;
+    if (arrival_window_minutes !== undefined) {
+      const n = Math.max(5, Math.min(240, Number(arrival_window_minutes) || 45));
+      await db.execute(sql`UPDATE companies SET arrival_window_minutes = ${n} WHERE id = ${req.auth!.companyId}`);
+    }
+
     if (Object.keys(patch).length === 0) return res.json({ success: true });
 
     const [updated] = await db

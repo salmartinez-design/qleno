@@ -35,7 +35,7 @@ const SAMPLE: Record<string, string> = {
   company_phone: "(708) 974-5517", company_email: "info@phes.io", service_type: "Standard Cleaning",
   date: "Friday, June 27, 2026", appointment_date: "Friday, June 27, 2026",
   time: "9:00 AM", appointment_time: "9:00 AM",
-  arrival_window: "9:00 AM – 12:00 PM", appointment_window: "9:00 AM – 12:00 PM",
+  arrival_window: "9:00 AM – 9:45 AM", appointment_window: "9:00 AM – 9:45 AM",
   service_address: "123 Oak St, Oak Lawn, IL 60453", tech_name: "Ana",
   // Short-form aliases ({{address}} / {{service}}) so the live preview fills them
   // too — matches the server aliasing in testSendService + booking-confirmation.
@@ -92,6 +92,36 @@ function fillSample(root: HTMLElement): string {
   return clone.innerHTML.replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_, k) => sampleHtml(String(k).trim()));
 }
 
+// Known Booking Confirmation section headings — short plain-text lines that
+// should render as <h3> so the confirmation email's brand styling + callout
+// detection fire. Auto-promoted on load so a pasted plain-text template doesn't
+// need each heading re-marked by hand.
+const KNOWN_HEADINGS = new Set([
+  "service details", "cancellation & rescheduling", "before we arrive",
+  "our 24-hour guarantee", "get 15% off your second appointment",
+  "pricing", "non-solicitation",
+]);
+function normHeading(s: string): string {
+  return (s || "").trim().replace(/[\s:.—-]+$/g, "").toLowerCase();
+}
+// Convert any <p>/<div> whose whole text matches a known heading into an <h3>.
+// Skips lines carrying a merge chip. Returns how many were promoted.
+function autoPromoteHeadings(root: HTMLElement): number {
+  let n = 0;
+  root.querySelectorAll("p,div").forEach((el) => {
+    if (el.querySelector(".cm-chip")) return;
+    const txt = (el.textContent || "").trim();
+    if (!txt || txt.length >= 80) return;
+    if (KNOWN_HEADINGS.has(normHeading(txt))) {
+      const h3 = document.createElement("h3");
+      h3.innerHTML = el.innerHTML;
+      el.replaceWith(h3);
+      n++;
+    }
+  });
+  return n;
+}
+
 const AI_ACTIONS = [
   { mode: "warmer", label: "Make warmer" },
   { mode: "shorter", label: "Shorten" },
@@ -130,6 +160,7 @@ export function EasyMessageEditor({
   const [bodyDirty, setBodyDirty] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [activeH3, setActiveH3] = useState(false);
 
   const refresh = useCallback(() => {
     if (ref.current) {
@@ -143,6 +174,10 @@ export function EasyMessageEditor({
       ref.current.innerHTML = bodyToEditable(initialBody, channel);
       baseBody.current = editableToBody(ref.current, channel);
       baseSubject.current = initialSubject || "";
+      // Promote known plain-text headings to <h3> so the email's brand styling
+      // fires. This is a draft change (baseline captured above) — the office
+      // saves it to persist. Email only.
+      if (channel === "email") autoPromoteHeadings(ref.current);
       refresh();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -178,11 +213,26 @@ export function EasyMessageEditor({
     finally { setTesting(false); }
   }
 
+  const blockIsH3 = (): boolean => {
+    try { return document.queryCommandValue("formatBlock").replace(/[<>]/g, "").toLowerCase() === "h3"; }
+    catch { return false; }
+  };
   const saveSel = () => {
     const s = window.getSelection();
     if (s && s.rangeCount && ref.current?.contains(s.anchorNode)) savedRange.current = s.getRangeAt(0).cloneRange();
+    setActiveH3(blockIsH3());
   };
   const exec = (cmd: string, val?: string) => { ref.current?.focus(); document.execCommand(cmd, false, val); refresh(); };
+  // Toggle the current line/paragraph between <h3> and <p>.
+  const toggleH3 = () => {
+    ref.current?.focus();
+    document.execCommand("formatBlock", false, blockIsH3() ? "<p>" : "<h3>");
+    refresh();
+    setActiveH3(blockIsH3());
+  };
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && e.altKey && (e.key === "3" || e.code === "Digit3")) { e.preventDefault(); toggleH3(); }
+  };
   const addLink = () => {
     ref.current?.focus();
     const url = window.prompt("Link URL", "https://"); if (!url) return;
@@ -240,7 +290,7 @@ export function EasyMessageEditor({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <style>{`.cm-chip{display:inline-block;background:var(--brand-dim,#E8FDF8);border:1px solid var(--brand,#00C9A0);color:#0F6E56;border-radius:11px;padding:0 8px;font-size:11.5px;font-weight:600;margin:0 1px;white-space:nowrap;line-height:1.7;} .cm-ed p{margin:0 0 8px;} .cm-ed ul{margin:0 0 8px;padding-left:20px;} .cm-ed h2{font-size:18px;margin:0 0 8px;} .cm-ed h3{font-size:15px;margin:0 0 8px;} .cm-ed a{color:#185FA5;} .cm-pv p{margin:0 0 8px;} .cm-pv ul{margin:0 0 8px;padding-left:20px;} .cm-pv a{color:#185FA5;} @keyframes cm-spin{to{transform:rotate(360deg)}} .spin{animation:cm-spin .8s linear infinite;}`}</style>
+      <style>{`.cm-chip{display:inline-block;background:var(--brand-dim,#E8FDF8);border:1px solid var(--brand,#00C9A0);color:#0F6E56;border-radius:11px;padding:0 8px;font-size:11.5px;font-weight:600;margin:0 1px;white-space:nowrap;line-height:1.7;} .cm-ed p{margin:0 0 8px;} .cm-ed ul{margin:0 0 8px;padding-left:20px;} .cm-ed h2{font-size:18px;margin:0 0 8px;} .cm-ed h3{font-size:15px;margin:0 0 8px;} .cm-ed a{color:#185FA5;} .cm-pv p{margin:0 0 8px;} .cm-pv ul{margin:0 0 8px;padding-left:20px;} .cm-pv a{color:#185FA5;} .cm-pv h3{font-size:15px;font-weight:700;color:#5B9BD5;border-bottom:2px solid #D6E3F2;padding-bottom:4px;margin:16px 0 8px;} @keyframes cm-spin{to{transform:rotate(360deg)}} .spin{animation:cm-spin .8s linear infinite;}`}</style>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 14, alignItems: "start" }}>
         {/* ── Editor ── */}
@@ -257,6 +307,8 @@ export function EasyMessageEditor({
               {channel === "email" && <>
                 {tb(() => exec("bold"), <Bold size={13} />, "Bold")}
                 {tb(() => exec("italic"), <Italic size={13} />, "Italic")}
+                <button type="button" key="h3" title="Heading (Cmd/Ctrl+Alt+3)" onMouseDown={(e) => { e.preventDefault(); toggleH3(); }}
+                  style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: activeH3 ? "#E8FDF8" : "#fff", border: `1px solid ${activeH3 ? "#00C9A0" : "#E5E2DC"}`, borderRadius: 5, cursor: "pointer", color: activeH3 ? "#0F6E56" : "#6B7280", fontSize: 11, fontWeight: 800, fontFamily: "inherit" }}>H3</button>
                 {tb(() => exec("insertUnorderedList"), <List size={13} />, "Bullet list")}
                 {tb(() => exec("insertOrderedList"), <ListOrdered size={13} />, "Numbered list")}
                 {tb(addLink, <Link2 size={13} />, "Add link")}
@@ -270,7 +322,7 @@ export function EasyMessageEditor({
               ))}
             </div>
             <div ref={ref} className="cm-ed" contentEditable suppressContentEditableWarning
-              onInput={refresh} onPaste={onPaste} onKeyUp={saveSel} onMouseUp={saveSel}
+              onInput={refresh} onPaste={onPaste} onKeyDown={onKeyDown} onKeyUp={saveSel} onMouseUp={saveSel}
               style={{ minHeight: channel === "email" ? 150 : 90, padding: 14, outline: "none", fontSize: 13, lineHeight: 1.6, color: "#1A1917" }} />
           </div>
 

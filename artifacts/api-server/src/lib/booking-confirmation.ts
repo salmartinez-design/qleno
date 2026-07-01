@@ -22,6 +22,10 @@ import { buildAppointmentVars } from "./appointment-vars.js";
 export async function ensureBookingConfirmationSetup(): Promise<void> {
   try {
     await db.execute(sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS customer_view_token text`);
+    // [arrival-window] Per-tenant customer arrival window width (minutes). The
+    // {{arrival_window}} tag renders start → start + this many minutes. Default
+    // 45; distinct from arrival_alert_window_minutes (the SMS alert lead time).
+    await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS arrival_window_minutes integer NOT NULL DEFAULT 45`);
     await db.execute(sql`
       CREATE UNIQUE INDEX IF NOT EXISTS jobs_customer_view_token_key
       ON jobs (customer_view_token) WHERE customer_view_token IS NOT NULL
@@ -109,7 +113,8 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
              c.first_name, c.last_name, c.email AS client_email, c.phone AS client_phone,
              u.first_name AS tech_first, u.avatar_url AS tech_avatar,
              co.name AS company_name, co.logo_url AS company_logo,
-             co.phone AS company_phone, co.email AS company_email
+             co.phone AS company_phone, co.email AS company_email,
+             co.arrival_window_minutes
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
       LEFT JOIN users u ON u.id = j.assigned_user_id
@@ -131,6 +136,13 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
     const stateZip = [j.address_state, j.address_zip].filter(Boolean).join(" ");
     const serviceAddress = [j.address_street, j.address_city, stateZip].filter(Boolean).join(", ");
 
+    // [arrival-window] Compute the customer arrival window (start → start + N min)
+    // from the tenant setting so {{arrival_window}} renders a real range, not
+    // just the start time. Single source: companies.arrival_window_minutes (45).
+    const { computeArrivalWindow } = await import("../services/notificationService.js");
+    const arrivalWinMins = Number(j.arrival_window_minutes) || 45;
+    const arrivalWindowLabel = computeArrivalWindow(j.scheduled_time, null, arrivalWinMins);
+
     const mv: Record<string, string> = {
       first_name: (j.first_name || "").trim(),
       appointment_date: j.scheduled_date ? fmtApptDate(j.scheduled_date) : "your scheduled date",
@@ -145,7 +157,7 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       // [appointment-vars] Add the short-name aliases ({{date}} / {{time}}) and
       // {{appointment_window}}, and normalize the time to "9:00 AM". Present
       // values override the raw fields above; missing ones keep the fallback.
-      ...buildAppointmentVars({ scheduledDate: j.scheduled_date, scheduledTime: j.scheduled_time }),
+      ...buildAppointmentVars({ scheduledDate: j.scheduled_date, scheduledTime: j.scheduled_time, arrivalWindow: arrivalWindowLabel }),
     };
 
     // [services-breakdown] Populate {{services_breakdown}} from the job's locked
