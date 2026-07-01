@@ -25,6 +25,42 @@ building-note edit).
 
 ---
 
+## RESOLVED — Quote "Call Notes" vanished on convert (didn't reach the job) (2026-07-01)
+
+**Severity:** Medium — Maribel: "These notes should go to office notes, idk
+where they go to now, can't find them." The quote builder's **Call Notes** field
+saved onto the quote, but converting the quote to a job never copied them
+anywhere — the job's `notes` came only from `internal_memo`, and the job's
+`office_notes` was left NULL. So the call notes were stranded on the quote.
+
+**Fix (`routes/quotes.ts` convert):** the quote's `call_notes` (plus any quote
+`office_notes`) now populate the created job's **office notes** — for both the
+one-time job insert and every generated recurring visit. The office finds them
+right on the job's Office Notes after convert.
+
+---
+
+## RESOLVED — Couldn't edit pricing on rate-driven commercial jobs (2026-07-01)
+
+**Severity:** Medium — Maribel: "Still can't edit Pricing on this scope. This
+should be available for all scopes and types of jobs." On a commercial job
+priced as $/hr × hours (e.g. PPM), the dispatch pricing editor showed no Edit
+button at all.
+
+**Root cause:** `InlinePricingEditor` gated `editable = canEdit && !isLocked &&
+!rateDriven`, and `rateDriven` is true for any commercial job billed as
+hourly_rate × allowed_hours. So those jobs were read-only with no way to change
+the price.
+
+**Fix (`pages/jobs.tsx`):** pricing is editable on every scope/type now
+(`editable = canEdit && !isLocked`). Saving a commercial (rate-driven) job pins
+the typed total as a flat price via `manual_rate_override: true` (the PATCH route
+already supports it) so it doesn't snap back to $/hr × hours; residential base_fee
+is already the flat price so no override is sent. A hint in the editor explains
+the pin. Only truly locked/cancelled jobs stay read-only.
+
+---
+
 ## FEATURE — Per-item commission opt-in for add-ons & adjustments (2026-07-01)
 
 Requested by Maribel/Sal (urgent for payroll): when adding an add-on or a fee

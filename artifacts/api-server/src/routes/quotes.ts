@@ -662,6 +662,20 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         console.warn("[quote convert] recurring generation failed:", genErr?.message ?? genErr);
       }
 
+      // [quote-notes-convert 2026-07-01] Carry the quote's Call Notes into the
+      // office notes of every generated recurring visit, so the office can find
+      // them after convert (same as the one-time path below).
+      try {
+        const recurringOfficeNotes = [(q as any).call_notes, (q as any).office_notes]
+          .filter((x: any) => x && String(x).trim()).join("\n\n");
+        if (recurringOfficeNotes) {
+          await db.execute(sql`
+            UPDATE jobs SET office_notes = ${recurringOfficeNotes}
+             WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}
+               AND (office_notes IS NULL OR office_notes = '')`);
+        }
+      } catch (e) { console.warn("[quote convert] office-notes stamp failed:", e); }
+
       if (reusedSchedule) {
         // Reused schedule: move every UPCOMING visit to the agreed all-in price
         // and give it the new add-on line items. Past/completed visits are left
@@ -729,11 +743,18 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // estimated_hours. Previously the convert wrote neither, so every
     // quote-booked job landed with NULL allowed_hours — the dispatch Gantt
     // rendered a flat default block and the add-on time never showed up.
+    // [quote-notes-convert 2026-07-01] Carry the quote's Call Notes into the
+    // job's OFFICE NOTES so the office can find them after convert (Maribel:
+    // "these notes should go to office notes, can't find them"). Combine with
+    // the quote's own office_notes if both are present.
+    const jobOfficeNotes = [(q as any).call_notes, (q as any).office_notes]
+      .filter((x: any) => x && String(x).trim())
+      .join("\n\n") || null;
     const jobResult = await db.execute(sql`
       INSERT INTO jobs (
         company_id, client_id, scheduled_date, scheduled_time,
         service_type, base_fee, status, assigned_user_id,
-        frequency, notes, allowed_hours, estimated_hours, address_street, created_at
+        frequency, notes, office_notes, allowed_hours, estimated_hours, address_street, created_at
       ) VALUES (
         ${companyId},
         ${clientId},
@@ -745,6 +766,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${assigned_user_id || null},
         ${sql.raw(`'${jobFreq}'::frequency`)},
         ${q.internal_memo || null},
+        ${jobOfficeNotes},
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${(q as any).address || null},
