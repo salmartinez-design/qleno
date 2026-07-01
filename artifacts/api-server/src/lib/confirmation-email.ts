@@ -51,31 +51,43 @@ function styleHeadings(html: string, font: string): string {
       (_m, a) => `<h2${a} style="font-family:${font};font-size:17px;font-weight:700;color:${BRAND_ACCENT};border-bottom:2px solid ${HEAD_RULE};padding-bottom:6px;margin:24px 0 12px;">`);
 }
 
-// Wrap the <h3> section whose heading text matches `re` (heading + following
-// content up to the next <h3>, or end) in a colored callout table. No-op if not
-// found. The section heading is recolored to the callout's own dark tone.
-function wrapCallout(html: string, re: RegExp, bg: string, fg: string, headFg: string, font: string): string {
-  const headings = [...html.matchAll(/<h3\b[^>]*>([\s\S]*?)<\/h3>/gi)];
-  for (const h of headings) {
-    const text = h[1].replace(/<[^>]+>/g, "");
-    if (!re.test(text)) continue;
-    const start = h.index ?? 0;
-    const afterHeading = start + h[0].length;
-    const rel = html.slice(afterHeading).search(/<h3\b/i);
-    const end = rel === -1 ? html.length : afterHeading + rel;
-    let section = html.slice(start, end).replace(/<h3\b[^>]*>/i,
-      `<h3 style="font-family:${font};font-size:15px;font-weight:700;color:${headFg};margin:0 0 6px;">`);
-    const boxed = `<table role="presentation" cellpadding="16" cellspacing="0" style="width:100%;background:${bg};border-radius:8px;margin:16px 0;"><tr><td style="font-family:${font};font-size:14px;color:${fg};line-height:1.6;">${section}</td></tr></table>`;
-    return html.slice(0, start) + boxed + html.slice(end);
-  }
-  return html;
+// Wrap ONE h3-delimited section (heading + its body) in a colored callout table.
+// The section always contains at least its heading, so this never emits an empty
+// box. The heading is recolored to the callout's own dark tone.
+function calloutBox(section: string, bg: string, fg: string, headFg: string, font: string): string {
+  const inner = section.replace(/<h3\b[^>]*>/i,
+    `<h3 style="font-family:${font};font-size:15px;font-weight:700;color:${headFg};margin:0 0 6px;">`);
+  return `<table role="presentation" cellpadding="16" cellspacing="0" style="width:100%;background:${bg};border-radius:8px;margin:16px 0;"><tr><td style="font-family:${font};font-size:14px;color:${fg};line-height:1.6;">${inner}</td></tr></table>`;
 }
 
+// Split the copy into h3-delimited sections, classify each ONCE by heading text,
+// and rebuild in a single pass. This replaces the old two sequential wrap passes,
+// where the second callout could slice through the first (a later <h3> that was
+// now nested inside an earlier callout's table) — the bug that produced an empty
+// green stripe and put the 15%-off body in a blue box. Normal sections just get
+// brand-accented headings.
 export function stylePolicyCopy(html: string, font: string): string {
   if (!html) return html;
-  let out = wrapCallout(html, /15%\s*off/i, "#E1F5EE", "#04342C", "#0F6E56", font);          // green — promo
-  out = wrapCallout(out, /24[\s-]*h(?:ou)?r\s*guarantee/i, "#E6F1FB", "#042C53", "#185FA5", font); // blue — guarantee
-  return styleHeadings(out, font);
+  const heads: { text: string; index: number }[] = [];
+  const re = /<h3\b[^>]*>([\s\S]*?)<\/h3>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) heads.push({ text: m[1].replace(/<[^>]+>/g, ""), index: m.index });
+  if (heads.length === 0) return styleHeadings(html, font);
+
+  let out = html.slice(0, heads[0].index); // preamble before the first heading
+  for (let i = 0; i < heads.length; i++) {
+    const start = heads[i].index;
+    const end = i + 1 < heads.length ? heads[i + 1].index : html.length;
+    const section = html.slice(start, end);
+    if (/15%\s*off/i.test(heads[i].text)) {
+      out += calloutBox(section, "#E1F5EE", "#04342C", "#0F6E56", font);   // green — promo
+    } else if (/24[\s-]*h(?:ou)?r\s*guarantee/i.test(heads[i].text)) {
+      out += calloutBox(section, "#E6F1FB", "#042C53", "#185FA5", font);   // blue — guarantee
+    } else {
+      out += styleHeadings(section, font);                                 // brand-accent heading
+    }
+  }
+  return out;
 }
 
 export type ConfEmailOpts = {
@@ -150,7 +162,7 @@ export function renderConfirmationEmail(o: ConfEmailOpts): string {
     <!-- Navy masthead -->
     <tr><td bgcolor="${NAVY}" style="background:${NAVY};padding:20px 28px;">
       <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-        <td valign="middle" style="padding-right:13px;"><img src="${escAttr(o.logoUrl)}" width="60" alt="${escAttr(o.companyName)}" style="height:60px;width:auto;border-radius:8px;background:#ffffff;display:block;border:0;" /></td>
+        <td valign="middle" style="padding-right:13px;"><img src="${escAttr(o.logoUrl)}" width="72" alt="${escAttr(o.companyName)}" style="height:72px;width:auto;border-radius:8px;background:#ffffff;display:block;border:0;" /></td>
         <td valign="middle">
           <div style="font-family:${FONT};font-size:18px;font-weight:700;color:#ffffff;line-height:1.2;">${o.companyName}</div>
           <div style="font-family:${FONT};font-size:12px;color:${SUBLINE};line-height:1.4;">Residential &amp; Commercial Cleaning</div>
