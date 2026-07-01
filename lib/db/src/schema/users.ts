@@ -43,6 +43,13 @@ export const usersTable = pgTable("users", {
   gender: text("gender"),
   hire_date: date("hire_date"),
   termination_date: date("termination_date"),
+  // [terminate 2026-07-01] HR separation detail captured by the Terminate flow.
+  // last_day_worked can differ from termination_date (payroll/PTO payout).
+  // termination_reason is a fixed-dropdown string (see the Terminate modal).
+  // rehire_eligible: true / false / null (unset).
+  last_day_worked: date("last_day_worked"),
+  termination_reason: text("termination_reason"),
+  rehire_eligible: boolean("rehire_eligible"),
   employment_type: employmentTypeEnum("employment_type"),
   pay_rate: numeric("pay_rate", { precision: 10, scale: 2 }),
   pay_type: payTypeEnum("pay_type"),

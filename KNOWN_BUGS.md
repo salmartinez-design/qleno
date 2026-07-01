@@ -1,5 +1,56 @@
 # Known Bugs
 
+## RESOLVED — Archived employees could not be reactivated from the UI (2026-07-01)
+
+**Severity:** Medium — an archived tech was stranded off the roster with no way
+back. Reported by Sal about Norma Puga: her `is_active` was `true` but she still
+showed as inactive, and the "Account Active" toggle did nothing.
+
+**Root cause:** two independent flags gate an employee. `users.is_active`
+(the toggle) AND `users.archived_at`. The roster/dispatch/timeclock queries
+filter `archived_at IS NULL`, so an archived user is hidden regardless of
+`is_active`. The archive action (`POST /users/:id/lms-archive`) shipped without
+its documented `lms-restore` counterpart, and `PUT /users/:id` doesn't accept
+`archived_at` — so once archived, a user could only be restored by editing the
+DB column directly. Norma was archived 2026-05-15.
+
+**Fix:**
+- `routes/users.ts` — new **`POST /:id/lms-restore`** (owner-only, tenant-scoped,
+  idempotent) clears `archived_at` and audit-logs the restore. Mirrors
+  `lms-archive`.
+- `pages/employee-profile.tsx` — an **ARCHIVED** badge in the header when
+  `archived_at` is set, and a **Reactivate** button (owner-only) that calls the
+  restore endpoint and refetches. Fills the missing restore UI.
+
+Applies to every archived tech (e.g. also Ana Valdez, Tatiana Merchan, Katie Fry).
+
+---
+
+## FEATURE — Terminate flow (offboarding) with reasons + dates (2026-07-01)
+
+The Reactivate companion. Previously the only "Termination Date" control was a
+bare date field in the edit form that `PUT /users/:id` silently dropped — so
+terminations weren't recorded and there was no reason/offboarding flow.
+
+**Added:**
+- New columns (idempotent `ADD COLUMN IF NOT EXISTS` in `phes-data-migration.ts`
+  + Drizzle schema): `users.last_day_worked` (date), `users.termination_reason`
+  (text), `users.rehire_eligible` (bool). `termination_date` already existed.
+- `routes/users.ts` — **`POST /:id/terminate`** (owner-only, tenant-scoped;
+  can't terminate an owner or yourself). Validates a `termination_date` and a
+  reason from a fixed set (resigned / job_abandonment / performance / misconduct
+  / laid_off / end_of_season / other), then sets the separation fields,
+  `is_active=false`, and `archived_at=NOW()` so they drop off dispatch, the time
+  clock, payroll, and pickers. Audit-logged.
+- `lms-restore` (Reactivate) now also clears the termination fields and flips
+  `is_active` back on — one button fully reverses archive AND terminate.
+- `pages/employee-profile.tsx` — a red **Terminate** button (opens a modal with
+  Reason, Termination date, Last day worked, Eligible-for-rehire) for active
+  employees; a **TERMINATED** header badge (reason/date/rehire in the tooltip);
+  the dead edit-form date field is now a read-only status.
+
+---
+
 ## RESOLVED — Time Clocks fee split paid the primary 100% pre-clock (multi-cleaner) (2026-06-30)
 
 **Severity:** High — wrong per-cleaner commission shown on the Time Clocks grid
