@@ -33,6 +33,69 @@ add-on/quote UI (backend flag + default already in place), and mirroring
 
 ---
 
+## RESOLVED — Couldn't add permanent notes to an account (2026-07-01)
+
+**Severity:** Medium — Maribel (Office): "very important. Can't add permanent
+notes to accounts." Accounts have a `notes` column, but the account Overview only
+*displayed* it read-only (and only when present), with no editor — and the full
+`PATCH /accounts/:id` is owner/admin-only, so Office couldn't save it anyway.
+
+**Fix:**
+- `routes/accounts.ts` — new **`PATCH /:id/notes`** (owner/admin/**office**),
+  notes-only, so Office can save account notes without opening the billing PATCH.
+- `pages/account-detail.tsx` — the Overview Notes card is now an inline editor
+  (Add/Edit → textarea → Save), always shown so notes can be added when empty.
+
+Property/building notes were already editable — the property Edit modal has
+Access Notes + Internal Notes (office-editable) and both render in the property
+detail. No change needed there.
+
+---
+
+## RESOLVED — Overlapping punches double-counted the fee split (read-side) (2026-07-01)
+
+**Severity:** High — wrong tech pay. The write-side guard (block a manual office
+punch overlapping an existing one) only covers office-created duplicates. But
+the Time Clocks grid collapses every entry for a (job, tech) into ONE row, so a
+duplicate from ANY source (a field-app double-tap) is invisible to the office
+and still double-counts: pay is split by clocked minutes summed per (job, tech),
+so two overlapping punches over-weight that cleaner (Juliana ⅔ / Norma ⅓ instead
+of 50/50). Maribel: "it only shows one row… we only edit the clock, we don't add
+clocks" — i.e. they couldn't even see or fix the duplicate.
+
+**Fix:** new `lib/timeclock-hours.ts` `unionHoursByKey` sums the UNION of each
+tech's punch intervals per job instead of the raw durations — overlapping punches
+collapse to one span, a real split shift (disjoint punches) still adds up. Wired
+into both places that drive pay: the Time Clocks `/day` grid and the payroll
+period-lock (`routes/pay.ts`, was a SQL `SUM`). Correct regardless of how the
+duplicate was created; complements the write-side guard. Covered by
+`timeclock-hours.test.ts`.
+
+---
+
+## RESOLVED — Duplicate punch double-counted the fee split (2026-07-01)
+
+**Severity:** High — wrong tech pay on live payroll. On job 5397 (Claudia
+Mosier, shared by Juliana + Norma) the fee split paid Juliana $41.99 and Norma
+$21.01 instead of $31.50 each. Reported by Maribel on go-live day.
+
+**Root cause:** Juliana had TWO overlapping punches on the same job (a completed
+field-app punch + a manual office punch Francisco stacked on top, 18s apart).
+The commission split weights by clocked minutes summed per (job, tech), so her
+doubled minutes gave her ⅔ of the $63 pool and Norma ⅓. The office clock-in's
+existing de-dup only caught *open* entries, so a punch stacked on an already-
+*closed* one slipped through.
+
+**Fix:**
+- Data: deleted the duplicate punch (entry 642) — split corrected to $31.50 each.
+  A 4-day scan (51 jobs) found this was the only duplicate.
+- `routes/timeclock.ts` `POST /office/clock-in` — now also rejects a punch whose
+  start falls INSIDE an existing CLOSED entry's span for the same tech+job (409
+  "edit the existing entry instead"). A clock-in strictly after a prior clock-out
+  (e.g. a lunch break) is still allowed.
+
+---
+
 ## RESOLVED — Job notes (office + cleaner) lost on quick close / stale until refresh (2026-07-01)
 
 **Severity:** Medium — office/cleaner notes on the dispatch job panel "need a

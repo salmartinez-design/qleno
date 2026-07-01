@@ -83,6 +83,7 @@ import {
   type JobTechRow,
 } from "../lib/commission-paytype.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
+import { unionHoursByKey } from "../lib/timeclock-hours.js";
 import { additionalPayTable } from "@workspace/db/schema";
 
 const router = Router();
@@ -1042,19 +1043,19 @@ async function computeAndApplyCommission(
     }
 
     // Per-tech clocked hours (the split denominator + hourly basis).
+    // [punch-union 2026-07-01] Fetch the raw punch intervals and sum their
+    // UNION per (job, tech) — a duplicate/overlapping punch must not
+    // double-count minutes and skew the split (was a SUM of durations).
     try {
-      const hourRows = await db.execute(
-        sql`SELECT job_id, user_id,
-                   SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at)) / 3600.0) AS hours
+      const intervalRows = await db.execute(
+        sql`SELECT job_id, user_id, clock_in_at, clock_out_at
               FROM timeclock
              WHERE company_id = ${companyId} AND job_id = ANY(${jobIds}::int[])
                AND clock_out_at IS NOT NULL
-               AND source = 'punched'
-             GROUP BY job_id, user_id`,
+               AND source = 'punched'`,
       );
-      for (const r of hourRows.rows as any[]) {
-        const h = parseFloat(String(r.hours));
-        if (Number.isFinite(h) && h > 0) techHoursByKey.set(`${r.job_id}:${r.user_id}`, h);
+      for (const [key, h] of unionHoursByKey(intervalRows.rows as any[])) {
+        if (h > 0) techHoursByKey.set(key, h);
       }
     } catch {
       // No timeclock data → every job falls back to legacy single-basis.

@@ -7,6 +7,7 @@ import { logAudit } from "../lib/audit.js";
 import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission-paytype.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
+import { unionHoursByKey } from "../lib/timeclock-hours.js";
 import type { CommissionInputJob } from "../lib/commission-compute.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { isClientAccountCommsPaused } from "../lib/account-comms.js";
@@ -685,6 +686,29 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
     )).limit(1);
     if (open) return res.json({ ...open, already_open: true });
 
+    // [punch-dedup 2026-07-01] Also block a CLOSED entry that already COVERS this
+    // clock-in time for the same tech+job. This is the case the open-check above
+    // misses and it's exactly what skewed payroll: a completed field-app punch,
+    // then a manual office punch stacked on top of it. The commission split
+    // weights by clocked minutes summed per (job, tech), so two overlapping
+    // punches double-count the tech's minutes and over-pay them (Juliana got 2/3
+    // of a shared job, Norma 1/3, instead of 50/50). A clock-in strictly AFTER a
+    // prior clock-out (e.g. a lunch break, same job) is still allowed — only a
+    // punch whose start falls INSIDE an existing entry's span is rejected.
+    const [covered] = await db.select({ id: timeclockTable.id }).from(timeclockTable).where(and(
+      eq(timeclockTable.company_id, companyId), eq(timeclockTable.job_id, job_id),
+      eq(timeclockTable.user_id, user_id),
+      sql`${timeclockTable.clock_out_at} IS NOT NULL`,
+      sql`${timeclockTable.clock_in_at} <= ${clockInAt}`,
+      sql`${timeclockTable.clock_out_at} > ${clockInAt}`,
+    )).limit(1);
+    if (covered) {
+      return res.status(409).json({
+        error: "Duplicate punch",
+        message: "This cleaner already has a time entry covering that time on this job — edit the existing entry instead of adding a new one.",
+      });
+    }
+
     const [entry] = await db.insert(timeclockTable).values({
       job_id, user_id, company_id: companyId,
       branch_id: jobRow.branch_id ?? 1,
@@ -1014,12 +1038,13 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       // counts (source='punched'). Synthetic 'estimated' pre-seeds show as a
       // row but contribute $0 until the office enters/verifies a real time
       // (which flips them to punched via PATCH).
-      const techHoursByKey = new Map<string, number>();
-      for (const e of clockRows) {
-        if (e.source !== "punched" || !e.clock_out_at || !e.clock_in_at) continue;
-        const h = (new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / 3600000;
-        if (h > 0) techHoursByKey.set(`${e.job_id}:${e.user_id}`, (techHoursByKey.get(`${e.job_id}:${e.user_id}`) ?? 0) + h);
-      }
+      // [punch-union 2026-07-01] Count the UNION of each tech's punches per job,
+      // not the raw sum — so a duplicate/overlapping entry (invisible behind the
+      // grid's single row) can't double-count the fee split. Real split shifts
+      // (disjoint punches) still add up.
+      const techHoursByKey = unionHoursByKey(
+        clockRows.filter((e: any) => e.source === "punched" && e.clock_in_at && e.clock_out_at)
+      );
       // [lockout-pay 2026-06-17] Jobs charged via Cancel/Lockout pay the tech
       // the cancellation fee (an additional_pay 'cancellation_pay' row), NOT the
       // job's normal commission — exclude them from the commission calc so the

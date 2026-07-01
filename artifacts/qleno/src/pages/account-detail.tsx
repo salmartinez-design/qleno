@@ -205,6 +205,27 @@ export default function AccountDetailPage() {
   const [pivot, setPivot] = useState<"zone" | "service" | "tech">("zone");
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
 
+  // [account-notes 2026-07-01] Editable permanent notes on the account (Maribel:
+  // "can't add permanent notes to accounts"). Saved via the office-editable
+  // PATCH /accounts/:id/notes.
+  const [notesEdit, setNotesEdit] = useState(false);
+  const [notesVal, setNotesVal] = useState("");
+  const [notesSaving, setNotesSaving] = useState(false);
+  async function saveAccountNotes() {
+    setNotesSaving(true);
+    try {
+      const r = await fetch(`${API}/api/accounts/${id}/notes`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
+        body: JSON.stringify({ notes: notesVal.trim() ? notesVal : null }),
+      });
+      if (!r.ok) throw new Error("Failed to save notes");
+      setAccount((a: any) => ({ ...a, notes: notesVal.trim() ? notesVal : null }));
+      setNotesEdit(false);
+    } catch { /* keep the editor open on failure */ }
+    finally { setNotesSaving(false); }
+  }
+
   // Rate card
   const [showRateCard, setShowRateCard] = useState(false);
   const [editCard, setEditCard] = useState<any>(null);
@@ -706,13 +727,45 @@ export default function AccountDetailPage() {
               )}
             </div>
 
-            {/* Notes */}
-            {account.notes && (
-              <div className="bg-white border border-gray-100 rounded-xl p-4 sm:col-span-2">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Notes</p>
-                <p className="text-sm text-gray-700 whitespace-pre-wrap">{account.notes}</p>
+            {/* [account-notes 2026-07-01] Permanent account notes — editable. */}
+            <div className="bg-white border border-gray-100 rounded-xl p-4 sm:col-span-2">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Notes</p>
+                {!notesEdit && (
+                  <button
+                    onClick={() => { setNotesVal(account.notes || ""); setNotesEdit(true); }}
+                    className="text-xs font-semibold text-[#00C9A0] hover:underline">
+                    {account.notes ? "Edit" : "+ Add notes"}
+                  </button>
+                )}
               </div>
-            )}
+              {notesEdit ? (
+                <div className="space-y-2">
+                  <textarea
+                    autoFocus
+                    rows={4}
+                    value={notesVal}
+                    onChange={(e) => setNotesVal(e.target.value)}
+                    placeholder="Permanent notes for this account — billing terms, main contacts, access, anything the team should always see."
+                    className="w-full text-sm border border-gray-200 rounded-lg p-2 outline-none focus:border-[#00C9A0] resize-y"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={saveAccountNotes} disabled={notesSaving}
+                      className="px-3 py-1.5 rounded-lg bg-[#00C9A0] text-white text-xs font-semibold disabled:opacity-60">
+                      {notesSaving ? "Saving…" : "Save"}
+                    </button>
+                    <button onClick={() => setNotesEdit(false)} disabled={notesSaving}
+                      className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : account.notes ? (
+                <p className="text-sm text-gray-700 whitespace-pre-wrap">{account.notes}</p>
+              ) : (
+                <p className="text-sm text-gray-400 italic">No notes yet.</p>
+              )}
+            </div>
           </div>
         )}
 
