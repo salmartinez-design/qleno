@@ -5276,29 +5276,36 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
       // handler (unchanged). Past empty days stay no-op so an
       // accidental click on a historical day doesn't open a wizard
       // for a date that can't be booked.
-      const isEmptyFuture = jobs.length === 0 && !isPast;
-      const handleEmptyClick = () => {
-        if (isEmptyFuture && onScheduleOnDate) onScheduleOnDate(ds);
-      };
+      // [click-to-add 2026-07-01] ANY non-past day is a create-a-job target, not
+      // just empty ones — recurring clients have a chip on nearly every day, so
+      // "empty days only" made this unreachable. Clicking a chip opens that job
+      // (the chip stops propagation); clicking the day's blank space opens the
+      // New Job wizard pre-filled with the date. A faint "+" appears on hover.
+      const canAddJob = !isPast && !!onScheduleOnDate;
+      const handleAddClick = () => { if (canAddJob) onScheduleOnDate!(ds); };
       cells.push(
         <div
           key={ds}
           onDragOver={e => onDragOver(e, ds)}
           onDragLeave={() => setDragOver(null)}
           onDrop={e => onDrop(e, ds)}
-          onClick={isEmptyFuture ? handleEmptyClick : undefined}
-          title={isEmptyFuture ? `Schedule a job on ${ds}` : undefined}
+          onClick={canAddJob ? handleAddClick : undefined}
+          title={canAddJob ? `Add a job on ${ds}` : undefined}
           style={{
+            position: "relative" as const,
             minHeight: 60, padding: "2px 3px", borderRadius: 6,
             border: isHover ? "2px dashed #00C9A0" : isToday ? "1.5px solid #00C9A0" : "1px solid #EDEAE4",
             background: isHover ? "#ECFBF6" : isPast ? "#FBFAF8" : "#FFFFFF",
             boxShadow: isToday ? "0 0 0 1px #00C9A0" : "none",
             transition: "border 0.1s, background 0.1s",
-            cursor: isEmptyFuture ? "pointer" : "default",
+            cursor: canAddJob ? "pointer" : "default",
           }}
-          onMouseOver={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "#F4FBF9"; }}
-          onMouseOut={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = isPast ? "#FBFAF8" : "#FFFFFF"; }}
+          onMouseOver={e => { if (canAddJob && !isHover) { const el = e.currentTarget as HTMLDivElement; el.style.background = "#F4FBF9"; const p = el.querySelector<HTMLElement>(".qleno-day-add"); if (p) p.style.opacity = "1"; } }}
+          onMouseOut={e => { if (canAddJob && !isHover) { const el = e.currentTarget as HTMLDivElement; el.style.background = isPast ? "#FBFAF8" : "#FFFFFF"; const p = el.querySelector<HTMLElement>(".qleno-day-add"); if (p) p.style.opacity = "0"; } }}
         >
+          {canAddJob && (
+            <span className="qleno-day-add" style={{ position: "absolute" as const, top: 3, left: 5, fontSize: 13, fontWeight: 800, color: "#00C9A0", opacity: 0, transition: "opacity 0.1s", pointerEvents: "none" as const, lineHeight: 1 }}>+</span>
+          )}
           <div style={{
             fontSize: 11, fontWeight: isToday ? 800 : 600, color: isToday ? "#00876d" : isPast ? "#B7B3AB" : "#1A1917",
             textAlign: "right", marginBottom: 1, lineHeight: "16px",
@@ -5311,7 +5318,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
                 key={j.id}
                 draggable={!ro}
                 onDragStart={e => { onDragStart(e, j); setHoverCard(null); }}
-                onClick={() => openJobCard(j)}
+                onClick={e => { e.stopPropagation(); openJobCard(j); }}
                 onMouseEnter={e => {
                   const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
                   setHoverCard({ job: j, x: r.right, y: r.top });
