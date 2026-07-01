@@ -5091,12 +5091,23 @@ const STATUS_CHIP: Record<string, { bg: string; border: string; text: string; la
   // from cancel_action so the calendar reads the truth, not "Done".
   cancelled_fee: { bg: "#FEF3C7", border: "#F59E0B", text: "#B45309", label: "Cancel fee", tooltip: "Cancelled — fee charged (not a completed visit)" },
 };
-// A charged cancel/lockout is stored status='complete'; resolve it to the right
-// chip key off cancel_action so the day doesn't read "Done".
+// Resolve a job to its chip key. cancel_action (latest cancellation_log row)
+// adds nuance the bare status can't carry:
+//   • charged cancel/lockout are stored status='complete' for revenue — surface
+//     them as "Cancel fee"/"Lockout" instead of "Done".
+//   • a cancelled job that was skipped/moved reads "Skipped"/"Moved".
+// A finished visit always wins: a completed/invoiced job stays "Done" even if it
+// carries a stale historical move/skip action, so the calendar never downgrades
+// real work that got done.
 function chipKeyFor(j: any): string {
-  if (j?.cancel_action === "lockout") return "lockout";
-  if (j?.cancel_action === "cancel") return "cancelled_fee";
-  return String(j?.status);
+  const status = String(j?.status);
+  const action = j?.cancel_action;
+  if (action === "lockout") return "lockout";
+  if (action === "cancel") return "cancelled_fee";
+  if (status === "complete" || status === "completed" || status === "invoiced") return status;
+  if (action === "skip") return "skipped";
+  if (action === "bump" || action === "move") return "bumped";
+  return status;
 }
 const RESCHEDULE_REASONS = [
   "Client Request", "Tech Unavailable", "Weather", "Holiday / Observed Holiday",
@@ -5134,6 +5145,8 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
+  // Hover preview card for a calendar job (MaidCentral-style quick look).
+  const [hoverCard, setHoverCard] = useState<{ job: any; x: number; y: number } | null>(null);
 
   const months: Date[] = [anchor, addMonths(anchor, 1), addMonths(anchor, 2)];
   const from = toLocalDateStr(startOfMonth(months[0]));
@@ -5276,17 +5289,18 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
           onClick={isEmptyFuture ? handleEmptyClick : undefined}
           title={isEmptyFuture ? `Schedule a job on ${ds}` : undefined}
           style={{
-            minHeight: 56, padding: "2px 3px", borderRadius: 5,
-            border: isHover ? "2px dashed #3B82F6" : isToday ? "1.5px solid #3B82F6" : "1.5px solid transparent",
-            background: isHover ? "#EFF6FF" : "transparent",
+            minHeight: 60, padding: "2px 3px", borderRadius: 6,
+            border: isHover ? "2px dashed #00C9A0" : isToday ? "1.5px solid #00C9A0" : "1px solid #EDEAE4",
+            background: isHover ? "#ECFBF6" : isPast ? "#FBFAF8" : "#FFFFFF",
+            boxShadow: isToday ? "0 0 0 1px #00C9A0" : "none",
             transition: "border 0.1s, background 0.1s",
             cursor: isEmptyFuture ? "pointer" : "default",
           }}
-          onMouseOver={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "#F8FAFC"; }}
-          onMouseOut={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+          onMouseOver={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "#F4FBF9"; }}
+          onMouseOut={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = isPast ? "#FBFAF8" : "#FFFFFF"; }}
         >
           <div style={{
-            fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? "#1D4ED8" : isPast ? "#9E9B94" : "#1A1917",
+            fontSize: 11, fontWeight: isToday ? 800 : 600, color: isToday ? "#00876d" : isPast ? "#B7B3AB" : "#1A1917",
             textAlign: "right", marginBottom: 1, lineHeight: "16px",
           }}>{d}</div>
           {jobs.map(j => {
@@ -5296,14 +5310,18 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
               <div
                 key={j.id}
                 draggable={!ro}
-                onDragStart={e => onDragStart(e, j)}
+                onDragStart={e => { onDragStart(e, j); setHoverCard(null); }}
                 onClick={() => openJobCard(j)}
-                title={`${chip.tooltip}${j.scheduled_time ? " | " + String(j.scheduled_time).slice(0,5).replace(/^(\d+):(\d+)$/, (_, h, m) => `${parseInt(h) % 12 || 12}:${m} ${parseInt(h) < 12 ? "AM" : "PM"}`) : ""}${j.technician_name ? " · " + j.technician_name : ""}`}
+                onMouseEnter={e => {
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setHoverCard({ job: j, x: r.right, y: r.top });
+                }}
+                onMouseLeave={() => setHoverCard(null)}
                 style={{
-                  background: chip.bg, border: `1px solid ${chip.border}`, color: chip.text,
-                  borderRadius: 3, fontSize: 10, fontWeight: 600, padding: "1px 4px",
+                  background: chip.bg, borderLeft: `3px solid ${chip.border}`, color: chip.text,
+                  borderRadius: "0 4px 4px 0", fontSize: 10, fontWeight: 700, padding: "2px 5px",
                   marginBottom: 2, cursor: ro ? "default" : "grab", whiteSpace: "nowrap",
-                  overflow: "hidden", textOverflow: "ellipsis", lineHeight: "16px",
+                  overflow: "hidden", textOverflow: "ellipsis", lineHeight: "15px",
                   userSelect: "none",
                 }}
               >
@@ -5338,6 +5356,52 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
 
   return (
     <div style={{ fontFamily: FF, overflow: "hidden" }}>
+      {/* Hover quick-look card — MaidCentral-style, Qleno data. position:fixed so
+          it escapes the calendar's overflow:hidden; pointerEvents none so it never
+          steals the hover. */}
+      {hoverCard && (() => {
+        const j = hoverCard.job;
+        const ch = STATUS_CHIP[chipKeyFor(j)] || STATUS_CHIP.scheduled;
+        const fmtT = (s: any) => s ? String(s).slice(0,5).replace(/^(\d+):(\d+)$/, (_, h, m) => `${parseInt(h) % 12 || 12}:${m} ${parseInt(h) < 12 ? "AM" : "PM"}`) : null;
+        const svc = String(j.service_type || "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+        const amt = j.billed_amount ?? j.base_fee;
+        const hrs = j.estimated_hours ?? j.actual_hours;
+        const addr = [j.address_street, j.address_city].filter(Boolean).join(", ");
+        const W = 256;
+        const left = Math.min(hoverCard.x + 8, (typeof window !== "undefined" ? window.innerWidth : 1200) - W - 10);
+        const top = Math.max(8, hoverCard.y - 6);
+        const Row = ({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) => (
+          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#374151", padding: "3px 0" }}>
+            <span style={{ color: "#9E9B94", display: "flex", width: 14, flexShrink: 0 }}>{icon}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children}</span>
+          </div>
+        );
+        return (
+          <div style={{ position: "fixed", left, top, width: W, zIndex: 9999, pointerEvents: "none",
+            background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, boxShadow: "0 8px 28px rgba(10,14,26,0.16)", padding: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{svc || "Job"}</span>
+              <span style={{ flexShrink: 0, background: ch.bg, borderLeft: `3px solid ${ch.border}`, color: ch.text, borderRadius: "0 4px 4px 0", fontSize: 10, fontWeight: 700, padding: "2px 7px" }}>{ch.label}</span>
+            </div>
+            <Row icon={<Clock size={13} />}>
+              {new Date(String(j.scheduled_date).split("T")[0] + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+              {fmtT(j.scheduled_time) ? ` · ${fmtT(j.scheduled_time)}` : ""}
+            </Row>
+            <Row icon={<Wrench size={13} />}>{j.technician_name || "Unassigned"}</Row>
+            {addr && <Row icon={<MapPin size={13} />}>{addr}</Row>}
+            <div style={{ display: "flex", gap: 8, marginTop: 8, paddingTop: 8, borderTop: "1px solid #F0EEE9" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const }}>Amount</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#0A0E1A" }}>{amt != null ? `$${Number(amt).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const }}>Hours</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#0A0E1A" }}>{hrs != null ? `${Number(hrs)}h` : "—"}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", borderBottom: "1px solid #E5E2DC", gap: 8 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em", flexShrink: 0 }}>
@@ -6153,9 +6217,15 @@ export default function CustomerProfilePage() {
               </button>
             </div>
 
-            {/* Client Notes */}
+            {/* Internal Notes — office + techs. The standing memo (clients.notes)
+                sits on top; photo-capable notes below distinguish every-visit
+                (blue) from single-job (yellow) via TeamPhotoNotes. */}
             <div style={CS}>
-              <SectionHead title="Client Notes" />
+              <SectionHead title="Internal Notes" />
+              <div style={{ fontSize: 12, color: "#9E9B94", margin: "-2px 0 10px" }}>
+                For the office and techs — never shown to the client.
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", marginBottom: 4 }}>Standing note</div>
               <textarea
                 defaultValue={profile.notes || ""}
                 onBlur={async (e) => {
@@ -6164,10 +6234,12 @@ export default function CustomerProfilePage() {
                     catch { showToast("Failed to save notes", "error"); }
                   }
                 }}
-                placeholder="Internal notes about this client (auto-saves on blur)..."
-                rows={5}
+                placeholder="A standing internal note about this client (auto-saves on blur)..."
+                rows={4}
                 style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#374151", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, lineHeight: 1.5, background: "#FAFAF8" }}
               />
+              <div style={{ borderTop: "1px solid #F0EEE9", margin: "16px 0 12px" }} />
+              <TeamPhotoNotes clientId={clientId} title="Notes & photos" />
             </div>
           </div>
 
