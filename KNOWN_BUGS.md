@@ -26,6 +26,31 @@ Applies to every archived tech (e.g. also Ana Valdez, Tatiana Merchan, Katie Fry
 
 ---
 
+## FEATURE — Terminate flow (offboarding) with reasons + dates (2026-07-01)
+
+The Reactivate companion. Previously the only "Termination Date" control was a
+bare date field in the edit form that `PUT /users/:id` silently dropped — so
+terminations weren't recorded and there was no reason/offboarding flow.
+
+**Added:**
+- New columns (idempotent `ADD COLUMN IF NOT EXISTS` in `phes-data-migration.ts`
+  + Drizzle schema): `users.last_day_worked` (date), `users.termination_reason`
+  (text), `users.rehire_eligible` (bool). `termination_date` already existed.
+- `routes/users.ts` — **`POST /:id/terminate`** (owner-only, tenant-scoped;
+  can't terminate an owner or yourself). Validates a `termination_date` and a
+  reason from a fixed set (resigned / job_abandonment / performance / misconduct
+  / laid_off / end_of_season / other), then sets the separation fields,
+  `is_active=false`, and `archived_at=NOW()` so they drop off dispatch, the time
+  clock, payroll, and pickers. Audit-logged.
+- `lms-restore` (Reactivate) now also clears the termination fields and flips
+  `is_active` back on — one button fully reverses archive AND terminate.
+- `pages/employee-profile.tsx` — a red **Terminate** button (opens a modal with
+  Reason, Termination date, Last day worked, Eligible-for-rehire) for active
+  employees; a **TERMINATED** header badge (reason/date/rehire in the tooltip);
+  the dead edit-form date field is now a read-only status.
+
+---
+
 ## RESOLVED — Time Clocks fee split paid the primary 100% pre-clock (multi-cleaner) (2026-06-30)
 
 **Severity:** High — wrong per-cleaner commission shown on the Time Clocks grid

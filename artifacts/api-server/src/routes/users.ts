@@ -1204,14 +1204,20 @@ router.post(
           .status(404)
           .json({ error: "Not Found", message: "User not found in tenant" });
       }
-      // Already active — nothing to clear.
-      if (!target[0].archived_at) {
-        return res.json({ data: { id: target[0].id, archived_at: null } });
-      }
-
+      // [terminate 2026-07-01] Reactivate fully re-onboards: clears the archive
+      // AND any termination record, and flips is_active back on — so one button
+      // reverses both "archive" and "terminate". History is kept in the audit
+      // log. Idempotent for a user who is neither archived nor terminated.
       const updated = await db
         .update(usersTable)
-        .set({ archived_at: null })
+        .set({
+          archived_at: null,
+          is_active: true,
+          termination_date: null,
+          last_day_worked: null,
+          termination_reason: null,
+          rehire_eligible: null,
+        })
         .where(eq(usersTable.id, targetId))
         .returning({
           id: usersTable.id,
@@ -1233,6 +1239,133 @@ router.post(
       return res
         .status(500)
         .json({ error: "Internal Server Error", message: "Failed to restore user" });
+    }
+  },
+);
+
+// [terminate 2026-07-01] Allowed termination reasons — kept in lockstep with the
+// Terminate modal's dropdown. Stored as the slug; the UI owns the labels.
+const TERMINATION_REASONS = new Set([
+  "resigned",
+  "job_abandonment",
+  "performance",
+  "misconduct",
+  "laid_off",
+  "end_of_season",
+  "other",
+]);
+
+// POST /:id/terminate — Owner only. Records an HR separation and takes the
+// employee off the active roster in one step: sets termination_date +
+// last_day_worked + termination_reason + rehire_eligible, flips is_active off,
+// and archives them (archived_at) so they drop from dispatch, the time clock,
+// payroll, and pickers. Reversible via /:id/lms-restore (the Reactivate button).
+router.post(
+  "/:id/terminate",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const callerCompanyId = req.auth!.companyId;
+      if (callerCompanyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const targetId = Number(req.params.id);
+      if (!Number.isFinite(targetId) || targetId <= 0) {
+        return res.status(400).json({ error: "Bad Request", message: "Invalid user id" });
+      }
+
+      const {
+        termination_date,
+        last_day_worked,
+        termination_reason,
+        rehire_eligible,
+      } = req.body ?? {};
+
+      const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+      if (!termination_date || !dateRe.test(String(termination_date))) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "termination_date (YYYY-MM-DD) is required",
+        });
+      }
+      if (last_day_worked != null && last_day_worked !== "" && !dateRe.test(String(last_day_worked))) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "last_day_worked must be YYYY-MM-DD when provided",
+        });
+      }
+      if (!termination_reason || !TERMINATION_REASONS.has(String(termination_reason))) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: `termination_reason must be one of: ${[...TERMINATION_REASONS].join(", ")}`,
+        });
+      }
+
+      const target = await db
+        .select({
+          id: usersTable.id,
+          company_id: usersTable.company_id,
+          email: usersTable.email,
+          role: usersTable.role,
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetId))
+        .limit(1);
+      if (!target[0] || target[0].company_id !== callerCompanyId) {
+        return res.status(404).json({ error: "Not Found", message: "User not found in tenant" });
+      }
+      if (target[0].role === "owner") {
+        return res.status(400).json({ error: "Bad Request", message: "Cannot terminate an owner account" });
+      }
+      if (target[0].id === req.auth!.userId) {
+        return res.status(400).json({ error: "Bad Request", message: "Cannot terminate yourself" });
+      }
+
+      const updated = await db
+        .update(usersTable)
+        .set({
+          termination_date: String(termination_date),
+          last_day_worked: last_day_worked ? String(last_day_worked) : null,
+          termination_reason: String(termination_reason),
+          rehire_eligible: typeof rehire_eligible === "boolean" ? rehire_eligible : null,
+          is_active: false,
+          archived_at: new Date(),
+        })
+        .where(eq(usersTable.id, targetId))
+        .returning({
+          id: usersTable.id,
+          termination_date: usersTable.termination_date,
+          last_day_worked: usersTable.last_day_worked,
+          termination_reason: usersTable.termination_reason,
+          rehire_eligible: usersTable.rehire_eligible,
+          is_active: usersTable.is_active,
+          archived_at: usersTable.archived_at,
+        });
+
+      await logAudit(
+        req,
+        "users.terminate",
+        "user",
+        targetId,
+        null,
+        {
+          email: target[0].email,
+          termination_date: String(termination_date),
+          last_day_worked: last_day_worked ? String(last_day_worked) : null,
+          termination_reason: String(termination_reason),
+          rehire_eligible: typeof rehire_eligible === "boolean" ? rehire_eligible : null,
+        },
+      );
+
+      return res.json({ data: updated[0] });
+    } catch (err) {
+      console.error("[users] /:id/terminate error:", err);
+      return res
+        .status(500)
+        .json({ error: "Internal Server Error", message: "Failed to terminate user" });
     }
   },
 );
