@@ -34,7 +34,7 @@ function applyMerge(template: string, vars: Record<string, string>): string {
 export function wrapEmailHtml(contentHtml: string, brand?: { logoUrl?: string | null; companyName?: string | null }): string {
   const name = brand?.companyName || "Phes";
   const header = brand?.logoUrl
-    ? `<img src="${brand.logoUrl}" alt="${name}" height="40" style="height:40px;width:auto;max-width:220px;display:block;border:0;background:#ffffff;border-radius:6px;" />`
+    ? `<img src="${brand.logoUrl}" alt="${name}" height="72" style="height:72px;width:auto;max-width:320px;display:block;border:0;background:#ffffff;border-radius:6px;" />`
     : `<span style="color:#ffffff;font-size:20px;font-weight:bold;font-family:${BRAND.font};">${name}</span>`;
   // A logo image needs a light backdrop to read on any artwork; keep the text
   // fallback on the accent color.
@@ -46,7 +46,7 @@ export function wrapEmailHtml(contentHtml: string, brand?: { logoUrl?: string | 
 <table width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.bg};padding:32px 16px;">
 <tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:${BRAND.card};border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border};">
-<tr><td style="background:${headerBg};padding:20px 32px;border-bottom:1px solid ${BRAND.border};">
+<tr><td style="background:${headerBg};padding:24px 32px;border-bottom:1px solid ${BRAND.border};">
   ${header}
 </td></tr>
 <tr><td style="padding:32px;color:${BRAND.textMain};font-size:15px;line-height:1.6;font-family:${BRAND.font};">
