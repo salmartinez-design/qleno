@@ -21,6 +21,29 @@ duplicate was created; complements the write-side guard. Covered by
 
 ---
 
+## RESOLVED — Duplicate punch double-counted the fee split (2026-07-01)
+
+**Severity:** High — wrong tech pay on live payroll. On job 5397 (Claudia
+Mosier, shared by Juliana + Norma) the fee split paid Juliana $41.99 and Norma
+$21.01 instead of $31.50 each. Reported by Maribel on go-live day.
+
+**Root cause:** Juliana had TWO overlapping punches on the same job (a completed
+field-app punch + a manual office punch Francisco stacked on top, 18s apart).
+The commission split weights by clocked minutes summed per (job, tech), so her
+doubled minutes gave her ⅔ of the $63 pool and Norma ⅓. The office clock-in's
+existing de-dup only caught *open* entries, so a punch stacked on an already-
+*closed* one slipped through.
+
+**Fix:**
+- Data: deleted the duplicate punch (entry 642) — split corrected to $31.50 each.
+  A 4-day scan (51 jobs) found this was the only duplicate.
+- `routes/timeclock.ts` `POST /office/clock-in` — now also rejects a punch whose
+  start falls INSIDE an existing CLOSED entry's span for the same tech+job (409
+  "edit the existing entry instead"). A clock-in strictly after a prior clock-out
+  (e.g. a lunch break) is still allowed.
+
+---
+
 ## RESOLVED — Job notes (office + cleaner) lost on quick close / stale until refresh (2026-07-01)
 
 **Severity:** Medium — office/cleaner notes on the dispatch job panel "need a
