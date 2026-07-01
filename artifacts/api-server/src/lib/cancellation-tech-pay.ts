@@ -41,6 +41,22 @@ export interface TechPayInput {
   /** Number of assigned techs to split the pay across. */
   numTechs: number;
   policy: TechPayPolicy;
+  /**
+   * [cancel-fee-policy 2026-07-01] Explicit operator override for whether this
+   * cancellation pays the assigned tech(s) — set by the cancel modal's "Pay the
+   * assigned tech the $60 cancellation fee" checkbox.
+   *   true      → pay per policy.
+   *   false     → waive the tech's fee (pay nothing).
+   *   undefined → default (pay).
+   *
+   * Policy (Sal, 2026-07-01): an inside-48hr cancellation charges the customer
+   * the full job amount AND pays the assigned tech the flat $60 fee — for BOTH
+   * `cancel` and `lockout`. So the default is to PAY. The office waives it
+   * per-job (payTech=false) for unexpected circumstances, and a full fee waiver
+   * (customerChargeAmount → 0) is handled by the caller, which skips this
+   * resolver entirely when nothing is charged.
+   */
+  payTech?: boolean;
 }
 
 export interface TechPayResult {
@@ -61,6 +77,12 @@ export function resolveCancellationTechPay(input: TechPayInput): TechPayResult {
 
   if (!CHARGING_ACTIONS.has(input.action)) return empty;
   if (input.numTechs <= 0) return empty;
+
+  // Whether this event pays the tech at all. A charging cancellation pays the
+  // flat fee by default (Sal's policy: cancel/lockout both owe the tech $60);
+  // the office waives it per-job via payTech=false. See TechPayInput.payTech.
+  const shouldPay = input.payTech ?? true;
+  if (!shouldPay) return empty;
 
   const total = input.policy.mode === "percent"
     ? round2(Math.max(0, input.customerChargeAmount) * (input.policy.amount / 100))

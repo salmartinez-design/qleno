@@ -182,6 +182,11 @@ router.post("/action", requireAuth, async (req, res) => {
     // When true, send the client a confirmation via their preferred channel
     // (clients.cancellation_notify_via). Fire-and-forget after commit.
     notify_client?: boolean;
+    // [cancel-no-clock-pay 2026-07-01] Operator override for whether the
+    // assigned tech(s) get paid the cancellation fee. undefined = use the
+    // action default (lockout pays, plain cancel doesn't). See
+    // resolveCancellationTechPay.
+    pay_tech?: boolean;
   };
   if (!body?.job_id || !Number.isFinite(Number(body.job_id))) {
     return res.status(400).json({ error: "job_id required" });
@@ -292,6 +297,14 @@ router.post("/action", requireAuth, async (req, res) => {
     ? Math.max(0, Number(body.charge_amount_override))
     : policy.charge_amount;
 
+  // [cancel-fee-policy 2026-07-01] The EFFECTIVE outcome, not just the action's
+  // nominal policy: a charging action whose fee the operator waived to $0
+  // becomes a free cancellation — the job goes 'cancelled' (not a $0 'complete'
+  // artifact) and the tech is not paid. This is what makes "Waive fee" leave
+  // no footprint on revenue or the time clock. A charge > 0 keeps the normal
+  // charged-cancellation path (job 'complete', billed = fee, tech paid).
+  const isChargedOutcome = policy.charges_customer && finalCharge > 0;
+
   const feeBasis = policy.fee_flat_applied > 0 ? "flat" : `${policy.fee_pct_applied}%`;
   const actionNote = policy.charges_customer
     ? `[${action}_fee_charged: $${finalCharge.toFixed(2)} (${feeBasis})]`
@@ -349,9 +362,10 @@ router.post("/action", requireAuth, async (req, res) => {
            WHERE id = ${body.job_id} AND company_id = ${companyId}
         `);
       }
-    } else if (policy.next_job_status === "complete") {
+    } else if (isChargedOutcome) {
       // Charged cancellation — billed_amount becomes the cancellation fee
-      // (so revenue reports pick it up cleanly).
+      // (so revenue reports pick it up cleanly). A fully-waived fee ($0) falls
+      // through to the free branch below and is recorded as a plain cancel.
       await tx.execute(sql`
         UPDATE jobs
            SET status = 'complete'::job_status,
@@ -415,11 +429,11 @@ router.post("/action", requireAuth, async (req, res) => {
       })
       .returning();
 
-    // Tech pay — charging actions still owe the assigned tech(s)
-    // something (they were on the schedule, may have driven out, may
-    // have shown up to a locked door). Resolve via tenant policy +
-    // split across assigned techs.
-    if (policy.charges_customer) {
+    // Tech pay — a charged cancellation owes the assigned tech(s) the flat
+    // cancellation fee (Sal's policy: cancel/lockout both pay $60), split
+    // across assigned techs. Gated on the EFFECTIVE outcome so a waived fee
+    // ($0) pays nothing, and honors the modal's per-job pay_tech override.
+    if (isChargedOutcome) {
       const techRows = await tx.execute(sql`
         SELECT user_id FROM job_technicians WHERE job_id = ${body.job_id}
       `);
@@ -433,6 +447,9 @@ router.post("/action", requireAuth, async (req, res) => {
             mode: (row.cancellation_tech_pay_mode ?? "flat") as CancellationTechPayMode,
             amount: parseFloat(String(row.cancellation_tech_pay_amount ?? 60)),
           },
+          // Operator override from the cancel modal; falls back to the action
+          // default (lockout pays, plain cancel doesn't) when omitted.
+          payTech: typeof body.pay_tech === "boolean" ? body.pay_tech : undefined,
         });
         if (techPay.pays_tech) {
           const noteLabel = `${action === "lockout" ? "Lockout" : "Cancel"} pay — ${row.client_name ?? "Customer"} (job #${body.job_id})`;
@@ -542,7 +559,7 @@ router.post("/action", requireAuth, async (req, res) => {
     // what the policy said (the policy is cancellation-centric and
     // defaults to 'cancelled' for free actions). Surface 'scheduled' so
     // the dispatch refetch knows to keep the chip visible.
-    next_status: isReschedule ? "scheduled" : policy.next_job_status,
+    next_status: isReschedule ? "scheduled" : (isChargedOutcome ? "complete" : "cancelled"),
     future_cancelled_count: futureCancelled,
     tech_pay: techPayWritten,
     // Echo back the reschedule target so the frontend can confirm in
