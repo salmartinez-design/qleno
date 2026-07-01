@@ -21,6 +21,7 @@ import { renderCustomerTemplate, applyMergeTags, CUSTOMER_MESSAGE_TRIGGERS, type
 import { wrapEmailHtml } from "./notificationService.js";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { emailLogoUrl } from "../lib/app-url.js";
+import { SAMPLE_SERVICES_BREAKDOWN_HTML } from "../lib/services-breakdown.js";
 // Reuse the exact production render paths for the two non-template card groups:
 // the hardcoded job-status SMS bodies and the office booking-notification email.
 import { SMS_MESSAGES } from "../routes/job-sms.js";
@@ -58,6 +59,9 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
   tech_name: "Ana",
   appointment_link: "https://app.qleno.com/appointments/test-sample",
   review_link: "https://phes.io/review/test-sample",
+  // Pre-rendered sample itemized table so a test send exercises the
+  // {{services_breakdown}} chip exactly like a real booking would.
+  services_breakdown: SAMPLE_SERVICES_BREAKDOWN_HTML,
 };
 
 // Sample booking used to render the office-notification email test. branchConfig
@@ -98,6 +102,13 @@ export interface TestSendParams {
   channel: MsgChannel;
   fixture: Fixture;
   recipientOverride?: string | null;
+  // [draft-test] Unsaved editor content. When bodyOverride is a non-empty
+  // string, the test renders THIS draft instead of the saved template row, so
+  // the office can verify edits without first saving them live to customers.
+  // Applies only to catalog/custom templates (the office-booking and job-status
+  // groups have no editable body). Stored-format {{tag}} text, same as the row.
+  subjectOverride?: string | null;
+  bodyOverride?: string | null;
 }
 
 export interface TestSendResult {
@@ -124,7 +135,7 @@ export async function assertUnderRateLimit(userId: number): Promise<void> {
 }
 
 export async function sendTestNotification(params: TestSendParams): Promise<TestSendResult> {
-  const { companyId, userId, userLoginEmail, branchId, templateKey, channel, fixture, recipientOverride } = params;
+  const { companyId, userId, userLoginEmail, branchId, templateKey, channel, fixture, recipientOverride, subjectOverride, bodyOverride } = params;
 
   if (channel !== "email" && channel !== "sms") {
     throw new TestSendError("bad_channel", 400, "channel must be 'email' or 'sms'");
@@ -195,6 +206,14 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
     const fn = SMS_MESSAGES[k];
     if (!fn) throw new TestSendError("template_not_found", 404, `No job-status message '${k}'.`);
     rendered = { subject: null, body: fn(SAMPLE_CUSTOMER_VARS.tech_name, SAMPLE_CUSTOMER_VARS.first_name, SAMPLE_CUSTOMER_VARS.service_address) };
+  } else if (typeof bodyOverride === "string" && bodyOverride.trim()) {
+    // [draft-test] Render the unsaved editor draft through the same {{tag}}
+    // substitution the saved path uses, so a DRAFT test looks identical to what
+    // saving-then-sending would produce.
+    rendered = {
+      subject: channel === "email" && subjectOverride ? applyMergeTags(subjectOverride, fullVars) : null,
+      body: applyMergeTags(bodyOverride, fullVars),
+    };
   } else {
     const r = await renderCustomerTemplate(companyId, templateKey, channel, fullVars);
     if (!r) throw new TestSendError("template_not_found", 404, `No ${channel} template found for '${templateKey}'.`);

@@ -77,6 +77,10 @@ export const MERGE_TAGS = [
   "tech_name",
   "appointment_link",
   "review_link",
+  // Renders a pre-styled itemized HTML table of the booking's line items
+  // (base service, add-ons, discounts, total). Email-only — the editor hides
+  // this chip on SMS. See lib/services-breakdown.ts.
+  "services_breakdown",
 ] as const;
 
 // The canonical catalog. Order = the cadence order the customer experiences.
