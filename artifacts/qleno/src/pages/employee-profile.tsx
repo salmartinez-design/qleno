@@ -11,6 +11,7 @@ import {
   ArrowLeft, Camera, Plus, X, ChevronLeft, ChevronRight,
   Star, Save, Trash2, Edit2, Check, AlertCircle, Mail, Phone, Eye,
   Ban, ChevronDown, ChevronUp, DollarSign, Clock, TrendingUp, Download, Users,
+  RotateCcw,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { EarningsPanel } from "@/components/earnings-panel";
@@ -574,6 +575,70 @@ export default function EmployeeProfilePage() {
     queryFn: () => apiFetch(`/users/${userId}`),
   });
 
+  // [reactivate 2026-07-01] Un-archive an archived employee. An archived tech
+  // (archived_at set) is off the active roster even though is_active=true —
+  // this clears archived_at via the restore endpoint so they return to
+  // dispatch, the time clock, payroll, and pickers.
+  const [restoring, setRestoring] = useState(false);
+  const reactivateEmployee = async () => {
+    setRestoring(true);
+    try {
+      await apiFetch(`/users/${userId}/lms-restore`, { method: 'POST' });
+      await refetchUser();
+      qc.invalidateQueries({ queryKey: ['users'] });
+      showToast('Employee reactivated');
+    } catch (e: any) {
+      showToast(e?.message || 'Reactivate failed');
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  // [terminate 2026-07-01] HR separation flow. Records reason + dates, marks the
+  // employee inactive, and archives them so they drop off the active roster.
+  // Reversible via the Reactivate button (lms-restore clears it all).
+  const TERMINATION_REASON_OPTIONS = [
+    { value: 'resigned',        label: 'Resigned (voluntary)' },
+    { value: 'job_abandonment', label: 'Job abandonment / no-call-no-show' },
+    { value: 'performance',     label: 'Terminated – performance' },
+    { value: 'misconduct',      label: 'Terminated – misconduct / policy' },
+    { value: 'laid_off',        label: 'Laid off' },
+    { value: 'end_of_season',   label: 'End of season / contract' },
+    { value: 'other',           label: 'Other' },
+  ];
+  const reasonLabel = (v?: string | null) =>
+    TERMINATION_REASON_OPTIONS.find(o => o.value === v)?.label ?? (v || '');
+  const [termOpen, setTermOpen] = useState(false);
+  const [termReason, setTermReason] = useState('');
+  const [termDate, setTermDate] = useState('');
+  const [termLastDay, setTermLastDay] = useState('');
+  const [termRehire, setTermRehire] = useState<'' | 'yes' | 'no'>('');
+  const [terminating, setTerminating] = useState(false);
+  const submitTermination = async () => {
+    if (!termReason) { showToast('Pick a reason'); return; }
+    if (!termDate) { showToast('Pick a termination date'); return; }
+    setTerminating(true);
+    try {
+      await apiFetch(`/users/${userId}/terminate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          termination_date: termDate,
+          last_day_worked: termLastDay || null,
+          termination_reason: termReason,
+          rehire_eligible: termRehire === '' ? null : termRehire === 'yes',
+        }),
+      });
+      await refetchUser();
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setTermOpen(false);
+      showToast('Employee terminated');
+    } catch (e: any) {
+      showToast(e?.message || 'Terminate failed');
+    } finally {
+      setTerminating(false);
+    }
+  };
+
   const { data: availabilityData } = useQuery({
     queryKey: ['availability', userId],
     queryFn: () => apiFetch(`/users/${userId}/availability`),
@@ -952,24 +1017,119 @@ export default function EmployeeProfilePage() {
             style={{ display:'flex',alignItems:'center',gap:6,background:'none',border:'none',cursor:'pointer',color:'#6B7280',fontSize:13,padding:0,fontFamily:'inherit' }}>
             <ArrowLeft size={14}/> Back to Team
           </button>
-          {isOwner && user && user.role !== 'owner' && (
-            <button
-              onClick={async () => {
-                await activateView({ employeeId: userId, employeeName: `${user.first_name} ${user.last_name}` });
-                navigate('/my-jobs');
-              }}
-              style={{
-                display:'flex', alignItems:'center', gap:6,
-                padding:'7px 14px', borderRadius:8,
-                border:'1px solid #E5E2DC', background:'#FFFFFF',
-                color:'#1A1917', fontSize:13, fontWeight:600,
-                cursor:'pointer', fontFamily:'inherit',
-              }}
-            >
-              <Eye size={14} strokeWidth={1.5} /> View as Employee
-            </button>
-          )}
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            {/* [reactivate 2026-07-01] Un-archive control — only when the
+                employee is actually archived (the state that hides them from
+                the roster). Owner-only, mirrors the archive permission. */}
+            {isOwner && user && user.role !== 'owner' && (user.archived_at || user.termination_date) && (
+              <button
+                onClick={reactivateEmployee}
+                disabled={restoring}
+                style={{
+                  display:'flex', alignItems:'center', gap:6,
+                  padding:'7px 14px', borderRadius:8,
+                  border:'1px solid #00C9A0', background:'#00C9A0',
+                  color:'#FFFFFF', fontSize:13, fontWeight:700,
+                  cursor: restoring ? 'default' : 'pointer', fontFamily:'inherit',
+                  opacity: restoring ? 0.6 : 1,
+                }}
+              >
+                <RotateCcw size={14} strokeWidth={2} /> {restoring ? 'Reactivating…' : 'Reactivate'}
+              </button>
+            )}
+            {isOwner && user && user.role !== 'owner' && (
+              <button
+                onClick={async () => {
+                  await activateView({ employeeId: userId, employeeName: `${user.first_name} ${user.last_name}` });
+                  navigate('/my-jobs');
+                }}
+                style={{
+                  display:'flex', alignItems:'center', gap:6,
+                  padding:'7px 14px', borderRadius:8,
+                  border:'1px solid #E5E2DC', background:'#FFFFFF',
+                  color:'#1A1917', fontSize:13, fontWeight:600,
+                  cursor:'pointer', fontFamily:'inherit',
+                }}
+              >
+                <Eye size={14} strokeWidth={1.5} /> View as Employee
+              </button>
+            )}
+            {/* [terminate 2026-07-01] Terminate control — only for an active
+                (non-separated) employee. Owner-only. Opens the reason/date modal. */}
+            {isOwner && user && user.role !== 'owner' && !user.archived_at && !user.termination_date && (
+              <button
+                onClick={() => { setTermReason(''); setTermDate(''); setTermLastDay(''); setTermRehire(''); setTermOpen(true); }}
+                style={{
+                  display:'flex', alignItems:'center', gap:6,
+                  padding:'7px 14px', borderRadius:8,
+                  border:'1px solid #FECACA', background:'#FFFFFF',
+                  color:'#B91C1C', fontSize:13, fontWeight:600,
+                  cursor:'pointer', fontFamily:'inherit',
+                }}
+              >
+                <Ban size={14} strokeWidth={1.75} /> Terminate
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* [terminate 2026-07-01] Terminate modal — reason + dates + rehire. */}
+        {termOpen && (
+          <div style={{ position:'fixed', inset:0, background:'rgba(10,14,26,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:300, padding:16 }}>
+            <div style={{ background:'#FFFFFF', borderRadius:16, padding:'22px 24px 20px', width:460, maxWidth:'100%', maxHeight:'90vh', overflowY:'auto', boxShadow:'0 24px 70px rgba(10,14,26,0.28)', fontFamily:'inherit' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:4 }}>
+                <h3 style={{ margin:0, fontSize:17, fontWeight:700, color:'#0A0E1A' }}>Terminate {user.first_name} {user.last_name}</h3>
+                <button onClick={() => setTermOpen(false)} aria-label="Close" style={{ background:'transparent', border:0, fontSize:22, color:'#9E9B94', cursor:'pointer', lineHeight:1, padding:'0 0 0 12px' }}>×</button>
+              </div>
+              <p style={{ margin:'0 0 16px', fontSize:12.5, color:'#6B6860' }}>
+                Records the separation and removes them from the active roster (dispatch, time clock, payroll). Reversible via Reactivate.
+              </p>
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Reason</label>
+                  <Select value={termReason} onChange={setTermReason}
+                    options={[{ value:'', label:'Select a reason…' }, ...TERMINATION_REASON_OPTIONS]} />
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Termination date</label>
+                    <CalendarPopover value={termDate} ariaLabel="Termination date" onChange={setTermDate} block />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Last day worked</label>
+                    <CalendarPopover value={termLastDay} ariaLabel="Last day worked" onChange={setTermLastDay} block />
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Eligible for rehire?</label>
+                  <div style={{ display:'flex', gap:8 }}>
+                    {([{v:'yes',l:'Yes'},{v:'no',l:'No'},{v:'',l:'Unspecified'}] as {v:''|'yes'|'no';l:string}[]).map(o => {
+                      const on = termRehire === o.v;
+                      return (
+                        <button key={o.l} type="button" onClick={() => setTermRehire(o.v)}
+                          style={{ padding:'6px 14px', borderRadius:999, fontSize:12.5, fontWeight:600, fontFamily:'inherit', cursor:'pointer',
+                            border:`1px solid ${on ? '#00C9A0' : '#E5E2DC'}`, background:on ? '#F0FBF8' : '#FFFFFF', color:on ? '#0A6E5A' : '#6B6860' }}>
+                          {o.l}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+                <button onClick={() => setTermOpen(false)} disabled={terminating}
+                  style={{ padding:'9px 18px', border:'1px solid #E5E2DC', borderRadius:8, fontSize:13, fontWeight:600, color:'#6B6860', background:'#FFFFFF', cursor:'pointer', fontFamily:'inherit' }}>Cancel</button>
+                <button onClick={submitTermination} disabled={terminating || !termReason || !termDate}
+                  style={{ padding:'9px 22px', borderRadius:8, fontSize:13, fontWeight:700, fontFamily:'inherit', border:'none',
+                    background:(terminating || !termReason || !termDate) ? '#E5E2DC' : '#DC2626',
+                    color:(terminating || !termReason || !termDate) ? '#9E9B94' : '#FFFFFF',
+                    cursor:(terminating || !termReason || !termDate) ? 'default' : 'pointer' }}>
+                  {terminating ? 'Terminating…' : 'Terminate'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ── PROFILE HEADER ── */}
         <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding: isMobile ? '16px' : '24px 32px', marginBottom:2, display:'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 16 : 32, alignItems:'flex-start' }}>
@@ -1002,7 +1162,16 @@ export default function EmployeeProfilePage() {
               <span style={{ ...ROLE_BADGES[user.role], padding:'3px 10px', borderRadius:4, fontSize:11, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', display:'inline-block' }}>
                 {user.role?.replace('_',' ')}
               </span>
-              {!user.is_active && <span style={{ background:'#FEE2E2', color:'#991B1B', border:'1px solid #FECACA', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>INACTIVE</span>}
+              {/* A terminated employee shows a single TERMINATED badge (it
+                  implies inactive + archived) rather than three redundant ones. */}
+              {user.termination_date
+                ? <span title={`${reasonLabel(user.termination_reason)} · ${new Date(user.termination_date + 'T00:00:00').toLocaleDateString()}${user.rehire_eligible === false ? ' · not eligible for rehire' : user.rehire_eligible === true ? ' · eligible for rehire' : ''}`}
+                    style={{ background:'#FEE2E2', color:'#991B1B', border:'1px solid #FECACA', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:700 }}>TERMINATED</span>
+                : <>
+                    {!user.is_active && <span style={{ background:'#FEE2E2', color:'#991B1B', border:'1px solid #FECACA', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>INACTIVE</span>}
+                    {user.archived_at && <span title={`Archived ${new Date(user.archived_at).toLocaleDateString()}`} style={{ background:'#FEF3C7', color:'#92400E', border:'1px solid #FDE68A', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>ARCHIVED</span>}
+                  </>
+              }
             </div>
             <p style={{ fontSize:11, color:'#9E9B94', margin:'0 0 8px 0' }}>Employee #{String(user.id).padStart(5,'0')}</p>
             <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
@@ -1181,7 +1350,17 @@ export default function EmployeeProfilePage() {
                   <Field label="Emergency Relationship"><Input value={form.emergency_contact_relation || ''} onChange={v => setField('emergency_contact_relation',v)}/></Field>
                   <Field label="SSN Last 4"><Input value={form.ssn_last4 || ''} onChange={v => setField('ssn_last4',v)} type="password"/></Field>
                   <Field label="Hire Date"><CalendarPopover value={form.hire_date || ''} ariaLabel="Hire Date" onChange={v => setField('hire_date',v)} block /></Field>
-                  <Field label="Termination Date"><CalendarPopover value={form.termination_date || ''} ariaLabel="Termination Date" onChange={v => setField('termination_date',v)} block /></Field>
+                  {/* [terminate 2026-07-01] Read-only — termination is set via the
+                      Terminate button (reason + dates + roster removal), not a bare
+                      date field that silently did nothing on Save. */}
+                  <Field label="Termination">
+                    {user.termination_date
+                      ? <div style={{ fontSize:13, color:'#1A1917', padding:'9px 0' }}>
+                          {new Date(user.termination_date + 'T00:00:00').toLocaleDateString()} · {reasonLabel(user.termination_reason)}
+                          {user.last_day_worked ? ` · last day ${new Date(user.last_day_worked + 'T00:00:00').toLocaleDateString()}` : ''}
+                        </div>
+                      : <div style={{ fontSize:13, color:'#9E9B94', padding:'9px 0' }}>Active — use the Terminate button to record a separation</div>}
+                  </Field>
                 </div>
                 <div style={{ marginTop:16 }}>
                   <Field label="Internal Notes">

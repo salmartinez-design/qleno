@@ -739,7 +739,12 @@ router.put("/:id", requireAuth, async (req, res) => {
       ...(home_access_notes !== undefined && { home_access_notes }),
       ...(alarm_code !== undefined && { alarm_code }),
       ...(pets !== undefined && { pets }),
-      ...(client_since !== undefined && { client_since }),
+      // [client-save-fix 2026-07-01] The edit drawer sends "" for an empty
+      // Client Since; `client_since` is a DATE column and Postgres rejects ''
+      // ("invalid input syntax for type date"), which failed the WHOLE update
+      // and surfaced as a generic "Failed to save profile" for every client
+      // with no Client Since. Coerce empty → null (the intended "unset").
+      ...(client_since !== undefined && { client_since: client_since === "" ? null : client_since }),
       ...(geo && { lat: geo.lat, lng: geo.lng }),
       ...(client_type !== undefined && { client_type }),
       ...(commercial_category !== undefined && { commercial_category }),
@@ -753,7 +758,7 @@ router.put("/:id", requireAuth, async (req, res) => {
       ...(card_last_four !== undefined && { card_last_four }),
       ...(card_brand !== undefined && { card_brand }),
       ...(card_expiry !== undefined && { card_expiry }),
-      ...(card_saved_at !== undefined && { card_saved_at }),
+      ...(card_saved_at !== undefined && { card_saved_at: card_saved_at === "" ? null : card_saved_at }),
       ...(payment_method !== undefined && { payment_method }),
       ...(net_terms !== undefined && { net_terms: Number(net_terms) || 0 }),
       ...(newZoneId !== undefined && { zone_id: newZoneId }),

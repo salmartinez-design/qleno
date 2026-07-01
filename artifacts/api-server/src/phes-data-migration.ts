@@ -1042,6 +1042,14 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "users.archived_at",
       stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ` },
 
+    // [terminate 2026-07-01] HR separation detail for the Terminate flow.
+    { label: "users.last_day_worked",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_day_worked DATE` },
+    { label: "users.termination_reason",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS termination_reason TEXT` },
+    { label: "users.rehire_eligible",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS rehire_eligible BOOLEAN` },
+
     // Items 8 + 9 (P1 sprint, 2026-05-14): per-tenant LMS settings.
     // Single row per company. First inhabitant: admin_bypass_allowed
     // (default false). Future settings join the same row.
