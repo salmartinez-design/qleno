@@ -1,5 +1,30 @@
 # Known Bugs
 
+## FEATURE — Permanent per-building notes that auto-fill every job (2026-07-01)
+
+Maribel: she was copy-pasting access/parking/office notes onto **every** job for a
+building. Now each building carries permanent **Office Notes** + **Cleaner Notes**
+(+ photos) that flow onto every job's note boxes automatically. Supersedes the
+account-level notes box from the previous pass (removed per Sal — notes live
+per-building).
+
+**Added:**
+- `pages/account-detail.tsx` — on each property detail: inline **Office Notes**
+  (→ property.notes) + **Cleaner Notes** (→ property.access_notes) editors
+  (office-editable), plus a per-building **Team Photos & Notes** block (photos
+  shown on every job for the building). Removed the account-level notes box.
+- `routes/accounts.ts` — the property PATCH now **propagates** the building's
+  notes onto every FUTURE scheduled job for that building: Office → `office_notes`,
+  Cleaner → `notes`. **Non-destructive** — only syncs a job's box when it's empty
+  or still holds the *previous* building note, so a per-job custom note survives.
+  Removed the now-unused account-level `PATCH /:id/notes`.
+
+Follow-up: stamp the building notes at recurring-job **generation** time so brand-new
+far-future visits carry them without a re-save (today they're covered on the next
+building-note edit).
+
+---
+
 ## FEATURE — Per-item commission opt-in for add-ons & adjustments (2026-07-01)
 
 Requested by Maribel/Sal (urgent for payroll): when adding an add-on or a fee

@@ -205,25 +205,28 @@ export default function AccountDetailPage() {
   const [pivot, setPivot] = useState<"zone" | "service" | "tech">("zone");
   const [onlyUnassigned, setOnlyUnassigned] = useState(false);
 
-  // [account-notes 2026-07-01] Editable permanent notes on the account (Maribel:
-  // "can't add permanent notes to accounts"). Saved via the office-editable
-  // PATCH /accounts/:id/notes.
-  const [notesEdit, setNotesEdit] = useState(false);
-  const [notesVal, setNotesVal] = useState("");
-  const [notesSaving, setNotesSaving] = useState(false);
-  async function saveAccountNotes() {
-    setNotesSaving(true);
+  // [building-notes 2026-07-01] Per-building permanent Office + Cleaner notes,
+  // edited inline on the property detail. Office Notes → property.notes,
+  // Cleaner Notes → property.access_notes (both office-editable via the property
+  // PATCH). The backend pre-fills every job's note boxes for the building and
+  // pushes edits to future jobs, so the office stops copy-pasting.
+  const [bnEditProp, setBnEditProp] = useState<number | null>(null);
+  const [bnOffice, setBnOffice] = useState("");
+  const [bnCleaner, setBnCleaner] = useState("");
+  const [bnSaving, setBnSaving] = useState(false);
+  async function saveBuildingNotes(propId: number) {
+    setBnSaving(true);
     try {
-      const r = await fetch(`${API}/api/accounts/${id}/notes`, {
+      const r = await fetch(`${API}/api/accounts/${id}/properties/${propId}`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
-        body: JSON.stringify({ notes: notesVal.trim() ? notesVal : null }),
+        body: JSON.stringify({ notes: bnOffice.trim() ? bnOffice : null, access_notes: bnCleaner.trim() ? bnCleaner : null }),
       });
       if (!r.ok) throw new Error("Failed to save notes");
-      setAccount((a: any) => ({ ...a, notes: notesVal.trim() ? notesVal : null }));
-      setNotesEdit(false);
-    } catch { /* keep the editor open on failure */ }
-    finally { setNotesSaving(false); }
+      setBnEditProp(null);
+      await load();
+    } catch { /* keep editor open on failure */ }
+    finally { setBnSaving(false); }
   }
 
   // Rate card
@@ -727,45 +730,14 @@ export default function AccountDetailPage() {
               )}
             </div>
 
-            {/* [account-notes 2026-07-01] Permanent account notes — editable. */}
-            <div className="bg-white border border-gray-100 rounded-xl p-4 sm:col-span-2">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Notes</p>
-                {!notesEdit && (
-                  <button
-                    onClick={() => { setNotesVal(account.notes || ""); setNotesEdit(true); }}
-                    className="text-xs font-semibold text-[#00C9A0] hover:underline">
-                    {account.notes ? "Edit" : "+ Add notes"}
-                  </button>
-                )}
-              </div>
-              {notesEdit ? (
-                <div className="space-y-2">
-                  <textarea
-                    autoFocus
-                    rows={4}
-                    value={notesVal}
-                    onChange={(e) => setNotesVal(e.target.value)}
-                    placeholder="Permanent notes for this account — billing terms, main contacts, access, anything the team should always see."
-                    className="w-full text-sm border border-gray-200 rounded-lg p-2 outline-none focus:border-[#00C9A0] resize-y"
-                  />
-                  <div className="flex gap-2">
-                    <button onClick={saveAccountNotes} disabled={notesSaving}
-                      className="px-3 py-1.5 rounded-lg bg-[#00C9A0] text-white text-xs font-semibold disabled:opacity-60">
-                      {notesSaving ? "Saving…" : "Save"}
-                    </button>
-                    <button onClick={() => setNotesEdit(false)} disabled={notesSaving}
-                      className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold">
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              ) : account.notes ? (
+            {/* Account-level notes intentionally removed — permanent notes live
+                per-building now (see the property detail's Office/Tech notes). */}
+            {account.notes && (
+              <div className="bg-white border border-gray-100 rounded-xl p-4 sm:col-span-2">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Account notes</p>
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{account.notes}</p>
-              ) : (
-                <p className="text-sm text-gray-400 italic">No notes yet.</p>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -950,12 +922,6 @@ export default function AccountDetailPage() {
                         );
                       })()}
 
-                      {p.access_notes && (
-                        <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-4 flex items-start gap-1.5">
-                          <Key size={13} className="mt-0.5 flex-shrink-0" /> {p.access_notes}
-                        </p>
-                      )}
-
                       <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-2.5 mb-4">
                         <Detail label="Property type" value={p.property_type ? (PROPERTY_TYPES.find((t) => t.value === p.property_type)?.label ?? p.property_type) : "—"} />
                         <Detail label="Units" value={p.unit_count ? `${p.unit_count}` : "—"} />
@@ -966,12 +932,51 @@ export default function AccountDetailPage() {
                         )}
                       </div>
 
-                      {p.notes && (
-                        <div className="mb-4">
-                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Notes</p>
-                          <p className="text-xs text-gray-700 whitespace-pre-wrap">{p.notes}</p>
+                      {/* [building-notes 2026-07-01] Permanent per-building notes.
+                          Office → job Office Notes; Cleaner → job Cleaner Notes.
+                          Auto-filled onto every job for this building by the API. */}
+                      <div className="mb-4 bg-gray-50/60 border border-gray-100 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Permanent building notes</p>
+                          {bnEditProp !== p.id && (
+                            <button onClick={() => { setBnOffice(p.notes || ""); setBnCleaner(p.access_notes || ""); setBnEditProp(p.id); }}
+                              className="text-xs font-semibold text-[#00C9A0] hover:underline">
+                              {(p.notes || p.access_notes) ? "Edit" : "+ Add notes"}
+                            </button>
+                          )}
                         </div>
-                      )}
+                        <p className="text-[11px] text-gray-400 mb-2">Auto-fills every job's note boxes for this building — no more copy-paste.</p>
+                        {bnEditProp === p.id ? (
+                          <div className="space-y-2">
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-500 mb-1">OFFICE NOTES <span className="font-normal text-gray-400">· office only</span></p>
+                              <textarea rows={2} value={bnOffice} onChange={(e) => setBnOffice(e.target.value)} placeholder="e.g. NET 30, bill monthly, main contact Hugo" className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-none focus:border-[#00C9A0] resize-y" />
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-500 mb-1">CLEANER NOTES <span className="font-normal text-gray-400">· the cleaner sees this</span></p>
+                              <textarea rows={2} value={bnCleaner} onChange={(e) => setBnCleaner(e.target.value)} placeholder="e.g. lockbox 4417, park in rear, gate code 2247" className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-none focus:border-[#00C9A0] resize-y" />
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => saveBuildingNotes(p.id)} disabled={bnSaving} className="px-3 py-1.5 rounded-lg bg-[#00C9A0] text-white text-xs font-semibold disabled:opacity-60">{bnSaving ? "Saving…" : "Save & apply to jobs"}</button>
+                              <button onClick={() => setBnEditProp(null)} disabled={bnSaving} className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold">Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-500 mb-0.5">Office</p>
+                              {p.notes ? <p className="text-xs text-gray-700 whitespace-pre-wrap">{p.notes}</p> : <p className="text-xs text-gray-400 italic">None</p>}
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-500 mb-0.5">Cleaner</p>
+                              {p.access_notes ? <p className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1 flex items-start gap-1.5"><Key size={12} className="mt-0.5 flex-shrink-0" />{p.access_notes}</p> : <p className="text-xs text-gray-400 italic">None</p>}
+                            </div>
+                          </div>
+                        )}
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <TeamPhotoNotes accountId={Number(id)} accountPropertyId={p.id} title="Building photos & notes (shown on every job here)" />
+                        </div>
+                      </div>
 
                       <div>
                         <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Last service</p>
