@@ -227,29 +227,6 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin"), async (req, res
   }
 });
 
-// PATCH /api/accounts/:id/notes — update ONLY the account's permanent notes.
-// [account-notes 2026-07-01] Office needs to add permanent notes to accounts, but
-// the full PATCH /:id (billing settings) is owner/admin-only. This notes-only
-// endpoint is office-editable (mirrors the office-admin-parity on properties
-// and account delete) without opening billing fields to the office tier.
-router.patch("/:id/notes", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
-  const id = parseInt(req.params.id);
-  if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
-  const notes = typeof req.body?.notes === "string" ? req.body.notes : (req.body?.notes == null ? null : String(req.body.notes));
-  try {
-    const [account] = await db
-      .update(accountsTable)
-      .set({ notes, updated_at: new Date() })
-      .where(and(eq(accountsTable.id, id), eq(accountsTable.company_id, req.auth!.companyId)))
-      .returning();
-    if (!account) return res.status(404).json({ error: "Account not found" });
-    res.json(account);
-  } catch (err) {
-    console.error("PATCH /accounts/:id/notes error:", err);
-    res.status(500).json({ error: "Failed to update account notes" });
-  }
-});
-
 // DELETE /api/accounts/:id  (soft delete)
 // [office-admin-parity 2026-06-26] Office tier may delete customer accounts (Sal granted this).
 router.delete("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
@@ -552,12 +529,49 @@ router.patch("/:id/properties/:propId", requireAuth, requireRole("owner", "admin
     if (req.body[key] !== undefined) updates[key] = req.body[key];
   }
 
+  const notesChanged = "notes" in updates || "access_notes" in updates;
   try {
+    const companyId = req.auth!.companyId;
+    // Snapshot the previous building notes so propagation can tell a per-job
+    // custom note apart from a stale copy of the old building note.
+    const [before] = notesChanged
+      ? await db.select({ notes: accountPropertiesTable.notes, access_notes: accountPropertiesTable.access_notes })
+          .from(accountPropertiesTable)
+          .where(and(eq(accountPropertiesTable.id, propId), eq(accountPropertiesTable.company_id, companyId))).limit(1)
+      : [undefined as any];
+
     const [prop] = await db
       .update(accountPropertiesTable)
       .set(updates)
-      .where(and(eq(accountPropertiesTable.id, propId), eq(accountPropertiesTable.company_id, req.auth!.companyId)))
+      .where(and(eq(accountPropertiesTable.id, propId), eq(accountPropertiesTable.company_id, companyId)))
       .returning();
+
+    // [building-notes 2026-07-01] Push the building's permanent notes onto every
+    // FUTURE scheduled job for this building so the office stops copy-pasting.
+    // Office notes → job.office_notes, Cleaner notes → job.notes. NON-destructive:
+    // only sync a job's box when it's empty or still holds the PREVIOUS building
+    // note — a per-job custom note is left untouched. Past/in-progress/completed
+    // jobs are never touched.
+    if (prop && notesChanged) {
+      try {
+        if ("notes" in updates) {
+          await db.execute(sql`
+            UPDATE jobs SET office_notes = ${prop.notes ?? null},
+                            office_notes_updated_at = NOW(), office_notes_updated_by = ${req.auth!.userId}
+             WHERE account_property_id = ${propId} AND company_id = ${companyId}
+               AND status = 'scheduled' AND scheduled_date >= CURRENT_DATE
+               AND (office_notes IS NULL OR office_notes = '' OR office_notes IS NOT DISTINCT FROM ${before?.notes ?? null})`);
+        }
+        if ("access_notes" in updates) {
+          await db.execute(sql`
+            UPDATE jobs SET notes = ${prop.access_notes ?? null}
+             WHERE account_property_id = ${propId} AND company_id = ${companyId}
+               AND status = 'scheduled' AND scheduled_date >= CURRENT_DATE
+               AND (notes IS NULL OR notes = '' OR notes IS NOT DISTINCT FROM ${before?.access_notes ?? null})`);
+        }
+      } catch (e) { console.warn("[building-notes] propagate to jobs failed:", e); }
+    }
+
     res.json(prop);
   } catch (err) {
     console.error(err);
