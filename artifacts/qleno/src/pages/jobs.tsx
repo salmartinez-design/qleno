@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo, Fragment } from "react";
 import { useSearch, useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { EmployeeAvatar } from "@/components/employee-avatar";
@@ -4817,176 +4817,135 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
   );
 }
 
-// ─── MOBILE SCHEDULE GRID (HCP-style) ─────────────────────────────────────────
-// [mobile-grid 2026-07-02] One FULL-WIDTH day column (no horizontal scroll — the
-// old per-tech-column grid forced side-scrolling that's unusable on the run).
-// Vertical position = start time, height = duration; concurrent jobs pack into
-// side-by-side sub-columns per overlap cluster (same idea as the desktop Gantt's
-// packLanes, rotated vertical) so a lone job spans the whole width while a 9 AM
-// pile-up splits. Blocks fill with the job's ZONE COLOR (the required invariant,
-// matches desktop + HCP). Text flips dark on light zones via luminance so a pale
-// zone stays readable. Content scales with block height: name → time → tech →
-// address → service·$. Untimed jobs list below as full cards.
+// ─── MOBILE SCHEDULE GRID ─────────────────────────────────────────────────────
+// [mobile-grid 2026-07-02 v2] A full-width, time-ORDERED agenda — NOT a
+// proportional calendar. The proportional grid (block height = duration,
+// overlaps in side-by-side columns) looked great on a light day but collapsed
+// on a busy commercial day: 8–10 overlapping long jobs squeezed every column to
+// ~45px, so names/addresses truncated to "Ro…" and the whole point (see who /
+// where / when on the run) was lost. This version drops the columns entirely.
+// Each job is a full-width ZONE-COLORED row so the name, tech, and address ALWAYS
+// have room. The time lives on the left rail (the "left side bar that does that
+// work") — never inside the block. Rows are ordered by start time with a NOW
+// marker inserted on today. Untimed jobs list below.
 function MobileCalendarView({ jobs, onJobClick, isToday }: {
   jobs: DispatchJob[]; onJobClick: (j: DispatchJob) => void; isToday: boolean;
 }) {
-  const PX_PER_MIN = 1.25;
-  const GUTTER = 48;
-  const dur = (j: DispatchJob) => Math.max(j.duration_minutes || 0, 30);
   const timed = jobs.filter(j => timeToMins(j.scheduled_time) > 0);
   const untimed = jobs.filter(j => timeToMins(j.scheduled_time) <= 0);
+  const sorted = [...timed].sort((a, b) => timeToMins(a.scheduled_time) - timeToMins(b.scheduled_time) || a.id - b.id);
 
-  let body: React.ReactNode = null;
-  if (timed.length > 0) {
-    const minStart = Math.min(...timed.map(j => timeToMins(j.scheduled_time)));
-    const maxEnd = Math.max(...timed.map(j => timeToMins(j.scheduled_time) + dur(j)));
-    const startHour = Math.max(0, Math.min(7, Math.floor(minStart / 60)));
-    const endHour = Math.min(24, Math.max(18, Math.ceil(maxEnd / 60)));
-    const dayStart = startHour * 60;
-    const gridH = (endHour - startHour) * 60 * PX_PER_MIN;
+  // Compact rail time: "6:00a" / "11:00a" — fits a 56px left rail.
+  const fmtRail = (mins: number) => {
+    const h = Math.floor(mins / 60), m = ((mins % 60) + 60) % 60;
+    const ap = h % 24 < 12 ? "a" : "p";
+    const hr = h % 12 === 0 ? 12 : h % 12;
+    return `${hr}:${String(m).padStart(2, "0")}${ap}`;
+  };
 
-    // Per-cluster greedy column packing. A cluster = a connected run of
-    // mutually-overlapping jobs; each gets the fewest columns that avoid
-    // visual overlap, then every job in the cluster shares that column count
-    // so widths line up.
-    type Placed = { job: DispatchJob; col: number; cols: number; start: number; end: number };
-    const sorted = [...timed].sort((a, b) => timeToMins(a.scheduled_time) - timeToMins(b.scheduled_time) || a.id - b.id);
-    const placed: Placed[] = [];
-    let cluster: Placed[] = [];
-    let clusterEnd = -1;
-    let colEnds: number[] = [];
-    const flush = () => {
-      const cols = colEnds.length;
-      for (const p of cluster) p.cols = cols;
-      placed.push(...cluster);
-      cluster = []; colEnds = []; clusterEnd = -1;
-    };
-    for (const j of sorted) {
-      const s = timeToMins(j.scheduled_time), e = s + dur(j);
-      if (clusterEnd !== -1 && s >= clusterEnd) flush();
-      let col = colEnds.findIndex(end => end <= s);
-      if (col === -1) { col = colEnds.length; colEnds.push(e); } else colEnds[col] = e;
-      cluster.push({ job: j, col, cols: 0, start: s, end: e });
-      clusterEnd = Math.max(clusterEnd, e);
-    }
-    flush();
+  const now = isToday ? new Date() : null;
+  const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
 
-    const hours: number[] = [];
-    for (let h = startHour; h <= endHour; h++) hours.push(h);
+  const RAIL = 56;
 
-    const now = isToday ? new Date() : null;
-    const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
-    const nowY = now ? (nowMin - dayStart) * PX_PER_MIN : -1;
-
-    body = (
-      <div style={{ position: "relative", marginLeft: GUTTER, height: gridH, borderTop: "1px solid #EEECE7" }}>
-        {/* Hour gridlines + labels (label sits in the left gutter). */}
-        {hours.map(h => {
-          const top = (h * 60 - dayStart) * PX_PER_MIN;
-          return (
-            <div key={h} style={{ position: "absolute", left: -GUTTER, right: 0, top, borderTop: "1px solid #EEECE7" }}>
-              <span style={{ position: "absolute", left: 0, top: -7, width: GUTTER - 8, textAlign: "right", fontSize: 10.5, color: "#9E9B94", fontWeight: 700 }}>{fmtHourShort(h)}</span>
-              {/* half-hour tick */}
-              <div style={{ position: "absolute", left: 0, right: 0, top: 30 * PX_PER_MIN, borderTop: "1px dotted #F0EEE9" }} />
+  const Row = ({ j }: { j: DispatchJob }) => {
+    const visual = STATUS_VISUALS[getJobVisualStatus(j)];
+    const baseColor = j.zone_color || "#9CA3AF";
+    // fillMuted (completed) drains the fill toward gray; text stays crisp.
+    const color = visual.fillMuted ? muteZone(baseColor) : baseColor;
+    const onDark = zoneLuminance(color) < 0.62;
+    const ink = onDark ? "#FFFFFF" : "#12100E";
+    const sub = onDark ? "rgba(255,255,255,0.82)" : "rgba(18,16,14,0.60)";
+    const isUn = !j.assigned_user_name;
+    const sMin = timeToMins(j.scheduled_time);
+    const eMin = sMin + (j.duration_minutes || 0);
+    const amount = j.amount ? `$${j.amount.toFixed(0)}` : "";
+    // Left status accent: amber bar for active, red ring for late/no-show.
+    const ring = visual.stripe
+      ? `inset 5px 0 0 ${visual.stripe}`
+      : visual.borderOverride
+        ? `inset 0 0 0 2px ${visual.borderOverride}`
+        : "none";
+    return (
+      <div style={{ display: "flex", alignItems: "stretch", marginBottom: 8 }}>
+        {/* Left rail — start + end time. This is the "time on the left" the
+            block itself deliberately omits. */}
+        <div style={{ width: RAIL, flexShrink: 0, paddingTop: 8, paddingRight: 10, textAlign: "right" }}>
+          <div style={{ fontSize: 12, fontWeight: 800, color: "#1A1917", lineHeight: 1.1 }}>{fmtRail(sMin)}</div>
+          <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", lineHeight: 1.3 }}>{fmtRail(eMin)}</div>
+        </div>
+        {/* Full-width zone-colored row. */}
+        <button onClick={() => onJobClick(j)} className={visual.glowActive ? "qleno-active-glow" : undefined} style={{
+          flex: 1, minWidth: 0, backgroundColor: color, borderRadius: 12, border: "none", textAlign: "left",
+          padding: "10px 13px", cursor: "pointer", fontFamily: FF, boxSizing: "border-box",
+          opacity: visual.bodyOpacity, filter: visual.desaturate ? "grayscale(1)" : "none",
+          boxShadow: ring === "none" ? "0 1px 2px rgba(10,14,26,0.10)" : `${ring}, 0 1px 2px rgba(10,14,26,0.10)`,
+          display: "flex", flexDirection: "column", gap: 4,
+        }}>
+          {/* Name + amount + completed check / no-show badge */}
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
+            <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 800, color: ink, lineHeight: 1.2, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", wordBreak: "break-word", textDecoration: visual.strikethrough ? "line-through" : "none" }}>
+              {j.display_name ?? j.client_name}
             </div>
-          );
-        })}
-
-        {/* Now line — only on today, only when in range. */}
-        {now && nowY >= 0 && nowY <= gridH && (
-          <div style={{ position: "absolute", left: -6, right: 0, top: nowY, zIndex: 6, pointerEvents: "none" }}>
-            <div style={{ position: "absolute", left: 0, top: -4, width: 8, height: 8, borderRadius: "50%", backgroundColor: "#EF4444" }} />
-            <div style={{ position: "absolute", left: 6, right: 0, top: 0, height: 2, backgroundColor: "#EF4444" }} />
+            {visual.showCheckmark && <Check size={15} color={ink} strokeWidth={3} style={{ flexShrink: 0, marginTop: 2 }} />}
+            {visual.showNoShowBadge && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "2px 6px", borderRadius: 4, letterSpacing: "0.03em" }}>NO SHOW</span>}
+            {amount && !visual.showNoShowBadge && <div style={{ flexShrink: 0, fontSize: 14, fontWeight: 800, color: ink }}>{amount}</div>}
           </div>
-        )}
-
-        {placed.map(p => {
-          const j = p.job;
-          const visual = STATUS_VISUALS[getJobVisualStatus(j)];
-          const baseColor = j.zone_color || "#9CA3AF";
-          // fillMuted (completed) drains the block toward gray while text stays crisp.
-          const color = visual.fillMuted ? muteZone(baseColor) : baseColor;
-          const onDark = zoneLuminance(color) < 0.62;
-          const ink = onDark ? "#FFFFFF" : "#12100E";
-          const sub = onDark ? "rgba(255,255,255,0.82)" : "rgba(18,16,14,0.62)";
-          const top = (p.start - dayStart) * PX_PER_MIN;
-          const height = Math.max((p.end - p.start) * PX_PER_MIN, 40);
-          const widthPct = 100 / p.cols;
-          const leftPct = p.col * widthPct;
-          const wide = p.cols === 1;
-          const isUn = !j.assigned_user_name;
-          // Left status accent: amber for active, red ring for late/no-show.
-          const ring = visual.stripe
-            ? `inset 4px 0 0 ${visual.stripe}`
-            : visual.borderOverride
-              ? `inset 0 0 0 2px ${visual.borderOverride}`
-              : "none";
-          const sMin = timeToMins(j.scheduled_time);
-          const eMin = sMin + (j.duration_minutes || 0);
-          const timeStr = `${fmtMins(sMin)} – ${fmtMins(eMin)}`;
-          return (
-            <button key={j.id} onClick={() => onJobClick(j)} className={visual.glowActive ? "qleno-active-glow" : undefined} style={{
-              position: "absolute", top: top + 1.5, left: `calc(${leftPct}% + 2px)`,
-              width: `calc(${widthPct}% - 4px)`, height: height - 3, minHeight: 38,
-              backgroundColor: color, borderRadius: 10, border: "none", textAlign: "left",
-              padding: height < 52 ? "5px 9px" : "7px 10px", overflow: "hidden", cursor: "pointer",
-              fontFamily: FF, boxSizing: "border-box", zIndex: 2,
-              opacity: visual.bodyOpacity, filter: visual.desaturate ? "grayscale(1)" : "none",
-              boxShadow: ring === "none" ? "0 1px 2px rgba(10,14,26,0.10)" : `${ring}, 0 1px 2px rgba(10,14,26,0.10)`,
-              display: "flex", flexDirection: "column", gap: 1,
-            }}>
-              {/* Name + completed check / no-show badge */}
-              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <div style={{ flex: 1, minWidth: 0, fontSize: height < 52 ? 12 : 13, fontWeight: 800, color: ink, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: visual.strikethrough ? "line-through" : "none" }}>
-                  {j.display_name ?? j.client_name}
-                </div>
-                {visual.showCheckmark && <Check size={12} color={ink} strokeWidth={3} style={{ flexShrink: 0 }} />}
-                {visual.showNoShowBadge && <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "1px 4px", borderRadius: 3, letterSpacing: "0.03em" }}>NO SHOW</span>}
-              </div>
-              {height >= 50 && (
-                <div style={{ fontSize: 10, fontWeight: 700, color: sub, lineHeight: 1.2, whiteSpace: "nowrap" }}>{timeStr}</div>
-              )}
-              {height >= 68 && (
-                <div style={{ fontSize: 10, fontWeight: 600, color: sub, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                  {isUn ? "Unassigned" : j.assigned_user_name}
-                </div>
-              )}
-              {height >= 88 && wide && j.address && (
-                <div style={{ fontSize: 10, color: sub, lineHeight: 1.25, overflow: "hidden", maxHeight: 26, textOverflow: "ellipsis" }}>{j.address}</div>
-              )}
-              {height >= 110 && wide && (
-                <div style={{ fontSize: 10, fontWeight: 600, color: sub, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: "auto" }}>
-                  {[j.service_type ? fmtSvc(j.service_type) : "", j.amount ? `$${j.amount.toFixed(0)}` : ""].filter(Boolean).join(" · ")}
-                </div>
-              )}
-            </button>
-          );
-        })}
+          {/* WHO — assigned tech (or Unassigned). */}
+          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: isUn ? (onDark ? "#FFE08A" : "#B45309") : sub, lineHeight: 1.2, minWidth: 0 }}>
+            <User size={12} style={{ flexShrink: 0, opacity: 0.9 }} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isUn ? "Unassigned" : j.assigned_user_name}</span>
+          </div>
+          {/* WHERE — full address, one line, ellipsis if very long. */}
+          {j.address && (
+            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sub, lineHeight: 1.25, minWidth: 0 }}>
+              <MapPin size={12} style={{ flexShrink: 0, opacity: 0.9 }} />
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.address}</span>
+            </div>
+          )}
+        </button>
       </div>
     );
-  }
+  };
+
+  // NOW divider — inserted before the first job that starts at/after now.
+  const NowMarker = () => (
+    <div style={{ display: "flex", alignItems: "center", margin: "2px 0 10px" }}>
+      <div style={{ width: RAIL, flexShrink: 0, paddingRight: 10, textAlign: "right", fontSize: 10, fontWeight: 800, color: "#EF4444", letterSpacing: "0.04em" }}>NOW</div>
+      <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 0 }}>
+        <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#EF4444", flexShrink: 0 }} />
+        <div style={{ flex: 1, height: 2, backgroundColor: "#EF4444" }} />
+      </div>
+    </div>
+  );
+
+  let nowInserted = false;
 
   return (
     <div style={{ fontFamily: FF }}>
-      {body}
+      {sorted.map(j => {
+        const showNow = now && !nowInserted && timeToMins(j.scheduled_time) >= nowMin;
+        if (showNow) nowInserted = true;
+        return (
+          <Fragment key={j.id}>
+            {showNow && <NowMarker />}
+            <Row j={j} />
+          </Fragment>
+        );
+      })}
+      {/* now is past every timed job today — show the marker at the end. */}
+      {now && !nowInserted && sorted.length > 0 && <NowMarker />}
       {untimed.length > 0 && (
-        <div style={{ marginTop: body ? 16 : 0 }}>
+        <div style={{ marginTop: sorted.length ? 14 : 0 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 2px 8px" }}>No time set</div>
           {untimed.map(j => <MobileJobCard key={j.id} job={j} onClick={() => onJobClick(j)} />)}
         </div>
       )}
-      {timed.length === 0 && untimed.length === 0 && (
+      {sorted.length === 0 && untimed.length === 0 && (
         <div style={{ textAlign: "center", padding: 24, color: "#9E9B94", fontSize: 13 }}>No scheduled jobs</div>
       )}
     </div>
   );
-}
-
-// [mobile-grid 2026-07-02] Short hour label for the grid gutter ("7a", "12p").
-function fmtHourShort(h: number) {
-  if (h === 0 || h === 24) return "12a";
-  if (h === 12) return "12p";
-  return h < 12 ? `${h}a` : `${h - 12}p`;
 }
 
 // [mobile-grid 2026-07-02] Mute a zone hex toward warm gray for completed jobs
