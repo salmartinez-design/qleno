@@ -300,10 +300,18 @@ router.get("/", requireAuth, async (req, res) => {
         actual_hours: jobsTable.actual_hours,
         notes: jobsTable.notes,
         created_at: jobsTable.created_at,
+        // [uninvoiced-accounts 2026-07-02] Commercial jobs carry no client_id —
+        // their identity is the account. Without these the "Not yet invoiced"
+        // list showed PPM/KMA/National Able rows with a blank name and mis-routed
+        // the "Bill account" button (it keys off account_id). Additive fields, so
+        // every other caller of this list endpoint is unaffected.
+        account_id: jobsTable.account_id,
+        account_name: accountsTable.account_name,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
       .leftJoin(usersTable, eq(jobsTable.assigned_user_id, usersTable.id))
+      .leftJoin(accountsTable, eq(jobsTable.account_id, accountsTable.id))
       .where(and(...conditions))
       .orderBy(desc(jobsTable.scheduled_date))
       .limit(parseInt(limit as string))

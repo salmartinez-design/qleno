@@ -698,6 +698,11 @@ export default function InvoicesPage() {
   // [invoice-date-range 2026-06-21] Office date-range filter (by service date).
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // [invoices-load-more 2026-07-02] The list endpoint pages at limit=50 and the
+  // page never asked past page 1 — so only the 50 newest invoices were ever
+  // reachable ("can't view all invoices"). Grow the limit 50 at a time via a
+  // Load-more button; reset whenever the filters change so a new view starts small.
+  const [pageLimit, setPageLimit] = useState(50);
   const [showBatch, setShowBatch] = useState(false);
   const [showWeekly, setShowWeekly] = useState(false);
   const [showCloseDay, setShowCloseDay] = useState(false);
@@ -818,14 +823,20 @@ export default function InvoicesPage() {
     if (search.trim()) params.set("search", search.trim());
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo) params.set("date_to", dateTo);
+    params.set("limit", String(pageLimit));
     const qs = params.toString();
     return `/api/invoices${qs ? `?${qs}` : ""}`;
   };
 
+  // Start each filter/tab/search view back at the first 50 rows.
+  useEffect(() => { setPageLimit(50); }, [activeTab, activeBranchId, search, dateFrom, dateTo]);
+
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["invoices", activeTab, activeBranchId, search.trim(), dateFrom, dateTo],
+    queryKey: ["invoices", activeTab, activeBranchId, search.trim(), dateFrom, dateTo, pageLimit],
     queryFn: () => apiFetch(buildInvoicesUrl()),
   });
+  const totalCount: number = data?.total ?? 0;
+  const hasMore = totalCount > (data?.data?.length ?? 0);
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "all", label: "All" },
@@ -1267,6 +1278,21 @@ export default function InvoicesPage() {
                 })}
               </tbody>
             </table>
+            )}
+            {/* [invoices-load-more 2026-07-02] Reach every invoice, not just the
+                50 newest. Grows the fetch 50 at a time; count shows progress. */}
+            {!isLoading && invoices.length > 0 && (
+              <div style={{ padding: "14px 16px", borderTop: "1px solid #EEECE7", display: "flex", alignItems: "center", justifyContent: "center", gap: 14, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>
+                  Showing {invoices.length} of {totalCount} invoice{totalCount === 1 ? "" : "s"}
+                </span>
+                {hasMore && (
+                  <button onClick={() => setPageLimit(l => l + 50)}
+                    style={{ padding: "8px 18px", border: "1px solid var(--brand)", borderRadius: 8, backgroundColor: "#F7F6F3", color: "var(--brand)", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                    Load more
+                  </button>
+                )}
+              </div>
             )}
           </div>
         </div>
