@@ -7,7 +7,7 @@ export async function processScheduledSms(): Promise<void> {
   // Fetch due messages (with a SELECT FOR UPDATE SKIP LOCKED to avoid double-send
   // in future multi-instance deployments).
   const due = await db.execute(sql`
-    SELECT id, company_id, contact_phone, client_id, lead_id, message, media_urls
+    SELECT id, company_id, contact_phone, client_id, lead_id, message, media_urls, created_by
       FROM scheduled_sms
      WHERE status = 'pending' AND scheduled_for <= NOW()
      LIMIT 20`);
@@ -19,7 +19,7 @@ export async function processScheduledSms(): Promise<void> {
   const { r2Configured, r2SignedGetUrl } = await import("./r2.js");
 
   for (const row of due.rows as any[]) {
-    const { id, company_id, contact_phone, client_id, lead_id, message, media_urls } = row;
+    const { id, company_id, contact_phone, client_id, lead_id, message, media_urls, created_by } = row;
     try {
       // Mark in-flight immediately to prevent double-sends on slow iterations
       await db.execute(sql`UPDATE scheduled_sms SET status = 'sending' WHERE id = ${id} AND status = 'pending'`);
@@ -57,6 +57,11 @@ export async function processScheduledSms(): Promise<void> {
         fromNumber: sender.from_number,
         body: message || "",
         providerId: twilioResult?.sid ?? null,
+        // [scheduled-sender 2026-07-02] Carry the scheduling user onto the sent
+        // message so the thread shows who sent it (matches a live reply). Before
+        // this, scheduled_sms.created_by was dropped here, so every scheduled
+        // message rendered with no sender name while direct replies had one.
+        sentBy: created_by ?? null,
         clientId: resolvedClientId,
         leadId: resolvedLeadId,
         status: smsStatus,
