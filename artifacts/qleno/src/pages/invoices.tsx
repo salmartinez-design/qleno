@@ -831,6 +831,25 @@ export default function InvoicesPage() {
 
   const stats = data?.stats || {};
 
+  // [invoices-uninvoiced 2026-07-02] Surface completed jobs that haven't been
+  // invoiced yet — commercial accounts on consolidated billing (National Able,
+  // KMA, PPM) and $0-rate jobs — so the day RECONCILES on this screen instead of
+  // silently coming up short. Same endpoint the Batch modal uses; filtered to
+  // the active date range by service date so it lines up with the list below.
+  const { data: rawUninv } = useQuery({
+    queryKey: ["invoices-uninvoiced-jobs"],
+    queryFn: () => apiFetch("/api/jobs?status=complete&uninvoiced=true&limit=200"),
+  });
+  const uninvoicedJobs: any[] = (Array.isArray(rawUninv) ? rawUninv : (rawUninv?.data || []))
+    .filter((j: any) => {
+      const d = String(j.scheduled_date || "").slice(0, 10);
+      if (dateFrom && d < dateFrom) return false;
+      if (dateTo && d > dateTo) return false;
+      if (search.trim()) return (j.account_name || j.client_name || "").toLowerCase().includes(search.toLowerCase());
+      return true;
+    });
+  const uninvTotal = uninvoicedJobs.reduce((sum: number, j: any) => sum + Number(j.billed_amount ?? j.amount ?? j.base_fee ?? 0), 0);
+
   const TH: React.CSSProperties = {
     padding: "11px 18px", textAlign: "left",
     fontSize: "11px", fontWeight: 600, color: "#9E9B94",
@@ -940,6 +959,46 @@ export default function InvoicesPage() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          {uninvoicedJobs.length > 0 && (
+            <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid #EEECE7", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <div>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>Not yet invoiced</span>
+                  <span style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginLeft: 8 }}>
+                    {uninvoicedJobs.length} completed {uninvoicedJobs.length === 1 ? "job" : "jobs"} · ${uninvTotal.toFixed(2)}
+                  </span>
+                </div>
+              </div>
+              {uninvoicedJobs.map((j: any) => {
+                const name = j.account_name || j.client_name || "—";
+                const amt = Number(j.billed_amount ?? j.amount ?? j.base_fee ?? 0);
+                const isAccount = j.account_id != null;
+                return (
+                  <div key={`uninv-${j.id}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid #F0EEE9" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
+                        {name}
+                        {isAccount && <span style={{ fontSize: 10, fontWeight: 700, color: "#6B7280", background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 4, padding: "1px 6px" }}>ACCOUNT</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>
+                        {(j.service_type || "").replace(/_/g, " ")}
+                        {j.scheduled_date ? ` · ${new Date(String(j.scheduled_date).slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: amt > 0 ? "#1A1917" : "#DC2626", fontFamily: FF, whiteSpace: "nowrap" }}>
+                      {amt > 0 ? `$${amt.toFixed(2)}` : "$0 · no rate"}
+                    </div>
+                    <button
+                      onClick={() => isAccount ? navigate(`/accounts/${j.account_id}`) : setShowBatch(true)}
+                      style={{ padding: "6px 12px", border: "1px solid var(--brand)", borderRadius: 7, backgroundColor: "#F7F6F3", color: "var(--brand)", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                      {isAccount ? "Bill account" : "Batch invoice"}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           )}
 
