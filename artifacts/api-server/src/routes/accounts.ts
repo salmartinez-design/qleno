@@ -6,6 +6,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, and, sql, inArray, notExists, desc, gte, lte } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
 
 const router = Router();
 
@@ -717,6 +718,9 @@ router.get("/:id/uninvoiced-jobs", requireAuth, requireRole("owner", "admin", "o
         and(
           eq(jobsTable.account_id, id),
           eq(jobsTable.company_id, companyId),
+          // [billing-cutover 2026-07-02] Pre-cutover visits were billed + paid in
+          // MaidCentral — hide them from this account's Uninvoiced Jobs queue.
+          gte(jobsTable.scheduled_date, INVOICE_CUTOVER_DATE),
           includeScheduled
             ? inArray(jobsTable.status, ["complete", "scheduled", "in_progress"])
             : eq(jobsTable.status, "complete"),

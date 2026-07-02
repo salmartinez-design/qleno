@@ -37,11 +37,15 @@ import { getNextInvoiceNumber } from "./invoice-number.js";
 import { derivePaymentSource } from "./payment-source.js";
 import { buildJobLineItems } from "./invoice-line-items.js";
 
-// [cutover-guard 2026-06-17] Qleno go-live date. Jobs scheduled before this are
-// billed in MaidCentral; the completion engine never auto-invoices them. Single
-// hardcoded constant for Phes go-live; move to tenant_settings when multi-tenant
-// cutovers arrive (mirrors the LATE_THRESHOLD_MINUTES pattern in job-status.ts).
-const INVOICE_CUTOVER_DATE = "2026-06-27";
+// [cutover-guard 2026-06-17; billing-cutover 2026-07-02] Phes billing cutover.
+// Everything scheduled BEFORE this date was invoiced + PAID in MaidCentral, so
+// Qleno must never bill it: the completion engine never auto-invoices these, AND
+// the "Not yet invoiced" queues (main Invoices screen + each account's Uninvoiced
+// Jobs tab) hide them so pre-cutover work doesn't clutter the billing queue.
+// Set to 2026-07-01 (Sal confirmed the switch-over; was 06-27, which risked
+// double-billing June 27–30). Single hardcoded constant for Phes; move to
+// tenant_settings when multi-tenant cutovers arrive (mirrors LATE_THRESHOLD_MINUTES).
+export const INVOICE_CUTOVER_DATE = "2026-07-01";
 
 export type EnsureInvoiceResult = {
   created: boolean;
