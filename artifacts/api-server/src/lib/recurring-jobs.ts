@@ -927,6 +927,14 @@ export async function runRecurringJobGeneration() {
           WHERE j.scheduled_date BETWEEN ${today} AND ${future}
             AND j.status = 'scheduled'
             AND j.company_id IS NOT NULL
+            -- [unassigned-alert-fix 2026-07-02] Canonical "unassigned" = no
+            -- primary on jobs.assigned_user_id AND no job_technicians row.
+            -- Must check BOTH: drag-and-drop assignment (PUT /api/jobs/:id)
+            -- sets assigned_user_id WITHOUT writing job_technicians, so a
+            -- job_technicians-only test falsely alerted on drag-assigned
+            -- jobs (e.g. Jim Schultz #713 assigned to Norma Puga). Mirrors
+            -- the week-summary unassigned_count definition in dispatch.ts.
+            AND j.assigned_user_id IS NULL
             AND NOT EXISTS (
               SELECT 1 FROM job_technicians jt WHERE jt.job_id = j.id
             )
