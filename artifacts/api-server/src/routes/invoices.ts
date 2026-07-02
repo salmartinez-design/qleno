@@ -1078,4 +1078,94 @@ router.post("/:id/refund", requireAuth, requireRole("owner", "admin", "office"),
   }
 });
 
+// ── POST /api/invoices/merge ───────────────────────────────────────────────
+// [invoice-merge 2026-07-02] Bulk-fold a selected set of invoices into ONE.
+// The office filters (e.g. all of an account's June turnovers across buildings)
+// and picks invoices; this rolls them into a single draft parent that carries
+// every folded line + the summed total, and marks the sources 'superseded'
+// (parent_invoice_id set) so they drop out of AR and the customer sees/pays one
+// bill. Only the parent pushes to QuickBooks. Guards: all invoices same company,
+// same customer (one account_id OR one client_id), and unpaid (draft/sent/
+// overdue) — never paid/void/already-superseded.
+router.post("/merge", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const ids: number[] = Array.isArray(req.body?.invoice_ids)
+      ? req.body.invoice_ids.map((x: any) => parseInt(String(x), 10)).filter((n: number) => Number.isInteger(n) && n > 0)
+      : [];
+    if (ids.length < 2) return res.status(400).json({ error: "Bad Request", message: "Select at least 2 invoices to merge" });
+
+    const rows = await db.select().from(invoicesTable)
+      .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.id, ids)));
+    if (rows.length !== new Set(ids).size) {
+      return res.status(404).json({ error: "Not Found", message: "One or more invoices not found" });
+    }
+
+    const bad = rows.find((r) => !["draft", "sent", "overdue"].includes(r.status as string));
+    if (bad) {
+      return res.status(409).json({ error: "Conflict", message: `Invoice ${bad.invoice_number || bad.id} is '${bad.status}' — only unpaid invoices can be merged` });
+    }
+
+    // Same customer only — one account, or (if no account) one client.
+    const accountIds = new Set(rows.map((r) => r.account_id ?? null));
+    const clientIds = new Set(rows.map((r) => r.client_id ?? null));
+    const sameAccount = accountIds.size === 1 && [...accountIds][0] != null;
+    const sameClient = clientIds.size === 1 && [...clientIds][0] != null;
+    if (!sameAccount && !sameClient) {
+      return res.status(400).json({ error: "Bad Request", message: "All selected invoices must belong to the same customer" });
+    }
+
+    // Parent = every folded invoice's lines flattened + summed total.
+    const parentLines: any[] = [];
+    let parentTotal = 0;
+    for (const r of rows) {
+      parentTotal += parseFloat(String(r.total ?? "0"));
+      const childLines = Array.isArray(r.line_items) ? (r.line_items as any[]) : [];
+      if (childLines.length > 0) {
+        for (const l of childLines) parentLines.push(l);
+      } else {
+        const t = parseFloat(String(r.total ?? "0"));
+        parentLines.push({ description: `Invoice ${r.invoice_number || r.id}`, quantity: 1, unit_price: t, total: t });
+      }
+    }
+    parentTotal = Math.round(parentTotal * 100) / 100;
+    const first = rows[0];
+
+    const [parent] = await db.insert(invoicesTable).values({
+      company_id: companyId,
+      account_id: sameAccount ? first.account_id : null,
+      client_id: sameAccount ? null : first.client_id,
+      status: "draft",
+      line_items: parentLines,
+      subtotal: parentTotal.toFixed(2),
+      total: parentTotal.toFixed(2),
+      payment_terms: first.payment_terms,
+      due_date: first.due_date,
+      created_by: req.auth!.userId,
+    }).returning();
+
+    try {
+      const invNum = await getNextInvoiceNumber(companyId, parent.id);
+      await db.update(invoicesTable).set({ invoice_number: invNum }).where(eq(invoicesTable.id, parent.id));
+    } catch (numErr) {
+      console.error("[invoice-merge] number assignment non-fatal:", numErr);
+    }
+
+    // Fold the sources: superseded + parent link (drops them from AR).
+    await db.update(invoicesTable)
+      .set({ status: "superseded", parent_invoice_id: parent.id })
+      .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.id, ids)));
+
+    logAudit(req, "MERGE", "invoice", parent.id, null, { merged_invoice_ids: ids, count: ids.length, total: parentTotal });
+
+    // Only the parent goes to QuickBooks (one consolidated document).
+    queueSync(() => syncInvoice(companyId, parent.id));
+
+    return res.status(201).json({ ok: true, invoice: parent, merged_count: ids.length, total: parentTotal });
+  } catch (err) {
+    console.error("Invoice merge error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to merge invoices" });
+  }
+});
+
 export default router;
