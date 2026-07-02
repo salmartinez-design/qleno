@@ -498,18 +498,28 @@ export default function AccountDetailPage() {
   }
 
   // ─── Invoice ─────────────────────────────────────────────────────────────
-  async function generateInvoice() {
+  // [per-job-invoices 2026-07-02] separate=true bills each job as its OWN invoice
+  // (turnovers); default folds the selection into one consolidated bill (common
+  // areas / monthly). Both are billed to the account.
+  async function generateInvoice(separate = false) {
     setGeneratingInvoice(true);
     try {
       const r = await fetch(`${API}/api/accounts/${id}/generate-invoice`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         // Send the picked visits; empty selection = all uninvoiced (legacy).
-        body: JSON.stringify(selectedJobIds.size > 0 ? { job_ids: [...selectedJobIds] } : {}),
+        body: JSON.stringify({
+          ...(selectedJobIds.size > 0 ? { job_ids: [...selectedJobIds] } : {}),
+          ...(separate ? { separate: true } : {}),
+        }),
       });
       const data = await r.json();
       if (r.ok) {
-        if (data.invoice) {
+        if (data.separate && data.invoices_created) {
+          toast({ title: `${data.invoices_created} invoice${data.invoices_created === 1 ? "" : "s"} created — one per job` });
+          setSelectedJobIds(new Set());
+          load();
+        } else if (data.invoice) {
           toast({ title: `Invoice created — ${data.jobs_consolidated} job(s) consolidated` });
           setSelectedJobIds(new Set());
           load();
@@ -1168,19 +1178,33 @@ export default function AccountDetailPage() {
                 </label>
               </div>
               {jobs.length > 0 && (
-                <Button
-                  className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2"
-                  size="sm"
-                  onClick={generateInvoice}
-                  disabled={generatingInvoice}
-                >
-                  <FileText size={14} />
-                  {generatingInvoice
-                    ? "Generating..."
-                    : selectedJobIds.size > 0
-                      ? `Invoice ${selectedJobIds.size} selected`
-                      : "Generate Invoice (all)"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 border-[#00C9A0] text-[#00A886] hover:bg-[#00C9A0]/5"
+                    onClick={() => generateInvoice(true)}
+                    disabled={generatingInvoice}
+                    title="Create one invoice per job — bill each turnover separately"
+                  >
+                    <FileText size={14} />
+                    {generatingInvoice ? "Working..." : `Invoice each separately (${selectedJobIds.size > 0 ? selectedJobIds.size : jobs.length})`}
+                  </Button>
+                  <Button
+                    className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2"
+                    size="sm"
+                    onClick={() => generateInvoice(false)}
+                    disabled={generatingInvoice}
+                    title="Fold the selection into one consolidated invoice — for monthly common-areas billing"
+                  >
+                    <FileText size={14} />
+                    {generatingInvoice
+                      ? "Generating..."
+                      : selectedJobIds.size > 0
+                        ? `Consolidate ${selectedJobIds.size}`
+                        : "Consolidate all"}
+                  </Button>
+                </div>
               )}
             </div>
             {!jobs.length ? (

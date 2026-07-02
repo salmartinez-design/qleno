@@ -778,6 +778,12 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
       ? req.body.job_ids.map((x: any) => parseInt(String(x), 10)).filter((n: number) => Number.isInteger(n) && n > 0)
       : [];
 
+    // [per-job-invoices 2026-07-02] Turnovers bill INDIVIDUALLY — one invoice per
+    // job (each billed to the account), not folded into the monthly consolidated
+    // bill. Common-areas keep the default consolidate path. Same dedup guards, so
+    // a job can't land on both an individual and a consolidated invoice.
+    const separate = req.body?.separate === true;
+
     const uninvoicedJobs = await db
       .select()
       .from(jobsTable)
@@ -842,6 +848,34 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
     dueDate.setDate(dueDate.getDate() + termsDays);
     const dueDateStr = dueDate.toISOString().split("T")[0];
     const termsLabel = termsDays === 30 ? "net_30" : termsDays === 15 ? "net_15" : termsDays === 7 ? "net_7" : "due_on_receipt";
+
+    // Individual mode: one draft invoice per job, each billed to the account.
+    if (separate) {
+      const perJobPayloads = lineItems.map((li, idx) => ({
+        company_id: companyId,
+        account_id: id,
+        client_id: null as null | number,
+        invoice_number: `ACC-${id}-${li.job_id}-${Date.now() + idx}`,
+        status: "draft" as const,
+        line_items: [li],
+        subtotal: li.total.toFixed(2),
+        tips: "0",
+        total: li.total.toFixed(2),
+        due_date: dueDateStr,
+        payment_terms: termsLabel,
+        created_by: req.auth!.userId,
+      }));
+      if (preview) {
+        return res.json({ ok: true, preview: true, separate: true, invoices: perJobPayloads, jobs_count: perJobPayloads.length });
+      }
+      const created = [];
+      for (const p of perJobPayloads) {
+        const [inv] = await db.insert(invoicesTable).values(p).returning();
+        created.push(inv);
+      }
+      return res.status(201).json({ ok: true, separate: true, invoices: created, invoices_created: created.length });
+    }
+
     const invoiceNumber = `ACC-${id}-${Date.now()}`;
 
     const invoicePayload = {
