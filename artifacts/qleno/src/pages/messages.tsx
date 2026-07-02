@@ -653,20 +653,25 @@ export default function MessagesPage() {
                   )}
 
                   {/* [message-tone + voice 2026-07-02] AI toolbar (Polish +
-                      Dictate) above the input row. Shared component so the New
+                      Dictate) above the input row. [attach-move 2026-07-02] The
+                      attach button now lives here on the RIGHT, so the input row
+                      is just textarea + Send — the text box gets the full width
+                      and wraps far less. Shared AI tools component so the New
                       Message modal gets the same tools. */}
-                  <div style={{ padding: "8px 10px 2px", background: "#fff", borderTop: `1px solid ${BORDER}` }}>
-                    <ComposerAiTools value={reply} onChange={setReply} />
+                  <div style={{ padding: "8px 10px 2px", background: "#fff", borderTop: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <ComposerAiTools value={reply} onChange={setReply} />
+                    </div>
+                    {/* Hidden file input */}
+                    <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" style={{ display: "none" }} onChange={handleFileSelect} />
+                    <button onClick={() => fileInputRef.current?.click()} title="Attach image or video"
+                      style={{ padding: 8, background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 }}>
+                      <Paperclip size={15} color={MUTE} />
+                    </button>
                   </div>
 
                   {/* Composer */}
                   <div style={{ padding: 10, borderTop: "none", display: "flex", gap: 8, alignItems: "flex-end", background: "#fff" }}>
-                    {/* Hidden file input */}
-                    <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" style={{ display: "none" }} onChange={handleFileSelect} />
-                    <button onClick={() => fileInputRef.current?.click()} title="Attach image or video"
-                      style={{ padding: 10, background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 }}>
-                      <Paperclip size={15} color={MUTE} />
-                    </button>
                     <textarea ref={replyRef} value={reply} onChange={e => setReply(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !scheduleOpen) { e.preventDefault(); send(); } }}
                       placeholder={scheduleOpen ? "Type message to schedule…" : "Type a reply…"} rows={1}
