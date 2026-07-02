@@ -920,6 +920,29 @@ export async function runRecurringJobGeneration() {
     const today = now.toISOString().slice(0, 10);
     const future = in48h.toISOString().slice(0, 10);
 
+    // [unassigned-resolve 2026-07-02] Auto-clear stale alerts. Once a job gets
+    // a tech (jobs.assigned_user_id OR a job_technicians row) — or leaves the
+    // 'scheduled' state — mark its outstanding unread job_unassigned
+    // notifications read so they stop lingering in the feed after the office
+    // assigns it. Without this, the "Unassigned Job — Jim Schultz #713" alerts
+    // stayed unread for hours even after the job was assigned to Norma Puga,
+    // because #826 only stops NEW alerts and nothing resolved the old ones.
+    await db.execute(sql`
+      UPDATE notifications n
+         SET read = true
+       WHERE n.type = 'job_unassigned'
+         AND n.read = false
+         AND EXISTS (
+           SELECT 1 FROM jobs j
+            WHERE j.id = (n.meta->>'job_id')::int
+              AND j.company_id = n.company_id
+              AND (
+                j.assigned_user_id IS NOT NULL
+                OR EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = j.id)
+                OR j.status <> 'scheduled'
+              )
+         )`);
+
     const unassigned = await db.execute(
       sql`SELECT j.id, j.company_id, j.scheduled_date, c.first_name, c.last_name
           FROM jobs j

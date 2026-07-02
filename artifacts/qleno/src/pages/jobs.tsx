@@ -7356,7 +7356,7 @@ export default function JobsPage() {
       (!j.zone_name || !j.zone_color)
     ) : [];
     const attentionCount = lateClockIns.length
-      + (unassignedToday.length > 0 ? 1 : 0)
+      + unassignedToday.length
       + (missingAddress.length > 0 ? 1 : 0)
       + (missingZone.length > 0 ? 1 : 0);
 
@@ -7510,14 +7510,26 @@ export default function JobsPage() {
                     </button>
                   );
                 })}
-                {unassignedToday.length > 0 && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: "rgba(255,255,255,0.6)" }}>
-                    <AlertTriangle size={14} color="#D97706" />
-                    <span style={{ fontSize: 12, color: "#1A1917", fontWeight: 600 }}>
-                      {unassignedToday.length} job{unassignedToday.length !== 1 ? "s" : ""} unassigned today
-                    </span>
-                  </div>
-                )}
+                {/* [unassigned-visibility 2026-07-02] One tappable row PER
+                    unassigned job showing the client — not a bare count — so
+                    the operator sees who needs a tech and can open it to
+                    assign. Mirrors the late rows above. */}
+                {unassignedToday.map(job => {
+                  const hasZoneU = !!job.zone_name && !!job.zone_color;
+                  return (
+                    <button key={`unassigned-${job.id}`} onClick={() => setSelectedJob(job)}
+                      style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, border: "none", background: "rgba(255,255,255,0.6)", cursor: "pointer", textAlign: "left", fontFamily: FF, width: "100%" }}>
+                      <AlertTriangle size={14} color="#D97706" />
+                      {hasZoneU && (
+                        <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: job.zone_color!, flexShrink: 0 }} title={job.zone_name!} />
+                      )}
+                      <span style={{ fontSize: 12, color: "#1A1917", fontWeight: 600, flex: 1 }}>
+                        {job.display_name ?? job.client_name} — unassigned{job.scheduled_time ? ` · ${fmtTime(job.scheduled_time)}` : ""}
+                      </span>
+                      <ChevronRight size={12} color="#6B6860" />
+                    </button>
+                  );
+                })}
                 {missingAddress.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: "rgba(255,255,255,0.6)" }}>
                     <AlertTriangle size={14} color="#DC2626" />
