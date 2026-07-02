@@ -14,6 +14,7 @@ import { resolveZoneForZip } from "./zones.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
 import { resolveAccountBillingClientId } from "../lib/account-billing-client.js";
+import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { isSameDayTimeChange, markTimeChangePending, clearTimeChangePending, sendTimeChangeNotification } from "../lib/time-change-notice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
@@ -271,6 +272,9 @@ router.get("/", requireAuth, async (req, res) => {
     }
     if (branch_id && branch_id !== "all") conditions.push(eq(jobsTable.branch_id, parseInt(branch_id as string)));
     if (uninvoiced === "true") {
+      // [billing-cutover 2026-07-02] Pre-cutover jobs were invoiced + paid in
+      // MaidCentral — never surface them as "not yet invoiced" in Qleno.
+      conditions.push(gte(jobsTable.scheduled_date, INVOICE_CUTOVER_DATE));
       conditions.push(
         notExists(
           db.select({ id: invoicesTable.id })
@@ -300,6 +304,10 @@ router.get("/", requireAuth, async (req, res) => {
         actual_hours: jobsTable.actual_hours,
         notes: jobsTable.notes,
         created_at: jobsTable.created_at,
+        // [account-jobs-under-accounts 2026-07-02] Surface account_id so the
+        // Invoices "Not yet invoiced" list can exclude commercial/account jobs
+        // (invoiced under their Account). Plain column, additive — no join.
+        account_id: jobsTable.account_id,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
