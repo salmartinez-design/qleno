@@ -264,6 +264,11 @@ export default function AccountDetailPage() {
 
   // Invoice generation
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
+  // [account-batch 2026-07-02] Selectable consolidation — pick which visits
+  // (Mon/Tue/…) roll into one invoice. Empty selection = all uninvoiced
+  // (legacy behavior). includeScheduled surfaces upcoming visits to pre-bill.
+  const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set());
+  const [includeScheduled, setIncludeScheduled] = useState(false);
 
   async function load() {
     try {
@@ -272,7 +277,7 @@ export default function AccountDetailPage() {
       const to = new Date(today.getTime() + 30 * 86400000);
       const [accR, jobsR, upR] = await Promise.all([
         fetch(`${API}/api/accounts/${id}`, { headers: getAuthHeaders() }),
-        fetch(`${API}/api/accounts/${id}/uninvoiced-jobs`, { headers: getAuthHeaders() }),
+        fetch(`${API}/api/accounts/${id}/uninvoiced-jobs?include_scheduled=${includeScheduled}`, { headers: getAuthHeaders() }),
         fetch(`${API}/api/accounts/${id}/jobs-calendar?from=${ymd(today)}&to=${ymd(to)}`, { headers: getAuthHeaders() }),
       ]);
       if (accR.ok) setAccount(await accR.json());
@@ -289,7 +294,7 @@ export default function AccountDetailPage() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { load(); }, [id, includeScheduled]);
 
   // [account-comms-toggle] Pause/resume ALL automated SMS+email for this account's
   // customers (reminders, on-my-way, completion, receipts, review requests).
@@ -499,11 +504,14 @@ export default function AccountDetailPage() {
       const r = await fetch(`${API}/api/accounts/${id}/generate-invoice`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        // Send the picked visits; empty selection = all uninvoiced (legacy).
+        body: JSON.stringify(selectedJobIds.size > 0 ? { job_ids: [...selectedJobIds] } : {}),
       });
       const data = await r.json();
       if (r.ok) {
         if (data.invoice) {
           toast({ title: `Invoice created — ${data.jobs_consolidated} job(s) consolidated` });
+          setSelectedJobIds(new Set());
           load();
         } else {
           toast({ title: data.message ?? "No uninvoiced jobs found" });
@@ -1151,8 +1159,14 @@ export default function AccountDetailPage() {
         {/* ─── JOBS TAB ────────────────────────────────────────────────────── */}
         {tab === "jobs" && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">{jobs.length} uninvoiced completed {jobs.length === 1 ? "job" : "jobs"}</p>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3">
+                <p className="text-sm text-gray-500">{jobs.length} {includeScheduled ? "billable" : "uninvoiced completed"} {jobs.length === 1 ? "job" : "jobs"}</p>
+                <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                  <input type="checkbox" checked={includeScheduled} onChange={e => setIncludeScheduled(e.target.checked)} />
+                  Include upcoming (pre-bill)
+                </label>
+              </div>
               {jobs.length > 0 && (
                 <Button
                   className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2"
@@ -1161,7 +1175,11 @@ export default function AccountDetailPage() {
                   disabled={generatingInvoice}
                 >
                   <FileText size={14} />
-                  {generatingInvoice ? "Generating..." : "Generate Invoice"}
+                  {generatingInvoice
+                    ? "Generating..."
+                    : selectedJobIds.size > 0
+                      ? `Invoice ${selectedJobIds.size} selected`
+                      : "Generate Invoice (all)"}
                 </Button>
               )}
             </div>
@@ -1175,6 +1193,14 @@ export default function AccountDetailPage() {
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
+                      <th className="px-4 py-2.5 w-8">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all visits"
+                          checked={jobs.length > 0 && selectedJobIds.size === jobs.length}
+                          onChange={e => setSelectedJobIds(e.target.checked ? new Set(jobs.map((j: any) => j.id)) : new Set())}
+                        />
+                      </th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Date</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Service</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Billing</th>
@@ -1186,6 +1212,18 @@ export default function AccountDetailPage() {
                       const amount = j.billed_amount ? parseFloat(j.billed_amount) : parseFloat(j.base_fee ?? "0");
                       return (
                         <tr key={j.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select visit ${j.scheduled_date}`}
+                              checked={selectedJobIds.has(j.id)}
+                              onChange={e => setSelectedJobIds(prev => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(j.id); else next.delete(j.id);
+                                return next;
+                              })}
+                            />
+                          </td>
                           <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{j.scheduled_date}</td>
                           <td className="px-4 py-3 font-medium text-[#0A0E1A]">
                             {SERVICE_TYPES.find((s) => s.value === j.service_type)?.label ?? j.service_type?.replace(/_/g, " ")}
@@ -1207,9 +1245,12 @@ export default function AccountDetailPage() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t border-gray-100 bg-gray-50">
-                      <td colSpan={3} className="px-4 py-2.5 text-sm font-semibold text-gray-500">Total</td>
+                      <td colSpan={4} className="px-4 py-2.5 text-sm font-semibold text-gray-500">
+                        {selectedJobIds.size > 0 ? `Total (${selectedJobIds.size} selected)` : "Total"}
+                      </td>
                       <td className="px-4 py-2.5 text-right text-sm font-bold text-[#00C9A0]">
-                        {fmtDecimal(jobs.reduce((s: number, j: any) => s + (j.billed_amount ? parseFloat(j.billed_amount) : parseFloat(j.base_fee ?? "0")), 0))}
+                        {fmtDecimal((selectedJobIds.size > 0 ? jobs.filter((j: any) => selectedJobIds.has(j.id)) : jobs)
+                          .reduce((s: number, j: any) => s + (j.billed_amount ? parseFloat(j.billed_amount) : parseFloat(j.base_fee ?? "0")), 0))}
                       </td>
                     </tr>
                   </tfoot>
