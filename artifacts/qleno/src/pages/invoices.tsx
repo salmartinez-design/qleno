@@ -722,6 +722,12 @@ export default function InvoicesPage() {
 
   const [readyExpanded, setReadyExpanded] = useState(true);
   const [failedExpanded, setFailedExpanded] = useState(true);
+  // [uninvoiced-cap 2026-07-02] The "Not yet invoiced" list (added #841) renders
+  // every uninvoiced job unbounded; at 100+ rows it buries the invoices toolbar
+  // (tabs, search, date filter) far below the fold. Cap the visible rows so the
+  // filter stays reachable; header count/total keeps the reconciliation signal.
+  const [showAllUninv, setShowAllUninv] = useState(false);
+  const UNINV_CAP = 6;
   const [chargingJobId, setChargingJobId] = useState<number | null>(null);
   const [payingInvoiceId, setPayingInvoiceId] = useState<number | null>(null);
   const [markPaidInv, setMarkPaidInv] = useState<any | null>(null);
@@ -1001,8 +1007,14 @@ export default function InvoicesPage() {
                     {uninvoicedJobs.length} completed {uninvoicedJobs.length === 1 ? "job" : "jobs"} · ${uninvTotal.toFixed(2)}
                   </span>
                 </div>
+                {uninvoicedJobs.length > UNINV_CAP && (
+                  <button onClick={() => setShowAllUninv(v => !v)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brand)", fontSize: 12, fontWeight: 700, fontFamily: FF, whiteSpace: "nowrap", padding: 0 }}>
+                    {showAllUninv ? "Show less" : `Show all ${uninvoicedJobs.length}`}
+                  </button>
+                )}
               </div>
-              {uninvoicedJobs.map((j: any) => {
+              {(showAllUninv ? uninvoicedJobs : uninvoicedJobs.slice(0, UNINV_CAP)).map((j: any) => {
                 const name = j.account_name || j.client_name || "—";
                 const amt = Number(j.billed_amount ?? j.amount ?? j.base_fee ?? 0);
                 const isAccount = j.account_id != null;
