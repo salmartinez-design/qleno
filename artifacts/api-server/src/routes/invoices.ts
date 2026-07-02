@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable, paymentLinksTable } from "@workspace/db/schema";
 import crypto from "crypto";
-import { eq, and, desc, count, sum, sql, lt, isNull, or, ne, inArray } from "drizzle-orm";
+import { eq, and, desc, count, sum, sql, lt, isNull, isNotNull, or, ne, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { syncInvoice, syncPayment, queueSync } from "../services/quickbooks-sync.js";
@@ -79,7 +79,15 @@ router.get("/", requireAuth, async (req, res) => {
       conditions.push(eq(invoicesTable.status, status as any));
     }
     if (client_id) conditions.push(eq(invoicesTable.client_id, parseInt(client_id as string)));
-    if (branch_id && branch_id !== "all") conditions.push(eq(invoicesTable.branch_id, parseInt(branch_id as string)));
+    // [account-visibility 2026-07-02] Commercial/account invoices are
+    // branch-agnostic — an account (e.g. PPM) can span branches, and the office
+    // wants them visible "from one window" regardless of the branch switcher.
+    // Invoices also aren't stamped with a branch_id today, so a plain
+    // `branch_id = X` filter hid every account invoice. Show invoices whose
+    // branch matches OR that belong to an account.
+    if (branch_id && branch_id !== "all") {
+      conditions.push(or(eq(invoicesTable.branch_id, parseInt(branch_id as string)), isNotNull(invoicesTable.account_id)));
+    }
 
     // [invoice-date-range 2026-06-21] Filter by the invoice's EFFECTIVE service
     // date = the linked job's scheduled_date, falling back to created_at when the
