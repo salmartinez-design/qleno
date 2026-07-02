@@ -759,6 +759,35 @@ router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office
     const invoiceId = parseInt(req.params.id);
     const { method = "cash", amount, date: payDate, notes } = req.body;
 
+    // [mark-paid-recalc 2026-07-02] Never record a STALE amount. If this invoice
+    // is tied to a single job, re-derive its lines/total from the job's CURRENT
+    // price + add-ons + discounts before recording payment — the "invoice
+    // mirrors the job" rule, enforced at the one moment money is captured. This
+    // closes the gap where a job was edited (e.g. Shellie 4h→3h, $220→$165) but
+    // the sync was missed and Mark Paid would otherwise bank the old figure.
+    // Only single-job invoices (job_id set) and only when still unpaid; account/
+    // consolidated invoices (job_id NULL, jobs live in line_items) are untouched.
+    const [pre] = await db
+      .select({ job_id: invoicesTable.job_id, status: invoicesTable.status, tips: invoicesTable.tips })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId as number)))
+      .limit(1);
+    const preJobId: number | null = pre?.job_id ?? null;
+    if (preJobId != null && !["paid", "void", "superseded"].includes((pre?.status ?? "") as string)) {
+      try {
+        const built = await buildJobLineItems(req.auth!.companyId as number, preJobId);
+        if (built) {
+          const tipVal = parseFloat(pre.tips || "0");
+          const freshTotal = Math.round((built.subtotal + tipVal) * 100) / 100;
+          await db.update(invoicesTable)
+            .set({ line_items: built.lineItems, subtotal: built.subtotal.toFixed(2), total: freshTotal.toFixed(2) })
+            .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId as number)));
+        }
+      } catch (e) {
+        console.error("[mark-paid] pre-payment recalc non-fatal:", e);
+      }
+    }
+
     const [invoice] = await db
       .select({ id: invoicesTable.id, client_id: invoicesTable.client_id, total: invoicesTable.total })
       .from(invoicesTable)
