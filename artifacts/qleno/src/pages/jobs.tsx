@@ -4817,157 +4817,21 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
   );
 }
 
-// ─── MOBILE CALENDAR VIEW ─────────────────────────────────────────────────────
-// HCP-style per-tech column calendar. Columns = techs (horizontally scrollable),
-// rows = time (vertical). Zone color drives each job block background — the
-// critical invariant the user called out. Rich content scales with block height.
+// ─── MOBILE SCHEDULE GRID (HCP-style) ─────────────────────────────────────────
+// [mobile-grid 2026-07-02] One FULL-WIDTH day column (no horizontal scroll — the
+// old per-tech-column grid forced side-scrolling that's unusable on the run).
+// Vertical position = start time, height = duration; concurrent jobs pack into
+// side-by-side sub-columns per overlap cluster (same idea as the desktop Gantt's
+// packLanes, rotated vertical) so a lone job spans the whole width while a 9 AM
+// pile-up splits. Blocks fill with the job's ZONE COLOR (the required invariant,
+// matches desktop + HCP). Text flips dark on light zones via luminance so a pale
+// zone stays readable. Content scales with block height: name → time → tech →
+// address → service·$. Untimed jobs list below as full cards.
 function MobileCalendarView({ jobs, onJobClick, isToday }: {
   jobs: DispatchJob[]; onJobClick: (j: DispatchJob) => void; isToday: boolean;
 }) {
-  const PX_PER_MIN = 1.15;
-  const CAL_COL_W = 140;
-  const TIME_W = 44;
-  const HEADER_H = 54;
-
-  const timed = jobs.filter(j => timeToMins(j.scheduled_time) > 0);
-  const minStart = timed.length ? Math.min(...timed.map(j => timeToMins(j.scheduled_time))) : 8 * 60;
-  const maxEnd = timed.length ? Math.max(...timed.map(j => timeToMins(j.scheduled_time) + Math.max(j.duration_minutes || 0, 30))) : 18 * 60;
-  const startHour = Math.max(5, Math.min(8, Math.floor(minStart / 60)));
-  const endHour = Math.min(24, Math.max(18, Math.ceil(maxEnd / 60)));
-  const dayStart = startHour * 60;
-  const gridH = (endHour - startHour) * 60 * PX_PER_MIN;
-  const hours = Array.from({ length: endHour - startHour + 1 }, (_, i) => startHour + i);
-
-  // Group by tech, unassigned first
-  const techMap = new Map<string, DispatchJob[]>();
-  for (const j of jobs) {
-    const key = j.assigned_user_name || "Unassigned";
-    if (!techMap.has(key)) techMap.set(key, []);
-    techMap.get(key)!.push(j);
-  }
-  const techs = [...techMap.entries()].sort(([a], [b]) => {
-    if (a === "Unassigned") return -1;
-    if (b === "Unassigned") return 1;
-    return a.localeCompare(b);
-  }).map(([name, techJobs]) => ({ name, jobs: techJobs }));
-
-  const now = isToday ? new Date() : null;
-  const nowY = now ? ((now.getHours() * 60 + now.getMinutes() - dayStart) * PX_PER_MIN) : -1;
-
-  function fmtHourLabel(h: number) {
-    if (h === 0 || h === 24) return "12a";
-    if (h === 12) return "12p";
-    return h < 12 ? `${h}a` : `${h - 12}p`;
-  }
-
-  return (
-    <div style={{ overflowX: "auto", fontFamily: FF }}>
-      <div style={{ display: "flex", minWidth: TIME_W + techs.length * CAL_COL_W }}>
-        {/* Sticky time-label column */}
-        <div style={{ width: TIME_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 10, backgroundColor: "#F7F6F3", borderRight: "1px solid #E5E2DC" }}>
-          <div style={{ height: HEADER_H, borderBottom: "1px solid #E5E2DC" }} />
-          <div style={{ position: "relative", height: gridH }}>
-            {hours.map(h => (
-              <div key={h} style={{ position: "absolute", top: (h * 60 - dayStart) * PX_PER_MIN - 7, right: 6, textAlign: "right" }}>
-                <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 600 }}>{fmtHourLabel(h)}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Per-tech columns */}
-        {techs.map((tech, ti) => {
-          const isUn = tech.name === "Unassigned";
-          const dur = (j: DispatchJob) => Math.max(j.duration_minutes || 0, 30);
-          return (
-            <div key={tech.name} style={{ width: CAL_COL_W, flexShrink: 0, borderLeft: "1px solid #E5E2DC" }}>
-              {/* Column header */}
-              <div style={{ height: HEADER_H, borderBottom: "1px solid #E5E2DC", padding: "8px 10px", display: "flex", alignItems: "center", gap: 8, backgroundColor: "#FFFFFF", position: "sticky", top: 0, zIndex: 5 }}>
-                <div style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0, backgroundColor: isUn ? "#9CA3AF" : techAvatarColor(tech.name), color: "#FFFFFF", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800 }}>
-                  {isUn ? "?" : techInitials(tech.name)}
-                </div>
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: isUn ? "#B45309" : "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tech.name}</div>
-                  <div style={{ fontSize: 9, color: "#9E9B94", fontWeight: 600 }}>{tech.jobs.length} job{tech.jobs.length !== 1 ? "s" : ""}</div>
-                </div>
-              </div>
-
-              {/* Time grid + job blocks */}
-              <div style={{ position: "relative", height: gridH, backgroundColor: ti % 2 === 0 ? "#FAFAF9" : "#F7F6F3" }}>
-                {/* Hour grid lines */}
-                {hours.map(h => (
-                  <div key={h} style={{ position: "absolute", top: (h * 60 - dayStart) * PX_PER_MIN, left: 0, right: 0, borderTop: "1px solid #EEECE7" }}>
-                    <div style={{ position: "absolute", top: 30 * PX_PER_MIN, left: 0, right: 0, borderTop: "1px dotted #E9E7E2" }} />
-                  </div>
-                ))}
-                {/* Now line */}
-                {nowY >= 0 && nowY <= gridH && (
-                  <div style={{ position: "absolute", top: nowY, left: 0, right: 0, height: 2, backgroundColor: "#EF4444", zIndex: 4, pointerEvents: "none" }} />
-                )}
-                {/* Job blocks — zone color is the required invariant */}
-                {tech.jobs.filter(j => timeToMins(j.scheduled_time) > 0).map(j => {
-                  const top = (timeToMins(j.scheduled_time) - dayStart) * PX_PER_MIN;
-                  const height = Math.max(dur(j) * PX_PER_MIN, 32);
-                  const bgColor = j.zone_color || "#9CA3AF";
-                  const onDark = (zoneLuminance(bgColor) / 255) < 0.62;
-                  const ink = onDark ? "#FFFFFF" : "#0A0E1A";
-                  const muted = onDark ? "rgba(255,255,255,0.72)" : "rgba(10,14,26,0.55)";
-                  const sMin = timeToMins(j.scheduled_time);
-                  const eMin = sMin + (j.duration_minutes || 0);
-                  const sh = Math.floor(sMin / 60); const sm = sMin % 60;
-                  const eh = Math.floor(eMin / 60) % 24; const em = eMin % 60;
-                  const timeStr = `${sh % 12 || 12}:${String(sm).padStart(2, "0")}${sh >= 12 ? "p" : "a"}–${eh % 12 || 12}:${String(em).padStart(2, "0")}${eh >= 12 ? "p" : "a"}`;
-                  const visual = STATUS_VISUALS[getJobVisualStatus(j)];
-                  return (
-                    <button key={j.id} onClick={() => onJobClick(j)} style={{
-                      position: "absolute", top: top + 2, left: 4, right: 4,
-                      height: height - 4, minHeight: 28,
-                      backgroundColor: bgColor, borderRadius: 8,
-                      padding: height < 38 ? "2px 6px" : "6px 8px",
-                      overflow: "hidden", cursor: "pointer", border: "none",
-                      textAlign: "left", zIndex: 2, fontFamily: FF,
-                      opacity: visual.bodyOpacity,
-                      filter: visual.desaturate ? "grayscale(1)" : "none",
-                      boxShadow: visual.stripe ? `0 0 0 2px ${visual.stripe}` : undefined,
-                      display: "flex", flexDirection: "column", gap: 1,
-                    }}>
-                      <div style={{ fontSize: height < 38 ? 9.5 : 11.5, fontWeight: 700, color: ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", lineHeight: 1.2, textDecoration: visual.strikethrough ? "line-through" : "none" }}>
-                        {j.display_name ?? j.client_name}
-                      </div>
-                      {height >= 44 && (
-                        <div style={{ fontSize: 9.5, color: muted, lineHeight: 1.2, whiteSpace: "nowrap" }}>{timeStr}</div>
-                      )}
-                      {height >= 80 && j.address && (
-                        <div style={{ fontSize: 9.5, color: muted, lineHeight: 1.25, overflow: "hidden", maxHeight: 30 }}>{j.address}</div>
-                      )}
-                      {height >= 110 && (
-                        <div style={{ fontSize: 9.5, color: muted, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: "auto" }}>
-                          {[j.service_type ? fmtSvc(j.service_type) : "", j.amount ? `$${j.amount.toFixed(0)}` : ""].filter(Boolean).join(" · ")}
-                        </div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// [schedule-views 2026-06-05] MOBILE TIME-GRID (HCP-style). Renders the focal
-// day's jobs on an hour grid: vertical position = start time, height =
-// duration, concurrent jobs packed into PARALLEL COLUMNS. Column packing is
-// per-overlap-cluster (a "connected component" of mutually overlapping jobs),
-// so a lone job stays full-width while a 9 AM pile-up splits into N columns —
-// same idea as the desktop Gantt's packLanes, rotated to a vertical grid.
-// Blocks fill with the job's zone color (matches desktop); text flips to dark
-// on light zones via luminance. Jobs with no scheduled time list below.
-function MobileTimeGrid({ jobs, onJobClick }: { jobs: DispatchJob[]; onJobClick: (j: DispatchJob) => void }) {
-  const PX_PER_MIN = 1.15;
-  const GUTTER = 46;
+  const PX_PER_MIN = 1.25;
+  const GUTTER = 48;
   const dur = (j: DispatchJob) => Math.max(j.duration_minutes || 0, 30);
   const timed = jobs.filter(j => timeToMins(j.scheduled_time) > 0);
   const untimed = jobs.filter(j => timeToMins(j.scheduled_time) <= 0);
@@ -4976,12 +4840,15 @@ function MobileTimeGrid({ jobs, onJobClick }: { jobs: DispatchJob[]; onJobClick:
   if (timed.length > 0) {
     const minStart = Math.min(...timed.map(j => timeToMins(j.scheduled_time)));
     const maxEnd = Math.max(...timed.map(j => timeToMins(j.scheduled_time) + dur(j)));
-    const startHour = Math.max(0, Math.min(8, Math.floor(minStart / 60)));
+    const startHour = Math.max(0, Math.min(7, Math.floor(minStart / 60)));
     const endHour = Math.min(24, Math.max(18, Math.ceil(maxEnd / 60)));
     const dayStart = startHour * 60;
     const gridH = (endHour - startHour) * 60 * PX_PER_MIN;
 
-    // Per-cluster greedy column packing.
+    // Per-cluster greedy column packing. A cluster = a connected run of
+    // mutually-overlapping jobs; each gets the fewest columns that avoid
+    // visual overlap, then every job in the cluster shares that column count
+    // so widths line up.
     type Placed = { job: DispatchJob; col: number; cols: number; start: number; end: number };
     const sorted = [...timed].sort((a, b) => timeToMins(a.scheduled_time) - timeToMins(b.scheduled_time) || a.id - b.id);
     const placed: Placed[] = [];
@@ -5007,43 +4874,92 @@ function MobileTimeGrid({ jobs, onJobClick }: { jobs: DispatchJob[]; onJobClick:
     const hours: number[] = [];
     for (let h = startHour; h <= endHour; h++) hours.push(h);
 
+    const now = isToday ? new Date() : null;
+    const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
+    const nowY = now ? (nowMin - dayStart) * PX_PER_MIN : -1;
+
     body = (
-      <div style={{ position: "relative", marginLeft: GUTTER, height: gridH, borderTop: "1px solid #F0EEE9" }}>
+      <div style={{ position: "relative", marginLeft: GUTTER, height: gridH, borderTop: "1px solid #EEECE7" }}>
+        {/* Hour gridlines + labels (label sits in the left gutter). */}
         {hours.map(h => {
           const top = (h * 60 - dayStart) * PX_PER_MIN;
           return (
-            <div key={h} style={{ position: "absolute", left: -GUTTER, right: 0, top, borderTop: "1px solid #F2F0EB" }}>
-              <span style={{ position: "absolute", left: 0, top: -7, width: GUTTER - 8, textAlign: "right", fontSize: 10, color: "#9E9B94", fontWeight: 600 }}>{fmtHour(h)}</span>
+            <div key={h} style={{ position: "absolute", left: -GUTTER, right: 0, top, borderTop: "1px solid #EEECE7" }}>
+              <span style={{ position: "absolute", left: 0, top: -7, width: GUTTER - 8, textAlign: "right", fontSize: 10.5, color: "#9E9B94", fontWeight: 700 }}>{fmtHourShort(h)}</span>
+              {/* half-hour tick */}
+              <div style={{ position: "absolute", left: 0, right: 0, top: 30 * PX_PER_MIN, borderTop: "1px dotted #F0EEE9" }} />
             </div>
           );
         })}
+
+        {/* Now line — only on today, only when in range. */}
+        {now && nowY >= 0 && nowY <= gridH && (
+          <div style={{ position: "absolute", left: -6, right: 0, top: nowY, zIndex: 6, pointerEvents: "none" }}>
+            <div style={{ position: "absolute", left: 0, top: -4, width: 8, height: 8, borderRadius: "50%", backgroundColor: "#EF4444" }} />
+            <div style={{ position: "absolute", left: 6, right: 0, top: 0, height: 2, backgroundColor: "#EF4444" }} />
+          </div>
+        )}
+
         {placed.map(p => {
           const j = p.job;
           const visual = STATUS_VISUALS[getJobVisualStatus(j)];
-          const color = j.zone_color || "#9CA3AF";
-          const onDark = (zoneLuminance(color) / 255) < 0.62;
+          const baseColor = j.zone_color || "#9CA3AF";
+          // fillMuted (completed) drains the block toward gray while text stays crisp.
+          const color = visual.fillMuted ? muteZone(baseColor) : baseColor;
+          const onDark = zoneLuminance(color) < 0.62;
+          const ink = onDark ? "#FFFFFF" : "#12100E";
+          const sub = onDark ? "rgba(255,255,255,0.82)" : "rgba(18,16,14,0.62)";
           const top = (p.start - dayStart) * PX_PER_MIN;
-          const height = Math.max((p.end - p.start) * PX_PER_MIN, 36);
+          const height = Math.max((p.end - p.start) * PX_PER_MIN, 40);
           const widthPct = 100 / p.cols;
           const leftPct = p.col * widthPct;
+          const wide = p.cols === 1;
+          const isUn = !j.assigned_user_name;
+          // Left status accent: amber for active, red ring for late/no-show.
+          const ring = visual.stripe
+            ? `inset 4px 0 0 ${visual.stripe}`
+            : visual.borderOverride
+              ? `inset 0 0 0 2px ${visual.borderOverride}`
+              : "none";
+          const sMin = timeToMins(j.scheduled_time);
+          const eMin = sMin + (j.duration_minutes || 0);
+          const timeStr = `${fmtMins(sMin)} – ${fmtMins(eMin)}`;
           return (
-            <div key={j.id} onClick={() => onJobClick(j)} style={{
-              position: "absolute", top, left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
-              height: height - 3, backgroundColor: color, borderRadius: 8, padding: "5px 7px",
-              cursor: "pointer", overflow: "hidden", fontFamily: FF, boxSizing: "border-box",
-              color: onDark ? "#FFFFFF" : "#1A1917", opacity: visual.bodyOpacity,
-              filter: visual.desaturate ? "grayscale(1)" : "none",
-              boxShadow: visual.stripe ? `inset 0 0 0 2px rgba(255,255,255,0.55), 0 0 0 2px ${visual.stripe}` : "none",
+            <button key={j.id} onClick={() => onJobClick(j)} className={visual.glowActive ? "qleno-active-glow" : undefined} style={{
+              position: "absolute", top: top + 1.5, left: `calc(${leftPct}% + 2px)`,
+              width: `calc(${widthPct}% - 4px)`, height: height - 3, minHeight: 38,
+              backgroundColor: color, borderRadius: 10, border: "none", textAlign: "left",
+              padding: height < 52 ? "5px 9px" : "7px 10px", overflow: "hidden", cursor: "pointer",
+              fontFamily: FF, boxSizing: "border-box", zIndex: 2,
+              opacity: visual.bodyOpacity, filter: visual.desaturate ? "grayscale(1)" : "none",
+              boxShadow: ring === "none" ? "0 1px 2px rgba(10,14,26,0.10)" : `${ring}, 0 1px 2px rgba(10,14,26,0.10)`,
+              display: "flex", flexDirection: "column", gap: 1,
             }}>
-              <div style={{ fontSize: 11.5, fontWeight: 700, lineHeight: 1.15, textDecoration: visual.strikethrough ? "line-through" : "none", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-                {j.display_name ?? j.client_name}
+              {/* Name + completed check / no-show badge */}
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: height < 52 ? 12 : 13, fontWeight: 800, color: ink, lineHeight: 1.15, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: visual.strikethrough ? "line-through" : "none" }}>
+                  {j.display_name ?? j.client_name}
+                </div>
+                {visual.showCheckmark && <Check size={12} color={ink} strokeWidth={3} style={{ flexShrink: 0 }} />}
+                {visual.showNoShowBadge && <span style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "1px 4px", borderRadius: 3, letterSpacing: "0.03em" }}>NO SHOW</span>}
               </div>
-              {height >= 46 && (
-                <div style={{ fontSize: 9.5, opacity: 0.92, marginTop: 2, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>
-                  {fmtTime(j.scheduled_time)}{j.assigned_user_name ? ` · ${j.assigned_user_name}` : ""}
+              {height >= 50 && (
+                <div style={{ fontSize: 10, fontWeight: 700, color: sub, lineHeight: 1.2, whiteSpace: "nowrap" }}>{timeStr}</div>
+              )}
+              {height >= 68 && (
+                <div style={{ fontSize: 10, fontWeight: 600, color: sub, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                  {isUn ? "Unassigned" : j.assigned_user_name}
                 </div>
               )}
-            </div>
+              {height >= 88 && wide && j.address && (
+                <div style={{ fontSize: 10, color: sub, lineHeight: 1.25, overflow: "hidden", maxHeight: 26, textOverflow: "ellipsis" }}>{j.address}</div>
+              )}
+              {height >= 110 && wide && (
+                <div style={{ fontSize: 10, fontWeight: 600, color: sub, lineHeight: 1.2, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", marginTop: "auto" }}>
+                  {[j.service_type ? fmtSvc(j.service_type) : "", j.amount ? `$${j.amount.toFixed(0)}` : ""].filter(Boolean).join(" · ")}
+                </div>
+              )}
+            </button>
           );
         })}
       </div>
@@ -5051,16 +4967,40 @@ function MobileTimeGrid({ jobs, onJobClick }: { jobs: DispatchJob[]; onJobClick:
   }
 
   return (
-    <div>
+    <div style={{ fontFamily: FF }}>
       {body}
       {untimed.length > 0 && (
-        <div style={{ marginTop: body ? 14 : 0 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 2px 6px" }}>No time set</div>
+        <div style={{ marginTop: body ? 16 : 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 2px 8px" }}>No time set</div>
           {untimed.map(j => <MobileJobCard key={j.id} job={j} onClick={() => onJobClick(j)} />)}
         </div>
       )}
+      {timed.length === 0 && untimed.length === 0 && (
+        <div style={{ textAlign: "center", padding: 24, color: "#9E9B94", fontSize: 13 }}>No scheduled jobs</div>
+      )}
     </div>
   );
+}
+
+// [mobile-grid 2026-07-02] Short hour label for the grid gutter ("7a", "12p").
+function fmtHourShort(h: number) {
+  if (h === 0 || h === 24) return "12a";
+  if (h === 12) return "12p";
+  return h < 12 ? `${h}a` : `${h - 12}p`;
+}
+
+// [mobile-grid 2026-07-02] Mute a zone hex toward warm gray for completed jobs
+// so the block drains of color (parity with STATUS_VISUALS.fillMuted on cards)
+// while the text on top stays fully legible.
+function muteZone(hex: string): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return "#C9C6C0";
+  const mix = (c: number, t: number) => Math.round(c * 0.42 + t * 0.58);
+  const r = mix(parseInt(h.slice(0, 2), 16), 0xC9);
+  const g = mix(parseInt(h.slice(2, 4), 16), 0xC6);
+  const b = mix(parseInt(h.slice(4, 6), 16), 0xC0);
+  if ([r, g, b].some(v => Number.isNaN(v))) return "#C9C6C0";
+  return `#${[r, g, b].map(v => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
 // [schedule-views 2026-06-05] Decorative, stable avatar color derived from a
