@@ -108,24 +108,25 @@ export async function ensureInvoiceForCompletedJob(
     if (job.charge_succeeded_at) return NO_OP;
 
     // Resolve terms + billing_terms + payment_source.
-    let skipAutoInvoice = false;
+    let accountDraft = false;
     let termsDays = 0;
     let billingTerms: string = "per_visit";
     let paymentSource: string | null = null;
 
     if (job.account_id) {
-      // Commercial account path — unchanged legacy behavior (per_job only).
+      // [per-job-drafts 2026-07-02] Every commercial-account job now gets its
+      // OWN invoice — always as a DRAFT (nothing auto-sends). The office then
+      // sends it individually OR bulk-merges a period into one bill (POST
+      // /api/invoices/merge). Replaces the old behavior where non-'per_job'
+      // accounts made NO invoice and jobs piled up uninvoiced. accountDraft
+      // routes through isBatch below → status='draft' / batch_status='pending'.
       const [acct] = await db
         .select({ invoice_frequency: accountsTable.invoice_frequency, payment_terms_days: accountsTable.payment_terms_days })
         .from(accountsTable)
         .where(eq(accountsTable.id, job.account_id))
         .limit(1);
-      if (acct) {
-        termsDays = acct.payment_terms_days ?? 30;
-        if (acct.invoice_frequency !== "per_job") {
-          skipAutoInvoice = true;
-        }
-      }
+      if (acct) termsDays = acct.payment_terms_days ?? 30;
+      accountDraft = true;
     } else {
       const [co] = await db
         .select({ payment_terms_days: companiesTable.payment_terms_days })
@@ -162,9 +163,10 @@ export async function ensureInvoiceForCompletedJob(
       }
     }
 
-    if (skipAutoInvoice) return NO_OP;
-
-    const isBatch = billingTerms === "batch_invoice";
+    // [per-job-drafts 2026-07-02] Account jobs are held as drafts (accountDraft)
+    // alongside the residential batch_invoice path — both land status='draft',
+    // batch_status='pending', awaiting an explicit send or a bulk merge.
+    const isBatch = billingTerms === "batch_invoice" || accountDraft;
 
     const today = new Date();
     const due = new Date(today);
