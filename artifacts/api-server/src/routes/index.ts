@@ -106,6 +106,7 @@ import lmsSettingsRouter from "./lms-settings.js";
 import lmsAdminAuditRouter from "./lms-admin-audit.js";
 import lmsOnboardingIntakeRouter from "./lms-onboarding-intake.js";
 import translateRouter from "./translate.js";
+import messageToneRouter from "./message-tone.js";
 import assistantRouter from "./assistant.js";
 import devicesRouter from "./devices.js";
 import guidesRouter from "./guides.js";
@@ -147,6 +148,9 @@ router.use("/team-photo-notes", teamPhotoNotesRouter);
 // [translate-job-notes 2026-05-27] Office-only translation endpoint —
 // Claude API. POST /api/translate {text, target} → {translated}.
 router.use("/translate", translateRouter);
+// [message-tone 2026-07-02] One-tap tone polish for outbound customer SMS.
+// POST /api/message-tone {text, tone} → {result}.
+router.use("/message-tone", messageToneRouter);
 // [voice-assistant 2026-06-08] Field-tech voice assistant — Claude API, scoped
 // to the caller's own jobs. POST /api/assistant/ask {question, language} → {answer, navigate_url}.
 router.use("/assistant", assistantRouter);

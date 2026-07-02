@@ -3,7 +3,7 @@ import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Search, Send, ChevronLeft, Plus, X, Paperclip, Clock, Trash2, Image } from "lucide-react";
+import { MessageSquare, Search, Send, ChevronLeft, Plus, X, Paperclip, Clock, Trash2, Image, Sparkles, Mic, Undo2, ChevronDown } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -108,6 +108,28 @@ export default function MessagesPage() {
   const [scheduling, setScheduling] = useState(false);
   const threadEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replyRef = useRef<HTMLTextAreaElement>(null);
+
+  // [message-tone 2026-07-02] AI tone polish + [voice 2026-07-02] dictation.
+  const [toneOpen, setToneOpen] = useState(false);
+  const [toning, setToning] = useState(false);
+  const [prePolish, setPrePolish] = useState<string | null>(null); // draft before polish, for one-tap Undo
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const speechSupported = typeof window !== "undefined" &&
+    (("SpeechRecognition" in window) || ("webkitSpeechRecognition" in window));
+
+  // [composer-autogrow 2026-07-02] Grow the reply box with its content (up to
+  // ~6 lines) so a multi-line draft stays fully visible. Before this the box
+  // was locked to rows={1}, so after a couple of lines the top scrolled out of
+  // view and you couldn't see what you'd just typed. Reset to "auto" first so
+  // it also shrinks back down on delete / after send clears the field.
+  useEffect(() => {
+    const el = replyRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [reply]);
 
   // Compose ("New message") state
   const [composeOpen, setComposeOpen] = useState(false);
@@ -342,6 +364,76 @@ export default function MessagesPage() {
 
   const canSend = (reply.trim() || attachments.length > 0) && !attachments.some(a => a.uploading);
 
+  // [message-tone 2026-07-02] Rewrite the current draft in the chosen tone via
+  // Claude (POST /api/message-tone). Stash the pre-polish draft so the office
+  // can revert in one tap if they don't like the rewrite.
+  async function polishTone(tone: string) {
+    const text = reply.trim();
+    if (!text || toning) return;
+    setToneOpen(false);
+    setToning(true);
+    try {
+      const r = await fetch(`${API}/api/message-tone`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ text, tone }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data?.result) {
+        setPrePolish(reply);
+        setReply(data.result);
+      } else {
+        toast({ title: data?.error || "Couldn't polish message", variant: "destructive" as any });
+      }
+    } catch {
+      toast({ title: "Couldn't reach the AI tone service", variant: "destructive" as any });
+    } finally {
+      setToning(false);
+    }
+  }
+  function undoPolish() {
+    if (prePolish === null) return;
+    setReply(prePolish);
+    setPrePolish(null);
+  }
+
+  // [voice 2026-07-02] Voice-to-text via the Web Speech API so the office /
+  // owner can dictate a reply from the road. Continuous + interim results:
+  // final chunks append to whatever's already typed; tapping the mic again
+  // stops. Only rendered when the browser supports it (see speechSupported).
+  function startDictation() {
+    const SR: any = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SR) { toast({ title: "Voice input isn't supported on this browser" }); return; }
+    try {
+      const rec = new SR();
+      rec.lang = "en-US";
+      rec.interimResults = true;
+      rec.continuous = true;
+      let base = reply;
+      rec.onresult = (e: any) => {
+        let finalStr = "", interim = "";
+        for (let i = e.resultIndex; i < e.results.length; i++) {
+          const t = e.results[i][0].transcript;
+          if (e.results[i].isFinal) finalStr += t; else interim += t;
+        }
+        if (finalStr) base = (base ? base.replace(/\s+$/, "") + " " : "") + finalStr.trim();
+        setReply((base + (interim ? " " + interim.trim() : "")).replace(/\s+$/, m => m.length ? " " : ""));
+      };
+      rec.onerror = () => setListening(false);
+      rec.onend = () => setListening(false);
+      recognitionRef.current = rec;
+      setListening(true);
+      rec.start();
+    } catch {
+      setListening(false);
+      toast({ title: "Couldn't start voice input" });
+    }
+  }
+  function stopDictation() {
+    try { recognitionRef.current?.stop(); } catch { /* noop */ }
+    setListening(false);
+  }
+
   // Min datetime for schedule picker: now + 5 minutes (enforced in scheduleSend too)
   const nowPlusMins = new Date(Date.now() + 5 * 60_000);
   const minDate = `${nowPlusMins.getFullYear()}-${String(nowPlusMins.getMonth()+1).padStart(2,"0")}-${String(nowPlusMins.getDate()).padStart(2,"0")}`;
@@ -535,18 +627,59 @@ export default function MessagesPage() {
                     </div>
                   )}
 
+                  {/* [message-tone + voice 2026-07-02] AI toolbar: polish tone
+                      + dictate. Sits above the input row so the main composer
+                      stays uncluttered. */}
+                  <div style={{ display: "flex", gap: 6, alignItems: "center", padding: "8px 10px 2px", background: "#fff", borderTop: `1px solid ${BORDER}`, flexWrap: "wrap" }}>
+                    <div style={{ position: "relative" }}>
+                      <button onClick={() => setToneOpen(o => !o)} disabled={!reply.trim() || toning}
+                        title="Rewrite the tone with AI"
+                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: FF, color: INK, cursor: reply.trim() && !toning ? "pointer" : "default", opacity: reply.trim() && !toning ? 1 : 0.5 }}>
+                        <Sparkles size={13} color={BRAND} /> {toning ? "Polishing…" : "Polish"} <ChevronDown size={12} color={MUTE} />
+                      </button>
+                      {toneOpen && (
+                        <>
+                          <div onClick={() => setToneOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+                          <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, zIndex: 41, background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(10,14,26,0.16)", padding: 6, minWidth: 172 }}>
+                            {([["professional", "Professional"], ["friendly", "Friendly & warm"], ["concise", "Shorter"], ["apologetic", "Apologetic"]] as const).map(([v, label]) => (
+                              <button key={v} onClick={() => polishTone(v)}
+                                style={{ display: "block", width: "100%", textAlign: "left", padding: "9px 11px", background: "transparent", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: FF, color: INK, cursor: "pointer" }}
+                                onMouseEnter={e => (e.currentTarget.style.background = "#F5F4F0")}
+                                onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    {prePolish !== null && (
+                      <button onClick={undoPolish} title="Revert to your original wording"
+                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", background: "transparent", border: `1px solid ${BORDER}`, borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: FF, color: MUTE, cursor: "pointer" }}>
+                        <Undo2 size={12} /> Undo
+                      </button>
+                    )}
+                    {speechSupported && (
+                      <button onClick={() => (listening ? stopDictation() : startDictation())}
+                        title={listening ? "Stop dictation" : "Dictate your message"}
+                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", background: listening ? "#FEECEC" : "#F1F0EC", border: `1px solid ${listening ? "#F5B5B5" : BORDER}`, borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: FF, color: listening ? "#C0392B" : INK, cursor: "pointer" }}>
+                        <Mic size={13} color={listening ? "#C0392B" : BRAND} /> {listening ? "Listening…" : "Dictate"}
+                      </button>
+                    )}
+                  </div>
+
                   {/* Composer */}
-                  <div style={{ padding: 10, borderTop: `1px solid ${BORDER}`, display: "flex", gap: 8, alignItems: "flex-end", background: "#fff" }}>
+                  <div style={{ padding: 10, borderTop: "none", display: "flex", gap: 8, alignItems: "flex-end", background: "#fff" }}>
                     {/* Hidden file input */}
                     <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" style={{ display: "none" }} onChange={handleFileSelect} />
                     <button onClick={() => fileInputRef.current?.click()} title="Attach image or video"
                       style={{ padding: 10, background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 }}>
                       <Paperclip size={15} color={MUTE} />
                     </button>
-                    <textarea value={reply} onChange={e => setReply(e.target.value)}
+                    <textarea ref={replyRef} value={reply} onChange={e => setReply(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !scheduleOpen) { e.preventDefault(); send(); } }}
                       placeholder={scheduleOpen ? "Type message to schedule…" : "Type a reply…"} rows={1}
-                      style={{ flex: 1, resize: "none", padding: "10px 12px", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, fontSize: 14, fontFamily: FF, maxHeight: 120 }} />
+                      style={{ flex: 1, resize: "none", padding: "10px 12px", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, fontSize: 14, lineHeight: 1.35, fontFamily: FF, maxHeight: 140, overflowY: "auto" }} />
                     <button onClick={openSchedulePicker} title="Schedule message"
                       style={{ padding: 10, background: scheduleOpen ? "#E8FAF6" : "#F1F0EC", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 }}>
                       <Clock size={15} color={scheduleOpen ? BRAND : MUTE} />
