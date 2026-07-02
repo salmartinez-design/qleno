@@ -108,6 +108,19 @@ export default function MessagesPage() {
   const [scheduling, setScheduling] = useState(false);
   const threadEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const replyRef = useRef<HTMLTextAreaElement>(null);
+
+  // [composer-autogrow 2026-07-02] Grow the reply box with its content (up to
+  // ~6 lines) so a multi-line draft stays fully visible. Before this the box
+  // was locked to rows={1}, so after a couple of lines the top scrolled out of
+  // view and you couldn't see what you'd just typed. Reset to "auto" first so
+  // it also shrinks back down on delete / after send clears the field.
+  useEffect(() => {
+    const el = replyRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [reply]);
 
   // Compose ("New message") state
   const [composeOpen, setComposeOpen] = useState(false);
@@ -543,10 +556,10 @@ export default function MessagesPage() {
                       style={{ padding: 10, background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 }}>
                       <Paperclip size={15} color={MUTE} />
                     </button>
-                    <textarea value={reply} onChange={e => setReply(e.target.value)}
+                    <textarea ref={replyRef} value={reply} onChange={e => setReply(e.target.value)}
                       onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !scheduleOpen) { e.preventDefault(); send(); } }}
                       placeholder={scheduleOpen ? "Type message to schedule…" : "Type a reply…"} rows={1}
-                      style={{ flex: 1, resize: "none", padding: "10px 12px", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, fontSize: 14, fontFamily: FF, maxHeight: 120 }} />
+                      style={{ flex: 1, resize: "none", padding: "10px 12px", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, fontSize: 14, lineHeight: 1.35, fontFamily: FF, maxHeight: 140, overflowY: "auto" }} />
                     <button onClick={openSchedulePicker} title="Schedule message"
                       style={{ padding: 10, background: scheduleOpen ? "#E8FAF6" : "#F1F0EC", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, cursor: "pointer", display: "flex", alignItems: "center", flexShrink: 0 }}>
                       <Clock size={15} color={scheduleOpen ? BRAND : MUTE} />
