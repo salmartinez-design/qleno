@@ -300,6 +300,10 @@ router.get("/", requireAuth, async (req, res) => {
         actual_hours: jobsTable.actual_hours,
         notes: jobsTable.notes,
         created_at: jobsTable.created_at,
+        // [account-jobs-under-accounts 2026-07-02] Surface account_id so the
+        // Invoices "Not yet invoiced" list can exclude commercial/account jobs
+        // (invoiced under their Account). Plain column, additive — no join.
+        account_id: jobsTable.account_id,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
