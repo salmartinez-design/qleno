@@ -8,6 +8,7 @@ import { useBranch } from "@/contexts/branch-context";
 import { Plus, Search, Send, Download, Layers, X, Check, CheckSquare, Square, AlertCircle, Calendar, ChevronDown, DollarSign, RotateCcw, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CloseDayModal } from "@/components/close-day-modal";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -962,11 +963,12 @@ export default function InvoicesPage() {
                     style={{ paddingLeft: 32, paddingRight: 10, height: 36, width: isMobile ? "100%" : 200, backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, outline: "none", fontFamily: FF }} />
                 </div>
                 {/* [invoice-date-range 2026-06-21] Filter by service date. */}
-                <input type="date" value={dateFrom} max={dateTo || undefined} onChange={e => setDateFrom(e.target.value)} aria-label="From date"
-                  style={{ height: 36, padding: "0 8px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, outline: "none", fontFamily: FF }} />
+                {/* [styled-picker 2026-07-02] Use the shared CalendarPopover (mint-accent
+                    month grid) instead of the OS-native <input type="date"> picker so the
+                    filter matches the rest of the app on desktop + mobile. */}
+                <CalendarPopover value={dateFrom} ariaLabel="From date" onChange={setDateFrom} />
                 <span style={{ color: "#9E9B94", fontSize: 13 }}>–</span>
-                <input type="date" value={dateTo} min={dateFrom || undefined} onChange={e => setDateTo(e.target.value)} aria-label="To date"
-                  style={{ height: 36, padding: "0 8px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, outline: "none", fontFamily: FF }} />
+                <CalendarPopover value={dateTo} ariaLabel="To date" onChange={setDateTo} />
                 {(dateFrom || dateTo) && (
                   <button onClick={() => { setDateFrom(""); setDateTo(""); }} title="Clear dates"
                     style={{ height: 36, padding: "0 10px", backgroundColor: "transparent", color: "#6B7280", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Clear</button>
