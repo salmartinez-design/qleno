@@ -500,15 +500,20 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
 
     if (rawLines.length > 0) {
       for (const line of rawLines) {
-        const amount = parseFloat(line.amount || line.total || line.unit_price || "0");
-        if (amount > 0) {
-          lineItems.push({
-            DetailType: "SalesItemLineDetail",
-            Amount: amount,
-            Description: line.description || line.name || "Cleaning Service",
-            SalesItemLineDetail: { ItemRef: { value: serviceItemId } },
-          });
-        }
+        const amount = parseFloat(line.amount ?? line.total ?? line.unit_price ?? "0");
+        // Skip only true zero/NaN lines. Discounts (auto-promo or manual) are
+        // stored as NEGATIVE-total lines; QBO accepts a negative-Amount
+        // SalesItemLine, so pushing them keeps the QB invoice total equal to
+        // Qleno's net total. Previously the `amount > 0` guard DROPPED every
+        // discount line, so QB overstated each discounted invoice by the
+        // discount amount (e.g. Qleno $367.20 vs QB $432.00).
+        if (Number.isNaN(amount) || amount === 0) continue;
+        lineItems.push({
+          DetailType: "SalesItemLineDetail",
+          Amount: amount,
+          Description: line.description || line.name || (amount < 0 ? "Discount" : "Cleaning Service"),
+          SalesItemLineDetail: { ItemRef: { value: serviceItemId } },
+        });
       }
     }
 
