@@ -740,6 +740,22 @@ async function buildDispatchPayload(
       }
     }
 
+    // [discount-net 2026-07-02] Per-job discount total (job_discounts.amount).
+    // The invoice subtracts these; the dispatch card total must too, so the card
+    // MIRRORS the invoice. Loaded once (same pattern as the rate-mod sum above).
+    const discountSumByJob = new Map<number, number>();
+    if (idList.length > 0) {
+      const discRows = await db.execute(sql`
+        SELECT job_id, COALESCE(SUM(amount), 0)::numeric AS total
+          FROM job_discounts
+         WHERE job_id = ANY(ARRAY[${sql.raw(idList)}]::int[])
+         GROUP BY job_id
+      `);
+      for (const r of discRows.rows as any[]) {
+        discountSumByJob.set(Number(r.job_id), parseFloat(String(r.total ?? "0")));
+      }
+    }
+
     // [job-card-redesign] is_new_client — true when the residential client
     // has zero completed jobs strictly before today's board date. Drives
     // the "NEW" pill + inset white outline on the chip. Commercial jobs
@@ -982,6 +998,13 @@ async function buildDispatchPayload(
         // dispatch had explicitly persisted — but dispatch is a
         // read-only view, so persisted preview was never the intent.
         amount: (() => {
+          // [discount-net 2026-07-02] Compute the GROSS total (unchanged logic
+          // below), then subtract job_discounts so the displayed total mirrors
+          // the invoice. Commission is computed separately off gross
+          // billed_amount, so the office still absorbs the discount by default —
+          // only this customer-facing number nets it.
+          const discount = discountSumByJob.get(j.id) ?? 0;
+          const gross = (() => {
           const mods = rateModSumByJob.get(j.id) ?? 0;
           const addOns = (addOnsByJob.get(j.id) ?? []).reduce((s, a) => s + (a.subtotal ?? 0), 0);
           const override = (j as any).manual_rate_override === true;
@@ -1032,6 +1055,9 @@ async function buildDispatchPayload(
           if (billed != null && billed > 0) return billed;
           const base = j.base_fee ? parseFloat(j.base_fee) : 0;
           return base + mods;
+          })();
+          const net = Math.round((gross - discount) * 100) / 100;
+          return net > 0 ? net : 0;
         })(),
         duration_minutes: durationMinutes,
         notes: j.notes,
