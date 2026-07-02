@@ -1497,6 +1497,29 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     }
   }
 
+  // [create-invoice 2026-07-02] Actually create the invoice for THIS job from the
+  // panel (was a dead link to /invoices). Works for residential AND account/PPM
+  // jobs now that POST /api/invoices bills account jobs to their account.
+  const [creatingInvoice, setCreatingInvoice] = useState(false);
+  async function createInvoiceForJob() {
+    setCreatingInvoice(true);
+    try {
+      const r = await fetch(`${_API3}/api/invoices`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: job.id, auto_send: false }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.message || d.error || "Failed to create invoice");
+      toast({ title: `Invoice created${d.invoice_number ? ` — #${d.invoice_number}` : ""}`, description: "Draft ready to review on the Invoices page" });
+      onUpdate();
+    } catch (err: any) {
+      toast({ title: "Couldn't create invoice", description: err.message || "", variant: "destructive" });
+    } finally {
+      setCreatingInvoice(false);
+    }
+  }
+
   // [time-change-notice] Office clicked "Send notification" on the same-day
   // time-change note → fire the client text/email, then refresh so the note
   // clears. The toast is honest about comms being paused.
@@ -3632,9 +3655,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               </div>
             );
           })()}
-          {job.status === "complete" && !job.invoice_id && job.scheduled_date >= "2026-06-27" && (
-            <div style={{ padding: "9px 12px", border: "1px solid #FDE68A", borderRadius: 8, backgroundColor: "#FFFBEB", fontSize: 12, color: "#92400E", fontFamily: FF }}>
-              No invoice — <a href="/invoices" style={{ color: "#92400E", fontWeight: 700 }}>create one</a>
+          {job.status === "complete" && !job.invoice_id && job.scheduled_date >= "2026-07-01" && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "1px solid #FDE68A", borderRadius: 8, backgroundColor: "#FFFBEB", fontSize: 12, color: "#92400E", fontFamily: FF }}>
+              <span>No invoice yet</span>
+              <button onClick={createInvoiceForJob} disabled={creatingInvoice}
+                style={{ marginLeft: "auto", padding: "5px 12px", border: "none", borderRadius: 7, backgroundColor: creatingInvoice ? "#D0CEC9" : "#00C9A0", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: creatingInvoice ? "default" : "pointer", fontFamily: FF }}>
+                {creatingInvoice ? "Creating…" : "Create invoice"}
+              </button>
             </div>
           )}
           {/* [edit-decouple 2026-04-29] Edit button is ALWAYS enabled,

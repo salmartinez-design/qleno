@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable, paymentLinksTable } from "@workspace/db/schema";
+import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable, paymentLinksTable, accountsTable } from "@workspace/db/schema";
 import crypto from "crypto";
 import { eq, and, desc, count, sum, sql, lt, isNull, isNotNull, or, ne, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -238,14 +238,17 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     let finalClientId = client_id;
     let finalLineItems = rawLineItems;
     let jobRecord: any = null;
+    let finalAccountId: number | null = null;
 
     if (job_id && (!client_id || !rawLineItems)) {
       const [job] = await db
         .select({
           id: jobsTable.id,
           client_id: jobsTable.client_id,
+          account_id: jobsTable.account_id,
           service_type: jobsTable.service_type,
           base_fee: jobsTable.base_fee,
+          billed_amount: jobsTable.billed_amount,
         })
         .from(jobsTable)
         .where(and(eq(jobsTable.id, job_id), eq(jobsTable.company_id, req.auth!.companyId)))
@@ -254,37 +257,72 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       if (!job) return res.status(404).json({ error: "Not Found", message: "Job not found" });
       jobRecord = job;
       finalClientId = job.client_id;
-      finalLineItems = [{
-        description: (job.service_type || "").replace(/_/g, " "),
-        quantity: 1,
-        rate: parseFloat(job.base_fee || "0"),
-        total: parseFloat(job.base_fee || "0"),
-      }];
+      finalAccountId = job.account_id ?? null;
+
+      // [account-invoice 2026-07-02] Account (commercial/PPM) jobs have NO
+      // client_id — their identity is the account. Build line items from the
+      // shared canonical builder (same as the completion auto-draft in
+      // ensure-invoice) so a manual "create invoice" / batch produces a real
+      // invoice billed to the account, instead of 400-ing on the missing
+      // client_id (the bug that left completed PPM turnovers uninvoiced).
+      if (finalAccountId) {
+        const built = await buildJobLineItems(req.auth!.companyId as number, job_id);
+        const amt = job.billed_amount ? parseFloat(job.billed_amount as string) : parseFloat(job.base_fee || "0");
+        finalLineItems = (built && built.lineItems.length)
+          ? built.lineItems
+          : [{ description: (job.service_type || "cleaning").replace(/_/g, " "), quantity: 1, unit_price: amt, total: amt }];
+      } else {
+        finalLineItems = [{
+          description: (job.service_type || "").replace(/_/g, " "),
+          quantity: 1,
+          rate: parseFloat(job.base_fee || "0"),
+          total: parseFloat(job.base_fee || "0"),
+        }];
+      }
     }
 
-    if (!finalClientId) return res.status(400).json({ error: "Bad Request", message: "client_id required" });
+    if (!finalClientId && !finalAccountId) {
+      return res.status(400).json({ error: "Bad Request", message: "client_id or account_id required" });
+    }
 
     const subtotal = (finalLineItems || []).reduce((s: number, item: any) => s + (item.total || 0), 0);
     const total = subtotal + (tips || 0);
 
-    // Look up client to inherit payment terms, billing contact
-    const [clientRecord] = await db
-      .select({
-        payment_terms: clientsTable.payment_terms,
-        billing_contact_name: clientsTable.billing_contact_name,
-        billing_contact_email: clientsTable.billing_contact_email,
-        auto_charge: clientsTable.auto_charge,
-        stripe_customer_id: clientsTable.stripe_customer_id,
-        card_last_four: clientsTable.card_last_four,
-        first_name: clientsTable.first_name,
-        last_name: clientsTable.last_name,
-        email: clientsTable.email,
-      })
-      .from(clientsTable)
-      .where(eq(clientsTable.id, finalClientId));
+    // Look up the client (residential) to inherit terms/billing contact. Account
+    // (commercial) invoices have no client — pull the name + terms from the
+    // account instead so the invoice bills to the account correctly.
+    let clientRecord: any = null;
+    let accountName: string | null = null;
+    let acctTermsDays: number | null = null;
+    if (finalClientId) {
+      const [cr] = await db
+        .select({
+          payment_terms: clientsTable.payment_terms,
+          billing_contact_name: clientsTable.billing_contact_name,
+          billing_contact_email: clientsTable.billing_contact_email,
+          auto_charge: clientsTable.auto_charge,
+          stripe_customer_id: clientsTable.stripe_customer_id,
+          card_last_four: clientsTable.card_last_four,
+          first_name: clientsTable.first_name,
+          last_name: clientsTable.last_name,
+          email: clientsTable.email,
+        })
+        .from(clientsTable)
+        .where(eq(clientsTable.id, finalClientId));
+      clientRecord = cr;
+    } else if (finalAccountId) {
+      const [acct] = await db
+        .select({ account_name: accountsTable.account_name, payment_terms_days: accountsTable.payment_terms_days })
+        .from(accountsTable)
+        .where(eq(accountsTable.id, finalAccountId))
+        .limit(1);
+      accountName = acct?.account_name ?? null;
+      acctTermsDays = acct?.payment_terms_days ?? 30;
+    }
 
-    const effectiveTerms = reqPaymentTerms || clientRecord?.payment_terms || "due_on_receipt";
-    const daysToAdd = effectiveTerms === "net_30" ? 30 : effectiveTerms === "net_15" ? 15 : 0;
+    const acctTermsLabel = acctTermsDays === 30 ? "net_30" : acctTermsDays === 15 ? "net_15" : acctTermsDays === 7 ? "net_7" : acctTermsDays != null ? "due_on_receipt" : null;
+    const effectiveTerms = reqPaymentTerms || clientRecord?.payment_terms || acctTermsLabel || "due_on_receipt";
+    const daysToAdd = effectiveTerms === "net_30" ? 30 : effectiveTerms === "net_15" ? 15 : effectiveTerms === "net_7" ? 7 : 0;
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + daysToAdd);
     const dueDateStr = dueDate.toISOString().split("T")[0];
@@ -293,7 +331,8 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       .insert(invoicesTable)
       .values({
         company_id: req.auth!.companyId,
-        client_id: finalClientId,
+        client_id: finalClientId || null,
+        account_id: finalAccountId || null,
         job_id: job_id || null,
         line_items: finalLineItems || [],
         subtotal: subtotal.toString(),
@@ -392,7 +431,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     return res.status(201).json({
       ...newInvoice,
       invoice_number: invNumber,
-      client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim(),
+      client_name: finalClientId ? `${client?.first_name || ""} ${client?.last_name || ""}`.trim() : (accountName || ""),
       subtotal,
       tips: tips || 0,
       total,
