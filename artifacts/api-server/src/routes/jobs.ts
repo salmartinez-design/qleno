@@ -54,9 +54,17 @@ async function syncJobInvoiceDraft(
       .from(invoicesTable)
       .where(and(eq(invoicesTable.job_id, jobId), eq(invoicesTable.company_id, companyId)))
       .limit(1);
-    if (!existing || existing.status !== "draft") return;
+    // [invoice-mirror 2026-07-02] The invoice must always MIRROR the job card —
+    // not just while it's a draft. Previously this returned unless status ===
+    // 'draft', so once an invoice was finalized ('sent'/'overdue') any later
+    // job-card edit stopped flowing to it and the two diverged (the office kept
+    // seeing "job card says X, invoice says Y" — e.g. Shellie's amount). Now we
+    // keep any UNPAID invoice in sync with its job. Terminal states are left
+    // alone: 'paid' (money already moved — never silently mutate; unmark/refund
+    // first), and 'void'/'superseded' (already closed out).
+    if (!existing || ["paid", "void", "superseded"].includes(existing.status)) return;
 
-    // Cancellation: void the draft so AR stays clean.
+    // Cancellation: void the (unpaid) invoice so AR stays clean.
     if (opts.cancel) {
       await db.update(invoicesTable)
         .set({ status: "void" })
