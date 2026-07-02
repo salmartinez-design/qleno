@@ -56,6 +56,15 @@ describe("pay-type engine — MaidCentral June 1 parity", () => {
     assert.equal(r.amount, 160.0);
   });
 
+  it("[allowed-hours-no-budget] no budget set (allowed 0) falls back to actual hours × rate, not $0 (Jennifer Joy 1.67h × $20 → $33.40)", () => {
+    // Office/commercial job left without an allowed-hours budget. "budget × rate"
+    // would pay $0 and the time-clock row shows a blank "—". With no budget to
+    // cap against, pay ACTUAL clocked time so the tech is never silently unpaid.
+    const ctx: JobPayContext = { baseFee: 0, allowedHours: 0, totalTechHours: 1.67 };
+    const r = computeTechPay(ctx, { user_id: 1, techHours: 1.67, payType: "allowed_hours", hourlyRate: 20, scopePct: 0 });
+    assert.equal(r.amount, 33.4);
+  });
+
   it("hourly: flat wage on actual, ignores price/budget (Carpet 2.17 × $25 → $54.25)", () => {
     const ctx: JobPayContext = { baseFee: 120, allowedHours: 1.5, totalTechHours: 2.17 };
     const r = computeTechPay(ctx, { user_id: 1, techHours: 2.17, payType: "hourly", hourlyRate: 25, scopePct: 0 });
