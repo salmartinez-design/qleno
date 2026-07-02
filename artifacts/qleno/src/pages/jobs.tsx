@@ -83,7 +83,14 @@ interface Employee { id: number; name: string; role: string; is_trainee?: boolea
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
-const dateKey = (d: Date) => d.toISOString().split("T")[0];
+// [tz-fix 2026-07-02] LOCAL calendar date, never UTC. `toISOString()` returns
+// the UTC date, so after ~7pm Central it rolls to tomorrow — which made the
+// dispatch default to the next day, label it "Today", and flag every one of
+// tomorrow morning's jobs as hundreds of minutes "late" (now 10pm vs a 9am
+// start it thought was today). This key drives the day fetch, isToday,
+// todayKey, focalKey, the week bars, and the ?date= URL param, so it MUST match
+// the device's wall-clock day — the same local basis getJobVisualStatus uses.
+const dateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (d: Date, n: number) => { const r = new Date(d); r.setDate(r.getDate() + n); return r; };
 // [Y] timeToMins + fmtTime were broken for AM/PM-format strings coming
 // from MC (e.g. "1:30 PM"). The old `t.split(":").map(Number)` produced
