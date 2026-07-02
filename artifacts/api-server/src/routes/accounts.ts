@@ -706,6 +706,10 @@ router.get("/:id/uninvoiced-jobs", requireAuth, requireRole("owner", "admin", "o
 
   try {
     const companyId = req.auth!.companyId;
+    // [account-batch 2026-07-02] Optionally include scheduled/in-progress visits
+    // so the office can deliberately pre-bill upcoming jobs (e.g. a whole week of
+    // National Able). Default = completed only.
+    const includeScheduled = req.query.include_scheduled === "true";
     const jobs = await db
       .select()
       .from(jobsTable)
@@ -713,7 +717,10 @@ router.get("/:id/uninvoiced-jobs", requireAuth, requireRole("owner", "admin", "o
         and(
           eq(jobsTable.account_id, id),
           eq(jobsTable.company_id, companyId),
-          eq(jobsTable.status, "complete"),
+          includeScheduled
+            ? inArray(jobsTable.status, ["complete", "scheduled", "in_progress"])
+            : eq(jobsTable.status, "complete"),
+          // Not already on a per-visit sent/paid invoice.
           notExists(
             db.select({ x: invoicesTable.id })
               .from(invoicesTable)
@@ -721,7 +728,19 @@ router.get("/:id/uninvoiced-jobs", requireAuth, requireRole("owner", "admin", "o
                 eq(invoicesTable.job_id, jobsTable.id),
                 inArray(invoicesTable.status, ["sent", "paid"]),
               ))
-          )
+          ),
+          // [account-batch 2026-07-02] Not already folded into a consolidated
+          // account invoice. Account consolidation stores each job_id inside the
+          // invoice's line_items (not invoices.job_id), so without this a job
+          // would keep showing as "uninvoiced" after consolidation and could be
+          // double-billed. A non-void invoice whose line_items contains this
+          // job_id means it's already consolidated.
+          sql`NOT EXISTS (
+            SELECT 1 FROM invoices i
+             WHERE i.company_id = ${companyId}
+               AND i.status <> 'void'
+               AND i.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))
+          )`
         )
       )
       .orderBy(desc(jobsTable.scheduled_date));
@@ -750,7 +769,15 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
 
     if (!account) return res.status(404).json({ error: "Account not found" });
 
-    // Find all uninvoiced completed jobs
+    // [account-batch 2026-07-02] Selectable consolidation. When the office picks
+    // specific visits (Mon/Tue/… on National Able), the frontend sends job_ids —
+    // consolidate ONLY those. Explicit selection also allows scheduled/future
+    // visits (deliberate pre-billing), so we don't force status='complete' on it.
+    // With no job_ids, keep the legacy "all uninvoiced completed jobs" behavior.
+    const selectedJobIds: number[] = Array.isArray(req.body?.job_ids)
+      ? req.body.job_ids.map((x: any) => parseInt(String(x), 10)).filter((n: number) => Number.isInteger(n) && n > 0)
+      : [];
+
     const uninvoicedJobs = await db
       .select()
       .from(jobsTable)
@@ -758,7 +785,12 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
         and(
           eq(jobsTable.account_id, id),
           eq(jobsTable.company_id, companyId),
-          eq(jobsTable.status, "complete"),
+          selectedJobIds.length > 0
+            ? inArray(jobsTable.id, selectedJobIds)
+            : eq(jobsTable.status, "complete"),
+          // Never bill a cancelled visit, even if explicitly selected.
+          sql`${jobsTable.status} <> 'cancelled'`,
+          // Not already on a per-visit sent/paid invoice.
           notExists(
             db.select({ x: invoicesTable.id })
               .from(invoicesTable)
@@ -766,7 +798,15 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
                 eq(invoicesTable.job_id, jobsTable.id),
                 inArray(invoicesTable.status, ["sent", "paid"]),
               ))
-          )
+          ),
+          // Not already folded into a consolidated account invoice (dedup —
+          // matches the uninvoiced-jobs list guard; prevents double-billing).
+          sql`NOT EXISTS (
+            SELECT 1 FROM invoices i
+             WHERE i.company_id = ${companyId}
+               AND i.status <> 'void'
+               AND i.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))
+          )`
         )
       )
       .orderBy(jobsTable.scheduled_date);
