@@ -752,6 +752,51 @@ router.get("/:id/uninvoiced-jobs", requireAuth, requireRole("owner", "admin", "o
   }
 });
 
+// ─── ACCOUNT INVOICES (month-filterable) ──────────────────────────────────────
+
+// GET /api/accounts/:id/invoices?month=YYYY-MM
+// [account-invoices-month 2026-07-02] PPM (and other PM accounts) asked to pull
+// "all our invoices for any given month." The account page had no way to see its
+// GENERATED invoices, let alone filter them. Filter by SERVICE month — the linked
+// job's scheduled_date (per-job invoices carry job_id), falling back to the
+// invoice's created date for consolidated invoices (job_id null).
+router.get("/:id/invoices", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+  const companyId = req.auth!.companyId;
+  const month = String(req.query.month || "").trim();
+
+  try {
+    const svcDate = sql<string>`COALESCE((SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}), ${invoicesTable.created_at}::date)`;
+    const conds = [eq(invoicesTable.account_id, id), eq(invoicesTable.company_id, companyId)];
+    if (/^\d{4}-\d{2}$/.test(month)) {
+      conds.push(sql`to_char(${svcDate}, 'YYYY-MM') = ${month}`);
+    }
+
+    const rows = await db
+      .select({
+        id: invoicesTable.id,
+        invoice_number: invoicesTable.invoice_number,
+        status: invoicesTable.status,
+        total: invoicesTable.total,
+        due_date: invoicesTable.due_date,
+        created_at: invoicesTable.created_at,
+        job_id: invoicesTable.job_id,
+        service_date: svcDate,
+        line_items: invoicesTable.line_items,
+      })
+      .from(invoicesTable)
+      .where(and(...conds))
+      .orderBy(desc(svcDate));
+
+    const total = rows.reduce((s, r) => s + parseFloat((r.total as string) || "0"), 0);
+    res.json({ data: rows, count: rows.length, total: total.toFixed(2), month: /^\d{4}-\d{2}$/.test(month) ? month : null });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to list account invoices" });
+  }
+});
+
 // ─── GENERATE INVOICE ─────────────────────────────────────────────────────────
 
 // POST /api/accounts/:id/generate-invoice   (?preview=true for dry run)
@@ -855,6 +900,9 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
         company_id: companyId,
         account_id: id,
         client_id: null as null | number,
+        // Link the single job so service date resolves (month filter, list view)
+        // and it matches the auto-draft-per-job path in ensure-invoice.ts.
+        job_id: li.job_id,
         invoice_number: `ACC-${id}-${li.job_id}-${Date.now() + idx}`,
         status: "draft" as const,
         line_items: [li],

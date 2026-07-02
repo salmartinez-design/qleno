@@ -84,7 +84,7 @@ const CONTACT_ROLES = [
   { value: "other", label: "Other" },
 ];
 
-type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs";
+type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs" | "invoices";
 
 function fmt(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -269,6 +269,29 @@ export default function AccountDetailPage() {
   // (legacy behavior). includeScheduled surfaces upcoming visits to pre-bill.
   const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set());
   const [includeScheduled, setIncludeScheduled] = useState(false);
+  // [account-invoices-month 2026-07-02] Month-filterable invoice list PPM asked for.
+  const [invMonth, setInvMonth] = useState(() => new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [acctInvoices, setAcctInvoices] = useState<any[]>([]);
+  const [acctInvTotal, setAcctInvTotal] = useState("0.00");
+  const [invLoading, setInvLoading] = useState(false);
+  useEffect(() => {
+    if (tab !== "invoices" || !id) return;
+    setInvLoading(true);
+    fetch(`${API}/api/accounts/${id}/invoices?month=${invMonth}`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : { data: [], total: "0.00" })
+      .then(d => { setAcctInvoices(d.data || []); setAcctInvTotal(d.total || "0.00"); })
+      .catch(() => { setAcctInvoices([]); setAcctInvTotal("0.00"); })
+      .finally(() => setInvLoading(false));
+  }, [tab, id, invMonth]);
+  function shiftMonth(delta: number) {
+    const [y, m] = invMonth.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setInvMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  const monthLabel = (() => {
+    const [y, m] = invMonth.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  })();
 
   async function load() {
     try {
@@ -562,6 +585,7 @@ export default function AccountDetailPage() {
     { key: "contacts", label: "Contacts", count: account.contacts?.length },
     { key: "calendar", label: "Calendar" },
     { key: "jobs", label: "Uninvoiced Jobs", count: jobs.length },
+    { key: "invoices", label: "Invoices" },
   ];
 
   return (
@@ -1276,6 +1300,68 @@ export default function AccountDetailPage() {
                         {fmtDecimal((selectedJobIds.size > 0 ? jobs.filter((j: any) => selectedJobIds.has(j.id)) : jobs)
                           .reduce((s: number, j: any) => s + (j.billed_amount ? parseFloat(j.billed_amount) : parseFloat(j.base_fee ?? "0")), 0))}
                       </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── INVOICES TAB (month-filterable) ──────────────────────────────── */}
+        {tab === "invoices" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <button onClick={() => shiftMonth(-1)} aria-label="Previous month" className="w-8 h-8 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">‹</button>
+                <span className="text-sm font-semibold text-[#0A0E1A] min-w-[150px] text-center">{monthLabel}</span>
+                <button onClick={() => shiftMonth(1)} aria-label="Next month" className="w-8 h-8 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">›</button>
+              </div>
+              <p className="text-sm text-gray-500">
+                {acctInvoices.length} invoice{acctInvoices.length === 1 ? "" : "s"} · <span className="font-semibold text-[#00C9A0]">{fmtDecimal(parseFloat(acctInvTotal))}</span>
+              </p>
+            </div>
+            {invLoading ? (
+              <div className="py-16 text-center text-gray-400 text-sm">Loading…</div>
+            ) : !acctInvoices.length ? (
+              <div className="flex flex-col items-center py-16 text-gray-400 gap-2">
+                <FileText size={32} strokeWidth={1.5} />
+                <p className="text-sm">No invoices in {monthLabel}</p>
+              </div>
+            ) : (
+              <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50">
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Date</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Invoice</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Description</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {acctInvoices.map((inv: any) => {
+                      const desc = Array.isArray(inv.line_items) && inv.line_items[0]?.description ? inv.line_items[0].description : "—";
+                      const st = String(inv.status || "");
+                      const stCls = st === "paid" ? "bg-green-50 text-green-700" : st === "sent" ? "bg-blue-50 text-blue-700" : st === "overdue" ? "bg-red-50 text-red-700" : "bg-gray-100 text-gray-500";
+                      return (
+                        <tr key={inv.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{inv.service_date}</td>
+                          <td className="px-4 py-3 font-medium whitespace-nowrap">
+                            <Link href={`/invoices/${inv.id}`} className="text-[#00A886] hover:underline">{inv.invoice_number || `INV-${inv.id}`}</Link>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 truncate max-w-[280px] hidden sm:table-cell">{desc}</td>
+                          <td className="px-4 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded uppercase ${stCls}`}>{st}</span></td>
+                          <td className="px-4 py-3 text-right font-semibold text-[#00C9A0]">{fmtDecimal(parseFloat(inv.total || "0"))}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-gray-100 bg-gray-50">
+                      <td colSpan={4} className="px-4 py-2.5 text-sm font-semibold text-gray-500">Total — {monthLabel}</td>
+                      <td className="px-4 py-2.5 text-right text-sm font-bold text-[#00C9A0]">{fmtDecimal(parseFloat(acctInvTotal))}</td>
                     </tr>
                   </tfoot>
                 </table>
