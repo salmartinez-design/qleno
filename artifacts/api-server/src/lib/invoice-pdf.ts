@@ -61,8 +61,8 @@ export function renderInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     let drewLogo = false;
     if (data.logo) {
       try {
-        doc.roundedRect(left, 22, 156, 40, 6).fill("#FFFFFF");
-        doc.image(data.logo, left + 10, 27, { fit: [136, 30] });
+        doc.roundedRect(left, 16, 196, 52, 6).fill("#FFFFFF");
+        doc.image(data.logo, left + 12, 22, { fit: [172, 40] });
         drewLogo = true;
       } catch { drewLogo = false; }
     }

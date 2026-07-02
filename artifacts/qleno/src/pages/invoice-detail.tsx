@@ -381,7 +381,7 @@ export default function InvoiceDetailPage() {
         <div id="invoice-doc" style={{ ...CARD, padding: 0, overflow: "hidden" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 20, padding: "26px 30px 18px", flexWrap: "wrap" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
-              <img src={logoSrc} alt={bizName} style={{ height: 50, width: "auto", objectFit: "contain" }} />
+              <img src={logoSrc} alt={bizName} style={{ height: 72, width: "auto", objectFit: "contain" }} />
               <div>
                 <p style={{ margin: 0, fontSize: 16, fontWeight: 800, color: "#1A1917" }}>{bizName}</p>
                 {bizTagline && <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>{bizTagline}</p>}
