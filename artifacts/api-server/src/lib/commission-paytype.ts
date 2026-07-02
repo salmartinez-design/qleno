@@ -166,7 +166,16 @@ export function computeTechPay(ctx: JobPayContext, tech: TechPayInput): TechPayR
     // efficiency incentive. To pay actual time on an overage, use the Hourly
     // pay type (or an hourly job). NOTE: this intentionally diverges from
     // MaidCentral, which paid actual when over.
-    const payHours = ctx.allowedHours * share;
+    //
+    // [allowed-hours-no-budget 2026-07-01] BUT if the job has NO allowed-hours
+    // budget set (allowedHours <= 0 — common on commercial/office jobs that
+    // weren't given a budget yet), "budget × rate" is $0 and the tech's row
+    // shows a blank "—" — silently unpaid (Maribel: "Jennifer Joy is not
+    // populating the pay"). In that case there is no budget to cap against, so
+    // fall back to ACTUAL clocked hours × rate (same as Hourly) — time worked
+    // is always paid. The office can still set a real budget later to re-engage
+    // the efficiency cap.
+    const payHours = ctx.allowedHours > 0 ? ctx.allowedHours * share : tech.techHours;
     grossAmount = round2(payHours * tech.hourlyRate);
     effectiveHours = round2(payHours);
   } else {

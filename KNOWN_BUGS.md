@@ -1,5 +1,27 @@
 # Known Bugs
 
+## RESOLVED — "Allowed Hours" row paid $0 (blank) when the job had no budget (2026-07-01)
+
+**Severity:** High (go-live payroll) — Maribel: "Jennifer Joy is not populating
+the pay" (Sal: "That's Diana"). A time-clock row on the **Allowed Hours** pay
+type showed a blank "—" instead of a dollar amount.
+
+**Symptom:** Diana's office-cleaning job (5605) was on Allowed Hours @ $20/hr but
+had **no allowed-hours budget set** (allowed_hours = null). Allowed Hours pays
+*budget × rate*, so 0 × $20 = **$0** → the row rendered a blank, silently unpaid.
+
+**Root cause:** `computeTechPay` (`lib/commission-paytype.ts`) always paid
+`allowedHours × rate` for the allowed_hours type. When the job carried no budget
+(common on commercial/office jobs not yet given one), that's $0 — there's no
+budget to cap against, yet the tech worked real clocked time.
+
+**Fix:** when `allowedHours <= 0` on an Allowed Hours row, fall back to **actual
+clocked hours × rate** (same as Hourly) so time worked is always paid. Jobs WITH
+a budget are unchanged — the efficiency hard-cap still applies. Regression test
+added (`no budget (allowed 0) → actual hours × rate, not $0`).
+
+---
+
 ## RESOLVED — Dispatch Commission didn't reflect pay types set on the time clock (2026-07-01)
 
 **Severity:** High (go-live payroll) — Maribel: after changing a tech's pay type
