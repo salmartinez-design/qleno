@@ -701,6 +701,11 @@ export default function InvoicesPage() {
   const [showBatch, setShowBatch] = useState(false);
   const [showWeekly, setShowWeekly] = useState(false);
   const [showCloseDay, setShowCloseDay] = useState(false);
+  // [invoice-merge 2026-07-02] Bulk-select unpaid invoices → fold into one
+  // (POST /api/invoices/merge). The office's "filter June → select all → one
+  // invoice" flow for PPM/accounts.
+  const [mergeSel, setMergeSel] = useState<Set<number>>(new Set());
+  const [merging, setMerging] = useState(false);
   const [showNewInvoice, setShowNewInvoice] = useState(false);
   useEffect(() => {
     if (window.location.search.includes('new=1')) {
@@ -849,6 +854,31 @@ export default function InvoicesPage() {
       return true;
     });
   const uninvTotal = uninvoicedJobs.reduce((sum: number, j: any) => sum + Number(j.billed_amount ?? j.amount ?? j.base_fee ?? 0), 0);
+
+  // [invoice-merge 2026-07-02] Only unpaid invoices are selectable to merge.
+  const isMergeable = (inv: any) => {
+    const st = (inv.status === "sent" && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
+    return ["draft", "sent", "overdue"].includes(st);
+  };
+  const mergeTotal = invoices.filter((i: any) => mergeSel.has(i.id)).reduce((s: number, i: any) => s + (i.total || 0), 0);
+  function toggleMerge(id: number, on: boolean) {
+    setMergeSel(prev => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); return n; });
+  }
+  async function doMerge() {
+    if (mergeSel.size < 2) return;
+    setMerging(true);
+    try {
+      const r = await apiFetch(`/api/invoices/merge`, { method: "POST", body: JSON.stringify({ invoice_ids: [...mergeSel] }) });
+      toast({ title: `Merged ${mergeSel.size} invoices into one`, description: r?.invoice?.invoice_number ? `New invoice ${r.invoice.invoice_number}` : undefined });
+      setMergeSel(new Set());
+      refetch();
+    } catch (e: any) {
+      let msg = e?.message || "";
+      try { msg = JSON.parse(msg).message || msg; } catch {}
+      toast({ title: "Could not merge", description: msg, variant: "destructive" });
+    }
+    setMerging(false);
+  }
 
   const TH: React.CSSProperties = {
     padding: "11px 18px", textAlign: "left",
@@ -1002,6 +1032,22 @@ export default function InvoicesPage() {
             </div>
           )}
 
+          {mergeSel.size > 0 && (
+            <div style={{ backgroundColor: "#0A0E1A", borderRadius: 10, padding: "12px 16px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+              <span style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, fontFamily: FF }}>
+                {mergeSel.size} selected · ${mergeTotal.toFixed(2)}
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setMergeSel(new Set())}
+                  style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #3A3E4A", backgroundColor: "transparent", color: "#C9C5BD", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Clear</button>
+                <button onClick={doMerge} disabled={merging || mergeSel.size < 2}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: "none", backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: mergeSel.size < 2 ? "not-allowed" : "pointer", opacity: mergeSel.size < 2 ? 0.6 : 1, fontFamily: FF }}>
+                  {merging ? "Merging…" : "Merge into one invoice"}
+                </button>
+              </div>
+            </div>
+          )}
+
           <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #EEECE7", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "center", gap: 10 }}>
               <div style={{ display: "flex", gap: 4, backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: 4, overflowX: "auto" }}>
@@ -1105,6 +1151,11 @@ export default function InvoicesPage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
+                  <th style={{ ...TH, width: 34 }}>
+                    <input type="checkbox" aria-label="Select all mergeable"
+                      checked={invoices.filter(isMergeable).length > 0 && invoices.filter(isMergeable).every((i: any) => mergeSel.has(i.id))}
+                      onChange={e => setMergeSel(e.target.checked ? new Set(invoices.filter(isMergeable).map((i: any) => i.id)) : new Set())} />
+                  </th>
                   {["Invoice #", "Client", "PO #", "Terms", "Amount", "Service Date", "Days Overdue", "Status", ""].map(h => (
                     <th key={h} style={{ ...TH, textAlign: h === "" ? "right" as const : "left" as const }}>{h}</th>
                   ))}
@@ -1112,10 +1163,10 @@ export default function InvoicesPage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={9} style={{ padding: 32, textAlign: "center", color: "#6B7280", fontSize: 13 }}>Loading invoices...</td></tr>
+                  <tr><td colSpan={10} style={{ padding: 32, textAlign: "center", color: "#6B7280", fontSize: 13 }}>Loading invoices...</td></tr>
                 ) : invoices.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ padding: 48, textAlign: "center" }}>
+                    <td colSpan={10} style={{ padding: 48, textAlign: "center" }}>
                       <AlertCircle size={28} style={{ color: "#C4C0BB", marginBottom: 10 }} />
                       <p style={{ color: "#6B7280", fontSize: 13, margin: 0 }}>No invoices found.</p>
                     </td>
@@ -1129,6 +1180,13 @@ export default function InvoicesPage() {
                       style={{ borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}
                       onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#F7F6F3")}
                       onMouseLeave={e => (e.currentTarget.style.backgroundColor = "transparent")}>
+                      <td style={{ padding: "13px 18px" }} onClick={e => e.stopPropagation()}>
+                        <input type="checkbox"
+                          aria-label={`Select invoice ${inv.invoice_number || inv.id}`}
+                          disabled={!isMergeable(inv)}
+                          checked={mergeSel.has(inv.id)}
+                          onChange={e => toggleMerge(inv.id, e.target.checked)} />
+                      </td>
                       <td style={{ padding: "13px 18px", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
                         {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
                       </td>
