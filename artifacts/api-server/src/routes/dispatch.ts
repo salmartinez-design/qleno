@@ -4,6 +4,8 @@ import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, se
 import { eq, and, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
+import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission-paytype.js";
+import { unionHoursByKey } from "../lib/timeclock-hours.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import { DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { resolveBucketDisplay, ABSENT_DISPLAY } from "../lib/leave-bucket-display.js";
@@ -208,6 +210,10 @@ async function buildDispatchPayload(
         actual_hours: jobsTable.actual_hours,
         billed_hours: jobsTable.billed_hours,
         billed_amount: jobsTable.billed_amount,
+        // [tc-pay-sync 2026-07-01] Commissionable base (opt-in add-ons/mods,
+        // #814) so the per-tech pay engine reproduces the time-clock/payroll
+        // figure exactly. NULL → engine falls back to max(base_fee, billed).
+        commission_base: jobsTable.commission_base,
         // [commercial-revenue 2026-06-04] Distinguishes an explicit flat
         // "Change price" / "Override rate" (true) from a normal commercial
         // job whose revenue is hourly_rate × allowed_hours (false). The
@@ -515,6 +521,8 @@ async function buildDispatchPayload(
     // (residential|commercial) × (commission|hourly) combo.
     const techRows = await db.execute(sql`
       SELECT jt.job_id, jt.user_id, jt.is_primary, jt.pay_override, jt.final_pay,
+             jt.pay_type, jt.hourly_rate, jt.commission_pct,
+             jt.pay_deduction_pct, jt.pay_deduction_flat,
              u.first_name, u.last_name,
              u.residential_pay_type, u.residential_pay_rate,
              u.commercial_pay_type,  u.commercial_pay_rate
@@ -574,6 +582,14 @@ async function buildDispatchPayload(
       residential_pay_rate: number;
       commercial_pay_type: "commission" | "hourly";
       commercial_pay_rate: number;
+      // [tc-pay-sync 2026-07-01] Per-JOB pay override the office sets on the
+      // time clock (job_technicians). When present it drives actual pay via the
+      // shared engine, overriding the employee-matrix estimate below.
+      pay_type: string | null;
+      hourly_rate: string | null;
+      commission_pct: string | null;
+      pay_deduction_pct: string | null;
+      pay_deduction_flat: string | null;
     };
     const techByJob = new Map<number, TechRow[]>();
     for (const r of techRows.rows as any[]) {
@@ -588,8 +604,80 @@ async function buildDispatchPayload(
         residential_pay_rate: r.residential_pay_rate != null ? parseFloat(String(r.residential_pay_rate)) : 0.35,
         commercial_pay_type:  (r.commercial_pay_type  === "commission" ? "commission" : "hourly")  as "commission" | "hourly",
         commercial_pay_rate:  r.commercial_pay_rate  != null ? parseFloat(String(r.commercial_pay_rate))  : 20,
+        pay_type: r.pay_type ?? null,
+        hourly_rate: r.hourly_rate != null ? String(r.hourly_rate) : null,
+        commission_pct: r.commission_pct != null ? String(r.commission_pct) : null,
+        pay_deduction_pct: r.pay_deduction_pct != null ? String(r.pay_deduction_pct) : null,
+        pay_deduction_flat: r.pay_deduction_flat != null ? String(r.pay_deduction_flat) : null,
       });
     }
+
+    // [tc-pay-sync 2026-07-01] Reconcile the dispatch Commission tile with the
+    // TIME CLOCK / payroll. Historically dispatch computed each tech's pay from
+    // the employee pay-matrix (users.residential/commercial_pay_type+rate) — a
+    // SEPARATE model from what actually pays people (computePerTechCommissionRows,
+    // driven by the per-JOB override on job_technicians + actual clocked hours).
+    // So when the office set Jose=Fee Split 32% / Hilda=Hourly on the time clock,
+    // the dispatch card kept showing the stale matrix estimate ($60+$60=$120)
+    // instead of the real split ($76.80 + $60.01). We now run the SAME engine
+    // here and use its dollars for any job the office has actually touched —
+    // one that has real punches OR a per-tech pay-type override. Untouched jobs
+    // keep the existing matrix estimate, so this is a targeted correction with
+    // no blast radius on jobs nobody has configured yet.
+    const enginePayByKey = new Map<string, number>();   // "job_id:user_id" → $
+    const engineJobIds = new Set<number>();
+    try {
+      // Jobs with a per-tech pay-type override set on the time clock.
+      for (const r of techRows.rows as any[]) {
+        if (r.pay_type != null) engineJobIds.add(Number(r.job_id));
+      }
+      // Jobs with at least one REAL (punched) closed clock pair.
+      const punched = clockEntries.filter((e: any) => e.source === "punched" && e.clock_in_at && e.clock_out_at);
+      for (const e of punched) engineJobIds.add(Number(e.job_id));
+
+      if (engineJobIds.size > 0) {
+        const techHoursByKey = unionHoursByKey(punched as any);
+        // Per-service fee-split % (mirrors the time-clock/payroll path).
+        const serviceTypePctBySlug = new Map<string, number>();
+        try {
+          const svc = await db.execute(sql`SELECT slug, commission_pct FROM service_types WHERE company_id = ${companyId} AND commission_pct IS NOT NULL`);
+          for (const s of svc.rows as any[]) { const p = parseFloat(String(s.commission_pct)); if (Number.isFinite(p)) serviceTypePctBySlug.set(String(s.slug).toLowerCase(), p); }
+        } catch { /* per-service column absent */ }
+        let commercialCompMode: "allowed_hours" | "actual_hours" = "allowed_hours";
+        try {
+          const cm = await db.execute(sql`SELECT commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+          if ((cm.rows[0] as any)?.commercial_comp_mode === "actual_hours") commercialCompMode = "actual_hours";
+        } catch { /* column absent — keep allowed_hours */ }
+        const commercial = { commercial_hourly_rate: commercialHourlyRate, commercial_comp_mode: commercialCompMode };
+
+        const jobsForCalc = jobs
+          .filter((j: any) => engineJobIds.has(Number(j.id)))
+          .map((j: any) => ({
+            id: Number(j.id),
+            assigned_user_id: j.assigned_user_id != null ? Number(j.assigned_user_id) : null,
+            service_type: j.service_type ?? null,
+            account_id: j.account_id ?? null,
+            base_fee: j.base_fee ?? null,
+            billed_amount: j.billed_amount ?? null,
+            commission_base: j.commission_base ?? null,
+            allowed_hours: j.allowed_hours ?? null,
+            actual_hours: null,
+            branch_id: j.branch_id ?? null,
+            scheduled_date: j.scheduled_date ?? date,
+            client_type: (j as any).client_type ?? null,
+          }));
+        const jobTechsForCalc: JobTechRow[] = (techRows.rows as any[])
+          .filter((t: any) => engineJobIds.has(Number(t.job_id)))
+          .map((t: any) => ({
+            job_id: Number(t.job_id), user_id: Number(t.user_id), is_primary: t.is_primary === true,
+            pay_type: t.pay_type ?? null, hourly_rate: t.hourly_rate ?? null, commission_pct: t.commission_pct ?? null,
+            pay_deduction_pct: t.pay_deduction_pct ?? null, pay_deduction_flat: t.pay_deduction_flat ?? null,
+          }));
+        for (const r of computePerTechCommissionRows({ jobs: jobsForCalc, jobTechs: jobTechsForCalc, techHoursByKey, serviceTypePctBySlug, resRates, commercial })) {
+          enginePayByKey.set(`${r.job_id}:${r.user_id}`, r.amount);
+        }
+      }
+    } catch (e) { console.error("[dispatch] tc-pay-sync engine error:", e); /* fall back to matrix estimate */ }
 
     // [job-card-redesign] Add-ons per job — drives the "+N" pill on the
     // dispatch chip and the full add-on list in the hover popover. Names
@@ -750,13 +838,42 @@ async function buildDispatchPayload(
       // Commercial routing is unchanged.
       const tierResPct = resolveResidentialPayPct(j.service_type as any, resRates);
       const tierApplies = !isCommercialPay && tierResPct !== resRates.res_tech_pay_pct;
+      // [tc-pay-sync 2026-07-01] When the office has touched this job (real
+      // punches or a per-tech pay-type override), its dollars come from the
+      // shared engine above so the card matches the time clock / payroll to the
+      // penny. We still surface pay_type/pay_rate for the "Fee Split 32%" /
+      // "Hourly $20/hr" sub-label — resolved from the per-job override, then the
+      // job default (commercial → hourly $/hr; residential → the scope %).
+      const useEngine = engineJobIds.has(j.id);
       const technicians = jobTechs.map(t => {
-        const payType = isCommercialPay ? t.commercial_pay_type : t.residential_pay_type;
+        const matrixPayType = isCommercialPay ? t.commercial_pay_type : t.residential_pay_type;
         const matrixRate = isCommercialPay ? t.commercial_pay_rate : t.residential_pay_rate;
-        const payRate = (tierApplies && payType === "commission") ? tierResPct : matrixRate;
-        const calcPay = payType === "hourly"
-          ? Math.round(estHoursPerTech * payRate * 100) / 100
-          : Math.round(revenueSharePerTech * payRate * 100) / 100;
+        const matrixPayRate = (tierApplies && matrixPayType === "commission") ? tierResPct : matrixRate;
+        const matrixCalc = matrixPayType === "hourly"
+          ? Math.round(estHoursPerTech * matrixPayRate * 100) / 100
+          : Math.round(revenueSharePerTech * matrixPayRate * 100) / 100;
+
+        // Effective per-tech pay type/rate for the label + calc source.
+        let payType: "commission" | "hourly" = matrixPayType;
+        let payRate = matrixPayRate;
+        let calcPay = matrixCalc;
+        if (useEngine) {
+          // Engine dollars (actual, honors overrides + clocked hours).
+          calcPay = Math.round((enginePayByKey.get(`${j.id}:${t.user_id}`) ?? 0) * 100) / 100;
+          const ov = t.pay_type;   // per-job override, or null → job default
+          if (ov === "fee_split") {
+            payType = "commission";
+            payRate = t.commission_pct != null ? parseFloat(t.commission_pct) : tierResPct;
+          } else if (ov === "hourly" || ov === "allowed_hours") {
+            payType = "hourly";
+            payRate = t.hourly_rate != null ? parseFloat(t.hourly_rate)
+              : (isCommercialPay ? commercialHourlyRate : matrixPayRate);
+          } else {
+            // No explicit override — the job default the engine applied.
+            payType = isCommercialPay ? "hourly" : "commission";
+            payRate = isCommercialPay ? commercialHourlyRate : tierResPct;
+          }
+        }
         return {
           user_id: t.user_id,
           name: t.name,
@@ -765,9 +882,9 @@ async function buildDispatchPayload(
           calc_pay: calcPay,
           final_pay: t.final_pay != null ? t.final_pay : (t.pay_override != null ? t.pay_override : calcPay),
           pay_override: t.pay_override,
-          // Surface the matrix cell that drove this tech's calc so
-          // the JobPanel can render "Hourly $20/hr × 6h" vs
-          // "Commission 35% of $160 share" without re-deriving.
+          // Surface the cell that drove this tech's calc so the JobPanel can
+          // render "Hourly $20/hr × 6h" vs "Commission 35% of $160 share"
+          // without re-deriving.
           pay_type: payType,
           pay_rate: payRate,
         };
