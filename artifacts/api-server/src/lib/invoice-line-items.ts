@@ -14,7 +14,7 @@
 //                 billed_amount already rolls everything into the metered total.
 //   discount lines — each job_discounts row as a negative line so the total nets.
 import { db } from "@workspace/db";
-import { jobsTable, jobAddOnsTable, addOnsTable, jobDiscountsTable } from "@workspace/db/schema";
+import { jobsTable, jobAddOnsTable, addOnsTable, jobDiscountsTable, accountPropertiesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { ensureAutoPromosForJob } from "./auto-promos.js";
 
@@ -41,6 +41,7 @@ export async function buildJobLineItems(
       billed_amount: jobsTable.billed_amount,
       billed_hours: jobsTable.billed_hours,
       hourly_rate: jobsTable.hourly_rate,
+      account_property_id: jobsTable.account_property_id,
     })
     .from(jobsTable)
     .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
@@ -52,11 +53,25 @@ export async function buildJobLineItems(
     : parseFloat(String(job.base_fee ?? "0"));
   const svcLabel = (job.service_type ?? "Cleaning Service")
     .split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  // [building-names 2026-07-02] For account/commercial jobs, lead the line with
+  // the BUILDING NAME (not "Prop #47") so a merged property-management invoice
+  // reads by building — e.g. "Lincoln Tower — Ppm Turnover".
+  let scopeDesc = svcLabel;
+  if ((job as any).account_property_id) {
+    try {
+      const [prop] = await exec
+        .select({ name: accountPropertiesTable.property_name })
+        .from(accountPropertiesTable)
+        .where(eq(accountPropertiesTable.id, (job as any).account_property_id))
+        .limit(1);
+      if (prop?.name) scopeDesc = `${prop.name} — ${svcLabel}`;
+    } catch { /* non-fatal — fall back to the service label */ }
+  }
   const scopeQty = job.billed_hours ? parseFloat(String(job.billed_hours)) : 1;
   const scopeUnit = job.hourly_rate ? parseFloat(String(job.hourly_rate)) : scopeAmount;
 
   const lineItems: InvoiceLineItem[] = [
-    { description: svcLabel, quantity: scopeQty, unit_price: scopeUnit, total: scopeAmount },
+    { description: scopeDesc, quantity: scopeQty, unit_price: scopeUnit, total: scopeAmount },
   ];
   let runningTotal = scopeAmount;
 

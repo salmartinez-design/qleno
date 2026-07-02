@@ -775,12 +775,20 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
       return res.json({ ok: true, invoice: null, message: "No uninvoiced jobs found" });
     }
 
+    // [building-names 2026-07-02] property id → building name, so lines read by
+    // building ("Lincoln Tower — Ppm Turnover — 2026-07-01") not "Prop #47".
+    const propRows = await db
+      .select({ id: accountPropertiesTable.id, name: accountPropertiesTable.property_name })
+      .from(accountPropertiesTable)
+      .where(eq(accountPropertiesTable.account_id, id));
+    const propName = new Map(propRows.map((p) => [p.id, p.name]));
+
     const lineItems = uninvoicedJobs.map((j) => {
       const billedAmt = j.billed_amount ? parseFloat(j.billed_amount as string) : parseFloat(j.base_fee ?? "0");
       const svcLabel = toLabel(j.service_type ?? "cleaning");
-      const propInfo = j.account_property_id ? ` (Prop #${j.account_property_id})` : "";
+      const bldg = j.account_property_id ? (propName.get(j.account_property_id) || `Prop #${j.account_property_id}`) : "";
       return {
-        description: `${svcLabel}${propInfo} — ${j.scheduled_date}`,
+        description: `${bldg ? bldg + " — " : ""}${svcLabel} — ${j.scheduled_date}`,
         quantity: j.billed_hours ? parseFloat(j.billed_hours as string) : 1,
         unit_price: j.hourly_rate ? parseFloat(j.hourly_rate as string) : parseFloat(j.base_fee ?? "0"),
         total: billedAmt,
