@@ -31,11 +31,16 @@ const photoUpload = multer({
 
 const router = Router();
 
-// [invoice-sync 2026-06-11] Keep a job's existing DRAFT invoice in lockstep with
-// its price + add-ons + applied discounts. NEVER touches a sent/paid invoice
-// (QB is write-only + sent invoices are immutable) and never creates one — only
-// syncs a draft that already exists. Fully non-fatal: an invoice hiccup must
-// never break the underlying job write.
+// [invoice-sync 2026-06-11] Keep a job's existing invoice in lockstep with its
+// price + add-ons + applied discounts. Never CREATES one — only syncs an invoice
+// that already exists. Fully non-fatal: an invoice hiccup must never break the
+// underlying job write.
+// [invoice-mirror 2026-07-02] Now keeps ANY UNPAID invoice (draft/sent/overdue)
+// in lockstep, not just drafts. The office's rule: the invoice mirrors the job
+// card, so applying a discount (office or promo code) or editing price/add-ons
+// on the job must flow to its invoice even after it's finalized. Only 'paid'
+// (money moved) and 'void'/'superseded' (closed out) are left immutable. QB
+// stays one-way — the corrected invoice is re-pushed, never pulled.
 // [2026-06-17] Rebuilds via the shared buildJobLineItems (scope + ALL add-ons +
 // ALL discounts) — the prior version omitted add-ons and would DROP them from a
 // draft on re-sync. Same code the creation engine + office recalc use, so a job
@@ -54,9 +59,17 @@ async function syncJobInvoiceDraft(
       .from(invoicesTable)
       .where(and(eq(invoicesTable.job_id, jobId), eq(invoicesTable.company_id, companyId)))
       .limit(1);
-    if (!existing || existing.status !== "draft") return;
+    // [invoice-mirror 2026-07-02] The invoice must always MIRROR the job card —
+    // not just while it's a draft. Previously this returned unless status ===
+    // 'draft', so once an invoice was finalized ('sent'/'overdue') any later
+    // job-card edit stopped flowing to it and the two diverged (the office kept
+    // seeing "job card says X, invoice says Y" — e.g. Shellie's amount). Now we
+    // keep any UNPAID invoice in sync with its job. Terminal states are left
+    // alone: 'paid' (money already moved — never silently mutate; unmark/refund
+    // first), and 'void'/'superseded' (already closed out).
+    if (!existing || ["paid", "void", "superseded"].includes(existing.status)) return;
 
-    // Cancellation: void the draft so AR stays clean.
+    // Cancellation: void the (unpaid) invoice so AR stays clean.
     if (opts.cancel) {
       await db.update(invoicesTable)
         .set({ status: "void" })
