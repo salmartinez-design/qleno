@@ -161,6 +161,10 @@ export default function InvoiceDetailPage() {
   // from the job / line-item visit dates.
   const [svcInlineOpen, setSvcInlineOpen] = useState(false);
   const [savingSvc, setSavingSvc] = useState(false);
+  // [invoice-bill-to 2026-07-03] Editable "Bill to" name (HOA name, etc.).
+  const [billToOpen, setBillToOpen] = useState(false);
+  const [billToDraft, setBillToDraft] = useState("");
+  const [savingBillTo, setSavingBillTo] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [recalcing, setRecalcing] = useState(false);
 
@@ -367,6 +371,21 @@ export default function InvoiceDetailPage() {
     setSavingDue(false);
   }
 
+  // Inline Bill-to name save. "" clears the override → falls back to client/account name.
+  async function saveBillTo(next: string) {
+    setSavingBillTo(true);
+    try {
+      await apiFetch(`/api/invoices/${invoiceId}`, { method: "PUT", body: JSON.stringify({ bill_to_name: next.trim() || null }) });
+      toast({ title: next.trim() ? "Bill-to name updated" : "Bill-to reset to default" });
+      setBillToOpen(false);
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to update bill-to name", variant: "destructive" });
+    }
+    setSavingBillTo(false);
+  }
+
   // Inline service-date save. "" clears the override → API re-derives it.
   async function saveServiceDate(next: string) {
     setSavingSvc(true);
@@ -441,6 +460,8 @@ export default function InvoiceDetailPage() {
     ? new Date(invoice.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "—";
   const svcDateVal = invoice.service_date ? String(invoice.service_date).slice(0, 10) : "";
+  const billToLabel = invoice.bill_to_name?.trim() || invoice.client_name?.trim() || invoice.account_name || "—";
+  const billToIsOverride = !!invoice.bill_to_name?.trim();
   const lineItems: any[] = Array.isArray(invoice.line_items) ? invoice.line_items : [];
   // [invoice-redesign] "<city>, <state> <zip>" — canonical address second line.
   const billLine2 = [invoice.client_city, invoice.client_state].filter(Boolean).join(", ")
@@ -481,7 +502,7 @@ export default function InvoiceDetailPage() {
           <div style={{ display: "flex", justifyContent: "space-between", gap: 24, padding: "18px 30px", flexWrap: "wrap" }}>
             <div>
               <p style={{ margin: "0 0 6px", fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em" }}>Bill to</p>
-              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#1A1917" }}>{invoice.client_name?.trim() || invoice.account_name || "—"}</p>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: "#1A1917" }}>{invoice.bill_to_name?.trim() || invoice.client_name?.trim() || invoice.account_name || "—"}</p>
               {invoice.client_address && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#4B4A47", lineHeight: 1.5 }}>{invoice.client_address}{billLine2 ? <><br />{billLine2}</> : null}</p>}
               {invoice.client_phone && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#4B4A47" }}>{invoice.client_phone}</p>}
               {invoice.client_email && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#4B4A47" }}>{invoice.client_email}</p>}
@@ -693,6 +714,34 @@ export default function InvoiceDetailPage() {
             {[
               { label: "Invoice Number", value: invoice.invoice_number || `INV-${String(invoice.id).padStart(4, "0")}` },
               { label: "Status", value: <StatusBadge status={effectiveStatus} /> },
+              { label: "Bill To", value: !canEditInvoice ? billToLabel : (
+                billToOpen ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <input autoFocus value={billToDraft} onChange={e => setBillToDraft(e.target.value)}
+                      placeholder="HOA / bill-to name"
+                      onKeyDown={e => { if (e.key === "Enter") saveBillTo(billToDraft); if (e.key === "Escape") setBillToOpen(false); }}
+                      style={{ width: 190, padding: "5px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF }} />
+                    <button onClick={() => saveBillTo(billToDraft)} disabled={savingBillTo}
+                      style={{ background: "none", border: "none", color: "#00A886", cursor: "pointer", fontSize: 12, fontWeight: 700 }}>Save</button>
+                    {billToIsOverride && (
+                      <button onClick={() => saveBillTo("")} disabled={savingBillTo}
+                        title="Reset to the client/account name"
+                        style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>Default</button>
+                    )}
+                    <button onClick={() => setBillToOpen(false)} disabled={savingBillTo}
+                      style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 12 }}>Cancel</button>
+                  </div>
+                ) : (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    {billToLabel}
+                    <button onClick={() => { setBillToDraft(invoice.bill_to_name || ""); setBillToOpen(true); }}
+                      title="Edit bill-to name"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 3, background: "none", border: "none", color: "#00A886", cursor: "pointer", fontSize: 12, fontWeight: 700, padding: 0 }}>
+                      <Pencil size={12} /> Edit
+                    </button>
+                  </span>
+                )
+              ) },
               { label: "Service Date", value: !canEditInvoice ? svcLabel : (
                 svcInlineOpen ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
