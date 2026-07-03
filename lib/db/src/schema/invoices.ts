@@ -30,6 +30,12 @@ export const invoicesTable = pgTable("invoices", {
   tips: numeric("tips", { precision: 10, scale: 2 }).notNull().default("0"),
   total: numeric("total", { precision: 10, scale: 2 }).notNull().default("0"),
   due_date: date("due_date"),
+  // [invoice-service-date 2026-07-03] Manual service-date override. When NULL the
+  // API derives the service date from the linked job (job_id) or, for consolidated
+  // invoices, the earliest line-item job date. Set when the office edits "Service
+  // Date" on the invoice (Maribel). Added to the live DB via an idempotent
+  // ADD COLUMN IF NOT EXISTS in runStartupMigrations, before the API gate opens.
+  service_date: date("service_date"),
   sent_at: timestamp("sent_at"),
   last_reminder_sent_at: timestamp("last_reminder_sent_at"),
   payment_failed: boolean("payment_failed").default(false),
