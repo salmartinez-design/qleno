@@ -40,7 +40,9 @@ export async function buildJobLineItems(
       base_fee: jobsTable.base_fee,
       billed_amount: jobsTable.billed_amount,
       billed_hours: jobsTable.billed_hours,
+      allowed_hours: jobsTable.allowed_hours,
       hourly_rate: jobsTable.hourly_rate,
+      manual_rate_override: jobsTable.manual_rate_override,
       account_property_id: jobsTable.account_property_id,
     })
     .from(jobsTable)
@@ -48,9 +50,20 @@ export async function buildJobLineItems(
     .limit(1);
   if (!job) return null;
 
-  const scopeAmount = job.billed_amount
-    ? parseFloat(String(job.billed_amount))
-    : parseFloat(String(job.base_fee ?? "0"));
+  // [hourly-line-fix 2026-07-03] Scope line, three modes:
+  //  - metered (billed_amount set): the all-in metered total; add-ons rolled in.
+  //  - hourly rate-driven (hourly_rate + hours, NOT a pinned flat price): bill
+  //    LABOR = hours × rate, with add-ons (e.g. parking) as SEPARATE lines. We do
+  //    NOT use base_fee here — on PPM/KMA it can bake parking into base_fee, so
+  //    using it would DOUBLE-count parking (a $150 3h turnover + $20 parking was
+  //    invoicing $190 instead of $170, on a nonsensical "qty 1 × $50 = $170" line).
+  //  - flat: base_fee, qty 1.
+  const rateNum = job.hourly_rate ? parseFloat(String(job.hourly_rate)) : 0;
+  const hoursNum = job.billed_hours
+    ? parseFloat(String(job.billed_hours))
+    : (job.allowed_hours ? parseFloat(String(job.allowed_hours)) : 0);
+  const isMetered = !!job.billed_amount;
+  const isHourlyRateDriven = !isMetered && !job.manual_rate_override && rateNum > 0 && hoursNum > 0;
   const svcLabel = (job.service_type ?? "Cleaning Service")
     .split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   // [building-names 2026-07-02] For account/commercial jobs, lead the line with
@@ -67,8 +80,20 @@ export async function buildJobLineItems(
       if (prop?.name) scopeDesc = `${prop.name} — ${svcLabel}`;
     } catch { /* non-fatal — fall back to the service label */ }
   }
-  const scopeQty = job.billed_hours ? parseFloat(String(job.billed_hours)) : 1;
-  const scopeUnit = job.hourly_rate ? parseFloat(String(job.hourly_rate)) : scopeAmount;
+  let scopeQty: number, scopeUnit: number, scopeAmount: number;
+  if (isMetered) {
+    scopeAmount = parseFloat(String(job.billed_amount));
+    scopeQty = job.billed_hours ? parseFloat(String(job.billed_hours)) : 1;
+    scopeUnit = rateNum || scopeAmount;
+  } else if (isHourlyRateDriven) {
+    scopeQty = hoursNum;
+    scopeUnit = rateNum;
+    scopeAmount = Math.round(hoursNum * rateNum * 100) / 100;   // labor only
+  } else {
+    scopeAmount = parseFloat(String(job.base_fee ?? "0"));
+    scopeQty = 1;
+    scopeUnit = scopeAmount;
+  }
 
   const lineItems: InvoiceLineItem[] = [
     { description: scopeDesc, quantity: scopeQty, unit_price: scopeUnit, total: scopeAmount },
