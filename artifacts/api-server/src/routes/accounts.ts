@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import {
   accountsTable, accountRateCardsTable, accountPropertiesTable, accountContactsTable,
-  jobsTable, invoicesTable, usersTable,
+  jobsTable, invoicesTable, usersTable, clientsTable, recurringSchedulesTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, inArray, notExists, desc, gte, lte } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -1063,6 +1063,161 @@ router.get("/:id/payment-status", requireAuth, requireRole("owner", "admin", "of
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch payment status" });
+  }
+});
+
+// ─── CONVERT CLIENT(S) → ACCOUNT ──────────────────────────────────────────────
+// [client-to-account 2026-07-03] Move commercial "client" records into the
+// Account model. Creates (or reuses) an account, adds each property, re-points
+// every job + recurring schedule from the source client records to the account
+// property, creates a billing contact, and soft-retires the source client
+// records. Historical invoices keep their client_id link (untouched), so past
+// billing history is preserved. ?preview=true (or body.preview) = read-only
+// plan (counts only, no writes). Execute wraps all writes in ONE transaction so
+// a failure rolls the whole conversion back.
+//
+// Body: {
+//   preview?: boolean,
+//   account: { id?: number, name?: string, account_type?, invoice_frequency?, payment_terms_days? },
+//   contact?: { name?, email?, phone?, from_client_id?: number },
+//   properties: [{ property_name?, address, city?, state?, zip?, source_client_ids: number[] }],
+//   retire_client_ids?: number[],   // extra empty duplicates to soft-retire
+// }
+router.post("/convert", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  const companyId = req.auth!.companyId as number;
+  const preview = req.query.preview === "true" || req.body?.preview === true;
+  const body = req.body ?? {};
+  const acctIn = body.account ?? {};
+  const props: any[] = Array.isArray(body.properties) ? body.properties : [];
+  const retireIds: number[] = (Array.isArray(body.retire_client_ids) ? body.retire_client_ids : [])
+    .map((x: any) => parseInt(String(x), 10)).filter((n: number) => Number.isInteger(n));
+
+  // ── validate ──────────────────────────────────────────────────────────────
+  if (!acctIn.id && !acctIn.name) {
+    return res.status(400).json({ error: "Bad Request", message: "account.id (reuse) or account.name (create) is required" });
+  }
+  if (props.length === 0) {
+    return res.status(400).json({ error: "Bad Request", message: "at least one property is required" });
+  }
+  for (const p of props) {
+    if (!p.address || String(p.address).trim() === "") {
+      return res.status(400).json({ error: "Bad Request", message: "every property needs an address" });
+    }
+    if (!Array.isArray(p.source_client_ids) || p.source_client_ids.length === 0) {
+      return res.status(400).json({ error: "Bad Request", message: `property "${p.address}" needs source_client_ids` });
+    }
+  }
+  const allSourceIds = [...new Set(props.flatMap((p) => p.source_client_ids.map((x: any) => parseInt(String(x), 10))))].filter((n) => Number.isInteger(n));
+
+  try {
+    // ── validate the account + source clients all belong to this company ──────
+    if (acctIn.id) {
+      const [a] = await db.select({ id: accountsTable.id }).from(accountsTable)
+        .where(and(eq(accountsTable.id, acctIn.id), eq(accountsTable.company_id, companyId)));
+      if (!a) return res.status(404).json({ error: "Not Found", message: "account not found" });
+    }
+    const srcClients = await db.select({
+        id: clientsTable.id, first_name: clientsTable.first_name, last_name: clientsTable.last_name,
+        email: clientsTable.email, phone: clientsTable.phone,
+      }).from(clientsTable)
+      .where(and(inArray(clientsTable.id, [...allSourceIds, ...retireIds].length ? [...allSourceIds, ...retireIds] : [-1]), eq(clientsTable.company_id, companyId)));
+    const foundIds = new Set(srcClients.map((c) => c.id));
+    const missing = [...allSourceIds, ...retireIds].filter((id) => !foundIds.has(id));
+    if (missing.length) {
+      return res.status(400).json({ error: "Bad Request", message: `client(s) not in this company: ${missing.join(", ")}` });
+    }
+
+    // ── PREVIEW: read-only counts, no writes ──────────────────────────────────
+    if (preview) {
+      const planProps = [];
+      let totalJobs = 0, totalRecurring = 0;
+      for (const p of props) {
+        const ids = p.source_client_ids.map((x: any) => parseInt(String(x), 10));
+        const [jc] = await db.select({ n: sql<number>`count(*)::int` }).from(jobsTable)
+          .where(and(eq(jobsTable.company_id, companyId), inArray(jobsTable.client_id, ids)));
+        const [rc] = await db.select({ n: sql<number>`count(*)::int` }).from(recurringSchedulesTable)
+          .where(and(eq(recurringSchedulesTable.company_id, companyId), inArray(recurringSchedulesTable.customer_id, ids)));
+        totalJobs += jc?.n ?? 0; totalRecurring += rc?.n ?? 0;
+        planProps.push({ address: p.address, source_client_ids: ids, jobs: jc?.n ?? 0, recurring_schedules: rc?.n ?? 0 });
+      }
+      return res.json({
+        ok: true, preview: true,
+        account: acctIn.id ? { reuse: acctIn.id } : { create: acctIn.name },
+        properties: planProps,
+        retire_client_ids: retireIds,
+        totals: { properties: props.length, jobs_repointed: totalJobs, recurring_repointed: totalRecurring, clients_retired: allSourceIds.length + retireIds.length },
+      });
+    }
+
+    // ── EXECUTE: one transaction ──────────────────────────────────────────────
+    const result = await db.transaction(async (tx) => {
+      // 1. account
+      let accountId = acctIn.id as number | undefined;
+      if (!accountId) {
+        const [created] = await tx.insert(accountsTable).values({
+          company_id: companyId,
+          account_name: acctIn.name,
+          account_type: acctIn.account_type ?? "property_management",
+          invoice_frequency: acctIn.invoice_frequency ?? "per_job",
+          payment_method: acctIn.payment_method ?? "invoice_only",
+          payment_terms_days: acctIn.payment_terms_days ?? 0,
+        }).returning({ id: accountsTable.id });
+        accountId = created.id;
+      }
+
+      let jobsMoved = 0, recurringMoved = 0;
+      const propIds: number[] = [];
+      for (const p of props) {
+        const ids = p.source_client_ids.map((x: any) => parseInt(String(x), 10));
+        const [prop] = await tx.insert(accountPropertiesTable).values({
+          account_id: accountId!, company_id: companyId,
+          property_name: p.property_name ?? null,
+          address: p.address, city: p.city ?? null, state: p.state ?? null, zip: p.zip ?? null,
+          client_id: ids[0] ?? null,
+        }).returning({ id: accountPropertiesTable.id });
+        propIds.push(prop.id);
+        // re-point jobs
+        const jm = await tx.update(jobsTable)
+          .set({ account_id: accountId!, account_property_id: prop.id, client_id: null })
+          .where(and(eq(jobsTable.company_id, companyId), inArray(jobsTable.client_id, ids)))
+          .returning({ id: jobsTable.id });
+        jobsMoved += jm.length;
+        // re-point recurring schedules (keep customer_id; set account fields)
+        const rm = await tx.update(recurringSchedulesTable)
+          .set({ account_id: accountId!, account_property_id: prop.id })
+          .where(and(eq(recurringSchedulesTable.company_id, companyId), inArray(recurringSchedulesTable.customer_id, ids)))
+          .returning({ id: recurringSchedulesTable.id });
+        recurringMoved += rm.length;
+      }
+
+      // 2. billing contact (from explicit body.contact or the first source client)
+      const c = body.contact ?? {};
+      const fromId = c.from_client_id ?? props[0].source_client_ids[0];
+      const fromClient = srcClients.find((s) => s.id === parseInt(String(fromId), 10));
+      const contactName = c.name || (fromClient ? `${fromClient.first_name ?? ""} ${fromClient.last_name ?? ""}`.trim() : "") || acctIn.name || "Billing contact";
+      await tx.insert(accountContactsTable).values({
+        account_id: accountId!, company_id: companyId,
+        name: contactName,
+        email: c.email ?? fromClient?.email ?? null,
+        phone: c.phone ?? fromClient?.phone ?? null,
+        is_primary: true, receives_invoices: true,
+      });
+
+      // 3. soft-retire ALL source + extra dup client records (invoice history stays via client_id)
+      const toRetire = [...new Set([...allSourceIds, ...retireIds])];
+      if (toRetire.length) {
+        await tx.update(clientsTable).set({ is_active: false })
+          .where(and(eq(clientsTable.company_id, companyId), inArray(clientsTable.id, toRetire)));
+      }
+
+      return { account_id: accountId, property_ids: propIds, jobs_repointed: jobsMoved, recurring_repointed: recurringMoved, clients_retired: toRetire.length };
+    });
+
+    console.log(`[convert] account ${result.account_id} — ${result.jobs_repointed} jobs, ${result.recurring_repointed} schedules re-pointed, ${result.clients_retired} clients retired (by user ${req.auth!.userId})`);
+    return res.status(201).json({ ok: true, ...result });
+  } catch (err: any) {
+    console.error("[convert] error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: err?.message || "Conversion failed" });
   }
 });
 
