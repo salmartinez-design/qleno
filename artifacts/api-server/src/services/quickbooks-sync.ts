@@ -582,7 +582,11 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
 
     const qbInvoicePayload: any = {
       CustomerRef: { value: qbCustomerId },
-      DocNumber: invoice.invoice_number || String(invoiceId),
+      // [qb-docnumber 2026-07-03] QB's DocNumber max is 21 chars; account
+      // per-job numbers (ACC-{id}-{jobid}-{ts}) exceed it and QB rejects the
+      // invoice ("String length is too long"). Truncate to the last 21 chars
+      // (keeps the most-unique tail).
+      DocNumber: (invoice.invoice_number || String(invoiceId)).slice(-21),
       TxnDate: invoice.created_at ? new Date(invoice.created_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
       DueDate: invoice.due_date || undefined,
       Line: lineItems,
