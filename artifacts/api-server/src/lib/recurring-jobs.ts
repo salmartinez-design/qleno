@@ -19,7 +19,18 @@ import {
 // slides the window forward daily and the idempotent dedupe only adds the new
 // days that rolled into range, so a schedule never runs out — but it keeps ~75%
 // fewer future rows on disk at any moment.
-export const DAYS_AHEAD = 90;
+// [recurring-horizon-restore 2026-07-03] Back to 365. The 90-day cap meant the
+// office could only ever see ~3 months of a recurring schedule (commercial
+// accounts like KMA / National Able are year-long commitments; residential
+// recurring customers likewise), so the board "ran out" at end of September and
+// there was no way to plan further out. The disk pressure that forced the 6/19
+// trim was dominated by base64 job photos in Postgres — those moved to
+// Cloudflare R2 on 2026-06-24 (photos table 1.4 GB → 16 MB), so the ~1.4 GB that
+// hit 98% is reclaimed. Job/technician/add-on rows are small by comparison
+// (~2.2k future rows for the whole tenant). The nightly cron still slides the
+// window forward and the dedupe stays idempotent — the window is now a rolling
+// full year instead of a rolling quarter.
+export const DAYS_AHEAD = 365;
 
 function mapServiceType(raw: string | null): string {
   if (!raw) return "recurring";
