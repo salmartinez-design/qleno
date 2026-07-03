@@ -3,7 +3,7 @@ import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
-import { ArrowLeft, Send, DollarSign, CreditCard, Clock, AlertCircle, Printer } from "lucide-react";
+import { ArrowLeft, Send, DollarSign, CreditCard, Clock, AlertCircle, Printer, Pencil } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useTenantBrand } from "@/lib/tenant-brand";
@@ -146,6 +146,12 @@ export default function InvoiceDetailPage() {
   const [editLines, setEditLines] = useState<any[]>([]);
   const [editTip, setEditTip] = useState(0);
   const [editDue, setEditDue] = useState<string>(""); // YYYY-MM-DD, "" = due on receipt
+  // [invoice-due-inline 2026-07-03] Edit the due date straight from the Invoice
+  // Details panel — that's where the office LOOKS for it (Maribel circled that
+  // panel: "still can't edit it"). The action-row Edit button opens the
+  // line-item editor, which she wasn't finding.
+  const [dueInlineOpen, setDueInlineOpen] = useState(false);
+  const [savingDue, setSavingDue] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [recalcing, setRecalcing] = useState(false);
 
@@ -331,6 +337,21 @@ export default function InvoiceDetailPage() {
     setRecalcing(false);
   }
 
+  // Inline due-date save from the Invoice Details panel. "" clears it (due on receipt).
+  async function saveDueDate(next: string) {
+    setSavingDue(true);
+    try {
+      await apiFetch(`/api/invoices/${invoiceId}`, { method: "PUT", body: JSON.stringify({ due_date: next || null }) });
+      toast({ title: next ? "Due date updated" : "Set to due on receipt" });
+      setDueInlineOpen(false);
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to update due date", variant: "destructive" });
+    }
+    setSavingDue(false);
+  }
+
   const CARD: React.CSSProperties = {
     backgroundColor: "#FFFFFF",
     border: "1px solid #E5E2DC",
@@ -362,6 +383,10 @@ export default function InvoiceDetailPage() {
   // not flagged overdue a day early (bare YYYY-MM-DD parses as UTC midnight).
   const isOverdue = invoice.status === "overdue" || (invoice.status === "sent" && invoice.due_date && new Date(invoice.due_date + "T23:59:59") < new Date());
   const effectiveStatus = isOverdue ? "overdue" : invoice.status;
+  const canEditInvoice = !["paid", "void", "superseded"].includes(invoice.status);
+  const dueLabel = invoice.due_date
+    ? new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "On receipt";
   const lineItems: any[] = Array.isArray(invoice.line_items) ? invoice.line_items : [];
   // [invoice-redesign] "<city>, <state> <zip>" — canonical address second line.
   const billLine2 = [invoice.client_city, invoice.client_state].filter(Boolean).join(", ")
@@ -616,7 +641,33 @@ export default function InvoiceDetailPage() {
               { label: "Status", value: <StatusBadge status={effectiveStatus} /> },
               { label: "Service Date", value: invoice.service_date ? new Date(invoice.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
               { label: "Created", value: invoice.created_at ? new Date(invoice.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
-              { label: "Due Date", value: invoice.due_date ? new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
+              { label: "Due Date", value: !canEditInvoice ? dueLabel : (
+                dueInlineOpen ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <div style={{ width: 150 }}>
+                      <CalendarPopover value={invoice.due_date || ""} ariaLabel="Due date" onChange={(v) => saveDueDate(v)} block />
+                    </div>
+                    <button onClick={() => saveDueDate("")} disabled={savingDue}
+                      title="Clear — bill due on receipt"
+                      style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                      On receipt
+                    </button>
+                    <button onClick={() => setDueInlineOpen(false)} disabled={savingDue}
+                      style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 12 }}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    {dueLabel}
+                    <button onClick={() => setDueInlineOpen(true)}
+                      title="Edit due date"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 3, background: "none", border: "none", color: "#00A886", cursor: "pointer", fontSize: 12, fontWeight: 700, padding: 0 }}>
+                      <Pencil size={12} /> Edit
+                    </button>
+                  </span>
+                )
+              ) },
               { label: "Issued", value: (() => {
                 // sent_at = the moment the email was sent to the client.
                 // For auto-finalized per-visit invoices that were never emailed,
