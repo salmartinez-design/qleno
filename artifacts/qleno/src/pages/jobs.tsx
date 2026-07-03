@@ -1332,7 +1332,14 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
   const [items, setItems] = useState<JobAddOn[]>(initAddOns.map(a => ({ ...a })));
   const [saving, setSaving] = useState(false);
 
-  if (total === 0 && initAddOns.length === 0 && !isHourlyCommercial) return null;
+  // [zero-fee-commercial 2026-07-03] A $0 commercial job (e.g. a KMA common-area
+  // visit whose per-building rate isn't set yet) MUST still expose the pricing
+  // editor so the office can enter the base fee. Previously total===0 hid the
+  // whole Service & Pricing panel — and with it the "Edit base rate and add-ons"
+  // button — so the rate could never be set from dispatch (Maribel: "I don't have
+  // the option to edit the base fee"). Only hide zero-fee jobs that aren't
+  // editable-commercial and have nothing to show.
+  if (total === 0 && initAddOns.length === 0 && !isHourlyCommercial && !(editable && isCommercial)) return null;
 
   const liveAddOnSum = items.reduce((s, a) => s + Number(a.subtotal ?? 0), 0);
   // Hourly commercial: base = rate × hours (recomputes as the office edits hours).
