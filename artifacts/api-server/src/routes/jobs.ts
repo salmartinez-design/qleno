@@ -2405,6 +2405,12 @@ router.patch("/:id", requireAuth, async (req, res) => {
             const newJobId = await insertJobFromSchedule(
               sched, date, tx, null, cascadeClientZip,
             );
+            // [recurring-insert-resilience 2026-07-03] insertJobFromSchedule now
+            // returns null when the row hit ON CONFLICT DO NOTHING (occurrence
+            // already exists despite the empty-day check — e.g. a race or a
+            // legacy row the check missed). Skip mirroring onto a non-existent
+            // id rather than crashing the cascade.
+            if (newJobId != null) {
             cascadeInserted++;
             for (let i = 0; i < techList.length; i++) {
               const uid = techList[i];
@@ -2434,6 +2440,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
             }
             if (cascadeParking && parkingApplies(sched, date)) {
               await stampParkingFeeOnJob(newJobId, cascadeParking, tx);
+            }
             }
             continue;
           }
