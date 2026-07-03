@@ -4028,11 +4028,13 @@ export async function runPhesDataMigration(): Promise<void> {
     console.warn("[phes-migration] jobs-dedupe — non-fatal:", err?.message ?? err);
   }
 
-  try {
-    await runScheduleHorizonBackfill();
-  } catch (err: any) {
-    console.warn("[phes-migration] schedule-horizon-backfill — non-fatal:", err?.message ?? err);
-  }
+  // [boot-perf 2026-07-03] runScheduleHorizonBackfill() is REMOVED from the boot
+  // chain. It was a one-shot 60→90-day horizon migration that's long complete, but
+  // it ran the FULL recurring engine on every cold-start — scanning every schedule
+  // and computing 90 days of occurrences to insert nothing (dedup no-op). That
+  // saturated the DB pool for minutes after each deploy, so real endpoints 500'd
+  // during warm-up. Ongoing generation is owned by the 2 AM cron; the boot pass was
+  // pure overhead. Function kept below (unreferenced) for history — do not re-wire.
 
   try {
     await runAcquisitionSourcesSeed();
