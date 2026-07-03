@@ -197,7 +197,11 @@ router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) =>
 });
 
 // PATCH /api/accounts/:id
-router.patch("/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+// [office-parity 2026-07-03] Office may edit an account's billing settings
+// (payment terms / frequency / method / auto-charge) from the account Overview —
+// consistent with the office-admin-parity elevation. Was owner/admin-only, which
+// blocked the office manager from setting NET 30 → due-on-receipt etc.
+router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
 
