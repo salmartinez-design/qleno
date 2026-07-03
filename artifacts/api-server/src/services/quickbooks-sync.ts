@@ -232,6 +232,34 @@ async function findExistingQbCustomer(
   return null;
 }
 
+// ── Invoice dedup lookup ───────────────────────────────────────────────────
+// Returns the QB Invoice Id already carrying this DocNumber (oldest wins), else
+// null. QB's /invoice endpoint has NO client-side dedup — a create fired twice
+// for the same invoice (concurrent/rapid re-push, or a retry after the row's
+// qbo_invoice_id failed to persist) makes a SECOND QB invoice with the same
+// DocNumber. syncInvoice calls this before creating so it adopts + updates the
+// existing one instead. Mirrors findExistingQbCustomer.
+async function findExistingQbInvoiceByDoc(
+  token: string,
+  realmId: string,
+  docNumber: string,
+): Promise<string | null> {
+  const qbQuote = (s: string) => s.replace(/'/g, "\\'");
+  try {
+    const q = await qbGet(
+      token,
+      realmId,
+      `/query?query=${encodeURIComponent(
+        `SELECT Id, DocNumber FROM Invoice WHERE DocNumber = '${qbQuote(docNumber)}' ORDERBY Id MAXRESULTS 1`,
+      )}&`,
+    );
+    return q.QueryResponse?.Invoice?.[0]?.Id ?? null;
+  } catch (e: any) {
+    console.warn(`[QB] findExistingQbInvoiceByDoc failed (non-fatal):`, e.message);
+    return null;
+  }
+}
+
 // ── Service item resolution ────────────────────────────────────────────────
 async function getOrCreateServiceItem(token: string, realmId: string, companyId: number): Promise<string> {
   if (serviceItemCache.has(companyId)) return serviceItemCache.get(companyId)!;
@@ -606,9 +634,28 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       });
       qbInvoiceId = updateData.Invoice?.Id || invoice.qbo_invoice_id;
     } else {
-      // Create new
-      const createData = await qbPost(token, realmId, "/invoice", qbInvoicePayload);
-      qbInvoiceId = createData.Invoice?.Id;
+      // [qb-invoice-idempotency 2026-07-03] Before creating, check QB for an
+      // invoice already carrying this DocNumber. QB's /invoice has no server-side
+      // dedup, so concurrent/rapid re-pushes (or a retry after qbo_invoice_id
+      // failed to persist) would each CREATE a fresh QB invoice with the same
+      // DocNumber — the duplicate-invoice bug. Adopt + update the existing one
+      // instead of creating a second. (syncPayment already guards this way.)
+      const docNumber = (invoice.invoice_number || String(invoiceId)).slice(-21);
+      const existingQbId = await findExistingQbInvoiceByDoc(token, realmId, docNumber);
+      if (existingQbId) {
+        const existing = await qbGet(token, realmId, `/invoice/${existingQbId}?`);
+        const syncToken = existing.Invoice?.SyncToken;
+        const updateData = await qbPost(token, realmId, "/invoice", {
+          ...qbInvoicePayload,
+          Id: existingQbId,
+          SyncToken: syncToken,
+          sparse: false,
+        });
+        qbInvoiceId = updateData.Invoice?.Id || existingQbId;
+      } else {
+        const createData = await qbPost(token, realmId, "/invoice", qbInvoicePayload);
+        qbInvoiceId = createData.Invoice?.Id;
+      }
 
       // Save qbo_invoice_id to invoice record
       await db
@@ -757,6 +804,88 @@ export async function voidQbInvoice(companyId: number, invoiceId: number): Promi
   } catch (err: any) {
     console.error("[QB] voidQbInvoice failed:", err.message);
   }
+}
+
+// ── DEDUPE INVOICES ────────────────────────────────────────────────────────
+// [qb-invoice-idempotency 2026-07-03] One-time cleanup for duplicate QB invoices
+// created before the idempotency guard landed (concurrent/rapid re-pushes each
+// CREATED a fresh QB invoice with the same DocNumber). For every DocNumber that
+// this company's synced invoices reference, query ALL matching QB invoices; if
+// more than one exists, keep the CANONICAL copy (the Id stored on the Qleno row,
+// else the oldest) and delete the rest. Dry-run (default) only reports. Deleting
+// (not voiding) removes the phantom rows entirely so the P&L stops double/triple
+// counting — these copies never should have existed and carry no payments (the
+// real one, kept, retains its ledger). Owner-triggered via POST /dedupe.
+export async function dedupeQbInvoices(
+  companyId: number,
+  dryRun: boolean = true,
+): Promise<{
+  dry_run: boolean;
+  connected: boolean;
+  duplicate_groups: Array<{ doc_number: string; total: string | number; copies: number; keep: string; deleted: string[] }>;
+  invoices_deleted: number;
+}> {
+  const auth = await getValidToken(companyId);
+  if (!auth) return { dry_run: dryRun, connected: false, duplicate_groups: [], invoices_deleted: 0 };
+  const { token, realmId } = auth;
+  const qbQuote = (s: string) => s.replace(/'/g, "\\'");
+
+  const qleno = await db
+    .select({ id: invoicesTable.id, invoice_number: invoicesTable.invoice_number, qbo: invoicesTable.qbo_invoice_id })
+    .from(invoicesTable)
+    .where(and(eq(invoicesTable.company_id, companyId), sql`${invoicesTable.qbo_invoice_id} IS NOT NULL`));
+
+  const groups: Array<{ doc_number: string; total: string | number; copies: number; keep: string; deleted: string[] }> = [];
+  let deleted = 0;
+  const seen = new Set<string>();
+
+  for (const inv of qleno) {
+    const docNumber = (inv.invoice_number || String(inv.id)).slice(-21);
+    if (seen.has(docNumber)) continue;
+    seen.add(docNumber);
+    let hits: any[] = [];
+    try {
+      const q = await qbGet(
+        token,
+        realmId,
+        `/query?query=${encodeURIComponent(
+          `SELECT Id, SyncToken, DocNumber, TotalAmt FROM Invoice WHERE DocNumber = '${qbQuote(docNumber)}'`,
+        )}&`,
+      );
+      hits = q.QueryResponse?.Invoice ?? [];
+    } catch (e: any) {
+      console.warn(`[QB] dedupe query failed for DocNumber ${docNumber} (skipping):`, e.message);
+      continue;
+    }
+    if (hits.length <= 1) continue;
+
+    // Keep the canonical copy: the Id the Qleno row points to, else the oldest
+    // (lowest numeric Id). Delete every other copy.
+    const canonicalId = String(inv.qbo);
+    const keep = hits.find((h) => String(h.Id) === canonicalId)
+      ?? [...hits].sort((a, b) => Number(a.Id) - Number(b.Id))[0];
+    const toDelete = hits.filter((h) => String(h.Id) !== String(keep.Id));
+    groups.push({ doc_number: docNumber, total: hits[0].TotalAmt, copies: hits.length, keep: String(keep.Id), deleted: toDelete.map((h) => String(h.Id)) });
+
+    if (!dryRun) {
+      // If the surviving copy isn't the one Qleno referenced, re-point Qleno.
+      if (String(keep.Id) !== canonicalId) {
+        await db.update(invoicesTable).set({ qbo_invoice_id: String(keep.Id) }).where(eq(invoicesTable.id, inv.id));
+      }
+      for (const h of toDelete) {
+        try {
+          await qbPost(token, realmId, `/invoice?operation=delete`, { Id: h.Id, SyncToken: h.SyncToken });
+          deleted++;
+        } catch (e: any) {
+          console.error(`[QB] dedupe delete failed for QB invoice ${h.Id} (DocNumber ${docNumber}):`, e.message);
+        }
+      }
+    } else {
+      deleted += toDelete.length;
+    }
+  }
+
+  return { dry_run: dryRun, connected: true, duplicate_groups: groups, invoices_deleted: deleted };
 }
 
 // ── SYNC ALL (batch retry) ─────────────────────────────────────────────────
