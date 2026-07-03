@@ -614,7 +614,16 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
 router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
-    const { status, line_items, tips, due_date, created_date, service_date, bill_to_name } = req.body;
+    const { status, line_items, tips, due_date, created_date, service_date, bill_to_name, payment_terms } = req.body;
+
+    // [invoice-terms 2026-07-03] Editable payment terms (fix invoices that
+    // inherited the wrong terms — e.g. PPM invoices created while PPM was a
+    // net-30 client that should be due-on-receipt now it's an account).
+    const TERMS = new Set(["due_on_receipt", "net_7", "net_15", "net_30"]);
+    const termsProvided = payment_terms !== undefined;
+    if (termsProvided && !TERMS.has(String(payment_terms))) {
+      return res.status(400).json({ error: "Bad Request", message: "payment_terms must be due_on_receipt | net_7 | net_15 | net_30" });
+    }
 
     // [invoice-bill-to 2026-07-03] Manual "Bill to" name override. Empty/null
     // clears it (→ falls back to client/account name). Trim + length-cap.
@@ -691,6 +700,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(createdProvided && { created_at: new Date(String(created_date) + "T12:00:00Z") }),
         ...(svcProvided && { service_date: svcValue }),
         ...(billToProvided && { bill_to_name: billToValue }),
+        ...(termsProvided && { payment_terms: String(payment_terms) }),
         tips: tipVal.toFixed(2),
         subtotal: subtotal.toFixed(2),
         total: total.toFixed(2),
