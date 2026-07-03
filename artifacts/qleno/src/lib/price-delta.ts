@@ -18,6 +18,7 @@ export interface PriceDeltaInput {
   billedAmount: number | null | undefined;    // billed_amount on the payload
   hourlyRate: number | null | undefined;
   billingMethod: string | null | undefined;
+  allowedHours?: number | null | undefined;   // billed hours for hourly jobs
 }
 
 export interface PriceDelta {
@@ -27,6 +28,8 @@ export interface PriceDelta {
   deltaAmount: number | null;
   /** True for hourly jobs — caller can use this to suppress the delta. */
   isHourly: boolean;
+  /** For hourly jobs, the rate detail to show under the total ("$50/hr × 4h"). */
+  hourlyDetail?: string | null;
 }
 
 const DELTA_EPSILON = 0.5;
@@ -35,10 +38,18 @@ export function computePriceDelta(input: PriceDeltaInput): PriceDelta {
   const isHourly = input.billingMethod === "hourly" && input.hourlyRate != null;
 
   if (isHourly) {
+    // [hourly-billing 2026-07-03] Show the full computed TOTAL (base_fee =
+    // rate × billed hours + add-ons), not the bare rate — the office must see
+    // the price, and it must move when the billed hours change (PPM 3h→4h).
+    // The rate stays visible as a secondary detail ("$50/hr × 4h").
+    const total = Number(input.amount ?? 0);
+    const rate = (input.hourlyRate ?? 0).toFixed(0);
+    const ah = input.allowedHours;
     return {
-      display: `$${(input.hourlyRate ?? 0).toFixed(0)}/hr`,
+      display: total.toLocaleString("en-US", { style: "currency", currency: "USD" }),
       deltaAmount: null,
       isHourly: true,
+      hourlyDetail: ah != null && ah > 0 ? `$${rate}/hr × ${ah}h` : `$${rate}/hr`,
     };
   }
 
