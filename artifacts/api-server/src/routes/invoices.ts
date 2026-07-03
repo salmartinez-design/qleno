@@ -480,6 +480,8 @@ router.get("/:id", requireAuth, async (req, res) => {
         client_zip: clientsTable.zip,
         client_phone: clientsTable.phone,
         account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
+        // [invoice-bill-to 2026-07-03] Manual Bill-to override (HOA name, etc.).
+        bill_to_name: invoicesTable.bill_to_name,
         // [invoice-service-date 2026-06-20] Live service date from the linked job
         // (see list select). Reschedule-proof; null when job gone/unlinked.
         service_date: sql<string | null>`COALESCE(
@@ -545,6 +547,7 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
         state: clientsTable.state,
         zip: clientsTable.zip,
         account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
+        bill_to_name: invoicesTable.bill_to_name,
         service_date: sql<string | null>`COALESCE(
           ${invoicesTable.service_date},
           (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
@@ -577,7 +580,7 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
       unit_price: it.unit_price ?? it.unit_rate ?? it.total ?? 0,
       total: it.total ?? it.amount ?? 0,
     }));
-    const billName = [inv.first_name, inv.last_name].filter(Boolean).join(" ") || inv.account_name || "Customer";
+    const billName = inv.bill_to_name || [inv.first_name, inv.last_name].filter(Boolean).join(" ") || inv.account_name || "Customer";
     const billAddr = [inv.address, [inv.city, inv.state].filter(Boolean).join(", "), inv.zip].filter(Boolean).join(", ");
 
     const { renderInvoicePdf } = await import("../lib/invoice-pdf.js");
@@ -611,7 +614,13 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
 router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
-    const { status, line_items, tips, due_date, created_date, service_date } = req.body;
+    const { status, line_items, tips, due_date, created_date, service_date, bill_to_name } = req.body;
+
+    // [invoice-bill-to 2026-07-03] Manual "Bill to" name override. Empty/null
+    // clears it (→ falls back to client/account name). Trim + length-cap.
+    const billToProvided = bill_to_name !== undefined;
+    const billToValue = bill_to_name === null || String(bill_to_name).trim() === ""
+      ? null : String(bill_to_name).trim().slice(0, 200);
 
     // [invoice-service-date 2026-07-03] Manual service-date override. YYYY-MM-DD
     // sets it; empty/null clears it (→ API re-derives from job / line-item dates).
@@ -681,6 +690,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(dueProvided && { due_date: dueValue }),
         ...(createdProvided && { created_at: new Date(String(created_date) + "T12:00:00Z") }),
         ...(svcProvided && { service_date: svcValue }),
+        ...(billToProvided && { bill_to_name: billToValue }),
         tips: tipVal.toFixed(2),
         subtotal: subtotal.toFixed(2),
         total: total.toFixed(2),

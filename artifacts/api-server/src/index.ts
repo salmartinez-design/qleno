@@ -240,13 +240,14 @@ async function runStartupMigrations() {
   // the column exists before the API gate opens and before any query references
   // invoices.service_date. Idempotent — safe on every cold start.
   try {
-    await withBootTimeout("addInvoiceServiceDateColumn", SCHEMA_TIMEOUT_MS, async () => {
+    await withBootTimeout("addInvoiceColumns", SCHEMA_TIMEOUT_MS, async () => {
       const { db } = await import("@workspace/db");
       const { sql } = await import("drizzle-orm");
       await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS service_date date`);
+      await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS bill_to_name text`);
     });
   } catch (err: any) {
-    console.error("[startup] addInvoiceServiceDateColumn — non-fatal:", err?.message ?? err);
+    console.error("[startup] addInvoiceColumns — non-fatal:", err?.message ?? err);
   }
   try {
     await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());

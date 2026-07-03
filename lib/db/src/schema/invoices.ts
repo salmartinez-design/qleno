@@ -36,6 +36,12 @@ export const invoicesTable = pgTable("invoices", {
   // Date" on the invoice (Maribel). Added to the live DB via an idempotent
   // ADD COLUMN IF NOT EXISTS in runStartupMigrations, before the API gate opens.
   service_date: date("service_date"),
+  // [invoice-bill-to 2026-07-03] Manual "Bill to" name override on the invoice
+  // document. When NULL the invoice bills to the client/account name; when set
+  // (e.g. the specific HOA the account manages — "Krys always asks to put the
+  // name of the HOA there") the document + PDF show this instead. Added to the
+  // live DB via idempotent ADD COLUMN IF NOT EXISTS in runStartupMigrations.
+  bill_to_name: text("bill_to_name"),
   sent_at: timestamp("sent_at"),
   last_reminder_sent_at: timestamp("last_reminder_sent_at"),
   payment_failed: boolean("payment_failed").default(false),
