@@ -164,6 +164,7 @@ router.get("/", requireAuth, async (req, res) => {
         // would go stale (office saw "the 17th" for a job moved to the 19th).
         // Reading it live can never drift; null when the job is gone/unlinked.
         service_date: sql<string | null>`COALESCE(
+          ${invoicesTable.service_date},
           (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
           (SELECT MIN(j2.scheduled_date) FROM jobs j2 WHERE j2.id IN (
             SELECT (li->>'job_id')::int FROM jsonb_array_elements(${invoicesTable.line_items}) li WHERE li->>'job_id' IS NOT NULL
@@ -482,6 +483,7 @@ router.get("/:id", requireAuth, async (req, res) => {
         // [invoice-service-date 2026-06-20] Live service date from the linked job
         // (see list select). Reschedule-proof; null when job gone/unlinked.
         service_date: sql<string | null>`COALESCE(
+          ${invoicesTable.service_date},
           (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
           (SELECT MIN(j2.scheduled_date) FROM jobs j2 WHERE j2.id IN (
             SELECT (li->>'job_id')::int FROM jsonb_array_elements(${invoicesTable.line_items}) li WHERE li->>'job_id' IS NOT NULL
@@ -544,6 +546,7 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
         zip: clientsTable.zip,
         account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
         service_date: sql<string | null>`COALESCE(
+          ${invoicesTable.service_date},
           (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
           (SELECT MIN(j2.scheduled_date) FROM jobs j2 WHERE j2.id IN (
             SELECT (li->>'job_id')::int FROM jsonb_array_elements(${invoicesTable.line_items}) li WHERE li->>'job_id' IS NOT NULL
@@ -608,7 +611,15 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
 router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
-    const { status, line_items, tips, due_date, created_date } = req.body;
+    const { status, line_items, tips, due_date, created_date, service_date } = req.body;
+
+    // [invoice-service-date 2026-07-03] Manual service-date override. YYYY-MM-DD
+    // sets it; empty/null clears it (→ API re-derives from job / line-item dates).
+    const svcProvided = service_date !== undefined;
+    const svcValue = service_date === null || service_date === "" ? null : String(service_date);
+    if (svcProvided && svcValue !== null && !/^\d{4}-\d{2}-\d{2}$/.test(svcValue)) {
+      return res.status(400).json({ error: "Bad Request", message: "service_date must be YYYY-MM-DD or empty" });
+    }
 
     // [invoice-edit-dates 2026-07-03] Due date is editable on a draft/sent
     // invoice (Maribel: "can't edit any of these"). Empty string / null clears
@@ -669,6 +680,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(normLineItems && { line_items: normLineItems }),
         ...(dueProvided && { due_date: dueValue }),
         ...(createdProvided && { created_at: new Date(String(created_date) + "T12:00:00Z") }),
+        ...(svcProvided && { service_date: svcValue }),
         tips: tipVal.toFixed(2),
         subtotal: subtotal.toFixed(2),
         total: total.toFixed(2),

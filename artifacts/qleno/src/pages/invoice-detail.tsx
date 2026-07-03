@@ -156,6 +156,11 @@ export default function InvoiceDetailPage() {
   // bills by — editable inline too (Maribel: "the issue is the creation date").
   const [createdInlineOpen, setCreatedInlineOpen] = useState(false);
   const [savingCreated, setSavingCreated] = useState(false);
+  // [invoice-service-date 2026-07-03] Service date is editable too (Maribel:
+  // "and the service date"). It's a manual override — clearing it re-derives
+  // from the job / line-item visit dates.
+  const [svcInlineOpen, setSvcInlineOpen] = useState(false);
+  const [savingSvc, setSavingSvc] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [recalcing, setRecalcing] = useState(false);
 
@@ -356,6 +361,21 @@ export default function InvoiceDetailPage() {
     setSavingDue(false);
   }
 
+  // Inline service-date save. "" clears the override → API re-derives it.
+  async function saveServiceDate(next: string) {
+    setSavingSvc(true);
+    try {
+      await apiFetch(`/api/invoices/${invoiceId}`, { method: "PUT", body: JSON.stringify({ service_date: next || null }) });
+      toast({ title: next ? "Service date updated" : "Service date reset to visit date" });
+      setSvcInlineOpen(false);
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to update service date", variant: "destructive" });
+    }
+    setSavingSvc(false);
+  }
+
   // Inline invoice-date (Created) save. Empty is a no-op (created_at is never null).
   async function saveCreatedDate(next: string) {
     if (!next) { setCreatedInlineOpen(false); return; }
@@ -411,6 +431,10 @@ export default function InvoiceDetailPage() {
     ? new Date(invoice.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "—";
   const createdDateVal = invoice.created_at ? new Date(invoice.created_at).toISOString().slice(0, 10) : "";
+  const svcLabel = invoice.service_date
+    ? new Date(invoice.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "—";
+  const svcDateVal = invoice.service_date ? String(invoice.service_date).slice(0, 10) : "";
   const lineItems: any[] = Array.isArray(invoice.line_items) ? invoice.line_items : [];
   // [invoice-redesign] "<city>, <state> <zip>" — canonical address second line.
   const billLine2 = [invoice.client_city, invoice.client_state].filter(Boolean).join(", ")
@@ -663,7 +687,33 @@ export default function InvoiceDetailPage() {
             {[
               { label: "Invoice Number", value: invoice.invoice_number || `INV-${String(invoice.id).padStart(4, "0")}` },
               { label: "Status", value: <StatusBadge status={effectiveStatus} /> },
-              { label: "Service Date", value: invoice.service_date ? new Date(invoice.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
+              { label: "Service Date", value: !canEditInvoice ? svcLabel : (
+                svcInlineOpen ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <div style={{ width: 150 }}>
+                      <CalendarPopover value={svcDateVal} ariaLabel="Service date" onChange={(v) => saveServiceDate(v)} block />
+                    </div>
+                    <button onClick={() => saveServiceDate("")} disabled={savingSvc}
+                      title="Clear override — use the visit date"
+                      style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                      Use visit date
+                    </button>
+                    <button onClick={() => setSvcInlineOpen(false)} disabled={savingSvc}
+                      style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 12 }}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    {svcLabel}
+                    <button onClick={() => setSvcInlineOpen(true)}
+                      title="Edit service date"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 3, background: "none", border: "none", color: "#00A886", cursor: "pointer", fontSize: 12, fontWeight: 700, padding: 0 }}>
+                      <Pencil size={12} /> Edit
+                    </button>
+                  </span>
+                )
+              ) },
               { label: "Created", value: !canEditInvoice ? createdLabel : (
                 createdInlineOpen ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>

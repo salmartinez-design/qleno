@@ -235,6 +235,19 @@ function withBootTimeout<T>(
 // fire-and-forget. The schema DDL that those data ops depend on
 // (ensureJobHistoryLiveBridgeSchema) STAYS before listen.
 async function runStartupMigrations() {
+  // [invoice-service-date 2026-07-03] Additive nullable column for the manual
+  // service-date override. Runs FIRST and is instant (nullable, no default), so
+  // the column exists before the API gate opens and before any query references
+  // invoices.service_date. Idempotent — safe on every cold start.
+  try {
+    await withBootTimeout("addInvoiceServiceDateColumn", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS service_date date`);
+    });
+  } catch (err: any) {
+    console.error("[startup] addInvoiceServiceDateColumn — non-fatal:", err?.message ?? err);
+  }
   try {
     await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());
   } catch (err: any) {
