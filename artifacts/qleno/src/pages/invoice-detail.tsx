@@ -152,6 +152,10 @@ export default function InvoiceDetailPage() {
   // line-item editor, which she wasn't finding.
   const [dueInlineOpen, setDueInlineOpen] = useState(false);
   const [savingDue, setSavingDue] = useState(false);
+  // [invoice-date 2026-07-03] The "Created" date is the invoice date the office
+  // bills by — editable inline too (Maribel: "the issue is the creation date").
+  const [createdInlineOpen, setCreatedInlineOpen] = useState(false);
+  const [savingCreated, setSavingCreated] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
   const [recalcing, setRecalcing] = useState(false);
 
@@ -352,6 +356,22 @@ export default function InvoiceDetailPage() {
     setSavingDue(false);
   }
 
+  // Inline invoice-date (Created) save. Empty is a no-op (created_at is never null).
+  async function saveCreatedDate(next: string) {
+    if (!next) { setCreatedInlineOpen(false); return; }
+    setSavingCreated(true);
+    try {
+      await apiFetch(`/api/invoices/${invoiceId}`, { method: "PUT", body: JSON.stringify({ created_date: next }) });
+      toast({ title: "Invoice date updated" });
+      setCreatedInlineOpen(false);
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to update invoice date", variant: "destructive" });
+    }
+    setSavingCreated(false);
+  }
+
   const CARD: React.CSSProperties = {
     backgroundColor: "#FFFFFF",
     border: "1px solid #E5E2DC",
@@ -387,6 +407,10 @@ export default function InvoiceDetailPage() {
   const dueLabel = invoice.due_date
     ? new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
     : "On receipt";
+  const createdLabel = invoice.created_at
+    ? new Date(invoice.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+    : "—";
+  const createdDateVal = invoice.created_at ? new Date(invoice.created_at).toISOString().slice(0, 10) : "";
   const lineItems: any[] = Array.isArray(invoice.line_items) ? invoice.line_items : [];
   // [invoice-redesign] "<city>, <state> <zip>" — canonical address second line.
   const billLine2 = [invoice.client_city, invoice.client_state].filter(Boolean).join(", ")
@@ -640,7 +664,28 @@ export default function InvoiceDetailPage() {
               { label: "Invoice Number", value: invoice.invoice_number || `INV-${String(invoice.id).padStart(4, "0")}` },
               { label: "Status", value: <StatusBadge status={effectiveStatus} /> },
               { label: "Service Date", value: invoice.service_date ? new Date(invoice.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
-              { label: "Created", value: invoice.created_at ? new Date(invoice.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—" },
+              { label: "Created", value: !canEditInvoice ? createdLabel : (
+                createdInlineOpen ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                    <div style={{ width: 150 }}>
+                      <CalendarPopover value={createdDateVal} ariaLabel="Invoice date" onChange={(v) => saveCreatedDate(v)} block />
+                    </div>
+                    <button onClick={() => setCreatedInlineOpen(false)} disabled={savingCreated}
+                      style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 12 }}>
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+                    {createdLabel}
+                    <button onClick={() => setCreatedInlineOpen(true)}
+                      title="Edit invoice date"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 3, background: "none", border: "none", color: "#00A886", cursor: "pointer", fontSize: 12, fontWeight: 700, padding: 0 }}>
+                      <Pencil size={12} /> Edit
+                    </button>
+                  </span>
+                )
+              ) },
               { label: "Due Date", value: !canEditInvoice ? dueLabel : (
                 dueInlineOpen ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>

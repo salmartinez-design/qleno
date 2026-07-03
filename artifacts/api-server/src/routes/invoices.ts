@@ -608,7 +608,7 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
 router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
-    const { status, line_items, tips, due_date } = req.body;
+    const { status, line_items, tips, due_date, created_date } = req.body;
 
     // [invoice-edit-dates 2026-07-03] Due date is editable on a draft/sent
     // invoice (Maribel: "can't edit any of these"). Empty string / null clears
@@ -618,6 +618,16 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     const dueValue = due_date === null || due_date === "" ? null : String(due_date);
     if (dueProvided && dueValue !== null && !/^\d{4}-\d{2}-\d{2}$/.test(dueValue)) {
       return res.status(400).json({ error: "Bad Request", message: "due_date must be YYYY-MM-DD or empty" });
+    }
+
+    // [invoice-date 2026-07-03] The "Created" date IS the invoice date the office
+    // bills by (Maribel: "the issue is the creation date"). Editable on
+    // non-paid/void invoices. Stored at noon UTC so it renders as the same
+    // calendar day in US timezones (bare midnight would show the prior day).
+    // created_at is NOT NULL — an empty value is ignored, never cleared.
+    const createdProvided = created_date !== undefined && created_date !== null && created_date !== "";
+    if (createdProvided && !/^\d{4}-\d{2}-\d{2}$/.test(String(created_date))) {
+      return res.status(400).json({ error: "Bad Request", message: "created_date must be YYYY-MM-DD" });
     }
 
     // Edit guard: a paid or void invoice is immutable. Editing happens on
@@ -658,6 +668,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(status && { status }),
         ...(normLineItems && { line_items: normLineItems }),
         ...(dueProvided && { due_date: dueValue }),
+        ...(createdProvided && { created_at: new Date(String(created_date) + "T12:00:00Z") }),
         tips: tipVal.toFixed(2),
         subtotal: subtotal.toFixed(2),
         total: total.toFixed(2),
