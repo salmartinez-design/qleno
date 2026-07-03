@@ -138,6 +138,7 @@ export default function InvoiceDetailPage() {
   const [showRefund, setShowRefund] = useState(false);
   const [sendingReminder, setSendingReminder] = useState(false);
   const [sendingInvoice, setSendingInvoice] = useState(false);
+  const [markingInvoiced, setMarkingInvoiced] = useState(false);
   const [charging, setCharging] = useState(false);
   const [voiding, setVoiding] = useState(false);
   const [markingPaid, setMarkingPaid] = useState(false);
@@ -193,6 +194,22 @@ export default function InvoiceDetailPage() {
     || `Pay securely online using the link on this invoice.${contactLine ? ` Questions? Contact us at ${contactLine}.` : ""}`;
   const guaranteeText = co.invoice_guarantee || "";
   const termsText = co.invoice_terms || "";
+
+  // [mark-invoiced 2026-07-03] Finalize a draft as issued WITHOUT emailing the
+  // client — Phes never auto-sends and doesn't email without request. Reuses the
+  // PUT status transition (which does not email; only /send emails).
+  async function handleMarkInvoiced() {
+    setMarkingInvoiced(true);
+    try {
+      await apiFetch(`/api/invoices/${invoiceId}`, { method: "PUT", body: JSON.stringify({ status: "sent" }) });
+      toast({ title: "Marked as invoiced — no email sent" });
+      qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+    } catch {
+      toast({ title: "Failed to mark as invoiced", variant: "destructive" });
+    }
+    setMarkingInvoiced(false);
+  }
 
   async function handleSendInvoice() {
     setSendingInvoice(true);
@@ -639,10 +656,18 @@ export default function InvoiceDetailPage() {
             <Printer size={14} /> Print / PDF
           </button>
           {(invoice.status === "draft") && (
-            <button onClick={handleSendInvoice} disabled={sendingInvoice}
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-              <Send size={14} /> {sendingInvoice ? "Sending..." : "Send Invoice"}
-            </button>
+            <>
+              <button onClick={handleMarkInvoiced} disabled={markingInvoiced}
+                title="Finalize this invoice without emailing the client"
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#1A1917", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                {markingInvoiced ? "Marking..." : "Mark as invoiced"}
+              </button>
+              <button onClick={handleSendInvoice} disabled={sendingInvoice}
+                title="Finalize AND email the invoice to the client"
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                <Send size={14} /> {sendingInvoice ? "Sending..." : "Send + email"}
+              </button>
+            </>
           )}
           {(effectiveStatus === "sent" || effectiveStatus === "overdue") && (
             <>
