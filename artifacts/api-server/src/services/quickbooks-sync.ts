@@ -183,7 +183,14 @@ async function qbGet(token: string, realmId: string, path: string): Promise<any>
 
 async function qbPost(token: string, realmId: string, path: string, body: object): Promise<any> {
   const base = getQbBaseUrl();
-  const url = `${base}/v3/company/${realmId}${path}?${QB_MV}`;
+  // [qb-post-querysep 2026-07-03] Use '&' when the path already carries a query
+  // string (e.g. "/invoice?operation=delete" / "?operation=void"), else '?'.
+  // The old unconditional '?' produced "/invoice?operation=delete?minorversion=X"
+  // — QB parsed operation as "delete?minorversion=X" and ignored it, so delete
+  // AND void POSTs silently no-op'd (0 rows changed). This is why the first
+  // dedupe apply deleted nothing.
+  const sep = path.includes("?") ? "&" : "?";
+  const url = `${base}/v3/company/${realmId}${path}${sep}${QB_MV}`;
   const resp = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
