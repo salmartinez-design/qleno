@@ -245,6 +245,9 @@ async function runStartupMigrations() {
       const { sql } = await import("drizzle-orm");
       await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS service_date date`);
       await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS bill_to_name text`);
+      // [account-recurrence 2026-07-03] Account recurrences have no client; the
+      // account is the billing entity. Idempotent (no-op once dropped).
+      await db.execute(sql`ALTER TABLE recurring_schedules ALTER COLUMN customer_id DROP NOT NULL`);
     });
   } catch (err: any) {
     console.error("[startup] addInvoiceColumns — non-fatal:", err?.message ?? err);

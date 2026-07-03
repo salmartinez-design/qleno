@@ -564,7 +564,9 @@ router.post("/", requireAuth, async (req, res) => {
           req.auth!.companyId!, account_id, account_property_id,
         );
         if (!_scheduleCustomerId) {
-          console.warn(`[job-create recurrence] account ${account_id} has no billing contact — cannot fan out recurring series (job ${jobId} stays single)`);
+          // [account-recurrence 2026-07-03] No longer a blocker — the schedule is
+          // created with customer_id=null and the engine generates from account_id.
+          console.log(`[job-create recurrence] account ${account_id} has no billing client — creating account recurrence with null customer_id (job ${jobId})`);
         }
       } catch (e) {
         console.warn("[job-create recurrence] account billing-client resolve failed:", e);
@@ -575,7 +577,9 @@ router.post("/", requireAuth, async (req, res) => {
     const _freqOk = typeof frequency === "string" && RECURRING_FREQS.has(frequency) &&
       (frequency !== "custom_days" || _daysOfWeek.length > 0);
     if (
-      _scheduleCustomerId &&
+      // [account-recurrence 2026-07-03] Account jobs fan out even with no client
+      // (customer_id=null); residential still requires the client.
+      (_scheduleCustomerId || _isAccountJob) &&
       _freqOk &&
       _feeOk
     ) {

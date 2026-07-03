@@ -70,7 +70,7 @@ export type ResolvedParkingAddon = {
 // to the older catalog table). Returns null when no active row found
 // (engine then logs once and skips parking stamping for the run).
 export async function resolveParkingAddon(
-  schedule: Pick<ScheduleInput, "company_id" | "customer_id" | "parking_fee_amount">,
+  schedule: Pick<ScheduleInput, "company_id" | "parking_fee_amount"> & { customer_id?: number | null },
   txOrDb: any = db,
 ): Promise<ResolvedParkingAddon | null> {
   const addonLookup = await txOrDb.execute(sql`
@@ -274,7 +274,7 @@ export function generateOccurrences(
 type ScheduleInput = {
   id: number;
   company_id: number;
-  customer_id: number;
+  customer_id: number | null; // null for account recurrences (account is the billing entity)
   frequency: string;
   day_of_week: string | null;
   // [AI] Multi-day fields. days_of_week is the int array (0=Sun..6=Sat) for

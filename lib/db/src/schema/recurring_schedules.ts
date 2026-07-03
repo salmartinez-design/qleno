@@ -26,7 +26,12 @@ export const recurringDayEnum = pgEnum("recurring_day", [
 export const recurringSchedulesTable = pgTable("recurring_schedules", {
   id: serial("id").primaryKey(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
-  customer_id: integer("customer_id").references(() => clientsTable.id).notNull(),
+  // [account-recurrence 2026-07-03] Nullable: an ACCOUNT recurrence has no client
+  // — the account (account_id/account_property_id) is the billing entity. Client
+  // recurrences still set this. The engine already handles null customer_id for
+  // account schedules (trusts schedule.account_id; zip/name/parking lookups all
+  // guard for null). DROP NOT NULL applied to the live DB via runStartupMigrations.
+  customer_id: integer("customer_id").references(() => clientsTable.id),
   frequency: recurringFrequencyEnum("frequency").notNull(),
   day_of_week: recurringDayEnum("day_of_week"),
   start_date: date("start_date").notNull(),
