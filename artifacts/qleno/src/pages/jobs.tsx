@@ -1306,9 +1306,14 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
   const addOnSum = initAddOns.reduce((s, a) => s + Number(a.subtotal ?? 0), 0);
   const baseInit = Math.max(0, Math.round((total - addOnSum) * 100) / 100);
 
-  // Completed jobs stay editable until actually paid/invoiced (locked_at set).
-  // Cancelled jobs are always locked. Mirrors the adjUnlocked logic in JobPanel.
-  const isLocked = !!job.locked_at || job.status === "cancelled";
+  // [edit-until-paid 2026-07-03] Jobs stay editable AFTER completion — only a
+  // PAID invoice or a succeeded charge locks pricing (Maribel: "edit everything
+  // from the job even if started or done, and mirror it to the invoice"). The
+  // backend already allows completed-job edits (Sal's directive) and mirrors
+  // every change to the unpaid invoice via syncJobInvoiceDraft, so locked_at
+  // (stamped at completion) must NOT freeze the UI editor. Cancelled stays locked.
+  const isPaid = (job as any).invoice_status === "paid" || !!(job as any).charge_succeeded_at;
+  const isLocked = isPaid || job.status === "cancelled";
   const isCommercial = job.account_id != null || job.client_type === "commercial";
   const rateDriven = isCommercial
     && !job.manual_rate_override
@@ -2115,8 +2120,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // [post-completion-adjust 2026-06-21] The office must be able to add a flat
   // fee (e.g. +$20 parking) AFTER a job is marked complete — that case is the
   // norm, not the exception. So adjustments stay editable on COMPLETED jobs;
-  // only a hard lock (paid -> locked_at) or a cancelled job blocks them.
-  const adjUnlocked = !job.locked_at && job.status !== "cancelled";
+  // only a PAID invoice / succeeded charge or a cancelled job blocks them.
+  // [edit-until-paid 2026-07-03] locked_at is stamped at COMPLETION, so gating on
+  // it wrongly froze completed jobs — the office must be able to add charges /
+  // discounts after the visit and have them mirror to the invoice. Gate on paid.
+  const adjPaid = (job as any).invoice_status === "paid" || !!job.charge_succeeded_at;
+  const adjUnlocked = !adjPaid && job.status !== "cancelled";
   const completedAtLabel = (() => {
     const t = job.actual_end_time || job.locked_at;
     if (!t) return null;
