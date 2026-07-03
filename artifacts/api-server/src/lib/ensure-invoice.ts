@@ -141,6 +141,7 @@ export async function ensureInvoiceForCompletedJob(
     }
 
     // Client-driven billing_terms + payment_source (residential / per-client).
+    let clientType: string | null = null;
     if (job.client_id) {
       const [cli] = await db
         .select({
@@ -148,11 +149,13 @@ export async function ensureInvoiceForCompletedJob(
           payment_source: clientsTable.payment_source,
           stripe_payment_method_id: clientsTable.stripe_payment_method_id,
           payment_terms: clientsTable.payment_terms,
+          client_type: clientsTable.client_type,
         })
         .from(clientsTable)
         .where(eq(clientsTable.id, job.client_id))
         .limit(1);
       if (cli) {
+        clientType = cli.client_type ?? null;
         billingTerms = cli.billing_terms || "per_visit";
         // Stamp the processor: prefer an explicit client.payment_source (covers
         // office-set check/ach), else derive from card-on-file state.
@@ -188,12 +191,14 @@ export async function ensureInvoiceForCompletedJob(
     const lineItems = built?.lineItems ?? [];
     const netAmount = built?.subtotal ?? 0;
 
-    // [invoice-zero-guard 2026-06-20] Never auto-create a $0 invoice. A cancelled/
-    // credited occurrence or a $0-priced job (e.g. a split-billed sibling) would
-    // otherwise spawn a $0 draft that clutters AR and confuses the office
-    // ("are we invoicing $0 jobs??"). The office can still invoice manually if a
-    // genuine $0 document is ever needed.
-    if (netAmount <= 0) return NO_OP;
+    // [invoice-zero-guard 2026-06-20; commercial-exception 2026-07-03] Skip $0
+    // auto-invoices for RESIDENTIAL jobs — a cancelled/credited occurrence would
+    // otherwise spawn a $0 draft that clutters AR. But COMMERCIAL jobs (account
+    // like KMA/PPM, or a commercial client) MUST get an invoice even at $0: the
+    // office reconciles the day one-invoice-per-job, and a $0 draft is the signal
+    // that a rate still needs setting on that common-areas/turnover visit.
+    const isCommercialJob = !!job.account_id || clientType === "commercial";
+    if (netAmount <= 0 && !isCommercialJob) return NO_OP;
 
     const [newInv] = await db
       .insert(invoicesTable)
