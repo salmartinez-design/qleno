@@ -641,34 +641,65 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       });
       qbInvoiceId = updateData.Invoice?.Id || invoice.qbo_invoice_id;
     } else {
-      // [qb-invoice-idempotency 2026-07-03] Before creating, check QB for an
-      // invoice already carrying this DocNumber. QB's /invoice has no server-side
-      // dedup, so concurrent/rapid re-pushes (or a retry after qbo_invoice_id
-      // failed to persist) would each CREATE a fresh QB invoice with the same
-      // DocNumber — the duplicate-invoice bug. Adopt + update the existing one
-      // instead of creating a second. (syncPayment already guards this way.)
-      const docNumber = (invoice.invoice_number || String(invoiceId)).slice(-21);
-      const existingQbId = await findExistingQbInvoiceByDoc(token, realmId, docNumber);
-      if (existingQbId) {
-        const existing = await qbGet(token, realmId, `/invoice/${existingQbId}?`);
-        const syncToken = existing.Invoice?.SyncToken;
-        const updateData = await qbPost(token, realmId, "/invoice", {
-          ...qbInvoicePayload,
-          Id: existingQbId,
-          SyncToken: syncToken,
-          sparse: false,
-        });
-        qbInvoiceId = updateData.Invoice?.Id || existingQbId;
-      } else {
-        const createData = await qbPost(token, realmId, "/invoice", qbInvoicePayload);
-        qbInvoiceId = createData.Invoice?.Id;
-      }
+      // ── Create path — the ONLY place a duplicate can form ─────────────────
+      // Two guards, layered:
+      //
+      // [qb-invoice-idempotency 2026-07-03] (a) find-by-DocNumber: before
+      // creating, check QB for an invoice already carrying this DocNumber. QB's
+      // /invoice has no server-side dedup, so a sequential retry (or a sync after
+      // qbo_invoice_id failed to persist / a crash between create and save) would
+      // otherwise create a second copy. Adopt + update the existing one instead.
+      //
+      // [qb-invoice-lock 2026-07-03] (b) per-invoice advisory lock: serialize
+      // concurrent syncs of THIS invoice so two SIMULTANEOUS first-time creates
+      // can't both run the DocNumber check, both find nothing, and both create.
+      // pg_advisory_xact_lock is transaction-scoped (auto-releases on commit —
+      // no pooled-connection release mismatch like the session-scoped form) and
+      // DB-level (so it holds ACROSS Railway instances, not just in-process).
+      // Keyed on (namespace, invoiceId): different invoices never block or wait
+      // on each other, so throughput is unaffected — only a genuine same-invoice
+      // race waits (~one QB round-trip). Re-read qbo_invoice_id inside the lock
+      // in case a racing sync just created + stored it while we waited. The lock
+      // engages ONLY on first-time sync; every later re-sync takes the lock-free
+      // update path above. Tradeoff: the QB round-trip runs inside the tx, so a
+      // first-time sync briefly holds one pool connection — bounded per-invoice
+      // and acceptable; revisit with a claim-column if first-sync bursts ever
+      // pressure the pool.
+      const QB_INV_LOCK_NS = 4243;
+      qbInvoiceId = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(${QB_INV_LOCK_NS}, ${invoiceId})`);
 
-      // Save qbo_invoice_id to invoice record
-      await db
-        .update(invoicesTable)
-        .set({ qbo_invoice_id: qbInvoiceId })
-        .where(eq(invoicesTable.id, invoiceId));
+        const [fresh] = await tx
+          .select({ qbo: invoicesTable.qbo_invoice_id })
+          .from(invoicesTable)
+          .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
+          .limit(1);
+
+        const docNumber = (invoice.invoice_number || String(invoiceId)).slice(-21);
+        const targetId = (fresh?.qbo ?? null)
+          ?? (await findExistingQbInvoiceByDoc(token, realmId, docNumber));
+
+        let resolvedId: string;
+        if (targetId) {
+          const existing = await qbGet(token, realmId, `/invoice/${targetId}?`);
+          const updateData = await qbPost(token, realmId, "/invoice", {
+            ...qbInvoicePayload,
+            Id: targetId,
+            SyncToken: existing.Invoice?.SyncToken,
+            sparse: false,
+          });
+          resolvedId = updateData.Invoice?.Id || targetId;
+        } else {
+          const createData = await qbPost(token, realmId, "/invoice", qbInvoicePayload);
+          resolvedId = createData.Invoice?.Id;
+        }
+
+        await tx
+          .update(invoicesTable)
+          .set({ qbo_invoice_id: resolvedId })
+          .where(eq(invoicesTable.id, invoiceId));
+        return resolvedId;
+      });
     }
 
     await upsertQueue(companyId, "invoice", invoiceId, "synced", qbInvoiceId);
