@@ -269,6 +269,22 @@ export default function AccountDetailPage() {
   // (legacy behavior). includeScheduled surfaces upcoming visits to pre-bill.
   const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set());
   const [includeScheduled, setIncludeScheduled] = useState(false);
+  // [pre-bill-month 2026-07-03] When pre-bill is on the recurring horizon dumps
+  // every future visit (KMA = 47 rows to December). Scope the Uninvoiced Jobs
+  // list to one service month so the office bills "July's visits" cleanly.
+  // Only applied while pre-bill is on (completed-only list is short and must
+  // never hide billable work by month). Defaults to the current month.
+  const [jobsMonth, setJobsMonth] = useState(() => new Date().toISOString().slice(0, 7)); // YYYY-MM
+  function shiftJobsMonth(delta: number) {
+    const [y, m] = jobsMonth.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setJobsMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    setSelectedJobIds(new Set()); // avoid carrying a selection across a hidden month
+  }
+  const jobsMonthLabel = (() => {
+    const [y, m] = jobsMonth.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  })();
   // [account-invoices-month 2026-07-02] Month-filterable invoice list PPM asked for.
   const [invMonth, setInvMonth] = useState(() => new Date().toISOString().slice(0, 7)); // YYYY-MM
   const [acctInvoices, setAcctInvoices] = useState<any[]>([]);
@@ -298,9 +314,12 @@ export default function AccountDetailPage() {
       const ymd = (d: Date) => d.toISOString().slice(0, 10);
       const today = new Date();
       const to = new Date(today.getTime() + 30 * 86400000);
+      // [pre-bill-month 2026-07-03] Only constrain by month while pre-billing —
+      // the completed-only list must never hide billable work by month.
+      const monthParam = includeScheduled ? `&month=${jobsMonth}` : "";
       const [accR, jobsR, upR] = await Promise.all([
         fetch(`${API}/api/accounts/${id}`, { headers: getAuthHeaders() }),
-        fetch(`${API}/api/accounts/${id}/uninvoiced-jobs?include_scheduled=${includeScheduled}`, { headers: getAuthHeaders() }),
+        fetch(`${API}/api/accounts/${id}/uninvoiced-jobs?include_scheduled=${includeScheduled}${monthParam}`, { headers: getAuthHeaders() }),
         fetch(`${API}/api/accounts/${id}/jobs-calendar?from=${ymd(today)}&to=${ymd(to)}`, { headers: getAuthHeaders() }),
       ]);
       if (accR.ok) setAccount(await accR.json());
@@ -317,7 +336,7 @@ export default function AccountDetailPage() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [id, includeScheduled]);
+  useEffect(() => { load(); }, [id, includeScheduled, jobsMonth]);
 
   // [account-comms-toggle] Pause/resume ALL automated SMS+email for this account's
   // customers (reminders, on-my-way, completion, receipts, review requests).
@@ -1194,12 +1213,21 @@ export default function AccountDetailPage() {
         {tab === "jobs" && (
           <div className="space-y-3">
             <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 flex-wrap">
                 <p className="text-sm text-gray-500">{jobs.length} {includeScheduled ? "billable" : "uninvoiced completed"} {jobs.length === 1 ? "job" : "jobs"}</p>
                 <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
-                  <input type="checkbox" checked={includeScheduled} onChange={e => setIncludeScheduled(e.target.checked)} />
+                  <input type="checkbox" checked={includeScheduled} onChange={e => { setIncludeScheduled(e.target.checked); setSelectedJobIds(new Set()); }} />
                   Include upcoming (pre-bill)
                 </label>
+                {/* [pre-bill-month 2026-07-03] Month scope for the pre-bill list —
+                    only shown while pre-billing (completed-only list needs no window). */}
+                {includeScheduled && (
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => shiftJobsMonth(-1)} aria-label="Previous month" className="w-7 h-7 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">‹</button>
+                    <span className="text-xs font-semibold text-[#0A0E1A] min-w-[120px] text-center">{jobsMonthLabel}</span>
+                    <button onClick={() => shiftJobsMonth(1)} aria-label="Next month" className="w-7 h-7 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">›</button>
+                  </div>
+                )}
               </div>
               {jobs.length > 0 && (
                 <div className="flex items-center gap-2">
@@ -1234,7 +1262,7 @@ export default function AccountDetailPage() {
             {!jobs.length ? (
               <div className="flex flex-col items-center py-16 text-gray-400 gap-2">
                 <CheckCircle2 size={32} strokeWidth={1.5} className="text-[#00C9A0]" />
-                <p className="text-sm">All jobs are invoiced</p>
+                <p className="text-sm">{includeScheduled ? `No billable visits in ${jobsMonthLabel}` : "All jobs are invoiced"}</p>
               </div>
             ) : (
               <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
