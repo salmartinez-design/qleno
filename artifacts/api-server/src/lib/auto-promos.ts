@@ -103,7 +103,7 @@ export async function ensureAutoPromosForJob(
   let job: any;
   try {
     [job] = (await exec.execute(sql`
-      SELECT service_type, base_fee, billed_amount, recurring_schedule_id
+      SELECT service_type, base_fee, billed_amount, recurring_schedule_id, account_id
         FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `)).rows as any[];
   } catch {
@@ -128,8 +128,15 @@ export async function ensureAutoPromosForJob(
   if (!active.length) return null;
 
   // Is this the 2nd visit of a recurring plan?
+  // [auto-promo-residential-only 2026-07-03] The Second Visit Promo is the
+  // advertised RESIDENTIAL offer ("book a recurring plan, 15% off your 2nd
+  // visit"). Commercial/account jobs (account_id set) are negotiated contracts
+  // and must NEVER auto-discount — before this guard the promo silently applied
+  // to the 2nd occurrence of any commercial account schedule too (e.g. Awaken
+  // Chicago Church zeroed out via a 15% line the office couldn't remove). Gate
+  // it to residential rows (account_id IS NULL).
   let isSecond = false;
-  if (job.recurring_schedule_id != null && active.some((p) => p.kind === SECOND_RECURRING)) {
+  if (job.recurring_schedule_id != null && job.account_id == null && active.some((p) => p.kind === SECOND_RECURRING)) {
     const ordinal = await getRecurringOrdinal(companyId, jobId, exec);
     isSecond = ordinal === 2;
   }
