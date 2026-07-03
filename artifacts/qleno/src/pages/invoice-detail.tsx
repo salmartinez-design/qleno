@@ -282,7 +282,12 @@ export default function InvoiceDetailPage() {
   // ── Edit invoice (line items / amounts / tip / discount) ──
   function startEdit() {
     const lines = Array.isArray(invoice?.line_items) ? invoice.line_items : [];
+    // [preserve-job-link 2026-07-03] Spread ...l FIRST so job_id (and any other
+    // line-item fields) survive an edit. Rebuilding with only the 4 display
+    // fields dropped job_id, which broke the account dedup (line_items @> {job_id})
+    // and re-exposed already-invoiced visits as "uninvoiced" → double-bill risk.
     setEditLines(lines.map((l: any) => ({
+      ...l,
       description: l.description || "",
       quantity: Number(l.quantity ?? 1),
       unit_price: Number(l.unit_price ?? l.rate ?? 0),
@@ -313,6 +318,7 @@ export default function InvoiceDetailPage() {
           // raw e.target.value strings, and persisting them as strings is what
           // crashed the View render (.toFixed on a string). Send numbers.
           line_items: editLines.map((l: any) => ({
+            ...l, // keep job_id + any other fields (dedup depends on job_id)
             description: l.description || "",
             quantity: Number(l.quantity) || 0,
             unit_price: Number(l.unit_price) || 0,
