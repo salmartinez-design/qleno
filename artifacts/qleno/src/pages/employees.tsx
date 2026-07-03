@@ -6,7 +6,7 @@ import { EmployeeAvatar } from "@/components/employee-avatar";
 import { useListUsers } from "@workspace/api-client-react";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
-import { Plus, Search, Mail, ExternalLink, Check, Eye } from "lucide-react";
+import { Plus, Search, Mail, ExternalLink, Check, Eye, Copy } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -18,6 +18,7 @@ const ROLE_BADGES: Record<string, React.CSSProperties> = {
   office:      { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
   team_lead:   { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
   super_admin: { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
+  accountant:  { background: '#F0FAF7', color: '#0A5A48', border: '1px solid #B8EBDF' },
 };
 
 function ProductivityRing({ pct }: { pct: number }) {
@@ -63,6 +64,10 @@ export default function EmployeesPage() {
   const [sendingInvite, setSendingInvite] = useState<number | null>(null);
   const [inviteSent, setInviteSent] = useState<number | null>(null);
   const [inviteToast, setInviteToast] = useState('');
+  // After "Send Invite", surface the copyable accept-invite link so the owner
+  // can hand it over even if the email doesn't arrive.
+  const [inviteLink, setInviteLink] = useState<{ url: string; email: string; emailed: boolean } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [addModal, setAddModal] = useState(false);
   const [newEmp, setNewEmp] = useState({ first_name: '', last_name: '', email: '', role: 'technician', pay_type: 'hourly', pay_rate: '' });
   const [creating, setCreating] = useState(false);
@@ -109,7 +114,9 @@ export default function EmployeesPage() {
       const d = await r.json();
       if (d.success) {
         setInviteSent(userId);
-        showToast(`Invitation sent to ${d.invite_sent_to}`);
+        setLinkCopied(false);
+        // Always show the copyable link; note whether the email also went out.
+        setInviteLink({ url: d.invite_url, email: d.invite_sent_to, emailed: !!d.email_sent });
       } else {
         showToast('Failed to send invite');
       }
@@ -117,13 +124,26 @@ export default function EmployeesPage() {
     setSendingInvite(null);
   }
 
+  async function copyInviteLink() {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink.url);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch { /* clipboard blocked — the link stays visible for manual copy */ }
+  }
+
   async function createEmployee() {
     setCreating(true);
     try {
+      // Omit pay for a view-only accountant — not a paid employee.
+      const payload = newEmp.role === 'accountant'
+        ? { first_name: newEmp.first_name, last_name: newEmp.last_name, email: newEmp.email, role: newEmp.role }
+        : newEmp;
       const r = await fetch(`${API}/api/users`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify(newEmp),
+        body: JSON.stringify(payload),
       });
       if (r.ok) {
         setAddModal(false);
@@ -363,6 +383,7 @@ export default function EmployeesPage() {
                   <option value="technician">Technician</option>
                   <option value="office">Office</option>
                   <option value="admin">Admin</option>
+                  <option value="accountant">Accountant (View-only)</option>
                 </select>
               </div>
               <div>
@@ -387,6 +408,34 @@ export default function EmployeesPage() {
                 style={{ padding:'8px 20px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
                 {creating ? 'Creating…' : 'Add Member'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Invite link — copyable accept-invite URL surfaced after Send Invite */}
+      {inviteLink && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2500 }} onClick={() => setInviteLink(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:520,maxWidth:'92vw',boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
+            <h3 style={{ margin:'0 0 6px 0',fontSize:16,fontWeight:700,color:'#1A1917' }}>Invite ready for {inviteLink.email}</h3>
+            <p style={{ margin:'0 0 16px 0',fontSize:13,color:'#6B6860',lineHeight:1.5 }}>
+              {inviteLink.emailed
+                ? 'We emailed the accept link. You can also copy it below to share directly.'
+                : 'Email could not be sent — copy this link and share it directly. It lets them set a password and sign in.'}
+            </p>
+            <div style={{ display:'flex',gap:8,alignItems:'stretch' }}>
+              <input readOnly value={inviteLink.url}
+                onFocus={e => e.currentTarget.select()}
+                style={{ flex:1,minWidth:0,height:40,padding:'0 12px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12.5,color:'#1A1917',background:'#FAFAF8',fontFamily:'monospace' }}/>
+              <button onClick={copyInviteLink}
+                style={{ display:'flex',alignItems:'center',gap:6,padding:'0 16px',background:linkCopied?'#0A5A48':'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap' }}>
+                {linkCopied ? <><Check size={14}/> Copied</> : <><Copy size={14}/> Copy link</>}
+              </button>
+            </div>
+            <p style={{ margin:'14px 0 0 0',fontSize:11.5,color:'#9E9B94' }}>This link expires in 7 days.</p>
+            <div style={{ display:'flex',justifyContent:'flex-end',marginTop:20 }}>
+              <button onClick={() => setInviteLink(null)}
+                style={{ padding:'8px 18px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit',color:'#6B7280' }}>Done</button>
             </div>
           </div>
         </div>

@@ -831,6 +831,31 @@ export default function InvoicesPage() {
   // Start each filter/tab/search view back at the first 50 rows.
   useEffect(() => { setPageLimit(50); }, [activeTab, activeBranchId, search, dateFrom, dateTo]);
 
+  // [invoice-date-presets 2026-07-03] One-click billing-period jumps so the office
+  // can land on a day/week/month (Maribel's "go to the date") without picking two
+  // dates, then select the drafts in view and Merge.
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  function applyDatePreset(kind: "today" | "week" | "month") {
+    const now = new Date();
+    if (kind === "today") { const t = ymd(now); setDateFrom(t); setDateTo(t); return; }
+    if (kind === "week") {
+      const s = new Date(now); s.setDate(now.getDate() - now.getDay()); // Sunday
+      const e = new Date(s); e.setDate(s.getDate() + 6);
+      setDateFrom(ymd(s)); setDateTo(ymd(e)); return;
+    }
+    const s = new Date(now.getFullYear(), now.getMonth(), 1);
+    const e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    setDateFrom(ymd(s)); setDateTo(ymd(e));
+  }
+  const presetActive = (kind: "today" | "week" | "month") => {
+    if (!dateFrom || !dateTo) return false;
+    const now = new Date();
+    if (kind === "today") return dateFrom === ymd(now) && dateTo === ymd(now);
+    if (kind === "week") { const s = new Date(now); s.setDate(now.getDate() - now.getDay()); const e = new Date(s); e.setDate(s.getDate() + 6); return dateFrom === ymd(s) && dateTo === ymd(e); }
+    const s = new Date(now.getFullYear(), now.getMonth(), 1); const e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return dateFrom === ymd(s) && dateTo === ymd(e);
+  };
+
   const { data, isLoading, refetch } = useQuery({
     queryKey: ["invoices", activeTab, activeBranchId, search.trim(), dateFrom, dateTo, pageLimit],
     queryFn: () => apiFetch(buildInvoicesUrl()),
@@ -1096,6 +1121,11 @@ export default function InvoicesPage() {
                   <input placeholder="Search invoices..." value={search} onChange={e => setSearch(e.target.value)}
                     style={{ paddingLeft: 32, paddingRight: 10, height: 36, width: isMobile ? "100%" : 200, backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, outline: "none", fontFamily: FF }} />
                 </div>
+                {/* [invoice-date-presets 2026-07-03] One-click billing-period jumps. */}
+                {([["Today", "today"], ["Week", "week"], ["Month", "month"]] as const).map(([label, kind]) => (
+                  <button key={kind} onClick={() => applyDatePreset(kind)} title={`This ${kind === "today" ? "day" : kind}`}
+                    style={{ height: 36, padding: "0 11px", backgroundColor: presetActive(kind) ? "var(--brand)" : "#F7F6F3", color: presetActive(kind) ? "#FFFFFF" : "#6B7280", border: `1px solid ${presetActive(kind) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>{label}</button>
+                ))}
                 {/* [invoice-date-range 2026-06-21] Filter by service date. */}
                 {/* [styled-picker 2026-07-02] Use the shared CalendarPopover (mint-accent
                     month grid) instead of the OS-native <input type="date"> picker so the
