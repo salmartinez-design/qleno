@@ -9,6 +9,8 @@ import {
   qbSyncQueueTable,
   qbCustomerMapTable,
   notificationLogTable,
+  accountsTable,
+  accountContactsTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, max } from "drizzle-orm";
 
@@ -429,6 +431,38 @@ export async function syncCustomer(companyId: number, customerId: number): Promi
 }
 
 // ── SYNC INVOICE ──────────────────────────────────────────────────────────
+// [qb-account-customer 2026-07-03] Account invoices have client_id=NULL — the
+// account is the billing entity. QB still needs a Customer, so resolve/create
+// one from the account (DisplayName = account name; email/phone from the primary
+// contact). Find-or-create by name/email each time — idempotent via QB's own
+// dedup, so no local account→QB map table is needed. Without this, every account
+// invoice failed with "No QB customer mapping for client null" (all the newly
+// converted commercial accounts: PPM, KMA, National Able, etc.).
+async function resolveAccountQbCustomer(
+  token: string, realmId: string, companyId: number, accountId: number,
+): Promise<string | null> {
+  const [acct] = await db
+    .select({ name: accountsTable.account_name })
+    .from(accountsTable)
+    .where(and(eq(accountsTable.id, accountId), eq(accountsTable.company_id, companyId)))
+    .limit(1);
+  if (!acct?.name) return null;
+  const [contact] = await db
+    .select({ email: accountContactsTable.email, phone: accountContactsTable.phone })
+    .from(accountContactsTable)
+    .where(and(eq(accountContactsTable.account_id, accountId), eq(accountContactsTable.company_id, companyId)))
+    .orderBy(sql`is_primary DESC, id ASC`)
+    .limit(1);
+  const displayName = acct.name;
+  const existing = await findExistingQbCustomer(token, realmId, contact?.email ?? null, displayName);
+  if (existing) return existing;
+  const payload: any = { DisplayName: displayName, CompanyName: displayName };
+  if (contact?.email) payload.PrimaryEmailAddr = { Address: contact.email };
+  if (contact?.phone) payload.PrimaryPhone = { FreeFormNumber: contact.phone };
+  const created = await qbPost(token, realmId, "/customer", payload);
+  return created.Customer?.Id ?? null;
+}
+
 export async function syncInvoice(companyId: number, invoiceId: number): Promise<void> {
   try {
     const auth = await getValidToken(companyId);
@@ -488,8 +522,13 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       qbCustomerId = map?.qb_customer_id ?? null;
     }
 
+    // Account invoice (client_id NULL): resolve the QB customer from the account.
+    if (!qbCustomerId && invoice.account_id) {
+      qbCustomerId = await resolveAccountQbCustomer(token, realmId, companyId, invoice.account_id);
+    }
+
     if (!qbCustomerId) {
-      throw new Error(`No QB customer mapping for client ${invoice.client_id}`);
+      throw new Error(`No QB customer mapping for invoice ${invoiceId} (client ${invoice.client_id}, account ${invoice.account_id})`);
     }
 
     const serviceItemId = await getOrCreateServiceItem(token, realmId, companyId);
