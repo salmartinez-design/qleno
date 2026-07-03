@@ -711,6 +711,22 @@ router.get("/:id/uninvoiced-jobs", requireAuth, requireRole("owner", "admin", "o
     // so the office can deliberately pre-bill upcoming jobs (e.g. a whole week of
     // National Able). Default = completed only.
     const includeScheduled = req.query.include_scheduled === "true";
+    // [pre-bill-month 2026-07-03] The recurring engine pre-generates the whole
+    // horizon (KMA had 47 future visits out to December), so turning on pre-bill
+    // dumps every future job. Optional ?month=YYYY-MM scopes the list to one
+    // service month (matches how the office thinks — "bill July's visits"), so
+    // she isn't hunting two Ashland rows in a 47-row pile. Applies to the whole
+    // query, always ANDed under the cutover floor.
+    const month = String(req.query.month || "").trim();
+    const monthValid = /^\d{4}-\d{2}$/.test(month);
+    let monthFrom: string | null = null;
+    let monthTo: string | null = null;
+    if (monthValid) {
+      const [yy, mm] = month.split("-").map(Number);
+      const lastDay = new Date(yy, mm, 0).getDate();
+      monthFrom = `${month}-01`;
+      monthTo = `${month}-${String(lastDay).padStart(2, "0")}`;
+    }
     const jobs = await db
       .select()
       .from(jobsTable)
@@ -721,6 +737,9 @@ router.get("/:id/uninvoiced-jobs", requireAuth, requireRole("owner", "admin", "o
           // [billing-cutover 2026-07-02] Pre-cutover visits were billed + paid in
           // MaidCentral — hide them from this account's Uninvoiced Jobs queue.
           gte(jobsTable.scheduled_date, INVOICE_CUTOVER_DATE),
+          // [pre-bill-month 2026-07-03] Optional single-month window.
+          monthValid ? gte(jobsTable.scheduled_date, monthFrom!) : undefined,
+          monthValid ? lte(jobsTable.scheduled_date, monthTo!) : undefined,
           includeScheduled
             ? inArray(jobsTable.status, ["complete", "scheduled", "in_progress"])
             : eq(jobsTable.status, "complete"),
