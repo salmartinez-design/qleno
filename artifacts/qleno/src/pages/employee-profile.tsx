@@ -40,6 +40,7 @@ const ROLE_BADGES: Record<string, React.CSSProperties> = {
   office:     { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
   team_lead:  { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
   super_admin:{ background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
+  accountant: { background: '#F0FAF7', color: '#0A5A48', border: '1px solid #B8EBDF' },
 };
 
 const PAY_TYPE_COLORS: Record<string, { bg: string; color: string }> = {
@@ -1765,7 +1766,8 @@ export default function EmployeeProfilePage() {
                     {isOwner ? (
                       <Select value={form.role||''} onChange={v=>setField('role',v)} options={[
                         {value:'owner',label:'Owner'},{value:'admin',label:'Admin'},
-                        {value:'office',label:'Office'},{value:'technician',label:'Technician'}
+                        {value:'office',label:'Office'},{value:'technician',label:'Technician'},
+                        {value:'accountant',label:'Accountant (View-only)'}
                       ]}/>
                     ) : (
                       <div style={{ padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:8, background:'#FAFAF8', fontSize:13, color:'#1A1917', textTransform:'capitalize' }}>

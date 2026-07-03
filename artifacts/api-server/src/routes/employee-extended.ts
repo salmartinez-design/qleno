@@ -10,8 +10,58 @@ import bcrypt from "bcryptjs";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { signToken } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { appBaseUrl } from "../lib/app-url.js";
 
 const router = Router();
+
+// [account-invite email 2026-07-03] Send the accept-invite link as a
+// TRANSACTIONAL/system email. An account invite is app onboarding, NOT customer
+// marketing, so it must bypass the COMMS_ENABLED / per-company comms pause — same
+// carve-out the contact form uses (see routes/contact.ts). Best-effort: returns
+// { sent, error } and NEVER throws, so a Resend hiccup can't block the caller
+// from surfacing the copyable link. No emojis / Plus Jakarta Sans per brand.
+async function sendInviteEmail(opts: {
+  to: string;
+  first_name?: string | null;
+  role?: string | null;
+  acceptUrl: string;
+}): Promise<{ sent: boolean; error?: string }> {
+  const key = process.env.RESEND_API_KEY;
+  if (!key) return { sent: false, error: "RESEND_API_KEY missing" };
+  const isAccountant = opts.role === "accountant";
+  const greeting = opts.first_name ? `Hi ${opts.first_name},` : "Hi,";
+  const roleLine = isAccountant
+    ? "You've been given <strong>view-only</strong> access to Qleno. You'll be able to see invoices and customers, but can't make changes."
+    : "You've been invited to your Qleno account.";
+  const html = `
+  <div style="font-family:'Plus Jakarta Sans',sans-serif;background:#F7F6F3;padding:32px;color:#1A1917;">
+    <table role="presentation" cellpadding="0" cellspacing="0" style="max-width:480px;margin:0 auto;background:#FFFFFF;border:1px solid #E5E2DC;border-radius:12px;">
+      <tr><td style="padding:28px 28px 8px;">
+        <h1 style="margin:0 0 12px;font-size:20px;font-weight:700;color:#1A1917;">Set up your Qleno account</h1>
+        <p style="margin:0 0 8px;font-size:14px;line-height:1.6;">${greeting}</p>
+        <p style="margin:0 0 20px;font-size:14px;line-height:1.6;color:#4B4A47;">${roleLine} Click below to choose a password and sign in.</p>
+        <a href="${opts.acceptUrl}" style="display:inline-block;background:#00C9A0;color:#04241d;text-decoration:none;font-weight:700;font-size:14px;padding:11px 22px;border-radius:8px;">Accept invitation</a>
+        <p style="margin:20px 0 0;font-size:12px;line-height:1.6;color:#9E9B94;">Or paste this link into your browser:<br><span style="color:#4B4A47;word-break:break-all;">${opts.acceptUrl}</span></p>
+        <p style="margin:16px 0 0;font-size:12px;color:#9E9B94;">This link expires in 7 days.</p>
+      </td></tr>
+      <tr><td style="padding:20px 28px;border-top:1px solid #F0EEE9;font-size:11px;color:#9E9B94;">Qleno · Phes</td></tr>
+    </table>
+  </div>`;
+  try {
+    const { Resend } = await import("resend");
+    const resend = new Resend(key);
+    const r: any = await resend.emails.send({
+      from: "Qleno <noreply@phes.io>",
+      to: opts.to,
+      subject: "You're invited to Qleno — set up your account",
+      html,
+    });
+    if (r?.error) return { sent: false, error: String(r.error?.message || r.error) };
+    return { sent: true };
+  } catch (e: any) {
+    return { sent: false, error: e?.message || "resend_failed" };
+  }
+}
 
 router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
@@ -246,16 +296,35 @@ router.post("/invite", requireAuth, requireRole("owner", "admin", "office"), asy
         email: usersTable.email,
         first_name: usersTable.first_name,
         last_name: usersTable.last_name,
+        role: usersTable.role,
       });
 
     if (!user[0]) return res.status(404).json({ error: "User not found" });
+
+    // Absolute link so the owner can hand it over directly (relative paths are
+    // useless copied out of the app). This is ALWAYS returned, even if the email
+    // send below fails — the copyable link is the guaranteed fallback.
+    const inviteUrl = `${appBaseUrl()}/accept-invite?token=${token}`;
+
+    // Best-effort transactional email (bypasses the customer-comms gate). Never
+    // blocks the response — a Resend failure still returns a working link.
+    const emailResult = await sendInviteEmail({
+      to: user[0].email,
+      first_name: user[0].first_name,
+      role: user[0].role,
+      acceptUrl: inviteUrl,
+    });
 
     return res.json({
       success: true,
       invite_sent_to: user[0].email,
       invite_token: token,
-      invite_url: `/accept-invite?token=${token}`,
-      message: `Invitation sent to ${user[0].email}`,
+      invite_url: inviteUrl,
+      email_sent: emailResult.sent,
+      email_error: emailResult.error,
+      message: emailResult.sent
+        ? `Invitation emailed to ${user[0].email}`
+        : `Invite link ready for ${user[0].email} (email not sent — share the link)`,
     });
   } catch (err) {
     console.error("Invite error:", err);
