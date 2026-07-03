@@ -233,6 +233,8 @@ router.post("/action", requireAuth, async (req, res) => {
     SELECT j.id, j.client_id, j.account_id, j.account_property_id,
            j.status::text AS status, j.billed_amount, j.base_fee,
            j.notes AS job_notes, j.recurring_schedule_id,
+           j.scheduled_date::text AS scheduled_date,
+           j.occurrence_date::text AS occurrence_date,
            c.cancel_fee_pct AS client_cancel_pct, c.lockout_fee_pct AS client_lockout_pct,
            c.first_name || ' ' || COALESCE(c.last_name,'') AS client_name,
            co.default_cancel_fee_pct, co.default_lockout_fee_pct,
@@ -385,7 +387,19 @@ router.post("/action", requireAuth, async (req, res) => {
       `);
     }
 
-    // Cancel Service — terminate future occurrences of the same schedule.
+    // Cancel Service — terminate this occurrence's FUTURE siblings on the same
+    // schedule. [cancel-service-future-only 2026-07-03] MUST be date-scoped:
+    // only occurrences on/after the selected job's own cadence date. Before
+    // this, the WHERE had NO date bound, so it cancelled EVERY scheduled/
+    // in-progress job on the schedule — including PAST occurrences that were
+    // still sitting in 'scheduled' (a missed/unreconciled visit), zeroing their
+    // billed_amount and rewriting history (Sal: "it's very important it only
+    // cancels future jobs starting with the one we are selecting"). Anchor on
+    // COALESCE(occurrence_date, scheduled_date) — the same key the recurrence
+    // engine dedups on — so a visit the office moved off its slot is still
+    // bounded by its cadence date, not its shifted calendar date. The selected
+    // job itself is cancelled by the main UPDATE above and excluded here by id.
+    const fromDate = row.occurrence_date ?? row.scheduled_date;
     if (policy.affects_future_jobs && row.recurring_schedule_id != null) {
       const futureCancel = await tx.execute(sql`
         UPDATE jobs
@@ -398,6 +412,7 @@ router.post("/action", requireAuth, async (req, res) => {
            AND company_id = ${companyId}
            AND status::text IN ('scheduled','in_progress')
            AND id != ${body.job_id}
+           AND COALESCE(occurrence_date, scheduled_date) >= ${fromDate}
         RETURNING id
       `);
       futureCancelled = (futureCancel.rows as any[]).length;
