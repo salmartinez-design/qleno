@@ -1100,12 +1100,14 @@ router.post("/convert", requireAuth, requireRole("owner", "admin"), async (req, 
     return res.status(400).json({ error: "Bad Request", message: "at least one property is required" });
   }
   for (const p of props) {
-    if (!p.address || String(p.address).trim() === "") {
-      return res.status(400).json({ error: "Bad Request", message: "every property needs an address" });
-    }
     if (!Array.isArray(p.source_client_ids) || p.source_client_ids.length === 0) {
-      return res.status(400).json({ error: "Bad Request", message: `property "${p.address}" needs source_client_ids` });
+      return res.status(400).json({ error: "Bad Request", message: `each entry needs source_client_ids` });
     }
+    // [attach-mode 2026-07-03] A property entry can either CREATE a property
+    // (has address), reference an EXISTING one (existing_property_id), or
+    // ATTACH-ONLY (neither → jobs re-point to the account with property=null,
+    // exactly like existing account jobs). Used for accounts that already have
+    // their properties (PPM/KMA/Cucci/Halper) so we don't duplicate them.
   }
   const allSourceIds = [...new Set(props.flatMap((p) => p.source_client_ids.map((x: any) => parseInt(String(x), 10))))].filter((n) => Number.isInteger(n));
 
@@ -1169,22 +1171,34 @@ router.post("/convert", requireAuth, requireRole("owner", "admin"), async (req, 
       const propIds: number[] = [];
       for (const p of props) {
         const ids = p.source_client_ids.map((x: any) => parseInt(String(x), 10));
-        const [prop] = await tx.insert(accountPropertiesTable).values({
-          account_id: accountId!, company_id: companyId,
-          property_name: p.property_name ?? null,
-          address: p.address, city: p.city ?? null, state: p.state ?? null, zip: p.zip ?? null,
-          client_id: ids[0] ?? null,
-        }).returning({ id: accountPropertiesTable.id });
-        propIds.push(prop.id);
+        // Resolve the target property id: existing → create → attach-only(null).
+        let propId: number | null = null;
+        if (p.existing_property_id) {
+          const [ep] = await tx.select({ id: accountPropertiesTable.id }).from(accountPropertiesTable)
+            .where(and(eq(accountPropertiesTable.id, Number(p.existing_property_id)), eq(accountPropertiesTable.account_id, accountId!), eq(accountPropertiesTable.company_id, companyId)));
+          if (!ep) throw new Error(`existing_property_id ${p.existing_property_id} not on account ${accountId}`);
+          propId = ep.id;
+        } else if (p.address && String(p.address).trim() !== "") {
+          const [prop] = await tx.insert(accountPropertiesTable).values({
+            account_id: accountId!, company_id: companyId,
+            property_name: p.property_name ?? null,
+            address: p.address, city: p.city ?? null, state: p.state ?? null, zip: p.zip ?? null,
+            client_id: ids[0] ?? null,
+          }).returning({ id: accountPropertiesTable.id });
+          propId = prop.id;
+        }
+        // attach-only (propId stays null): jobs re-point to the account with no
+        // specific property, exactly like existing account jobs.
+        if (propId != null) propIds.push(propId);
         // re-point jobs
         const jm = await tx.update(jobsTable)
-          .set({ account_id: accountId!, account_property_id: prop.id, client_id: null })
+          .set({ account_id: accountId!, account_property_id: propId, client_id: null })
           .where(and(eq(jobsTable.company_id, companyId), inArray(jobsTable.client_id, ids)))
           .returning({ id: jobsTable.id });
         jobsMoved += jm.length;
         // re-point recurring schedules (keep customer_id; set account fields)
         const rm = await tx.update(recurringSchedulesTable)
-          .set({ account_id: accountId!, account_property_id: prop.id })
+          .set({ account_id: accountId!, account_property_id: propId })
           .where(and(eq(recurringSchedulesTable.company_id, companyId), inArray(recurringSchedulesTable.customer_id, ids)))
           .returning({ id: recurringSchedulesTable.id });
         recurringMoved += rm.length;
