@@ -262,6 +262,49 @@ export default function AccountDetailPage() {
   });
   const [contactSaving, setContactSaving] = useState(false);
 
+  // [account-billing-edit 2026-07-03] Edit the account's billing settings
+  // (payment method / invoice frequency / payment terms / auto-charge) from the
+  // Overview. Maribel: "we should be able to edit too." Backend PATCH already
+  // accepts these; this is the missing UI.
+  const [showBilling, setShowBilling] = useState(false);
+  const [billingSaving, setBillingSaving] = useState(false);
+  const [billingForm, setBillingForm] = useState<any>({
+    payment_method: "invoice_only", invoice_frequency: "monthly",
+    payment_terms_days: 0, auto_charge_on_completion: false,
+  });
+  function openBilling() {
+    setBillingForm({
+      payment_method: account.payment_method ?? "invoice_only",
+      invoice_frequency: account.invoice_frequency ?? "monthly",
+      payment_terms_days: account.payment_terms_days ?? 0,
+      auto_charge_on_completion: !!account.auto_charge_on_completion,
+    });
+    setShowBilling(true);
+  }
+  async function saveBilling() {
+    setBillingSaving(true);
+    try {
+      const r = await fetch(`${API}/api/accounts/${id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
+        body: JSON.stringify({
+          payment_method: billingForm.payment_method,
+          invoice_frequency: billingForm.invoice_frequency,
+          payment_terms_days: Number(billingForm.payment_terms_days) || 0,
+          auto_charge_on_completion: !!billingForm.auto_charge_on_completion,
+        }),
+      });
+      if (!r.ok) throw new Error();
+      const updated = await r.json();
+      setAccount((prev: any) => ({ ...prev, ...updated }));
+      toast({ title: "Billing settings updated" });
+      setShowBilling(false);
+    } catch {
+      toast({ title: "Failed to update billing settings", variant: "destructive" });
+    }
+    setBillingSaving(false);
+  }
+
   // Invoice generation
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
   // [account-batch 2026-07-02] Selectable consolidation — pick which visits
@@ -691,7 +734,13 @@ export default function AccountDetailPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Billing Settings */}
             <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Billing</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Billing</p>
+                <button onClick={openBilling}
+                  className="text-xs font-medium text-[#00A886] hover:text-[#00806a]">
+                  Edit
+                </button>
+              </div>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Payment Method</span>
@@ -1461,6 +1510,60 @@ export default function AccountDetailPage() {
             <Button variant="outline" onClick={() => setShowRateCard(false)}>Cancel</Button>
             <Button className="bg-[#00C9A0] hover:bg-[#00b38f] text-white" onClick={saveRateCard} disabled={rcSaving}>
               {rcSaving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Billing Settings Dialog ────────────────────────────────────────── */}
+      <Dialog open={showBilling} onOpenChange={setShowBilling}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Billing Settings</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Payment Method</Label>
+              <Select value={billingForm.payment_method} onValueChange={(v) => setBillingForm({ ...billingForm, payment_method: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Invoice Frequency</Label>
+                <Select value={billingForm.invoice_frequency} onValueChange={(v) => setBillingForm({ ...billingForm, invoice_frequency: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {INVOICE_FREQ.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Payment Terms</Label>
+                <Select value={String(billingForm.payment_terms_days)} onValueChange={(v) => setBillingForm({ ...billingForm, payment_terms_days: Number(v) })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Due on receipt</SelectItem>
+                    <SelectItem value="7">NET 7</SelectItem>
+                    <SelectItem value="15">NET 15</SelectItem>
+                    <SelectItem value="30">NET 30</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none pt-1">
+              <input type="checkbox" checked={billingForm.auto_charge_on_completion}
+                onChange={(e) => setBillingForm({ ...billingForm, auto_charge_on_completion: e.target.checked })} />
+              Auto-charge card on completion
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBilling(false)}>Cancel</Button>
+            <Button className="bg-[#00C9A0] hover:bg-[#00b38f] text-white" onClick={saveBilling} disabled={billingSaving}>
+              {billingSaving ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
         </DialogContent>
