@@ -13,6 +13,7 @@ import {
   backfillFromCutover,
   queueSync,
   refreshQBToken,
+  dedupeQbInvoices,
 } from "../../services/quickbooks-sync.js";
 
 const router = Router();
@@ -346,6 +347,23 @@ router.post("/backfill", requireAuth, requireRole("owner", "admin"), async (req,
   } catch (err) {
     console.error("[QB] Backfill error:", err);
     return res.status(500).json({ error: "Backfill failed" });
+  }
+});
+
+// ── POST /api/integrations/quickbooks/dedupe ──────────────────────────────
+// [qb-invoice-idempotency 2026-07-03] One-time cleanup of duplicate QB invoices
+// (same DocNumber pushed 2-3x before the idempotency guard). Defaults to
+// DRY-RUN — pass ?apply=true (or {apply:true}) to actually delete the extra
+// copies. Keeps the canonical copy per DocNumber; deletes the phantoms.
+router.post("/dedupe", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const apply = req.query.apply === "true" || req.body?.apply === true;
+    const out = await dedupeQbInvoices(companyId, !apply);
+    return res.json({ ok: true, ...out });
+  } catch (err: any) {
+    console.error("[QB] Dedupe error:", err);
+    return res.status(500).json({ error: err?.message || "Dedupe failed" });
   }
 });
 
