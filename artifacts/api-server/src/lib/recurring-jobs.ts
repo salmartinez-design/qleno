@@ -201,7 +201,7 @@ export async function insertJobFromSchedule(
   txOrDb: any = db,
   bookingLocation: string | null = null,
   clientZip: string | null = null,
-): Promise<number> {
+): Promise<number | null> {
   // [account-recurrence 2026-06-29] Commercial/account schedules carry the
   // account link + service address on the template; stamp them onto every
   // generated occurrence so the children stay attached to the account (and
@@ -244,8 +244,22 @@ export async function insertJobFromSchedule(
       booking_location: (bookingLocation ?? null) as any,
       address_zip: (_isAcct ? ((schedule as any).service_address_zip ?? clientZip ?? null) : (clientZip ?? null)) as any,
     })
+    // [recurring-insert-resilience 2026-07-03] ON CONFLICT DO NOTHING so a
+    // single occurrence that the compute-time dedup missed (e.g. a legacy job
+    // whose occurrence_date was NULL and whose stored scheduled_date the
+    // COALESCE didn't line up with the computed slot) is skipped at the DB
+    // level instead of throwing a unique violation. Before this, one such
+    // collision threw out of the per-occurrence loop in generateJobsFromSchedule
+    // and aborted the ENTIRE schedule — so every FUTURE occurrence (the whole
+    // far-window extension) was lost too. That's what stranded 22 schedules at
+    // the ~90-day mark when the horizon was raised to 365 on 2026-07-03. The DB
+    // unique constraint stays the backstop against real duplicates; this just
+    // stops one skip from poisoning the rest of the batch. Returns null when the
+    // row was skipped so the caller knows not to mirror techs / parking onto a
+    // non-existent id.
+    .onConflictDoNothing()
     .returning({ id: jobsTable.id });
-  return Number(row.id);
+  return row ? Number(row.id) : null;
 }
 
 // addDays + cadence math live in recurring-cadences.ts now. toDateStr
@@ -535,6 +549,7 @@ export async function generateJobsFromSchedule(
 
   let parkingStamped = 0;
   let created = 0;
+  let conflictSkipped = 0;
   for (const row of rows) {
     // Reconstruct the Date from the YYYY-MM-DD string stamped by
     // computeOccurrencesForSchedule. Use a midnight-local construction
@@ -548,6 +563,11 @@ export async function generateJobsFromSchedule(
       bookingLocation ?? null,
       clientZip ?? null,
     );
+    // [recurring-insert-resilience 2026-07-03] null = the occurrence already
+    // existed (ON CONFLICT DO NOTHING). Treat as a dedupe skip and move on —
+    // do NOT abort the loop, so the remaining far-window occurrences still
+    // generate. Nothing to mirror onto a row that wasn't inserted.
+    if (newId == null) { conflictSkipped++; continue; }
     created++;
     // [audit BUG #8] Mirror the schedule's tech roster onto
     // job_technicians. Idempotent via ON CONFLICT — safe even if a
@@ -568,7 +588,7 @@ export async function generateJobsFromSchedule(
     }
   }
 
-  return { created, skipped, parking_stamped: parkingStamped };
+  return { created, skipped: skipped + conflictSkipped, parking_stamped: parkingStamped };
 }
 
 type SkippedSchedule = {
