@@ -93,16 +93,18 @@ test("Case C: under threshold — $0.49 difference does NOT render delta", () =>
   assert.equal(r.deltaAmount, null);
 });
 
-test("Hourly job: delta suppressed even when hourly_rate set, display shows /hr", () => {
+test("Hourly job: shows the full total with the rate as detail, delta suppressed", () => {
   const r = computePriceDelta({
-    amount: 0,
-    billedAmount: 480, // would otherwise show a $480 delta
-    hourlyRate: 60,
+    amount: 200, // base_fee = $50/hr × 4h = the computed total
+    billedAmount: 999, // ignored for hourly
+    hourlyRate: 50,
     billingMethod: "hourly",
+    allowedHours: 4,
   });
   assert.equal(r.isHourly, true);
   assert.equal(r.deltaAmount, null);
-  assert.equal(r.display, "$60/hr");
+  assert.equal(r.display, "$200.00");
+  assert.equal(r.hourlyDetail, "$50/hr × 4h");
 });
 
 test("Edge: base_fee 0, billed null → no delta, $0 display", () => {

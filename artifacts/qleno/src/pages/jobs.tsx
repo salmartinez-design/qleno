@@ -1314,6 +1314,11 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
     && !job.manual_rate_override
     && job.hourly_rate != null && job.hourly_rate > 0
     && (job as any).allowed_hours != null && (job as any).allowed_hours > 0;
+  // [hourly-billing 2026-07-03] Any hourly commercial job (PPM/KMA) bills
+  // hours × rate. Sal edits the HOURS (3→4) and the price recomputes — we never
+  // want the office typing a dollar amount for these. Available even if a prior
+  // dollar edit pinned it (manual_rate_override); saving hours un-pins it.
+  const isHourlyCommercial = isCommercial && job.hourly_rate != null && job.hourly_rate > 0;
   // [pricing-edit 2026-07-01] Pricing is now editable on EVERY scope/type,
   // including rate-driven commercial jobs (Maribel: "should be available for all
   // scopes and types of jobs"). Editing a rate-driven job pins the typed total
@@ -1323,13 +1328,20 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
 
   const [editing, setEditing] = useState(false);
   const [baseVal, setBaseVal] = useState(baseInit.toFixed(2));
+  const [hoursVal, setHoursVal] = useState(String((job as any).allowed_hours ?? ""));
   const [items, setItems] = useState<JobAddOn[]>(initAddOns.map(a => ({ ...a })));
   const [saving, setSaving] = useState(false);
 
-  if (total === 0 && initAddOns.length === 0) return null;
+  if (total === 0 && initAddOns.length === 0 && !isHourlyCommercial) return null;
 
   const liveAddOnSum = items.reduce((s, a) => s + Number(a.subtotal ?? 0), 0);
-  const liveBase = parseFloat(baseVal || "0") || 0;
+  // Hourly commercial: base = rate × hours (recomputes as the office edits hours).
+  // Everything else: the typed flat base.
+  const rateNum = job.hourly_rate ?? 0;
+  const hoursNum = parseFloat(hoursVal || "0") || 0;
+  const liveBase = isHourlyCommercial
+    ? Math.round(rateNum * hoursNum * 100) / 100
+    : (parseFloat(baseVal || "0") || 0);
   const liveTotal = Math.round((liveBase + liveAddOnSum) * 100) / 100;
   const num = (n: number) => `$${n.toFixed(2)}`;
   const inputStyle: React.CSSProperties = { width: 92, padding: "5px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF, textAlign: "right", outline: "none" };
@@ -1353,7 +1365,16 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
         // [pricing-edit 2026-07-01] On a commercial job, pin the typed total as a
         // flat price so it doesn't snap back to $/hr × hours. Residential base_fee
         // is already the flat price, so no override needed.
-        body: JSON.stringify({ base_fee: String(newBaseFee), add_ons, cascade_scope: "this_job", ...(isCommercial ? { manual_rate_override: true } : {}) }),
+        body: JSON.stringify({
+          base_fee: String(newBaseFee), add_ons, cascade_scope: "this_job",
+          // [hourly-billing 2026-07-03] Hourly commercial: persist the edited hours
+          // and keep the job rate-driven (un-pin any prior flat override) so the
+          // bill stays hours × rate. A dollar edit on a NON-hourly commercial job
+          // still pins the flat total (manual_rate_override).
+          ...(isHourlyCommercial
+            ? { allowed_hours: hoursNum, manual_rate_override: false }
+            : (isCommercial ? { manual_rate_override: true } : {})),
+        }),
       });
       if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.message || d.error || `HTTP ${r.status}`); }
       toast({ title: "Pricing updated" });
@@ -1378,7 +1399,9 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
     );
     return (
       <PS label="Service & pricing">
-        {line(fmtSvc(job.service_type), num(baseInit))}
+        {isHourlyCommercial && (job as any).allowed_hours
+          ? line(`${fmtSvc(job.service_type)} · $${(job.hourly_rate ?? 0).toFixed(0)}/hr × ${(job as any).allowed_hours}h`, num(baseInit))
+          : line(fmtSvc(job.service_type), num(baseInit))}
         {positives.map((a, i) => <div key={`p${i}`}>{line(`Add-on · ${a.name}`, num(Number(a.subtotal)))}</div>)}
         {discounts.map((a, i) => <div key={`d${i}`}>{line(a.name, `−$${Math.abs(Number(a.subtotal)).toFixed(2)}`, "#2D9B83")}</div>)}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 6, paddingTop: 8 }}>
@@ -1388,7 +1411,7 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
         {editable && (
           <button onClick={() => { setBaseVal(baseInit.toFixed(2)); setItems(initAddOns.map(a => ({ ...a }))); setEditing(true); }}
             style={{ marginTop: 8, width: "100%", padding: "8px 12px", border: "1px solid #BDEBDD", borderRadius: 8, background: "#EAF9F4", color: "#06715C", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-            <Pencil size={13} /> Edit base rate and add-ons
+            <Pencil size={13} /> {isHourlyCommercial ? "Edit hours and add-ons" : "Edit base rate and add-ons"}
           </button>
         )}
       </PS>
@@ -1398,10 +1421,17 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
   return (
     <PS label="Service & pricing">
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 13, color: "#6B6860" }}>{fmtSvc(job.service_type)} <span style={{ fontSize: 11, color: "#9E9B94" }}>· base rate</span></span>
-          <input type="number" step="0.01" min="0" value={baseVal} onChange={e => setBaseVal(e.target.value)} style={inputStyle} autoFocus />
-        </div>
+        {isHourlyCommercial ? (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 13, color: "#6B6860" }}>Billed hours <span style={{ fontSize: 11, color: "#9E9B94" }}>· ${rateNum.toFixed(0)}/hr → {num(liveBase)}</span></span>
+            <input type="number" step="0.25" min="0" value={hoursVal} onChange={e => setHoursVal(e.target.value)} style={inputStyle} autoFocus />
+          </div>
+        ) : (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 13, color: "#6B6860" }}>{fmtSvc(job.service_type)} <span style={{ fontSize: 11, color: "#9E9B94" }}>· base rate</span></span>
+            <input type="number" step="0.01" min="0" value={baseVal} onChange={e => setBaseVal(e.target.value)} style={inputStyle} autoFocus />
+          </div>
+        )}
         {items.map((a, i) => (
           <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
             <span style={{ fontSize: 13, color: "#6B6860", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
@@ -1429,8 +1459,8 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
           </button>
         </div>
         <div style={{ fontSize: 11, color: "#9E9B94", lineHeight: 1.4 }}>
-          This visit only. Total = base rate + add-ons.
-          {isCommercial && rateDriven && " Saving sets this as a flat price (overrides $/hr × hours) for this visit."}
+          This visit only. {isHourlyCommercial ? `Total = hours × $${rateNum.toFixed(0)}/hr + add-ons.` : "Total = base rate + add-ons."}
+          {isCommercial && !isHourlyCommercial && rateDriven && " Saving sets this as a flat price (overrides $/hr × hours) for this visit."}
         </div>
       </div>
     </PS>
@@ -4819,15 +4849,22 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
             // this, a commercial job with a $50/hr rate showed only the flat
             // total and the office could never see the rate it was billing.
             const ah = (job as any).allowed_hours as number | null | undefined;
-            const rateDriven = isCommercial && !job.manual_rate_override
-              && job.hourly_rate != null && job.hourly_rate > 0
-              && ah != null && ah > 0;
             const total = (job.amount ?? job.billed_amount ?? 0).toFixed(2);
-            if (rateDriven) {
-              return <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>${job.hourly_rate!.toFixed(0)}/hr × {ah}h · ${total}</span>;
-            }
-            if (isCommercial && job.billing_method === "hourly" && job.hourly_rate) {
-              return <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>${job.hourly_rate.toFixed(0)}/hr{job.estimated_hours ? ` · est. ${job.estimated_hours}h` : ""}</span>;
+            // [hourly-billing 2026-07-03] For an hourly commercial job show the FULL
+            // computed TOTAL prominently, with "$50/hr × 4h" as a secondary detail —
+            // never just the bare rate (Sal: the price must always be visible and it
+            // updates when the billed hours change).
+            const isHourly = isCommercial && job.hourly_rate != null && job.hourly_rate > 0;
+            if (isHourly) {
+              const detail = ah != null && ah > 0
+                ? `$${job.hourly_rate!.toFixed(0)}/hr × ${ah}h`
+                : `$${job.hourly_rate!.toFixed(0)}/hr`;
+              return (
+                <span style={{ display: "inline-flex", alignItems: "baseline", gap: 6 }}>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>${total}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94" }}>{detail}</span>
+                </span>
+              );
             }
             return <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>${total}</span>;
           })()}
@@ -5578,11 +5615,12 @@ function JobChip({
   // through the display-amount fallback so the chip shows the live amount
   // and no delta. Delta was a workaround for the old amount/billed split
   // and isn't meaningful now that amount is authoritative.
-  const { display: priceDisplay, deltaAmount } = computePriceDelta({
+  const { display: priceDisplay, deltaAmount, hourlyDetail } = computePriceDelta({
     amount: job.amount,
     billedAmount: null,
     hourlyRate: job.hourly_rate,
     billingMethod: job.billing_method,
+    allowedHours: (job as any).allowed_hours,
   });
 
   // Live timer + progress bar — timeline only. List and drag are
@@ -5647,6 +5685,7 @@ function JobChip({
       addOnCount={addOnCount}
       priceDisplay={priceDisplay}
       deltaAmount={deltaAmount}
+      hourlyDetail={hourlyDetail}
       lateMin={lateMin}
       elapsedMin={elapsedMin}
       timerLabel={timerLabel}
@@ -5829,7 +5868,7 @@ function JobChip({
 function JobChipBody({
   job, status, visual, tokens, bgColor,
   isCommercial, isNew, isNarrow, isWide, showDuration,
-  addOnCount, priceDisplay, deltaAmount,
+  addOnCount, priceDisplay, deltaAmount, hourlyDetail,
   lateMin, elapsedMin, timerLabel, allowedMin,
   showLiveTimer, showPhotoGlance,
 }: {
@@ -5846,6 +5885,7 @@ function JobChipBody({
   addOnCount: number;
   priceDisplay: string;
   deltaAmount: number | null;
+  hourlyDetail?: string | null;
   lateMin: number;
   elapsedMin: number;
   timerLabel: string;
@@ -5940,6 +5980,11 @@ function JobChipBody({
             <span style={{ fontSize: 11, fontWeight: 800, color: tokens.primary, whiteSpace: "nowrap", flexShrink: 0 }}>
               {priceDisplay}
             </span>
+            {hourlyDetail && (
+              <span style={{ fontSize: 9, fontWeight: 600, color: tokens.secondary, whiteSpace: "nowrap", flexShrink: 0 }}>
+                {hourlyDetail}
+              </span>
+            )}
             {deltaAmount != null && (
               <span style={{
                 flexShrink: 0, fontSize: 8, fontWeight: 700,
