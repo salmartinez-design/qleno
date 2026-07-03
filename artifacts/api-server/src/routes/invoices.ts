@@ -163,7 +163,12 @@ router.get("/", requireAuth, async (req, res) => {
         // moves jobs.scheduled_date WITHOUT touching the invoice — so a snapshot
         // would go stale (office saw "the 17th" for a job moved to the 19th).
         // Reading it live can never drift; null when the job is gone/unlinked.
-        service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
+        service_date: sql<string | null>`COALESCE(
+          (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
+          (SELECT MIN(j2.scheduled_date) FROM jobs j2 WHERE j2.id IN (
+            SELECT (li->>'job_id')::int FROM jsonb_array_elements(${invoicesTable.line_items}) li WHERE li->>'job_id' IS NOT NULL
+          ))
+        )`,
         // [charge-card 2026-06-21] Card-on-file info so the list/detail can show
         // a "Charge Card on File" action when a reusable Stripe PaymentMethod exists
         // OR the client has a Square customer ID with a card vaulted there.
@@ -476,7 +481,12 @@ router.get("/:id", requireAuth, async (req, res) => {
         account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
         // [invoice-service-date 2026-06-20] Live service date from the linked job
         // (see list select). Reschedule-proof; null when job gone/unlinked.
-        service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
+        service_date: sql<string | null>`COALESCE(
+          (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
+          (SELECT MIN(j2.scheduled_date) FROM jobs j2 WHERE j2.id IN (
+            SELECT (li->>'job_id')::int FROM jsonb_array_elements(${invoicesTable.line_items}) li WHERE li->>'job_id' IS NOT NULL
+          ))
+        )`,
         // [charge-card 2026-06-21] Card-on-file info — Stripe OR Square.
         card_last_four: sql<string | null>`COALESCE(${clientsTable.card_last_four}, ${clientsTable.square_card_last4})`,
         card_brand: sql<string | null>`COALESCE(${clientsTable.card_brand}, ${clientsTable.square_card_brand})`,
@@ -533,7 +543,12 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
         state: clientsTable.state,
         zip: clientsTable.zip,
         account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
-        service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
+        service_date: sql<string | null>`COALESCE(
+          (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
+          (SELECT MIN(j2.scheduled_date) FROM jobs j2 WHERE j2.id IN (
+            SELECT (li->>'job_id')::int FROM jsonb_array_elements(${invoicesTable.line_items}) li WHERE li->>'job_id' IS NOT NULL
+          ))
+        )`,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
@@ -593,7 +608,17 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
 router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
-    const { status, line_items, tips } = req.body;
+    const { status, line_items, tips, due_date } = req.body;
+
+    // [invoice-edit-dates 2026-07-03] Due date is editable on a draft/sent
+    // invoice (Maribel: "can't edit any of these"). Empty string / null clears
+    // it (→ due on receipt). Reject anything that isn't YYYY-MM-DD so a bad
+    // value can't reach the date column.
+    const dueProvided = due_date !== undefined;
+    const dueValue = due_date === null || due_date === "" ? null : String(due_date);
+    if (dueProvided && dueValue !== null && !/^\d{4}-\d{2}-\d{2}$/.test(dueValue)) {
+      return res.status(400).json({ error: "Bad Request", message: "due_date must be YYYY-MM-DD or empty" });
+    }
 
     // Edit guard: a paid or void invoice is immutable. Editing happens on
     // draft / sent / overdue (overdue is a display-derivation of sent). Paid →
@@ -632,6 +657,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       .set({
         ...(status && { status }),
         ...(normLineItems && { line_items: normLineItems }),
+        ...(dueProvided && { due_date: dueValue }),
         tips: tipVal.toFixed(2),
         subtotal: subtotal.toFixed(2),
         total: total.toFixed(2),

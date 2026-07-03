@@ -145,6 +145,7 @@ export default function InvoiceDetailPage() {
   const [editing, setEditing] = useState(false);
   const [editLines, setEditLines] = useState<any[]>([]);
   const [editTip, setEditTip] = useState(0);
+  const [editDue, setEditDue] = useState<string>(""); // YYYY-MM-DD, "" = due on receipt
   const [savingEdit, setSavingEdit] = useState(false);
   const [recalcing, setRecalcing] = useState(false);
 
@@ -273,6 +274,7 @@ export default function InvoiceDetailPage() {
       total: Number(l.total ?? 0),
     })));
     setEditTip(Number(invoice?.tips || 0));
+    setEditDue(invoice?.due_date || "");
     setEditing(true);
   }
   function setLine(i: number, patch: any) {
@@ -302,6 +304,7 @@ export default function InvoiceDetailPage() {
             total: Number(l.total) || 0,
           })),
           tips: Number(editTip) || 0,
+          due_date: editDue || null,
         }),
       });
       toast({ title: "Invoice updated" });
@@ -437,6 +440,19 @@ export default function InvoiceDetailPage() {
                   <button onClick={() => setEditLines(prev => [...prev, { description: "Discount", quantity: 1, unit_price: 0, total: 0 }])}
                     style={{ padding: "6px 12px", border: "1px solid #E5E2DC", borderRadius: 6, background: "transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>+ Add discount</button>
                 </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 8 }}>
+                  <span style={{ fontSize: 13, color: "#6B7280" }}>Due date</span>
+                  <div style={{ width: 160 }}>
+                    <CalendarPopover value={editDue} ariaLabel="Due date" onChange={setEditDue} block />
+                  </div>
+                  {editDue && (
+                    <button type="button" onClick={() => setEditDue("")}
+                      title="Clear — bill due on receipt"
+                      style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 12, fontWeight: 600, fontFamily: FF, textDecoration: "underline" }}>
+                      Due on receipt
+                    </button>
+                  )}
+                </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 6 }}>
                   <span style={{ fontSize: 13, color: "#6B7280" }}>Tip</span>
                   <input type="number" step="0.01" value={editTip} onChange={e => setEditTip(Number(e.target.value) || 0)}
@@ -502,7 +518,7 @@ export default function InvoiceDetailPage() {
               <div style={{ marginTop: 26, borderTop: "1px solid #F0EDE8", paddingTop: 16 }}>
                 <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{footerMessage}</p>
                 <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6B7280", lineHeight: 1.6 }}>{paymentInstructions}</p>
-                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6B7280", lineHeight: 1.6 }}>Payment terms: due on receipt.</p>
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6B7280", lineHeight: 1.6 }}>Payment terms: {invoice.due_date ? `due by ${new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` : "due on receipt"}.</p>
                 {guaranteeText && (
                   <p style={{ margin: "12px 0 0", fontSize: 11, color: "#9E9B94", lineHeight: 1.6 }}>{guaranteeText}</p>
                 )}
