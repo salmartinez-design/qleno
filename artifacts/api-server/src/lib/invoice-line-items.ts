@@ -51,23 +51,28 @@ export async function buildJobLineItems(
   if (!job) return null;
 
   // [rate-mod-lines 2026-07-03] Time & Fee Adjustments (job_rate_mods) never
-  // reached the invoice — the office adds e.g. a "$0 — Unit 2001" FLAT
-  // adjustment on a PPM turnover to tag which unit the invoice covers, and it
-  // silently vanished ("mirrors to the invoice… but it didnt"). Surface each
-  // FLAT mod as its own labeled line. billed_amount already FOLDS IN flat mods
-  // (recomputeJobBilledAmount: non-commercial = base + all mods; commercial =
-  // rate×hrs + FLAT mods + add-ons), so we must SUBTRACT their total back out of
-  // the scope line or the invoice would double-bill them. TIME mods are left
-  // baked into the scope (their dollars live in hours×rate / base, not as a
-  // standalone amount) — only flat adjustments get their own line.
-  const flatModRows = await exec.execute(sql`
-    SELECT reason, amount
+  // reached the invoice — the office adds e.g. a "$0 — Unit 2001" or a "+1 hr
+  // Additional Time $50" adjustment on a PPM turnover, and it silently vanished
+  // ("mirrors to the invoice… but it didnt"). Surface EACH mod (flat AND time)
+  // as its own labeled line. billed_amount already FOLDS IN every mod's dollar
+  // amount (recomputeJobBilledAmount: non-commercial = base + SUM(all mods);
+  // commercial = rate×allowed_hours [time mods grew allowed_hours] + flat mods +
+  // add-ons — so a time mod's amount = rate×its-hours is inside rate×allowed_hours).
+  // Either way the mod's `amount` is in billed_amount, so we SUBTRACT the total
+  // back out of the scope line and re-add it as labeled lines — net total is
+  // byte-identical, only now each adjustment (and its unit / reason) is visible.
+  // [rate-mod-lines-time 2026-07-03] Extended from flat-only to time+flat:
+  // Maribel "we saw it work with flat fee, but not with Time". A time mod's
+  // amount is stored (e.g. 60 min → $50) and lives in billed_amount too, so it
+  // gets the identical subtract-then-line treatment.
+  const modRows = await exec.execute(sql`
+    SELECT reason, amount, mod_type
       FROM job_rate_mods
-     WHERE job_id = ${jobId} AND company_id = ${companyId} AND mod_type = 'flat'
+     WHERE job_id = ${jobId} AND company_id = ${companyId}
      ORDER BY created_at ASC
   `);
-  const flatMods = (flatModRows.rows as Array<{ reason: string | null; amount: string }>);
-  const flatModsTotal = flatMods.reduce((s, m) => s + parseFloat(String(m.amount ?? "0")), 0);
+  const mods = (modRows.rows as Array<{ reason: string | null; amount: string; mod_type: string }>);
+  const modsTotal = mods.reduce((s, m) => s + parseFloat(String(m.amount ?? "0")), 0);
 
   // [hourly-line-fix 2026-07-03] Scope line, three modes:
   //  - metered (billed_amount set): the all-in metered total; add-ons rolled in.
@@ -103,7 +108,7 @@ export async function buildJobLineItems(
   if (isMetered) {
     // Pull flat mods back out of the metered total — they get their own lines
     // below, so leaving them in the scope would double-count.
-    scopeAmount = parseFloat(String(job.billed_amount)) - flatModsTotal;
+    scopeAmount = parseFloat(String(job.billed_amount)) - modsTotal;
     scopeQty = job.billed_hours ? parseFloat(String(job.billed_hours)) : 1;
     scopeUnit = rateNum || scopeAmount;
   } else if (isHourlyRateDriven) {
@@ -144,14 +149,15 @@ export async function buildJobLineItems(
     }
   }
 
-  // Flat Time & Fee Adjustments as their own labeled lines (e.g. "Unit 2001").
-  // Their dollars were subtracted from the metered scope above, so this restores
-  // the exact same total while making each adjustment (and its unit/reason)
-  // visible on the invoice.
-  for (const m of flatMods) {
+  // Time & Fee Adjustments (flat AND time) as their own labeled lines — e.g.
+  // "Unit 2001" or "Additional Time: 1 hour". Their dollars were subtracted from
+  // the metered scope above, so this restores the exact same total while making
+  // each adjustment (and its unit/reason) visible on the invoice.
+  for (const m of mods) {
     const amt = parseFloat(String(m.amount ?? "0"));
     runningTotal += amt;
-    const label = (m.reason && String(m.reason).trim()) ? String(m.reason).trim() : "Fee adjustment";
+    const fallback = m.mod_type === "time" ? "Time adjustment" : "Fee adjustment";
+    const label = (m.reason && String(m.reason).trim()) ? String(m.reason).trim() : fallback;
     lineItems.push({ description: label, quantity: 1, unit_price: amt, total: amt });
   }
 
