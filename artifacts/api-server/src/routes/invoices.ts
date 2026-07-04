@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable, paymentLinksTable, accountsTable } from "@workspace/db/schema";
 import crypto from "crypto";
-import { eq, and, desc, count, sum, sql, lt, isNull, isNotNull, or, ne, inArray } from "drizzle-orm";
+import { eq, and, desc, count, sum, sql, lt, isNull, isNotNull, or, ne, inArray, notInArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { syncInvoice, syncPayment, queueSync } from "../services/quickbooks-sync.js";
@@ -78,6 +78,13 @@ router.get("/", requireAuth, async (req, res) => {
       conditions.push(lt(invoicesTable.due_date as any, today));
     } else if (status) {
       conditions.push(eq(invoicesTable.status, status as any));
+    } else {
+      // [hide-inert 2026-07-04] The default "All" view hides void + superseded
+      // invoices. They're kept as records (audit trail / invoice-number
+      // continuity) but shouldn't clutter the working list — voiding an invoice
+      // shouldn't leave a dead NET-30 row on screen. Still reachable via the
+      // explicit "Void" filter (status=void).
+      conditions.push(notInArray(invoicesTable.status, ["void", "superseded"]));
     }
     if (client_id) conditions.push(eq(invoicesTable.client_id, parseInt(client_id as string)));
     // [account-visibility 2026-07-02] Commercial/account invoices are
