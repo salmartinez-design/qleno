@@ -1234,8 +1234,14 @@ export default function InvoicesPage() {
                   const effectiveStatus = (inv.status === "sent" && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
                   const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
                   return (
+                    /* [invoice-open-new-tab 2026-07-03] cmd/ctrl+click or middle-click
+                       opens the invoice in a NEW tab (office keeps the list open and
+                       opens several invoices side by side); plain click still does fast
+                       client-side nav. Invoice # cell below is a real <a> so right-click
+                       → "Open in new tab" works too. */
                     <tr key={inv.id}
-                      onClick={() => navigate(`/invoices/${inv.id}`)}
+                      onClick={e => { if (e.metaKey || e.ctrlKey) { window.open(`/invoices/${inv.id}`, "_blank"); return; } navigate(`/invoices/${inv.id}`); }}
+                      onAuxClick={e => { if (e.button === 1) { e.preventDefault(); window.open(`/invoices/${inv.id}`, "_blank"); } }}
                       style={{ borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}
                       onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#F7F6F3")}
                       onMouseLeave={e => (e.currentTarget.style.backgroundColor = "transparent")}>
@@ -1247,7 +1253,11 @@ export default function InvoicesPage() {
                           onChange={e => toggleMerge(inv.id, e.target.checked)} />
                       </td>
                       <td style={{ padding: "13px 18px", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
-                        {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
+                        <a href={`/invoices/${inv.id}`}
+                          onClick={e => { e.stopPropagation(); if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); navigate(`/invoices/${inv.id}`); }}
+                          style={{ color: "inherit", textDecoration: "none" }}>
+                          {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
+                        </a>
                       </td>
                       <td style={{ padding: "13px 18px", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{inv.client_name}</td>
                       <td style={{ padding: "13px 18px", fontSize: 12, color: "#6B7280", fontFamily: FF }}>
