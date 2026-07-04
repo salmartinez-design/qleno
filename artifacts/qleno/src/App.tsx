@@ -34,6 +34,7 @@ const HelpPage            = lazy(() => import("@/pages/help"));
 const HelpGuidePage       = lazy(() => import("@/pages/help-guide"));
 const DiscountsRedirect   = lazy(() => Promise.resolve({ default: () => { window.location.replace((import.meta.env.BASE_URL.replace(/\/$/, "")) + "/company?tab=pricing"); return null; } }));
 const MyJobsPage          = lazy(() => import("@/pages/my-jobs"));
+const MyPayPage           = lazy(() => import("@/pages/my-pay"));
 const MyJobDetailPage     = lazy(() => import("@/pages/my-job-detail"));
 const MyDayPage           = lazy(() => import("@/pages/my-day"));
 const OpsTodayPage        = lazy(() => import("@/pages/ops-today"));
@@ -150,6 +151,7 @@ const TECH_ALLOWED_PREFIXES = [
   "/login",
   "/accept-invite",
   "/my-jobs",
+  "/my-pay",       // employee-facing published pay (self-scoped server-side)
   "/my-day",
   "/help",        // Help & Guides — tech guides are mobile-first
   "/training",
@@ -258,6 +260,7 @@ function Router() {
         <Route path="/discounts" component={DiscountsRedirect} />
         <Route path="/my-jobs/:id" component={MyJobDetailPage} />
         <Route path="/my-jobs" component={MyJobsPage} />
+        <Route path="/my-pay" component={MyPayPage} />
         <Route path="/my-day" component={MyDayPage} />
         <Route path="/ops/today" component={OpsTodayPage} />
 

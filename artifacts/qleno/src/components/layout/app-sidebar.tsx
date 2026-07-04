@@ -109,6 +109,7 @@ const NAV_SECTIONS = [
       // team_lead. Without these the tech sidebar was just Training and
       // Cleancyclopedia, with no quick path back to their schedule.
       { title: "My Jobs",   url: "/my-jobs",   icon: Briefcase,    roles: ["technician", "team_lead"] },
+      { title: "My Pay",    url: "/my-pay",    icon: DollarSign,   roles: ["technician", "team_lead"] },
       { title: "Time Off",  url: "/leave",     icon: FileText,     roles: ["technician", "team_lead"] },
     ],
   },
