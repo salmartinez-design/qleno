@@ -39,6 +39,63 @@ function normalizeReferral(value: string | null | undefined): string | null {
   return REFERRAL_MAP[value.toLowerCase().trim()] ?? "other";
 }
 
+// [widget-lead-upsert 2026-07-04] Find-or-create the Lead Pipeline lead for a
+// public booking-widget action, deduped by email/phone within the company. An
+// online residential QUOTE (abandon-track) creates a needs_contacted lead so it
+// shows up in Leads; a later booking (confirm) UPGRADES that same lead to booked
+// instead of creating a duplicate. Status only advances, never downgrades.
+// Contact fields fill in but never clobber. Non-fatal.
+const LEAD_STATUS_RANK: Record<string, number> = { needs_contacted: 0, contacted: 1, quoted: 2, booked: 3 };
+async function upsertWidgetLead(companyId: number, opts: {
+  email?: string | null; phone?: string | null; first_name?: string | null; last_name?: string | null;
+  address?: string | null; zip?: string | null; scope?: string | null;
+  source: string; status: string; jobId?: number | null; booked?: boolean;
+}): Promise<number | null> {
+  try {
+    const { sql: s } = await import("drizzle-orm");
+    const email = opts.email ? String(opts.email).toLowerCase().trim() : null;
+    const phone10 = (opts.phone ?? "").replace(/[^0-9]/g, "").slice(-10) || null;
+    let existing: any = null;
+    if (email || phone10) {
+      const found = await db.execute(s`
+        SELECT id, status FROM leads
+         WHERE company_id = ${companyId}
+           AND (${email ? s`LOWER(email) = ${email}` : s`FALSE`}
+                OR ${phone10 ? s`RIGHT(regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g'), 10) = ${phone10}` : s`FALSE`})
+         ORDER BY created_at DESC LIMIT 1`);
+      existing = (found.rows as any[])[0] ?? null;
+    }
+    if (existing) {
+      const upgrade = (LEAD_STATUS_RANK[opts.status] ?? 0) > (LEAD_STATUS_RANK[String(existing.status)] ?? 0);
+      await db.execute(s`
+        UPDATE leads SET
+          first_name = COALESCE(first_name, ${opts.first_name ?? null}),
+          last_name  = COALESCE(last_name, ${opts.last_name ?? null}),
+          email      = COALESCE(email, ${opts.email ?? null}),
+          phone      = COALESCE(phone, ${opts.phone ?? null}),
+          address    = COALESCE(address, ${opts.address ?? null}),
+          zip        = COALESCE(zip, ${opts.zip ?? null}),
+          scope      = COALESCE(scope, ${opts.scope ?? null}),
+          status     = ${upgrade ? s`${opts.status}` : s`status`},
+          job_id     = COALESCE(job_id, ${opts.jobId ?? null}),
+          booked_at  = ${opts.booked ? s`COALESCE(booked_at, NOW())` : s`booked_at`},
+          updated_at = NOW()
+        WHERE id = ${existing.id}`);
+      return Number(existing.id);
+    }
+    const ins = await db.execute(s`
+      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, status, job_id, booked_at, created_at, updated_at)
+      VALUES (${companyId}, ${opts.first_name ?? null}, ${opts.last_name ?? null}, ${opts.phone ?? null}, ${opts.email ?? null},
+              ${opts.address ?? null}, ${opts.zip ?? null}, ${opts.scope ?? null}, ${opts.source}, ${opts.status},
+              ${opts.jobId ?? null}, ${opts.booked ? s`NOW()` : s`NULL`}, NOW(), NOW())
+      RETURNING id`);
+    return Number((ins.rows as any[])[0]?.id) || null;
+  } catch (e) {
+    console.error("[widget-lead] upsert failed:", e);
+    return null;
+  }
+}
+
 // ── Simple in-memory rate limiter: 30 req/min per IP ────────────────────────
 const ipCounts = new Map<string, { count: number; resetAt: number }>();
 function rateLimit(req: any, res: any, next: any) {
@@ -898,19 +955,15 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       `
     );
 
-    // ── Create lead record (booking_widget source) ────────────────────────────
+    // ── Create/advance lead record (booking_widget source) ────────────────────
     try {
-      const scopeLabel = scopeName;
-      await db.execute(drizzleSql`
-        INSERT INTO leads (
-          company_id, first_name, last_name, phone, email, address, zip,
-          scope, source, status, job_id, booked_at, created_at, updated_at
-        ) VALUES (
-          ${company_id}, ${first_name}, ${last_name}, ${phone}, ${email},
-          ${address || null}, ${zip || null},
-          ${scopeLabel}, 'booking_widget', 'booked', ${jobId}, NOW(), NOW(), NOW()
-        )
-      `);
+      // Dedup: if this customer already got an online quote (needs_contacted
+      // lead from abandon-track), UPGRADE that same lead to booked rather than
+      // create a second one. Else insert a fresh booked lead.
+      await upsertWidgetLead(company_id, {
+        email, phone, first_name, last_name, address: address || null, zip: zip || null,
+        scope: scopeName, source: "booking_widget", status: "booked", jobId, booked: true,
+      });
       // Booking finished — stop any abandoned-booking drip first (FK is
       // ON DELETE SET NULL, so the delete below only nulls an already-stopped
       // enrollment), then remove the abandoned booking for this email.
@@ -1308,11 +1361,7 @@ router.post("/book/walkthrough", rateLimit, async (req, res) => {
     // [widget-lead 2026-07-04] A commercial walkthrough request must land in the
     // Lead Pipeline so the office follows up (do the walkthrough, then quote).
     // needs_contacted (not booked) — the sale isn't closed yet. Non-fatal.
-    try {
-      await db.execute(drizzleSql`
-        INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, status, job_id, created_at, updated_at)
-        VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${address || null}, ${wtAddrZip}, 'Commercial Walkthrough', 'booking_widget', 'needs_contacted', ${jobId}, NOW(), NOW())`);
-    } catch (leadErr) { console.error("[walkthrough] Failed to create lead record:", leadErr); }
+    await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address: address || null, zip: wtAddrZip, scope: "Commercial Walkthrough", source: "booking_widget", status: "needs_contacted", jobId });
 
     const resendKey = process.env.RESEND_API_KEY;
     if (process.env.COMMS_ENABLED !== "true") {
@@ -1447,11 +1496,7 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
     // Only /book/confirm (residential) created a lead — the commercial paths
     // didn't, so paid commercial bookings from the widget never appeared in
     // Leads. Mirror the /book/confirm insert. Non-fatal (never fails a booking).
-    try {
-      await db.execute(drizzleSql`
-        INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, status, job_id, booked_at, created_at, updated_at)
-        VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${address || null}, ${cAddrZip}, 'Commercial Cleaning', 'booking_widget', 'booked', ${jobId}, NOW(), NOW(), NOW())`);
-    } catch (leadErr) { console.error("[commercial-confirm] Failed to create lead record:", leadErr); }
+    await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address: address || null, zip: cAddrZip, scope: "Commercial Cleaning", source: "booking_widget", status: "booked", jobId, booked: true });
 
     console.log(`[COMMERCIAL] Single visit confirmed — client_id=${clientId} job_id=${jobId} card=${cardBrand} *${cardLast4}`);
     return res.status(201).json({ ok: true, client_id: clientId, job_id: jobId, pricing: { final_total: 180 }, card_last4: cardLast4, card_brand: cardBrand });
@@ -1489,6 +1534,10 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
         `);
         // Idempotent enroll (no-ops if already enrolled or sequence inactive).
         await enrollForAbandonedBooking(company_id, abId);
+        // [widget-lead 2026-07-04] An online quote (contact entered, not yet
+        // booked) must show in the Lead Pipeline so the office follows up.
+        // Deduped: upgrades to booked later if they complete the booking.
+        await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: "needs_contacted" });
         return res.json({ ok: true, action: "updated" });
       }
     }
@@ -1500,6 +1549,8 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
     `);
     const newAbId = (inserted.rows[0] as any)?.id;
     if (newAbId) await enrollForAbandonedBooking(company_id, newAbId);
+    // [widget-lead 2026-07-04] Online quote → Lead Pipeline lead (needs_contacted).
+    await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: "needs_contacted" });
 
     // Immediate office notification — bypass COMMS_ENABLED (this is an inbound
     // lead signal, not automated outbound). Same bypass logic as /api/contact.
