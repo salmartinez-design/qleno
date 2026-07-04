@@ -9,7 +9,11 @@ import { usersTable } from "./users";
 export const paymentsTable = pgTable("payments", {
   id: serial("id").primaryKey(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
-  client_id: integer("client_id").references(() => clientsTable.id).notNull(),
+  // [account-payment 2026-07-03] Nullable: a payment on a commercial/account
+  // invoice has no individual client (client_id lives on the invoice's account,
+  // not here) — the payment links to the account via invoice_id. Was notNull,
+  // which 500'd "Mark Paid" on every account invoice (Cucci/PPM/National Able).
+  client_id: integer("client_id").references(() => clientsTable.id),
   invoice_id: integer("invoice_id").references(() => invoicesTable.id),
   amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
   method: text("method"),
