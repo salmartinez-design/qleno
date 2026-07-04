@@ -967,7 +967,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       SELECT j.id AS job_id, j.scheduled_time, j.assigned_user_id,
              j.service_type::text AS service_type, j.address_street,
              j.job_lat, j.job_lng, j.address_lat, j.address_lng,
-             j.account_id, j.client_id, j.base_fee, j.billed_amount, j.commission_base, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
+             j.account_id, j.client_id, j.base_fee, j.billed_amount, j.commission_base, j.allowed_hours, j.estimated_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
              c.client_type, c.lat AS client_lat, c.lng AS client_lng,
              -- Service address so the office can tell apart multiple jobs for the
              -- same client/account on one day (e.g. several PPM units) without
@@ -1158,6 +1158,11 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  // actual efficiency. Was never sent, so Allowed-Hours rows showed a
                  // rate and a $ with no visible hours.
                  allowed_hours: number | null;
+                 // [sched-window 2026-07-04] estimated_hours is the fallback
+                 // duration for deriving a scheduled STOP time (start + duration)
+                 // when allowed_hours isn't set. The meta line showed only the
+                 // scheduled start ("sched 6:00 AM") with no end.
+                 estimated_hours: number | null;
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
                  pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null;
                  // pay_kind tells the UI whether `pay` is normal commission or
@@ -1259,6 +1264,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
           allowed_hours: j.allowed_hours != null ? Number(j.allowed_hours) : null,
+          estimated_hours: j.estimated_hours != null ? Number(j.estimated_hours) : null,
           ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), source: e?.source ?? null,
           ...gpsOf(e), ...coordsOf(j),
         });
@@ -1274,6 +1280,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
         allowed_hours: j?.allowed_hours != null ? Number(j.allowed_hours) : null,
+        estimated_hours: j?.estimated_hours != null ? Number(j.estimated_hours) : null,
         ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
         ...gpsOf(e), ...coordsOf(j),
       });

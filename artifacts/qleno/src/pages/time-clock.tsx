@@ -99,12 +99,27 @@ function fmtSchedTime(t: string | null) {
   const hr = ((parseInt(h) + 11) % 12) + 1; const ap = parseInt(h) < 12 ? "AM" : "PM";
   return `${hr}:${m} ${ap}`;
 }
+// Scheduled window: the meta line showed only the START ("sched 6:00 AM"). The
+// office needs the scheduled STOP too. There's no stored end time, so derive it
+// = scheduled start + duration, where duration = allowed_hours (the budget)
+// falling back to estimated_hours. Returns "6:00 AM – 11:00 AM" (or just the
+// start when no duration is known, so nothing regresses).
+function fmtSchedWindow(t: string | null, durationHrs: number | null | undefined): string {
+  const start = fmtSchedTime(t);
+  if (!start || durationHrs == null || durationHrs <= 0) return start;
+  const [h, m] = t!.split(":").map(x => parseInt(x, 10));
+  if (Number.isNaN(h) || Number.isNaN(m)) return start;
+  const endMin = h * 60 + m + Math.round(durationHrs * 60);
+  const eh = Math.floor((endMin % 1440) / 60), em = endMin % 60;
+  const hr12 = ((eh + 11) % 12) + 1; const ap = eh < 12 ? "AM" : "PM";
+  return `${start} – ${hr12}:${String(em).padStart(2, "0")} ${ap}`;
+}
 
 type Row = {
   job_id: number; client_name: string; service_type: string; scheduled_time: string | null;
   address?: string | null; client_id?: number | null; account_id?: number | null;
   entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null; flagged: boolean; minutes: number | null;
-  allowed_hours?: number | null;
+  allowed_hours?: number | null; estimated_hours?: number | null;
   pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
   pay?: number | null; pay_kind?: "commission" | "cancellation"; cancel_action?: string | null;
@@ -310,7 +325,7 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
           <div style={{ fontSize: 11, color: "#9E9B94", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{row.address}</div>
         )}
         <div style={{ fontSize: 11, color: "#9E9B94" }}>
-          {fmtSvc(row.service_type)}{row.scheduled_time ? ` · sched ${fmtSchedTime(row.scheduled_time)}` : ""}
+          {fmtSvc(row.service_type)}{row.scheduled_time ? ` · sched ${fmtSchedWindow(row.scheduled_time, row.allowed_hours ?? row.estimated_hours)}` : ""}
           {!row.entry_id && <span style={{ color: "#9E9B94", marginLeft: 6, fontWeight: 700 }}>· not clocked in</span>}
           {row.entry_id && row.source !== "punched" && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· estimated — verify</span>}
           {row.flagged && <span style={{ color: "#B45309", marginLeft: 6, fontWeight: 700 }}>· flagged</span>}
