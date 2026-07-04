@@ -134,10 +134,15 @@ export function computeCommissionRows(input: {
         : allowedHrs;
 
     const resPct = resolveResidentialPayPct(j.service_type, input.resRates);
-    // Commercial: commission_base already = hrs × commission-rate + flagged
-    // extras, so use it directly as the commercial pool when present.
+    // Commercial pay is strictly commercial_hourly_rate × hours (allowed, or
+    // actual under actual_hours mode) — NOT commission_base. commission_base
+    // holds the job's REVENUE (base_fee), so using it overpaid commercial to the
+    // full billed amount (Weiss-Kunz allowed 3 paid $160 not $60; the unclocked-
+    // job fallback path of the same bug fixed in commission-paytype.ts).
+    // Sal 2026-07-04. Residential fee-split still prefers commission_base as its
+    // gross base (opted-in add-ons) via jobTotal.
     const computed = isCommercial
-      ? (commissionBase ?? input.commercial.commercial_hourly_rate * commercialHours)
+      ? input.commercial.commercial_hourly_rate * commercialHours
       : jobTotal * resPct;
 
     const overrideKey = `${j.assigned_user_id}:${j.id}`;
