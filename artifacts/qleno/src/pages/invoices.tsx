@@ -947,14 +947,23 @@ export default function InvoicesPage() {
     <>
       <DashboardLayout>
         <div style={{ display: "flex", flexDirection: "column", gap: 20, fontFamily: FF }}>
+          {/* [kpi-cards-clickable 2026-07-04] Each card drills into the matching list
+              filter (Outstanding→Sent, Overdue→Overdue, Paid & YTD→Paid) so the office
+              can see what makes up a number instead of staring at a dead tile. */}
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 12 }}>
             {[
-              { label: "Outstanding", value: `$${Math.round(stats.total_outstanding || 0).toLocaleString()}` },
-              { label: "Overdue",     value: `$${Math.round(stats.total_overdue || 0).toLocaleString()}`, color: (stats.total_overdue || 0) > 0 ? "#DC2626" : undefined },
-              { label: "Paid (30d)",  value: `$${Math.round(stats.total_paid || 0).toLocaleString()}`,   color: "#16A34A" },
-              { label: "YTD Revenue", value: `$${Math.round(stats.total_revenue || 0).toLocaleString()}`, accent: true },
+              { label: "Outstanding", value: `$${Math.round(stats.total_outstanding || 0).toLocaleString()}`, tab: "sent" as TabId },
+              { label: "Overdue",     value: `$${Math.round(stats.total_overdue || 0).toLocaleString()}`, color: (stats.total_overdue || 0) > 0 ? "#DC2626" : undefined, tab: "overdue" as TabId },
+              { label: "Paid (30d)",  value: `$${Math.round(stats.total_paid || 0).toLocaleString()}`,   color: "#16A34A", tab: "paid" as TabId },
+              { label: "YTD Revenue", value: `$${Math.round(stats.total_revenue || 0).toLocaleString()}`, accent: true, tab: "paid" as TabId },
             ].map(c => (
-              <div key={c.label} style={{ ...CARD, border: c.accent ? "1px solid rgba(91,155,213,0.4)" : "1px solid #E5E2DC" }}>
+              <div key={c.label} role="button" tabIndex={0}
+                onClick={() => setActiveTab(c.tab)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveTab(c.tab); } }}
+                title={`View ${c.label}`}
+                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 1px 6px rgba(0,0,0,0.06)"; e.currentTarget.style.borderColor = "var(--brand)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = c.accent ? "rgba(91,155,213,0.4)" : "#E5E2DC"; }}
+                style={{ ...CARD, cursor: "pointer", transition: "border-color 0.15s, box-shadow 0.15s", border: c.accent ? "1px solid rgba(91,155,213,0.4)" : "1px solid #E5E2DC" }}>
                 <p style={{ fontSize: 11, fontWeight: 600, color: c.accent ? "var(--brand)" : "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 10px" }}>{c.label}</p>
                 <p style={{ fontSize: 24, fontWeight: 800, color: c.color || (c.accent ? "var(--brand)" : "#1A1917"), margin: 0 }}>{c.value}</p>
               </div>

@@ -11,6 +11,7 @@ import { appBaseUrl } from "../lib/app-url.js";
 import { generateInvoiceNumber, getNextInvoiceNumber } from "../lib/invoice-number.js";
 import { chargeInvoice } from "../lib/charge-invoice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
+import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
 import { normalizeInvoiceLineItems } from "../lib/normalize-line-items.js";
 
 const router = Router();
@@ -205,14 +206,22 @@ router.get("/", requireAuth, async (req, res) => {
       db.select({ total: sum(invoicesTable.total) })
         .from(invoicesTable)
         .where(and(compCond, eq(invoicesTable.status, "sent"), lt(invoicesTable.due_date as any, today))),
+      // [revenue-qleno-only 2026-07-04] Paid(30d) and YTD Revenue count ONLY
+      // Qleno-native revenue — invoices whose effective service date is on/after
+      // the cutover. The MaidCentral history import (paid invoices back-dated into
+      // 2026) otherwise dominated both figures (~95% of "YTD"), so the cards
+      // reported old MC money as Qleno revenue. Outstanding/Overdue are unchanged
+      // (they only contain live sent invoices, all post-cutover already).
       db.select({ total: sum(invoicesTable.total) })
         .from(invoicesTable)
         .where(and(compCond, eq(invoicesTable.status, "paid"),
-          sql`${invoicesTable.paid_at} >= now() - interval '30 days'`)),
+          sql`${invoicesTable.paid_at} >= now() - interval '30 days'`,
+          sql`${effDate} >= ${INVOICE_CUTOVER_DATE}`)),
       db.select({ total: sum(invoicesTable.total) })
         .from(invoicesTable)
         .where(and(compCond, eq(invoicesTable.status, "paid"),
-          sql`extract(year from ${invoicesTable.paid_at}) = extract(year from now())`)),
+          sql`extract(year from ${invoicesTable.paid_at}) = extract(year from now())`,
+          sql`${effDate} >= ${INVOICE_CUTOVER_DATE}`)),
     ]);
 
     return res.json({
