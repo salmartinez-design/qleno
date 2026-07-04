@@ -248,6 +248,10 @@ async function runStartupMigrations() {
       // [account-recurrence 2026-07-03] Account recurrences have no client; the
       // account is the billing entity. Idempotent (no-op once dropped).
       await db.execute(sql`ALTER TABLE recurring_schedules ALTER COLUMN customer_id DROP NOT NULL`);
+      // [account-payment 2026-07-03] A payment on a commercial/account invoice
+      // has no individual client — Mark Paid on Cucci/PPM/National Able 500'd on
+      // the payments.client_id NOT NULL constraint. Drop it. Idempotent.
+      await db.execute(sql`ALTER TABLE payments ALTER COLUMN client_id DROP NOT NULL`);
     });
   } catch (err: any) {
     console.error("[startup] addInvoiceColumns — non-fatal:", err?.message ?? err);
