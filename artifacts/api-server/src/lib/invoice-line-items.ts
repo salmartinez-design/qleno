@@ -15,7 +15,7 @@
 //   discount lines — each job_discounts row as a negative line so the total nets.
 import { db } from "@workspace/db";
 import { jobsTable, jobAddOnsTable, addOnsTable, jobDiscountsTable, accountPropertiesTable } from "@workspace/db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { ensureAutoPromosForJob } from "./auto-promos.js";
 
 export type InvoiceLineItem = { description: string; quantity: number; unit_price: number; total: number };
@@ -50,6 +50,25 @@ export async function buildJobLineItems(
     .limit(1);
   if (!job) return null;
 
+  // [rate-mod-lines 2026-07-03] Time & Fee Adjustments (job_rate_mods) never
+  // reached the invoice — the office adds e.g. a "$0 — Unit 2001" FLAT
+  // adjustment on a PPM turnover to tag which unit the invoice covers, and it
+  // silently vanished ("mirrors to the invoice… but it didnt"). Surface each
+  // FLAT mod as its own labeled line. billed_amount already FOLDS IN flat mods
+  // (recomputeJobBilledAmount: non-commercial = base + all mods; commercial =
+  // rate×hrs + FLAT mods + add-ons), so we must SUBTRACT their total back out of
+  // the scope line or the invoice would double-bill them. TIME mods are left
+  // baked into the scope (their dollars live in hours×rate / base, not as a
+  // standalone amount) — only flat adjustments get their own line.
+  const flatModRows = await exec.execute(sql`
+    SELECT reason, amount
+      FROM job_rate_mods
+     WHERE job_id = ${jobId} AND company_id = ${companyId} AND mod_type = 'flat'
+     ORDER BY created_at ASC
+  `);
+  const flatMods = (flatModRows.rows as Array<{ reason: string | null; amount: string }>);
+  const flatModsTotal = flatMods.reduce((s, m) => s + parseFloat(String(m.amount ?? "0")), 0);
+
   // [hourly-line-fix 2026-07-03] Scope line, three modes:
   //  - metered (billed_amount set): the all-in metered total; add-ons rolled in.
   //  - hourly rate-driven (hourly_rate + hours, NOT a pinned flat price): bill
@@ -82,7 +101,9 @@ export async function buildJobLineItems(
   }
   let scopeQty: number, scopeUnit: number, scopeAmount: number;
   if (isMetered) {
-    scopeAmount = parseFloat(String(job.billed_amount));
+    // Pull flat mods back out of the metered total — they get their own lines
+    // below, so leaving them in the scope would double-count.
+    scopeAmount = parseFloat(String(job.billed_amount)) - flatModsTotal;
     scopeQty = job.billed_hours ? parseFloat(String(job.billed_hours)) : 1;
     scopeUnit = rateNum || scopeAmount;
   } else if (isHourlyRateDriven) {
@@ -121,6 +142,17 @@ export async function buildJobLineItems(
         total: lineTotal,
       });
     }
+  }
+
+  // Flat Time & Fee Adjustments as their own labeled lines (e.g. "Unit 2001").
+  // Their dollars were subtracted from the metered scope above, so this restores
+  // the exact same total while making each adjustment (and its unit/reason)
+  // visible on the invoice.
+  for (const m of flatMods) {
+    const amt = parseFloat(String(m.amount ?? "0"));
+    runningTotal += amt;
+    const label = (m.reason && String(m.reason).trim()) ? String(m.reason).trim() : "Fee adjustment";
+    lineItems.push({ description: label, quantity: 1, unit_price: amt, total: amt });
   }
 
   const jobDisc = await exec.select().from(jobDiscountsTable)
