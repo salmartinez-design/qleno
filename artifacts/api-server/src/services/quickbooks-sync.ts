@@ -766,14 +766,24 @@ export async function syncPayment(companyId: number, invoiceId: number): Promise
       if (!refreshed?.qbo_invoice_id) throw new Error("Invoice not synced to QB, cannot create payment");
     }
 
-    // Get QB customer ID
-    const [map] = await db
-      .select({ qb_customer_id: qbCustomerMapTable.qb_customer_id })
-      .from(qbCustomerMapTable)
-      .where(and(eq(qbCustomerMapTable.company_id, companyId), eq(qbCustomerMapTable.qleno_customer_id, invoice.client_id!)))
-      .limit(1);
-
-    if (!map?.qb_customer_id) throw new Error("No QB customer mapping for payment");
+    // Get QB customer ID. [qb-account-payment 2026-07-03] Mirror syncInvoice
+    // (#874): a payment on an account/commercial invoice has client_id=NULL, so
+    // the client→QB map returns nothing — resolve the QB customer FROM the
+    // account instead. Without this, marking a KMA/PPM/Cucci invoice paid failed
+    // with "No QB customer mapping for payment" and the payment never cascaded.
+    let qbCustomerId: string | null = null;
+    if (invoice.client_id) {
+      const [map] = await db
+        .select({ qb_customer_id: qbCustomerMapTable.qb_customer_id })
+        .from(qbCustomerMapTable)
+        .where(and(eq(qbCustomerMapTable.company_id, companyId), eq(qbCustomerMapTable.qleno_customer_id, invoice.client_id)))
+        .limit(1);
+      qbCustomerId = map?.qb_customer_id ?? null;
+    }
+    if (!qbCustomerId && invoice.account_id) {
+      qbCustomerId = await resolveAccountQbCustomer(token, realmId, companyId, invoice.account_id);
+    }
+    if (!qbCustomerId) throw new Error("No QB customer mapping for payment");
 
     // Get payment record for method
     const [payment] = await db
@@ -797,7 +807,7 @@ export async function syncPayment(companyId: number, invoiceId: number): Promise
     const qboInvId = re_invoice[0]?.qbo_invoice_id;
 
     const paymentResp = await qbPost(token, realmId, "/payment", {
-      CustomerRef: { value: map.qb_customer_id },
+      CustomerRef: { value: qbCustomerId },
       TotalAmt: parseFloat(invoice.total || "0"),
       TxnDate: invoice.paid_at ? new Date(invoice.paid_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
       PaymentMethodRef: { name: paymentMethod },
