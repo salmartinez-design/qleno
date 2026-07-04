@@ -878,11 +878,10 @@ export default function InvoicesPage() {
 
   const stats = data?.stats || {};
 
-  // [invoices-uninvoiced 2026-07-02] Surface completed jobs that haven't been
-  // invoiced yet — commercial accounts on consolidated billing (National Able,
-  // KMA, PPM) and $0-rate jobs — so the day RECONCILES on this screen instead of
-  // silently coming up short. Same endpoint the Batch modal uses; filtered to
-  // the active date range by service date so it lines up with the list below.
+  // [invoices-uninvoiced 2026-07-02] Surface residential per-job completed work
+  // that hasn't been invoiced yet — a standing "still needs billing" to-do so
+  // finished jobs don't silently slip through un-billed. Same endpoint the Batch
+  // modal uses.
   const { data: rawUninv } = useQuery({
     queryKey: ["invoices-uninvoiced-jobs"],
     queryFn: () => apiFetch("/api/jobs?status=complete&uninvoiced=true&limit=200"),
@@ -895,10 +894,12 @@ export default function InvoicesPage() {
       // nameless rows and double-listed them — exclude them so this section is
       // only residential per-job work. account_id comes from /api/jobs.
       if (j.account_id != null) return false;
-      const d = String(j.scheduled_date || "").slice(0, 10);
-      if (dateFrom && d < dateFrom) return false;
-      if (dateTo && d > dateTo) return false;
-      if (search.trim()) return (j.client_name || "").toLowerCase().includes(search.toLowerCase());
+      // [uninvoiced-stable 2026-07-04] Show the FULL residential backlog,
+      // independent of the invoice-list date range and search box. This panel is
+      // a fixed-height to-do reminder, not a slice of the list below it — keeping
+      // it decoupled means clicking Today/Week/Month/Drafts/Sent no longer makes
+      // the panel blink in/out and shove the toolbar + list (it sits above them).
+      // Only actually invoicing a job changes what's here.
       return true;
     });
   const uninvTotal = uninvoicedJobs.reduce((sum: number, j: any) => sum + Number(j.billed_amount ?? j.amount ?? j.base_fee ?? 0), 0);
