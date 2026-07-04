@@ -1305,6 +1305,15 @@ router.post("/book/walkthrough", rateLimit, async (req, res) => {
     );
     const jobId = (jobResult.rows[0] as any).id;
 
+    // [widget-lead 2026-07-04] A commercial walkthrough request must land in the
+    // Lead Pipeline so the office follows up (do the walkthrough, then quote).
+    // needs_contacted (not booked) — the sale isn't closed yet. Non-fatal.
+    try {
+      await db.execute(drizzleSql`
+        INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, status, job_id, created_at, updated_at)
+        VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${address || null}, ${wtAddrZip}, 'Commercial Walkthrough', 'booking_widget', 'needs_contacted', ${jobId}, NOW(), NOW())`);
+    } catch (leadErr) { console.error("[walkthrough] Failed to create lead record:", leadErr); }
+
     const resendKey = process.env.RESEND_API_KEY;
     if (process.env.COMMS_ENABLED !== "true") {
       console.log("[COMMS BLOCKED] Walkthrough notification email suppressed:", { email, first_name, last_name });
@@ -1433,6 +1442,16 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
       `
     );
     const jobId = (jobResult.rows[0] as any).id;
+
+    // [widget-lead 2026-07-04] Surface this booking in the Lead Pipeline.
+    // Only /book/confirm (residential) created a lead — the commercial paths
+    // didn't, so paid commercial bookings from the widget never appeared in
+    // Leads. Mirror the /book/confirm insert. Non-fatal (never fails a booking).
+    try {
+      await db.execute(drizzleSql`
+        INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, status, job_id, booked_at, created_at, updated_at)
+        VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${address || null}, ${cAddrZip}, 'Commercial Cleaning', 'booking_widget', 'booked', ${jobId}, NOW(), NOW(), NOW())`);
+    } catch (leadErr) { console.error("[commercial-confirm] Failed to create lead record:", leadErr); }
 
     console.log(`[COMMERCIAL] Single visit confirmed — client_id=${clientId} job_id=${jobId} card=${cardBrand} *${cardLast4}`);
     return res.status(201).json({ ok: true, client_id: clientId, job_id: jobId, pricing: { final_total: 180 }, card_last4: cardLast4, card_brand: cardBrand });
