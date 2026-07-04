@@ -817,6 +817,89 @@ router.post("/periods/:id/recompute", adminWriteGate, async (req, res) => {
   return res.json({ data: result });
 });
 
+// [mileage-clock-sequence 2026-07-03] Derive drive legs from the TIME CLOCK when
+// no "On My Way" event fired — Sal's confirmed flow: "the system uses the clocks
+// at the first house and second to confirm tech was there, then office approval,
+// then cascade to pay for mileage." Two consecutive clock-ins for the same tech
+// on the same day = a drive from job A → job B. The first clock-in of the day is
+// the home→first-job commute (never reimbursed) so it produces no leg; the
+// last-job→home leg has no following clock-in, so it's naturally excluded too
+// (29 CFR 785.35). The schema was pre-built for this (leg_source='clock_sequence',
+// nullable source_on_my_way_event_id, partial unique index
+// mileage_legs_clock_seq_uq on (company,user,from_job,to_job)). Distance × the
+// DATED IRS rate; inserted as status='computed' for the office review gate (2B).
+async function deriveClockSequenceLegs(
+  companyId: number,
+  periodId: number,
+  startDate: string,
+  endDate: string,
+  provider: DistanceProvider,
+): Promise<{ legs_considered: number; inserted: number; skipped: Record<string, number> }> {
+  const rateRows = await db
+    .select({ rate: mileageRatesTable.rate, effective_date: mileageRatesTable.effective_date, end_date: mileageRatesTable.end_date })
+    .from(mileageRatesTable).where(eq(mileageRatesTable.company_id, companyId));
+  const rateInputs = rateRows.map((r) => ({ rate: r.rate, effective_date: String(r.effective_date), end_date: r.end_date != null ? String(r.end_date) : null }));
+  const rateForDate = (date: string) => pickMileageRateForDate(rateInputs, date);
+
+  // All clock-ins in the period, per tech in time order, with the job's
+  // coordinates (prefer the geocoded job location, else the client's).
+  const rows = (await db.execute(sql`
+    SELECT t.user_id, t.job_id,
+           (t.clock_in_at AT TIME ZONE 'America/Chicago')::date::text AS leg_day,
+           COALESCE(j.job_lat, c.lat) AS lat,
+           COALESCE(j.job_lng, c.lng) AS lng
+      FROM timeclock t
+      JOIN jobs j ON j.id = t.job_id
+      LEFT JOIN clients c ON c.id = j.client_id
+     WHERE t.company_id = ${companyId}
+       AND t.clock_in_at IS NOT NULL
+       AND (t.clock_in_at AT TIME ZONE 'America/Chicago')::date BETWEEN ${startDate} AND ${endDate}
+     ORDER BY t.user_id, t.clock_in_at ASC
+  `)).rows as any[];
+
+  type Leg = { user_id: number; from_job_id: number; to_job_id: number; leg_date: string; fromLat: number | null; fromLng: number | null; toLat: number | null; toLng: number | null };
+  const legs: Leg[] = [];
+  let prev: any = null;
+  for (const r of rows) {
+    if (prev && Number(prev.user_id) === Number(r.user_id) && String(prev.leg_day) === String(r.leg_day) && Number(prev.job_id) !== Number(r.job_id)) {
+      legs.push({
+        user_id: Number(r.user_id), from_job_id: Number(prev.job_id), to_job_id: Number(r.job_id), leg_date: String(r.leg_day),
+        fromLat: prev.lat != null ? Number(prev.lat) : null, fromLng: prev.lng != null ? Number(prev.lng) : null,
+        toLat: r.lat != null ? Number(r.lat) : null, toLng: r.lng != null ? Number(r.lng) : null,
+      });
+    }
+    prev = r;
+  }
+
+  const skipped: Record<string, number> = {};
+  let inserted = 0;
+  for (const leg of legs) {
+    if (leg.fromLat == null || leg.fromLng == null || leg.toLat == null || leg.toLng == null) { skipped.skip_no_coords = (skipped.skip_no_coords ?? 0) + 1; continue; }
+    const rate = rateForDate(leg.leg_date);
+    if (rate == null) { skipped.skip_no_rate = (skipped.skip_no_rate ?? 0) + 1; continue; }
+    const m = await provider.measureLeg(leg.fromLat, leg.fromLng, leg.toLat, leg.toLng);
+    if (m == null) { skipped.skip_no_measurement = (skipped.skip_no_measurement ?? 0) + 1; continue; }
+    const miles = m.meters / 1609.344;
+    if (!(miles > 0)) { skipped.skip_zero_distance = (skipped.skip_zero_distance ?? 0) + 1; continue; }
+    const rateNum = parseFloat(String(rate));
+    const amount = Math.round(miles * rateNum * 100) / 100;
+    const ins = await db.execute(sql`
+      INSERT INTO mileage_legs
+        (company_id, pay_period_id, user_id, source_on_my_way_event_id, leg_source,
+         from_job_id, to_job_id, leg_date, miles, minutes, rate_per_mile, amount,
+         measurement_source, measurement_is_estimated, status)
+      VALUES
+        (${companyId}, ${periodId}, ${leg.user_id}, NULL, 'clock_sequence',
+         ${leg.from_job_id}, ${leg.to_job_id}, ${leg.leg_date}, ${miles.toFixed(2)}, ${m.minutes}, ${rateNum.toFixed(4)}, ${amount.toFixed(2)},
+         ${m.source}, ${m.is_estimated}, 'computed')
+      ON CONFLICT (company_id, user_id, from_job_id, to_job_id) WHERE leg_source = 'clock_sequence' DO NOTHING
+      RETURNING id
+    `);
+    if ((ins.rows as any[]).length) inserted++;
+  }
+  return { legs_considered: legs.length, inserted, skipped };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /periods/:id/recompute-mileage — Cutover 2A
 // ─────────────────────────────────────────────────────────────────────────────
@@ -826,7 +909,9 @@ router.post("/periods/:id/recompute", adminWriteGate, async (req, res) => {
 // inserts pay_adjustments rows (adjustment_type='mileage'). The
 // partial unique index on (company_id, source_on_my_way_event_id)
 // makes re-runs no-ops via ON CONFLICT DO NOTHING — safe to call
-// repeatedly while the period is open.
+// repeatedly while the period is open. [2026-07-03] ALSO derives
+// clock_sequence legs (deriveClockSequenceLegs) for days where no OMW
+// fired, so mileage populates from the clocks alone.
 //
 // Caller flow: POST /periods/:id/recompute-mileage, then
 // POST /periods/:id/recompute to fold the new adjustments into each
@@ -841,14 +926,20 @@ router.post("/periods/:id/recompute-mileage", adminWriteGate, async (req, res) =
   if (period.status !== "open") return refusedDueToPeriodState(res, period.status);
   // Provider is resolved at the factory — the route doesn't name a
   // vendor. Per-tenant cache is layered in there too.
-  const result = await recomputeMileageForPeriod(
-    companyId,
-    periodId,
-    String(period.start_date),
-    String(period.end_date),
-    getDistanceProvider(companyId),
+  const provider = getDistanceProvider(companyId);
+  const omw = await recomputeMileageForPeriod(
+    companyId, periodId, String(period.start_date), String(period.end_date), provider,
   );
-  return res.json({ data: result });
+  const clocks = await deriveClockSequenceLegs(
+    companyId, periodId, String(period.start_date), String(period.end_date), provider,
+  );
+  return res.json({
+    data: {
+      on_my_way: omw,
+      clock_sequence: clocks,
+      inserted: omw.inserted + clocks.inserted,
+    },
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
