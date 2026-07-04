@@ -104,6 +104,7 @@ type Row = {
   job_id: number; client_name: string; service_type: string; scheduled_time: string | null;
   address?: string | null; client_id?: number | null; account_id?: number | null;
   entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null; flagged: boolean; minutes: number | null;
+  allowed_hours?: number | null;
   pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
   pay?: number | null; pay_kind?: "commission" | "cancellation"; cancel_action?: string | null;
@@ -200,6 +201,21 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
             inputMode="decimal" style={{ width: 56, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, color: "#1A1917", padding: "0 7px", textAlign: "right" }} />
           <span style={{ fontSize: 11, color: "#9E9B94" }}>{unit}</span>
         </div>
+      )}
+      {/* Allowed Hours pays budget-hours × rate — show the budget so the office
+          sees WHAT drives the $ (was invisible: rate + total only). */}
+      {payType === "allowed_hours" && (
+        row.allowed_hours != null && row.allowed_hours > 0 ? (
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#0A7C66", background: "#E6F7F1", borderRadius: 999, padding: "3px 9px" }}
+            title="The job's allowed-hours budget. Pay = allowed hours × rate (capped at budget). Set on the job.">
+            {row.allowed_hours.toFixed(2)} allowed hrs
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 999, padding: "3px 9px" }}
+            title="No allowed-hours budget set on this job — pay falls back to actual clocked hours × rate until a budget is entered.">
+            no budget — paying actual
+          </span>
+        )
       )}
       <span style={{ fontSize: 11, color: "#9E9B94", marginLeft: 4 }}>Breakage −$</span>
       <input value={ded} onChange={e => setDed(e.target.value)} placeholder="0" inputMode="decimal"

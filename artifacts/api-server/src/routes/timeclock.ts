@@ -1152,6 +1152,12 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  address: string | null; client_id: number | null; account_id: number | null;
                  entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null;
                  flagged: boolean; minutes: number | null;
+                 // [allowed-hrs-display 2026-07-04] The job's allowed-hours budget
+                 // — the number that DRIVES pay on an Allowed Hours line (pay =
+                 // allowed_hours × rate × share) and the denominator for budget-vs-
+                 // actual efficiency. Was never sent, so Allowed-Hours rows showed a
+                 // rate and a $ with no visible hours.
+                 allowed_hours: number | null;
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
                  pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null;
                  // pay_kind tells the UI whether `pay` is normal commission or
@@ -1252,6 +1258,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           address: j.address ?? null, client_id: j.client_id != null ? Number(j.client_id) : null, account_id: j.account_id != null ? Number(j.account_id) : null,
           entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
+          allowed_hours: j.allowed_hours != null ? Number(j.allowed_hours) : null,
           ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), source: e?.source ?? null,
           ...gpsOf(e), ...coordsOf(j),
         });
@@ -1266,6 +1273,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         address: j?.address ?? null, client_id: j?.client_id != null ? Number(j.client_id) : null, account_id: j?.account_id != null ? Number(j.account_id) : null,
         scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
+        allowed_hours: j?.allowed_hours != null ? Number(j.allowed_hours) : null,
         ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
         ...gpsOf(e), ...coordsOf(j),
       });
