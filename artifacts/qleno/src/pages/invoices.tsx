@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -695,6 +695,18 @@ export default function InvoicesPage() {
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState<TabId>("all");
   const [search, setSearch] = useState("");
+  // [kpi-click 2026-07-04] The top KPI cards were already clickable (#892) but
+  // only set the tab — with a lingering day-range date filter the list showed
+  // "No invoices found" far below the fold, so it read as "nothing happened."
+  // focusTab also CLEARS the date range (the KPIs are portfolio-wide totals) and
+  // scrolls the list into view, so a click always lands on visible results.
+  const listRef = useRef<HTMLDivElement>(null);
+  const focusTab = (tab: TabId) => {
+    setActiveTab(tab);
+    setDateFrom("");
+    setDateTo("");
+    setTimeout(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
   // [invoice-date-range 2026-06-21] Office date-range filter (by service date).
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
@@ -956,18 +968,23 @@ export default function InvoicesPage() {
               { label: "Overdue",     value: `$${Math.round(stats.total_overdue || 0).toLocaleString()}`, color: (stats.total_overdue || 0) > 0 ? "#DC2626" : undefined, tab: "overdue" as TabId },
               { label: "Paid (30d)",  value: `$${Math.round(stats.total_paid || 0).toLocaleString()}`,   color: "#16A34A", tab: "paid" as TabId },
               { label: "YTD Revenue", value: `$${Math.round(stats.total_revenue || 0).toLocaleString()}`, accent: true, tab: "paid" as TabId },
-            ].map(c => (
+            ].map(c => {
+              const selected = activeTab === c.tab;
+              return (
               <div key={c.label} role="button" tabIndex={0}
-                onClick={() => setActiveTab(c.tab)}
-                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setActiveTab(c.tab); } }}
-                title={`View ${c.label}`}
-                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 1px 6px rgba(0,0,0,0.06)"; e.currentTarget.style.borderColor = "var(--brand)"; }}
-                onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = c.accent ? "rgba(91,155,213,0.4)" : "#E5E2DC"; }}
-                style={{ ...CARD, cursor: "pointer", transition: "border-color 0.15s, box-shadow 0.15s", border: c.accent ? "1px solid rgba(91,155,213,0.4)" : "1px solid #E5E2DC" }}>
+                onClick={() => focusTab(c.tab)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); focusTab(c.tab); } }}
+                title={`Show ${c.label.toLowerCase()} invoices`}
+                onMouseEnter={(e) => { if (!selected) { e.currentTarget.style.boxShadow = "0 1px 6px rgba(0,0,0,0.06)"; e.currentTarget.style.borderColor = "var(--brand)"; } }}
+                onMouseLeave={(e) => { if (!selected) { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = c.accent ? "rgba(91,155,213,0.4)" : "#E5E2DC"; } }}
+                style={{ ...CARD, cursor: "pointer", transition: "border-color 0.15s, box-shadow 0.15s",
+                  border: selected ? "1px solid var(--brand)" : c.accent ? "1px solid rgba(91,155,213,0.4)" : "1px solid #E5E2DC",
+                  boxShadow: selected ? "0 0 0 1px var(--brand)" : "none" }}>
                 <p style={{ fontSize: 11, fontWeight: 600, color: c.accent ? "var(--brand)" : "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 10px" }}>{c.label}</p>
                 <p style={{ fontSize: 24, fontWeight: 800, color: c.color || (c.accent ? "var(--brand)" : "#1A1917"), margin: 0 }}>{c.value}</p>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* ── Ready to Charge ──────────────────────────────────────────────── */}
@@ -1112,7 +1129,7 @@ export default function InvoicesPage() {
             </div>
           )}
 
-          <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
+          <div ref={listRef} style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", scrollMarginTop: 16 }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #EEECE7", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "center", gap: 10 }}>
               <div style={{ display: "flex", gap: 4, backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: 4, overflowX: "auto" }}>
                 {tabs.map(tab => {
