@@ -43,6 +43,7 @@ const PortalDashboardPage = lazy(() => import("@/pages/portal/dashboard"));
 const InsightsPage        = lazy(() => import("@/pages/reports/insights"));
 const ReportsIndexPage    = lazy(() => import("@/pages/reports/index"));
 const RevenueReportPage   = lazy(() => import("@/pages/reports/revenue"));
+const RevenueHistoryPage  = lazy(() => import("@/pages/reports/revenue-history"));
 const PayrollReportPage   = lazy(() => import("@/pages/reports/payroll"));
 const EmployeeStatsPage   = lazy(() => import("@/pages/reports/employee-stats"));
 const TipsReportPage      = lazy(() => import("@/pages/reports/tips"));
@@ -263,6 +264,7 @@ function Router() {
         <Route path="/reports" component={ReportsIndexPage} />
         <Route path="/reports/insights" component={InsightsPage} />
         <Route path="/reports/revenue" component={RevenueReportPage} />
+        <Route path="/reports/revenue-history" component={RevenueHistoryPage} />
         <Route path="/reports/payroll" component={PayrollReportPage} />
         <Route path="/reports/employee-stats" component={EmployeeStatsPage} />
         <Route path="/reports/tips" component={TipsReportPage} />
