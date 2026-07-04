@@ -3,7 +3,7 @@ import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
-import { ArrowLeft, Send, DollarSign, CreditCard, Clock, AlertCircle, Printer, Pencil } from "lucide-react";
+import { ArrowLeft, Send, DollarSign, CreditCard, Clock, AlertCircle, Pencil, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { useTenantBrand } from "@/lib/tenant-brand";
@@ -38,6 +38,25 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
   });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
+}
+
+// [invoice-pdf-download 2026-07-03] Download the SERVER-generated PDF (pdfkit,
+// GET /api/invoices/:id/pdf) as a real file, replacing the old window.print()
+// which just opened the browser print dialog — a print-to-PDF that invoice
+// processors (KMA AP etc.) may reject. Fetch with auth, save the blob as
+// "<invoice_number>.pdf". No Content-Type header (it's a binary GET, not JSON).
+async function downloadInvoicePdf(invoiceId: number, invoiceNumber: string | null) {
+  const r = await fetch(`${API}/api/invoices/${invoiceId}/pdf`, { headers: { ...getAuthHeaders() } });
+  if (!r.ok) throw new Error(await r.text());
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${invoiceNumber || `invoice-${invoiceId}`}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 const STATUS_STYLES: Record<string, React.CSSProperties> = {
@@ -651,9 +670,13 @@ export default function InvoiceDetailPage() {
         </div>
 
         <div className="no-print" style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-          <button onClick={() => window.print()}
+          <button onClick={async () => {
+              try { await downloadInvoicePdf(invoice.id, invoice.invoice_number); }
+              catch { window.print(); /* fallback to browser print if the PDF fetch fails */ }
+            }}
+            title="Download a real PDF file to email or send to an invoice processor"
             style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#1A1917", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
-            <Printer size={14} /> Print / PDF
+            <Download size={14} /> Download PDF
           </button>
           {(invoice.status === "draft") && (
             <>
