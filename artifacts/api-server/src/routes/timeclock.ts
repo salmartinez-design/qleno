@@ -10,6 +10,46 @@ import { parseResRatesRow } from "../lib/commission-rates.js";
 import { unionHoursByKey } from "../lib/timeclock-hours.js";
 import type { CommissionInputJob } from "../lib/commission-compute.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
+import { notifyOfficeUsers } from "../lib/notify.js";
+
+// [geofence-ticket 2026-07-03] Raise an office "employee ticket" (in-app office
+// broadcast) whenever a punch is RECORDED outside the job geofence — the office's
+// coaching radar (Sal: "put a red flag on the time clock and give us an employee
+// ticket when this occurs"). The timeclock row already carries the red flag
+// (clock_in/out_outside_geofence + flagged); this adds the alert. Fire-and-forget:
+// a notify failure must never break a clock punch.
+async function raiseGeofenceTicket(
+  companyId: number,
+  userId: number | null | undefined,
+  jobId: number | null | undefined,
+  phase: "clock-in" | "clock-out",
+  distanceFt: number | null,
+): Promise<void> {
+  try {
+    if (jobId == null || userId == null) return;
+    const [u] = await db.select({ first_name: usersTable.first_name, last_name: usersTable.last_name })
+      .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    const nameRows = await db.execute(sql`
+      SELECT COALESCE(c.first_name || ' ' || COALESCE(c.last_name, ''), a.account_name, 'a job') AS client_name
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+       WHERE j.id = ${jobId} LIMIT 1
+    `);
+    const tech = `${u?.first_name ?? ""} ${u?.last_name ?? ""}`.trim() || "A technician";
+    const client = String((nameRows.rows[0] as any)?.client_name ?? "a job").trim();
+    const ft = distanceFt != null ? `${Math.round(distanceFt).toLocaleString()} ft` : "an unknown distance";
+    await notifyOfficeUsers(companyId, {
+      type: "geofence_violation",
+      title: "Geofence violation — off-site punch",
+      body: `${tech} clocked ${phase === "clock-in" ? "in" : "out"} ${ft} from ${client}. Review the time clock.`,
+      link: "/jobs",
+      meta: { job_id: jobId, user_id: userId, phase, distance_ft: distanceFt },
+    });
+  } catch (e) {
+    console.warn("[geofence-ticket] failed (non-fatal):", e);
+  }
+}
 import { isClientAccountCommsPaused } from "../lib/account-comms.js";
 
 const router = Router();
@@ -387,6 +427,11 @@ router.post("/clock-in", requireAuth, async (req, res) => {
       console.error("[late_clockin notify] failed:", notifErr);
     }
 
+    // [geofence-ticket 2026-07-03] Punch recorded outside the fence → office ticket.
+    if (geofenceEnabled && outsideGeofence) {
+      await raiseGeofenceTicket(req.auth!.companyId as number, effectiveUserId, job_id, "clock-in", distanceFt);
+    }
+
     return res.json({
       ...entry,
       distance_from_job_ft: distanceFt,
@@ -517,6 +562,11 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
 
     if (!updated) {
       return res.status(404).json({ error: "Not Found", message: "Time clock entry not found" });
+    }
+
+    // [geofence-ticket 2026-07-03] Clock-out recorded outside the fence → office ticket.
+    if (geofenceEnabled && outsideGeofence) {
+      await raiseGeofenceTicket(req.auth!.companyId as number, updated.user_id, updated.job_id, "clock-out", distanceFt);
     }
 
     // [GAP2 end-job completion] When the LAST open clock entry for a job closes,
