@@ -98,6 +98,7 @@ const AccountDetailPage   = lazy(() => import("@/pages/account-detail"));
 const OnboardPage         = lazy(() => import("@/pages/onboard"));
 const SignDocPage          = lazy(() => import("@/pages/sign-doc"));
 const BookPage            = lazy(() => import("@/pages/book"));
+const BookQuotePage       = lazy(() => import("@/pages/book-quote"));
 const LeadsPage           = lazy(() => import("@/pages/leads"));
 const LeadsPartnersPage   = lazy(() => import("@/pages/leads-partners"));
 const LeadsTemplatesPage  = lazy(() => import("@/pages/leads-templates"));
@@ -333,6 +334,9 @@ function Router() {
         <Route path="/quote/:token" component={EstimatePublicPage} />
 
         <Route path="/book/:slug" component={BookPage} />
+        {/* Book-from-quote — no login, tokenized. Pre-loaded from the quote so the
+            customer only picks a date + card (see the "Book" links in quote emails). */}
+        <Route path="/book-quote/:token" component={BookQuotePage} />
         <Route path="/pay/:token" component={PayPage} />
         <Route path="/sign/:token" component={SignPage} />
         <Route path="/onboard/:token" component={OnboardPage} />

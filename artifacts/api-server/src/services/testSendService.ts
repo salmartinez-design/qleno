@@ -245,10 +245,10 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
           { label: "Oven cleaning", amount: "+$50.00" },
           { label: "Inside fridge", amount: "+$40.00" },
         ],
-        bookUrl: "https://app.qleno.com/book/phes-cleaning?quote=SAMPLE-DEEP" },
+        bookUrl: "https://app.qleno.com/book-quote/SAMPLE-DEEP" },
       { title: "Standard Clean", freqLabel: "Every 2 weeks", total: "$140.00",
         rows: [{ label: "Standard Clean", amount: "$140.00" }],
-        bookUrl: "https://app.qleno.com/book/phes-cleaning?quote=SAMPLE-REC" },
+        bookUrl: "https://app.qleno.com/book-quote/SAMPLE-REC" },
     ];
     rendered = {
       subject: `Your quote from ${c.name || "Phes"}`,

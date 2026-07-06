@@ -263,6 +263,7 @@ router.get("/quote/:token", rateLimit, async (req, res) => {
       .filter((x: any) => Number.isFinite(x));
     return res.json({
       quote_id: q.id,
+      company_id: q.company_id,
       company_slug: q.company_slug,
       first_name, last_name,
       email: q.lead_email || "",
@@ -747,6 +748,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       booking_location,
       address_street, address_city, address_state, address_zip,
       address_lat, address_lng, address_verified,
+      quote_id, // set when the booking came from a quote email's "Book" link
     } = req.body;
 
     if (!company_id || !first_name || !last_name || !phone || !email || !scope_id || !sqft || !frequency) {
@@ -920,6 +922,22 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       `
     );
     const jobId = (jobResult.rows[0] as any).id;
+
+    // [book-from-quote] If this booking came from a quote email's "Book" link,
+    // mark that quote booked (linked to the new job) + stop its follow-up drip,
+    // so the customer isn't chased after they've already booked. Non-blocking.
+    if (quote_id) {
+      try {
+        await db.execute(drizzleSql`
+          UPDATE quotes SET status = 'booked', booked_job_id = ${jobId}, accepted_at = NOW()
+          WHERE id = ${Number(quote_id)} AND company_id = ${Number(company_id)}`);
+        import("../services/followUpService.js")
+          .then(({ stopEnrollmentsForQuote }) => stopEnrollmentsForQuote(Number(quote_id), "booked").catch(() => {}))
+          .catch(() => {});
+      } catch (qErr) {
+        console.error("[book-from-quote] mark quote booked failed:", qErr);
+      }
+    }
 
     // ── In-app notification: new booking ────────────────────────────────────
     try {
