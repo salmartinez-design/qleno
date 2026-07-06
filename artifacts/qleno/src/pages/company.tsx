@@ -1493,6 +1493,112 @@ const SMS_TOGGLES = [
   { key: "sms_complete_enabled",   label: "Job Complete", desc: "Sent when employee clocks out after completing the job" },
 ] as const;
 
+// Office "new lead" alerts — where the office is notified the second someone
+// starts an online quote. Email falls back to the company email server-side; the
+// text alert is OFF until a phone is entered (the abandon-track office SMS only
+// fires when lead_notify_phone is set), so "leave it off" = blank phone.
+function LeadAlertsCard() {
+  const { toast } = useToast();
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [smsOn, setSmsOn] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/api/companies/me`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        const c = d.data ?? d;
+        setEmail(c.lead_notify_email ?? "");
+        setPhone(c.lead_notify_phone ?? "");
+        setSmsOn(!!c.lead_notify_phone);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function saveLeadAlerts() {
+    if (smsOn && !phone.trim()) {
+      toast({ title: "Enter a mobile number to turn on text alerts", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/companies/me`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lead_notify_email: email.trim() || null,
+          lead_notify_phone: smsOn ? (phone.trim() || null) : null,
+        }),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: "Lead alerts saved" });
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setSaving(false); }
+  }
+
+  if (loading) return null;
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '18px 20px', marginBottom: 24, fontFamily: FF }}>
+      <div style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>New Lead Alerts</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>How the office is notified the moment someone starts an online quote.</p>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Alert Email</p>
+        <input
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="info@phes.io"
+          style={{ width: '100%', padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF, outline: 'none', boxSizing: 'border-box' }}
+        />
+        <p style={{ fontSize: 11, color: '#9E9B94', margin: '5px 0 0' }}>Every new lead emails here. Leave blank to use your company email.</p>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#F7F6F3', borderRadius: 8, marginBottom: smsOn ? 12 : 16 }}>
+        <div>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 2px' }}>Text me on new leads</p>
+          <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>Also text the office on every new lead. Requires Twilio.</p>
+        </div>
+        <button
+          onClick={() => setSmsOn(v => !v)}
+          style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: smsOn ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}
+        >
+          <div style={{ width: 18, height: 18, borderRadius: 9, background: '#fff', position: 'absolute', top: 3, left: smsOn ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
+        </button>
+      </div>
+
+      {smsOn && (
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Alert Phone</p>
+          <input
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            placeholder="+17085551234"
+            style={{ width: '100%', padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF, outline: 'none', boxSizing: 'border-box' }}
+          />
+          <p style={{ fontSize: 11, color: '#9E9B94', margin: '5px 0 0' }}>Mobile number that gets the text. Texts stay off until this is filled in.</p>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          onClick={saveLeadAlerts}
+          disabled={saving}
+          style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF, opacity: saving ? 0.7 : 1 }}
+        >
+          {saving ? "Saving…" : "Save Lead Alerts"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: string; channel: string }) => void }) {
   const { toast } = useToast();
   const FF = "'Plus Jakarta Sans', sans-serif";
@@ -2040,6 +2146,7 @@ function NotificationsTab() {
       })}
 
       <OfficeNotificationsCard onTest={openTest} />
+      <LeadAlertsCard />
       <SmsSmsSettingsCard onTest={openTest} />
 
       {testFor && (

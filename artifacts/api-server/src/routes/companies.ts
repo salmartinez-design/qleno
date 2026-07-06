@@ -189,6 +189,20 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (sms_paused_enabled !== undefined) patch.sms_paused_enabled = sms_paused_enabled;
     if (sms_complete_enabled !== undefined) patch.sms_complete_enabled = sms_complete_enabled;
     if (twilio_from_number !== undefined) patch.twilio_from_number = twilio_from_number;
+    // [lead-alerts 2026-07-06] Office "new lead" alert recipients. The
+    // abandon-track office notification emails lead_notify_email (falling back
+    // to company_email when null) and, when a number is present, texts
+    // lead_notify_phone. Phone has NO fallback, so a null/blank phone = lead
+    // text alerts OFF. Both trim; blank → null.
+    {
+      const { lead_notify_email, lead_notify_phone } = req.body;
+      const cleanContact = (v: unknown) => {
+        const s = String(v ?? "").trim();
+        return s ? s.slice(0, 200) : null;
+      };
+      if (lead_notify_email !== undefined) patch.lead_notify_email = cleanContact(lead_notify_email);
+      if (lead_notify_phone !== undefined) patch.lead_notify_phone = cleanContact(lead_notify_phone);
+    }
     // [scorecard-survey 2026-06-12] Per-tenant post-job survey config (Customer
     // Comms) + Twilio connection (Integrations). twilio_enabled is the go-live
     // gate; auth token is write-only (only set when a non-empty value is sent).
