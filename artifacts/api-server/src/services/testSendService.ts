@@ -21,6 +21,7 @@ import { renderCustomerTemplate, applyMergeTags, CUSTOMER_MESSAGE_TRIGGERS, type
 import { wrapEmailHtml } from "./notificationService.js";
 import { stylePolicyCopy } from "../lib/confirmation-email.js";
 import { renderPhesBookingConfirmation } from "../lib/phes-booking-confirmation.js";
+import { renderPhesQuote, type QuoteOption } from "../lib/phes-quote-email.js";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { emailLogoUrl } from "../lib/app-url.js";
 import { SAMPLE_SERVICES_BREAKDOWN_HTML } from "../lib/services-breakdown.js";
@@ -174,13 +175,17 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
   }
   const isOfficeBooking = templateKey === OFFICE_BOOKING_KEY;
   const isJobStatus = templateKey.startsWith(JOBSTATUS_PREFIX);
+  const isQuoteEmail = templateKey === "quote_email"; // bespoke on-brand quote receipt
   const isCatalog = CUSTOMER_MESSAGE_TRIGGERS.has(templateKey) || templateKey.startsWith("custom_");
-  if (!isCatalog && !isOfficeBooking && !isJobStatus) {
+  if (!isCatalog && !isOfficeBooking && !isJobStatus && !isQuoteEmail) {
     throw new TestSendError("unknown_template", 400, `Unknown template '${templateKey}'`);
   }
-  // Channel constraints for the two special groups.
+  // Channel constraints for the special groups.
   if (isOfficeBooking && channel !== "email") {
     throw new TestSendError("bad_channel", 400, "Office Booking Notification is email-only.");
+  }
+  if (isQuoteEmail && channel !== "email") {
+    throw new TestSendError("bad_channel", 400, "The quote email is email-only.");
   }
   if (isJobStatus && channel !== "sms") {
     throw new TestSendError("bad_channel", 400, "Job status messages are text-only.");
@@ -229,7 +234,39 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
   //   everything else → renderCustomerTemplate (notification_templates + {{tags}})
   let rendered: { subject: string | null; body: string };
   let bodyIsFullHtml = false; // office booking builds its own complete email shell
-  if (isOfficeBooking) {
+  if (isQuoteEmail) {
+    // Bespoke on-brand quote receipt (mirrors the booking confirmation). Sample
+    // shows the two-option scenario (one-time deep clean + 2 add-ons AND a
+    // recurring plan), each with its own Book button.
+    const sampleOptions: QuoteOption[] = [
+      { title: "Deep Clean", freqLabel: "One-time", total: "$698.00",
+        rows: [
+          { label: "Deep Clean", amount: "$608.00" },
+          { label: "Oven cleaning", amount: "+$50.00" },
+          { label: "Inside fridge", amount: "+$40.00" },
+        ],
+        bookUrl: "https://app.qleno.com/book/phes-cleaning?quote=SAMPLE-DEEP" },
+      { title: "Standard Clean", freqLabel: "Every 2 weeks", total: "$140.00",
+        rows: [{ label: "Standard Clean", amount: "$140.00" }],
+        bookUrl: "https://app.qleno.com/book/phes-cleaning?quote=SAMPLE-REC" },
+    ];
+    rendered = {
+      subject: `Your quote from ${c.name || "Phes"}`,
+      body: renderPhesQuote({
+        logoUrl: emailLogoUrl(c.logo_url),
+        companyName: c.name || "Phes",
+        companyPhone: c.phone || "(773) 706-6000",
+        companyPhoneTel: c.phone ? String(c.phone).replace(/[^\d+]/g, "") : "+17737066000",
+        companyEmail: c.email || "info@phes.io",
+        website: "phes.io",
+        firstName: SAMPLE_CUSTOMER_VARS.first_name,
+        serviceAddress: SAMPLE_CUSTOMER_VARS.service_address,
+        options: sampleOptions,
+        checklistUrl: "https://phes.io/cleaning-checklist",
+      }),
+    };
+    bodyIsFullHtml = true;
+  } else if (isOfficeBooking) {
     const { subject, html } = buildOfficeNotificationEmail(sampleOfficeBookingParams());
     rendered = { subject, body: html };
     bodyIsFullHtml = true;
