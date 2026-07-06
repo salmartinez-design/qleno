@@ -26,7 +26,7 @@ import { emailLogoUrl } from "../lib/app-url.js";
 import { SAMPLE_SERVICES_BREAKDOWN_HTML } from "../lib/services-breakdown.js";
 // Reuse the exact production render paths for the two non-template card groups:
 // the hardcoded job-status SMS bodies and the office booking-notification email.
-import { SMS_MESSAGES } from "../routes/job-sms.js";
+import { SMS_MESSAGES, JOBSTATUS_TO_TRIGGER } from "../routes/job-sms.js";
 import { buildOfficeNotificationEmail } from "../lib/emailTemplates.js";
 import { getBranchByZip } from "../lib/branchRouter.js";
 
@@ -212,7 +212,16 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
     const k = templateKey.slice(JOBSTATUS_PREFIX.length);
     const fn = SMS_MESSAGES[k];
     if (!fn) throw new TestSendError("template_not_found", 404, `No job-status message '${k}'.`);
-    rendered = { subject: null, body: fn(SAMPLE_CUSTOMER_VARS.tech_name, SAMPLE_CUSTOMER_VARS.first_name, SAMPLE_CUSTOMER_VARS.service_address) };
+    // [editable-jobstatus-sms 2026-07-06] on_my_way/arrived have an editable
+    // Customer Message equivalent — render the office's saved wording so the test
+    // matches what actually goes out; fall back to the built-in copy.
+    let jsBody: string | null = null;
+    const editableTrigger = JOBSTATUS_TO_TRIGGER[k];
+    if (editableTrigger) {
+      const r = await renderCustomerTemplate(companyId, editableTrigger, "sms", fullVars);
+      if (r && r.body.trim()) jsBody = r.body;
+    }
+    rendered = { subject: null, body: jsBody ?? fn(SAMPLE_CUSTOMER_VARS.tech_name, SAMPLE_CUSTOMER_VARS.first_name, SAMPLE_CUSTOMER_VARS.service_address) };
   } else if (typeof bodyOverride === "string" && bodyOverride.trim()) {
     // [draft-test] Render the unsaved editor draft through the same {{tag}}
     // substitution the saved path uses, so a DRAFT test looks identical to what
