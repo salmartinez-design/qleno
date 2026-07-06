@@ -54,8 +54,7 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string }[] }[] = [
   {
     label: 'Customer Comms',
     tabs: [
-      { id: 'follow-up', label: 'Follow-Up Sequences' },
-      { id: 'notifications', label: 'Notifications' },
+      { id: 'notifications', label: 'Customer Communications' },
       { id: 'survey', label: 'Customer Survey' },
     ],
   },
@@ -140,7 +139,6 @@ export default function CompanyPage() {
             {activeTab === 'addons' && <AddonsTab />}
             {activeTab === 'online-booking' && <OnlineBookingTab />}
             {activeTab === 'service-zones' && <ServiceZonesTab />}
-            {activeTab === 'follow-up' && <FollowUpSequencesTab />}
             {activeTab === 'hr-policies' && <HRPoliciesTab />}
             {activeTab === 'documents' && <DocumentsTab />}
           </div>
@@ -1802,11 +1800,15 @@ function NotificationsTab() {
   // Send Test: open a small confirm with an editable recipient, then deliver a
   // [TEST]-tagged copy of THIS template (sample data) to staff via the test-send
   // API. Isolated from Recent Sends + all automations (backend guarantees it).
-  const [testFor, setTestFor] = useState<{ key: string; label: string; channel: string } | null>(null);
+  // body/subject are optional overrides — used by follow-up drip steps, whose
+  // wording lives in follow_up_steps (not notification_templates). Passing the
+  // step template as body renders a [TEST] through the same {{tag}} + send path
+  // as a saved message (custom_ key skips the template lookup server-side).
+  const [testFor, setTestFor] = useState<{ key: string; label: string; channel: string; body?: string; subject?: string | null } | null>(null);
   const [testRecipient, setTestRecipient] = useState("");
   const [testBusy, setTestBusy] = useState(false);
 
-  function openTest(t: { key: string; label: string; channel: string }) {
+  function openTest(t: { key: string; label: string; channel: string; body?: string; subject?: string | null }) {
     setTestFor(t);
     setTestRecipient("");
   }
@@ -1826,6 +1828,8 @@ function NotificationsTab() {
           fixture: "sample",
           recipient_override: rec || null,
           branch_id: activeBranchId === "all" ? null : activeBranchId,
+          ...(testFor.body !== undefined ? { body: testFor.body } : {}),
+          ...(testFor.subject !== undefined ? { subject: testFor.subject } : {}),
         }),
       });
       const j = await r.json().catch(() => ({}));
@@ -1953,8 +1957,8 @@ function NotificationsTab() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, fontFamily: FF }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
-          <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 4px' }}>Customer Messages</p>
-          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, maxWidth: 540, lineHeight: 1.5 }}>Every automated text and email customers receive, in the order they get them. Edit the wording or timing, pause any one, or add your own.</p>
+          <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 4px' }}>Customer Communications</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, maxWidth: 560, lineHeight: 1.5 }}>Every automated text and email a customer gets — from first quote through follow-up — in the order they receive them. Edit the wording or timing, send yourself a test, or pause any one.</p>
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
           <button onClick={() => { setAddForm(blankAdd); setShowAdd(true); }}
@@ -2144,6 +2148,14 @@ function NotificationsTab() {
           </div>
         );
       })}
+
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 10 }}>
+          <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>Winning them back</p>
+          <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>Automated follow-up drips for quotes, abandoned bookings, and past clients. Each runs on its own until they book.</p>
+        </div>
+        <FollowUpSequencesTab onTest={openTest} />
+      </div>
 
       <OfficeNotificationsCard onTest={openTest} />
       <LeadAlertsCard />
@@ -3309,7 +3321,7 @@ function delayLabel(hours: number): string {
   return `Day ${d}`;
 }
 
-function FollowUpSequencesTab() {
+function FollowUpSequencesTab({ onTest }: { onTest?: (t: { key: string; label: string; channel: string; body?: string; subject?: string | null }) => void }) {
   const FFF = "'Plus Jakarta Sans', sans-serif";
   const FU_API = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { toast } = useToast();
@@ -3390,12 +3402,7 @@ function FollowUpSequencesTab() {
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#9E9B94", fontFamily: FFF }}>Loading sequences...</div>;
 
   return (
-    <div style={{ maxWidth: 760 }}>
-      <p style={{ fontFamily: FFF, fontSize: 13, color: "#6B6860", marginBottom: 24 }}>
-        Automated follow-up messages sent via SMS and email. Each sequence runs independently.
-        Toggle a sequence on or off without losing your message templates.
-      </p>
-
+    <div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {sequences.map(seq => {
           const isExpanded = expandedSeq === seq.id;
@@ -3532,12 +3539,23 @@ function FollowUpSequencesTab() {
                                 <p style={{ fontFamily: FFF, fontSize: 12, color: "#1A1917", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
                                   {step.message_template}
                                 </p>
-                                <button
-                                  onClick={() => startEditStep(step)}
-                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 6, padding: "4px 10px", background: "none", border: "1px solid #E5E2DC", borderRadius: 5, fontFamily: FFF, fontSize: 11, color: "#6B6860", cursor: "pointer" }}
-                                >
-                                  <Edit2 size={10} /> Edit
-                                </button>
+                                <div style={{ display: "inline-flex", gap: 6, marginTop: 6 }}>
+                                  <button
+                                    onClick={() => startEditStep(step)}
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", background: "none", border: "1px solid #E5E2DC", borderRadius: 5, fontFamily: FFF, fontSize: 11, color: "#6B6860", cursor: "pointer" }}
+                                  >
+                                    <Edit2 size={10} /> Edit
+                                  </button>
+                                  {onTest && (
+                                    <button
+                                      onClick={() => onTest({ key: "custom_dripstep", label: `${SEQ_LABELS[seq.sequence_type] ?? seq.name} · Step ${step.step_number}`, channel: step.channel === "email" ? "email" : "sms", body: step.message_template, subject: step.subject })}
+                                      title="Send a [TEST] copy to yourself"
+                                      style={{ display: "inline-flex", alignItems: "center", padding: "4px 10px", background: "#ECFDF5", border: "none", borderRadius: 5, fontFamily: FFF, fontSize: 11, fontWeight: 600, color: "#047857", cursor: "pointer" }}
+                                    >
+                                      Send Test
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>
