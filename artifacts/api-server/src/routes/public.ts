@@ -704,11 +704,37 @@ router.post("/book/setup", rateLimit, async (req, res) => {
       customerId = customer.id;
     }
 
-    const setupIntent = await stripe.setupIntents.create({
-      customer: customerId,
-      payment_method_types: ["card"],
-      usage: "off_session",
-    });
+    let setupIntent;
+    try {
+      setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        payment_method_types: ["card"],
+        usage: "off_session",
+      });
+    } catch (siErr: any) {
+      // A saved stripe_customer_id can be stale (e.g. created under a different
+      // Stripe account or in test mode) → Stripe returns "No such customer".
+      // Recover transparently by minting a fresh customer + repairing the row,
+      // so a returning client can still book instead of hitting a 500.
+      const stale = siErr?.code === "resource_missing" ||
+        siErr?.statusCode === 404 || /no such customer/i.test(siErr?.message || "");
+      if (!stale) throw siErr;
+      const fresh = await stripe.customers.create({
+        email,
+        name: `${first_name || ""} ${last_name || ""}`.trim(),
+        phone: phone || undefined,
+        metadata: { company_id: String(company_id) },
+      });
+      customerId = fresh.id;
+      setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        payment_method_types: ["card"],
+        usage: "off_session",
+      });
+      try {
+        await db.execute(drizzleSql`UPDATE clients SET stripe_customer_id = ${customerId} WHERE email = ${email} AND company_id = ${company_id}`);
+      } catch { /* best-effort repair */ }
+    }
 
     return res.json({
       stripe_enabled: true,
