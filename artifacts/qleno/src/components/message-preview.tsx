@@ -19,12 +19,19 @@ export const PREVIEW_SAMPLE: Record<string, string> = {
   // Quote Follow-Up tags — on a real send these fill from the attached quote
   // (buildQuoteMergeVars). Sample mirrors that table so the preview shows the
   // itemized quote + total instead of a blank "Quote details" block.
-  quote_number: "1042", quote_total: "658.00",
+  quote_number: "1042", quote_total: "698.00", quote_count: "2",
   line_items:
+    '<p style="font-size:15px;font-weight:700;color:#1A1917;margin:2px 0 2px;">Deep Clean &middot; One-time</p>' +
     '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">' +
     '<tr><td style="padding:6px 0;color:#1A1917;">Deep Clean</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$608.00</td></tr>' +
     '<tr><td style="padding:6px 0;color:#1A1917;">Oven cleaning</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$50.00</td></tr>' +
-    '<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$658.00</td></tr>' +
+    '<tr><td style="padding:6px 0;color:#1A1917;">Inside fridge</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$40.00</td></tr>' +
+    '<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$698.00</td></tr>' +
+    '</table>' +
+    '<p style="font-size:15px;font-weight:700;color:#1A1917;margin:16px 0 2px;">Standard Clean &middot; Every 2 weeks</p>' +
+    '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">' +
+    '<tr><td style="padding:6px 0;color:#1A1917;">Standard Clean</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$140.00</td></tr>' +
+    '<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$140.00</td></tr>' +
     '</table>',
 };
 
