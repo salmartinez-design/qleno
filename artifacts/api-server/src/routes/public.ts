@@ -228,6 +228,65 @@ router.get("/addons/:scopeId", rateLimit, async (req, res) => {
   }
 });
 
+// ── GET /api/public/quote/:token ────────────────────────────────────────────
+// Hands the booking widget a quote's saved answers so a "Book this quote" link
+// can PRE-FILL the flow instead of restarting it. Public (rate-limited), keyed
+// on the customer-facing sign_token. Only still-open quotes resolve (a booked /
+// expired quote returns 410 so the widget can fall back to a fresh booking).
+router.get("/quote/:token", rateLimit, async (req, res) => {
+  const { sql: drSql } = await import("drizzle-orm");
+  try {
+    const token = String(req.params.token || "").trim();
+    if (!token) return res.status(400).json({ error: "Missing token" });
+    const r = await db.execute(drSql`
+      SELECT q.id, q.company_id, q.lead_name, q.lead_email, q.lead_phone, q.address,
+             q.service_type, q.frequency, q.scope_id, q.addons, q.total_price,
+             q.bedrooms, q.bathrooms, q.half_baths, q.sqft, q.dirt_level, q.pets,
+             q.status, q.special_instructions, c.slug AS company_slug
+      FROM quotes q JOIN companies c ON c.id = q.company_id
+      WHERE q.sign_token = ${token} LIMIT 1
+    `);
+    const q: any = (r as any).rows?.[0];
+    if (!q) return res.status(404).json({ error: "Quote not found" });
+    if (["booked", "accepted", "converted", "expired", "declined", "lost"].includes(String(q.status))) {
+      return res.status(410).json({ error: "Quote no longer available", status: q.status });
+    }
+    // Split lead_name → first/last for the contact step.
+    const name = String(q.lead_name || "").trim();
+    const sp = name.indexOf(" ");
+    const first_name = sp > 0 ? name.slice(0, sp) : name;
+    const last_name = sp > 0 ? name.slice(sp + 1) : "";
+    // addons jsonb → addon_ids where the stored item carries a numeric id.
+    const addons = Array.isArray(q.addons) ? q.addons : [];
+    const addon_ids = addons
+      .map((a: any) => Number(a?.id))
+      .filter((x: any) => Number.isFinite(x));
+    return res.json({
+      quote_id: q.id,
+      company_slug: q.company_slug,
+      first_name, last_name,
+      email: q.lead_email || "",
+      phone: q.lead_phone || "",
+      address: q.address || "",
+      service_type: q.service_type || null,
+      frequency: q.frequency || null,
+      scope_id: q.scope_id ?? null,
+      addon_ids, addons,
+      bedrooms: q.bedrooms ?? null,
+      bathrooms: q.bathrooms ?? null,
+      half_baths: q.half_baths ?? null,
+      sqft: q.sqft ?? null,
+      dirt_level: q.dirt_level ?? null,
+      pets: q.pets ?? null,
+      special_instructions: q.special_instructions || null,
+      total_price: q.total_price ?? null,
+    });
+  } catch (err) {
+    console.error("GET /public/quote/:token:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── GET /api/public/offer-settings/:slug ────────────────────────────────────
 router.get("/offer-settings/:slug", rateLimit, async (req, res) => {
   const { sql: drSql } = await import("drizzle-orm");
