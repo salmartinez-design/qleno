@@ -4,7 +4,17 @@ import { jobsTable, clientsTable, usersTable, companiesTable, jobStatusLogsTable
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { sendNotification } from "../services/notificationService.js";
+import { renderCustomerTemplate } from "../lib/customer-messages.js";
 import { isSmsOptedOut } from "../lib/opt-out.js";
+
+// [editable-jobstatus-sms 2026-07-06] Job-status events that have an editable
+// Customer Message equivalent, so the office's own wording is what actually
+// sends (previously these SMS bodies were hardcoded and the editable text was
+// dead). Events not listed here (paused/resumed/complete) still use SMS_MESSAGES.
+export const JOBSTATUS_TO_TRIGGER: Record<string, string> = {
+  on_my_way: "on_my_way",
+  arrived:   "job_started",
+};
 
 const router = Router();
 
@@ -64,6 +74,7 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
     const jobs = await db.select({
       id: jobsTable.id, status: jobsTable.status, notes: jobsTable.notes,
       client_id: jobsTable.client_id, assigned_user_id: jobsTable.assigned_user_id,
+      service_type: jobsTable.service_type,
     }).from(jobsTable).where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
     const job = jobs[0];
     if (!job) return res.status(404).json({ error: "Job not found" });
@@ -122,7 +133,26 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
     const clientName = `${client.first_name}`;
     const empName    = `${emp?.first_name ?? "Your cleaner"}`;
     const addr       = [client.address, client.city].filter(Boolean).join(", ") || "your address";
-    const message    = SMS_MESSAGES[event](empName, clientName, addr);
+
+    // [editable-jobstatus-sms 2026-07-06] Prefer the office's editable Customer
+    // Message wording when the event has one (on_my_way -> "on_my_way",
+    // arrived -> "job_started"); fall back to the built-in copy so it can never
+    // regress (no template row, cleared body, or render error).
+    let message = SMS_MESSAGES[event](empName, clientName, addr);
+    const editableTrigger = JOBSTATUS_TO_TRIGGER[event];
+    if (editableTrigger) {
+      try {
+        const tpl = await renderCustomerTemplate(companyId, editableTrigger, "sms", {
+          company_name:    company.name ?? "",
+          tech_name:       empName,
+          first_name:      clientName,
+          service_address: addr,
+          arrival_window:  "shortly",
+          service_type:    (job.service_type ?? "cleaning").replace(/_/g, " "),
+        });
+        if (tpl && tpl.is_active && tpl.body.trim()) message = tpl.body;
+      } catch { /* keep the built-in fallback */ }
+    }
 
     try {
       await sendTwilioSms(client.phone, company.twilio_from_number, message);
