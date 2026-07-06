@@ -49,7 +49,7 @@ const LEAD_STATUS_RANK: Record<string, number> = { needs_contacted: 0, contacted
 async function upsertWidgetLead(companyId: number, opts: {
   email?: string | null; phone?: string | null; first_name?: string | null; last_name?: string | null;
   address?: string | null; zip?: string | null; scope?: string | null;
-  source: string; status: string; jobId?: number | null; booked?: boolean;
+  source: string; status: string; jobId?: number | null; booked?: boolean; quoteAmount?: number | null;
 }): Promise<number | null> {
   try {
     const { sql: s } = await import("drizzle-orm");
@@ -77,6 +77,8 @@ async function upsertWidgetLead(companyId: number, opts: {
           zip        = COALESCE(zip, ${opts.zip ?? null}),
           scope      = COALESCE(scope, ${opts.scope ?? null}),
           status     = ${upgrade ? s`${opts.status}` : s`status`},
+          quote_amount = COALESCE(${opts.quoteAmount ?? null}, quote_amount),
+          quoted_at  = ${opts.status === "quoted" ? s`COALESCE(quoted_at, NOW())` : s`quoted_at`},
           job_id     = COALESCE(job_id, ${opts.jobId ?? null}),
           booked_at  = ${opts.booked ? s`COALESCE(booked_at, NOW())` : s`booked_at`},
           updated_at = NOW()
@@ -84,9 +86,10 @@ async function upsertWidgetLead(companyId: number, opts: {
       return Number(existing.id);
     }
     const ins = await db.execute(s`
-      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, status, job_id, booked_at, created_at, updated_at)
+      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, status, quote_amount, quoted_at, job_id, booked_at, created_at, updated_at)
       VALUES (${companyId}, ${opts.first_name ?? null}, ${opts.last_name ?? null}, ${opts.phone ?? null}, ${opts.email ?? null},
               ${opts.address ?? null}, ${opts.zip ?? null}, ${opts.scope ?? null}, ${opts.source}, ${opts.status},
+              ${opts.quoteAmount ?? null}, ${opts.status === "quoted" ? s`NOW()` : s`NULL`},
               ${opts.jobId ?? null}, ${opts.booked ? s`NOW()` : s`NULL`}, NOW(), NOW())
       RETURNING id`);
     return Number((ins.rows as any[])[0]?.id) || null;
@@ -1511,8 +1514,15 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
 // Upserts an abandoned_bookings record so office can follow up if they leave.
 router.post("/book/abandon-track", rateLimit, async (req, res) => {
   try {
-    const { company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned = 2 } = req.body;
+    const { company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned = 2, stage, quote_amount } = req.body;
     if (!company_id) return res.status(400).json({ error: "company_id required" });
+    // [quote-not-booked 2026-07-06] The widget passes stage='quoted' (+ quote_amount)
+    // once the visitor reaches the payment step and has seen a real price, so an
+    // un-booked online quote lands in the Pipeline's QUOTED column. Default stays
+    // needs_contacted (the early step-1 capture). Only these two stages are accepted;
+    // upsertWidgetLead only ever UPGRADES stage, so this never downgrades a booking.
+    const leadStage = stage === "quoted" ? "quoted" : "needs_contacted";
+    const quoteAmt = quote_amount != null && !isNaN(Number(quote_amount)) ? Number(quote_amount) : null;
     const { sql: drizzleSql } = await import("drizzle-orm");
     if (email) {
       const existing = await db.execute(
@@ -1537,7 +1547,7 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
         // [widget-lead 2026-07-04] An online quote (contact entered, not yet
         // booked) must show in the Lead Pipeline so the office follows up.
         // Deduped: upgrades to booked later if they complete the booking.
-        await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: "needs_contacted" });
+        await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: leadStage, quoteAmount: quoteAmt });
         return res.json({ ok: true, action: "updated" });
       }
     }
@@ -1549,8 +1559,8 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
     `);
     const newAbId = (inserted.rows[0] as any)?.id;
     if (newAbId) await enrollForAbandonedBooking(company_id, newAbId);
-    // [widget-lead 2026-07-04] Online quote → Lead Pipeline lead (needs_contacted).
-    await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: "needs_contacted" });
+    // [widget-lead 2026-07-04] Online quote → Lead Pipeline lead (stage: needs_contacted or quoted).
+    await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: leadStage, quoteAmount: quoteAmt });
 
     // Immediate office notification — bypass COMMS_ENABLED (this is an inbound
     // lead signal, not automated outbound). Same bypass logic as /api/contact.

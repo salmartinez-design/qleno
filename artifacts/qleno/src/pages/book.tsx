@@ -2246,7 +2246,7 @@ export default function BookPage() {
                                       await pubFetch("/api/public/leads", {
                                         method: "POST",
                                         body: JSON.stringify({
-                                          company_id: company?.id ?? 1,
+                                          company_id: company?.id,
                                           first_name: firstName,
                                           last_name: lastName,
                                           phone,
@@ -3111,6 +3111,31 @@ export default function BookPage() {
                       submitWalkthroughBooking();
                     } else {
                       setStep(4);
+                      // [quote-not-booked 2026-07-06] Reaching the payment step means the
+                      // visitor saw a real price. Capture/upgrade the lead to "quoted"
+                      // (with the amount) so an un-booked online quote lands in the
+                      // Pipeline's QUOTED column. Per-tenant via company.id; deduped
+                      // server-side (upgrades the step-1 needs_contacted lead; a later
+                      // Confirm & Book upgrades it again to booked). Residential only.
+                      if (!isCommercial && company?.id) {
+                        const quoteAmt = calcResult ? Number((effectiveTotal(calcResult) * conditionMultiplier).toFixed(2)) : undefined;
+                        pubFetch("/api/public/book/abandon-track", {
+                          method: "POST",
+                          body: JSON.stringify({
+                            company_id: company.id,
+                            first_name: firstName,
+                            last_name: lastName,
+                            email,
+                            phone,
+                            address,
+                            zip,
+                            scope: scopeName || scope,
+                            stage: "quoted",
+                            quote_amount: quoteAmt,
+                            step_abandoned: 4,
+                          }),
+                        }).catch(() => {});
+                      }
                     }
                   }}
                 >
