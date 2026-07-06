@@ -744,6 +744,41 @@ export default function BookPage() {
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [scopeId, sqft, frequencyStr, frequencies, selectedAddonIds, step]);
 
+  // [capture-via-effect 2026-07-06] Abandoned-quote capture — the SINGLE source of
+  // truth for turning an online quote into a Lead Pipeline lead + office alert +
+  // the abandoned-booking drip. It used to be fired inline from the step buttons
+  // but that ALWAYS threw a ReferenceError (`scopeName`/`scope` don't exist — the
+  // scope name is `selectedScope?.name`) *after* setStep ran, so the fetch never
+  // fired and NO quote was ever captured. Driving it from this effect, keyed on
+  // `step`, fixes that and can't be skipped by a button path:
+  //   - reach the quote step (step >= 2) -> needs_contacted lead
+  //   - reach the payment step (step >= 4) -> upgrade to "quoted" (+ amount)
+  // Per-tenant via company.id; server-side dedupes + only upgrades stage, so a
+  // later Confirm & Book still wins. Residential only. Fire-once per milestone.
+  const captureFiredRef = useRef({ needs: false, quoted: false });
+  useEffect(() => {
+    if (isCommercial || !company?.id || !email) return;
+    const post = (extra: Record<string, unknown>) => {
+      pubFetch("/api/public/book/abandon-track", {
+        method: "POST",
+        body: JSON.stringify({
+          company_id: company.id,
+          first_name: firstName, last_name: lastName, email, phone, address, zip,
+          scope: selectedScope?.name || "", ...extra,
+        }),
+      }).catch(() => {});
+    };
+    if (step >= 2 && !captureFiredRef.current.needs) {
+      captureFiredRef.current.needs = true;
+      post({ stage: "needs_contacted", step_abandoned: 2 });
+    }
+    if (step >= 4 && !captureFiredRef.current.quoted) {
+      captureFiredRef.current.quoted = true;
+      const quoteAmt = calcResult ? Number((effectiveTotal(calcResult) * conditionMultiplier).toFixed(2)) : undefined;
+      post({ stage: "quoted", quote_amount: quoteAmt, step_abandoned: 4 });
+    }
+  }, [step, company, email]);
+
 
   // ── Step 0 validation ─────────────────────────────────────────────────────
   function validateStep0() {
@@ -2503,25 +2538,11 @@ export default function BookPage() {
                     else {
                       runCalc();
                       setStep(2);
-                      // Fire abandon-track so the office is notified even if the
-                      // visitor never completes payment. Bypass is intentional —
-                      // this is an inbound lead signal, not an automated comm.
-                      if (company?.id) {
-                        pubFetch("/api/public/book/abandon-track", {
-                          method: "POST",
-                          body: JSON.stringify({
-                            company_id: company.id,
-                            first_name: firstName,
-                            last_name: lastName,
-                            email,
-                            phone,
-                            address,
-                            zip,
-                            scope: scopeName || scope,
-                            step_abandoned: 2,
-                          }),
-                        }).catch(() => {});
-                      }
+                      // [capture-via-effect 2026-07-06] The abandoned-quote capture is
+                      // NO LONGER fired inline here — that silently never ran (verified:
+                      // only /calculate fired on this click). It's now driven by a
+                      // state effect keyed on `step` (see the capture useEffect), which
+                      // fires reliably.
                     }
                   }}
                 >
@@ -3111,31 +3132,9 @@ export default function BookPage() {
                       submitWalkthroughBooking();
                     } else {
                       setStep(4);
-                      // [quote-not-booked 2026-07-06] Reaching the payment step means the
-                      // visitor saw a real price. Capture/upgrade the lead to "quoted"
-                      // (with the amount) so an un-booked online quote lands in the
-                      // Pipeline's QUOTED column. Per-tenant via company.id; deduped
-                      // server-side (upgrades the step-1 needs_contacted lead; a later
-                      // Confirm & Book upgrades it again to booked). Residential only.
-                      if (!isCommercial && company?.id) {
-                        const quoteAmt = calcResult ? Number((effectiveTotal(calcResult) * conditionMultiplier).toFixed(2)) : undefined;
-                        pubFetch("/api/public/book/abandon-track", {
-                          method: "POST",
-                          body: JSON.stringify({
-                            company_id: company.id,
-                            first_name: firstName,
-                            last_name: lastName,
-                            email,
-                            phone,
-                            address,
-                            zip,
-                            scope: scopeName || scope,
-                            stage: "quoted",
-                            quote_amount: quoteAmt,
-                            step_abandoned: 4,
-                          }),
-                        }).catch(() => {});
-                      }
+                      // [capture-via-effect 2026-07-06] The "quoted" capture is driven by
+                      // the capture useEffect (keyed on step reaching 4), not fired inline
+                      // here — the inline version silently never ran.
                     }
                   }}
                 >
