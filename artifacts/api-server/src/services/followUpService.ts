@@ -142,15 +142,47 @@ async function sendEmail(to: string, subject: string, body: string, fromAddress?
   await sendEmailRaw(to, subject, body, fromAddress, brand, unsub, cc);
 }
 
+// Human label for a quote's frequency, used as the option heading when a lead
+// has more than one quote (e.g. "Deep Clean · One-time" vs "Standard · Every 2 weeks").
+function quoteFreqLabel(f: string | null | undefined): string {
+  const k = String(f || "").toLowerCase().replace(/[\s-]+/g, "_");
+  const map: Record<string, string> = {
+    onetime: "One-time", one_time: "One-time",
+    weekly: "Weekly", biweekly: "Every 2 weeks", bi_weekly: "Every 2 weeks",
+    every_2_weeks: "Every 2 weeks", every_4_weeks: "Every 4 weeks",
+    monthly: "Monthly", quarterly: "Quarterly",
+  };
+  return map[k] || (f ? String(f).replace(/_/g, " ") : "");
+}
+
+// Render ONE quote as an itemized option block: an optional heading
+// (service · frequency) + a line-item table (base + each add-on) + a Total row.
+// Mirrors the booking-confirmation breakdown so every option reads the same.
+function renderQuoteOption(q: any, showHeading: boolean): string {
+  const total = q.total_price ?? q.base_price ?? "0";
+  const addons = Array.isArray(q.addons) ? q.addons : [];
+  const rows: string[] = [];
+  if (q.base_price != null) rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${q.service_type || "Cleaning service"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$${Number(q.base_price).toFixed(2)}</td></tr>`);
+  for (const a of addons) {
+    const amt = a?.amount ?? a?.price;
+    rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${a?.name || "Add-on"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">${amt != null ? "$" + Number(amt).toFixed(2) : "—"}</td></tr>`);
+  }
+  const table = `<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">${rows.join("")}<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$${Number(total).toFixed(2)}</td></tr></table>`;
+  if (!showHeading) return table;
+  const freq = quoteFreqLabel(q.frequency);
+  return `<p style="font-size:15px;font-weight:700;color:#1A1917;margin:16px 0 2px;">${q.service_type || "Cleaning service"}${freq ? ` &middot; ${freq}` : ""}</p>${table}`;
+}
+
 // Build the merge vars for a quote-tied enrollment touch (the quote email + SMS).
-// Pulls the quote's public sign_token (→ the customer-facing estimate page),
-// total, line items, address, contact + the tenant's company/brand info so the
-// MaidCentral-styled quote email renders fully on BOTH the cron and send-one
-// paths. Returns extra vars merged on top of the base {first_name, company_name}.
+// Pulls the triggering quote for the customer-facing link + brand info, then
+// gathers EVERY open quote for that lead so the customer sees all the options
+// they were quoted (e.g. a one-time deep clean AND a recurring plan), each
+// itemized, even the ones that didn't trigger this drip. Returns extra vars
+// merged on top of the base {first_name, company_name}.
 async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<Record<string, string>> {
   const r = await db.execute(sql`
-    SELECT q.id, q.total_price, q.base_price, q.address, q.service_type, q.addons,
-           q.sign_token, q.lead_email, q.lead_phone,
+    SELECT q.id, q.total_price, q.base_price, q.address, q.service_type, q.frequency, q.addons,
+           q.sign_token, q.lead_email, q.lead_phone, q.client_id,
            c.name AS company_name, c.phone AS company_phone, c.email AS company_email
     FROM quotes q JOIN companies c ON c.id = q.company_id
     WHERE q.id = ${quoteId} AND q.company_id = ${companyId} LIMIT 1
@@ -159,19 +191,35 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
   if (!q) return {};
   const total = q.total_price ?? q.base_price ?? "0";
   // Residential quotes use the /quote/ route (the hosted page self-labels as
-  // "Quote"). Commercial estimates use /estimate/. This is a quote, so /quote/.
-  // Clean short link (/s/<code>) for the customer SMS/email instead of the long
-  // hex sign_token URL. Falls back to the full URL on any failure.
+  // "Quote"). Clean short link for the customer SMS/email; falls back to full URL.
   const fullLink = q.sign_token ? `${appBaseUrl()}/quote/${q.sign_token}` : `${appBaseUrl()}/quote`;
   const link = q.sign_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
-  const addons = Array.isArray(q.addons) ? q.addons : [];
-  const rows: string[] = [];
-  if (q.base_price != null) rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${q.service_type || "Cleaning service"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$${Number(q.base_price).toFixed(2)}</td></tr>`);
-  for (const a of addons) {
-    const amt = a?.amount ?? a?.price;
-    rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${a?.name || "Add-on"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">${amt != null ? "$" + Number(amt).toFixed(2) : "—"}</td></tr>`);
-  }
-  const lineItems = `<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">${rows.join("")}<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$${Number(total).toFixed(2)}</td></tr></table>`;
+
+  // All of this lead's still-open quotes. Match by client_id when known, else by
+  // lead email/phone. Only quotes actually sent to the customer (or this trigger),
+  // excluding anything already accepted / booked / expired / declined. One-time
+  // options list before recurring so the "book now" clean reads first.
+  const leadEmail = String(q.lead_email || "").trim().toLowerCase();
+  const leadPhone10 = String(q.lead_phone || "").replace(/\D/g, "").slice(-10);
+  const allRows = await db.execute(sql`
+    SELECT id, total_price, base_price, service_type, frequency, addons
+    FROM quotes
+    WHERE company_id = ${companyId}
+      AND status NOT IN ('accepted','booked','converted','expired','declined','lost')
+      AND (sent_at IS NOT NULL OR id = ${quoteId})
+      AND (
+        (${q.client_id}::int IS NOT NULL AND client_id = ${q.client_id})
+        OR (${q.client_id}::int IS NULL AND ${leadEmail} <> '' AND lower(lead_email) = ${leadEmail})
+        OR (${q.client_id}::int IS NULL AND ${leadPhone10} <> '' AND right(regexp_replace(coalesce(lead_phone,''),'\\D','','g'),10) = ${leadPhone10})
+      )
+    ORDER BY (frequency IS NULL OR lower(frequency) IN ('onetime','one_time','one-time')) DESC, id ASC
+  `);
+  const quotes: any[] = (allRows.rows && allRows.rows.length ? allRows.rows : [q]);
+  const multi = quotes.length > 1;
+  const lineItems = multi
+    ? quotes.map((qq) => renderQuoteOption(qq, true)).join("")
+    : renderQuoteOption(quotes[0], false);
+
   return {
     company_name:    q.company_name || "Phes",
     company_phone:   q.company_phone || "(773) 706-6000",
@@ -179,6 +227,7 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
     estimate_link:   link,
     quote_number:    String(q.id),
     quote_total:     Number(total).toFixed(2),
+    quote_count:     String(quotes.length),
     service_address: q.address || "",
     customer_email:  q.lead_email || "",
     customer_phone:  q.lead_phone || "",
