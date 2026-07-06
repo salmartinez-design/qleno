@@ -757,7 +757,12 @@ export default function BookPage() {
   // later Confirm & Book still wins. Residential only. Fire-once per milestone.
   const captureFiredRef = useRef({ needs: false, quoted: false });
   useEffect(() => {
-    if (isCommercial || !company?.id || !email) return;
+    // Guard on company FIRST: `isCommercial`/`selectedScope` are declared below the
+    // component's company-loading early-return, so on the initial (company === null)
+    // render they're in the temporal dead zone. Short-circuiting on !company?.id here
+    // means we never touch them until company is loaded (past the early-return).
+    if (!company?.id || !email) return;
+    if (isCommercial) return;
     const post = (extra: Record<string, unknown>) => {
       pubFetch("/api/public/book/abandon-track", {
         method: "POST",
