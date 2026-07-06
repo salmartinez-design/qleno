@@ -245,6 +245,19 @@ async function runStartupMigrations() {
       const { sql } = await import("drizzle-orm");
       await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS service_date date`);
       await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS bill_to_name text`);
+      // [manual-edit-detach 2026-07-06] Stamped when the office hand-edits an
+      // invoice's line items / tip via PUT. While set, the invoice is DETACHED
+      // from job mirroring: the mark-paid pre-payment recalc and the job-edit
+      // draft re-sync both skip it (Maribel: "we edit the invoice, click paid,
+      // and it goes back to the old amount"). Cleared by the explicit
+      // "Recalc from job" action, which deliberately re-attaches it.
+      await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS manually_edited_at timestamp`);
+      // [job-card-invoice-link 2026-07-06] The dispatch job card resolves a
+      // job's invoice by direct FK OR by line_items containment (consolidated
+      // account invoices / merge parents carry jobs inside line_items with
+      // job_id NULL). Index both lookup paths.
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_invoices_job ON invoices(job_id)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_invoices_line_items_gin ON invoices USING gin (line_items jsonb_path_ops)`);
       // [account-recurrence 2026-07-03] Account recurrences have no client; the
       // account is the billing entity. Idempotent (no-op once dropped).
       await db.execute(sql`ALTER TABLE recurring_schedules ALTER COLUMN customer_id DROP NOT NULL`);

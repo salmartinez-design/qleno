@@ -679,7 +679,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     // draft / sent / overdue (overdue is a display-derivation of sent). Paid →
     // reverse via refund flow; void → already inert. Keeps the books honest.
     const [current] = await db
-      .select({ status: invoicesTable.status, subtotal: invoicesTable.subtotal, tips: invoicesTable.tips })
+      .select({ status: invoicesTable.status, subtotal: invoicesTable.subtotal, tips: invoicesTable.tips, line_items: invoicesTable.line_items })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .limit(1);
@@ -707,11 +707,25 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     const tipVal = tips !== undefined ? (Number(tips) || 0) : parseFloat(current.tips || "0");
     const total = Math.round((subtotal + tipVal) * 100) / 100;
 
+    // [manual-edit-detach 2026-07-06] A hand-edit to the document's amounts
+    // (line items or tip) detaches the invoice from job mirroring: mark-paid's
+    // pre-payment recalc and the job-edit draft re-sync both skip invoices
+    // with manually_edited_at set. Without this, the office edited an amount,
+    // clicked Mark Paid, and watched it snap back to the job-derived figure
+    // (Maribel: "as soon as we click paid, goes back to the old amount").
+    // Date/terms/bill-to edits don't touch amounts, so they don't detach —
+    // and a save that resends identical amounts doesn't either (the edit UI
+    // sends line_items on every save, changed or not).
+    const amountsEdited =
+      (normLineItems ? JSON.stringify(normLineItems) !== JSON.stringify(normalizeInvoiceLineItems(current.line_items as any) ?? current.line_items) : false)
+      || (tips !== undefined && tipVal !== parseFloat(current.tips || "0"));
+
     const [updated] = await db
       .update(invoicesTable)
       .set({
         ...(status && { status }),
         ...(normLineItems && { line_items: normLineItems }),
+        ...(amountsEdited && { manually_edited_at: new Date() }),
         ...(dueProvided && { due_date: dueValue }),
         ...(createdProvided && { created_at: new Date(String(created_date) + "T12:00:00Z") }),
         ...(svcProvided && { service_date: svcValue }),
@@ -795,6 +809,11 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
     };
     sendNotification("invoice_sent", "email", companyId, client?.email ?? null, null, mergeVars).catch(() => {});
     sendNotification("invoice_sent", "sms",   companyId, null, client?.phone ?? null, mergeVars).catch(() => {});
+
+    // [no-auto-issue 2026-07-06] Completion invoices no longer push to QB at
+    // creation (they start as drafts), so finalizing here must push. One-way,
+    // fire-and-forget, no-op when QB isn't connected.
+    queueSync(() => syncInvoice(companyId, invoiceId));
 
     return res.json(formatInvoice({
       ...updated,
@@ -891,13 +910,17 @@ router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office
     // the sync was missed and Mark Paid would otherwise bank the old figure.
     // Only single-job invoices (job_id set) and only when still unpaid; account/
     // consolidated invoices (job_id NULL, jobs live in line_items) are untouched.
+    // [manual-edit-detach 2026-07-06] Also skipped when the office hand-edited
+    // the invoice (manually_edited_at set) — recording payment must bank the
+    // amount the office deliberately set, not clobber it back to the
+    // job-derived figure. Explicit "Recalc from job" re-attaches.
     const [pre] = await db
-      .select({ job_id: invoicesTable.job_id, status: invoicesTable.status, tips: invoicesTable.tips })
+      .select({ job_id: invoicesTable.job_id, status: invoicesTable.status, tips: invoicesTable.tips, manually_edited_at: invoicesTable.manually_edited_at })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId as number)))
       .limit(1);
     const preJobId: number | null = pre?.job_id ?? null;
-    if (preJobId != null && !["paid", "void", "superseded"].includes((pre?.status ?? "") as string)) {
+    if (preJobId != null && !pre?.manually_edited_at && !["paid", "void", "superseded"].includes((pre?.status ?? "") as string)) {
       try {
         const built = await buildJobLineItems(req.auth!.companyId as number, preJobId);
         if (built) {
@@ -1113,9 +1136,12 @@ router.post("/:id/recalc", requireAuth, requireRole("owner", "admin", "office"),
     const tipVal = parseFloat(inv.tips || "0");
     const total = Math.round((built.subtotal + tipVal) * 100) / 100;
 
+    // [manual-edit-detach 2026-07-06] An explicit recalc-from-job deliberately
+    // re-attaches the invoice to its job — clear the manual-edit detach flag so
+    // mirroring (job-edit re-sync, mark-paid recalc) resumes.
     const [updated] = await db
       .update(invoicesTable)
-      .set({ line_items: built.lineItems, subtotal: built.subtotal.toFixed(2), total: total.toFixed(2) })
+      .set({ line_items: built.lineItems, subtotal: built.subtotal.toFixed(2), total: total.toFixed(2), manually_edited_at: null })
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .returning();
 
@@ -1275,10 +1301,17 @@ router.post("/merge", requireAuth, requireRole("owner", "admin", "office"), asyn
       parentTotal += parseFloat(String(r.total ?? "0"));
       const childLines = Array.isArray(r.line_items) ? (r.line_items as any[]) : [];
       if (childLines.length > 0) {
-        for (const l of childLines) parentLines.push(l);
+        // [job-card-invoice-link 2026-07-06] Carry the child's job linkage onto
+        // the parent's lines. The folded child goes 'superseded' (hidden from
+        // the job card's invoice lookup), so without a job_id on the parent's
+        // line_items the job would show "No invoice yet" after a merge. Lines
+        // that already carry their own job_id (consolidated children) keep it.
+        for (const l of childLines) {
+          parentLines.push(r.job_id != null && l.job_id == null ? { ...l, job_id: r.job_id } : l);
+        }
       } else {
         const t = parseFloat(String(r.total ?? "0"));
-        parentLines.push({ description: `Invoice ${r.invoice_number || r.id}`, quantity: 1, unit_price: t, total: t });
+        parentLines.push({ description: `Invoice ${r.invoice_number || r.id}`, quantity: 1, unit_price: t, total: t, ...(r.job_id != null ? { job_id: r.job_id } : {}) });
       }
     }
     parentTotal = Math.round(parentTotal * 100) / 100;

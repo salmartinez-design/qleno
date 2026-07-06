@@ -42,6 +42,13 @@ export const invoicesTable = pgTable("invoices", {
   // name of the HOA there") the document + PDF show this instead. Added to the
   // live DB via idempotent ADD COLUMN IF NOT EXISTS in runStartupMigrations.
   bill_to_name: text("bill_to_name"),
+  // [manual-edit-detach 2026-07-06] Stamped when the office hand-edits line
+  // items / tip via PUT /api/invoices/:id. While set, the invoice is detached
+  // from job mirroring — the mark-paid pre-payment recalc and the job-edit
+  // draft re-sync skip it, so a deliberate manual amount survives Mark Paid.
+  // Cleared by POST /:id/recalc (explicit "recalc from job" re-attaches).
+  // Added to the live DB via ADD COLUMN IF NOT EXISTS in runStartupMigrations.
+  manually_edited_at: timestamp("manually_edited_at"),
   sent_at: timestamp("sent_at"),
   last_reminder_sent_at: timestamp("last_reminder_sent_at"),
   payment_failed: boolean("payment_failed").default(false),
