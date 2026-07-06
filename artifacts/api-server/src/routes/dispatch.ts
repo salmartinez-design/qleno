@@ -259,9 +259,17 @@ async function buildDispatchPayload(
         // most-recent non-void, non-superseded invoice (idempotent engine
         // ensures at most one, but guard order is safest). Null on pre-cutover
         // or uncompleted jobs that have no invoice yet.
-        invoice_id: sql<number | null>`(SELECT iv.id FROM invoices iv WHERE iv.job_id = ${jobsTable.id} AND iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') ORDER BY iv.created_at DESC LIMIT 1)`,
-        invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.job_id = ${jobsTable.id} AND iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') ORDER BY iv.created_at DESC LIMIT 1)`,
-        invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.job_id = ${jobsTable.id} AND iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') ORDER BY iv.created_at DESC LIMIT 1)`,
+        // [job-card-invoice-link 2026-07-06] Also matches invoices that carry
+        // the job INSIDE line_items (consolidated account invoices from
+        // POST /api/accounts/:id/generate-invoice, merge parents) — those have
+        // job_id NULL, so the direct-FK match alone left the job card showing
+        // "No invoice yet" even though the invoice existed (Maribel, Awaken
+        // Church common-areas). Direct job_id match wins over a line-item
+        // match; the @> containment predicate is the same one the account
+        // uninvoiced-jobs dedup guard uses.
+        invoice_id: sql<number | null>`(SELECT iv.id FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
         // [commission-override 2026-06-27] Office-set pool rate override for demanding jobs.
         commission_override_pct: sql<number | null>`(SELECT commission_override_pct FROM jobs WHERE id = ${jobsTable.id} LIMIT 1)`,
       })

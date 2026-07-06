@@ -56,7 +56,7 @@ async function syncJobInvoiceDraft(
 ): Promise<void> {
   try {
     const [existing] = await db
-      .select({ id: invoicesTable.id, status: invoicesTable.status, payment_terms: invoicesTable.payment_terms })
+      .select({ id: invoicesTable.id, status: invoicesTable.status, payment_terms: invoicesTable.payment_terms, manually_edited_at: invoicesTable.manually_edited_at })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.job_id, jobId), eq(invoicesTable.company_id, companyId)))
       .limit(1);
@@ -77,6 +77,12 @@ async function syncJobInvoiceDraft(
         .where(eq(invoicesTable.id, existing.id));
       return;
     }
+
+    // [manual-edit-detach 2026-07-06] The office hand-edited this invoice's
+    // amounts — it is deliberately detached from the job, so a later job edit
+    // must NOT clobber the manual figures. Void-on-cancel above still applies;
+    // the explicit "Recalc from job" action clears the flag and re-attaches.
+    if (existing.manually_edited_at) return;
 
     const built = await buildJobLineItems(companyId, jobId);
     if (!built) return;
@@ -3520,7 +3526,11 @@ router.delete("/:id", requireAuth, async (req, res) => {
       return res.status(403).json({ error: "Forbidden", message: "You don't have permission to delete jobs" });
     }
     const [existing] = await db
-      .select({ id: jobsTable.id, status: jobsTable.status })
+      .select({
+        id: jobsTable.id, status: jobsTable.status, client_id: jobsTable.client_id,
+        scheduled_date: jobsTable.scheduled_date, service_type: jobsTable.service_type,
+        base_fee: jobsTable.base_fee, billed_amount: jobsTable.billed_amount,
+      })
       .from(jobsTable)
       .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
       .limit(1);
@@ -3531,6 +3541,21 @@ router.delete("/:id", requireAuth, async (req, res) => {
       return res.status(409).json({
         error: "Conflict",
         message: "This job has a tech clocked in. Clock them out before deleting it.",
+      });
+    }
+    // [delete-fk-sweep 2026-07-06] An APPLIED mileage leg is paid money — the
+    // leg is the audit trail behind a real pay_adjustment, so the job it hangs
+    // on can't be silently deleted. Surface a clear reason instead of the raw
+    // FK 500 the office was hitting. Unapplied legs are cleaned up below.
+    const appliedLegs = await db.execute(sql`
+      SELECT 1 FROM mileage_legs
+      WHERE (from_job_id = ${jobId} OR to_job_id = ${jobId}) AND status = 'applied'
+      LIMIT 1
+    `);
+    if ((appliedLegs as any).rows.length > 0) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: "This job is part of an applied (paid) mileage leg. Cancel the job instead of deleting it.",
       });
     }
     await db.transaction(async (tx) => {
@@ -3545,6 +3570,28 @@ router.delete("/:id", requireAuth, async (req, res) => {
       await tx.execute(sql`DELETE FROM client_ratings WHERE job_id = ${jobId}`);
       await tx.execute(sql`DELETE FROM satisfaction_surveys WHERE job_id = ${jobId}`);
       await tx.execute(sql`DELETE FROM cancellation_log WHERE job_id = ${jobId}`);
+      // [delete-fk-sweep 2026-07-06] The list above missed several FK'd child
+      // tables, so any job with clock events / a discount / a worksheet / an
+      // on-my-way ping FK-failed the whole transaction — Maribel: "I tried
+      // everything but still can't delete that job from today". Complete sweep
+      // of every jobs FK without ON DELETE CASCADE (job_technicians,
+      // job_rate_mods, job_audit_log cascade on their own).
+      await tx.execute(sql`DELETE FROM job_clock_events WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM job_discounts WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM job_worksheet WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM efficiency_entries WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM attendance_proposals WHERE job_id = ${jobId}`);
+      // Mileage legs FK the job with NOT NULL columns, so unapplied legs
+      // (computed/reviewed/discarded — records, not pay) are deleted; the
+      // recompute engine rebuilds them from the remaining clock sequence.
+      // Applied legs are blocked BEFORE this transaction (money moved — the
+      // leg is the audit trail for a paid pay_adjustment). Legs must go
+      // before on_my_way_events (legs FK their source OMW event).
+      await tx.execute(sql`DELETE FROM mileage_legs WHERE (from_job_id = ${jobId} OR to_job_id = ${jobId}) AND status <> 'applied'`);
+      await tx.execute(sql`UPDATE on_my_way_events SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM on_my_way_events WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM technician_notes WHERE job_id = ${jobId}`);
+      await tx.execute(sql`DELETE FROM team_photo_notes WHERE job_id = ${jobId}`);
       // Financial / legal / cross-entity records → NULL the back-reference; the
       // parent row stays intact for billing/accounting/reporting.
       await tx.execute(sql`UPDATE quotes SET booked_job_id = NULL WHERE booked_job_id = ${jobId}`);
@@ -3558,10 +3605,20 @@ router.delete("/:id", requireAuth, async (req, res) => {
       await tx.execute(sql`UPDATE mileage_requests SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
       await tx.execute(sql`UPDATE mileage_requests SET to_job_id = NULL WHERE to_job_id = ${jobId}`);
       await tx.execute(sql`UPDATE cancellation_log SET rescheduled_to_job_id = NULL WHERE rescheduled_to_job_id = ${jobId}`);
+      // [delete-fk-sweep 2026-07-06] Payroll/audit records that outlive the job.
+      await tx.execute(sql`UPDATE hr_logs SET job_id = NULL WHERE job_id = ${jobId}`);
+      await tx.execute(sql`UPDATE scorecard_entries SET job_id = NULL WHERE job_id = ${jobId}`);
       await tx.delete(jobsTable).where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
     });
     await tombstoneOccurrence();
     logAudit(req, "DELETE", "job", jobId, null, { status: existing.status });
+    // Cascade to the client's own audit trail so all activity within a client
+    // is auditable in one place. (Folded in from the removed duplicate route.)
+    logClientActivity(req, existing.client_id, "job_deleted", {
+      job_id: jobId, scheduled_date: existing.scheduled_date,
+      service_type: existing.service_type, base_fee: existing.base_fee,
+      billed_amount: existing.billed_amount, status: existing.status,
+    }, null);
     return res.json({ success: true, message: "Job deleted" });
   } catch (err) {
     console.error("Delete job error:", err);
@@ -6084,69 +6141,10 @@ router.delete("/:id/rate-mods/:modId", requireAuth, async (req, res) => {
   }
 });
 
-// ─── DELETE A JOB ────────────────────────────────────────────────────────────
-// For made-up / test jobs. Recorded in the audit trail. Clears child rows that
-// would block the delete (clock entries, photos, add-ons, status logs, etc.)
-// and detaches (nulls) records we keep — invoices, payroll, mileage. Returns
-// 409 if the job has links that can't be safely removed → cancel it instead.
-router.delete("/:id", requireAuth, async (req, res) => {
-  const role = req.auth!.role;
-  if (!["owner", "admin", "office"].includes(role)) {
-    return res.status(403).json({ error: "Forbidden", message: "Only office, admin, or owner can delete a job." });
-  }
-  const jobId = parseInt(req.params.id);
-  if (isNaN(jobId)) return res.status(400).json({ error: "Invalid id" });
-  const [job] = await db.select().from(jobsTable)
-    .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId))).limit(1);
-  if (!job) return res.status(404).json({ error: "Not found" });
-  try {
-    await db.transaction(async (tx) => {
-      const childTables = [
-        "job_add_ons", "job_photos", "job_supplies", "job_status_logs", "job_clock_events",
-        "job_worksheet", "client_ratings", "cancellation_log", "timeclock", "clock_in_attempts",
-        "attendance_proposals", "job_technicians",
-      ];
-      for (const t of childTables) await tx.execute(sql.raw(`DELETE FROM ${t} WHERE job_id = ${jobId}`));
-      const detach: [string, string][] = [
-        ["additional_pay", "job_id"], ["communication_log", "job_id"], ["contact_tickets", "job_id"],
-        ["form_submissions", "job_id"], ["hr_logs", "job_id"], ["loyalty", "job_id"], ["invoices", "job_id"],
-        // [delete-always-works 2026-06-04] quotes.booked_job_id was the missing
-        // FK that made delete fail (409 "can't delete") for any job created from
-        // a converted quote. Detach it so delete always succeeds.
-        ["quotes", "booked_job_id"],
-        ["mileage", "from_job_id"], ["mileage", "to_job_id"],
-        ["mileage_requests", "from_job_id"], ["mileage_requests", "to_job_id"],
-        ["cancellation_log", "rescheduled_to_job_id"],
-      ];
-      for (const [t, c] of detach) {
-        // Tolerate tables/columns that don't exist in a given tenant — a single
-        // missing detach target must never block the delete.
-        try { await tx.execute(sql.raw(`UPDATE ${t} SET ${c} = NULL WHERE ${c} = ${jobId}`)); }
-        catch (e) { console.error(`[delete-job] detach ${t}.${c} skipped:`, (e as any)?.message); }
-      }
-      await tx.execute(sql.raw(`DELETE FROM jobs WHERE id = ${jobId}`));
-    });
-    // Global audit trail.
-    logAudit(req, "DELETE", "job", jobId, null, {
-      client_id: job.client_id, scheduled_date: job.scheduled_date,
-      service_type: job.service_type, base_fee: job.base_fee,
-    });
-    // Cascade to the client's own audit trail so all activity within a client
-    // is auditable in one place.
-    logClientActivity(req, job.client_id, "job_deleted", {
-      job_id: jobId, scheduled_date: job.scheduled_date,
-      service_type: job.service_type, base_fee: job.base_fee,
-      billed_amount: job.billed_amount, status: job.status,
-    }, null);
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("Delete job error:", err);
-    return res.status(409).json({
-      error: "Could not delete",
-      message: "This job has linked records (e.g. an invoice or payroll entry) and can't be deleted. Cancel it instead.",
-    });
-  }
-});
+// [delete-fk-sweep 2026-07-06] The duplicate DELETE /:id route that lived here
+// was DEAD CODE — Express matches the first registration, so the unified
+// delete above (search: delete-any-job) always won and this one never ran.
+// Its extra child-table cleanup has been folded into the live route.
 
 // ─── SET A JOB'S ZONE (manual override) ──────────────────────────────────────
 // [zone-picker 2026-06-04] Lets the office assign a zone directly on a gray/
