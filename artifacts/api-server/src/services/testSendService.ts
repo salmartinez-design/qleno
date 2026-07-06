@@ -69,6 +69,20 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
   // Pre-rendered sample itemized table so a test send exercises the
   // {{services_breakdown}} chip exactly like a real booking would.
   services_breakdown: SAMPLE_SERVICES_BREAKDOWN_HTML,
+  // Quote-tied tags used by the Quote Follow-Up email/SMS ({{line_items}},
+  // {{quote_total}}, {{estimate_link}}). On a real send these come from the
+  // attached quote via buildQuoteMergeVars; without them a test rendered the
+  // "Quote details" block blank (looked broken). This sample mirrors that
+  // helper's exact table markup so a test shows the itemized quote + total.
+  quote_number: "1042",
+  quote_total: "658.00",
+  estimate_link: "https://app.qleno.com/quote/sample",
+  line_items:
+    '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">' +
+    '<tr><td style="padding:6px 0;color:#1A1917;">Deep Clean</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$608.00</td></tr>' +
+    '<tr><td style="padding:6px 0;color:#1A1917;">Oven cleaning</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$50.00</td></tr>' +
+    '<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$658.00</td></tr>' +
+    '</table>',
 };
 
 // Sample booking used to render the office-notification email test. branchConfig

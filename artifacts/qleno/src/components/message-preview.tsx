@@ -16,6 +16,16 @@ export const PREVIEW_SAMPLE: Record<string, string> = {
   appointment_link: "https://phes.io/appt", review_link: "https://phes.io/review",
   quote_link: "https://phes.io/quote", estimate_link: "https://phes.io/estimate",
   survey_link: "https://phes.io/survey",
+  // Quote Follow-Up tags — on a real send these fill from the attached quote
+  // (buildQuoteMergeVars). Sample mirrors that table so the preview shows the
+  // itemized quote + total instead of a blank "Quote details" block.
+  quote_number: "1042", quote_total: "658.00",
+  line_items:
+    '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">' +
+    '<tr><td style="padding:6px 0;color:#1A1917;">Deep Clean</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$608.00</td></tr>' +
+    '<tr><td style="padding:6px 0;color:#1A1917;">Oven cleaning</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$50.00</td></tr>' +
+    '<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$658.00</td></tr>' +
+    '</table>',
 };
 
 export function fillSample(s: string, sample: Record<string, string> = PREVIEW_SAMPLE): string {
