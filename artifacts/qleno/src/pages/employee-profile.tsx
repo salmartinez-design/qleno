@@ -318,6 +318,32 @@ function AttendanceCalendar({ userId }: { userId: number }) {
     queryKey: ['leave-usage', userId],
     queryFn: () => apiFetch(`/leave/usage?userId=${userId}`),
   });
+  // [bucket-colors 2026-07-07] The calendar's day colors and legend now come
+  // from the TENANT'S bucket display config — the same accents the bucket
+  // cards wear (Sal: "the buckets need to match in color and cascade over to
+  // the calendar"). Shares the tab's query key, so no extra fetch.
+  const { data: calBalancesResp } = useQuery({
+    queryKey: ['leave-balances', userId],
+    queryFn: () => apiFetch(`/leave/balances?userId=${userId}`),
+  });
+  const calBuckets: any[] = calBalancesResp?.data || [];
+  // Derive the day tint from the bucket's ACCENT (the color its card wears),
+  // not display_config.tint — the legacy tints don't all match their accents
+  // (PLAWA: blue accent, amber chip tint), which is the very mismatch Sal
+  // flagged. accent + '22' = ~13% alpha wash of the same hue.
+  const bucketStyle = (slugPart: string) => {
+    const b = calBuckets.find((x: any) => String(x.slug || '').toLowerCase().includes(slugPart));
+    if (!b) return null;
+    const accent = b.accent || '#374151';
+    return { bg: `${accent}22`, ink: accent, label: b.chip_label || b.display_name };
+  };
+  const styles = {
+    unexcused: bucketStyle('unexcused') ?? { bg:'#FEE2E2', ink:'#991B1B', label:'Unexcused' },
+    pto: bucketStyle('pto') ?? { bg:'#DBEAFE', ink:'#1E40AF', label:'PTO' },
+    plawa: bucketStyle('plawa') ?? { bg:'#FEF3C7', ink:'#92400E', label:'PLAWA' },
+    unpaid: bucketStyle('unpaid') ?? { bg:'#FEF3C7', ink:'#92400E', label:'Unpaid' },
+    worked: { bg:'#DCFCE7', ink:'#166534', label:'Worked' },
+  };
 
   const clockMap: Record<string, { in: string; out: string }> = {};
   for (const entry of (clockData?.data || [])) {
@@ -328,20 +354,22 @@ function AttendanceCalendar({ userId }: { userId: number }) {
       clockMap[d] = { in: tin, out: tout };
     }
   }
-  // Day → category. Priority when a day carries several signals:
-  // unexcused (red) > PTO (blue) > time off (amber); Worked is the base.
+  // Day → bucket. Priority when a day carries several signals:
+  // unexcused > PTO > PLAWA > unpaid; Worked is the base.
   const unexDays = new Set<string>();
   for (const r of (attLogData?.data || [])) {
     if (r.type === 'absent' && !r.is_protected) unexDays.add(String(r.log_date).slice(0, 10));
   }
   const ptoDays = new Set<string>();
-  const timeOffDays = new Set<string>();
+  const plawaDays = new Set<string>();
+  const unpaidDays = new Set<string>();
   for (const u of (calUsageData?.data || [])) {
     const d = String(u.date_used).slice(0, 10);
     if (d < from || d > to) continue;
     const note = String(u.notes || '').toLowerCase();
     if (note.includes('/pto')) ptoDays.add(d);
-    else if (note.includes('/plawa') || note.includes('/unpaid')) timeOffDays.add(d);
+    else if (note.includes('/plawa')) plawaDays.add(d);
+    else if (note.includes('/unpaid')) unpaidDays.add(d);
   }
 
   const firstDow = new Date(year, month, 1).getDay();
@@ -367,15 +395,12 @@ function AttendanceCalendar({ userId }: { userId: number }) {
         </button>
       </div>
 
+      {/* Legend derives from the tenant's bucket display config, so it always
+          matches the bucket cards' colors. */}
       <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
-        {[
-          { label:'Worked', bg:'#DCFCE7', color:'#166534' },
-          { label:'PTO', bg:'#DBEAFE', color:'#1E40AF' },
-          { label:'Time Off', bg:'#FEF3C7', color:'#92400E' },
-          { label:'Unexcused', bg:'#FEE2E2', color:'#991B1B' },
-        ].map(l => (
+        {[styles.worked, styles.pto, styles.plawa, styles.unpaid, styles.unexcused].map(l => (
           <div key={l.label} style={{ display:'flex',alignItems:'center',gap:5 }}>
-            <div style={{ width:10,height:10,borderRadius:2,background:l.bg,border:`1px solid ${l.color}20` }}/>
+            <div style={{ width:10,height:10,borderRadius:2,background:l.bg,border:`1px solid ${l.ink}33` }}/>
             <span style={{ fontSize:11,color:'#6B7280' }}>{l.label}</span>
           </div>
         ))}
@@ -394,14 +419,16 @@ function AttendanceCalendar({ userId }: { userId: number }) {
           const worked = clockMap[key];
           const today  = new Date().toISOString().slice(0,10) === key;
           const cat = unexDays.has(key)
-            ? { bg:'#FEE2E2', ink:'#991B1B', label:'Unexcused' }
+            ? styles.unexcused
             : ptoDays.has(key)
-            ? { bg:'#DBEAFE', ink:'#1E40AF', label:'PTO' }
-            : timeOffDays.has(key)
-            ? { bg:'#FEF3C7', ink:'#92400E', label:'Time Off' }
+            ? styles.pto
+            : plawaDays.has(key)
+            ? styles.plawa
+            : unpaidDays.has(key)
+            ? styles.unpaid
             : worked
-            ? { bg:'#DCFCE7', ink:'#166534', label:null }
-            : { bg:'#FFFFFF', ink:'#9E9B94', label:null };
+            ? { ...styles.worked, label: null as string | null }
+            : { bg:'#FFFFFF', ink:'#9E9B94', label: null as string | null };
           return (
             <div key={key} style={{
               background: cat.bg,
@@ -754,6 +781,7 @@ export default function EmployeeProfilePage() {
   // 4 hours to the wrong bucket — I can't fix it").
   const [balMode, setBalMode] = useState<'deduct' | 'add' | 'set'>('deduct');
   const [balDeduct, setBalDeduct] = useState('');
+  const [balDate, setBalDate] = useState('');
   const [balGranted, setBalGranted] = useState('');
   const [balUsed, setBalUsed] = useState('');
   const [balReason, setBalReason] = useState('');
@@ -766,6 +794,7 @@ export default function EmployeeProfilePage() {
     setBalGranted(String(Number(b.granted || 0)));
     setBalUsed(String(Number(b.used || 0)));
     setBalDeduct('');
+    setBalDate(new Date().toISOString().slice(0, 10));
     setBalReason('');
     setBalMode('deduct');
     setBalErr(null);
@@ -780,10 +809,34 @@ export default function EmployeeProfilePage() {
     let granted: number;
     let used: number;
     if (balMode === 'deduct') {
+      // [cascade 2026-07-07] A deduction is a dated event, not a bare number
+      // change — POST /leave/usage writes the ledger row the calendar, View
+      // History, and balances all read, so the deduction shows up everywhere.
       const hrs = Number(balDeduct);
       if (balDeduct.trim() === '' || !Number.isFinite(hrs) || hrs <= 0) { setBalErr('Hours to deduct must be more than 0'); return; }
-      granted = balModal!.granted;
-      used = Math.round((balModal!.used + hrs) * 100) / 100;
+      if (!balDate) { setBalErr('Pick the date the hours were taken'); return; }
+      setBalBusy(true);
+      try {
+        await apiFetch('/leave/usage', {
+          method: 'POST',
+          body: JSON.stringify({
+            user_id: Number(userId),
+            leave_type_id: balModal!.leave_type_id,
+            date: balDate,
+            hours: hrs,
+            reason: balReason.trim() || undefined,
+          }),
+        });
+        qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+        qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+        qc.invalidateQueries({ queryKey: ['leave-balance-log', userId] });
+        setBalModal(null);
+      } catch (e: any) {
+        setBalErr(e?.message === '403' ? 'Only owners and admins can set balances' : 'Could not save — try again');
+      } finally {
+        setBalBusy(false);
+      }
+      return;
     } else if (balMode === 'add') {
       const hrs = Number(balDeduct);
       if (balDeduct.trim() === '' || !Number.isFinite(hrs) || hrs <= 0) { setBalErr('Hours to add back must be more than 0'); return; }
@@ -1890,6 +1943,12 @@ export default function EmployeeProfilePage() {
                           <>
                             <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>{balMode === 'deduct' ? 'Hours to deduct' : 'Hours to add back'}{balMode === 'add' && <span style={{ fontWeight:500,color:'#9E9B94' }}> (returns used hours to the bucket)</span>}</label>
                             <input type="number" min="0" step="0.25" value={balDeduct} onChange={e => setBalDeduct(e.target.value)} placeholder="e.g. 4" autoFocus style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                            {balMode === 'deduct' && (
+                              <>
+                                <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Date taken <span style={{ fontWeight:500,color:'#9E9B94' }}>(shows on the calendar and history)</span></label>
+                                <input type="date" value={balDate} onChange={e => setBalDate(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                              </>
+                            )}
                           </>
                         ) : (
                           <>
@@ -1974,6 +2033,7 @@ export default function EmployeeProfilePage() {
                             if (r.source === 'request_approved') return `Request approved — ${hrs ?? '?'} hrs deducted`;
                             if (r.source === 'request_cancelled') return `Approved request cancelled — ${hrs ?? '?'} hrs restored`;
                             if (r.source === 'usage_entry_deleted') return 'Usage entry removed — hours restored';
+                            if (r.source === 'office_deduct') return `Hours deducted — ${hrs ?? '?'} hrs`;
                             if (r.source === 'unexcused_recorded') return `Absence recorded — ${hrs ?? '?'} hrs`;
                             if (r.source === 'attendance_entry_deleted') return `Absence removed — ${hrs ?? '?'} hrs restored`;
                             if (r.source === 'office_set') return 'Balance set manually';
@@ -1992,6 +2052,7 @@ export default function EmployeeProfilePage() {
                             if (r.source === 'request_cancelled') return `cancelled by ${r.actor}`;
                             if (r.source === 'unexcused_recorded') return `recorded by ${r.actor}`;
                             if (r.source === 'attendance_entry_deleted') return `removed by ${r.actor}`;
+                            if (r.source === 'office_deduct') return `deducted by ${r.actor}`;
                             return `by ${r.actor}`;
                           };
                           const dateRange = (r: any) => {
