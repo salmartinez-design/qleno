@@ -754,6 +754,7 @@ export default function EmployeeProfilePage() {
   const [balDeduct, setBalDeduct] = useState('');
   const [balGranted, setBalGranted] = useState('');
   const [balUsed, setBalUsed] = useState('');
+  const [balReason, setBalReason] = useState('');
   const [balBusy, setBalBusy] = useState(false);
   const [balErr, setBalErr] = useState<string | null>(null);
   // [office-parity 2026-07-07] office included — Maribel/Francisco approve
@@ -763,6 +764,7 @@ export default function EmployeeProfilePage() {
     setBalGranted(String(Number(b.granted || 0)));
     setBalUsed(String(Number(b.used || 0)));
     setBalDeduct('');
+    setBalReason('');
     setBalMode('deduct');
     setBalErr(null);
     setBalModal({
@@ -795,6 +797,7 @@ export default function EmployeeProfilePage() {
           leave_type_id: balModal!.leave_type_id,
           granted_hours: granted,
           used_hours: used,
+          reason: balReason.trim() || undefined,
         }),
       });
       qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
@@ -1859,6 +1862,8 @@ export default function EmployeeProfilePage() {
                             <input type="number" min="0" step="0.25" value={balUsed} onChange={e => setBalUsed(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
                           </>
                         )}
+                        <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Reason <span style={{ fontWeight:500,color:'#9E9B94' }}>(shown in the Balance changes log)</span></label>
+                        <textarea value={balReason} onChange={e => setBalReason(e.target.value)} placeholder={balMode === 'deduct' ? 'e.g. took 4 hrs unpaid leave 7/7' : 'e.g. correcting the MC import'} rows={2} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box',resize:'vertical' }} />
                         <p style={{ fontSize:12,color:'#6B6860',margin:'0 0 12px' }}>
                           {preview != null
                             ? <>Available after save: <strong style={{ color: balModal.accent }}>{preview.toFixed(1)} hrs</strong></>
@@ -1915,7 +1920,6 @@ export default function EmployeeProfilePage() {
                           const logRows = balanceLog.filter((r: any) =>
                             (historyBucket.leave_type_id != null && r.leave_type_id === historyBucket.leave_type_id) ||
                             (r.slug && r.slug === historyBucket.slug));
-                          if (!logRows.length) return null;
                           const fmtAt = (at: string) => {
                             const d = new Date(at);
                             return d.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ', ' +
@@ -1933,6 +1937,8 @@ export default function EmployeeProfilePage() {
                             if (r.source === 'request_approved') return `Request approved — ${hrs ?? '?'} hrs deducted`;
                             if (r.source === 'request_cancelled') return `Approved request cancelled — ${hrs ?? '?'} hrs restored`;
                             if (r.source === 'usage_entry_deleted') return 'Usage entry removed — hours restored';
+                            if (r.source === 'unexcused_recorded') return `Absence recorded — ${hrs ?? '?'} hrs`;
+                            if (r.source === 'attendance_entry_deleted') return `Absence removed — ${hrs ?? '?'} hrs restored`;
                             if (r.source === 'office_set') return 'Balance set manually';
                             if (r.engine_action === 'initial_grant') return 'Automatic grant (eligibility reached)';
                             if (r.engine_action === 'annual_reset') return 'Automatic benefit-year reset';
@@ -1947,12 +1953,22 @@ export default function EmployeeProfilePage() {
                           const chain = (r: any) => {
                             if (r.source === 'request_approved') return `${empName} requested · approved by ${r.actor}`;
                             if (r.source === 'request_cancelled') return `cancelled by ${r.actor}`;
+                            if (r.source === 'unexcused_recorded') return `recorded by ${r.actor}`;
+                            if (r.source === 'attendance_entry_deleted') return `removed by ${r.actor}`;
                             return `by ${r.actor}`;
+                          };
+                          const dateRange = (r: any) => {
+                            const d = r.start_date || r.log_date;
+                            if (!d) return null;
+                            return `${shortDate(String(d))}${r.end_date && r.end_date !== r.start_date ? ` – ${shortDate(String(r.end_date))}` : ''}${r.day_unit ? ` (${dayUnitLabel[r.day_unit] ?? r.day_unit})` : ''}`;
                           };
                           return (
                             <div style={{ marginTop:20 }}>
                               <h4 style={{ margin:'0 0 4px',fontSize:13,fontWeight:700,color:'#1A1917' }}>Balance changes</h4>
                               <p style={{ margin:'0 0 8px',fontSize:11.5,color:'#9E9B94' }}>The full audit trail for this bucket — requests and approvals, office edits, automatic grants.</p>
+                              {logRows.length === 0 && (
+                                <p style={{ margin:0,fontSize:12,color:'#9E9B94',borderTop:'1px solid #E5E2DC',paddingTop:8 }}>No balance changes recorded yet. Every future change lands here automatically.</p>
+                              )}
                               {logRows.map((r: any, i: number) => (
                                 <div key={i} style={{ padding:'8px 0',borderTop: i ? '1px solid #F0EEE9' : '1px solid #E5E2DC' }}>
                                   <div style={{ display:'flex',justifyContent:'space-between',gap:10,fontSize:12 }}>
@@ -1961,18 +1977,19 @@ export default function EmployeeProfilePage() {
                                   </div>
                                   <div style={{ fontSize:12,color:'#6B6860',marginTop:2 }}>
                                     {chain(r)}
-                                    {r.start_date && (
-                                      <span style={{ color:'#9E9B94' }}>
-                                        {' '}· {shortDate(String(r.start_date))}{r.end_date && r.end_date !== r.start_date ? ` – ${shortDate(String(r.end_date))}` : ''}{r.day_unit ? ` (${dayUnitLabel[r.day_unit] ?? r.day_unit})` : ''}
-                                      </span>
-                                    )}
+                                    {dateRange(r) && <span style={{ color:'#9E9B94' }}> · {dateRange(r)}</span>}
                                   </div>
-                                  <div style={{ fontSize:12,color:'#6B6860',marginTop:2 }}>
-                                    {fmtPair(r.granted_new, r.used_new)}
-                                    {(r.granted_old != null || r.used_old != null) && (
-                                      <span style={{ color:'#9E9B94' }}> (was {fmtPair(r.granted_old, r.used_old)})</span>
-                                    )}
-                                  </div>
+                                  {(r.granted_new != null || r.used_new != null) && (
+                                    <div style={{ fontSize:12,color:'#6B6860',marginTop:2 }}>
+                                      {fmtPair(r.granted_new, r.used_new)}
+                                      {(r.granted_old != null || r.used_old != null) && (
+                                        <span style={{ color:'#9E9B94' }}> (was {fmtPair(r.granted_old, r.used_old)})</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {r.reason && (
+                                    <div style={{ fontSize:12,color:'#1A1917',marginTop:2,fontStyle:'italic' }}>"{r.reason}"</div>
+                                  )}
                                 </div>
                               ))}
                             </div>
@@ -2032,6 +2049,7 @@ export default function EmployeeProfilePage() {
                           <div style={{ minWidth:0 }}>
                             <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(d.date))} · {String(d.date)}</div>
                             <NoteChips note={d.reason} bucketMap={bucketDisplayMap} />
+                            {d.by && <div style={{ fontSize:11,color:'#9E9B94',marginTop:2 }}>{d.by === 'auto-detected' ? 'auto-detected from clock-in' : `recorded by ${d.by}`}</div>}
                           </div>
                           <div style={{ display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap' }}>
                             {d.hours != null && <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(d.hours).toFixed(2)} h</span>}

@@ -520,7 +520,7 @@ router.post("/reconcile/apply", adminWriteGate, async (req, res) => {
 router.put("/balances", adminWriteGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
-    const body = req.body as { user_id?: number; leave_type_id?: number; granted_hours?: number | string; used_hours?: number | string };
+    const body = req.body as { user_id?: number; leave_type_id?: number; granted_hours?: number | string; used_hours?: number | string; reason?: string };
     const userId = Number(body?.user_id);
     const leaveTypeId = Number(body?.leave_type_id);
     if (!Number.isFinite(userId) || !Number.isFinite(leaveTypeId)) {
@@ -553,6 +553,9 @@ router.put("/balances", adminWriteGate, async (req, res) => {
         user_id: userId, leave_type_id: leaveTypeId, slug: bucket.slug,
         granted_hours: granted ?? Number(bal.granted_hours),
         used_hours: used ?? Number(bal.used_hours),
+        // [reasons 2026-07-07] The office's why (Sal: "no place for me to
+        // put a reason") — rendered in the bucket's Balance changes log.
+        reason: String(body.reason ?? "").trim().slice(0, 500) || null,
         source: "office_set",
       });
     } catch { /* audit best-effort */ }
@@ -714,6 +717,31 @@ router.delete("/attendance/:id", officeReadGate, async (req, res) => {
         protected: row.protected, notes: row.notes,
       }, null);
     } catch { /* audit best-effort */ }
+    // [reasons 2026-07-07] Removing an absence restores hours to the
+    // unexcused bucket — mirror it into the bucket's Balance changes trail.
+    if (row.type === "absent") {
+      try {
+        const unexBucket = await db
+          .select({ id: leaveTypesTable.id, slug: leaveTypesTable.slug })
+          .from(leaveTypesTable)
+          .where(
+            and(
+              eq(leaveTypesTable.company_id, companyId),
+              eq(leaveTypesTable.accrual_mode, "office_recorded"),
+              eq(leaveTypesTable.active, true),
+            ),
+          )
+          .limit(1);
+        if (unexBucket[0]) {
+          const hrs = parseUnexcusedHours(row.notes);
+          await logAudit(req, "attendance_entry_deleted", "employee_leave_balance", String(id), null, {
+            user_id: row.employee_id, leave_type_id: unexBucket[0].id, slug: unexBucket[0].slug,
+            hours_delta: hrs, log_date: String(row.log_date),
+            source: "attendance_entry_deleted",
+          });
+        }
+      } catch { /* audit best-effort */ }
+    }
     return res.json({ ok: true });
   } catch (err) {
     console.error("attendance delete error:", err);
@@ -749,8 +777,16 @@ router.get("/balance-log", officeReadGate, async (req, res) => {
       const ov = row.old_value || null;
       const performer = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
       const actor = performer || SOURCE_LABEL[nv.source] || "System";
+      // performed_at is a zone-less Postgres timestamp stored in UTC; the raw
+      // driver hands it back as a bare string ("2026-07-07 21:26:37") which
+      // browsers parse as LOCAL time — Sal saw a 4:26 PM edit rendered as
+      // 9:26 PM. Normalize to an explicit-UTC ISO string.
+      const rawAt = String(row.performed_at ?? "");
+      const at = /Z$|[+-]\d{2}:?\d{2}$/.test(rawAt)
+        ? new Date(rawAt).toISOString()
+        : new Date(rawAt.replace(" ", "T") + "Z").toISOString();
       return {
-        at: row.performed_at,
+        at,
         action: row.action,
         actor,
         source: nv.source ?? (performer ? "office" : "system"),
@@ -760,6 +796,8 @@ router.get("/balance-log", officeReadGate, async (req, res) => {
         // Request designation chain: which request moved the hours, the
         // dates it covered, and the signed delta (negative = deducted).
         request_id: nv.request_id ?? null,
+        reason: nv.reason ?? null,
+        log_date: nv.log_date ?? null,
         hours_delta: nv.hours_delta != null ? Number(nv.hours_delta) : null,
         start_date: nv.start_date ?? null,
         end_date: nv.end_date ?? null,
@@ -802,6 +840,7 @@ async function buildAttendanceSummary(
       log_date: employeeAttendanceLogTable.log_date,
       type: employeeAttendanceLogTable.type,
       notes: employeeAttendanceLogTable.notes,
+      logged_by: employeeAttendanceLogTable.logged_by,
       is_protected: employeeAttendanceLogTable.protected,
     })
     .from(employeeAttendanceLogTable)
@@ -819,12 +858,26 @@ async function buildAttendanceSummary(
     (u) => String(u.date_used).slice(0, 10) >= from,
   );
 
+  // [reasons 2026-07-07] Recorded-by attribution (Sal: "make sure all buckets
+  // have audit logs") — Tardies/Unexcused aren't balance buckets, so their
+  // audit trail is WHO recorded each entry. NULL logged_by = the auto-tardy
+  // sweep; the drill-down labels those "auto-detected".
+  const loggerIds = [...new Set(att.map((r) => r.logged_by).filter((v): v is number => v != null))];
+  const loggerNames = new Map<number, string>();
+  if (loggerIds.length) {
+    const loggers = await db
+      .select({ id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name })
+      .from(usersTable)
+      .where(inArray(usersTable.id, loggerIds));
+    for (const l of loggers) loggerNames.set(l.id, `${l.first_name ?? ""} ${l.last_name ?? ""}`.trim());
+  }
   // [leave-log 2026-07-07] id + src let the office remove a mistaken entry
   // from the drill-down (src 'att' → DELETE /leave/attendance/:id, src
   // 'usage' → DELETE /leave/usage/:id).
-  const dayRow = (date: any, reason: string, hours: number | null, id?: number, src?: "att" | "usage") => ({
+  const dayRow = (date: any, reason: string, hours: number | null, id?: number, src?: "att" | "usage", by?: string | null) => ({
     id: id ?? null,
     src: src ?? null,
+    by: by === undefined ? null : by,
     date: String(date).slice(0, 10),
     reason: (reason || "").trim(),
     hours: hours != null ? round2(Number(hours)) : null,
@@ -836,9 +889,11 @@ async function buildAttendanceSummary(
     const c = cleanUnexNote(notes);
     return c === "Unexcused absence" ? fallback : c;
   };
-  const lateRows = att.filter((r) => r.type === "tardy").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Late"), parseUnexcusedHours(r.notes), r.id, "att"));
-  const absentRows = att.filter((r) => r.type === "absent" || r.type === "ncns").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Absent"), parseUnexcusedHours(r.notes), r.id, "att"));
-  const unexRows = att.filter((r) => r.type === "absent" && !r.is_protected).map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes), r.id, "att"));
+  const byOf = (r: { logged_by: number | null }) =>
+    r.logged_by != null ? (loggerNames.get(r.logged_by) || "office") : "auto-detected";
+  const lateRows = att.filter((r) => r.type === "tardy").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Late"), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
+  const absentRows = att.filter((r) => r.type === "absent" || r.type === "ncns").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Absent"), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
+  const unexRows = att.filter((r) => r.type === "absent" && !r.is_protected).map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
   const ptoRows = usageInWindow.filter((u) => String(u.notes || "").includes("/pto")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
   const sickRows = usageInWindow.filter((u) => String(u.notes || "").includes("/plawa")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
   const timeOffRows = usageInWindow.map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
@@ -2014,6 +2069,33 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
     note: body.notes,
     logged_by: actingUserId,
   });
+  // [reasons 2026-07-07] Unexcused-bucket balance provenance: an absence
+  // record moves the 40-hour bank (its balance is computed from the
+  // attendance log), so it belongs in the bucket's Balance changes trail —
+  // with the office's reason. Tardies don't touch a balance; skip them.
+  if (recordType === "absent") {
+    try {
+      const unexBucket = await db
+        .select({ id: leaveTypesTable.id, slug: leaveTypesTable.slug })
+        .from(leaveTypesTable)
+        .where(
+          and(
+            eq(leaveTypesTable.company_id, companyId),
+            eq(leaveTypesTable.accrual_mode, "office_recorded"),
+            eq(leaveTypesTable.active, true),
+          ),
+        )
+        .limit(1);
+      if (unexBucket[0]) {
+        await logAudit(req, "unexcused_recorded", "employee_leave_balance", String(result.attendance_log_id), null, {
+          user_id: Number(body.employee_id), leave_type_id: unexBucket[0].id, slug: unexBucket[0].slug,
+          hours_delta: -hours, log_date: body.log_date,
+          reason: String(body.notes ?? "").trim().slice(0, 500) || null,
+          source: "unexcused_recorded",
+        });
+      }
+    } catch { /* audit best-effort */ }
+  }
   if (!result.ladder_eval.triggered_step) {
     return res.json({ data: { recorded: true, triggered_step: null } });
   }
