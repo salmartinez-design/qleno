@@ -121,6 +121,13 @@ app.use("/api", generalLimiter);
 // matched earlier in the chain, so they're never gated.
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (isAppReady()) return next();
+  // [favicon 2026-07-07] Gate ONLY /api — the frontend static mount lives
+  // BELOW this middleware, so the old all-paths gate 503'd /favicon.svg,
+  // /assets/*.js and index.html during every deploy's warm-up window.
+  // Chrome caches the failed favicon per tab, which is how the Qleno logo
+  // vanished from Sal's tab on a 7-deploy day. Static files don't touch
+  // the DB, so they're safe to serve while migrations run.
+  if (!req.path.startsWith("/api")) return next();
   if (req.path === "/api/health" || req.path === "/api/healthz") return next();
   res.set("Retry-After", "5");
   return res.status(503).json({
