@@ -1296,8 +1296,11 @@ router.post("/requests", async (req, res) => {
   if (body.end_date < body.start_date)
     return bad(res, "end_date must be >= start_date");
 
-  // Required attachment at submit (Sal 2026-06-22) — employee-only, mandatory.
-  if (!body.attachment_url) {
+  // Required attachment at submit (Sal 2026-06-22) — mandatory for EMPLOYEE
+  // submissions. Office on-behalf filings skip it: the office IS the
+  // authority the note would be shown to (Sal hit the silent disable while
+  // filing for Hilda).
+  if (!body.attachment_url && !isOnBehalf) {
     return bad(res, "An attachment (e.g. a doctor's note) is required to submit a time-off request.", "attachment_required");
   }
 
