@@ -653,7 +653,7 @@ export default function EmployeeProfilePage() {
   // /leave/usage feed (the deprecated /hr-leave/balance/:id is retired here).
   // The bucket of each usage row lives in its note tag ("…/pto","…/plawa",…).
   const [historyBucket, setHistoryBucket] =
-    useState<null | { slug: string; display_name: string }>(null);
+    useState<null | { slug: string; display_name: string; leave_type_id?: number }>(null);
 
   // [attendance-record 2026-06-25] Office record form for an unexcused absence
   // or a tardy, with a reason. Posts to /leave/unexcused/record (type
@@ -742,6 +742,41 @@ export default function EmployeeProfilePage() {
       setBalBusy(false);
     }
   };
+  // [leave-log 2026-07-07] Mistake corrections: remove a wrong attendance
+  // record (un-counts it from the disciplinary ladders) or a wrong usage
+  // entry (gives the hours back to the bucket). Both audited server-side.
+  const canDeleteAttendance = ['owner', 'admin', 'office', 'super_admin'].includes(getTokenRole() || '');
+  const [entryDelBusy, setEntryDelBusy] = useState<string | null>(null);
+  const deleteEntry = async (kind: 'attendance' | 'usage', id: number) => {
+    const msg = kind === 'attendance'
+      ? 'Remove this attendance entry? It will no longer count toward the disciplinary ladder.'
+      : 'Remove this leave entry? The hours go back to the bucket.';
+    if (!window.confirm(msg)) return;
+    setEntryDelBusy(`${kind}:${id}`);
+    try {
+      await apiFetch(`/leave/${kind}/${id}`, { method: 'DELETE' });
+      qc.invalidateQueries({ queryKey: ['attendance-summary', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balance-log', userId] });
+      // statDrill holds a snapshot of rows from when it was opened — close it
+      // so the deleted entry can't linger. The bucket history modal derives
+      // its rows live from the query cache, so it stays open.
+      if (kind === 'attendance') setStatDrill(null);
+    } catch {
+      window.alert('Could not remove the entry — try again.');
+    } finally {
+      setEntryDelBusy(null);
+    }
+  };
+  // Provenance feed for the "Balance changes" section of View History —
+  // office sets + engine grants with their trigger (deploy/nightly/apply).
+  const { data: balanceLogResp } = useQuery({
+    queryKey: ['leave-balance-log', userId],
+    queryFn: () => apiFetch(`/leave/balance-log?userId=${userId}`),
+    enabled: activeTab === 'Attendance' && historyBucket != null,
+  });
+  const balanceLog: any[] = balanceLogResp?.data || [];
   const { data: leaveBalancesResp } = useQuery({
     queryKey: ['leave-balances', userId],
     queryFn: () => apiFetch(`/leave/balances?userId=${userId}`),
@@ -1605,7 +1640,7 @@ export default function EmployeeProfilePage() {
                       )}
 
                       <div style={{ display:'flex', gap:8, marginTop:10 }}>
-                        <button onClick={() => setHistoryBucket({ slug:b.slug, display_name:b.display_name })} style={{ flex:1,padding:'6px 0',border:`1px solid ${accent}`,borderRadius:6,fontSize:12,color:accent,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
+                        <button onClick={() => setHistoryBucket({ slug:b.slug, display_name:b.display_name, leave_type_id:b.leave_type_id })} style={{ flex:1,padding:'6px 0',border:`1px solid ${accent}`,borderRadius:6,fontSize:12,color:accent,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
                         <button onClick={officeRecorded ? () => openRecord('absent', accent) : (canEditBalance ? () => openBalanceEdit(b) : undefined)} style={{ flex:1,padding:'6px 0',background:accent,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor: (officeRecorded || canEditBalance) ? 'pointer':'default',opacity: (officeRecorded || canEditBalance) ? 1 : 0.5,fontFamily:'inherit' }}>{officeRecorded ? 'Record' : 'Update'}</button>
                       </div>
                     </div>
@@ -1717,14 +1752,61 @@ export default function EmployeeProfilePage() {
                         {rows.length === 0 ? (
                           <p style={{ color:'#9E9B94',fontSize:13,margin:0 }}>No {historyBucket.display_name} history recorded.</p>
                         ) : rows.map((u: any, i: number) => (
-                          <div key={i} style={{ display:'flex',justifyContent:'space-between',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+                          <div key={u.id ?? i} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
                             <div style={{ minWidth:0 }}>
                               <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(u.date_used).slice(0,10))} · {String(u.date_used).slice(0,10)}</div>
                               <NoteChips note={u.notes} bucketMap={bucketDisplayMap} />
                             </div>
-                            <div style={{ fontSize:14,fontWeight:700,color:'#1A1917',whiteSpace:'nowrap' }}>{Number(u.hours).toFixed(2)} h</div>
+                            <div style={{ display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap' }}>
+                              <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(u.hours).toFixed(2)} h</span>
+                              {canEditBalance && u.id != null && (
+                                <button
+                                  onClick={() => deleteEntry('usage', u.id)}
+                                  disabled={entryDelBusy === `usage:${u.id}`}
+                                  title="Remove this entry — the hours go back to the bucket"
+                                  style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `usage:${u.id}` ? 0.5 : 1 }}
+                                >Remove</button>
+                              )}
+                            </div>
                           </div>
                         ))}
+
+                        {/* [leave-log] Provenance — every change to this bucket's
+                            granted/used with who or what made it. */}
+                        {(() => {
+                          const logRows = balanceLog.filter((r: any) =>
+                            (historyBucket.leave_type_id != null && r.leave_type_id === historyBucket.leave_type_id) ||
+                            (r.slug && r.slug === historyBucket.slug));
+                          if (!logRows.length) return null;
+                          const fmtAt = (at: string) => {
+                            const d = new Date(at);
+                            return d.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ', ' +
+                                   d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+                          };
+                          const fmtPair = (g: number | null, u2: number | null) =>
+                            `${g != null ? g.toFixed(1) : '—'} granted / ${u2 != null ? u2.toFixed(1) : '—'} used`;
+                          return (
+                            <div style={{ marginTop:20 }}>
+                              <h4 style={{ margin:'0 0 4px',fontSize:13,fontWeight:700,color:'#1A1917' }}>Balance changes</h4>
+                              <p style={{ margin:'0 0 8px',fontSize:11.5,color:'#9E9B94' }}>Where this bucket's numbers came from — office edits and automatic grants.</p>
+                              {logRows.map((r: any, i: number) => (
+                                <div key={i} style={{ padding:'8px 0',borderTop: i ? '1px solid #F0EEE9' : '1px solid #E5E2DC' }}>
+                                  <div style={{ display:'flex',justifyContent:'space-between',gap:10,fontSize:12 }}>
+                                    <span style={{ fontWeight:700,color:'#1A1917' }}>{r.actor}</span>
+                                    <span style={{ color:'#9E9B94',whiteSpace:'nowrap' }}>{fmtAt(r.at)}</span>
+                                  </div>
+                                  <div style={{ fontSize:12,color:'#6B6860',marginTop:2 }}>
+                                    {fmtPair(r.granted_new, r.used_new)}
+                                    {(r.granted_old != null || r.used_old != null) && (
+                                      <span style={{ color:'#9E9B94' }}> (was {fmtPair(r.granted_old, r.used_old)})</span>
+                                    )}
+                                    {r.engine_action && <span style={{ color:'#9E9B94' }}> · {String(r.engine_action).replace(/_/g, ' ')}</span>}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
                       </div>
                     </div>
                   );
@@ -1775,12 +1857,22 @@ export default function EmployeeProfilePage() {
                       {statDrill.days.length === 0 ? (
                         <p style={{ color:'#9E9B94',fontSize:13,margin:0 }}>No {statDrill.label.toLowerCase()} days recorded.</p>
                       ) : statDrill.days.map((d: any, i: number) => (
-                        <div key={i} style={{ display:'flex',justifyContent:'space-between',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+                        <div key={i} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
                           <div style={{ minWidth:0 }}>
                             <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(d.date))} · {String(d.date)}</div>
                             <NoteChips note={d.reason} bucketMap={bucketDisplayMap} />
                           </div>
-                          {d.hours != null && <div style={{ fontSize:14,fontWeight:700,color:'#1A1917',whiteSpace:'nowrap' }}>{Number(d.hours).toFixed(2)} h</div>}
+                          <div style={{ display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap' }}>
+                            {d.hours != null && <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(d.hours).toFixed(2)} h</span>}
+                            {canDeleteAttendance && d.id != null && d.src === 'att' && (
+                              <button
+                                onClick={() => deleteEntry('attendance', d.id)}
+                                disabled={entryDelBusy === `attendance:${d.id}`}
+                                title="Remove this entry (mistake correction)"
+                                style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `attendance:${d.id}` ? 0.5 : 1 }}
+                              >Remove</button>
+                            )}
+                          </div>
                         </div>
                       ))}
                     </div>
