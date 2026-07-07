@@ -138,6 +138,30 @@ export default function LeaveRequestPage() {
   const [uploading, setUploading] = useState(false);
   const [note, setNote] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState<number | null>(null);
+
+  // [self-cancel 2026-07-07] Cancel a PENDING request. The server enforces
+  // scope: an employee may only cancel their own pending request; office
+  // tier may cancel any (which is what runs when cancelling from preview).
+  async function cancelRequest(id: number) {
+    if (!window.confirm("Cancel this time-off request?")) return;
+    setCancelBusy(id);
+    try {
+      const res = await fetch(`/api/leave/requests/${id}/cancel`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        toast({ title: err?.message || "Could not cancel the request", variant: "destructive" });
+        return;
+      }
+      toast({ title: "Request cancelled" });
+      await load();
+    } finally {
+      setCancelBusy(null);
+    }
+  }
 
   const multiDay = !!startDate && !!endDate && endDate > startDate;
 
@@ -525,6 +549,7 @@ export default function LeaveRequestPage() {
                   <th style={{ padding: "6px 8px", fontWeight: 700 }}>Hours</th>
                   <th style={{ padding: "6px 8px", fontWeight: 700 }}>Status</th>
                   <th style={{ padding: "6px 8px", fontWeight: 700 }}>Decision note</th>
+                  <th style={{ padding: "6px 8px", fontWeight: 700, textAlign: "right" }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -544,6 +569,21 @@ export default function LeaveRequestPage() {
                       <StatusPill s={r.status} blackoutConflict={r.blackout_conflict} />
                     </td>
                     <td style={{ padding: "8px", color: MUTED }}>{r.decision_note ?? ""}</td>
+                    <td style={{ padding: "8px", textAlign: "right" }}>
+                      {/* [self-cancel 2026-07-07] The API always allowed an
+                          employee to cancel their own PENDING request — the
+                          page just never had the button (Sal: "as the employee
+                          there is no way to cancel the request"). */}
+                      {r.status === "pending" && (
+                        <button
+                          onClick={() => cancelRequest(r.id)}
+                          disabled={cancelBusy === r.id}
+                          style={{ fontFamily: FF, fontSize: 11, fontWeight: 700, color: DANGER, background: "none", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "4px 10px", cursor: "pointer", opacity: cancelBusy === r.id ? 0.5 : 1 }}
+                        >
+                          {cancelBusy === r.id ? "Cancelling…" : "Cancel"}
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
