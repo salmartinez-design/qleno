@@ -22,7 +22,10 @@ const BRAND = {
 };
 
 // ── Merge tag substitution ────────────────────────────────────────────────────
-function applyMerge(template: string, vars: Record<string, string>): string {
+// Exported for template consumers outside the customer-comms pipeline (e.g. the
+// staff-facing time-off emails in lib/leave-notifications.ts, which render the
+// same editable notification_templates rows).
+export function applyMerge(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{([^}]+)\}\}/g, (_, key) => vars[key.trim()] ?? "");
 }
 

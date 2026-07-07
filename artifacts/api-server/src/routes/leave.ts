@@ -54,6 +54,7 @@ import {
   employeeDisciplineLogTable,
   companyLeavePolicyTable,
   usersTable,
+  contactTicketsTable,
 } from "@workspace/db/schema";
 import { and, asc, desc, eq, gte, inArray, isNotNull, like, lte, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -779,7 +780,9 @@ router.post("/requests", async (req, res) => {
     leave_type_id?: number;
     start_date?: string;
     end_date?: string;
-    day_unit?: "full_day" | "morning" | "afternoon";
+    day_unit?: "full_day" | "morning" | "afternoon" | "custom";
+    start_time?: string | null;
+    end_time?: string | null;
     attachment_url?: string | null;
     attachment_name?: string | null;
     note?: string | null;
@@ -798,19 +801,45 @@ router.post("/requests", async (req, res) => {
     return bad(res, "An attachment (e.g. a doctor's note) is required to submit a time-off request.", "attachment_required");
   }
 
-  // Unit: full day / morning / afternoon. No free-form hours. Multi-day must be
-  // full days. Hours are derived (full = 8h × days; half = 4h, single day).
-  const dayUnit: "full_day" | "morning" | "afternoon" =
-    body.day_unit === "morning" || body.day_unit === "afternoon" ? body.day_unit : "full_day";
+  // Unit: full day / morning / afternoon / custom hours. Multi-day must be
+  // full days. Hours are derived (full = 8h × days; half = 4h, single day;
+  // custom = the explicit start→end window on a single day).
+  // [custom-hours 2026-07-07] 'custom' reverses the "no free-form hours"
+  // simplification (Sal 2026-06-22) at Francisco's request: employees need to
+  // block a specific window ("they can work from 9am to 1pm") rather than a
+  // fixed AM/PM half.
+  const dayUnit: "full_day" | "morning" | "afternoon" | "custom" =
+    body.day_unit === "morning" || body.day_unit === "afternoon" || body.day_unit === "custom"
+      ? body.day_unit : "full_day";
   const multiDay = body.end_date > body.start_date;
   if (multiDay && dayUnit !== "full_day") {
-    return bad(res, "Multi-day requests must be full days (use Morning/Afternoon for a single day).", "multiday_must_be_full");
+    return bad(res, "Multi-day requests must be full days (use Morning/Afternoon/Hours for a single day).", "multiday_must_be_full");
+  }
+  const HHMM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+  let customStart: string | null = null;
+  let customEnd: string | null = null;
+  let customHours = 0;
+  if (dayUnit === "custom") {
+    const st = String(body.start_time ?? "").slice(0, 5);
+    const et = String(body.end_time ?? "").slice(0, 5);
+    if (!HHMM_RE.test(st) || !HHMM_RE.test(et)) {
+      return bad(res, "start_time and end_time (HH:MM) are required for an hours request.", "custom_times_required");
+    }
+    const mins = (t: string) => parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
+    const diff = mins(et) - mins(st);
+    if (diff <= 0) return bad(res, "end_time must be after start_time.", "custom_times_invalid");
+    customStart = st;
+    customEnd = et;
+    customHours = Math.round((diff / 60) * 100) / 100;
   }
   const dayCount =
     Math.round(
       (Date.parse(`${body.end_date}T00:00:00Z`) - Date.parse(`${body.start_date}T00:00:00Z`)) / 86400000,
     ) + 1;
-  const hours = dayUnit === "full_day" ? DAILY_HOURS * dayCount : DAILY_HOURS / 2;
+  const hours =
+    dayUnit === "full_day" ? DAILY_HOURS * dayCount :
+    dayUnit === "custom" ? customHours :
+    DAILY_HOURS / 2;
 
   const bucket = await findBucket(companyId, Number(body.leave_type_id));
   if (!bucket) return notFound(res, "Leave type not found");
@@ -885,6 +914,8 @@ router.post("/requests", async (req, res) => {
       end_date: body.end_date,
       hours: hours.toFixed(2),
       day_unit: dayUnit,
+      start_time: customStart,
+      end_time: customEnd,
       attachment_url: body.attachment_url,
       attachment_name: body.attachment_name ?? null,
       note: body.note ?? null,
@@ -898,6 +929,23 @@ router.post("/requests", async (req, res) => {
           : null,
     })
     .returning();
+
+  // [time-off-ticket 2026-07-07] Every submission also creates a contact ticket
+  // on the employee, so the request is a durable record on the employee profile
+  // + the Contact Tickets report — not just a notification that scrolls away.
+  // Best-effort: a ticket hiccup never blocks the request itself.
+  try {
+    const windowLabel = customStart && customEnd ? ` ${customStart}–${customEnd}` : "";
+    await db.insert(contactTicketsTable).values({
+      company_id: companyId,
+      user_id: userId,
+      ticket_type: "time_off_request" as any,
+      notes: `Time-off request #${inserted[0]!.id}: ${bucket.display_name} ${body.start_date}${body.end_date !== body.start_date ? ` → ${body.end_date}` : ""}${windowLabel} (${hours.toFixed(2)} h)${body.note ? ` — "${body.note}"` : ""}`,
+      created_by: userId,
+    });
+  } catch (e) {
+    console.error("[leave] time-off ticket insert non-fatal:", e);
+  }
 
   // Office/owner "ACTION REQUIRED" + employee "Pending"/"Emergency" (or
   // "Denied" if auto-denied above). Best-effort, never fails the request.
@@ -1082,9 +1130,13 @@ router.post("/requests/cascade", async (req, res) => {
     return out;
   });
 
-  // 6. Office notification per row. Quietly best-effort.
+  // 6. Notifications per row — same office + employee flow as the single-bucket
+  // endpoint. [2026-07-07] The old call here pointed at the removed
+  // notifyOfficeOfRequestSilent stub — a dangling name that would have thrown
+  // ReferenceError at runtime the first time a cascade was submitted (esbuild
+  // bundles without typechecking, so it never surfaced). Best-effort.
   for (const row of inserted) {
-    void notifyOfficeOfRequestSilent(row.id, companyId);
+    void notifyLeaveSubmitted(row.id, companyId);
   }
 
   return res.json({
@@ -1120,6 +1172,8 @@ router.get("/requests", officeReadGate, async (req, res) => {
       end_date: leaveRequestsTable.end_date,
       hours: leaveRequestsTable.hours,
       day_unit: leaveRequestsTable.day_unit,
+      start_time: leaveRequestsTable.start_time,
+      end_time: leaveRequestsTable.end_time,
       attachment_url: leaveRequestsTable.attachment_url,
       attachment_name: leaveRequestsTable.attachment_name,
       note: leaveRequestsTable.note,
@@ -1207,9 +1261,13 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
     .where(eq(employeeLeaveBalancesTable.id, bal.id));
   // Write one usage row PER calendar day in the range (was: only start_date —
   // that left multi-day requests showing the tech off for just day one on the
-  // board). Full day = 8h/day; a half-day request is a single day at 4h.
+  // board). Full day = 8h/day; a half-day request is a single day at 4h; a
+  // custom-hours request is a single day at its exact window hours.
   const dayUnit = ((reqRow as { day_unit?: string }).day_unit ?? "full_day");
-  const perDay = dayUnit === "full_day" ? DAILY_HOURS : DAILY_HOURS / 2;
+  const perDay =
+    dayUnit === "full_day" ? DAILY_HOURS :
+    dayUnit === "custom" ? hours :
+    DAILY_HOURS / 2;
   const startMs = Date.parse(`${String(reqRow.start_date)}T00:00:00Z`);
   const endMs = Date.parse(`${String(reqRow.end_date)}T00:00:00Z`);
   // Bucket tag (Sal 2026-06-24): the per-bucket View History modal filters

@@ -242,10 +242,16 @@ export const leaveRequestStatusEnum = pgEnum("leave_request_status", [
 // Sub-day unit (Sal 2026-06-22): no free-form hours. A half-day leaves the tech
 // available the OTHER half on the dispatch board. Multi-day requests are
 // full_day only. Half-day split defaults to noon (see HALF_DAY_CUTOFF).
+// [custom-hours 2026-07-07] 'custom' = a single-day request for an explicit
+// time window (start_time→end_time on the request row) — Francisco: "they can
+// work from 9am to 1pm". Hours are derived from the window, not a half-day
+// constant. Added to the live enum via ALTER TYPE ... ADD VALUE in
+// runStartupMigrations (idempotent).
 export const leaveDayUnitEnum = pgEnum("leave_day_unit", [
   "full_day",
   "morning",
   "afternoon",
+  "custom",
 ]);
 
 export const leaveRequestsTable = pgTable(
@@ -264,9 +270,15 @@ export const leaveRequestsTable = pgTable(
     start_date: date("start_date").notNull(),
     end_date: date("end_date").notNull(),
     hours: numeric("hours", { precision: 8, scale: 2 }).notNull(),
-    // Full day / morning / afternoon. Hours are derived from this + the bucket's
-    // daily hours; multi-day requests must be full_day.
+    // Full day / morning / afternoon / custom. Hours are derived from this +
+    // the bucket's daily hours (or the custom window); multi-day requests must
+    // be full_day.
     day_unit: leaveDayUnitEnum("day_unit").notNull().default("full_day"),
+    // [custom-hours 2026-07-07] The requested-off window for day_unit='custom'
+    // (single-day). NULL for full/half-day units. Live DB columns added via
+    // ADD COLUMN IF NOT EXISTS in runStartupMigrations.
+    start_time: time("start_time"),
+    end_time: time("end_time"),
     // Required attachment the employee uploads at submit (doctor's note / file).
     // The office does not attach. Stored as a file ref (R2 url) + display name.
     attachment_url: text("attachment_url"),

@@ -34,6 +34,8 @@ type Request = {
   start_date: string;
   end_date: string;
   hours: string;
+  start_time?: string | null;
+  end_time?: string | null;
   note: string | null;
   status: Status;
   blackout_conflict: boolean;
@@ -146,6 +148,9 @@ export default function LeaveReviewPage() {
                     <td style={{ padding: "8px" }}>
                       {r.start_date}
                       {r.start_date !== r.end_date ? ` → ${r.end_date}` : ""}
+                      {r.start_time && r.end_time && (
+                        <span style={{ color: "#9E9B94" }}> · {String(r.start_time).slice(0, 5)}–{String(r.end_time).slice(0, 5)}</span>
+                      )}
                     </td>
                     <td style={{ padding: "8px", fontWeight: 700 }}>{Number(r.hours).toFixed(2)}</td>
                     <td style={{ padding: "8px" }}>
