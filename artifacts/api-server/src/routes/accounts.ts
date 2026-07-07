@@ -466,6 +466,13 @@ router.get("/:id/jobs-calendar", requireAuth, requireRole("owner", "admin", "off
         account_property_id: jobsTable.account_property_id,
         property_name: accountPropertiesTable.property_name,
         property_address: accountPropertiesTable.address,
+        // [account-calendar-address 2026-07-07] The job's OWN service address
+        // (stamped from the schedule at generation). Dispatch displays this
+        // first, so when a job's property link disagrees with it (Daveco: job
+        // at 18440 Torrence linked to the 18428 property) the calendar must
+        // show THIS, not the wrongly linked property — otherwise two visits at
+        // two different buildings render with the same duplicated address.
+        job_address_street: sql<string | null>`NULLIF(${jobsTable.address_street}, '')`,
         tech_first_name: usersTable.first_name,
         tech_last_name: usersTable.last_name,
       })

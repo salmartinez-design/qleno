@@ -267,6 +267,47 @@ async function runStartupMigrations() {
       // [time-off-ticket 2026-07-07] Employee time-off submissions also create a
       // contact ticket on the employee (profile + Contact Tickets report).
       await db.execute(sql`ALTER TYPE contact_ticket_type ADD VALUE IF NOT EXISTS 'time_off_request'`);
+      // [property-link-heal 2026-07-07] Account jobs/schedules carry BOTH a
+      // property link (account_property_id) and their own service address; a
+      // setup mistake can point the link at the WRONG building (Daveco: the
+      // 18440 Torrence schedule linked to the 18428 property), which duplicated
+      // addresses on the account calendar and mis-filtered per-property views.
+      // Heal: when a row's own street EXACTLY matches (case/space-insensitive)
+      // the address of exactly ONE property of the same account, and the
+      // currently linked property does NOT match, re-link it. Idempotent —
+      // once links agree with addresses, both UPDATEs match zero rows.
+      await db.execute(sql`
+        UPDATE recurring_schedules rs SET account_property_id = m.pid
+        FROM (
+          SELECT rs2.id AS sid, MIN(ap.id) AS pid
+          FROM recurring_schedules rs2
+          JOIN account_properties ap ON ap.account_id = rs2.account_id
+            AND lower(regexp_replace(btrim(ap.address), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim(rs2.service_address_street), '\\s+', ' ', 'g'))
+          WHERE rs2.account_id IS NOT NULL AND NULLIF(btrim(rs2.service_address_street), '') IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM account_properties cur WHERE cur.id = rs2.account_property_id
+                AND lower(regexp_replace(btrim(cur.address), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim(rs2.service_address_street), '\\s+', ' ', 'g'))
+            )
+          GROUP BY rs2.id HAVING COUNT(DISTINCT ap.id) = 1
+        ) m
+        WHERE rs.id = m.sid AND rs.account_property_id IS DISTINCT FROM m.pid
+      `);
+      await db.execute(sql`
+        UPDATE jobs j SET account_property_id = m.pid
+        FROM (
+          SELECT j2.id AS jid, MIN(ap.id) AS pid
+          FROM jobs j2
+          JOIN account_properties ap ON ap.account_id = j2.account_id
+            AND lower(regexp_replace(btrim(ap.address), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim(j2.address_street), '\\s+', ' ', 'g'))
+          WHERE j2.account_id IS NOT NULL AND NULLIF(btrim(j2.address_street), '') IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM account_properties cur WHERE cur.id = j2.account_property_id
+                AND lower(regexp_replace(btrim(cur.address), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim(j2.address_street), '\\s+', ' ', 'g'))
+            )
+          GROUP BY j2.id HAVING COUNT(DISTINCT ap.id) = 1
+        ) m
+        WHERE j.id = m.jid AND j.account_property_id IS DISTINCT FROM m.pid
+      `);
       // [account-recurrence 2026-07-03] Account recurrences have no client; the
       // account is the billing entity. Idempotent (no-op once dropped).
       await db.execute(sql`ALTER TABLE recurring_schedules ALTER COLUMN customer_id DROP NOT NULL`);

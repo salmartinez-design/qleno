@@ -38,9 +38,29 @@ type CalJob = {
   account_property_id: number | null;
   property_name: string | null;
   property_address: string | null;
+  job_address_street: string | null;
   tech_first_name: string | null;
   tech_last_name: string | null;
 };
+
+// [account-calendar-address 2026-07-07] A job carries BOTH a property link and
+// its own service address (stamped from the schedule). When they disagree —
+// Daveco: two visits at 18428 and 18440 Torrence both linked to the 18428
+// property — trusting the property link duplicated the address on the
+// calendar while dispatch (which shows the job's own address first) was
+// right. Rule: if the job has its own address and it does NOT match the
+// linked property's address, show the job's address; otherwise prefer the
+// property name/address. Matching is on normalized street text.
+function normStreet(s: string | null | undefined): string {
+  return (s || "").toLowerCase().replace(/[.,#]/g, " ").replace(/\s+/g, " ").trim();
+}
+function jobPlaceLabel(j: CalJob): string {
+  const jobAddr = normStreet(j.job_address_street);
+  const propAddr = normStreet(j.property_address);
+  const disagree = !!jobAddr && !!propAddr && !jobAddr.startsWith(propAddr) && !propAddr.startsWith(jobAddr);
+  if (disagree) return j.job_address_street!;
+  return j.property_name || j.property_address || j.job_address_street || "Property";
+}
 
 type PropOption = { id: number; property_name: string | null; address: string | null };
 
@@ -215,7 +235,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
   }
 
   function chipLabel(j: CalJob): string {
-    const name = j.property_name || j.property_address || fmtSvc(j.service_type);
+    const name = jobPlaceLabel(j);
     const t = fmtTime(j.scheduled_time);
     return t ? `${t} ${name}` : name;
   }
@@ -357,7 +377,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                               className="text-[11px] font-semibold text-[#1A1917] truncate hover:text-[#00897B] hover:underline text-left bg-transparent border-0 p-0 cursor-pointer"
                               title="Open this job's editor"
                             >
-                              {j.property_name || j.property_address || "Property"}
+                              {jobPlaceLabel(j)}
                             </button>
                             <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: STATUS_COLOR[j.status] || "#9CA3AF" }} title={j.status} />
                           </div>
