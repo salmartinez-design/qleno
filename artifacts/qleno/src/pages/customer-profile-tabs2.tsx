@@ -788,43 +788,43 @@ function emailDoc(entry: any): string | null {
   return /<[a-z][\s\S]*>/i.test(b) ? b : null;
 }
 
-function EmailViewerModal({ entry, onClose }: { entry: any; onClose: () => void }) {
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// [comm-log-email-page 2026-07-07] Per Sal: the log shows just the subject +
+// a link; the email itself opens on its OWN page (new tab), MaidCentral-style
+// but without bloating the log. The html is our own sent template (scripts
+// stripped defensively before rendering); plain-text emails get a simple shell.
+function openEmailPage(entry: any) {
   const doc = emailDoc(entry);
-  return (
-    <div onClick={onClose}
-      style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-      <div onClick={e => e.stopPropagation()}
-        style={{ background: "#FFFFFF", borderRadius: 12, width: "100%", maxWidth: 720, height: "85vh", display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: FF2 }}>
-        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderBottom: "1px solid #E5E2DC" }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis" }}>{entry.subject || "(no subject)"}</div>
-            <div style={{ fontSize: 11.5, color: "#6B6860", marginTop: 3 }}>To: {entry.recipient || "—"} · {fmtTs(entry.logged_at || entry.created_at)}</div>
-          </div>
-          <button onClick={onClose} aria-label="Close email preview"
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860", padding: 4, flexShrink: 0 }}>
-            <X size={18} />
-          </button>
-        </div>
-        {doc ? (
-          // sandbox with no tokens: scripts, forms, and top-navigation in the
-          // email html are all inert — pure visual rendering.
-          <iframe sandbox="" srcDoc={doc} title="Email as sent"
-            style={{ border: "none", width: "100%", flex: 1, background: "#FFFFFF" }} />
-        ) : (
-          <div style={{ padding: 20, fontSize: 13, color: "#374151", lineHeight: 1.6, whiteSpace: "pre-wrap", overflowY: "auto" }}>
-            {entry.body || entry.summary || "(no content recorded)"}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  const inner = doc
+    ? doc.replace(/<script[\s\S]*?<\/script>/gi, "")
+    : `<div style="max-width:640px;margin:0 auto;padding:24px;font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${escapeHtml(entry.body || entry.summary || "(no content recorded)")}</div>`;
+  const meta = `To: ${escapeHtml(entry.recipient || "—")} · ${escapeHtml(fmtTs(entry.logged_at || entry.created_at))}`;
+  const shell = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(entry.subject || "Email")}</title></head>
+<body style="margin:0;background:#F7F6F3">
+<div style="background:#FFFFFF;border-bottom:1px solid #E5E2DC;padding:12px 24px;font-family:sans-serif">
+  <div style="font-size:15px;font-weight:700;color:#1A1917">${escapeHtml(entry.subject || "(no subject)")}</div>
+  <div style="font-size:12px;color:#6B6860;margin-top:2px">${meta}</div>
+</div>
+<div style="padding:16px 0">${inner}</div>
+</body></html>`;
+  const url = URL.createObjectURL(new Blob([shell], { type: "text/html" }));
+  window.open(url, "_blank", "noopener");
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-function CommLogDetailCard({ entry, onViewEmail }: { entry: any; onViewEmail?: (entry: any) => void }) {
+function CommLogDetailCard({ entry }: { entry: any }) {
   const [expanded, setExpanded] = useState(false);
   const [trailOpen, setTrailOpen] = useState(false);
-  const body = plainBody(entry.body || entry.summary || "");
-  const hasMore = body.length > 180;
+  const isEmail = (entry.channel || "").toLowerCase() === "email";
+  // Emails stay COMPACT in the log — subject + a one-line snippet; the full
+  // email opens on its own page via openEmailPage. Other channels keep the
+  // expandable body.
+  const body = isEmail
+    ? plainBody(entry.body || entry.summary || "").slice(0, 120)
+    : plainBody(entry.body || entry.summary || "");
+  const hasMore = !isEmail && body.length > 180;
   const showTrail = (entry.channel === "sms" || entry.channel === "text" || entry.channel === "email") &&
     (entry.twilio_message_sid || entry.resend_email_id || entry.source === "system");
 
@@ -852,12 +852,19 @@ function CommLogDetailCard({ entry, onViewEmail }: { entry: any; onViewEmail?: (
         </div>
       </div>
 
-      {/* Subject (email) */}
-      {entry.subject && <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 4 }}>{entry.subject}</div>}
+      {/* Subject (email) — the click target that opens the email on its own page */}
+      {entry.subject && (isEmail ? (
+        <button onClick={() => openEmailPage(entry)} title="Open the email as sent in a new tab"
+          style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FF2, fontSize: 12, fontWeight: 700, color: "var(--brand)", marginBottom: 4, textAlign: "left" }}>
+          {entry.subject} <ExternalLink size={11} style={{ flexShrink: 0 }} />
+        </button>
+      ) : (
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 4 }}>{entry.subject}</div>
+      ))}
 
-      {/* Body */}
+      {/* Body — one-line snippet for emails, expandable text for everything else */}
       {body && (
-        <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-wrap", marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: isEmail ? "#6B6860" : "#374151", lineHeight: 1.5, whiteSpace: isEmail ? "nowrap" : "pre-wrap", marginBottom: 8, ...(isEmail ? { overflow: "hidden", textOverflow: "ellipsis" } : {}) }}>
           {!expanded && hasMore ? body.substring(0, 180) + "…" : body}
           {hasMore && (
             <button onClick={() => setExpanded(e => !e)} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: "0 4px", fontFamily: FF2 }}>
@@ -874,10 +881,10 @@ function CommLogDetailCard({ entry, onViewEmail }: { entry: any; onViewEmail?: (
           {fmtTs(entry.logged_at || entry.created_at)}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {(entry.channel || "").toLowerCase() === "email" && onViewEmail && (
-            <button onClick={() => onViewEmail(entry)}
+          {isEmail && (
+            <button onClick={() => openEmailPage(entry)}
               style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3, fontFamily: FF2 }}>
-              <Eye size={11} /> View email
+              <ExternalLink size={11} /> View email
             </button>
           )}
           {(entry.source === "system" || entry.delivery_status) && <DeliveryBadge status={entry.delivery_status} />}
@@ -920,7 +927,6 @@ export function CommLog2({ clientId }: { clientId: number }) {
   const [submitting, setSubmitting] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
-  const [viewEmail, setViewEmail] = useState<any | null>(null);
 
   const qk = ["comm-log", clientId, filter];
   // [comms-unify 2026-06-26] This panel now reads the SAME complete history as
@@ -1085,7 +1091,7 @@ export function CommLog2({ clientId }: { clientId: number }) {
       {/* Detail view */}
       {!isLoading && logs.length > 0 && view === "detail" && (
         <>
-          {paginated.map((entry: any) => <CommLogDetailCard key={entry.id} entry={entry} onViewEmail={setViewEmail} />)}
+          {paginated.map((entry: any) => <CommLogDetailCard key={entry.id} entry={entry} />)}
           {totalPages > 1 && (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
               <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
@@ -1122,9 +1128,9 @@ export function CommLog2({ clientId }: { clientId: number }) {
                     <td style={{ padding: "6px 10px", color: "#6B6860" }}>{channelLabel(entry.channel)}</td>
                     <td style={{ padding: "6px 10px", color: "#374151", maxWidth: 200 }}>
                       {(entry.channel || "").toLowerCase() === "email" ? (
-                        <button onClick={() => setViewEmail(entry)} title="View the email as sent"
+                        <button onClick={() => openEmailPage(entry)} title="Open the email as sent in a new tab"
                           style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--brand)", fontFamily: FF2, fontSize: 12, maxWidth: "100%" }}>
-                          <Eye size={11} style={{ flexShrink: 0 }} />
+                          <ExternalLink size={11} style={{ flexShrink: 0 }} />
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                             {entry.subject || plainBody(entry.body || "").substring(0, 50) || "View email"}
                           </span>
@@ -1167,8 +1173,6 @@ export function CommLog2({ clientId }: { clientId: number }) {
           </div>
         </>
       )}
-
-      {viewEmail && <EmailViewerModal entry={viewEmail} onClose={() => setViewEmail(null)} />}
     </div>
   );
 }
