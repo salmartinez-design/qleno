@@ -65,7 +65,8 @@ export interface UnexcusedLadderArgs {
   /** Optional human/system context. Appended to the notes regex
    *  marker as `unexcused hours: X.XX (<note>)`. */
   note?: string;
-  logged_by: number;
+  /** NULL = system-recorded (auto-tardy sweep); a user id = office record. */
+  logged_by: number | null;
 }
 
 export interface UnexcusedLadderResult {

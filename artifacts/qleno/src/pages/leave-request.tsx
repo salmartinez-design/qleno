@@ -264,9 +264,17 @@ export default function LeaveRequestPage() {
                       )}
                     </div>
                   ) : officeRecorded ? (
+                    // [40hr-bank 2026-07-07] Unexcused hours now come from the
+                    // attendance log (was: a balance row nothing wrote — always
+                    // 0.0). Shows consumption against the annual allowance.
                     <div style={{ marginTop: 6 }}>
-                      <div style={{ fontSize: 22, fontWeight: 800, color: accent }}>{used.toFixed(1)} <span style={{ fontSize: 12, color: MUTED, fontWeight: 600 }}>recorded</span></div>
-                      <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>hours this year</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: accent }}>{used.toFixed(1)} <span style={{ fontSize: 12, color: MUTED, fontWeight: 600 }}>{granted > 0 ? `of ${granted.toFixed(1)} hours used` : 'recorded'}</span></div>
+                      {granted > 0 && (
+                        <div style={{ height: 6, borderRadius: 99, background: "#EEEDEA", marginTop: 8, overflow: "hidden" }}>
+                          <div style={{ height: "100%", width: `${Math.min(100, (used / granted) * 100)}%`, background: used >= granted ? LEAVE_OUT : accent, borderRadius: 99 }} />
+                        </div>
+                      )}
+                      <div style={{ fontSize: 11, color: MUTED, marginTop: 4 }}>hours this benefit year</div>
                     </div>
                   ) : (
                     <>

@@ -1583,20 +1583,31 @@ export default function EmployeeProfilePage() {
                   let barColor = accent;
                   let barCaption = '';
                   if (officeRecorded) {
-                    // Occurrence-based disciplinary ladder (PHES): count incidents
-                    // this benefit year toward the next step.
+                    // [40hr-bank 2026-07-07] Hours consumed against the annual
+                    // allowance (the balances API now carries the cap as granted
+                    // and benefit-year hours as used), with the occurrence ladder
+                    // as the caption — discipline still counts OCCURRENCES per
+                    // the handbook (3rd written / 4th final / 5th termination).
                     const occ = Number(unex?.occurrences || 0);
                     const nextOcc = Number(unex?.next_step?.occurrence || 0);
                     const nextLabel = (unex?.next_step?.label || 'discipline').toLowerCase();
-                    bigNum = String(occ);
-                    bigLabel = occ === 1 ? 'occurrence this year' : 'occurrences this year';
-                    if (nextOcc > 0) {
-                      barPct = Math.min(100, (occ / nextOcc) * 100);
-                      barColor = occ >= nextOcc ? LEAVE_OUT : (nextOcc - occ <= 1 ? LEAVE_LOW : accent);
-                      barCaption = `${occ} of ${nextOcc} occurrences to ${nextLabel}`;
+                    const ladderCaption = nextOcc > 0
+                      ? `${occ} of ${nextOcc} occurrences to ${nextLabel}`
+                      : (unex?.current_discipline ? 'At the final disciplinary step' : 'No disciplinary ladder set');
+                    if (granted > 0) {
+                      bigNum = used.toFixed(1);
+                      bigLabel = `of ${granted.toFixed(1)} hours used`;
+                      barPct = Math.min(100, (used / granted) * 100);
+                      barColor = used >= granted ? LEAVE_OUT : (granted - used <= 0.2 * granted) ? LEAVE_LOW : accent;
                     } else {
-                      barCaption = unex?.current_discipline ? 'At the final disciplinary step' : 'No disciplinary ladder set';
+                      bigNum = String(occ);
+                      bigLabel = occ === 1 ? 'occurrence this year' : 'occurrences this year';
+                      if (nextOcc > 0) {
+                        barPct = Math.min(100, (occ / nextOcc) * 100);
+                        barColor = occ >= nextOcc ? LEAVE_OUT : (nextOcc - occ <= 1 ? LEAVE_LOW : accent);
+                      }
                     }
+                    barCaption = ladderCaption;
                   } else {
                     barPct = granted > 0 ? Math.min(100, (used / granted) * 100) : 0;
                     barColor = avail <= 0 ? LEAVE_OUT : (granted > 0 && avail <= 0.2 * granted) ? LEAVE_LOW : accent;
