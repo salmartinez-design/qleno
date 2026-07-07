@@ -742,8 +742,16 @@ export default function EmployeeProfilePage() {
   // buckets (PTO / PLAWA / Unpaid Leave) was a dead no-op. It now opens this
   // editor and persists via PUT /leave/balances (same office-tier gate as
   // the API), then refetches the buckets.
+  // [deduct-mode 2026-07-07] Two modes. "Deduct hours" (DEFAULT) is the
+  // everyday workflow — one field, adds to Used, Granted untouched. "Set
+  // totals" is the migration/correction tool with the raw Granted/Used
+  // fields. The totals-only modal caused a real mistake within hours of
+  // shipping: Sal typed the hours-to-deduct (4) into GRANTED and crushed
+  // Hilda's 40-hour bank down to 4/4.
   const [balModal, setBalModal] =
-    useState<null | { leave_type_id: number; display_name: string; accent: string }>(null);
+    useState<null | { leave_type_id: number; display_name: string; accent: string; granted: number; used: number }>(null);
+  const [balMode, setBalMode] = useState<'deduct' | 'set'>('deduct');
+  const [balDeduct, setBalDeduct] = useState('');
   const [balGranted, setBalGranted] = useState('');
   const [balUsed, setBalUsed] = useState('');
   const [balBusy, setBalBusy] = useState(false);
@@ -754,15 +762,30 @@ export default function EmployeeProfilePage() {
   const openBalanceEdit = (b: any) => {
     setBalGranted(String(Number(b.granted || 0)));
     setBalUsed(String(Number(b.used || 0)));
+    setBalDeduct('');
+    setBalMode('deduct');
     setBalErr(null);
-    setBalModal({ leave_type_id: b.leave_type_id, display_name: b.display_name, accent: b.accent || NEUTRAL_ACCENT });
+    setBalModal({
+      leave_type_id: b.leave_type_id, display_name: b.display_name,
+      accent: b.accent || NEUTRAL_ACCENT,
+      granted: Number(b.granted || 0), used: Number(b.used || 0),
+    });
   };
   const submitBalanceEdit = async () => {
     setBalErr(null);
-    const granted = Number(balGranted);
-    const used = Number(balUsed);
-    if (balGranted.trim() === '' || !Number.isFinite(granted) || granted < 0) { setBalErr('Granted hours must be 0 or more'); return; }
-    if (balUsed.trim() === '' || !Number.isFinite(used) || used < 0) { setBalErr('Used hours must be 0 or more'); return; }
+    let granted: number;
+    let used: number;
+    if (balMode === 'deduct') {
+      const hrs = Number(balDeduct);
+      if (balDeduct.trim() === '' || !Number.isFinite(hrs) || hrs <= 0) { setBalErr('Hours to deduct must be more than 0'); return; }
+      granted = balModal!.granted;
+      used = Math.round((balModal!.used + hrs) * 100) / 100;
+    } else {
+      granted = Number(balGranted);
+      used = Number(balUsed);
+      if (balGranted.trim() === '' || !Number.isFinite(granted) || granted < 0) { setBalErr('Granted hours must be 0 or more'); return; }
+      if (balUsed.trim() === '' || !Number.isFinite(used) || used < 0) { setBalErr('Used hours must be 0 or more'); return; }
+    }
     setBalBusy(true);
     try {
       await apiFetch('/leave/balances', {
@@ -776,6 +799,7 @@ export default function EmployeeProfilePage() {
       });
       qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
       qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balance-log', userId] });
       setBalModal(null);
     } catch (e: any) {
       setBalErr(e?.message === '403' ? 'Only owners and admins can set balances' : 'Could not save — try again');
@@ -1792,22 +1816,53 @@ export default function EmployeeProfilePage() {
                     Persists via PUT /leave/balances — the same manual-set endpoint
                     the Leave Review "Balances & Grants" section uses (#923). */}
                 {balModal && (() => {
+                  // Live preview per mode: deduct subtracts from the current
+                  // available; set-totals recomputes from the raw fields.
+                  const curAvail = Math.max(0, balModal.granted - balModal.used);
+                  const dHrs = Number(balDeduct);
                   const g = Number(balGranted);
                   const u = Number(balUsed);
-                  const preview = Number.isFinite(g) && Number.isFinite(u) ? Math.max(0, g - u) : null;
+                  const preview = balMode === 'deduct'
+                    ? (balDeduct.trim() !== '' && Number.isFinite(dHrs) && dHrs > 0 ? Math.max(0, curAvail - dHrs) : null)
+                    : (Number.isFinite(g) && Number.isFinite(u) ? Math.max(0, g - u) : null);
                   return (
                     <div onClick={() => !balBusy && setBalModal(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
                       <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:14,padding:'22px 22px 20px',width:380,maxWidth:'92vw',fontFamily:"'Plus Jakarta Sans',sans-serif",boxShadow:'0 12px 40px rgba(0,0,0,0.18)' }}>
-                        <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14 }}>
+                        <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12 }}>
                           <span style={{ fontSize:16,fontWeight:800,color:'#1A1917' }}>Update {balModal.display_name}</span>
                           <button onClick={() => !balBusy && setBalModal(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
                         </div>
-                        <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Granted hours</label>
-                        <input type="number" min="0" step="0.25" value={balGranted} onChange={e => setBalGranted(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
-                        <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Used hours</label>
-                        <input type="number" min="0" step="0.25" value={balUsed} onChange={e => setBalUsed(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                        <p style={{ fontSize:12,color:'#9E9B94',margin:'0 0 12px' }}>
+                          Current: <strong style={{ color:'#1A1917' }}>{curAvail.toFixed(1)} hrs available</strong> · {balModal.used.toFixed(1)} used of {balModal.granted.toFixed(1)} granted
+                        </p>
+                        <div style={{ display:'flex',gap:6,marginBottom:14 }}>
+                          {([{ v:'deduct', l:'Deduct hours' },{ v:'set', l:'Set totals' }] as const).map(m => (
+                            <button key={m.v} onClick={() => { setBalMode(m.v); setBalErr(null); }}
+                              style={{ flex:1,padding:'7px 0',borderRadius:8,fontSize:12.5,fontWeight:700,fontFamily:'inherit',cursor:'pointer',
+                                border:`1px solid ${balMode === m.v ? balModal.accent : '#E5E2DC'}`,
+                                background: balMode === m.v ? balModal.accent : '#FFFFFF',
+                                color: balMode === m.v ? '#FFFFFF' : '#6B6860' }}>
+                              {m.l}
+                            </button>
+                          ))}
+                        </div>
+                        {balMode === 'deduct' ? (
+                          <>
+                            <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Hours to deduct</label>
+                            <input type="number" min="0" step="0.25" value={balDeduct} onChange={e => setBalDeduct(e.target.value)} placeholder="e.g. 4" autoFocus style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                          </>
+                        ) : (
+                          <>
+                            <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Granted hours <span style={{ fontWeight:500,color:'#9E9B94' }}>(total for the year — not the amount to deduct)</span></label>
+                            <input type="number" min="0" step="0.25" value={balGranted} onChange={e => setBalGranted(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                            <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Used hours</label>
+                            <input type="number" min="0" step="0.25" value={balUsed} onChange={e => setBalUsed(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                          </>
+                        )}
                         <p style={{ fontSize:12,color:'#6B6860',margin:'0 0 12px' }}>
-                          {preview != null ? <>Available after save: <strong style={{ color: balModal.accent }}>{preview.toFixed(1)} hrs</strong></> : 'Enter granted and used hours'}
+                          {preview != null
+                            ? <>Available after save: <strong style={{ color: balModal.accent }}>{preview.toFixed(1)} hrs</strong></>
+                            : (balMode === 'deduct' ? 'Enter the hours to deduct' : 'Enter granted and used hours')}
                         </p>
                         {balErr && <p style={{ fontSize:12,color:'#991B1B',margin:'0 0 10px' }}>{balErr}</p>}
                         <div style={{ display:'flex',gap:8 }}>
