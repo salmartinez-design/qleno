@@ -1801,6 +1801,11 @@ export default function EmployeeProfilePage() {
                             if (r.engine_action === 'initial_grant') return 'Automatic grant (eligibility reached)';
                             if (r.engine_action === 'annual_reset') return 'Automatic benefit-year reset';
                             if (r.engine_action === 'tier_topup') return 'Automatic tenure top-up';
+                            // Rows logged before the source field existed —
+                            // fall back to the audit action.
+                            if (r.action === 'leave_balance_set') return 'Balance set manually';
+                            if (r.action === 'leave_request_approved') return 'Request approved';
+                            if (r.action === 'leave_request_cancelled') return 'Approved request cancelled';
                             return 'Balance changed';
                           };
                           const chain = (r: any) => {
