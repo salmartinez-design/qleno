@@ -105,11 +105,19 @@ router.post("/send", requireAuth, async (req, res) => {
     // toggle (survey_enabled) gates on top.
     const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
     const sender = await resolveSender(companyId);
+    // [survey-pref-gate 2026-07-07] Honor the per-client "Satisfaction Survey"
+    // SMS toggle (review_request:sms in the preference grid). The grid offered
+    // the switch but this path never consulted it — clients couldn't actually
+    // opt out of the survey text. Email already goes through sendNotification,
+    // which applies the same gate.
+    const { isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
+    const smsPrefOn = await isMessageEnabledForJob({ companyId: companyId!, clientId: parseInt(customer_id) }, "review_request", "sms");
     const gate =
       !company?.survey_enabled ? "survey_disabled"
       : sender.reason ? sender.reason
       : !client?.phone ? "no_phone"
       : smsOptedOut ? "sms_opt_out"
+      : !smsPrefOn ? "client_pref_off"
       : null;
 
     if (gate) {

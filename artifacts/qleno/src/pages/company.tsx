@@ -2097,7 +2097,14 @@ function NotificationsTab() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {msg.channels.map((ch: any) => (
+                    {/* [survey-wiring 2026-07-07] The survey TEXT is sent by the
+                        scorecard engine using the template in Company Settings →
+                        Customer Survey — the review_request:sms template row here
+                        was a leftover from the retired Google-review cron and
+                        nothing sends it. Hide it and point at the real setting so
+                        the post-visit ask has ONE configuration surface per
+                        channel. */}
+                    {(msg.key === 'review_request' ? msg.channels.filter((c: any) => c.channel !== 'sms') : msg.channels).map((ch: any) => (
                       <div key={ch.channel} style={{ border: '1px solid #F0EEE9', borderRadius: 9, padding: '12px 14px', background: ch.is_active ? '#fff' : '#FAFAF8' }}>
                         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
@@ -2141,6 +2148,11 @@ function NotificationsTab() {
                         )}
                       </div>
                     ))}
+                    {msg.key === 'review_request' && (
+                      <p style={{ fontSize: 11.5, color: '#6B7280', margin: '2px 0 0', lineHeight: 1.5 }}>
+                        The survey <strong>text message</strong> (and the send delay) are configured in <strong>Company Settings → Customer Survey</strong> — both channels carry the same tokenized survey link.
+                      </p>
+                    )}
                   </div>
                 </div>
               );
