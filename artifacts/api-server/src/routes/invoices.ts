@@ -578,7 +578,13 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
       .limit(1);
     if (!inv) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
 
-    const co = await db.execute(sql`SELECT name, logo_url FROM companies WHERE id = ${companyId} LIMIT 1`);
+    // [invoice-pdf-parity 2026-07-07] Pull the same per-tenant branding columns
+    // the web invoice reads (invoice-detail.tsx) so the PDF shows the identical
+    // masthead and footer block, with the same fallbacks.
+    const co = await db.execute(sql`SELECT name, logo_url, phone, email, address,
+        invoice_business_name, invoice_tagline, invoice_address, invoice_footer_message,
+        invoice_payment_instructions, invoice_guarantee, invoice_terms
+      FROM companies WHERE id = ${companyId} LIMIT 1`);
     const company: any = (co as any).rows[0] ?? {};
     let logo: Buffer | null = null;
     if (company.logo_url) {
@@ -599,10 +605,20 @@ router.get("/:id/pdf", requireAuth, async (req, res) => {
     const billName = inv.bill_to_name || [inv.first_name, inv.last_name].filter(Boolean).join(" ") || inv.account_name || "Customer";
     const billAddr = [inv.address, [inv.city, inv.state].filter(Boolean).join(", "), inv.zip].filter(Boolean).join(", ");
 
+    const bizName = company.invoice_business_name || company.name || "Invoice";
+    const contactLine = [company.phone, company.email].filter(Boolean).join(" · ");
     const { renderInvoicePdf } = await import("../lib/invoice-pdf.js");
     const pdf = await renderInvoicePdf({
-      companyName: company.name || "Invoice",
+      companyName: bizName,
       logo,
+      tagline: company.invoice_tagline || null,
+      businessAddress: company.invoice_address || company.address || null,
+      contactLine: contactLine || null,
+      footerMessage: company.invoice_footer_message || `Thank you for choosing ${bizName}.`,
+      paymentInstructions: company.invoice_payment_instructions
+        || `Pay securely online using the link on this invoice.${contactLine ? ` Questions? Contact us at ${contactLine}.` : ""}`,
+      guaranteeText: company.invoice_guarantee || null,
+      termsText: company.invoice_terms || null,
       invoiceNumber: inv.invoice_number || generateInvoiceNumber(invoiceId),
       status: inv.status || "sent",
       billToName: billName,

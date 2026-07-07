@@ -4,6 +4,7 @@ import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
+import { formatInvoiceNumber } from "@/lib/invoice-number";
 import { useBranch } from "@/contexts/branch-context";
 import { Plus, Search, Send, Download, Layers, X, Check, CheckSquare, Square, AlertCircle, Calendar, ChevronDown, DollarSign, RotateCcw, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -1236,7 +1237,7 @@ export default function InvoicesPage() {
                           </span>
                         </div>
                         <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
-                          {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
+                          {formatInvoiceNumber(inv)}
                           {inv.service_date
                             ? ` · ${new Date(inv.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
                             : inv.created_at ? ` · ${new Date(inv.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
@@ -1306,7 +1307,7 @@ export default function InvoicesPage() {
                           so the whole cell area is the link target. */}
                       <td style={{ padding: 0, fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
                         <InvoiceCellLink invId={inv.id} navigate={navigate}>
-                          {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
+                          {formatInvoiceNumber(inv)}
                         </InvoiceCellLink>
                       </td>
                       <td style={{ padding: 0, fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>

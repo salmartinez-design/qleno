@@ -85,6 +85,7 @@ router.get("/", requireAuth, async (req, res) => {
 
       db.select({
         id: invoicesTable.id,
+        invoice_number: invoicesTable.invoice_number,
         status: invoicesTable.status,
         total: invoicesTable.total,
         created_at: invoicesTable.created_at,

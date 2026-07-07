@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { fmt$, fmt$c, fmtDate, clr, KpiCard, ReportHeader, DataTable, useReportData, StatusBadge } from "./_shared";
+import { formatInvoiceNumber } from "@/lib/invoice-number";
 
-interface ARRow { id: number; status: string; total: number; client_name: string; client_email: string; invoice_date: string; due_date: string; days_overdue: number; }
+interface ARRow { id: number; invoice_number?: string | null; status: string; total: number; client_name: string; client_email: string; invoice_date: string; due_date: string; days_overdue: number; }
 interface ARData { summary: { current: number; late: number; very_late: number; critical: number; total_outstanding: number }; data: ARRow[]; }
 
 const FILTERS = ["all","overdue","0-30","31-60","90+"] as const;
@@ -19,7 +20,7 @@ export default function ReceivablesPage() {
 
   const cols = [
     { header: "Client", render: (r: ARRow) => <div><p style={{ margin: 0, fontWeight: 500 }}>{r.client_name}</p><p style={{ margin: 0, fontSize: 11, color: clr.muted }}>{r.client_email}</p></div> },
-    { header: "Invoice #", render: (r: ARRow) => <span style={{ color: clr.secondary }}>INV-{String(r.id).padStart(4,"0")}</span> },
+    { header: "Invoice #", render: (r: ARRow) => <span style={{ color: clr.secondary }}>{formatInvoiceNumber(r)}</span> },
     { header: "Invoice Date", render: (r: ARRow) => fmtDate(r.invoice_date) },
     { header: "Due Date", render: (r: ARRow) => fmtDate(r.due_date) },
     { header: "Amount", render: (r: ARRow) => <span style={{ fontWeight: 700 }}>{fmt$c(r.total)}</span>, align: "right" as const },

@@ -5,6 +5,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
+import { formatInvoiceNumber } from "@/lib/invoice-number";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOffSet, type PrefData } from "@/components/notification-preference-grid";
 import {
@@ -1395,7 +1396,7 @@ function BillingTab({ invoices }: { invoices: any[] }) {
             ) : invoices.map(inv => (
               <tr key={inv.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
                 <td style={{ padding: "12px 16px", fontSize: "13px", color: "#6B7280" }}>{inv.service_date ? fmtDate(inv.service_date + "T12:00:00") : fmtDate(inv.created_at)}</td>
-                <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>INV-{String(inv.id).padStart(5, "0")}</td>
+                <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{formatInvoiceNumber(inv)}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{fmtCurrency(inv.total)}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", color: inv.paid_at ? "#9E9B94" : "#1A1917" }}>{inv.paid_at ? "$0.00" : fmtCurrency(inv.total)}</td>
                 <td style={{ padding: "12px 16px" }}>

@@ -297,7 +297,7 @@ router.get("/receivables", requireAuth, ROLE, async (req, res) => {
 
     const rows = await db.execute(sql`
       SELECT
-        i.id, i.status, i.total, i.created_at, i.paid_at,
+        i.id, i.invoice_number, i.status, i.total, i.created_at, i.paid_at,
         c.first_name, c.last_name, c.email,
         (i.created_at + interval '30 days') AS due_date,
         GREATEST(0, EXTRACT(EPOCH FROM (NOW() - (i.created_at + interval '30 days'))) / 86400)::int AS days_overdue
@@ -310,7 +310,7 @@ router.get("/receivables", requireAuth, ROLE, async (req, res) => {
     `);
 
     const data = (rows.rows as any[]).map(r => ({
-      id: r.id, status: r.status, total: parseF(r.total),
+      id: r.id, invoice_number: r.invoice_number, status: r.status, total: parseF(r.total),
       client_name: `${r.first_name} ${r.last_name}`, client_email: r.email,
       invoice_date: r.created_at, due_date: r.due_date,
       days_overdue: Math.max(0, r.days_overdue),

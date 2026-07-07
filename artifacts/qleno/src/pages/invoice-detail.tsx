@@ -3,6 +3,7 @@ import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
+import { formatInvoiceNumber } from "@/lib/invoice-number";
 import { ArrowLeft, Send, DollarSign, CreditCard, Clock, AlertCircle, Pencil, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarPopover } from "@/components/calendar-popover";
@@ -530,7 +531,7 @@ export default function InvoiceDetailPage() {
             </div>
             <div style={{ textAlign: "right" }}>
               <p style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: "0.12em", color: "#1A1917" }}>INVOICE</p>
-              <p style={{ margin: "6px 0 0", fontSize: 13, color: "#6B7280" }}>No. <span style={{ color: "#1A1917", fontWeight: 700 }}>{invoice.invoice_number || `INV-${String(invoice.id).padStart(4, "0")}`}</span></p>
+              <p style={{ margin: "6px 0 0", fontSize: 13, color: "#6B7280" }}>No. <span style={{ color: "#1A1917", fontWeight: 700 }}>{formatInvoiceNumber(invoice)}</span></p>
               <div style={{ marginTop: 8 }}><StatusBadge status={effectiveStatus} /></div>
             </div>
           </div>
@@ -760,7 +761,7 @@ export default function InvoiceDetailPage() {
           <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Invoice Details</h3>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px" }}>
             {[
-              { label: "Invoice Number", value: invoice.invoice_number || `INV-${String(invoice.id).padStart(4, "0")}` },
+              { label: "Invoice Number", value: formatInvoiceNumber(invoice) },
               { label: "Status", value: <StatusBadge status={effectiveStatus} /> },
               { label: "Bill To", value: !canEditInvoice ? billToLabel : (
                 billToOpen ? (

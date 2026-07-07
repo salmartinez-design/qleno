@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
 import { Search, User, Briefcase, FileText, X, Mic } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
+import { formatInvoiceNumber } from "@/lib/invoice-number";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -218,7 +219,7 @@ export function GlobalSearch({ onClose }: Props) {
                       <FileText size={15} color="#D97706"/>
                     </div>
                     <div style={{ flex:1 }}>
-                      <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>INV-{String(i.id).padStart(4,'0')} · {i.client_name}</p>
+                      <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{formatInvoiceNumber(i)} · {i.client_name}</p>
                       <p style={{ fontSize:11, color:'#9E9B94', margin:0 }}>${parseFloat(i.total || '0').toFixed(2)} · {i.status}</p>
                     </div>
                   </button>
