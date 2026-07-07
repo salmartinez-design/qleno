@@ -435,6 +435,16 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] ensureBookingConfirmationSetup — non-fatal:", err?.message ?? err);
   }
+  // [referral-program] referrals table + program columns (widget Give $25 /
+  // Get $25 flow: referrer capture, lead link, credited stamp).
+  try {
+    await withBootTimeout("ensureReferralSetup", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureReferralSetup } = await import("./lib/referrals.js");
+      await ensureReferralSetup();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureReferralSetup — non-fatal:", err?.message ?? err);
+  }
   // [time-change-notice 2026-06-30] jobs.time_change_pending / time_change_from
   // columns + job_time_updated SMS+email templates (all tenants).
   try {
