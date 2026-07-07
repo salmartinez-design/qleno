@@ -13,7 +13,9 @@ const router = Router();
 // ── POST /api/satisfaction/send — with 30-day throttle ──
 router.post("/send", requireAuth, async (req, res) => {
   try {
-    const { job_id, customer_id } = req.body;
+    // force=true (office "Resend" on Scorecard Results) bypasses the 30-day
+    // throttle — an explicit human resend, not an automated repeat ask.
+    const { job_id, customer_id, force } = req.body;
     if (!job_id || !customer_id) return res.status(400).json({ error: "job_id, customer_id required" });
 
     const companyId = req.auth!.companyId;
@@ -33,7 +35,7 @@ router.post("/send", requireAuth, async (req, res) => {
 
     const token = crypto.randomBytes(24).toString("hex");
 
-    if (recent.length > 0) {
+    if (recent.length > 0 && force !== true) {
       const [survey] = await db.insert(satisfactionSurveysTable).values({
         company_id: companyId,
         job_id: parseInt(job_id),
@@ -402,6 +404,75 @@ router.get("/results", requireAuth, async (req, res) => {
 });
 
 // ── GET /api/satisfaction?customer_id= ──
+// ── GET /api/satisfaction/scorecard-results — MaidCentral-style report ──
+// Per-survey rows over a date range with customer, job, techs, response,
+// trend (vs the customer's previous responded score), plus header KPIs.
+// Suppressed surveys are excluded (they never reached the customer).
+router.get("/scorecard-results", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const today = new Date().toISOString().slice(0, 10);
+    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from)) ? String(req.query.from) : monthAgo;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to)) ? String(req.query.to) : today;
+    const branchId = parseInt(String(req.query.branch_id)) || null;
+
+    const result = await db.execute(sql`
+      WITH responded AS (
+        SELECT id, LAG(survey_score) OVER (PARTITION BY customer_id ORDER BY responded_at) AS prev_score
+          FROM satisfaction_surveys
+         WHERE company_id = ${companyId} AND responded_at IS NOT NULL AND survey_score IS NOT NULL
+      )
+      SELECT s.id, s.job_id, s.customer_id, s.sent_at, s.responded_at, s.survey_score,
+             s.comment, s.follow_up_required,
+             TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS customer_name,
+             c.email AS client_email, c.phone AS client_phone,
+             j.scheduled_date AS job_date, j.service_type,
+             COALESCE(
+               (SELECT string_agg(DISTINCT TRIM(COALESCE(tu.first_name,'') || ' ' || COALESCE(tu.last_name,'')), ', ')
+                  FROM job_technicians jt JOIN users tu ON tu.id = jt.user_id
+                 WHERE jt.job_id = s.job_id),
+               TRIM(COALESCE(au.first_name,'') || ' ' || COALESCE(au.last_name,''))
+             ) AS techs,
+             r.prev_score
+        FROM satisfaction_surveys s
+        JOIN clients c ON c.id = s.customer_id
+        LEFT JOIN jobs j ON j.id = s.job_id
+        LEFT JOIN users au ON au.id = j.assigned_user_id
+        LEFT JOIN responded r ON r.id = s.id
+       WHERE s.company_id = ${companyId}
+         AND s.suppressed = false
+         AND s.sent_at >= ${from}::date
+         AND s.sent_at < (${to}::date + INTERVAL '1 day')
+         ${branchId ? sql`AND j.branch_id = ${branchId}` : sql``}
+       ORDER BY s.sent_at DESC`);
+
+    const rows = (result.rows as any[]).map(r => ({
+      ...r,
+      trend: r.prev_score == null || r.survey_score == null ? null
+        : r.survey_score > r.prev_score ? "up"
+        : r.survey_score < r.prev_score ? "down" : "flat",
+    }));
+    const returned = rows.filter(r => r.responded_at).length;
+    const scored = rows.filter(r => r.survey_score != null);
+    return res.json({
+      from, to,
+      kpis: {
+        sent: rows.length,
+        returned,
+        response_rate: rows.length ? Math.round((returned / rows.length) * 100) : 0,
+        avg_score_pct: scored.length
+          ? Math.round((scored.reduce((a, r) => a + Number(r.survey_score), 0) / scored.length / 4) * 100)
+          : null,
+      },
+      data: rows,
+    });
+  } catch (err) {
+    console.error("[satisfaction/scorecard-results]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     const { customer_id } = req.query;
