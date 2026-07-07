@@ -114,6 +114,10 @@ export async function sendNotification(
   // customer so the Communication Log can show "what the client received".
   let sentBody = "";
   let sentSubject: string | null = null;
+  // [comm-log-view-email 2026-07-07] Also capture the EXACT html handed to
+  // Resend (wrapper + merge + unsub footer) so the Communication Log can open
+  // the email as the customer saw it.
+  let sentHtml: string | null = null;
 
   try {
     // Fetch template
@@ -243,6 +247,7 @@ export async function sendNotification(
       providerId = sendRes?.data?.id ?? null;
       sentSubject = subject;
       sentBody = applyMerge(tpl.body_text || tpl.body || "", fullVars);
+      sentHtml = wrapped;
 
     } else if (channel === "sms") {
       if (!recipientPhone) {
@@ -286,6 +291,7 @@ export async function sendNotification(
       ...(providerId ? { _provider_id: providerId } : {}),
       ...(sentBody ? { body: sentBody } : {}),
       ...(sentSubject ? { subject: sentSubject } : {}),
+      ...(sentHtml ? { html: sentHtml } : {}),
     },
   );
 }
@@ -469,7 +475,7 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
               ...(Object.keys(headers).length ? { headers } : {}),
             });
             emailSent = true;
-            await logNotification(job.company_id, job.email, "email", reminderTrigger, "sent", null, logMeta);
+            await logNotification(job.company_id, job.email, "email", reminderTrigger, "sent", null, { ...logMeta, html: emailHtml });
           } catch (emailErr) {
             console.error(`[reminder-${label}] Email failed for job ${job.id}:`, emailErr);
             await logNotification(job.company_id, job.email, "email", reminderTrigger, "failed", String(emailErr), logMeta);
@@ -737,7 +743,7 @@ export async function runScheduledJobMessages(): Promise<void> {
                 ...(Object.keys(headers).length ? { headers } : {}),
               });
               await recordJobMessageSend(job, sched.key, "email", "sent", job.email);
-              await logNotification(job.company_id, job.email, "email", sched.key, "sent", null, { job_id: String(job.id), subject: tpl.subject || sched.label, body: tpl.body });
+              await logNotification(job.company_id, job.email, "email", sched.key, "sent", null, { job_id: String(job.id), subject: tpl.subject || sched.label, body: tpl.body, html: emailHtml });
             } catch (e) {
               console.error(`[scheduled-messages] email failed key=${sched.key} job=${job.id}:`, e);
             }
