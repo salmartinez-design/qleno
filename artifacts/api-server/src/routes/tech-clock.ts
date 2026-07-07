@@ -558,8 +558,11 @@ async function handleClockEvent(
               service_type: labelServiceType((jobRow as any)?.service_type),
               service_address: [cl.address, cl.city, cl.state].filter(Boolean).join(", "),
             };
-            sendNotification("job_started", "sms", companyId, null, cl.phone, mv).catch(() => {});
-            sendNotification("job_started", "email", companyId, cl.email, null, mv).catch(() => {});
+            // Pass the client id so sendNotification's per-client channel
+            // preference gate applies — without it an explicit email/SMS OFF
+            // override on the client is silently ignored on this path.
+            sendNotification("job_started", "sms", companyId, null, cl.phone, mv, false, undefined, job.client_id!).catch(() => {});
+            sendNotification("job_started", "email", companyId, cl.email, null, mv, false, undefined, job.client_id!).catch(() => {});
           } catch (e) {
             console.error("[tech-clock] job_started notify non-fatal:", (e as Error).message);
           }
@@ -598,8 +601,9 @@ async function handleClockEvent(
               scope: labelServiceType((jobRow as any)?.service_type),
               service_address: addr,
             };
-            sendNotification("job_completed", "email", companyId, cl.email, null, mv).catch(() => {});
-            sendNotification("job_completed", "sms", companyId, null, cl.phone, mv).catch(() => {});
+            // Same preference-gate wiring as job_started above.
+            sendNotification("job_completed", "email", companyId, cl.email, null, mv, false, undefined, job.client_id!).catch(() => {});
+            sendNotification("job_completed", "sms", companyId, null, cl.phone, mv, false, undefined, job.client_id!).catch(() => {});
           } catch (e) {
             console.error("[tech-clock] job_completed notify non-fatal:", (e as Error).message);
           }
