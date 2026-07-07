@@ -3917,16 +3917,21 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     // ─────────────────────────────────────────────────────────────────────
 
     // ── NPS survey trigger (non-blocking) ────────────────────────────────
+    // [one-completion-email] The promise is threaded into the job_completed
+    // notify block below: when the survey EMAIL reaches the inbox, the
+    // thank-you email is skipped so the customer gets exactly ONE email per
+    // visit (thank-you only on survey-throttled visits). SMS unaffected.
     const clientId = (updated[0] as any).client_id;
+    let surveyPromise: Promise<any> = Promise.resolve(null);
     if (clientId) {
-      fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
+      surveyPromise = fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": req.headers.authorization || "",
         },
         body: JSON.stringify({ job_id: jobId, customer_id: clientId }),
-      }).catch((npsErr: Error) => console.error("NPS send error (non-fatal):", npsErr));
+      }).then(r => r.json()).catch((npsErr: Error) => { console.error("NPS send error (non-fatal):", npsErr); return null; });
     }
     // ─────────────────────────────────────────────────────────────────────
 
@@ -3962,7 +3967,10 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
             service_address:  addr,
             ...buildAppointmentVars({ scheduledDate: jd.scheduled_date, scheduledTime: jd.scheduled_time }),
           };
-          sendNotification("job_completed", "email", companyId, cl.email, null, mv, false, undefined, clientId).catch(() => {});
+          const survey = await surveyPromise;
+          if (!survey?.survey_email_sent) {
+            sendNotification("job_completed", "email", companyId, cl.email, null, mv, false, undefined, clientId).catch(() => {});
+          }
           sendNotification("job_completed", "sms",   companyId, null, cl.phone, mv, false, undefined, clientId).catch(() => {});
         }).catch(() => {});
     }

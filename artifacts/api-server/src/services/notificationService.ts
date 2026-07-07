@@ -106,7 +106,11 @@ export async function sendNotification(
   // behavior — no gate. Callers for the six customer messages pass it; every
   // other caller (transactional, invoice, payment, welcome) leaves it undefined.
   prefClientId?: number | null,
-): Promise<void> {
+  // Returns true only when the message was actually handed to the provider —
+  // false for every skip/suppress/failure. Lets callers (e.g. satisfaction/send
+  // and the one-completion-email rule) know whether this channel really
+  // reached the customer.
+): Promise<boolean> {
   let status = "sent";
   let errorMsg: string | null = null;
   let providerId: string | null = null;
@@ -134,7 +138,7 @@ export async function sendNotification(
 
     if (!tpl) {
       await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "skipped", "Template not found or inactive", {});
-      return;
+      return false;
     }
 
     // Per-tenant comms gate + per-tenant send-from address. Raw SQL to avoid
@@ -147,7 +151,7 @@ export async function sendNotification(
     // sends (reset/invite) skip it — they must always reach the user.
     if (!transactional && !(commsRow.rows[0] as any)?.comms_enabled) {
       await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "suppressed", "company_comms_disabled", {});
-      return;
+      return false;
     }
 
     // [notif-prefs] Per-client/account message + channel preference gate. EXTRA
@@ -161,7 +165,7 @@ export async function sendNotification(
       const enabled = await isMessageEnabledForJob({ companyId, clientId: prefClientId }, templateKey, channel);
       if (!enabled) {
         await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "suppressed", "client_pref_off", {});
-        return;
+        return false;
       }
     }
 
@@ -182,17 +186,17 @@ export async function sendNotification(
     if (channel === "email") {
       if (!recipientEmail) {
         await logNotification(companyId, "no-email", channel, templateKey, "skipped", "No recipient email", fullVars);
-        return;
+        return false;
       }
       if (!process.env.RESEND_API_KEY) {
         await logNotification(companyId, recipientEmail, channel, templateKey, "skipped", "RESEND_API_KEY not configured", fullVars);
-        return;
+        return false;
       }
       // [comms-opt-out] Honor email opt-out. Transactional sends (reset/invite,
       // to users not clients) bypass — they must always reach the recipient.
       if (!transactional && await isEmailOptedOut(companyId, recipientEmail)) {
         await logNotification(companyId, recipientEmail, channel, templateKey, "suppressed", "email_opt_out", fullVars);
-        return;
+        return false;
       }
 
       const bodyHtml = tpl.body_html || tpl.body || "";
@@ -230,7 +234,7 @@ export async function sendNotification(
       if (!transactional && process.env.COMMS_ENABLED !== "true") {
         console.log("[COMMS BLOCKED] Email suppressed:", { to: recipientEmail, subject });
         await logNotification(companyId, recipientEmail, channel, templateKey, "suppressed", "COMMS_ENABLED=false", fullVars);
-        return;
+        return false;
       }
       const resend = new Resend(process.env.RESEND_API_KEY);
       const sendRes: any = await resend.emails.send({
@@ -252,12 +256,12 @@ export async function sendNotification(
     } else if (channel === "sms") {
       if (!recipientPhone) {
         await logNotification(companyId, "no-phone", channel, templateKey, "skipped", "No recipient phone", fullVars);
-        return;
+        return false;
       }
       // [comms-opt-out] Honor SMS STOP. Transactional bypasses (to users).
       if (!transactional && await isSmsOptedOut(companyId, recipientPhone)) {
         await logNotification(companyId, recipientPhone, channel, templateKey, "suppressed", "sms_opt_out", fullVars);
-        return;
+        return false;
       }
 
       const bodyText = applyMerge(tpl.body_text || tpl.body || "", fullVars);
@@ -266,7 +270,7 @@ export async function sendNotification(
       const suppressReason = await sendTenantSms(companyId, recipientPhone, bodyText);
       if (suppressReason) {
         await logNotification(companyId, recipientPhone, channel, templateKey, "suppressed", suppressReason, fullVars);
-        return;
+        return false;
       }
       sentBody = bodyText;
     }
@@ -294,6 +298,7 @@ export async function sendNotification(
       ...(sentHtml ? { html: sentHtml } : {}),
     },
   );
+  return status === "sent";
 }
 
 async function logNotification(

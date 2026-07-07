@@ -583,6 +583,15 @@ async function handleClockEvent(
         .catch((e: Error) => console.error("[tech-clock invoice] non-fatal:", e));
       // ── job_completed notification + satisfaction survey (non-blocking) ─
       if (job.client_id) {
+        // [one-completion-email] Survey first (same trigger as the office path,
+        // jobs.ts PATCH); its response says whether the survey EMAIL reached the
+        // inbox. The thank-you email only goes when it didn't, so the customer
+        // gets exactly ONE email per visit. SMS unaffected.
+        const surveyPromise: Promise<any> = fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": req.headers.authorization || "" },
+          body: JSON.stringify({ job_id: job.id, customer_id: job.client_id }),
+        }).then(r => r.json()).catch((e: Error) => { console.error("[tech-clock] satisfaction survey trigger non-fatal:", e.message); return null; });
         Promise.resolve().then(async () => {
           try {
             if (await isClientAccountCommsPaused(job.client_id!)) return;
@@ -602,22 +611,13 @@ async function handleClockEvent(
               service_address: addr,
             };
             // Same preference-gate wiring as job_started above.
-            sendNotification("job_completed", "email", companyId, cl.email, null, mv, false, undefined, job.client_id!).catch(() => {});
+            const survey = await surveyPromise;
+            if (!survey?.survey_email_sent) {
+              sendNotification("job_completed", "email", companyId, cl.email, null, mv, false, undefined, job.client_id!).catch(() => {});
+            }
             sendNotification("job_completed", "sms", companyId, null, cl.phone, mv, false, undefined, job.client_id!).catch(() => {});
           } catch (e) {
             console.error("[tech-clock] job_completed notify non-fatal:", (e as Error).message);
-          }
-        }).catch(() => {});
-        // Satisfaction survey — same trigger as the office path (jobs.ts PATCH)
-        Promise.resolve().then(async () => {
-          try {
-            await fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "Authorization": req.headers.authorization || "" },
-              body: JSON.stringify({ job_id: job.id, customer_id: job.client_id }),
-            });
-          } catch (e) {
-            console.error("[tech-clock] satisfaction survey trigger non-fatal:", (e as Error).message);
           }
         }).catch(() => {});
       }

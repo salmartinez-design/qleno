@@ -6459,6 +6459,10 @@ async function runNotificationTemplateSeed() {
       ["companies.invoice_payment_instructions",    sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_payment_instructions TEXT`],
       ["companies.invoice_guarantee",               sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_guarantee TEXT`],
       ["companies.invoice_terms",                   sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_terms TEXT`],
+      // [review-once 2026-07-07] Stamped when a happy survey rater taps "Leave a
+      // Google review" — the survey thank-you page only shows the ask to clients
+      // who have never tapped it before.
+      ["clients.google_review_clicked_at",          sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS google_review_clicked_at TIMESTAMP`],
       ["notifications.create_table",                sql`CREATE TABLE IF NOT EXISTS notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id integer NOT NULL, type varchar(50) NOT NULL, title varchar(255) NOT NULL, body text, link varchar(500), meta jsonb, read boolean DEFAULT false, created_at timestamptz DEFAULT now())`],
       ["notifications.idx_company_unread",          sql`CREATE INDEX IF NOT EXISTS idx_notifications_company_unread ON notifications(company_id, read, created_at DESC)`],
     ];
