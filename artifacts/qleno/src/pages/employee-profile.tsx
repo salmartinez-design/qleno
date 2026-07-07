@@ -701,7 +701,7 @@ export default function EmployeeProfilePage() {
   };
   // [mc-migration 2026-07-07] Balance editor — the "Update" button on accrual
   // buckets (PTO / PLAWA / Unpaid Leave) was a dead no-op. It now opens this
-  // editor and persists via PUT /leave/balances (owner/admin — same gate as
+  // editor and persists via PUT /leave/balances (same office-tier gate as
   // the API), then refetches the buckets.
   const [balModal, setBalModal] =
     useState<null | { leave_type_id: number; display_name: string; accent: string }>(null);
@@ -709,7 +709,9 @@ export default function EmployeeProfilePage() {
   const [balUsed, setBalUsed] = useState('');
   const [balBusy, setBalBusy] = useState(false);
   const [balErr, setBalErr] = useState<string | null>(null);
-  const canEditBalance = ['owner', 'admin', 'super_admin'].includes(getTokenRole() || '');
+  // [office-parity 2026-07-07] office included — Maribel/Francisco approve
+  // requests and correct balances day-to-day (API gate widened to match).
+  const canEditBalance = ['owner', 'admin', 'office', 'super_admin'].includes(getTokenRole() || '');
   const openBalanceEdit = (b: any) => {
     setBalGranted(String(Number(b.granted || 0)));
     setBalUsed(String(Number(b.used || 0)));
@@ -1785,22 +1787,50 @@ export default function EmployeeProfilePage() {
                           };
                           const fmtPair = (g: number | null, u2: number | null) =>
                             `${g != null ? g.toFixed(1) : '—'} granted / ${u2 != null ? u2.toFixed(1) : '—'} used`;
+                          const empName = `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim() || 'Employee';
+                          const dayUnitLabel: Record<string, string> = { full_day: 'full day', morning: 'morning', afternoon: 'afternoon', custom: 'custom hours' };
+                          // Headline: WHAT happened. For request-driven rows the
+                          // full designation chain — the employee requested, the
+                          // approver signed off, the hours moved — reads on one card.
+                          const headline = (r: any) => {
+                            const hrs = r.hours_delta != null ? Math.abs(r.hours_delta).toFixed(1) : null;
+                            if (r.source === 'request_approved') return `Request approved — ${hrs ?? '?'} hrs deducted`;
+                            if (r.source === 'request_cancelled') return `Approved request cancelled — ${hrs ?? '?'} hrs restored`;
+                            if (r.source === 'usage_entry_deleted') return 'Usage entry removed — hours restored';
+                            if (r.source === 'office_set') return 'Balance set manually';
+                            if (r.engine_action === 'initial_grant') return 'Automatic grant (eligibility reached)';
+                            if (r.engine_action === 'annual_reset') return 'Automatic benefit-year reset';
+                            if (r.engine_action === 'tier_topup') return 'Automatic tenure top-up';
+                            return 'Balance changed';
+                          };
+                          const chain = (r: any) => {
+                            if (r.source === 'request_approved') return `${empName} requested · approved by ${r.actor}`;
+                            if (r.source === 'request_cancelled') return `cancelled by ${r.actor}`;
+                            return `by ${r.actor}`;
+                          };
                           return (
                             <div style={{ marginTop:20 }}>
                               <h4 style={{ margin:'0 0 4px',fontSize:13,fontWeight:700,color:'#1A1917' }}>Balance changes</h4>
-                              <p style={{ margin:'0 0 8px',fontSize:11.5,color:'#9E9B94' }}>Where this bucket's numbers came from — office edits and automatic grants.</p>
+                              <p style={{ margin:'0 0 8px',fontSize:11.5,color:'#9E9B94' }}>The full audit trail for this bucket — requests and approvals, office edits, automatic grants.</p>
                               {logRows.map((r: any, i: number) => (
                                 <div key={i} style={{ padding:'8px 0',borderTop: i ? '1px solid #F0EEE9' : '1px solid #E5E2DC' }}>
                                   <div style={{ display:'flex',justifyContent:'space-between',gap:10,fontSize:12 }}>
-                                    <span style={{ fontWeight:700,color:'#1A1917' }}>{r.actor}</span>
+                                    <span style={{ fontWeight:700,color:'#1A1917' }}>{headline(r)}</span>
                                     <span style={{ color:'#9E9B94',whiteSpace:'nowrap' }}>{fmtAt(r.at)}</span>
+                                  </div>
+                                  <div style={{ fontSize:12,color:'#6B6860',marginTop:2 }}>
+                                    {chain(r)}
+                                    {r.start_date && (
+                                      <span style={{ color:'#9E9B94' }}>
+                                        {' '}· {shortDate(String(r.start_date))}{r.end_date && r.end_date !== r.start_date ? ` – ${shortDate(String(r.end_date))}` : ''}{r.day_unit ? ` (${dayUnitLabel[r.day_unit] ?? r.day_unit})` : ''}
+                                      </span>
+                                    )}
                                   </div>
                                   <div style={{ fontSize:12,color:'#6B6860',marginTop:2 }}>
                                     {fmtPair(r.granted_new, r.used_new)}
                                     {(r.granted_old != null || r.used_old != null) && (
                                       <span style={{ color:'#9E9B94' }}> (was {fmtPair(r.granted_old, r.used_old)})</span>
                                     )}
-                                    {r.engine_action && <span style={{ color:'#9E9B94' }}> · {String(r.engine_action).replace(/_/g, ' ')}</span>}
                                   </div>
                                 </div>
                               ))}

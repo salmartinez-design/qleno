@@ -134,7 +134,11 @@ const officeReadGate = requireRole(
   "office",
   "super_admin",
 );
-const adminWriteGate = requireRole("owner", "admin", "super_admin");
+// [office-parity 2026-07-07] 'office' included per Sal: Maribel/Francisco
+// (office role) are the people who actually approve requests and correct
+// balances day-to-day. Matches the office-admin-parity standard used across
+// settings + employee management.
+const adminWriteGate = requireRole("owner", "admin", "office", "super_admin");
 
 router.use(requireAuth);
 
@@ -691,6 +695,13 @@ router.get("/balance-log", officeReadGate, async (req, res) => {
         leave_type_id: nv.leave_type_id ?? null,
         slug: nv.slug ?? null,
         engine_action: nv.engine_action ?? null,
+        // Request designation chain: which request moved the hours, the
+        // dates it covered, and the signed delta (negative = deducted).
+        request_id: nv.request_id ?? null,
+        hours_delta: nv.hours_delta != null ? Number(nv.hours_delta) : null,
+        start_date: nv.start_date ?? null,
+        end_date: nv.end_date ?? null,
+        day_unit: nv.day_unit ?? null,
         granted_old: ov?.granted_hours != null ? Number(ov.granted_hours) : null,
         used_old: ov?.used_hours != null ? Number(ov.used_hours) : null,
         granted_new: nv.granted_hours != null ? Number(nv.granted_hours) : null,
@@ -1586,6 +1597,23 @@ router.post("/requests/:id/approve", adminWriteGate, async (req, res) => {
       decided_by: actingUserId, hours, day_unit: dayUnit, decision_note: decisionNote,
     });
   } catch { /* audit best-effort */ }
+  // [leave-log 2026-07-07] Balance-targeted provenance row so the bucket's
+  // "Balance changes" log shows the full designation chain: the employee
+  // requested these dates, THIS approver signed off, and the hours moved.
+  // performed_by (the approver) is stamped by logAudit from req.auth.
+  try {
+    await logAudit(req, "leave_request_approved", "employee_leave_balance", String(bal.id), {
+      granted_hours: bal.granted_hours, used_hours: bal.used_hours,
+    }, {
+      user_id: reqRow.user_id, leave_type_id: reqRow.leave_type_id,
+      slug: ltRow[0]?.slug ?? null,
+      granted_hours: Number(bal.granted_hours),
+      used_hours: Number(bal.used_hours) + hours,
+      hours_delta: -hours, request_id: reqRow.id,
+      start_date: String(reqRow.start_date), end_date: String(reqRow.end_date),
+      day_unit: dayUnit, source: "request_approved",
+    });
+  } catch { /* audit best-effort */ }
   // Auto-pay: approval is the gate — a paid bucket cascades into pay as a
   // visible additional_pay line ($20/hr flat). Idempotent; unpaid = no-op.
   try {
@@ -1721,6 +1749,17 @@ router.post("/requests/:id/cancel", async (req, res) => {
       );
     // Reverse the auto-pay so the employee isn't paid for cancelled leave.
     await voidApprovedLeavePay(companyId, reqRow.id, actingUserId);
+    // [leave-log 2026-07-07] Provenance: an approval reversal moves hours
+    // back — log it against the balance so the change history stays complete.
+    try {
+      await logAudit(req, "leave_request_cancelled", "employee_leave_balance", String(bal.id), {
+        granted_hours: bal.granted_hours, used_hours: bal.used_hours,
+      }, {
+        user_id: reqRow.user_id, leave_type_id: reqRow.leave_type_id,
+        granted_hours: Number(bal.granted_hours), used_hours: newUsed,
+        hours_delta: hours, request_id: reqRow.id, source: "request_cancelled",
+      });
+    } catch { /* audit best-effort */ }
   }
   await db
     .update(leaveRequestsTable)
