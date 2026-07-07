@@ -598,6 +598,36 @@ router.get("/usage", officeReadGate, async (req, res) => {
   return res.json({ data });
 });
 
+// [calendar 2026-07-07] Month-scoped attendance rows for the profile calendar.
+// The calendar's legend advertised Unexcused/PTO/Time Off but only Worked days
+// were ever painted (it read timeclock only) — Sal: "the calendar is not
+// showing today as unexcused." Read-only; drill-down/delete stay on the
+// attendance-summary endpoints.
+router.get("/attendance-log", officeReadGate, async (req, res) => {
+  const companyId = req.auth!.companyId!;
+  const userId = Number(req.query.userId);
+  const from = String(req.query.from ?? "");
+  const to = String(req.query.to ?? "");
+  if (!Number.isFinite(userId)) return bad(res, "userId required");
+  if (!ISO_DATE_RE.test(from) || !ISO_DATE_RE.test(to)) return bad(res, "from/to YYYY-MM-DD required");
+  const rows = await db
+    .select({
+      log_date: employeeAttendanceLogTable.log_date,
+      type: employeeAttendanceLogTable.type,
+      is_protected: employeeAttendanceLogTable.protected,
+    })
+    .from(employeeAttendanceLogTable)
+    .where(
+      and(
+        eq(employeeAttendanceLogTable.company_id, companyId),
+        eq(employeeAttendanceLogTable.employee_id, userId),
+        gte(employeeAttendanceLogTable.log_date, from),
+        lte(employeeAttendanceLogTable.log_date, to),
+      ),
+    );
+  return res.json({ data: rows });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // [leave-log 2026-07-07] Mistake corrections + provenance (Sal: "I can't edit
 // mistakes; also need logs on where changes come from").
