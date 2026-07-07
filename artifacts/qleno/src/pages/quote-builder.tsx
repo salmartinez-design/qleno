@@ -211,6 +211,7 @@ export default function QuoteBuilderPage() {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const isEdit = Boolean(id && id !== "new");
+  const fromClientId = parseInt(new URLSearchParams(window.location.search).get("client_id") || "") || null;
   const token = useAuthStore(s => s.token);
 
   const userRole = (() => { try { return JSON.parse(atob((token || "").split(".")[1])).role || "office"; } catch { return "office"; } })();
@@ -1498,8 +1499,8 @@ export default function QuoteBuilderPage() {
 
       {/* Header */}
       <div style={{ borderBottom: "1px solid #E5E2DC", background: "#FFF", padding: "14px 24px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 0, zIndex: 50 }}>
-        <Button variant="ghost" size="sm" onClick={() => navigate("/quotes")} className="gap-1.5 text-[#6B7280]">
-          <ArrowLeft className="w-4 h-4" /> Back to Quotes
+        <Button variant="ghost" size="sm" onClick={() => navigate(fromClientId ? `/customers/${fromClientId}` : "/quotes")} className="gap-1.5 text-[#6B7280]">
+          <ArrowLeft className="w-4 h-4" /> {fromClientId ? "Back to Client" : "Back to Quotes"}
         </Button>
         <div className="h-5 w-px bg-[#E5E2DC]" />
         <h1 style={{ fontSize: 18, fontWeight: 600, color: "#1A1917" }}>{isEdit ? "Edit Quote" : "New Quote"}</h1>
