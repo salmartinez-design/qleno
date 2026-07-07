@@ -1264,7 +1264,6 @@ router.post("/upload", leaveUpload.single("file"), async (req, res) => {
 
 router.post("/requests", async (req, res) => {
   const companyId = req.auth!.companyId!;
-  const userId = req.auth!.userId!;
   const body = req.body as {
     leave_type_id?: number;
     start_date?: string;
@@ -1275,7 +1274,19 @@ router.post("/requests", async (req, res) => {
     attachment_url?: string | null;
     attachment_name?: string | null;
     note?: string | null;
+    /** [on-behalf 2026-07-07] Office tier may file FOR an employee (used by
+     *  the "View as Employee" preview — Sal: submit wouldn't work there).
+     *  Ignored for non-office callers: a tech can only file for themself. */
+    employee_id?: number;
   };
+  const OFFICE_TIER = ["owner", "admin", "office", "super_admin"];
+  const onBehalfId = Number(body?.employee_id);
+  const isOnBehalf =
+    Number.isFinite(onBehalfId) &&
+    onBehalfId > 0 &&
+    onBehalfId !== req.auth!.userId! &&
+    OFFICE_TIER.includes(req.auth!.role ?? "");
+  const userId = isOnBehalf ? onBehalfId : req.auth!.userId!;
   if (!body?.leave_type_id || !Number.isFinite(Number(body.leave_type_id)))
     return bad(res, "leave_type_id required");
   if (!body?.start_date || !ISO_DATE_RE.test(body.start_date))
@@ -1288,6 +1299,16 @@ router.post("/requests", async (req, res) => {
   // Required attachment at submit (Sal 2026-06-22) — employee-only, mandatory.
   if (!body.attachment_url) {
     return bad(res, "An attachment (e.g. a doctor's note) is required to submit a time-off request.", "attachment_required");
+  }
+
+  // On-behalf target must exist in THIS company — never trust a raw id.
+  if (isOnBehalf) {
+    const target = await db
+      .select({ id: usersTable.id })
+      .from(usersTable)
+      .where(and(eq(usersTable.company_id, companyId), eq(usersTable.id, userId)))
+      .limit(1);
+    if (!target[0]) return notFound(res, "Employee not found");
   }
 
   // Unit: full day / morning / afternoon / custom hours. Multi-day must be
@@ -1457,6 +1478,9 @@ router.post("/requests", async (req, res) => {
     await logAudit(req, "leave_request_submitted", "leave_request", String(inserted[0]!.id), null, {
       leave_type_id: bucket.id, start_date: body.start_date, end_date: body.end_date,
       day_unit: dayUnit, hours, status: initialStatus,
+      // On-behalf provenance: the request belongs to `userId`, but the
+      // performed_by on this row is the office member who filed it.
+      filed_for_user_id: userId, filed_by_office: isOnBehalf,
     });
   } catch { /* audit is best-effort */ }
 
