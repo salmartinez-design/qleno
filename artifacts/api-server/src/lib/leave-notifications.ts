@@ -103,14 +103,38 @@ async function loadCtx(requestId: number): Promise<LeaveCtx | null> {
     company_name: row.company_name || "Qleno",
     company_phone: row.company_phone || "",
     company_email: row.company_email || "",
-    company_logo_url: row.company_logo_url || null,
+    // [email-polish 2026-07-07] Logo must be ABSOLUTE — the stored value is a
+    // site-relative path (/images/phes-logo.jpeg) which renders as a broken
+    // image in every email client (Sal: "logo not working").
+    company_logo_url: row.company_logo_url
+      ? (String(row.company_logo_url).startsWith("http")
+          ? String(row.company_logo_url)
+          : `${appBaseUrl()}${row.company_logo_url}`)
+      : null,
     email_from: row.email_from_address || "noreply@phes.io",
   };
 }
 
+// [email-polish 2026-07-07] Human formats — Sal: "do not use military time."
+function fmt12(t: string): string {
+  const [hStr, mStr] = t.split(":");
+  let h = parseInt(hStr, 10);
+  if (isNaN(h)) return t;
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${mStr ?? "00"} ${ampm}`;
+}
+function fmtDay(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  if (isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+}
+
 function dateLabel(c: LeaveCtx): string {
-  const base = c.start_date === c.end_date ? c.start_date : `${c.start_date} → ${c.end_date}`;
-  return c.start_time && c.end_time ? `${base}, ${c.start_time}–${c.end_time}` : base;
+  const base = c.start_date === c.end_date
+    ? fmtDay(c.start_date)
+    : `${fmtDay(c.start_date)} – ${fmtDay(c.end_date)}`;
+  return c.start_time && c.end_time ? `${base}, ${fmt12(c.start_time)}–${fmt12(c.end_time)}` : base;
 }
 
 /** Merge vars available to every leave email template. */
@@ -121,10 +145,13 @@ function mergeVars(c: LeaveCtx): Record<string, string> {
     bucket_name: c.bucket_name,
     dates: dateLabel(c),
     hours: Number(c.hours).toFixed(2),
-    time_window: c.start_time && c.end_time ? `${c.start_time}–${c.end_time}` : "",
+    time_window: c.start_time && c.end_time ? `${fmt12(c.start_time)}–${fmt12(c.end_time)}` : "",
     note: c.note ?? "",
     decision_note: c.decision_note ?? "",
-    review_link: `${appBaseUrl()}/leave-review`,
+    // The SPA route is /payroll/leave-review — the old /leave-review 404'd
+    // straight out of the ACTION REQUIRED email (Sal: "approval process not
+    // working").
+    review_link: `${appBaseUrl()}/payroll/leave-review`,
     my_time_off_link: `${appBaseUrl()}/leave`,
     company_name: c.company_name,
     company_phone: c.company_phone,
@@ -200,9 +227,16 @@ async function sendEmployeeSms(c: LeaveCtx, body: string): Promise<void> {
   }
 }
 
-/** Direct email to every active office/owner/admin user in the tenant. */
+/** Office alert destination. [email-polish 2026-07-07] Sal: "email needs to
+ *  go to office info@phes.io" — the tenant's office inbox (companies.email)
+ *  is THE recipient. Only when a tenant has no office inbox configured does
+ *  this fall back to fanning out to every office/owner/admin user. */
 async function emailOfficeUsers(c: LeaveCtx, subject: string, html: string): Promise<void> {
   try {
+    if (c.company_email) {
+      await sendInternalEmail(c, c.company_email, subject, html);
+      return;
+    }
     const users = await db.execute(sql`
       SELECT DISTINCT u.email FROM users u
        WHERE u.is_active = true AND u.email IS NOT NULL AND u.email <> '' AND (
@@ -233,7 +267,7 @@ export async function notifyLeaveSubmitted(requestId: number, companyId: number)
     type: "leave_request",
     title: `ACTION REQUIRED: Review ${c.employee_name}'s time-off request`,
     body: `${c.employee_name} requested ${Number(c.hours).toFixed(2)} h of ${c.bucket_name} for ${dates}. Review and approve or deny.`,
-    link: "/leave-review",
+    link: "/payroll/leave-review",
     meta: { request_id: requestId },
   });
   {
