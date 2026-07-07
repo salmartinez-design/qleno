@@ -15,10 +15,14 @@ const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 //   - Property filter — pick a building and the calendar becomes THAT
 //     property's own calendar ("each property should have its own calendar").
 //     account-detail's Properties tab deep-links here via initialPropertyId.
+//   - [calendar-dnd 2026-07-07] Day cells render per-visit CHIPS (first two +
+//     "+N more"); DRAG a chip onto another day to reschedule it — same PUT
+//     quick-reschedule as dispatch drag-and-drop. Completed/cancelled chips
+//     aren't draggable. Touch devices use the popover's Move button instead
+//     (HTML5 DnD is pointer-only), which also covers cross-month moves.
 //   - Day popover job rows open the job's full editor (dispatch JobPanel via
 //     /jobs?date=…&job=…) — every edit tool in one tap.
-//   - "Move" reschedules a visit to another date inline (same
-//     PUT /api/jobs/:id quick-reschedule the dispatch drag-and-drop uses).
+//   - "Move" reschedules a visit to another date inline.
 //   - "New job" on a day opens the New Job wizard on that date
 //     (/jobs?date=…&new=1).
 
@@ -91,6 +95,14 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
   const [moveDate, setMoveDate] = useState("");
   const [moving, setMoving] = useState(false);
   const [reloadTick, setReloadTick] = useState(0);
+  // [calendar-dnd 2026-07-07] Drag-and-drop reschedule (Maribel: "drag and
+  // drop, edit, schedule, all that"). Each day cell renders per-visit chips;
+  // dragging a chip onto another day quick-reschedules it (same PUT the Move
+  // button and dispatch drag-and-drop use). Desktop pointer only — HTML5 DnD
+  // doesn't fire on touch, so the popover's Move button stays the mobile path
+  // (and the cross-month path; a drag can't leave the visible month).
+  const [dragJob, setDragJob] = useState<CalJob | null>(null);
+  const [dropDay, setDropDay] = useState<string | null>(null);
   const [, navigate] = useLocation();
   const { toast } = useToast();
 
@@ -174,21 +186,24 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
     navigate(`/jobs?date=${key}&new=1`);
   }
 
-  async function saveMove(j: CalJob) {
-    if (!moveDate || !/^\d{4}-\d{2}-\d{2}$/.test(moveDate)) return;
-    if (moveDate === (j.scheduled_date || "").slice(0, 10)) { setMoveJobId(null); return; }
+  const isMovable = (j: CalJob) => j.status !== "complete" && j.status !== "cancelled";
+
+  // Shared reschedule: the Move button and chip drag-and-drop both land here.
+  async function moveJob(j: CalJob, targetDate: string) {
+    if (!targetDate || !/^\d{4}-\d{2}-\d{2}$/.test(targetDate)) return;
+    if (targetDate === (j.scheduled_date || "").slice(0, 10)) { setMoveJobId(null); return; }
     setMoving(true);
     try {
       const res = await fetch(`${API}/api/jobs/${j.id}`, {
         method: "PUT",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ scheduled_date: moveDate }),
+        body: JSON.stringify({ scheduled_date: targetDate }),
       });
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         throw new Error(d.message || d.error || "Failed to move job");
       }
-      toast({ title: `Moved to ${moveDate}` });
+      toast({ title: `Moved to ${targetDate}` });
       setMoveJobId(null);
       setOpenDay(null);
       setReloadTick(t => t + 1);
@@ -197,6 +212,12 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
     } finally {
       setMoving(false);
     }
+  }
+
+  function chipLabel(j: CalJob): string {
+    const name = j.property_name || j.property_address || fmtSvc(j.service_type);
+    const t = fmtTime(j.scheduled_time);
+    return t ? `${t} ${name}` : name;
   }
 
   const propLabel = (p: PropOption) => p.property_name || p.address || `Property #${p.id}`;
@@ -241,23 +262,67 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
           const dayNum = parseInt(key.slice(8, 10), 10);
           const isToday = key === todayKey;
           const isOpen = openDay === key;
+          const isDropTarget = dragJob != null && dropDay === key && (dragJob.scheduled_date || "").slice(0, 10) !== key;
+          // Per-visit chips (drag handles) — first two visible, rest behind a
+          // "+N more" pill that opens the day popover.
+          const visibleChips = dayJobs.slice(0, 2);
+          const extra = dayJobs.length - visibleChips.length;
           return (
             <div
               key={key}
-              className={`relative min-h-[64px] rounded-lg border p-1.5 cursor-pointer ${isToday ? "border-[#00C9A0] bg-[#F0FDFB]" : "border-[#E5E2DC] bg-white"}`}
+              className={`relative min-h-[64px] rounded-lg border p-1.5 cursor-pointer ${isDropTarget ? "border-[#00C9A0] bg-[#E7F9F3] border-2" : isToday ? "border-[#00C9A0] bg-[#F0FDFB]" : "border-[#E5E2DC] bg-white"}`}
               style={{ zIndex: isOpen ? 30 : 1 }}
               onClick={() => { setOpenDay(prev => (prev === key ? null : key)); setMoveJobId(null); }}
+              onDragOver={e => { if (dragJob) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }}
+              onDragEnter={() => { if (dragJob) setDropDay(key); }}
+              onDragLeave={e => {
+                // Only clear when actually leaving the cell (not entering a child).
+                if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node | null)) {
+                  setDropDay(prev => (prev === key ? null : prev));
+                }
+              }}
+              onDrop={e => {
+                e.preventDefault();
+                const j = dragJob;
+                setDragJob(null); setDropDay(null);
+                if (j && isMovable(j) && (j.scheduled_date || "").slice(0, 10) !== key) void moveJob(j, key);
+              }}
             >
               <div className={`text-[11px] font-semibold ${isToday ? "text-[#00897B]" : "text-gray-500"}`}>{dayNum}</div>
 
               {dayJobs.length > 0 && (
-                <div className="mt-1 flex justify-center">
-                  <span
-                    className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold text-white"
-                    style={{ background: dayColor(dayJobs) }}
-                  >
-                    {dayJobs.length} {dayJobs.length === 1 ? "job" : "jobs"}
-                  </span>
+                <div className="mt-1 flex flex-col gap-0.5">
+                  {visibleChips.map(j => (
+                    <div
+                      key={j.id}
+                      draggable={isMovable(j)}
+                      onDragStart={e => {
+                        e.stopPropagation();
+                        e.dataTransfer.setData("text/plain", String(j.id));
+                        e.dataTransfer.effectAllowed = "move";
+                        setDragJob(j);
+                        setOpenDay(null);
+                      }}
+                      onDragEnd={() => { setDragJob(null); setDropDay(null); }}
+                      title={isMovable(j) ? `${chipLabel(j)} — drag to another day to reschedule` : chipLabel(j)}
+                      className="rounded px-1 py-0.5 text-[9.5px] font-bold text-white truncate leading-tight"
+                      style={{
+                        background: STATUS_COLOR[j.status] || "#9CA3AF",
+                        cursor: isMovable(j) ? "grab" : "default",
+                        opacity: dragJob?.id === j.id ? 0.4 : 1,
+                      }}
+                    >
+                      {chipLabel(j)}
+                    </div>
+                  ))}
+                  {extra > 0 && (
+                    <span
+                      className="inline-flex self-center items-center rounded-full px-1.5 py-px text-[9.5px] font-bold text-white"
+                      style={{ background: dayColor(dayJobs) }}
+                    >
+                      +{extra} more
+                    </span>
+                  )}
                 </div>
               )}
 
@@ -283,7 +348,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                   )}
                   <div className="flex flex-col gap-1.5">
                     {dayJobs.map(j => {
-                      const movable = j.status !== "complete" && j.status !== "cancelled";
+                      const movable = isMovable(j);
                       return (
                         <div key={j.id} className="rounded-lg bg-[#F7F6F3] p-2">
                           <div className="flex items-center justify-between gap-2">
@@ -319,7 +384,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                                   className="text-[10px] border border-[#E5E2DC] rounded-md px-1 py-0.5"
                                 />
                                 <button
-                                  onClick={() => saveMove(j)}
+                                  onClick={() => moveJob(j, moveDate)}
                                   disabled={moving}
                                   className="text-[10px] font-bold text-white bg-[#16A34A] rounded-md px-1.5 py-0.5 cursor-pointer disabled:opacity-60"
                                 >
