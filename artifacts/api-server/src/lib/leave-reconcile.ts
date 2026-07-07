@@ -75,6 +75,8 @@ export async function reconcileCompanyLeaveBalances(
       first_name: usersTable.first_name,
       last_name: usersTable.last_name,
       hire_date: usersTable.hire_date,
+      employment_type: usersTable.employment_type,
+      w2_1099: usersTable.w2_1099,
     })
     .from(usersTable)
     .where(
@@ -83,6 +85,14 @@ export async function reconcileCompanyLeaveBalances(
 
   const out: ReconcilePlanRow[] = [];
   for (const u of users) {
+    // [1099-exclusion 2026-07-07] Independent contractors get NO leave grants
+    // — PLAWA/PTO are employee benefits (IL PLAWA doesn't cover contractors).
+    // Without this skip, the engine's tier-topup/annual-reset would resurrect
+    // balances the office deliberately zeroed on 1099s (Rosa, Alma). Existing
+    // balance rows are left untouched (the office manages them manually).
+    if (u.employment_type === "contractor" || String(u.w2_1099 ?? "").includes("1099")) {
+      continue;
+    }
     const hireDate = u.hire_date ? String(u.hire_date) : null;
     for (const b of buckets) {
       const balRow = await db
