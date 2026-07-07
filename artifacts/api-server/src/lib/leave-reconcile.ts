@@ -46,7 +46,10 @@ export type ReconcilePlanRow = {
 export async function reconcileCompanyLeaveBalances(
   companyId: number,
   asOf: string,
-  opts: { dryRun: boolean },
+  // preserveUsed → passed to planLeaveGrant: the office migration apply keeps
+  // MC-imported used_hours on first-touch grants; the cron omits it (default
+  // false) so anniversary resets still zero used. [mc-migration 2026-07-07]
+  opts: { dryRun: boolean; preserveUsed?: boolean },
 ): Promise<ReconcilePlanRow[]> {
   const [policy] = await db
     .select({ ceiling: companyLeavePolicyTable.balance_ceiling_hours })
@@ -114,6 +117,7 @@ export async function reconcileCompanyLeaveBalances(
         hireDate,
         asOf,
         ceiling,
+        { preserveUsed: opts.preserveUsed === true },
       );
 
       if (plan.action !== "none" && !opts.dryRun) {

@@ -310,6 +310,7 @@ async function buildBalancesForUser(
     annual_cap_hours: number;
     waiting_period_days: number;
     past_waiting_period: boolean;
+    hire_date_missing: boolean;
     next_reset_date: string | null;
     eligible_on: string | null;
     accent: string;
@@ -352,9 +353,20 @@ async function buildBalancesForUser(
       used_hours: Number(bal.used_hours),
       annual_cap_hours: Number(b.annual_cap_hours),
     });
-    const past = hireDate
-      ? isPastWaitingPeriod(hireDate, b.waiting_period_days, today)
-      : false;
+    // [hire-date-lockout 2026-07-07] A missing hire_date must not lock a
+    // ZERO-wait bucket (Unpaid Leave has waiting_period_days=0 — nothing to
+    // wait for), and buckets that already carry a granted balance (the MC
+    // transfer / an office grant) are treated as vested: the office granting
+    // hours IS the eligibility decision. Previously `hireDate ? … : false`
+    // locked EVERY bucket for any employee whose profile lacks a hire date —
+    // Phes veterans saw "Eligible after waiting period" on all cards and
+    // could not submit anything. Buckets with a waiting period, no grant,
+    // and no hire date stay locked (we can't verify tenure) — the UI tells
+    // the employee to ask the office to set their hire date.
+    const past =
+      b.waiting_period_days <= 0 ? true :
+      hireDate ? isPastWaitingPeriod(hireDate, b.waiting_period_days, today) :
+      computed.granted > 0;
     // Reset countdown + waiting-period note inputs (Phase 2 card polish).
     // Flat-grant buckets reset on the work anniversary; office-recorded
     // (Unexcused) never resets → null. eligible_on = hire + waiting period.
@@ -380,6 +392,9 @@ async function buildBalancesForUser(
       annual_cap_hours: Number(b.annual_cap_hours),
       waiting_period_days: b.waiting_period_days,
       past_waiting_period: past,
+      // [hire-date-lockout 2026-07-07] Lets the card say "ask the office to
+      // set your hire date" instead of the misleading waiting-period text.
+      hire_date_missing: !hireDate,
       next_reset_date: nextReset,
       eligible_on: eligibleOn,
       accent: disp.accent,
@@ -405,6 +420,107 @@ router.get("/balances", officeReadGate, async (req, res) => {
   if (!Number.isFinite(userId)) return bad(res, "userId required");
   const data = await buildBalancesForUser(companyId, userId);
   return res.json({ data });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [mc-migration 2026-07-07] Office grant tools. The grant/reset engine only
+// ran from the 2AM cron behind LEAVE_ACCRUAL_ENABLED, so after the MaidCentral
+// transfer NOBODY had balances granted and employees couldn't submit anything
+// (Sal: "their respective balances… are not displaying nor allowing them to
+// submit a request"). These give the office an explicit, previewed way to run
+// the same engine on demand:
+//   GET  /reconcile/preview — dry-run: who would be granted what, right now.
+//        Flags employees with no hire date (they get nothing until it's set).
+//   POST /reconcile/apply   — persist the previewed grants. preserveUsed keeps
+//        MC-imported used_hours instead of zeroing them on first touch.
+// Both use reconcileCompanyLeaveBalances — the exact engine the cron runs —
+// so an office apply and a cron run can never disagree.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/reconcile/preview", officeReadGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const today = new Date().toISOString().slice(0, 10);
+    const { reconcileCompanyLeaveBalances } = await import("../lib/leave-reconcile.js");
+    const plan = await reconcileCompanyLeaveBalances(companyId, today, { dryRun: true, preserveUsed: true });
+    return res.json({
+      as_of: today,
+      data: plan,
+      missing_hire_dates: [...new Set(plan.filter(p => !p.hire_date).map(p => `${p.first_name ?? ""} ${p.last_name ?? ""}`.trim()))],
+      pending_actions: plan.filter(p => p.plan.action !== "none").length,
+    });
+  } catch (err) {
+    console.error("leave reconcile preview error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to build grant preview" });
+  }
+});
+
+router.post("/reconcile/apply", adminWriteGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const today = new Date().toISOString().slice(0, 10);
+    const { reconcileCompanyLeaveBalances } = await import("../lib/leave-reconcile.js");
+    const plan = await reconcileCompanyLeaveBalances(companyId, today, { dryRun: false, preserveUsed: true });
+    const applied = plan.filter(p => p.plan.action !== "none");
+    try {
+      await logAudit(req, "leave_grants_applied", "leave_reconcile", today, null, {
+        applied: applied.length,
+        initial_grant: applied.filter(p => p.plan.action === "initial_grant").length,
+        annual_reset: applied.filter(p => p.plan.action === "annual_reset").length,
+        tier_topup: applied.filter(p => p.plan.action === "tier_topup").length,
+      });
+    } catch { /* audit best-effort */ }
+    return res.json({ as_of: today, applied: applied.length, data: applied });
+  } catch (err) {
+    console.error("leave reconcile apply error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to apply grants" });
+  }
+});
+
+// [mc-migration 2026-07-07] Manual balance set — the correction tool for MC
+// transfer discrepancies (e.g. an employee whose real remaining sick time
+// differs from the policy front-load). Sets granted and/or used for one
+// (employee, bucket). Stamps last_reset_at so tonight's cron treats this
+// benefit year as already granted and doesn't overwrite the office's number.
+router.put("/balances", adminWriteGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const body = req.body as { user_id?: number; leave_type_id?: number; granted_hours?: number | string; used_hours?: number | string };
+    const userId = Number(body?.user_id);
+    const leaveTypeId = Number(body?.leave_type_id);
+    if (!Number.isFinite(userId) || !Number.isFinite(leaveTypeId)) {
+      return bad(res, "user_id and leave_type_id required");
+    }
+    const grantedProvided = body.granted_hours !== undefined && body.granted_hours !== null && body.granted_hours !== "";
+    const usedProvided = body.used_hours !== undefined && body.used_hours !== null && body.used_hours !== "";
+    if (!grantedProvided && !usedProvided) return bad(res, "granted_hours or used_hours required");
+    const granted = grantedProvided ? Number(body.granted_hours) : null;
+    const used = usedProvided ? Number(body.used_hours) : null;
+    if ((granted != null && (!Number.isFinite(granted) || granted < 0 || granted > 2000)) ||
+        (used != null && (!Number.isFinite(used) || used < 0 || used > 2000))) {
+      return bad(res, "hours must be between 0 and 2000");
+    }
+    const bucket = await findBucket(companyId, leaveTypeId);
+    if (!bucket) return notFound(res, "Leave type not found");
+    const bal = await ensureBalanceRow(companyId, userId, leaveTypeId);
+    await db
+      .update(employeeLeaveBalancesTable)
+      .set({
+        ...(granted != null ? { granted_hours: granted.toFixed(2), last_reset_at: new Date() } : {}),
+        ...(used != null ? { used_hours: used.toFixed(2) } : {}),
+        updated_at: new Date(),
+      })
+      .where(eq(employeeLeaveBalancesTable.id, bal.id));
+    try {
+      await logAudit(req, "leave_balance_set", "employee_leave_balance", String(bal.id), {
+        granted_hours: bal.granted_hours, used_hours: bal.used_hours,
+      }, { user_id: userId, leave_type_id: leaveTypeId, granted_hours: granted, used_hours: used });
+    } catch { /* audit best-effort */ }
+    const data = await buildBalancesForUser(companyId, userId);
+    return res.json({ ok: true, data });
+  } catch (err) {
+    console.error("leave balance set error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to set balance" });
+  }
 });
 
 // Per-employee leave usage feed (the bucket lives in each row's note tag —
@@ -854,14 +970,6 @@ router.post("/requests", async (req, res) => {
   const today = new Date().toISOString().slice(0, 10);
   const validation = await buildBucketForValidation(bucket);
 
-  const r1 = checkRequestable(validation);
-  if (!r1.ok) return res.status(409).json({ error: "Conflict", ...r1 });
-  const r2 = checkWaitingPeriod(validation, hireDate, today);
-  if (!r2.ok) return res.status(409).json({ error: "Conflict", ...r2 });
-  // 7-day advance notice for PTO + Unpaid (sick/PLAWA = short-notice, exempt).
-  const r2b = checkAdvanceNotice(validation, body.start_date, today);
-  if (!r2b.ok) return res.status(409).json({ error: "Conflict", ...r2b });
-
   const balanceRow = await ensureBalanceRow(companyId, userId, bucket.id);
   const balance = computeCurrentBalance({
     accrual_mode: validation.accrual_mode,
@@ -869,6 +977,21 @@ router.post("/requests", async (req, res) => {
     used_hours: Number(balanceRow.used_hours),
     annual_cap_hours: Number(bucket.annual_cap_hours),
   });
+
+  const r1 = checkRequestable(validation);
+  if (!r1.ok) return res.status(409).json({ error: "Conflict", ...r1 });
+  const r2 = checkWaitingPeriod(validation, hireDate, today);
+  // [hire-date-lockout 2026-07-07] Mirror buildBalancesForUser: an employee
+  // with NO hire date on file but a GRANTED balance (MC transfer / office
+  // grant) is vested — the office granting hours IS the eligibility call.
+  // Only the missing_hire_date rejection is bypassed; a real "too early"
+  // rejection (hire date present, inside the window) still blocks.
+  const vestedByGrant = !r2.ok && r2.code === "missing_hire_date" && balance.granted > 0;
+  if (!r2.ok && !vestedByGrant) return res.status(409).json({ error: "Conflict", ...r2 });
+  // 7-day advance notice for PTO + Unpaid (sick/PLAWA = short-notice, exempt).
+  const r2b = checkAdvanceNotice(validation, body.start_date, today);
+  if (!r2b.ok) return res.status(409).json({ error: "Conflict", ...r2b });
+
   const r3 = checkBalance(validation, hours, balance.available);
   if (!r3.ok) return res.status(409).json({ error: "Conflict", ...r3 });
 

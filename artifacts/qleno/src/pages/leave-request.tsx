@@ -44,6 +44,7 @@ type Balance = {
   annual_cap_hours: number;
   waiting_period_days: number;
   past_waiting_period: boolean;
+  hire_date_missing?: boolean;
   // Phase 3 tenant-dynamic display + Phase 2 reset/eligibility (from balances/me)
   accent?: string;
   chip_label?: string;
@@ -247,8 +248,18 @@ export default function LeaveRequestPage() {
                   </div>
                   {notVested ? (
                     <div style={{ marginTop: 8 }}>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: accent }}>{eligDays != null && eligDays > 0 ? `Unlocks in ${eligDays} day${eligDays === 1 ? "" : "s"}` : "Eligible after waiting period"}</div>
-                      {b.eligible_on && eligDays != null && eligDays > 0 && (
+                      {/* [hire-date-lockout 2026-07-07] Missing hire date is a
+                          fixable data gap, not a waiting period — say so, so
+                          the employee knows to ask the office instead of
+                          assuming they haven't earned it yet. */}
+                      <div style={{ fontSize: 14, fontWeight: 700, color: accent }}>
+                        {b.hire_date_missing
+                          ? "Hire date not on file"
+                          : eligDays != null && eligDays > 0 ? `Unlocks in ${eligDays} day${eligDays === 1 ? "" : "s"}` : "Eligible after waiting period"}
+                      </div>
+                      {b.hire_date_missing ? (
+                        <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>Ask the office to set your hire date to unlock this.</div>
+                      ) : b.eligible_on && eligDays != null && eligDays > 0 && (
                         <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>available {shortDate(b.eligible_on)}</div>
                       )}
                     </div>

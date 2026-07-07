@@ -138,6 +138,13 @@ export function planLeaveGrant(
   hireDate: string | null,
   asOf: string,
   ceilingHours: number,
+  // [mc-migration 2026-07-07] preserveUsed: keep the existing used_hours on
+  // the first-touch grant instead of zeroing them. Used by the office's
+  // "apply grants" migration action — the MaidCentral transfer wrote this
+  // benefit year's USED hours onto rows that have no last_reset_at, and the
+  // default first-touch behavior would hand all that time back. The nightly
+  // cron keeps the default (an anniversary reset SHOULD zero used).
+  opts?: { preserveUsed?: boolean },
 ): GrantPlan {
   const granted = balance ? round2(balance.granted_hours) : 0;
   const used = balance ? round2(balance.used_hours) : 0;
@@ -163,7 +170,7 @@ export function planLeaveGrant(
     return {
       entitlement: ent,
       new_granted: ent,
-      new_used: 0,
+      new_used: opts?.preserveUsed ? used : 0,
       action: balance === null ? "initial_grant" : "annual_reset",
     };
   }

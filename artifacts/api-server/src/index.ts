@@ -113,6 +113,15 @@ function startNotificationCron() {
       fired["leave_accrual"] = `${ctDate}-2`;
       runLeaveAccrualCron(ctDate).catch((e: Error) => console.error("[cron] leave_accrual error:", e));
     }
+    // [mc-migration 2026-07-07] Also run ONCE at boot (first tick) when the
+    // flag is enabled — flipping LEAVE_ACCRUAL_ENABLED in Railway otherwise
+    // only takes effect at the next 2 AM, which left employees without
+    // balances all day. Idempotent: the engine no-ops once the benefit
+    // year's grant has landed.
+    if (!fired["leave_accrual_boot"]) {
+      fired["leave_accrual_boot"] = "done";
+      runLeaveAccrualCron(ctDate).catch((e: Error) => console.error("[boot] leave_accrual error:", e));
+    }
     // 3 AM CT → recompute the 90-day rolling composite scorecard for every tech
     // so the trailing window advances daily even on days with no survey /
     // attendance / complaint events. Event-driven recomputes (survey response,
