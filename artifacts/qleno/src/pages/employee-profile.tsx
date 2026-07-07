@@ -61,6 +61,7 @@ const TICKET_TYPE_STYLES: Record<string, { bg: string; color: string; label: str
   compliment:             { bg: '#DCFCE7', color: '#166534', label: 'Compliment' },
   incident:               { bg: '#FEE2E2', color: '#991B1B', label: 'Incident' },
   note:                   { bg: '#F3F4F6', color: '#6B7280', label: 'Note' },
+  time_off_request:       { bg: '#E0F2FE', color: '#075985', label: 'Time-Off Request' },
 };
 
 const SCORE_LABELS = ['', 'Poor', 'Fair', 'Good', 'Excellent'];

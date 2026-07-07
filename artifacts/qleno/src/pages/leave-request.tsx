@@ -10,6 +10,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { parseLeaveNote, leaveBucketLabel, KIND_TONE_STYLE } from "@/lib/leave-note-format";
+import { getAuthHeaders } from "@/lib/auth";
 
 // Smart usage-bar colors (match the office profile cards).
 const LEAVE_LOW = "#BA7517";
@@ -58,11 +59,23 @@ type MyRequest = {
   start_date: string;
   end_date: string;
   hours: string;
+  start_time?: string | null;
+  end_time?: string | null;
   status: "pending" | "approved" | "denied" | "cancelled";
   blackout_conflict: boolean;
   blackout_label: string | null;
   decision_note: string | null;
 };
+
+// "09:00" / "09:00:00" → "9:00 AM"
+function fmtHHMM(t: string): string {
+  const [hStr, mStr] = t.split(":");
+  let h = parseInt(hStr, 10);
+  if (isNaN(h)) return t;
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${mStr ?? "00"} ${ampm}`;
+}
 
 export default function LeaveRequestPage() {
   const { toast } = useToast();
@@ -74,7 +87,12 @@ export default function LeaveRequestPage() {
   const [selectedBucket, setSelectedBucket] = useState<number | null>(null);
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
-  const [dayUnit, setDayUnit] = useState<"full_day" | "morning" | "afternoon">("full_day");
+  const [dayUnit, setDayUnit] = useState<"full_day" | "morning" | "afternoon" | "custom">("full_day");
+  // [custom-hours 2026-07-07] Francisco: "there should be an option for them to
+  // choose hours, for example they can work from 9am to 1pm." Single-day only;
+  // the requested-off window is start→end and hours are derived from it.
+  const [customStart, setCustomStart] = useState("09:00");
+  const [customEnd, setCustomEnd] = useState("13:00");
   const [attachment, setAttachment] = useState<{ url: string; name: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [note, setNote] = useState<string>("");
@@ -89,10 +107,16 @@ export default function LeaveRequestPage() {
   async function load() {
     setLoading(true);
     try {
+      // [leave-auth 2026-07-07] The API is Bearer-token only (requireAuth reads
+      // the Authorization header; there is no cookie session). These fetches
+      // used credentials:"include" with no token, so every call 401'd and the
+      // page rendered EMPTY — no balance cards, no buckets in the dropdown
+      // (Hilda: "It has nothing"). Every request on this page now carries the
+      // token, same as the rest of the app.
       const [bRes, rRes, uRes] = await Promise.all([
-        fetch("/api/leave/balances/me", { credentials: "include" }),
-        fetch("/api/leave/requests/mine", { credentials: "include" }),
-        fetch("/api/leave/usage/me", { credentials: "include" }),
+        fetch("/api/leave/balances/me", { headers: getAuthHeaders() }),
+        fetch("/api/leave/requests/mine", { headers: getAuthHeaders() }),
+        fetch("/api/leave/usage/me", { headers: getAuthHeaders() }),
       ]);
       const bJson = await bRes.json();
       const rJson = await rRes.json();
@@ -112,7 +136,8 @@ export default function LeaveRequestPage() {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch("/api/leave/upload", { method: "POST", credentials: "include", body: fd });
+      // Bearer header only — the browser sets the multipart Content-Type itself.
+      const res = await fetch("/api/leave/upload", { method: "POST", headers: getAuthHeaders(), body: fd });
       if (!res.ok) throw new Error("upload failed");
       const j = await res.json();
       setAttachment({ url: j.file_url, name: j.file_name });
@@ -133,17 +158,23 @@ export default function LeaveRequestPage() {
       return;
     }
     const unit = multiDay ? "full_day" : dayUnit;
+    if (unit === "custom") {
+      if (!customStart || !customEnd || customEnd <= customStart) {
+        toast({ title: "Pick a valid time window (end after start)", variant: "destructive" });
+        return;
+      }
+    }
     setSubmitting(true);
     try {
       const res = await fetch("/api/leave/requests", {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
           leave_type_id: selectedBucket,
           start_date: startDate,
           end_date: endDate,
           day_unit: unit,
+          ...(unit === "custom" ? { start_time: customStart, end_time: customEnd } : {}),
           attachment_url: attachment.url,
           attachment_name: attachment.name,
           note: note || null,
@@ -308,28 +339,46 @@ export default function LeaveRequestPage() {
                   Full days (multi-day request)
                 </div>
               ) : (
-                <div style={{ display: "flex", gap: 6 }}>
-                  {([
-                    { v: "full_day", l: "Full day" },
-                    { v: "morning", l: "Morning" },
-                    { v: "afternoon", l: "Afternoon" },
-                  ] as const).map((o) => (
-                    <button
-                      key={o.v}
-                      type="button"
-                      onClick={() => setDayUnit(o.v)}
-                      style={{
-                        flex: 1, fontFamily: FF, fontSize: 12, fontWeight: 700,
-                        padding: "8px 6px", borderRadius: 8, cursor: "pointer",
-                        border: `1px solid ${dayUnit === o.v ? BRAND : BORDER}`,
-                        background: dayUnit === o.v ? BRAND : CARD,
-                        color: dayUnit === o.v ? "#04241d" : INK,
-                      }}
-                    >
-                      {o.l}
-                    </button>
-                  ))}
-                </div>
+                <>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {([
+                      { v: "full_day", l: "Full day" },
+                      { v: "morning", l: "Morning" },
+                      { v: "afternoon", l: "Afternoon" },
+                      { v: "custom", l: "Hours" },
+                    ] as const).map((o) => (
+                      <button
+                        key={o.v}
+                        type="button"
+                        onClick={() => setDayUnit(o.v)}
+                        style={{
+                          flex: 1, fontFamily: FF, fontSize: 12, fontWeight: 700,
+                          padding: "8px 6px", borderRadius: 8, cursor: "pointer",
+                          border: `1px solid ${dayUnit === o.v ? BRAND : BORDER}`,
+                          background: dayUnit === o.v ? BRAND : CARD,
+                          color: dayUnit === o.v ? "#04241d" : INK,
+                        }}
+                      >
+                        {o.l}
+                      </button>
+                    ))}
+                  </div>
+                  {dayUnit === "custom" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                      <input type="time" value={customStart} onChange={(e) => setCustomStart(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1 }} />
+                      <span style={{ fontSize: 12, color: MUTED }}>to</span>
+                      <input type="time" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1 }} />
+                      {(() => {
+                        const [sh, sm] = customStart.split(":").map(Number);
+                        const [eh, em] = customEnd.split(":").map(Number);
+                        const hrs = (eh * 60 + em - (sh * 60 + sm)) / 60;
+                        return Number.isFinite(hrs) && hrs > 0
+                          ? <span style={{ fontSize: 12, fontWeight: 700, color: INK, whiteSpace: "nowrap" }}>{hrs.toFixed(1)} h</span>
+                          : <span style={{ fontSize: 12, fontWeight: 700, color: DANGER, whiteSpace: "nowrap" }}>—</span>;
+                      })()}
+                    </div>
+                  )}
+                </>
               )}
             </FormField>
             <FormField label="Start date">
@@ -409,7 +458,12 @@ export default function LeaveRequestPage() {
                       {r.start_date}
                       {r.start_date !== r.end_date ? ` → ${r.end_date}` : ""}
                     </td>
-                    <td style={{ padding: "8px", fontWeight: 700 }}>{Number(r.hours).toFixed(2)}</td>
+                    <td style={{ padding: "8px", fontWeight: 700 }}>
+                      {Number(r.hours).toFixed(2)}
+                      {r.start_time && r.end_time && (
+                        <span style={{ fontWeight: 500, color: MUTED }}> ({fmtHHMM(String(r.start_time))} – {fmtHHMM(String(r.end_time))})</span>
+                      )}
+                    </td>
                     <td style={{ padding: "8px" }}>
                       <StatusPill s={r.status} blackoutConflict={r.blackout_conflict} />
                     </td>

@@ -6797,6 +6797,75 @@ async function runNotificationTemplateSeed() {
 <p style="margin:0;color:#6B6860;font-size:14px">Trouble accessing your account? Contact your administrator or email <strong>{{company_email}}</strong>.</p>`,
         body_text: null,
       },
+
+      // ── 11. TIME OFF (staff-facing) ──────────────────────────────────────
+      // [leave-templates 2026-07-07] Editable templates for the employee
+      // time-off flow (rendered by lib/leave-notifications.ts; missing rows
+      // fall back to built-in copy). Merge tags: {{first_name}},
+      // {{employee_name}}, {{bucket_name}}, {{dates}}, {{hours}},
+      // {{time_window}}, {{note}}, {{decision_note}}, {{review_link}},
+      // {{my_time_off_link}}, {{company_name}}, {{company_phone}},
+      // {{company_email}}.
+      {
+        trigger: "leave_request_office", channel: "email",
+        subject: "ACTION REQUIRED: {{employee_name}} requested time off ({{dates}})",
+        body_html: `<p style="margin:0 0 20px"><strong>{{employee_name}}</strong> submitted a time-off request.</p>
+<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E2DC;border-radius:6px;background:#FFFFFF;margin:0 0 24px">
+<tr><td style="padding:20px">
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Type</p>
+  <p style="margin:0 0 16px;font-size:15px;color:#1A1917;font-weight:600">{{bucket_name}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Dates</p>
+  <p style="margin:0 0 16px;font-size:15px;color:#1A1917;font-weight:600">{{dates}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Hours</p>
+  <p style="margin:0 0 16px;font-size:15px;color:#1A1917;font-weight:600">{{hours}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Employee Note</p>
+  <p style="margin:0;font-size:15px;color:#1A1917">{{note}}</p>
+</td></tr>
+</table>
+<div style="text-align:center;margin:0 0 8px">
+  <a href="{{review_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Review &amp; Approve or Deny</a>
+</div>`,
+        body_text: null,
+      },
+      {
+        trigger: "leave_request_pending", channel: "email",
+        subject: "Your Time-Off Request is Pending ({{dates}})",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) is pending office approval. You'll get a message when it's decided.</p>
+<div style="text-align:center;margin:0 0 8px">
+  <a href="{{my_time_off_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
+</div>`,
+        body_text: null,
+      },
+      {
+        trigger: "leave_request_emergency", channel: "email",
+        subject: "ATTN: You've submitted an Emergency Request ({{dates}})",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">We received your <strong>emergency</strong> time-off request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h). The office will follow up shortly.</p>
+<div style="text-align:center;margin:0 0 8px">
+  <a href="{{my_time_off_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
+</div>`,
+        body_text: null,
+      },
+      {
+        trigger: "leave_request_approved", channel: "email",
+        subject: "Congrats! Your Time-Off Request has been Approved ({{dates}})",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) has been <strong>approved</strong>. Enjoy your time off.</p>
+<div style="text-align:center;margin:0 0 8px">
+  <a href="{{my_time_off_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
+</div>`,
+        body_text: null,
+      },
+      {
+        trigger: "leave_request_denied", channel: "email",
+        subject: "Your Time-Off Request has been Denied ({{dates}})",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) was <strong>denied</strong>.</p>
+<p style="margin:0 0 20px;color:#6B6860">{{decision_note}}</p>
+<p style="margin:0">Please reach out to the office with any questions.</p>`,
+        body_text: null,
+      },
     ];
 
     let seeded = 0;

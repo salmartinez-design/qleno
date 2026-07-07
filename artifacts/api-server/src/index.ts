@@ -258,6 +258,15 @@ async function runStartupMigrations() {
       // job_id NULL). Index both lookup paths.
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_invoices_job ON invoices(job_id)`);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_invoices_line_items_gin ON invoices USING gin (line_items jsonb_path_ops)`);
+      // [custom-hours 2026-07-07] Time-off requests for an explicit time window
+      // ("work 9am to 1pm") — new enum value + the window columns. ADD VALUE is
+      // idempotent and runs outside any transaction here (plain execute).
+      await db.execute(sql`ALTER TYPE leave_day_unit ADD VALUE IF NOT EXISTS 'custom'`);
+      await db.execute(sql`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS start_time time`);
+      await db.execute(sql`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS end_time time`);
+      // [time-off-ticket 2026-07-07] Employee time-off submissions also create a
+      // contact ticket on the employee (profile + Contact Tickets report).
+      await db.execute(sql`ALTER TYPE contact_ticket_type ADD VALUE IF NOT EXISTS 'time_off_request'`);
       // [account-recurrence 2026-07-03] Account recurrences have no client; the
       // account is the billing entity. Idempotent (no-op once dropped).
       await db.execute(sql`ALTER TABLE recurring_schedules ALTER COLUMN customer_id DROP NOT NULL`);

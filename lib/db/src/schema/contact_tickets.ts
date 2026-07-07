@@ -6,9 +6,14 @@ import { companiesTable } from "./companies";
 import { clientsTable } from "./clients";
 import { jobsTable } from "./jobs";
 
+// [time-off-ticket 2026-07-07] 'time_off_request' rows are auto-created when an
+// employee submits a leave request, so every request also lands as a durable
+// ticket on the employee's profile + the Contact Tickets report (Sal: "the
+// office is getting an email of the request as well as an employee ticket").
+// Added to the live enum via ALTER TYPE ... ADD VALUE in runStartupMigrations.
 export const contactTicketTypeEnum = pgEnum("contact_ticket_type", [
   "breakage", "complaint_poor_cleaning", "complaint_attitude",
-  "compliment", "incident", "note", "technician_note"
+  "compliment", "incident", "note", "technician_note", "time_off_request"
 ]);
 
 export const contactTicketsTable = pgTable("contact_tickets", {
