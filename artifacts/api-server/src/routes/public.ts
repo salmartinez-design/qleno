@@ -50,6 +50,11 @@ async function upsertWidgetLead(companyId: number, opts: {
   email?: string | null; phone?: string | null; first_name?: string | null; last_name?: string | null;
   address?: string | null; zip?: string | null; scope?: string | null;
   source: string; status: string; jobId?: number | null; booked?: boolean; quoteAmount?: number | null;
+  // [quote-details-carry 2026-07-07] Sanitized snapshot of what the visitor
+  // filled in on the widget (bedrooms/bathrooms/sqft/frequency/add-ons/
+  // referral/step_reached). Merged into leads.details so the Lead Pipeline
+  // shows the full quote picture; newer keys win over older ones.
+  details?: Record<string, unknown> | null;
 }): Promise<number | null> {
   try {
     const { sql: s } = await import("drizzle-orm");
@@ -81,16 +86,18 @@ async function upsertWidgetLead(companyId: number, opts: {
           quoted_at  = ${opts.status === "quoted" ? s`COALESCE(quoted_at, NOW())` : s`quoted_at`},
           job_id     = COALESCE(job_id, ${opts.jobId ?? null}),
           booked_at  = ${opts.booked ? s`COALESCE(booked_at, NOW())` : s`booked_at`},
+          details    = COALESCE(details, '{}'::jsonb) || COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb),
           updated_at = NOW()
         WHERE id = ${existing.id}`);
       return Number(existing.id);
     }
     const ins = await db.execute(s`
-      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, status, quote_amount, quoted_at, job_id, booked_at, created_at, updated_at)
+      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, status, quote_amount, quoted_at, job_id, booked_at, details, created_at, updated_at)
       VALUES (${companyId}, ${opts.first_name ?? null}, ${opts.last_name ?? null}, ${opts.phone ?? null}, ${opts.email ?? null},
               ${opts.address ?? null}, ${opts.zip ?? null}, ${opts.scope ?? null}, ${opts.source}, ${opts.status},
               ${opts.quoteAmount ?? null}, ${opts.status === "quoted" ? s`NOW()` : s`NULL`},
-              ${opts.jobId ?? null}, ${opts.booked ? s`NOW()` : s`NULL`}, NOW(), NOW())
+              ${opts.jobId ?? null}, ${opts.booked ? s`NOW()` : s`NULL`},
+              COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb), NOW(), NOW())
       RETURNING id`);
     return Number((ins.rows as any[])[0]?.id) || null;
   } catch (e) {
@@ -1612,13 +1619,110 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
   }
 });
 
+// [quote-details-carry 2026-07-07] Office alert for a web quote lead — carries
+// EVERYTHING the visitor filled in (Sal: "how many bedrooms, how many
+// bathrooms, what's the square footage, how did they hear about us… this
+// basic information is not enough") plus a direct "Open this lead in Qleno"
+// button. kind 'new' = first capture (contact + home details entered);
+// kind 'quoted' = same visitor reached the price step and saw a real number.
+// Bypasses COMMS_ENABLED — inbound lead signal, same as /api/contact.
+async function sendQuoteLeadAlert(companyId: number, kind: "new" | "quoted", lead: {
+  first_name?: string | null; last_name?: string | null; email?: string | null;
+  phone?: string | null; address?: string | null; zip?: string | null; scope?: string | null;
+  quoteAmount?: number | null; details?: Record<string, unknown> | null; leadId?: number | null;
+}): Promise<void> {
+  const resendKey = process.env.RESEND_API_KEY;
+  if (!resendKey) return;
+  const { sql: s } = await import("drizzle-orm");
+  const cfgRows = await db.execute(s`
+    SELECT lead_notify_email, email AS company_email, email_from_address
+    FROM companies WHERE id = ${companyId} LIMIT 1
+  `);
+  const cfg: any = cfgRows.rows[0] ?? {};
+  const notifyEmail = cfg.lead_notify_email || cfg.company_email || null;
+  if (!notifyEmail) return;
+  const fromAddr = cfg.email_from_address ? `Qleno <${cfg.email_from_address}>` : "Qleno <noreply@phes.io>";
+  const fullName = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || "Unknown";
+  const d: any = lead.details ?? {};
+  const esc = (v: unknown) => String(v ?? "").replace(/[<>&]/g, ch => (ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : "&amp;"));
+  const row = (label: string, value: unknown) =>
+    value == null || value === "" ? "" :
+    `<tr><td style="padding:6px 0;color:#6B6860;width:150px;vertical-align:top;">${label}</td><td style="padding:6px 0;font-weight:600;">${esc(value)}</td></tr>`;
+  const stepLabel =
+    Number(d.step_reached) >= 4 ? "Saw their price (reached the payment step)" :
+    Number(d.step_reached) >= 2 ? "Entered contact + home details (left before seeing the price)" : null;
+  const { appBaseUrl } = await import("../lib/app-url.js");
+  const leadLink = `${appBaseUrl()}/leads${lead.leadId ? `?lead=${lead.leadId}` : ""}`;
+  const subject = kind === "quoted"
+    ? `Quote Viewed${lead.quoteAmount != null ? ` ($${Number(lead.quoteAmount).toFixed(2)})` : ""} — ${fullName}`
+    : `New Quote Request — ${fullName}`;
+  const intro = kind === "quoted"
+    ? "This visitor reached the price step and saw their quote, but has not completed the booking."
+    : "Someone requested a quote on the website but has not yet completed their booking.";
+  const { Resend } = await import("resend");
+  const resend = new Resend(resendKey);
+  await resend.emails.send({
+    from: fromAddr,
+    to: [notifyEmail],
+    subject,
+    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#F7F6F3;">
+<div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
+<div style="background:#00C9A0;padding:14px 20px;border-radius:4px;margin-bottom:20px;">
+  <span style="color:#fff;font-size:16px;font-weight:bold;">${esc(subject)}</span>
+</div>
+<p style="color:#6B6860;font-size:13px;margin:0 0 16px;">${intro}</p>
+<table style="width:100%;font-size:14px;color:#1A1917;border-collapse:collapse;">
+  ${row("Name", fullName)}
+  ${row("Email", lead.email)}
+  ${row("Phone", lead.phone)}
+  ${row("Address", lead.address ? `${lead.address}${lead.zip ? ` ${lead.zip}` : ""}` : null)}
+  ${row("Service", lead.scope)}
+  ${row("Frequency", d.frequency)}
+  ${row("Bedrooms", d.bedrooms)}
+  ${row("Bathrooms", d.bathrooms)}
+  ${row("Square footage", d.sqft ? `${d.sqft} sq ft` : null)}
+  ${row("Add-ons", Array.isArray(d.add_ons) && d.add_ons.length ? d.add_ons.join(", ") : null)}
+  ${row("How they heard about us", d.referral_source)}
+  ${row("Quote shown", lead.quoteAmount != null ? `$${Number(lead.quoteAmount).toFixed(2)}` : null)}
+  ${row("How far they got", stepLabel)}
+</table>
+<div style="text-align:center;margin:24px 0 0;">
+  <a href="${leadLink}" style="display:inline-block;background:#00C9A0;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:6px;">Open This Lead in Qleno</a>
+</div>
+</div></div>`,
+  });
+}
+
 // ── POST /api/public/book/abandon-track ──────────────────────────────────────
 // Called from the booking widget when a user completes Step 1 but hasn't paid yet.
 // Upserts an abandoned_bookings record so office can follow up if they leave.
 router.post("/book/abandon-track", rateLimit, async (req, res) => {
   try {
-    const { company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned = 2, stage, quote_amount } = req.body;
+    const { company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned = 2, stage, quote_amount, details: rawDetails } = req.body;
     if (!company_id) return res.status(400).json({ error: "company_id required" });
+
+    // [quote-details-carry 2026-07-07] Sanitized snapshot of the widget form —
+    // whitelisted keys only, strings capped, so a hostile payload can't stuff
+    // the jsonb. This is what makes the office alert + Lead Pipeline show the
+    // FULL quote picture (beds/baths/sqft/frequency/add-ons/heard-about-us/how
+    // far they got) instead of just contact info.
+    const details: Record<string, unknown> = {};
+    if (rawDetails && typeof rawDetails === "object") {
+      const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+      const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 120) : null);
+      const d: any = rawDetails;
+      if (num(d.bedrooms)) details.bedrooms = num(d.bedrooms);
+      if (num(d.bathrooms)) details.bathrooms = num(d.bathrooms);
+      if (num(d.sqft)) details.sqft = num(d.sqft);
+      if (str(d.frequency)) details.frequency = str(d.frequency);
+      if (str(d.referral_source)) details.referral_source = str(d.referral_source);
+      if (Array.isArray(d.add_ons)) {
+        const ads = d.add_ons.map(str).filter(Boolean).slice(0, 20);
+        if (ads.length) details.add_ons = ads;
+      }
+      if (num(d.step_reached)) details.step_reached = num(d.step_reached);
+    }
+    const detailsOrNull = Object.keys(details).length ? details : null;
     // [quote-not-booked 2026-07-06] The widget passes stage='quoted' (+ quote_amount)
     // once the visitor reaches the payment step and has seen a real price, so an
     // un-booked online quote lands in the Pipeline's QUOTED column. Default stays
@@ -1629,10 +1733,11 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
     const { sql: drizzleSql } = await import("drizzle-orm");
     if (email) {
       const existing = await db.execute(
-        drizzleSql`SELECT id FROM abandoned_bookings WHERE company_id = ${company_id} AND email = ${email} LIMIT 1`
+        drizzleSql`SELECT id, step_abandoned FROM abandoned_bookings WHERE company_id = ${company_id} AND email = ${email} LIMIT 1`
       );
       if (existing.rows.length > 0) {
         const abId = (existing.rows[0] as any).id;
+        const prevStep = Number((existing.rows[0] as any).step_abandoned) || 0;
         await db.execute(drizzleSql`
           UPDATE abandoned_bookings SET
             first_name = COALESCE(${first_name || null}, first_name),
@@ -1642,6 +1747,7 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
             zip        = COALESCE(${zip || null}, zip),
             scope      = COALESCE(${scope || null}, scope),
             step_abandoned = ${step_abandoned},
+            details    = COALESCE(details, '{}'::jsonb) || COALESCE(${detailsOrNull ? JSON.stringify(detailsOrNull) : null}::jsonb, '{}'::jsonb),
             updated_at = NOW()
           WHERE company_id = ${company_id} AND email = ${email}
         `);
@@ -1650,62 +1756,46 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
         // [widget-lead 2026-07-04] An online quote (contact entered, not yet
         // booked) must show in the Lead Pipeline so the office follows up.
         // Deduped: upgrades to booked later if they complete the booking.
-        await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: leadStage, quoteAmount: quoteAmt });
+        const updLeadId = await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: leadStage, quoteAmount: quoteAmt, details: detailsOrNull });
+        // [quote-details-carry 2026-07-07] Second office alert when the SAME
+        // visitor advances to the price step ("did they only click this
+        // quote?" — this says they saw a real number). Fires once: only on
+        // the step 2→4 upgrade.
+        if (leadStage === "quoted" && prevStep < 4 && Number(step_abandoned) >= 4) {
+          await sendQuoteLeadAlert(company_id, "quoted", {
+            first_name, last_name, email, phone, address, zip, scope,
+            quoteAmount: quoteAmt, details: detailsOrNull, leadId: updLeadId,
+          }).catch((e: any) => console.error("[abandon-track] quoted alert error:", e));
+        }
         return res.json({ ok: true, action: "updated" });
       }
     }
     const inserted = await db.execute(drizzleSql`
-      INSERT INTO abandoned_bookings (company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned, created_at, updated_at)
+      INSERT INTO abandoned_bookings (company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned, details, created_at, updated_at)
       VALUES (${company_id}, ${first_name || null}, ${last_name || null}, ${email || null}, ${phone || null},
-              ${address || null}, ${zip || null}, ${scope || null}, ${step_abandoned}, NOW(), NOW())
+              ${address || null}, ${zip || null}, ${scope || null}, ${step_abandoned},
+              COALESCE(${detailsOrNull ? JSON.stringify(detailsOrNull) : null}::jsonb, '{}'::jsonb), NOW(), NOW())
       RETURNING id
     `);
     const newAbId = (inserted.rows[0] as any)?.id;
     if (newAbId) await enrollForAbandonedBooking(company_id, newAbId);
     // [widget-lead 2026-07-04] Online quote → Lead Pipeline lead (stage: needs_contacted or quoted).
-    await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: leadStage, quoteAmount: quoteAmt });
+    const newLeadId = await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: leadStage, quoteAmount: quoteAmt, details: detailsOrNull });
 
     // Immediate office notification — bypass COMMS_ENABLED (this is an inbound
     // lead signal, not automated outbound). Same bypass logic as /api/contact.
+    // [quote-details-carry 2026-07-07] Full quote picture + Open-in-Qleno link.
     try {
-      const resendKey = process.env.RESEND_API_KEY;
-      const cfgRows = await db.execute(drizzleSql`
-        SELECT lead_notify_email, email AS company_email, email_from_address
-        FROM companies WHERE id = ${company_id} LIMIT 1
-      `);
-      const cfg: any = cfgRows.rows[0] ?? {};
-      const notifyEmail = cfg.lead_notify_email || cfg.company_email || null;
-      const fromAddr = cfg.email_from_address ? `Qleno <${cfg.email_from_address}>` : "Qleno <noreply@phes.io>";
-      const fullName = [first_name, last_name].filter(Boolean).join(" ") || "Unknown";
-      if (resendKey && notifyEmail) {
-        const { Resend } = await import("resend");
-        const resend = new Resend(resendKey);
-        await resend.emails.send({
-          from: fromAddr,
-          to: [notifyEmail],
-          subject: `New Quote Request — ${fullName}`,
-          html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#F7F6F3;">
-<div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
-<div style="background:#00C9A0;padding:14px 20px;border-radius:4px;margin-bottom:20px;">
-  <span style="color:#fff;font-size:16px;font-weight:bold;">New Quote Request — ${fullName}</span>
-</div>
-<p style="color:#6B6860;font-size:13px;margin:0 0 16px;">Someone requested a quote on the website but has not yet completed their booking.</p>
-<table style="width:100%;font-size:14px;color:#1A1917;border-collapse:collapse;">
-  <tr><td style="padding:6px 0;color:#6B6860;width:120px;">Name</td><td style="padding:6px 0;font-weight:600;">${fullName}</td></tr>
-  ${email ? `<tr><td style="padding:6px 0;color:#6B6860;">Email</td><td style="padding:6px 0;">${email}</td></tr>` : ""}
-  ${phone ? `<tr><td style="padding:6px 0;color:#6B6860;">Phone</td><td style="padding:6px 0;">${phone}</td></tr>` : ""}
-  ${address ? `<tr><td style="padding:6px 0;color:#6B6860;">Address</td><td style="padding:6px 0;">${address}${zip ? ` ${zip}` : ""}</td></tr>` : ""}
-  ${scope ? `<tr><td style="padding:6px 0;color:#6B6860;">Service</td><td style="padding:6px 0;">${scope}</td></tr>` : ""}
-</table>
-<p style="margin:20px 0 0;font-size:13px;color:#6B6860;">Log in to Qleno to follow up with this lead.</p>
-</div></div>`,
-        });
-      }
+      await sendQuoteLeadAlert(company_id, "new", {
+        first_name, last_name, email, phone, address, zip, scope,
+        quoteAmount: quoteAmt, details: detailsOrNull, leadId: newLeadId,
+      });
       // Office SMS alert via per-tenant sender
       const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
       const sender = await resolveSender(Number(company_id), null);
       const notifyRows = await db.execute(drizzleSql`SELECT lead_notify_phone FROM companies WHERE id = ${company_id} LIMIT 1`);
       const officeTo = (notifyRows.rows[0] as any)?.lead_notify_phone || null;
+      const fullName = [first_name, last_name].filter(Boolean).join(" ") || "Unknown";
       if (!sender.reason && officeTo) {
         await sendSmsVia(sender, officeTo, `New quote request — ${fullName}${phone ? ` — ${phone}` : ""}${scope ? ` — ${scope}` : ""}. Did not complete booking.`);
       }

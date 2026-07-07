@@ -43,6 +43,7 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
       date_to,
       referral_partner,
       location,
+      id,
     } = req.query as Record<string, string>;
 
     const pageNum = Math.max(1, parseInt(page) || 1);
@@ -50,6 +51,13 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
     const offset = (pageNum - 1) * limitNum;
 
     const conditions: string[] = [`l.company_id = ${companyId}`];
+
+    // [quote-details-carry 2026-07-07] Fetch one specific lead — powers the
+    // /leads?lead=<id> deep link from the office lead-alert email when the
+    // lead isn't on the loaded page.
+    if (id && Number.isInteger(parseInt(id))) {
+      conditions.push(`l.id = ${parseInt(id)}`);
+    }
 
     if (status) {
       const statuses = status.split(",").map(s => `'${s.replace(/'/g, "''")}'`).join(",");

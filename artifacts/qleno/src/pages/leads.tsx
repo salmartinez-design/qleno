@@ -39,6 +39,9 @@ interface Lead {
   bedrooms: number | null;
   bathrooms: number | null;
   notes: string | null;
+  // [quote-details-carry 2026-07-07] Widget quote snapshot (bedrooms/bathrooms/
+  // sqft/frequency/add_ons/referral_source/step_reached).
+  details?: Record<string, unknown> | null;
   quote_amount: string | null;
   assigned_to: number | null;
   assignee_first_name: string | null;
@@ -926,8 +929,37 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
             <button onClick={onClick} style={{ fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 7, cursor: "pointer", fontFamily: FF,
               border: primary ? "none" : "1px solid #E5E2DC", background: primary ? "var(--brand, #00C9A0)" : "#fff", color: primary ? "#fff" : "#374151" }}>{label}</button>
           );
+          // [quote-details-carry 2026-07-07] What the visitor actually filled
+          // out on the booking widget (bedrooms / bathrooms / sqft / frequency
+          // / add-ons / how they heard about us / how far they got) — Sal:
+          // "we need to pull up their quote and see exactly what was filled
+          // out". Written by the widget's abandon-track capture.
+          const wd: any = (lead as any).details || {};
+          const wdRows: Array<[string, string]> = [];
+          if (lead.scope) wdRows.push(["Service", String(lead.scope)]);
+          if (wd.frequency) wdRows.push(["Frequency", String(wd.frequency)]);
+          if (wd.bedrooms) wdRows.push(["Bedrooms", String(wd.bedrooms)]);
+          if (wd.bathrooms) wdRows.push(["Bathrooms", String(wd.bathrooms)]);
+          if (wd.sqft) wdRows.push(["Square footage", `${wd.sqft} sq ft`]);
+          if (Array.isArray(wd.add_ons) && wd.add_ons.length) wdRows.push(["Add-ons", wd.add_ons.join(", ")]);
+          if (wd.referral_source) wdRows.push(["How they heard about us", String(wd.referral_source)]);
+          const stepLabel =
+            Number(wd.step_reached) >= 4 ? "Saw their price (reached the payment step)" :
+            Number(wd.step_reached) >= 2 ? "Entered contact + home details (left before the price)" : null;
+          if (stepLabel) wdRows.push(["How far they got", stepLabel]);
           return (
             <div style={{ padding: 20, overflow: "auto" }}>
+              {wdRows.length > 0 && (
+                <div style={{ background: "#fff", border: "1px solid #E8E5E0", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+                  <p style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, color: "#9E9B94", margin: "0 0 10px", fontFamily: FF }}>What they filled out online</p>
+                  {wdRows.map(([label, value]) => (
+                    <div key={label} style={{ display: "flex", gap: 12, padding: "5px 0", borderTop: "1px solid #F3F1EC", fontSize: 13, fontFamily: FF }}>
+                      <span style={{ color: "#6B6860", width: 170, flexShrink: 0 }}>{label}</span>
+                      <span style={{ color: "#1A1917", fontWeight: 600 }}>{value}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {qid ? (
                 <div style={{ background: "#fff", border: "1px solid #E8E5E0", borderRadius: 10, padding: 16 }}>
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
@@ -942,7 +974,9 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
                 </div>
               ) : (
                 <div style={{ textAlign: "center", padding: "30px 16px", color: "#9E9B94" }}>
-                  <p style={{ fontSize: 13, fontFamily: FF, margin: "0 0 14px" }}>No quote for this lead yet.</p>
+                  {qprice > 0 && <p style={{ fontSize: 20, fontWeight: 800, color: "#1A1917", fontFamily: FF, margin: "0 0 4px" }}>${qprice.toFixed(2)}</p>}
+                  {qprice > 0 && <p style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, margin: "0 0 14px" }}>Online quote they saw on the website</p>}
+                  <p style={{ fontSize: 13, fontFamily: FF, margin: "0 0 14px" }}>No office quote for this lead yet.</p>
                   {btn("Build a quote", () => navigate("/quotes/new"), true)}
                 </div>
               )}
@@ -1361,6 +1395,32 @@ export default function LeadsPage() {
 
   useEffect(() => { loadLeads(); }, [loadLeads]);
   useEffect(() => { loadCounts(); }, [loadCounts]);
+
+  // [quote-details-carry 2026-07-07] Deep-link from the office lead-alert
+  // email: /leads?lead=<id> auto-opens that lead's detail panel. Falls back to
+  // fetching the single lead if it isn't on the loaded page. Param strips
+  // after opening so navigation doesn't keep re-opening it.
+  useEffect(() => {
+    const sp = new URLSearchParams(window.location.search);
+    const leadParam = sp.get("lead");
+    if (!leadParam || loading) return;
+    const id = parseInt(leadParam, 10);
+    const strip = () => {
+      sp.delete("lead");
+      const rest = sp.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`);
+    };
+    const hit = leads.find(l => l.id === id);
+    if (hit) { setSelectedLead(hit); strip(); return; }
+    fetch(`${API}/api/leads?search=&page=1&limit=1&id=${id}`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        const found = (d?.leads || []).find((l: Lead) => l.id === id);
+        if (found) setSelectedLead(found);
+      })
+      .catch(() => {})
+      .finally(strip);
+  }, [loading, leads]);
 
   async function handleBulkDelete() {
     if (!checkedIds.size) return;

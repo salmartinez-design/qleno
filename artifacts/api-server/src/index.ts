@@ -267,6 +267,12 @@ async function runStartupMigrations() {
       // [time-off-ticket 2026-07-07] Employee time-off submissions also create a
       // contact ticket on the employee (profile + Contact Tickets report).
       await db.execute(sql`ALTER TYPE contact_ticket_type ADD VALUE IF NOT EXISTS 'time_off_request'`);
+      // [quote-details-carry 2026-07-07] Full widget-quote snapshot (bedrooms/
+      // bathrooms/sqft/frequency/add-ons/referral/step_reached) on the lead +
+      // abandoned-booking rows, so the office alert and Lead Pipeline show
+      // exactly what the visitor filled out.
+      await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS details jsonb`);
+      await db.execute(sql`ALTER TABLE abandoned_bookings ADD COLUMN IF NOT EXISTS details jsonb`);
       // [property-link-heal 2026-07-07] Account jobs/schedules carry BOTH a
       // property link (account_property_id) and their own service address; a
       // setup mistake can point the link at the WRONG building (Daveco: the
