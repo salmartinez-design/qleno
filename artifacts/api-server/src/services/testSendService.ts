@@ -34,6 +34,11 @@ import { getBranchByZip } from "../lib/branchRouter.js";
 // Special (non customer-message-catalog) test template keys.
 const OFFICE_BOOKING_KEY = "office_booking";
 const JOBSTATUS_PREFIX = "jobstatus_"; // jobstatus_on_my_way | _arrived | _paused | _complete
+// [leave-templates 2026-07-07] The five staff-facing time-off emails
+// (leave_request_office/_pending/_emergency/_approved/_denied). They live in
+// notification_templates like catalog rows, so the generic render path works —
+// they just need whitelisting here plus employee-flavored sample merge vars.
+const LEAVE_PREFIX = "leave_request_";
 
 // Typed error so the route can map a failure to the right HTTP status without
 // leaking internals. `code` is a stable string the frontend can branch on.
@@ -176,13 +181,17 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
   const isOfficeBooking = templateKey === OFFICE_BOOKING_KEY;
   const isJobStatus = templateKey.startsWith(JOBSTATUS_PREFIX);
   const isQuoteEmail = templateKey === "quote_email"; // bespoke on-brand quote receipt
+  const isLeave = templateKey.startsWith(LEAVE_PREFIX);
   const isCatalog = CUSTOMER_MESSAGE_TRIGGERS.has(templateKey) || templateKey.startsWith("custom_");
-  if (!isCatalog && !isOfficeBooking && !isJobStatus && !isQuoteEmail) {
+  if (!isCatalog && !isOfficeBooking && !isJobStatus && !isQuoteEmail && !isLeave) {
     throw new TestSendError("unknown_template", 400, `Unknown template '${templateKey}'`);
   }
   // Channel constraints for the special groups.
   if (isOfficeBooking && channel !== "email") {
     throw new TestSendError("bad_channel", 400, "Office Booking Notification is email-only.");
+  }
+  if (isLeave && channel !== "email") {
+    throw new TestSendError("bad_channel", 400, "Time-off emails are email-only.");
   }
   if (isQuoteEmail && channel !== "email") {
     throw new TestSendError("bad_channel", 400, "The quote email is email-only.");
@@ -213,6 +222,24 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
     company_email: c.email || "info@phes.io",
     ...SAMPLE_CUSTOMER_VARS,
   };
+  // [leave-templates 2026-07-07] Employee-flavored sample data for the
+  // time-off emails (same tags lib/leave-notifications.ts merges in the real
+  // sends). Overrides the customer sample's first_name for these keys only.
+  if (isLeave) {
+    const { appBaseUrl } = await import("../lib/app-url.js");
+    Object.assign(fullVars, {
+      first_name: "Hilda",
+      employee_name: "Hilda Gallegos",
+      bucket_name: "PTO",
+      dates: "2026-07-14 → 2026-07-15",
+      hours: "16.00",
+      time_window: "",
+      note: "Family trip",
+      decision_note: "Enjoy your time off — see you Thursday.",
+      review_link: `${appBaseUrl()}/leave-review`,
+      my_time_off_link: `${appBaseUrl()}/leave`,
+    });
+  }
 
   // ── Recipient resolution ─────────────────────────────────────────────────────
   const [u] = (await db.execute(sql`SELECT test_email, test_phone FROM users WHERE id = ${userId} LIMIT 1`)).rows as any[];

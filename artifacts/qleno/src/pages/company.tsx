@@ -2158,6 +2158,7 @@ function NotificationsTab() {
       </div>
 
       <OfficeNotificationsCard onTest={openTest} />
+      <TimeOffEmailsCard onTest={openTest} />
       <LeadAlertsCard />
       <SmsSmsSettingsCard onTest={openTest} />
 
@@ -2187,6 +2188,45 @@ function NotificationsTab() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// [leave-templates 2026-07-07] The five staff-facing time-off emails — office
+// alert on submission + employee pending/emergency/approved/denied. Each row
+// sends a [TEST] copy with sample employee data through the same render path
+// production uses (notification_templates row → merge tags → branded shell).
+function TimeOffEmailsCard({ onTest }: { onTest: (t: { key: string; label: string; channel: string }) => void }) {
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const rows = [
+    { key: "leave_request_office", label: "Office — new request alert", desc: "Sent to every office/owner/admin user the moment an employee submits a time-off request. ACTION REQUIRED with a Review button." },
+    { key: "leave_request_pending", label: "Employee — request received", desc: "Confirmation to the employee that their request is in and pending office approval." },
+    { key: "leave_request_emergency", label: "Employee — emergency request received", desc: "Confirmation variant for short-notice (within 7 days) or sick requests." },
+    { key: "leave_request_approved", label: "Employee — request approved", desc: "Sent when the office approves. Balance is deducted at the same moment." },
+    { key: "leave_request_denied", label: "Employee — request denied", desc: "Sent when the office denies, including the office's decision note." },
+  ];
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '18px 20px', marginBottom: 12, fontFamily: FF }}>
+      <div style={{ marginBottom: 14 }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Time-Off Emails (Staff)</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>
+          Internal emails for the employee time-off flow. These are staff messages — they send even while customer communications are paused.
+        </p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {rows.map(row => (
+          <div key={row.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#F7F6F3', borderRadius: 8 }}>
+            <div style={{ flex: 1, paddingRight: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 2px' }}>{row.label}</p>
+              <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{row.desc}</p>
+            </div>
+            <button onClick={() => onTest({ key: row.key, label: row.label, channel: 'email' })} title="Send a [TEST] copy to yourself"
+              style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600, flexShrink: 0 }}>
+              Send Test
+            </button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
