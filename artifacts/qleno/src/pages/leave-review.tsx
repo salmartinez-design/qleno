@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useToast } from "@/hooks/use-toast";
+import { getAuthHeaders } from "@/lib/auth";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const BRAND = "#00C9A0";
@@ -63,7 +64,10 @@ export default function LeaveReviewPage() {
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch(`/api/leave/requests?status=${tab}`, { credentials: "include" });
+      // [leave-auth 2026-07-07] Bearer token, not cookies — same fix as the
+      // employee My Time Off page; the cookie fetch 401'd so this office queue
+      // silently showed "No pending leave requests" forever.
+      const res = await fetch(`/api/leave/requests?status=${tab}`, { headers: getAuthHeaders() });
       const json = await res.json();
       setRows(json.data ?? []);
     } catch {
@@ -78,8 +82,7 @@ export default function LeaveReviewPage() {
     try {
       const res = await fetch(`/api/leave/requests/${id}/${action}`, {
         method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: note ? JSON.stringify({ decision_note: note }) : undefined,
       });
       if (!res.ok) {
@@ -178,8 +181,181 @@ export default function LeaveReviewPage() {
             </table>
           </div>
         )}
+
+        <BalancesGrantsSection />
       </div>
     </DashboardLayout>
+  );
+}
+
+// [mc-migration 2026-07-07] Balances & Grants — the office's window into the
+// grant engine. Shows who is owed a grant right now (per hire date + policy),
+// flags employees with NO hire date (the engine grants them nothing until it's
+// set on their profile), applies all pending grants in one click, and lets the
+// office hand-correct any (employee, bucket) balance — the tool for making the
+// MaidCentral transfer numbers exact.
+type PlanRow = {
+  user_id: number; first_name: string | null; last_name: string | null;
+  hire_date: string | null; leave_type_id: number; slug: string; display_name: string;
+  prior_granted: number; prior_used: number;
+  plan: { entitlement: number; new_granted: number; new_used: number; action: string };
+  remaining: number;
+};
+
+function BalancesGrantsSection() {
+  const { toast } = useToast();
+  const [rows, setRows] = useState<PlanRow[]>([]);
+  const [missing, setMissing] = useState<string[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [adjUser, setAdjUser] = useState<number | "">("");
+  const [adjBucket, setAdjBucket] = useState<number | "">("");
+  const [adjGranted, setAdjGranted] = useState("");
+  const [adjUsed, setAdjUsed] = useState("");
+  const [adjBusy, setAdjBusy] = useState(false);
+
+  async function load() {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/leave/reconcile/preview", { headers: getAuthHeaders() });
+      const json = await res.json();
+      setRows(json.data ?? []);
+      setMissing(json.missing_hire_dates ?? []);
+    } catch {
+      toast({ title: "Could not load grant preview", variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  }
+  useEffect(() => { load(); }, []);
+
+  async function applyAll() {
+    if (!confirm("Apply all pending grants now? Balances update immediately and employees can request against them.")) return;
+    setApplying(true);
+    try {
+      const res = await fetch("/api/leave/reconcile/apply", { method: "POST", headers: getAuthHeaders() });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.message || "apply failed");
+      toast({ title: `Grants applied — ${json.applied} balance${json.applied === 1 ? "" : "s"} updated` });
+      await load();
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to apply grants", variant: "destructive" });
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  async function saveAdjust() {
+    if (!adjUser || !adjBucket || (!adjGranted && !adjUsed)) {
+      toast({ title: "Pick an employee, a bucket, and at least one value", variant: "destructive" });
+      return;
+    }
+    setAdjBusy(true);
+    try {
+      const res = await fetch("/api/leave/balances", {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: adjUser, leave_type_id: adjBucket,
+          ...(adjGranted !== "" ? { granted_hours: Number(adjGranted) } : {}),
+          ...(adjUsed !== "" ? { used_hours: Number(adjUsed) } : {}),
+        }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.message || "save failed");
+      toast({ title: "Balance updated" });
+      setAdjGranted(""); setAdjUsed("");
+      await load();
+    } catch (e: any) {
+      toast({ title: e?.message || "Failed to update balance", variant: "destructive" });
+    } finally {
+      setAdjBusy(false);
+    }
+  }
+
+  const pending = rows.filter(r => r.plan.action !== "none");
+  const people = [...new Map(rows.map(r => [r.user_id, `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || `#${r.user_id}`])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const buckets = [...new Map(rows.map(r => [r.leave_type_id, r.display_name])).entries()];
+  const actionLabel: Record<string, string> = { initial_grant: "First grant", annual_reset: "Annual reset", tier_topup: "Tenure top-up" };
+  const inputStyle: React.CSSProperties = { fontFamily: FF, fontSize: 12, color: INK, border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 8px", background: CARD };
+
+  return (
+    <div style={{ marginTop: 28 }}>
+      <h2 style={{ fontSize: 16, fontWeight: 800, margin: "0 0 4px" }}>Balances &amp; Grants</h2>
+      <div style={{ fontSize: 12, color: MUTED, marginBottom: 12 }}>
+        What the leave policy owes each employee right now. Apply grants after a migration or when a new hire crosses their waiting period; use manual set to match MaidCentral numbers exactly.
+      </div>
+
+      {missing.length > 0 && (
+        <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: "#92400E" }}>
+          <strong>No hire date on file:</strong> {missing.join(", ")}. These employees get NO automatic grants and their PTO/sick cards stay locked — set each hire date on the employee profile, then re-open this page.
+        </div>
+      )}
+
+      <div style={{ backgroundColor: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 14, marginBottom: 12 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: pending.length ? 10 : 0 }}>
+          <div style={{ fontSize: 13, fontWeight: 700 }}>
+            {loading ? "Loading grant preview…" : pending.length === 0 ? "All balances are up to date — nothing to grant." : `${pending.length} pending grant${pending.length === 1 ? "" : "s"}`}
+          </div>
+          {pending.length > 0 && (
+            <button onClick={applyAll} disabled={applying}
+              style={{ fontFamily: FF, fontSize: 12, fontWeight: 700, color: "#FFFFFF", background: BRAND, border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", opacity: applying ? 0.5 : 1 }}>
+              {applying ? "Applying…" : "Apply all grants"}
+            </button>
+          )}
+        </div>
+        {pending.length > 0 && (
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+            <thead>
+              <tr style={{ color: MUTED, textAlign: "left", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                <th style={{ padding: "6px 8px", fontWeight: 700 }}>Employee</th>
+                <th style={{ padding: "6px 8px", fontWeight: 700 }}>Bucket</th>
+                <th style={{ padding: "6px 8px", fontWeight: 700 }}>Hire date</th>
+                <th style={{ padding: "6px 8px", fontWeight: 700 }}>Now (used / granted)</th>
+                <th style={{ padding: "6px 8px", fontWeight: 700 }}>After apply</th>
+                <th style={{ padding: "6px 8px", fontWeight: 700 }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pending.map(r => (
+                <tr key={`${r.user_id}-${r.leave_type_id}`} style={{ borderTop: `1px solid ${BORDER}` }}>
+                  <td style={{ padding: "7px 8px", fontWeight: 600 }}>{`${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || `#${r.user_id}`}</td>
+                  <td style={{ padding: "7px 8px" }}>{r.display_name}</td>
+                  <td style={{ padding: "7px 8px", color: r.hire_date ? INK : FLAG }}>{r.hire_date ?? "missing"}</td>
+                  <td style={{ padding: "7px 8px", color: MUTED }}>{r.prior_used.toFixed(1)} / {r.prior_granted.toFixed(1)}</td>
+                  <td style={{ padding: "7px 8px", fontWeight: 700 }}>{r.plan.new_used.toFixed(1)} / {r.plan.new_granted.toFixed(1)} <span style={{ color: MUTED, fontWeight: 500 }}>({r.remaining.toFixed(1)} left)</span></td>
+                  <td style={{ padding: "7px 8px" }}>{actionLabel[r.plan.action] ?? r.plan.action}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <div style={{ backgroundColor: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 14 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Manually set a balance</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <select value={adjUser} onChange={e => setAdjUser(Number(e.target.value) || "")} style={{ ...inputStyle, minWidth: 160 }}>
+            <option value="">Employee…</option>
+            {people.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+          <select value={adjBucket} onChange={e => setAdjBucket(Number(e.target.value) || "")} style={{ ...inputStyle, minWidth: 130 }}>
+            <option value="">Bucket…</option>
+            {buckets.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+          <input type="number" min={0} step="0.25" placeholder="Granted hrs" value={adjGranted} onChange={e => setAdjGranted(e.target.value)} style={{ ...inputStyle, width: 110 }} />
+          <input type="number" min={0} step="0.25" placeholder="Used hrs" value={adjUsed} onChange={e => setAdjUsed(e.target.value)} style={{ ...inputStyle, width: 110 }} />
+          <button onClick={saveAdjust} disabled={adjBusy}
+            style={{ fontFamily: FF, fontSize: 12, fontWeight: 700, color: "#FFFFFF", background: INK, border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", opacity: adjBusy ? 0.5 : 1 }}>
+            {adjBusy ? "Saving…" : "Save balance"}
+          </button>
+        </div>
+        <p style={{ fontSize: 11, color: MUTED, margin: "8px 0 0" }}>
+          Leave a field blank to keep it unchanged. Setting Granted also marks this benefit year as granted, so the nightly engine will not overwrite your number.
+        </p>
+      </div>
+    </div>
   );
 }
 
