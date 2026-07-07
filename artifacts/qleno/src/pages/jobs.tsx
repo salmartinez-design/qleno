@@ -4775,13 +4775,18 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
             <div style={{ fontSize: 12, color: "var(--brand)", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>{fmtSvc(job.service_type)}</div>
             {hasZone ? (
+              /* [zone-color-exact 2026-07-07] EXACT zone color, no alpha tint.
+                 The 10% tint here read as a different shade than the dispatch
+                 grid / time-grid blocks (Sal: "the exact color cannot have
+                 shade variances… causing some confusion"). Same fix as the
+                 desktop popover chip [bugfix 2026-04-28]: raw zone_color at
+                 full opacity, text flips dark on light zones via zoneLuminance. */
               <span style={{
                 display: "inline-flex", alignItems: "center", gap: 5,
                 fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 12,
-                backgroundColor: `${job.zone_color}1A`, color: "#1A1917",
-                border: `1px solid ${job.zone_color}40`,
+                backgroundColor: job.zone_color!,
+                color: zoneLuminance(job.zone_color!) > 0.65 ? "#1A1917" : "#FFFFFF",
               }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: job.zone_color || "#9CA3AF", flexShrink: 0 }} />
                 {job.zone_name}
               </span>
             ) : (
