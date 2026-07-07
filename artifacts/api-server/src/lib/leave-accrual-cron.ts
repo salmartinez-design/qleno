@@ -31,6 +31,8 @@ export type LeaveAccrualRunSummary = {
 
 export async function runLeaveAccrualCron(
   asOf: string,
+  // Provenance label for the audit trail ('cron' | 'boot'). [leave-log]
+  source: string = "cron",
 ): Promise<LeaveAccrualRunSummary[]> {
   if (!LEAVE_ACCRUAL_ENABLED) {
     console.log(
@@ -48,6 +50,7 @@ export async function runLeaveAccrualCron(
     try {
       const plan = await reconcileCompanyLeaveBalances(t.company_id, asOf, {
         dryRun: false,
+        source,
       });
       const row: LeaveAccrualRunSummary = {
         company_id: t.company_id,

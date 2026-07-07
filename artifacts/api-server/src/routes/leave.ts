@@ -459,7 +459,7 @@ router.post("/reconcile/apply", adminWriteGate, async (req, res) => {
     const companyId = req.auth!.companyId!;
     const today = new Date().toISOString().slice(0, 10);
     const { reconcileCompanyLeaveBalances } = await import("../lib/leave-reconcile.js");
-    const plan = await reconcileCompanyLeaveBalances(companyId, today, { dryRun: false, preserveUsed: true });
+    const plan = await reconcileCompanyLeaveBalances(companyId, today, { dryRun: false, preserveUsed: true, source: "office_apply" });
     const applied = plan.filter(p => p.plan.action !== "none");
     try {
       await logAudit(req, "leave_grants_applied", "leave_reconcile", today, null, {
@@ -513,7 +513,12 @@ router.put("/balances", adminWriteGate, async (req, res) => {
     try {
       await logAudit(req, "leave_balance_set", "employee_leave_balance", String(bal.id), {
         granted_hours: bal.granted_hours, used_hours: bal.used_hours,
-      }, { user_id: userId, leave_type_id: leaveTypeId, granted_hours: granted, used_hours: used });
+      }, {
+        user_id: userId, leave_type_id: leaveTypeId, slug: bucket.slug,
+        granted_hours: granted ?? Number(bal.granted_hours),
+        used_hours: used ?? Number(bal.used_hours),
+        source: "office_set",
+      });
     } catch { /* audit best-effort */ }
     const data = await buildBalancesForUser(companyId, userId);
     return res.json({ ok: true, data });
@@ -529,6 +534,7 @@ router.put("/balances", adminWriteGate, async (req, res) => {
 async function buildUsageForUser(companyId: number, userId: number) {
   return db
     .select({
+      id: employeeLeaveUsageTable.id,
       date_used: employeeLeaveUsageTable.date_used,
       hours: employeeLeaveUsageTable.hours,
       notes: employeeLeaveUsageTable.notes,
@@ -557,6 +563,148 @@ router.get("/usage", officeReadGate, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// [leave-log 2026-07-07] Mistake corrections + provenance (Sal: "I can't edit
+// mistakes; also need logs on where changes come from").
+//   DELETE /usage/:id        admin: remove a wrong usage-ledger entry and give
+//                            the hours back (decrements the bucket's used).
+//   DELETE /attendance/:id   office: remove a wrong unexcused/tardy record —
+//                            un-counts it from the disciplinary ladders.
+//   GET    /balance-log      office: full change history of an employee's
+//                            balances — office sets, engine grants (with the
+//                            boot/cron/apply trigger), before → after values.
+// ─────────────────────────────────────────────────────────────────────────────
+router.delete("/usage/:id", adminWriteGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return bad(res, "Invalid id");
+    const rows = await db
+      .select()
+      .from(employeeLeaveUsageTable)
+      .where(and(eq(employeeLeaveUsageTable.id, id), eq(employeeLeaveUsageTable.company_id, companyId)))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return notFound(res, "Usage entry not found");
+
+    // Resolve which bucket the entry belongs to from its note tag (same
+    // mapping the profile UI uses: …/pto, …/plawa, …/unpaid).
+    const note = String(row.notes ?? "").toLowerCase();
+    const shortTag = note.includes("/plawa") ? "plawa" : note.includes("/pto") ? "pto" : note.includes("/unpaid") ? "unpaid" : null;
+    let adjustedBucket: string | null = null;
+    if (shortTag) {
+      const buckets = await db
+        .select()
+        .from(leaveTypesTable)
+        .where(and(eq(leaveTypesTable.company_id, companyId), eq(leaveTypesTable.active, true)));
+      const bucket = buckets.find((b) => b.slug.toLowerCase().includes(shortTag));
+      if (bucket) {
+        const bal = await ensureBalanceRow(companyId, row.employee_id, bucket.id);
+        const newUsed = Math.max(0, Number(bal.used_hours) - Number(row.hours));
+        await db
+          .update(employeeLeaveBalancesTable)
+          .set({ used_hours: newUsed.toFixed(2), updated_at: new Date() })
+          .where(eq(employeeLeaveBalancesTable.id, bal.id));
+        adjustedBucket = bucket.slug;
+        try {
+          await logAudit(req, "leave_balance_set", "employee_leave_balance", String(bal.id), {
+            granted_hours: bal.granted_hours, used_hours: bal.used_hours,
+          }, {
+            user_id: row.employee_id, leave_type_id: bucket.id, slug: bucket.slug,
+            granted_hours: Number(bal.granted_hours), used_hours: newUsed,
+            source: "usage_entry_deleted",
+          });
+        } catch { /* audit best-effort */ }
+      }
+    }
+    await db.delete(employeeLeaveUsageTable).where(eq(employeeLeaveUsageTable.id, id));
+    try {
+      await logAudit(req, "leave_usage_deleted", "employee_leave_usage", String(id), {
+        employee_id: row.employee_id, date_used: String(row.date_used), hours: Number(row.hours), notes: row.notes,
+      }, { restored_to_bucket: adjustedBucket });
+    } catch { /* audit best-effort */ }
+    return res.json({ ok: true, restored_to_bucket: adjustedBucket, hours: Number(row.hours) });
+  } catch (err) {
+    console.error("leave usage delete error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete usage entry" });
+  }
+});
+
+router.delete("/attendance/:id", officeReadGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return bad(res, "Invalid id");
+    const rows = await db
+      .select()
+      .from(employeeAttendanceLogTable)
+      .where(and(eq(employeeAttendanceLogTable.id, id), eq(employeeAttendanceLogTable.company_id, companyId)))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return notFound(res, "Attendance entry not found");
+    await db.delete(employeeAttendanceLogTable).where(eq(employeeAttendanceLogTable.id, id));
+    try {
+      await logAudit(req, "attendance_entry_deleted", "employee_attendance_log", String(id), {
+        employee_id: row.employee_id, log_date: String(row.log_date), type: row.type,
+        protected: row.protected, notes: row.notes,
+      }, null);
+    } catch { /* audit best-effort */ }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("attendance delete error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete attendance entry" });
+  }
+});
+
+router.get("/balance-log", officeReadGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const userId = Number(req.query.userId);
+    if (!Number.isFinite(userId)) return bad(res, "userId required");
+    const r = await db.execute(sql`
+      SELECT a.performed_at, a.action, a.old_value, a.new_value,
+             u.first_name, u.last_name
+      FROM app_audit_log a
+      LEFT JOIN users u ON u.id = a.performed_by
+      WHERE a.company_id = ${companyId}
+        AND a.target_type = 'employee_leave_balance'
+        AND (a.new_value->>'user_id')::int = ${userId}
+      ORDER BY a.performed_at DESC
+      LIMIT 200
+    `);
+    const SOURCE_LABEL: Record<string, string> = {
+      boot: "Grant engine (deploy/restart)",
+      cron: "Grant engine (nightly)",
+      office_apply: "Grant engine (office Apply all grants)",
+      engine: "Grant engine",
+      usage_entry_deleted: "Usage entry removed",
+    };
+    const data = (r.rows as any[]).map((row) => {
+      const nv = row.new_value || {};
+      const ov = row.old_value || null;
+      const performer = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
+      const actor = performer || SOURCE_LABEL[nv.source] || "System";
+      return {
+        at: row.performed_at,
+        action: row.action,
+        actor,
+        source: nv.source ?? (performer ? "office" : "system"),
+        leave_type_id: nv.leave_type_id ?? null,
+        slug: nv.slug ?? null,
+        engine_action: nv.engine_action ?? null,
+        granted_old: ov?.granted_hours != null ? Number(ov.granted_hours) : null,
+        used_old: ov?.used_hours != null ? Number(ov.used_hours) : null,
+        granted_new: nv.granted_hours != null ? Number(nv.granted_hours) : null,
+        used_new: nv.used_hours != null ? Number(nv.used_hours) : null,
+      };
+    });
+    return res.json({ data });
+  } catch (err) {
+    console.error("leave balance-log error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to load balance log" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Attendance summary (Phase 2) — real, clickable stat tiles + the Unexcused
 // disciplinary-ladder progress. Counts + per-day drill-down rows (date +
 // reason) over a rolling window, sourced from employee_attendance_log
@@ -577,6 +725,7 @@ async function buildAttendanceSummary(
 
   const att = await db
     .select({
+      id: employeeAttendanceLogTable.id,
       log_date: employeeAttendanceLogTable.log_date,
       type: employeeAttendanceLogTable.type,
       notes: employeeAttendanceLogTable.notes,
@@ -597,7 +746,12 @@ async function buildAttendanceSummary(
     (u) => String(u.date_used).slice(0, 10) >= from,
   );
 
-  const dayRow = (date: any, reason: string, hours: number | null) => ({
+  // [leave-log 2026-07-07] id + src let the office remove a mistaken entry
+  // from the drill-down (src 'att' → DELETE /leave/attendance/:id, src
+  // 'usage' → DELETE /leave/usage/:id).
+  const dayRow = (date: any, reason: string, hours: number | null, id?: number, src?: "att" | "usage") => ({
+    id: id ?? null,
+    src: src ?? null,
     date: String(date).slice(0, 10),
     reason: (reason || "").trim(),
     hours: hours != null ? round2(Number(hours)) : null,
@@ -609,12 +763,12 @@ async function buildAttendanceSummary(
     const c = cleanUnexNote(notes);
     return c === "Unexcused absence" ? fallback : c;
   };
-  const lateRows = att.filter((r) => r.type === "tardy").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Late"), parseUnexcusedHours(r.notes)));
-  const absentRows = att.filter((r) => r.type === "absent" || r.type === "ncns").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Absent"), parseUnexcusedHours(r.notes)));
-  const unexRows = att.filter((r) => r.type === "absent" && !r.is_protected).map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes)));
-  const ptoRows = usageInWindow.filter((u) => String(u.notes || "").includes("/pto")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours)));
-  const sickRows = usageInWindow.filter((u) => String(u.notes || "").includes("/plawa")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours)));
-  const timeOffRows = usageInWindow.map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours)));
+  const lateRows = att.filter((r) => r.type === "tardy").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Late"), parseUnexcusedHours(r.notes), r.id, "att"));
+  const absentRows = att.filter((r) => r.type === "absent" || r.type === "ncns").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Absent"), parseUnexcusedHours(r.notes), r.id, "att"));
+  const unexRows = att.filter((r) => r.type === "absent" && !r.is_protected).map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes), r.id, "att"));
+  const ptoRows = usageInWindow.filter((u) => String(u.notes || "").includes("/pto")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
+  const sickRows = usageInWindow.filter((u) => String(u.notes || "").includes("/plawa")).map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
+  const timeOffRows = usageInWindow.map((u) => dayRow(u.date_used, String(u.notes || ""), Number(u.hours), u.id, "usage"));
 
   const tile = (rows: Array<{ hours: number | null }>) => ({
     count: rows.length,

@@ -120,7 +120,7 @@ function startNotificationCron() {
     // year's grant has landed.
     if (!fired["leave_accrual_boot"]) {
       fired["leave_accrual_boot"] = "done";
-      runLeaveAccrualCron(ctDate).catch((e: Error) => console.error("[boot] leave_accrual error:", e));
+      runLeaveAccrualCron(ctDate, "boot").catch((e: Error) => console.error("[boot] leave_accrual error:", e));
     }
     // 3 AM CT → recompute the 90-day rolling composite scorecard for every tech
     // so the trailing window advances daily even on days with no survey /

@@ -20,7 +20,7 @@ import {
   companyLeavePolicyTable,
   usersTable,
 } from "@workspace/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { round2 } from "./leave-balance.js";
 import {
   planLeaveGrant,
@@ -49,7 +49,11 @@ export async function reconcileCompanyLeaveBalances(
   // preserveUsed → passed to planLeaveGrant: the office migration apply keeps
   // MC-imported used_hours on first-touch grants; the cron omits it (default
   // false) so anniversary resets still zero used. [mc-migration 2026-07-07]
-  opts: { dryRun: boolean; preserveUsed?: boolean },
+  // source → provenance label written to app_audit_log with every persisted
+  // change ('boot' | 'cron' | 'office_apply'). The engine used to write
+  // silently — a boot-time run re-granted balances the office had just zeroed
+  // and nothing recorded why. [leave-log 2026-07-07]
+  opts: { dryRun: boolean; preserveUsed?: boolean; source?: string },
 ): Promise<ReconcilePlanRow[]> {
   const [policy] = await db
     .select({ ceiling: companyLeavePolicyTable.balance_ceiling_hours })
@@ -132,6 +136,7 @@ export async function reconcileCompanyLeaveBalances(
 
       if (plan.action !== "none" && !opts.dryRun) {
         const resetAt = new Date(`${asOf}T12:00:00Z`);
+        let balId = bal?.id ?? null;
         if (bal) {
           await db
             .update(employeeLeaveBalancesTable)
@@ -143,14 +148,44 @@ export async function reconcileCompanyLeaveBalances(
             })
             .where(eq(employeeLeaveBalancesTable.id, bal.id));
         } else {
-          await db.insert(employeeLeaveBalancesTable).values({
+          const ins = await db.insert(employeeLeaveBalancesTable).values({
             company_id: companyId,
             user_id: u.id,
             leave_type_id: b.id,
             granted_hours: plan.new_granted.toFixed(2),
             used_hours: plan.new_used.toFixed(2),
             last_reset_at: resetAt,
+          }).returning({ id: employeeLeaveBalancesTable.id });
+          balId = ins[0]?.id ?? null;
+        }
+        // [leave-log 2026-07-07] Provenance row for every engine write, same
+        // target_type as the office's manual leave_balance_set so one query
+        // returns the full change history of a balance. performed_by NULL =
+        // the system; new_value.source says which trigger (boot/cron/apply).
+        try {
+          const oldVal = balance
+            ? JSON.stringify({ granted_hours: balance.granted_hours, used_hours: balance.used_hours })
+            : null;
+          const newVal = JSON.stringify({
+            user_id: u.id,
+            leave_type_id: b.id,
+            slug: b.slug,
+            granted_hours: plan.new_granted,
+            used_hours: plan.new_used,
+            engine_action: plan.action,
+            source: opts.source ?? "engine",
           });
+          await db.execute(sql`
+            INSERT INTO app_audit_log
+              (company_id, performed_by, action, target_type, target_id,
+               old_value, new_value, performed_at)
+            VALUES
+              (${companyId}, ${null}, ${"leave_grant_engine"}, ${"employee_leave_balance"},
+               ${String(balId ?? `${u.id}:${b.id}`)},
+               ${oldVal}::jsonb, ${newVal}::jsonb, now())
+          `);
+        } catch (err) {
+          console.error("[leave-reconcile] audit write failed (non-fatal):", err);
         }
       }
 
