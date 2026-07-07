@@ -298,6 +298,104 @@ router.get("/quote/:token", rateLimit, async (req, res) => {
   }
 });
 
+// ── POST /api/public/referral ────────────────────────────────────────────────
+// [referral-program] Give $25 / Get $25 — the confirmation-page "Refer a friend
+// or business" form. Creates (a) a Lead Pipeline lead for the referred person
+// (deduped via upsertWidgetLead, source 'referral', tagged with who referred
+// them + the promo) and (b) a referrals row linked to that lead — the link is
+// what lets the Referrals report derive booked/completed/credited later. Fires
+// the office new-lead alert. Public + rate-limited; never exposes internal ids.
+router.post("/referral", rateLimit, async (req, res) => {
+  const { sql: s } = await import("drizzle-orm");
+  try {
+    const b: any = req.body ?? {};
+    const clip = (v: unknown, n: number) => String(v ?? "").trim().slice(0, n);
+    const companySlug = clip(b.company_slug, 80);
+    const referredName = clip(b.referred_name, 120);
+    const referredPhone = clip(b.referred_phone, 40);
+    const referredEmail = clip(b.referred_email, 160);
+    const referralType = b.referral_type === "commercial" ? "commercial" : "residential";
+    const ref: any = b.referrer ?? {};
+    const referrerFirst = clip(ref.first_name, 80);
+    const referrerLast = clip(ref.last_name, 80);
+    const referrerEmail = clip(ref.email, 160).toLowerCase();
+    const referrerPhone = clip(ref.phone, 40);
+    const referrerName = [referrerFirst, referrerLast].filter(Boolean).join(" ");
+
+    if (!companySlug) return res.status(400).json({ error: "Missing company" });
+    if (!referredName) return res.status(400).json({ error: "Please tell us who you're referring." });
+    if (!referredPhone && !referredEmail) return res.status(400).json({ error: "A phone number or email for them is required." });
+
+    const companyRow = await db.execute(s`SELECT id FROM companies WHERE slug = ${companySlug} LIMIT 1`);
+    const companyId = Number((companyRow.rows[0] as any)?.id);
+    if (!companyId) return res.status(404).json({ error: "Company not found" });
+
+    // Match the referrer to an existing client by email/phone (they usually
+    // just booked, so this normally hits). Kept nullable — a lead who refers
+    // before their client record exists still counts.
+    let referrerClientId: number | null = null;
+    const refPhone10 = referrerPhone.replace(/\D/g, "").slice(-10);
+    if (referrerEmail || refPhone10) {
+      const m = await db.execute(s`
+        SELECT id FROM clients
+         WHERE company_id = ${companyId}
+           AND (${referrerEmail ? s`LOWER(email) = ${referrerEmail}` : s`FALSE`}
+                OR ${refPhone10 ? s`RIGHT(regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g'), 10) = ${refPhone10}` : s`FALSE`})
+         ORDER BY id DESC LIMIT 1`);
+      referrerClientId = Number((m.rows[0] as any)?.id) || null;
+    }
+
+    const sp = referredName.indexOf(" ");
+    const referredFirst = sp > 0 ? referredName.slice(0, sp) : referredName;
+    const referredLast = sp > 0 ? referredName.slice(sp + 1) : null;
+    const { REFERRAL_PROMO } = await import("../lib/referrals.js");
+
+    const leadId = await upsertWidgetLead(companyId, {
+      first_name: referredFirst,
+      last_name: referredLast,
+      phone: referredPhone || null,
+      email: referredEmail || null,
+      scope: referralType === "commercial" ? "Commercial Cleaning" : null,
+      source: "referral",
+      status: "needs_contacted",
+      details: {
+        referred_by: referrerName || referrerEmail || "a customer",
+        referral_type: referralType,
+        referral_promo: REFERRAL_PROMO,
+      },
+    });
+
+    await db.execute(s`
+      INSERT INTO referrals
+        (company_id, referrer_client_id, referrer_name, referrer_email, referrer_phone,
+         referred_name, referred_phone, referred_email, referral_type,
+         source, status, promo, lead_id, created_at, updated_at)
+      VALUES
+        (${companyId}, ${referrerClientId}, ${referrerName || null}, ${referrerEmail || null}, ${referrerPhone || null},
+         ${referredName}, ${referredPhone || null}, ${referredEmail || null}, ${referralType},
+         'widget', 'pending', ${REFERRAL_PROMO}, ${leadId}, NOW(), NOW())
+    `);
+
+    // Office alert — same channel every other new lead uses. Fire-and-forget.
+    try {
+      const { fireOfficeNotification } = await import("./leads.js");
+      void fireOfficeNotification(
+        companyId, leadId ?? 0, referredFirst, referredLast,
+        `Referral — from ${referrerName || "a customer"} ($25/$25 promo)`,
+        referredPhone || null,
+        referralType === "commercial" ? "Commercial Cleaning" : null,
+      ).catch((e: any) => console.error("[referral] office alert failed:", e?.message ?? e));
+    } catch (e: any) {
+      console.error("[referral] office alert failed:", e?.message ?? e);
+    }
+
+    return res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error("POST /public/referral:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── GET /api/public/offer-settings/:slug ────────────────────────────────────
 router.get("/offer-settings/:slug", rateLimit, async (req, res) => {
   const { sql: drSql } = await import("drizzle-orm");

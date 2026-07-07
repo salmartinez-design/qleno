@@ -3328,13 +3328,11 @@ export default function BookPage() {
                 <strong>Cancellation:</strong> Please provide at least 48 hours notice to cancel or reschedule. Cancellations within 24 hours may be subject to a fee. Reply STOP to SMS to opt out of reminders.
               </div>
 
-              {/* Referral section */}
-              <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 18px", marginBottom: 20, textAlign: "center" as const }}>
-                <p style={{ margin: "0 0 4px", fontWeight: 700, fontSize: 14, color: "#1A1917" }}>Know someone who could use a cleaning?</p>
-                <p style={{ margin: 0, fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
-                  Refer a friend and ask our office about our referral program — both of you could save on your next clean.
-                </p>
-              </div>
+              {/* Referral section — Give $25, get $25 */}
+              <ReferralCard
+                companySlug={slug}
+                referrer={{ first_name: firstName, last_name: lastName, email, phone }}
+              />
 
               {upsellAccepted && (
                 <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px", marginBottom: 24, fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
@@ -3362,6 +3360,123 @@ export default function BookPage() {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+// [referral-program] Confirmation-page referral card: Give $25, get $25. Three
+// states — pitch card with button → inline form (friend's name + phone, email
+// optional, home/business toggle) → thank-you. The referrer's own info comes
+// from the booking they just completed; POST /api/public/referral creates the
+// lead + referral record and alerts the office.
+function ReferralCard({ companySlug, referrer }: {
+  companySlug: string;
+  referrer: { first_name: string; last_name: string; email: string; phone: string };
+}) {
+  const [open, setOpen] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [refType, setRefType] = useState<"residential" | "commercial">("residential");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [sentToName, setSentToName] = useState("");
+
+  const labelStyle = { display: "block", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase" as const, color: "#6B6860", margin: "0 0 5px" };
+  const inputStyle = { width: "100%", boxSizing: "border-box" as const, border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontFamily: "inherit", background: "#fff", color: "#1A1917", marginBottom: 12 };
+
+  async function submit() {
+    setErr("");
+    if (!name.trim()) { setErr("Please tell us who you're referring."); return; }
+    if (!phone.trim() && !email.trim()) { setErr("A phone number or email for them is required."); return; }
+    setBusy(true);
+    try {
+      await pubFetch("/api/public/referral", {
+        method: "POST",
+        body: JSON.stringify({
+          company_slug: companySlug,
+          referral_type: refType,
+          referred_name: name.trim(),
+          referred_phone: phone.trim(),
+          referred_email: email.trim(),
+          referrer,
+        }),
+      });
+      setSentToName(name.trim().split(/\s+/)[0]);
+      setSent(true);
+      setName(""); setPhone(""); setEmail("");
+    } catch {
+      setErr("Something went wrong — please try again or mention it to our office.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (sent) {
+    return (
+      <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 18px", marginBottom: 20, textAlign: "center" as const }}>
+        <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 8px" }}>
+          <CheckCircle2 size={20} color="#0F6E56" />
+        </div>
+        <p style={{ margin: "0 0 4px", fontWeight: 800, fontSize: 15, color: "#1A1917" }}>Thanks — we'll take it from here</p>
+        <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
+          We'll reach out to {sentToName || "them"} with their $25 off. Once their first cleaning is complete, your $25 credit is applied to your next visit.
+        </p>
+        <button onClick={() => { setSent(false); setOpen(true); }}
+          style={{ background: "#fff", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}>
+          Refer someone else
+        </button>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 18px", marginBottom: 20, textAlign: "center" as const }}>
+        <span style={{ display: "inline-block", background: "#E1F5EE", color: "#085041", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", padding: "4px 12px", borderRadius: 999, marginBottom: 8 }}>Referral program</span>
+        <p style={{ margin: "0 0 4px", fontWeight: 800, fontSize: 16, color: "#1A1917" }}>Give $25, get $25</p>
+        <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
+          Know someone who could use a cleaning — a friend's home or a business? They get $25 off their first clean, and you get $25 off your next one after their first visit.
+        </p>
+        <button onClick={() => setOpen(true)}
+          style={{ background: "#5B9BD5", color: "#fff", border: "none", borderRadius: 8, padding: "11px 22px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}>
+          Refer a friend or business
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 18px", marginBottom: 20 }}>
+      <p style={{ margin: "0 0 2px", fontWeight: 800, fontSize: 15, color: "#1A1917" }}>Give $25, get $25</p>
+      <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "#6B6860", lineHeight: 1.6 }}>
+        We'll reach out with $25 off their first cleaning. Your $25 credit is applied after their first visit is complete.
+      </p>
+      <label style={labelStyle}>Who are you referring?</label>
+      <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
+        {(["residential", "commercial"] as const).map((t) => (
+          <button key={t} onClick={() => setRefType(t)}
+            style={{ flex: 1, textAlign: "center", padding: "9px 0", fontSize: 13, fontWeight: 700, fontFamily: "inherit", border: "none", cursor: "pointer",
+              background: refType === t ? "#5B9BD5" : "#fff", color: refType === t ? "#fff" : "#6B6860" }}>
+            {t === "residential" ? "A home" : "A business"}
+          </button>
+        ))}
+      </div>
+      <label style={labelStyle}>{refType === "commercial" ? "Business or contact name" : "Their first name"}</label>
+      <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
+      <label style={labelStyle}>Their phone</label>
+      <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" style={inputStyle} />
+      <label style={labelStyle}>Their email <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 600, color: "#9E9B94" }}>(optional)</span></label>
+      <input value={email} onChange={(e) => setEmail(e.target.value)} inputMode="email" placeholder="name@example.com" style={{ ...inputStyle, marginBottom: 14 }} />
+      {err && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "#DC2626" }}>{err}</p>}
+      <button onClick={submit} disabled={busy}
+        style={{ width: "100%", background: "#5B9BD5", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
+        {busy ? "Sending…" : "Send them $25 off"}
+      </button>
+      <p style={{ margin: "10px 0 0", fontSize: 11.5, color: "#9E9B94", textAlign: "center", lineHeight: 1.5 }}>
+        We'll mention you by first name. No spam — one friendly text or email from our office.
+      </p>
+    </div>
+  );
+}
+
 function FieldWrap({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 16 }}>
