@@ -201,7 +201,9 @@ export default function LeaveRequestPage() {
       toast({ title: "Pick a bucket and dates", variant: "destructive" });
       return;
     }
-    if (!attachment) {
+    // Attachment: required for employees (Sal 2026-06-22); optional when the
+    // office files on behalf — the office is who the note would go to.
+    if (!attachment && !previewId) {
       toast({ title: "An attachment (e.g. a doctor's note) is required", variant: "destructive" });
       return;
     }
@@ -228,8 +230,8 @@ export default function LeaveRequestPage() {
           // records who filed it). Sal: the disabled submit blocked acting on
           // an employee's behalf.
           ...(previewId ? { employee_id: previewId } : {}),
-          attachment_url: attachment.url,
-          attachment_name: attachment.name,
+          attachment_url: attachment?.url ?? null,
+          attachment_name: attachment?.name ?? null,
           note: note || null,
         }),
       });
@@ -460,7 +462,7 @@ export default function LeaveRequestPage() {
               <CalendarPopover value={endDate} ariaLabel="End date" onChange={setEndDate} block />
             </FormField>
             <div style={{ gridColumn: "1 / -1" }}>
-              <FormField label="Attachment (required — doctor's note / file)">
+              <FormField label={previewId != null ? "Attachment (optional — filing on behalf)" : "Attachment (required — doctor's note / file)"}>
                 {attachment ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: INK, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "10px 12px", background: "#F0FBF8" }}>
                     <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>{attachment.name}</span>
@@ -496,17 +498,20 @@ export default function LeaveRequestPage() {
             </div>
           </div>
           <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
-            {previewId != null && (
+            {previewId != null ? (
               <span style={{ fontSize: 12, color: MUTED }}>Filing on behalf of {employeeView?.employeeName ?? "the employee"} — the request lands as theirs, recorded as filed by you</span>
-            )}
+            ) : !attachment ? (
+              // Say WHY the button is disabled instead of silently graying out.
+              <span style={{ fontSize: 12, color: LEAVE_LOW }}>Attach the doctor's note / file above to enable Submit</span>
+            ) : null}
             <button
               onClick={submit}
-              disabled={submitting || uploading || !attachment}
+              disabled={submitting || uploading || (!attachment && previewId == null)}
               style={{
                 fontFamily: FF, fontSize: 13, fontWeight: 700,
                 color: "#FFFFFF", backgroundColor: BRAND, border: "none",
                 borderRadius: 8, padding: "8px 14px", cursor: "pointer",
-                opacity: submitting || uploading || !attachment ? 0.4 : 1,
+                opacity: submitting || uploading || (!attachment && previewId == null) ? 0.4 : 1,
               }}
             >
               {previewId != null ? "Submit for employee" : "Submit request"}
