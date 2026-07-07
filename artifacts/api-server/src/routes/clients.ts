@@ -640,7 +640,8 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
       SELECT * FROM (
         SELECT nl.sent_at AS at, nl.channel::text AS channel, 'outbound'::text AS direction,
                nl.trigger::text AS type, nl.recipient::text AS recipient, nl.status::text AS status,
-               (nl.metadata->>'subject')::text AS subject, (nl.metadata->>'body')::text AS body, 'automated'::text AS source,
+               (nl.metadata->>'subject')::text AS subject, (nl.metadata->>'body')::text AS body,
+               (nl.metadata->>'html')::text AS email_html, 'automated'::text AS source,
                CASE WHEN nl.trigger = 'invoice_sent' THEN 'invoice' END::text AS doc_type,
                CASE WHEN nl.trigger = 'invoice_sent'
                     THEN (SELECT i.id FROM invoices i
@@ -653,7 +654,8 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
         UNION ALL
         SELECT created_at AS at, 'sms'::text AS channel, direction::text AS direction,
                'sms'::text AS type, COALESCE(to_number, from_number)::text AS recipient,
-               status::text AS status, NULL::text AS subject, body::text AS body, 'two_way'::text AS source,
+               status::text AS status, NULL::text AS subject, body::text AS body,
+               NULL::text AS email_html, 'two_way'::text AS source,
                NULL::text AS doc_type, NULL::int AS doc_id
           FROM sms_messages
          WHERE company_id = ${companyId} AND (
@@ -664,7 +666,8 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
         UNION ALL
         SELECT logged_at AS at, channel::text AS channel, direction::text AS direction,
                COALESCE(source, 'message')::text AS type, recipient::text AS recipient,
-               delivery_status::text AS status, subject::text AS subject, body::text AS body, 'logged'::text AS source,
+               delivery_status::text AS status, subject::text AS subject, body::text AS body,
+               NULL::text AS email_html, 'logged'::text AS source,
                NULL::text AS doc_type, NULL::int AS doc_id
           FROM communication_log
          WHERE company_id = ${companyId} AND customer_id = ${clientId}
@@ -672,7 +675,9 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
         SELECT sent_at AS at, channel::text AS channel, 'outbound'::text AS direction,
                COALESCE(sequence_name, 'message')::text AS type,
                COALESCE(recipient_email, recipient_phone)::text AS recipient,
-               status::text AS status, subject::text AS subject, body::text AS body, 'cadence'::text AS source,
+               status::text AS status, subject::text AS subject, body::text AS body,
+               CASE WHEN channel = 'email' AND body ~ '<[a-zA-Z]' THEN body END AS email_html,
+               'cadence'::text AS source,
                NULL::text AS doc_type, NULL::int AS doc_id
           FROM message_log
          WHERE company_id = ${companyId} AND (

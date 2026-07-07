@@ -777,7 +777,50 @@ function EventTrail({ logId }: { logId: number }) {
   );
 }
 
-function CommLogDetailCard({ entry }: { entry: any }) {
+// [comm-log-view-email 2026-07-07] The email document to open for an entry:
+// prefer the exact sent html (metadata.html, stamped by notificationService
+// going forward); fall back to the logged body when it's html (older automated
+// emails logged the merged template html). Null = plain-text email.
+function emailDoc(entry: any): string | null {
+  if ((entry.channel || "").toLowerCase() !== "email") return null;
+  if (entry.email_html) return entry.email_html;
+  const b = entry.body || "";
+  return /<[a-z][\s\S]*>/i.test(b) ? b : null;
+}
+
+function EmailViewerModal({ entry, onClose }: { entry: any; onClose: () => void }) {
+  const doc = emailDoc(entry);
+  return (
+    <div onClick={onClose}
+      style={{ position: "fixed", inset: 0, zIndex: 9999, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: "#FFFFFF", borderRadius: 12, width: "100%", maxWidth: 720, height: "85vh", display: "flex", flexDirection: "column", overflow: "hidden", fontFamily: FF2 }}>
+        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, padding: "14px 18px", borderBottom: "1px solid #E5E2DC" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis" }}>{entry.subject || "(no subject)"}</div>
+            <div style={{ fontSize: 11.5, color: "#6B6860", marginTop: 3 }}>To: {entry.recipient || "—"} · {fmtTs(entry.logged_at || entry.created_at)}</div>
+          </div>
+          <button onClick={onClose} aria-label="Close email preview"
+            style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860", padding: 4, flexShrink: 0 }}>
+            <X size={18} />
+          </button>
+        </div>
+        {doc ? (
+          // sandbox with no tokens: scripts, forms, and top-navigation in the
+          // email html are all inert — pure visual rendering.
+          <iframe sandbox="" srcDoc={doc} title="Email as sent"
+            style={{ border: "none", width: "100%", flex: 1, background: "#FFFFFF" }} />
+        ) : (
+          <div style={{ padding: 20, fontSize: 13, color: "#374151", lineHeight: 1.6, whiteSpace: "pre-wrap", overflowY: "auto" }}>
+            {entry.body || entry.summary || "(no content recorded)"}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CommLogDetailCard({ entry, onViewEmail }: { entry: any; onViewEmail?: (entry: any) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [trailOpen, setTrailOpen] = useState(false);
   const body = plainBody(entry.body || entry.summary || "");
@@ -831,6 +874,12 @@ function CommLogDetailCard({ entry }: { entry: any }) {
           {fmtTs(entry.logged_at || entry.created_at)}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {(entry.channel || "").toLowerCase() === "email" && onViewEmail && (
+            <button onClick={() => onViewEmail(entry)}
+              style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3, fontFamily: FF2 }}>
+              <Eye size={11} /> View email
+            </button>
+          )}
           {(entry.source === "system" || entry.delivery_status) && <DeliveryBadge status={entry.delivery_status} />}
           {showTrail && (
             <button onClick={() => setTrailOpen(o => !o)} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3, fontFamily: FF2 }}>
@@ -871,6 +920,7 @@ export function CommLog2({ clientId }: { clientId: number }) {
   const [submitting, setSubmitting] = useState(false);
   const [page, setPage] = useState(1);
   const [perPage, setPerPage] = useState(10);
+  const [viewEmail, setViewEmail] = useState<any | null>(null);
 
   const qk = ["comm-log", clientId, filter];
   // [comms-unify 2026-06-26] This panel now reads the SAME complete history as
@@ -895,6 +945,7 @@ export function CommLog2({ clientId }: { clientId: number }) {
         logged_at: m.at,
         delivery_status: m.status,
         sent_by: null,
+        email_html: m.email_html || null,
       }));
       if (filter) {
         // The filter dropdown mixes three dimensions — route each correctly:
@@ -1034,7 +1085,7 @@ export function CommLog2({ clientId }: { clientId: number }) {
       {/* Detail view */}
       {!isLoading && logs.length > 0 && view === "detail" && (
         <>
-          {paginated.map((entry: any) => <CommLogDetailCard key={entry.id} entry={entry} />)}
+          {paginated.map((entry: any) => <CommLogDetailCard key={entry.id} entry={entry} onViewEmail={setViewEmail} />)}
           {totalPages > 1 && (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
               <button disabled={page <= 1} onClick={() => setPage(p => p - 1)}
@@ -1070,9 +1121,19 @@ export function CommLog2({ clientId }: { clientId: number }) {
                     <td style={{ padding: "6px 10px", fontWeight: 600, color: "#1A1917", textTransform: "capitalize" }}>{entry.source || "staff"}</td>
                     <td style={{ padding: "6px 10px", color: "#6B6860" }}>{channelLabel(entry.channel)}</td>
                     <td style={{ padding: "6px 10px", color: "#374151", maxWidth: 200 }}>
-                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {plainBody(entry.body || entry.summary || "").substring(0, 50)}
-                      </span>
+                      {(entry.channel || "").toLowerCase() === "email" ? (
+                        <button onClick={() => setViewEmail(entry)} title="View the email as sent"
+                          style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--brand)", fontFamily: FF2, fontSize: 12, maxWidth: "100%" }}>
+                          <Eye size={11} style={{ flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {entry.subject || plainBody(entry.body || "").substring(0, 50) || "View email"}
+                          </span>
+                        </button>
+                      ) : (
+                        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {plainBody(entry.body || entry.summary || "").substring(0, 50)}
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: "6px 10px", color: "#6B6860", fontSize: 11 }}>{entry.recipient || "—"}</td>
                     <td style={{ padding: "6px 10px", color: "#6B6860" }}>{entry.sent_by || entry.logged_by_name || "SYSTEM"}</td>
@@ -1106,6 +1167,8 @@ export function CommLog2({ clientId }: { clientId: number }) {
           </div>
         </>
       )}
+
+      {viewEmail && <EmailViewerModal entry={viewEmail} onClose={() => setViewEmail(null)} />}
     </div>
   );
 }
