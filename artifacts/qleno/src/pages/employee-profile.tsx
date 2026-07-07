@@ -750,7 +750,9 @@ export default function EmployeeProfilePage() {
   // Hilda's 40-hour bank down to 4/4.
   const [balModal, setBalModal] =
     useState<null | { leave_type_id: number; display_name: string; accent: string; granted: number; used: number }>(null);
-  const [balMode, setBalMode] = useState<'deduct' | 'set'>('deduct');
+  // [undo 2026-07-07] 'add' returns hours to the bucket (Sal: "what if I add
+  // 4 hours to the wrong bucket — I can't fix it").
+  const [balMode, setBalMode] = useState<'deduct' | 'add' | 'set'>('deduct');
   const [balDeduct, setBalDeduct] = useState('');
   const [balGranted, setBalGranted] = useState('');
   const [balUsed, setBalUsed] = useState('');
@@ -782,6 +784,12 @@ export default function EmployeeProfilePage() {
       if (balDeduct.trim() === '' || !Number.isFinite(hrs) || hrs <= 0) { setBalErr('Hours to deduct must be more than 0'); return; }
       granted = balModal!.granted;
       used = Math.round((balModal!.used + hrs) * 100) / 100;
+    } else if (balMode === 'add') {
+      const hrs = Number(balDeduct);
+      if (balDeduct.trim() === '' || !Number.isFinite(hrs) || hrs <= 0) { setBalErr('Hours to add back must be more than 0'); return; }
+      if (hrs > balModal!.used) { setBalErr(`Only ${balModal!.used.toFixed(1)} hrs are used — to raise the annual grant, use Set totals`); return; }
+      granted = balModal!.granted;
+      used = Math.round((balModal!.used - hrs) * 100) / 100;
     } else {
       granted = Number(balGranted);
       used = Number(balUsed);
@@ -808,6 +816,33 @@ export default function EmployeeProfilePage() {
       setBalErr(e?.message === '403' ? 'Only owners and admins can set balances' : 'Could not save — try again');
     } finally {
       setBalBusy(false);
+    }
+  };
+  // [undo 2026-07-07] One-click revert on a Balance changes entry — restores
+  // the bucket to the before-state the audit row recorded. Itself audited
+  // as a manual set with an explanatory reason, so reverts are traceable too.
+  const [revertBusy, setRevertBusy] = useState<string | null>(null);
+  const revertBalanceChange = async (r: any, leaveTypeId: number, atLabel: string) => {
+    if (!window.confirm(`Restore this bucket to ${Number(r.granted_old).toFixed(1)} granted / ${Number(r.used_old).toFixed(1)} used — the state before this change?`)) return;
+    setRevertBusy(String(r.at));
+    try {
+      await apiFetch('/leave/balances', {
+        method: 'PUT',
+        body: JSON.stringify({
+          user_id: Number(userId),
+          leave_type_id: leaveTypeId,
+          granted_hours: Number(r.granted_old),
+          used_hours: Number(r.used_old),
+          reason: `Revert of the ${atLabel} change`,
+        }),
+      });
+      qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balance-log', userId] });
+    } catch {
+      window.alert('Could not revert — try again.');
+    } finally {
+      setRevertBusy(null);
     }
   };
   // [leave-log 2026-07-07] Mistake corrections: remove a wrong attendance
@@ -1827,6 +1862,8 @@ export default function EmployeeProfilePage() {
                   const u = Number(balUsed);
                   const preview = balMode === 'deduct'
                     ? (balDeduct.trim() !== '' && Number.isFinite(dHrs) && dHrs > 0 ? Math.max(0, curAvail - dHrs) : null)
+                    : balMode === 'add'
+                    ? (balDeduct.trim() !== '' && Number.isFinite(dHrs) && dHrs > 0 && dHrs <= balModal.used ? curAvail + dHrs : null)
                     : (Number.isFinite(g) && Number.isFinite(u) ? Math.max(0, g - u) : null);
                   return (
                     <div onClick={() => !balBusy && setBalModal(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
@@ -1839,9 +1876,9 @@ export default function EmployeeProfilePage() {
                           Current: <strong style={{ color:'#1A1917' }}>{curAvail.toFixed(1)} hrs available</strong> · {balModal.used.toFixed(1)} used of {balModal.granted.toFixed(1)} granted
                         </p>
                         <div style={{ display:'flex',gap:6,marginBottom:14 }}>
-                          {([{ v:'deduct', l:'Deduct hours' },{ v:'set', l:'Set totals' }] as const).map(m => (
+                          {([{ v:'deduct', l:'Deduct hours' },{ v:'add', l:'Add hours back' },{ v:'set', l:'Set totals' }] as const).map(m => (
                             <button key={m.v} onClick={() => { setBalMode(m.v); setBalErr(null); }}
-                              style={{ flex:1,padding:'7px 0',borderRadius:8,fontSize:12.5,fontWeight:700,fontFamily:'inherit',cursor:'pointer',
+                              style={{ flex:1,padding:'7px 0',borderRadius:8,fontSize:12,fontWeight:700,fontFamily:'inherit',cursor:'pointer',
                                 border:`1px solid ${balMode === m.v ? balModal.accent : '#E5E2DC'}`,
                                 background: balMode === m.v ? balModal.accent : '#FFFFFF',
                                 color: balMode === m.v ? '#FFFFFF' : '#6B6860' }}>
@@ -1849,9 +1886,9 @@ export default function EmployeeProfilePage() {
                             </button>
                           ))}
                         </div>
-                        {balMode === 'deduct' ? (
+                        {balMode === 'deduct' || balMode === 'add' ? (
                           <>
-                            <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Hours to deduct</label>
+                            <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>{balMode === 'deduct' ? 'Hours to deduct' : 'Hours to add back'}{balMode === 'add' && <span style={{ fontWeight:500,color:'#9E9B94' }}> (returns used hours to the bucket)</span>}</label>
                             <input type="number" min="0" step="0.25" value={balDeduct} onChange={e => setBalDeduct(e.target.value)} placeholder="e.g. 4" autoFocus style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
                           </>
                         ) : (
@@ -1863,11 +1900,11 @@ export default function EmployeeProfilePage() {
                           </>
                         )}
                         <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Reason <span style={{ fontWeight:500,color:'#9E9B94' }}>(shown in the Balance changes log)</span></label>
-                        <textarea value={balReason} onChange={e => setBalReason(e.target.value)} placeholder={balMode === 'deduct' ? 'e.g. took 4 hrs unpaid leave 7/7' : 'e.g. correcting the MC import'} rows={2} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box',resize:'vertical' }} />
+                        <textarea value={balReason} onChange={e => setBalReason(e.target.value)} placeholder={balMode === 'deduct' ? 'e.g. took 4 hrs unpaid leave 7/7' : balMode === 'add' ? 'e.g. deducted from the wrong bucket' : 'e.g. correcting the MC import'} rows={2} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box',resize:'vertical' }} />
                         <p style={{ fontSize:12,color:'#6B6860',margin:'0 0 12px' }}>
                           {preview != null
                             ? <>Available after save: <strong style={{ color: balModal.accent }}>{preview.toFixed(1)} hrs</strong></>
-                            : (balMode === 'deduct' ? 'Enter the hours to deduct' : 'Enter granted and used hours')}
+                            : (balMode === 'deduct' ? 'Enter the hours to deduct' : balMode === 'add' ? 'Enter the hours to add back' : 'Enter granted and used hours')}
                         </p>
                         {balErr && <p style={{ fontSize:12,color:'#991B1B',margin:'0 0 10px' }}>{balErr}</p>}
                         <div style={{ display:'flex',gap:8 }}>
@@ -1971,9 +2008,19 @@ export default function EmployeeProfilePage() {
                               )}
                               {logRows.map((r: any, i: number) => (
                                 <div key={i} style={{ padding:'8px 0',borderTop: i ? '1px solid #F0EEE9' : '1px solid #E5E2DC' }}>
-                                  <div style={{ display:'flex',justifyContent:'space-between',gap:10,fontSize:12 }}>
+                                  <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,fontSize:12 }}>
                                     <span style={{ fontWeight:700,color:'#1A1917' }}>{headline(r)}</span>
-                                    <span style={{ color:'#9E9B94',whiteSpace:'nowrap' }}>{fmtAt(r.at)}</span>
+                                    <span style={{ display:'flex',alignItems:'center',gap:8,whiteSpace:'nowrap' }}>
+                                      <span style={{ color:'#9E9B94' }}>{fmtAt(r.at)}</span>
+                                      {canEditBalance && r.granted_old != null && r.used_old != null && (r.action === 'leave_balance_set' || r.action === 'leave_grant_engine') && (
+                                        <button
+                                          onClick={() => revertBalanceChange(r, r.leave_type_id ?? historyBucket.leave_type_id, fmtAt(r.at))}
+                                          disabled={revertBusy === String(r.at)}
+                                          title="Restore the bucket to the state before this change"
+                                          style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'2px 8px',fontSize:11,fontWeight:600,color:'#6B6860',cursor:'pointer',fontFamily:'inherit',opacity: revertBusy === String(r.at) ? 0.5 : 1 }}
+                                        >Revert</button>
+                                      )}
+                                    </span>
                                   </div>
                                   <div style={{ fontSize:12,color:'#6B6860',marginTop:2 }}>
                                     {chain(r)}
