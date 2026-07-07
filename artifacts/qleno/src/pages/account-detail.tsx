@@ -17,6 +17,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthHeaders } from "@/lib/auth";
+import { formatInvoiceNumber } from "@/lib/invoice-number";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { AccountJobsCalendar } from "@/components/account-jobs-calendar";
@@ -1437,7 +1438,7 @@ export default function AccountDetailPage() {
                         <tr key={inv.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{inv.service_date}</td>
                           <td className="px-4 py-3 font-medium whitespace-nowrap">
-                            <Link href={`/invoices/${inv.id}`} className="text-[#00A886] hover:underline">{inv.invoice_number || `INV-${inv.id}`}</Link>
+                            <Link href={`/invoices/${inv.id}`} className="text-[#00A886] hover:underline">{formatInvoiceNumber(inv)}</Link>
                           </td>
                           <td className="px-4 py-3 text-gray-500 truncate max-w-[280px] hidden sm:table-cell">{desc}</td>
                           <td className="px-4 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded uppercase ${stCls}`}>{st}</span></td>
