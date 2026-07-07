@@ -34,6 +34,25 @@ const STATUS_STYLES: Record<string, React.CSSProperties> = {
 const LABEL_STYLE: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6, fontFamily: FF };
 const INPUT_STYLE: React.CSSProperties = { width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: FF, color: "#1A1917" };
 
+// [invoice-row-links 2026-07-07] Block-level anchor filling a table cell so the
+// BROWSER treats the whole cell as a link: right-click anywhere on the row →
+// "Open Link in New Tab" (Maribel: "right click and open it in another tab…
+// this way is too slow"). #886 made only the invoice-number cell a real <a>;
+// now every data cell is one (checkbox + action-button cells stay plain).
+// Plain click still does fast client-side nav; cmd/ctrl/shift-click falls
+// through to the browser's native new-tab/new-window behavior.
+function InvoiceCellLink({ invId, navigate, style, children }: {
+  invId: number; navigate: (p: string) => void; style?: React.CSSProperties; children: React.ReactNode;
+}) {
+  return (
+    <a href={`/invoices/${invId}`}
+      onClick={e => { e.stopPropagation(); if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); navigate(`/invoices/${invId}`); }}
+      style={{ display: "block", padding: "13px 18px", color: "inherit", textDecoration: "none", ...style }}>
+      {children}
+    </a>
+  );
+}
+
 function NewInvoiceModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { toast } = useToast();
   const [clientSearch, setClientSearch] = useState("");
@@ -1264,8 +1283,10 @@ export default function InvoicesPage() {
                     /* [invoice-open-new-tab 2026-07-03] cmd/ctrl+click or middle-click
                        opens the invoice in a NEW tab (office keeps the list open and
                        opens several invoices side by side); plain click still does fast
-                       client-side nav. Invoice # cell below is a real <a> so right-click
-                       → "Open in new tab" works too. */
+                       client-side nav. [invoice-row-links 2026-07-07] Every data cell
+                       is a real <a> (InvoiceCellLink) so right-click → "Open Link in
+                       New Tab" works ANYWHERE on the row, not just the invoice #.
+                       The tr handlers below remain as a fallback for the row's edges. */
                     <tr key={inv.id}
                       onClick={e => { if (e.metaKey || e.ctrlKey) { window.open(`/invoices/${inv.id}`, "_blank"); return; } navigate(`/invoices/${inv.id}`); }}
                       onAuxClick={e => { if (e.button === 1) { e.preventDefault(); window.open(`/invoices/${inv.id}`, "_blank"); } }}
@@ -1279,46 +1300,60 @@ export default function InvoicesPage() {
                           checked={mergeSel.has(inv.id)}
                           onChange={e => toggleMerge(inv.id, e.target.checked)} />
                       </td>
-                      <td style={{ padding: "13px 18px", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
-                        <a href={`/invoices/${inv.id}`}
-                          onClick={e => { e.stopPropagation(); if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); navigate(`/invoices/${inv.id}`); }}
-                          style={{ color: "inherit", textDecoration: "none" }}>
+                      {/* [invoice-row-links 2026-07-07] Every data cell is a real
+                          block-level <a> so right-click ANYWHERE on the row offers
+                          "Open Link in New Tab". Cell padding moves onto the anchor
+                          so the whole cell area is the link target. */}
+                      <td style={{ padding: 0, fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>
                           {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
-                        </a>
+                        </InvoiceCellLink>
                       </td>
-                      <td style={{ padding: "13px 18px", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{inv.client_name}</td>
-                      <td style={{ padding: "13px 18px", fontSize: 12, color: "#6B7280", fontFamily: FF }}>
-                        {inv.po_number || "—"}
+                      <td style={{ padding: 0, fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>{inv.client_name}</InvoiceCellLink>
                       </td>
-                      <td style={{ padding: "13px 18px" }}>
-                        {inv.payment_terms && inv.payment_terms !== "due_on_receipt" ? (
-                          <span style={{ background: "#EFF6FF", color: "#1D4ED8", border: "1px solid #BFDBFE", display: "inline-block", padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
-                            {inv.payment_terms === "net_30" ? "NET 30" : inv.payment_terms === "net_15" ? "NET 15" : inv.payment_terms.toUpperCase()}
+                      <td style={{ padding: 0, fontSize: 12, color: "#6B7280", fontFamily: FF }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>{inv.po_number || "—"}</InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0 }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>
+                          {inv.payment_terms && inv.payment_terms !== "due_on_receipt" ? (
+                            <span style={{ background: "#EFF6FF", color: "#1D4ED8", border: "1px solid #BFDBFE", display: "inline-block", padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
+                              {inv.payment_terms === "net_30" ? "NET 30" : inv.payment_terms === "net_15" ? "NET 15" : inv.payment_terms.toUpperCase()}
+                            </span>
+                          ) : <span style={{ color: "#9E9B94", fontSize: 12, fontFamily: FF }}>—</span>}
+                        </InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0, fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>${(inv.total || 0).toFixed(2)}</InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0, fontSize: 12, color: "#6B7280", fontFamily: FF }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>
+                          {inv.service_date
+                            ? new Date(inv.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                            : inv.created_at ? new Date(inv.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                        </InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0 }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>
+                          {effectiveStatus === "overdue" && (inv.days_overdue || 0) > 0 ? (
+                            <span style={{ background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA", display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
+                              {inv.days_overdue}d overdue
+                            </span>
+                          ) : "—"}
+                        </InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0 }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>
+                          <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF }}>
+                            {effectiveStatus}
                           </span>
-                        ) : <span style={{ color: "#9E9B94", fontSize: 12, fontFamily: FF }}>—</span>}
-                      </td>
-                      <td style={{ padding: "13px 18px", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${(inv.total || 0).toFixed(2)}</td>
-                      <td style={{ padding: "13px 18px", fontSize: 12, color: "#6B7280", fontFamily: FF }}>
-                        {inv.service_date
-                          ? new Date(inv.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                          : inv.created_at ? new Date(inv.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
-                      </td>
-                      <td style={{ padding: "13px 18px" }}>
-                        {effectiveStatus === "overdue" && (inv.days_overdue || 0) > 0 ? (
-                          <span style={{ background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA", display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
-                            {inv.days_overdue}d overdue
-                          </span>
-                        ) : "—"}
-                      </td>
-                      <td style={{ padding: "13px 18px" }}>
-                        <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF }}>
-                          {effectiveStatus}
-                        </span>
-                        {inv.refunded_amount != null && Number(inv.refunded_amount) > 0 && (
-                          <span style={{ marginLeft: 4, display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF, backgroundColor: "#EDE9FE", color: "#6D28D9", border: "1px solid #DDD6FE" }}>
-                            {Number(inv.refunded_amount) >= Number(inv.total) ? "REFUNDED" : `REFUNDED $${Number(inv.refunded_amount).toFixed(2)}`}
-                          </span>
-                        )}
+                          {inv.refunded_amount != null && Number(inv.refunded_amount) > 0 && (
+                            <span style={{ marginLeft: 4, display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF, backgroundColor: "#EDE9FE", color: "#6D28D9", border: "1px solid #DDD6FE" }}>
+                              {Number(inv.refunded_amount) >= Number(inv.total) ? "REFUNDED" : `REFUNDED $${Number(inv.refunded_amount).toFixed(2)}`}
+                            </span>
+                          )}
+                        </InvoiceCellLink>
                       </td>
                       <td style={{ padding: "13px 18px", textAlign: "right", whiteSpace: "nowrap" }} onClick={e => e.stopPropagation()}>
                         {(effectiveStatus === "sent" || effectiveStatus === "overdue") && inv.has_card_on_file && (
