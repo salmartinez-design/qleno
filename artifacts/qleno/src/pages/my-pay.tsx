@@ -8,6 +8,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
+import { useEmployeeView } from "@/contexts/employee-view-context";
 import { Lock, ChevronDown, ChevronUp } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -28,12 +29,21 @@ function fmtRange(s: string, e: string) {
 
 export default function MyPayPage() {
   const [openKey, setOpenKey] = useState<string | null>(null);
+  // [preview-fix 2026-07-07] "View as Employee" must be a TRUE view-as (Sal):
+  // in preview, load the previewed employee's published pay via the office
+  // path (?user_id=) instead of the owner's own /me scope. The server still
+  // locks technicians to their own id — this only widens what an office
+  // caller previews, same as the employee-profile Pay tab.
+  const { employeeView } = useEmployeeView();
+  const previewId = employeeView?.employeeId ?? null;
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["my-pay"],
+    queryKey: ["my-pay", previewId],
     queryFn: async () => {
-      // No user_id param → server returns the CALLER's own snapshots only.
-      const res = await fetch(`${API}/api/payroll/pay-history`, { headers: getAuthHeaders() });
+      const url = previewId
+        ? `${API}/api/payroll/pay-history?user_id=${previewId}`
+        : `${API}/api/payroll/pay-history`;
+      const res = await fetch(url, { headers: getAuthHeaders() });
       if (!res.ok) throw new Error("Failed to load pay");
       return res.json() as Promise<{ weeks: Week[]; scoped: string }>;
     },
