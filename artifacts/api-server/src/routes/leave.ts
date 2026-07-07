@@ -642,6 +642,63 @@ router.get("/attendance-log", officeReadGate, async (req, res) => {
 //                            balances — office sets, engine grants (with the
 //                            boot/cron/apply trigger), before → after values.
 // ─────────────────────────────────────────────────────────────────────────────
+// [cascade 2026-07-07] Office deduction WITH A DATE. The balance-only PUT
+// left no dated record, so the calendar and View History showed nothing for
+// a deduction (Sal: "the buckets need to ... cascade over to the calendar —
+// it's not happening"). This writes the usage-ledger row (which the calendar,
+// View History, and the balance computation all read) + bumps used_hours +
+// audits the change. Undo = the existing usage-entry Remove (refunds hours).
+router.post("/usage", adminWriteGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const body = req.body as { user_id?: number; leave_type_id?: number; date?: string; hours?: number | string; reason?: string };
+    const userId = Number(body?.user_id);
+    const leaveTypeId = Number(body?.leave_type_id);
+    const hours = Number(body?.hours);
+    const date = String(body?.date ?? "");
+    if (!Number.isFinite(userId) || !Number.isFinite(leaveTypeId)) return bad(res, "user_id and leave_type_id required");
+    if (!ISO_DATE_RE.test(date)) return bad(res, "date YYYY-MM-DD required");
+    if (!Number.isFinite(hours) || hours <= 0 || hours > 24) return bad(res, "hours must be between 0 and 24");
+    const bucket = await findBucket(companyId, leaveTypeId);
+    if (!bucket) return notFound(res, "Leave type not found");
+    const reason = String(body?.reason ?? "").trim().slice(0, 500);
+    const tag = slugToBucket(bucket.slug);
+    const bal = await ensureBalanceRow(companyId, userId, leaveTypeId);
+    const newUsed = Math.round((Number(bal.used_hours) + hours) * 100) / 100;
+    const inserted = await db.insert(employeeLeaveUsageTable).values({
+      company_id: companyId,
+      employee_id: userId,
+      date_used: date,
+      hours: hours.toFixed(2),
+      // Same class/bucket tag shape as approvals + MC imports, so the
+      // calendar, View History filter, and usage-delete refund all work.
+      notes: `office deduction${reason ? ` (${reason})` : ""} usage/${tag}`,
+      logged_by: req.auth!.userId!,
+    }).returning({ id: employeeLeaveUsageTable.id });
+    await db
+      .update(employeeLeaveBalancesTable)
+      .set({ used_hours: newUsed.toFixed(2), updated_at: new Date() })
+      .where(eq(employeeLeaveBalancesTable.id, bal.id));
+    try {
+      await logAudit(req, "office_deducted", "employee_leave_balance", String(bal.id), {
+        granted_hours: bal.granted_hours, used_hours: bal.used_hours,
+      }, {
+        user_id: userId, leave_type_id: leaveTypeId, slug: bucket.slug,
+        granted_hours: Number(bal.granted_hours), used_hours: newUsed,
+        hours_delta: -hours, log_date: date,
+        reason: reason || null,
+        source: "office_deduct",
+        usage_id: inserted[0]?.id ?? null,
+      });
+    } catch { /* audit best-effort */ }
+    const data = await buildBalancesForUser(companyId, userId);
+    return res.json({ ok: true, data });
+  } catch (err) {
+    console.error("leave usage create error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to record the deduction" });
+  }
+});
+
 router.delete("/usage/:id", adminWriteGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
@@ -1248,15 +1305,21 @@ router.post("/requests", async (req, res) => {
   if (dayUnit === "custom") {
     const st = String(body.start_time ?? "").slice(0, 5);
     const et = String(body.end_time ?? "").slice(0, 5);
-    if (!HHMM_RE.test(st) || !HHMM_RE.test(et)) {
-      return bad(res, "start_time and end_time (HH:MM) are required for an hours request.", "custom_times_required");
+    const plainHours = Number((body as { hours?: number | string }).hours);
+    if (HHMM_RE.test(st) && HHMM_RE.test(et)) {
+      const mins = (t: string) => parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
+      const diff = mins(et) - mins(st);
+      if (diff <= 0) return bad(res, "end_time must be after start_time.", "custom_times_invalid");
+      customStart = st;
+      customEnd = et;
+      customHours = Math.round((diff / 60) * 100) / 100;
+    } else if (Number.isFinite(plainHours) && plainHours > 0 && plainHours <= 24) {
+      // [plain-hours 2026-07-07] Sal: employees should be able to pick a set
+      // NUMBER of hours without composing a time window.
+      customHours = Math.round(plainHours * 100) / 100;
+    } else {
+      return bad(res, "Enter the hours (or a start and end time) for an hours request.", "custom_hours_required");
     }
-    const mins = (t: string) => parseInt(t.slice(0, 2), 10) * 60 + parseInt(t.slice(3, 5), 10);
-    const diff = mins(et) - mins(st);
-    if (diff <= 0) return bad(res, "end_time must be after start_time.", "custom_times_invalid");
-    customStart = st;
-    customEnd = et;
-    customHours = Math.round((diff / 60) * 100) / 100;
   }
   const dayCount =
     Math.round(

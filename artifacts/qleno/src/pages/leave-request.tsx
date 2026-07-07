@@ -11,6 +11,7 @@ import { useToast } from "@/hooks/use-toast";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { parseLeaveNote, leaveBucketLabel, KIND_TONE_STYLE } from "@/lib/leave-note-format";
 import { getAuthHeaders } from "@/lib/auth";
+import { useEmployeeView } from "@/contexts/employee-view-context";
 
 // Smart usage-bar colors (match the office profile cards).
 const LEAVE_LOW = "#BA7517";
@@ -80,6 +81,13 @@ function fmtHHMM(t: string): string {
 
 export default function LeaveRequestPage() {
   const { toast } = useToast();
+  // [preview-fix 2026-07-07] "View as Employee" used to show the OWNER'S own
+  // /me balances (Sal saw "Hire date not on file" — his account, not
+  // Hilda's). In preview, load the previewed employee's data through the
+  // office endpoints instead; submitting stays disabled (a request would be
+  // filed as the office user, not the employee).
+  const { employeeView } = useEmployeeView();
+  const previewId = employeeView?.employeeId ?? null;
   const [balances, setBalances] = useState<Balance[]>([]);
   const [requests, setRequests] = useState<MyRequest[]>([]);
   const [usage, setUsage] = useState<UsageRow[]>([]);
@@ -89,11 +97,9 @@ export default function LeaveRequestPage() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [dayUnit, setDayUnit] = useState<"full_day" | "morning" | "afternoon" | "custom">("full_day");
-  // [custom-hours 2026-07-07] Francisco: "there should be an option for them to
-  // choose hours, for example they can work from 9am to 1pm." Single-day only;
-  // the requested-off window is start→end and hours are derived from it.
-  const [customStart, setCustomStart] = useState("09:00");
-  const [customEnd, setCustomEnd] = useState("13:00");
+  // [plain-hours 2026-07-07] Hours = a set NUMBER of hours (Sal). Replaces the
+  // start→end time-window composer; the API accepts `hours` directly.
+  const [customHoursAmt, setCustomHoursAmt] = useState("");
   const [attachment, setAttachment] = useState<{ url: string; name: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [note, setNote] = useState<string>("");
@@ -103,7 +109,9 @@ export default function LeaveRequestPage() {
 
   useEffect(() => {
     load();
-  }, []);
+    // Reload when entering/leaving employee preview so the cards swap to the
+    // right person's numbers immediately.
+  }, [previewId]);
 
   async function load() {
     setLoading(true);
@@ -114,7 +122,11 @@ export default function LeaveRequestPage() {
       // page rendered EMPTY — no balance cards, no buckets in the dropdown
       // (Hilda: "It has nothing"). Every request on this page now carries the
       // token, same as the rest of the app.
-      const [bRes, rRes, uRes] = await Promise.all([
+      const [bRes, rRes, uRes] = await Promise.all(previewId ? [
+        fetch(`/api/leave/balances?userId=${previewId}`, { headers: getAuthHeaders() }),
+        fetch(`/api/leave/requests`, { headers: getAuthHeaders() }),
+        fetch(`/api/leave/usage?userId=${previewId}`, { headers: getAuthHeaders() }),
+      ] : [
         fetch("/api/leave/balances/me", { headers: getAuthHeaders() }),
         fetch("/api/leave/requests/mine", { headers: getAuthHeaders() }),
         fetch("/api/leave/usage/me", { headers: getAuthHeaders() }),
@@ -123,7 +135,8 @@ export default function LeaveRequestPage() {
       const rJson = await rRes.json();
       const uJson = await uRes.json();
       setBalances(bJson.data ?? []);
-      setRequests(rJson.data ?? []);
+      const reqRows = (rJson.data ?? []) as any[];
+      setRequests(previewId ? reqRows.filter((r) => r.user_id === previewId) : reqRows);
       setUsage(uJson.data ?? []);
     } catch {
       toast({ title: "Could not load leave data", variant: "destructive" });
@@ -150,6 +163,10 @@ export default function LeaveRequestPage() {
   }
 
   async function submit() {
+    if (previewId) {
+      toast({ title: "You are previewing as an employee — exit the preview to submit requests", variant: "destructive" });
+      return;
+    }
     if (!selectedBucket || !startDate || !endDate) {
       toast({ title: "Pick a bucket and dates", variant: "destructive" });
       return;
@@ -160,8 +177,9 @@ export default function LeaveRequestPage() {
     }
     const unit = multiDay ? "full_day" : dayUnit;
     if (unit === "custom") {
-      if (!customStart || !customEnd || customEnd <= customStart) {
-        toast({ title: "Pick a valid time window (end after start)", variant: "destructive" });
+      const hrs = Number(customHoursAmt);
+      if (!Number.isFinite(hrs) || hrs <= 0 || hrs > 8) {
+        toast({ title: "Enter the hours (up to 8 for a single day)", variant: "destructive" });
         return;
       }
     }
@@ -175,7 +193,7 @@ export default function LeaveRequestPage() {
           start_date: startDate,
           end_date: endDate,
           day_unit: unit,
-          ...(unit === "custom" ? { start_time: customStart, end_time: customEnd } : {}),
+          ...(unit === "custom" ? { hours: Number(customHoursAmt) } : {}),
           attachment_url: attachment.url,
           attachment_name: attachment.name,
           note: note || null,
@@ -236,7 +254,7 @@ export default function LeaveRequestPage() {
               const resetDays = !officeRecorded && b.next_reset_date ? daysUntilYmd(b.next_reset_date) : null;
               const eligDays = b.eligible_on ? daysUntilYmd(b.eligible_on) : null;
               return (
-                <div key={b.leave_type_id} style={{ backgroundColor: CARD, border: `1px solid ${BORDER}`, borderLeft: `4px solid ${accent}`, borderRadius: 10, padding: "12px 14px" }}>
+                <div key={b.leave_type_id} style={{ backgroundColor: CARD, border: `1px solid ${BORDER}`, borderTop: `3px solid ${accent}`, borderRadius: 10, padding: "12px 14px" }}>
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                       <span style={{ width: 9, height: 9, borderRadius: "50%", background: accent, flexShrink: 0 }} />
@@ -383,18 +401,11 @@ export default function LeaveRequestPage() {
                     ))}
                   </div>
                   {dayUnit === "custom" && (
+                    // [plain-hours 2026-07-07] A set NUMBER of hours (Sal) —
+                    // no time-window composing required.
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                      <input type="time" value={customStart} onChange={(e) => setCustomStart(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1 }} />
-                      <span style={{ fontSize: 12, color: MUTED }}>to</span>
-                      <input type="time" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1 }} />
-                      {(() => {
-                        const [sh, sm] = customStart.split(":").map(Number);
-                        const [eh, em] = customEnd.split(":").map(Number);
-                        const hrs = (eh * 60 + em - (sh * 60 + sm)) / 60;
-                        return Number.isFinite(hrs) && hrs > 0
-                          ? <span style={{ fontSize: 12, fontWeight: 700, color: INK, whiteSpace: "nowrap" }}>{hrs.toFixed(1)} h</span>
-                          : <span style={{ fontSize: 12, fontWeight: 700, color: DANGER, whiteSpace: "nowrap" }}>—</span>;
-                      })()}
+                      <input type="number" min="0.25" max="8" step="0.25" value={customHoursAmt} onChange={(e) => setCustomHoursAmt(e.target.value)} placeholder="e.g. 4" style={{ ...inputStyle, width: "auto", flex: 1 }} />
+                      <span style={{ fontSize: 12, fontWeight: 700, color: INK, whiteSpace: "nowrap" }}>hours</span>
                     </div>
                   )}
                 </>
@@ -439,15 +450,18 @@ export default function LeaveRequestPage() {
               </FormField>
             </div>
           </div>
-          <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end" }}>
+          <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
+            {previewId != null && (
+              <span style={{ fontSize: 12, color: MUTED }}>Previewing — requests can only be submitted by the employee</span>
+            )}
             <button
               onClick={submit}
-              disabled={submitting || uploading || !attachment}
+              disabled={submitting || uploading || !attachment || previewId != null}
               style={{
                 fontFamily: FF, fontSize: 13, fontWeight: 700,
                 color: "#FFFFFF", backgroundColor: BRAND, border: "none",
                 borderRadius: 8, padding: "8px 14px", cursor: "pointer",
-                opacity: submitting || uploading || !attachment ? 0.4 : 1,
+                opacity: submitting || uploading || !attachment || previewId != null ? 0.4 : 1,
               }}
             >
               Submit request
