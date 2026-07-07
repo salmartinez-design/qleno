@@ -306,6 +306,18 @@ function AttendanceCalendar({ userId }: { userId: number }) {
     queryKey: ['timeclock', userId, from, to],
     queryFn: () => apiFetch(`/timeclock?user_id=${userId}&date_from=${from}&date_to=${to}`),
   });
+  // [calendar 2026-07-07] The legend promised PTO / Time Off / Unexcused but
+  // only Worked days were painted (timeclock was the sole source). Pull the
+  // month's attendance-log rows (unexcused absences) + the usage ledger
+  // (PTO / PLAWA / unpaid, bucket in the note tag) so every category renders.
+  const { data: attLogData } = useQuery({
+    queryKey: ['att-log', userId, from, to],
+    queryFn: () => apiFetch(`/leave/attendance-log?userId=${userId}&from=${from}&to=${to}`),
+  });
+  const { data: calUsageData } = useQuery({
+    queryKey: ['leave-usage', userId],
+    queryFn: () => apiFetch(`/leave/usage?userId=${userId}`),
+  });
 
   const clockMap: Record<string, { in: string; out: string }> = {};
   for (const entry of (clockData?.data || [])) {
@@ -315,6 +327,21 @@ function AttendanceCalendar({ userId }: { userId: number }) {
       const tout = entry.clocked_out_at ? new Date(entry.clocked_out_at).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }) : '';
       clockMap[d] = { in: tin, out: tout };
     }
+  }
+  // Day → category. Priority when a day carries several signals:
+  // unexcused (red) > PTO (blue) > time off (amber); Worked is the base.
+  const unexDays = new Set<string>();
+  for (const r of (attLogData?.data || [])) {
+    if (r.type === 'absent' && !r.is_protected) unexDays.add(String(r.log_date).slice(0, 10));
+  }
+  const ptoDays = new Set<string>();
+  const timeOffDays = new Set<string>();
+  for (const u of (calUsageData?.data || [])) {
+    const d = String(u.date_used).slice(0, 10);
+    if (d < from || d > to) continue;
+    const note = String(u.notes || '').toLowerCase();
+    if (note.includes('/pto')) ptoDays.add(d);
+    else if (note.includes('/plawa') || note.includes('/unpaid')) timeOffDays.add(d);
   }
 
   const firstDow = new Date(year, month, 1).getDay();
@@ -366,17 +393,29 @@ function AttendanceCalendar({ userId }: { userId: number }) {
           const key  = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
           const worked = clockMap[key];
           const today  = new Date().toISOString().slice(0,10) === key;
+          const cat = unexDays.has(key)
+            ? { bg:'#FEE2E2', ink:'#991B1B', label:'Unexcused' }
+            : ptoDays.has(key)
+            ? { bg:'#DBEAFE', ink:'#1E40AF', label:'PTO' }
+            : timeOffDays.has(key)
+            ? { bg:'#FEF3C7', ink:'#92400E', label:'Time Off' }
+            : worked
+            ? { bg:'#DCFCE7', ink:'#166534', label:null }
+            : { bg:'#FFFFFF', ink:'#9E9B94', label:null };
           return (
             <div key={key} style={{
-              background: worked ? '#DCFCE7' : '#FFFFFF',
+              background: cat.bg,
               minHeight: isMobile ? 40 : 64, padding: isMobile ? '4px 3px' : '6px 8px', position:'relative',
               outline: today ? '2px solid var(--brand)' : 'none',
               outlineOffset:'-1px',
             }}>
-              <span style={{ fontSize: isMobile ? 9 : 11,fontWeight: today ? 700 : 500, color: worked ? '#166534' : '#9E9B94' }}>{day}</span>
+              <span style={{ fontSize: isMobile ? 9 : 11,fontWeight: today ? 700 : 500, color: cat.ink }}>{day}</span>
+              {cat.label && !isMobile && (
+                <p style={{ fontSize:9,color:cat.ink,margin:'2px 0 0 0',fontWeight:700 }}>{cat.label}</p>
+              )}
               {worked && (
                 <div style={{ marginTop:2 }}>
-                  <p style={{ fontSize:9,color:'#166534',margin:0,fontWeight:600 }}>{worked.in}</p>
+                  <p style={{ fontSize:9,color:cat.ink,margin:0,fontWeight:600 }}>{worked.in}</p>
                   {worked.out && <p style={{ fontSize:9,color:'#6B7280',margin:0 }}>{worked.out}</p>}
                 </div>
               )}
@@ -1214,9 +1253,15 @@ export default function EmployeeProfilePage() {
         )}
 
         {/* ── PROFILE HEADER ── */}
-        <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding: isMobile ? '16px' : '24px 32px', marginBottom:2, display:'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 16 : 32, alignItems:'flex-start' }}>
+        {/* [ui-overhaul 2026-07-07] The old layout put a narrow identity block
+            left and a 280px stat column right, leaving a dead middle at any
+            desktop width (Sal: "so much empty space where the hero section
+            is"). Now: identity + compact stat tiles share the top line, and
+            Efficiency by Service spreads full-width beneath as a chip grid. */}
+        <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding: isMobile ? '16px' : '22px 28px', marginBottom:2 }}>
+          <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 16 : 24, alignItems: isMobile ? 'stretch' : 'center' }}>
           {/* Top row on mobile: avatar + info side-by-side */}
-          <div style={{ display:'flex', flexDirection:'row', gap:16, alignItems:'flex-start', flex:1, minWidth:0 }}>
+          <div style={{ display:'flex', flexDirection:'row', gap:16, alignItems:'center', flex:1, minWidth:0 }}>
           {/* Left: avatar */}
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8, flexShrink:0 }}>
             {user.avatar_url
@@ -1264,40 +1309,48 @@ export default function EmployeeProfilePage() {
           </div>
           </div>{/* end avatar+info row */}
 
-          {/* Right: snapshot + productivity */}
-          <div style={{ flexShrink:0, width: isMobile ? '100%' : 280, display:'flex', flexDirection: isMobile ? 'row' : 'column', flexWrap:'wrap', gap:12 }}>
-            <div style={{ background:'#F7F6F3', borderRadius:10, padding:'14px 16px', flex: isMobile ? '1 1 0' : undefined, minWidth: isMobile ? 0 : undefined }}>
-              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                  <span style={{ fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>Hire Date</span>
-                  <span style={{ fontSize:12,fontWeight:600,color:'var(--brand)' }}>{user.hire_date ? new Date(user.hire_date + 'T00:00:00').toLocaleDateString() : '—'}</span>
-                </div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <span style={{ fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>Score</span>
-                  <div style={{ display:'flex',alignItems:'center',gap:6 }}>
-                    {scorePct != null ? (
-                      <span style={{ fontSize:18,fontWeight:700,color:'var(--brand)' }}>{scorePct.toFixed(0)}%</span>
-                    ) : <span style={{ fontSize:11,color:'#9E9B94' }}>No scores yet</span>}
-                  </div>
-                </div>
+          {/* Right: compact stat tiles on the same line as the identity */}
+          <div style={{ display:'flex', gap:10, flexShrink:0, flexWrap:'wrap' }}>
+            {[
+              { label:'Hire Date', value: user.hire_date ? new Date(user.hire_date + 'T00:00:00').toLocaleDateString() : '—' },
+              { label:'Tenure', value: (() => {
+                  if (!user.hire_date) return '—';
+                  const h = new Date(user.hire_date + 'T00:00:00');
+                  const now = new Date();
+                  let months = (now.getFullYear() - h.getFullYear()) * 12 + (now.getMonth() - h.getMonth());
+                  if (now.getDate() < h.getDate()) months--;
+                  if (months < 0) months = 0;
+                  const y = Math.floor(months / 12), m = months % 12;
+                  return y > 0 ? `${y} yr${y === 1 ? '' : 's'} ${m} mo` : `${m} mo`;
+                })() },
+              { label:'Score', value: scorePct != null ? `${scorePct.toFixed(0)}%` : '—' },
+            ].map(t => (
+              <div key={t.label} style={{ background:'#F7F6F3', borderRadius:10, padding:'10px 16px', minWidth:104, flex: isMobile ? '1 1 0' : undefined }}>
+                <p style={{ fontSize:10.5, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.05em', margin:'0 0 3px 0', whiteSpace:'nowrap' }}>{t.label}</p>
+                <p style={{ fontSize:16, fontWeight:700, color:'var(--brand)', margin:0, whiteSpace:'nowrap' }}>{t.value}</p>
               </div>
-            </div>
+            ))}
+          </div>
+          </div>{/* end top row */}
 
-            <div style={{ background:'#F7F6F3', borderRadius:10, padding:'14px 16px', flex: isMobile ? '1 1 0' : undefined, minWidth: isMobile ? 0 : undefined }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                <p style={{ fontSize:12,fontWeight:700,color:'#1A1917',margin:0 }}>Efficiency by Service</p>
-                <span style={{ fontSize:10,color:'#9E9B94' }}>Allowed ÷ Actual</span>
-              </div>
-              <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-                {effPackages.length === 0 && (
-                  <p style={{ fontSize:11, color:'#9E9B94', margin:'4px 0' }}>No efficiency data yet.</p>
-                )}
+          {/* Efficiency by Service — full-width chip grid under the identity
+              row (was a 280px scrolling side panel that left the hero's
+              middle empty). */}
+          <div style={{ borderTop:'1px solid #F0EEE9', marginTop: isMobile ? 14 : 18, paddingTop:14 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+              <p style={{ fontSize:12,fontWeight:700,color:'#1A1917',margin:0 }}>Efficiency by Service</p>
+              <span style={{ fontSize:10,color:'#9E9B94' }}>Allowed ÷ Actual</span>
+            </div>
+            {effPackages.length === 0 ? (
+              <p style={{ fontSize:11, color:'#9E9B94', margin:'4px 0' }}>No efficiency data yet.</p>
+            ) : (
+              <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', gap:'6px 20px' }}>
                 {effPackages.map((type) => {
                   const pct = effByPackage.get(type);
                   const hasData = pct != null && Number.isFinite(pct) && pct > 0;
                   return (
-                    <div key={type} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6, gap:8 }}>
-                      <span style={{ fontSize:12,color:'#1A1917' }}>{type}</span>
+                    <div key={type} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, minWidth:0 }}>
+                      <span style={{ fontSize:12,color:'#1A1917', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{type}</span>
                       {hasData ? (
                         <span style={{ fontSize:12,fontWeight: pct>100 ? 700 : 600, color: pct>100 ? 'var(--brand)' : pct>=80 ? '#1A1917' : '#EF4444', whiteSpace:'nowrap' }}>{Math.round(pct)}%</span>
                       ) : (
@@ -1307,7 +1360,7 @@ export default function EmployeeProfilePage() {
                   );
                 })}
               </div>
-            </div>
+            )}
           </div>
         </div>
 
@@ -1582,6 +1635,7 @@ export default function EmployeeProfilePage() {
                   let barPct = 0;
                   let barColor = accent;
                   let barCaption = '';
+                  let extraCaption = '';
                   if (officeRecorded) {
                     // [40hr-bank 2026-07-07] Hours consumed against the annual
                     // allowance (the balances API now carries the cap as granted
@@ -1595,10 +1649,15 @@ export default function EmployeeProfilePage() {
                       ? `${occ} of ${nextOcc} occurrences to ${nextLabel}`
                       : (unex?.current_discipline ? 'At the final disciplinary step' : 'No disciplinary ladder set');
                     if (granted > 0) {
+                      // Sal: "the remaining balance is not showing" — headline
+                      // is hours used, caption is the used/left/granted line
+                      // (same shape as the other buckets), ladder on line two.
                       bigNum = used.toFixed(1);
                       bigLabel = `of ${granted.toFixed(1)} hours used`;
                       barPct = Math.min(100, (used / granted) * 100);
                       barColor = used >= granted ? LEAVE_OUT : (granted - used <= 0.2 * granted) ? LEAVE_LOW : accent;
+                      barCaption = `${used.toFixed(1)} used · ${avail.toFixed(1)} left · of ${granted.toFixed(1)} granted`;
+                      extraCaption = ladderCaption;
                     } else {
                       bigNum = String(occ);
                       bigLabel = occ === 1 ? 'occurrence this year' : 'occurrences this year';
@@ -1606,8 +1665,8 @@ export default function EmployeeProfilePage() {
                         barPct = Math.min(100, (occ / nextOcc) * 100);
                         barColor = occ >= nextOcc ? LEAVE_OUT : (nextOcc - occ <= 1 ? LEAVE_LOW : accent);
                       }
+                      barCaption = ladderCaption;
                     }
-                    barCaption = ladderCaption;
                   } else {
                     barPct = granted > 0 ? Math.min(100, (used / granted) * 100) : 0;
                     barColor = avail <= 0 ? LEAVE_OUT : (granted > 0 && avail <= 0.2 * granted) ? LEAVE_LOW : accent;
@@ -1617,7 +1676,10 @@ export default function EmployeeProfilePage() {
                   const eligDays = b.eligible_on ? daysUntilYmd(b.eligible_on) : null;
 
                   return (
-                    <div key={b.leave_type_id} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderLeft:`4px solid ${accent}`, borderRadius:10, padding:'14px 16px' }}>
+                    // [ui-overhaul] Full 1px border + a slim full-width accent
+                    // bar on top (was a left-only 4px stripe — Sal: "why is
+                    // there only a border on the left side").
+                    <div key={b.leave_type_id} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderTop:`3px solid ${accent}`, borderRadius:10, padding:'14px 16px' }}>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
                         <div style={{ display:'flex', alignItems:'center', gap:7, minWidth:0 }}>
                           <span style={{ width:9, height:9, borderRadius:'50%', background:accent, flexShrink:0 }} />
@@ -1651,6 +1713,9 @@ export default function EmployeeProfilePage() {
                             <div style={{ height:'100%', width:`${barPct}%`, background:barColor, borderRadius:99, transition:'width 0.3s ease' }} />
                           </div>
                           <p style={{ fontSize:11, color:'#6B6860', margin:'5px 0 0 0' }}>{barCaption}</p>
+                          {extraCaption && (
+                            <p style={{ fontSize:11, color:'#9E9B94', margin:'2px 0 0 0' }}>{extraCaption}</p>
+                          )}
                           {!officeRecorded && (
                             <p style={{ fontSize:11, color:'#9E9B94', margin:'2px 0 0 0' }}>{used.toFixed(1)} hrs taken this year</p>
                           )}
@@ -1678,7 +1743,7 @@ export default function EmployeeProfilePage() {
                   const barColor = nextOcc > 0 ? (occ >= nextOcc ? LEAVE_OUT : (nextOcc - occ <= 1 ? LEAVE_OUT : accent)) : LEAVE_OUT;
                   const caption = nextOcc > 0 ? `${occ} of ${nextOcc} occurrences to ${nextLabel}` : (occ > 0 ? 'At the final disciplinary step' : 'No disciplinary ladder set');
                   return (
-                    <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderLeft:`4px solid ${accent}`, borderRadius:10, padding:'14px 16px' }}>
+                    <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderTop:`3px solid ${accent}`, borderRadius:10, padding:'14px 16px' }}>
                       <div style={{ display:'flex', alignItems:'center', gap:7 }}>
                         <span style={{ width:9, height:9, borderRadius:'50%', background:accent, flexShrink:0 }} />
                         <span style={{ fontSize:12, fontWeight:700, color:accent, textTransform:'uppercase', letterSpacing:'0.04em' }}>Tardies</span>
