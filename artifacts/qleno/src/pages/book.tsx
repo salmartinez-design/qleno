@@ -764,12 +764,25 @@ export default function BookPage() {
     if (!company?.id || !email) return;
     if (isCommercial) return;
     const post = (extra: Record<string, unknown>) => {
+      // [quote-details-carry 2026-07-07] Everything the visitor filled in rides
+      // along, so the office alert + Lead Pipeline show the FULL quote picture
+      // (Sal: "how many bedrooms, bathrooms, square footage, how did they hear
+      // about us… this basic information is not enough"), not just contact info.
+      const details = {
+        bedrooms: bedrooms || null,
+        bathrooms: bathrooms || null,
+        sqft: sqft || null,
+        frequency: frequencyStr || null,
+        add_ons: addons.filter(a => selectedAddonIds.includes(a.id)).map(a => a.name),
+        referral_source: referralSources.find(r => r.slug === referral)?.name || referral || null,
+        step_reached: step,
+      };
       pubFetch("/api/public/book/abandon-track", {
         method: "POST",
         body: JSON.stringify({
           company_id: company.id,
           first_name: firstName, last_name: lastName, email, phone, address, zip,
-          scope: selectedScope?.name || "", ...extra,
+          scope: selectedScope?.name || "", details, ...extra,
         }),
       }).catch(() => {});
     };

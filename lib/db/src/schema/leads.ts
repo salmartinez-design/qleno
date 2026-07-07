@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, numeric, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, numeric, boolean, timestamp, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
@@ -39,6 +39,11 @@ export const leadsTable = pgTable("leads", {
   completion_date: text("completion_date"),
   lead_type: text("lead_type").default("standard"),
   notes: text("notes"),
+  // [quote-details-carry 2026-07-07] Snapshot of the widget quote form
+  // (bedrooms/bathrooms/sqft/frequency/add_ons/referral_source/step_reached)
+  // merged in by upsertWidgetLead. Live column added via ADD COLUMN IF NOT
+  // EXISTS in runStartupMigrations.
+  details: jsonb("details"),
   // Pipeline state
   status: text("status").default("needs_contacted"),
   source: text("source"),
