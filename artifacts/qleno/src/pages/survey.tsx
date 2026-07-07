@@ -127,8 +127,10 @@ export default function SurveyPage() {
     const chosen = OPTIONS.find(o => o.score === score);
     // [review-funnel] Only happy raters (3–4) are routed to a public Google
     // review; everyone else gets a private "make it right" note instead.
+    // [review-once] ...and only if this client has never tapped the Google
+    // button before — one lifetime ask, tracked via /review-click.
     const happy = score != null && score >= 3;
-    const reviewLink: string | null = meta?.google_review_link || null;
+    const reviewLink: string | null = meta?.google_review_done ? null : (meta?.google_review_link || null);
     return (
       <div style={{ minHeight: "100vh", display: "flex", alignItems: "flex-start", justifyContent: "center", background: "#F8F7F4", fontFamily: FF, padding: "24px 16px" }}>
         <div style={{ background: "#FFFFFF", borderRadius: 16, padding: "40px 28px", maxWidth: 440, width: "100%", textAlign: "center", boxShadow: "0 8px 32px rgba(0,0,0,0.08)", marginTop: 24 }}>
@@ -147,7 +149,9 @@ export default function SurveyPage() {
               <p style={{ fontSize: 14, color: "#1A1917", margin: "0 0 14px", lineHeight: "1.6" }}>
                 Would you mind sharing that with a quick Google review? It means the world to our team.
               </p>
-              <a href={reviewLink} target="_blank" rel="noopener noreferrer" style={{
+              <a href={reviewLink} target="_blank" rel="noopener noreferrer"
+                onClick={() => { try { fetch(`${API}/api/satisfaction/review-click`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) }); } catch { /* best-effort */ } }}
+                style={{
                 display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
                 padding: "13px 0", backgroundColor: brand, color: "#FFFFFF", textDecoration: "none",
                 borderRadius: 10, fontSize: 14, fontWeight: 700, fontFamily: FF,

@@ -45,7 +45,9 @@ router.post("/send", requireAuth, async (req, res) => {
         suppressed: true,
         suppressed_reason: "throttled — sent within 30 days",
       }).returning();
-      return res.json({ sent: false, reason: "throttled", survey });
+      // Throttled = no survey email either, so the completion thank-you email
+      // should still go out (survey_email_sent false).
+      return res.json({ sent: false, reason: "throttled", survey, survey_email_sent: false });
     }
 
     // Tenant survey config + customer phone. Twilio creds/number are resolved
@@ -77,10 +79,15 @@ router.post("/send", requireAuth, async (req, res) => {
     // goes out even while SMS/Twilio is disabled. Non-fatal.
     const appBase = (process.env.APP_BASE_URL || "https://app.qleno.com").replace(/\/$/, "");
     const surveyUrl = `${appBase}/survey/${token}`;
+    // [one-completion-email] Exposed on every response as survey_email_sent so
+    // completion paths can skip the job_completed thank-you email when the
+    // survey email is the one reaching the inbox — the customer gets exactly
+    // one email per visit.
+    let surveyEmailSent = false;
     if (client?.email) {
       try {
         const { sendNotification } = await import("../services/notificationService.js");
-        await sendNotification(
+        surveyEmailSent = await sendNotification(
           "review_request", "email", companyId, client.email, null,
           { first_name: client.first_name || "there", review_link: surveyUrl },
           false, undefined, parseInt(customer_id),
@@ -125,7 +132,7 @@ router.post("/send", requireAuth, async (req, res) => {
         company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
         token, sent_at: new Date(), suppressed: true, suppressed_reason: gate,
       }).returning();
-      return res.status(201).json({ sent: false, reason: gate, survey, survey_url: `/survey/${token}` });
+      return res.status(201).json({ sent: false, reason: gate, survey, survey_url: `/survey/${token}`, survey_email_sent: surveyEmailSent });
     }
 
     // Clean short link instead of the long hex token URL.
@@ -141,14 +148,14 @@ router.post("/send", requireAuth, async (req, res) => {
         company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
         token, sent_at: new Date(), suppressed: true, suppressed_reason: `twilio_error: ${String(e?.message ?? e).slice(0, 120)}`,
       }).returning();
-      return res.status(201).json({ sent: false, reason: "twilio_error", survey, survey_url: link });
+      return res.status(201).json({ sent: false, reason: "twilio_error", survey, survey_url: link, survey_email_sent: surveyEmailSent });
     }
 
     const [survey] = await db.insert(satisfactionSurveysTable).values({
       company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
       token, sent_at: new Date(),
     }).returning();
-    return res.status(201).json({ sent: true, ...survey, survey_url: link });
+    return res.status(201).json({ sent: true, ...survey, survey_url: link, survey_email_sent: surveyEmailSent });
   } catch (err) {
     console.error("[satisfaction/send]", err);
     return res.status(500).json({ error: "Server error" });
@@ -253,6 +260,9 @@ router.get("/survey/:token", async (req, res) => {
         // [review-funnel] Public Google review link (live-only column). Surfaced
         // so the survey thank-you can ask happy raters (3–4) for a Google review.
         google_review_link: sql<string | null>`companies.review_link`,
+        // [review-once] Happy raters are only asked ONCE — hidden after the
+        // client has ever tapped "Leave a Google review".
+        google_review_done: sql<boolean>`(clients.google_review_clicked_at IS NOT NULL)`,
       })
       .from(satisfactionSurveysTable)
       .leftJoin(companiesTable, eq(companiesTable.id, satisfactionSurveysTable.company_id))
@@ -263,6 +273,29 @@ router.get("/survey/:token", async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: "Survey not found" });
     return res.json(rows[0]);
   } catch (err) {
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── POST /api/satisfaction/review-click — PUBLIC, token-authed ──
+// [review-once] Stamps clients.google_review_clicked_at when a happy rater taps
+// "Leave a Google review" on the survey thank-you page, so they're never asked
+// again on future surveys. Idempotent — the first tap wins.
+router.post("/review-click", async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!token) return res.status(400).json({ error: "token required" });
+    const [survey] = await db.select({ customer_id: satisfactionSurveysTable.customer_id, company_id: satisfactionSurveysTable.company_id })
+      .from(satisfactionSurveysTable)
+      .where(eq(satisfactionSurveysTable.token, String(token))).limit(1);
+    if (!survey) return res.status(404).json({ error: "Survey not found" });
+    await db.execute(sql`
+      UPDATE clients SET google_review_clicked_at = NOW()
+      WHERE id = ${survey.customer_id} AND company_id = ${survey.company_id}
+        AND google_review_clicked_at IS NULL`);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("[satisfaction/review-click]", err);
     return res.status(500).json({ error: "Server error" });
   }
 });

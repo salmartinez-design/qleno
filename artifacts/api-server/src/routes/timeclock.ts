@@ -602,11 +602,13 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
             .catch((e: Error) => console.error("[end-job invoice] non-fatal:", e));
         }
         if (clientId) {
-          fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
+          // [one-completion-email] Survey response says whether the survey EMAIL
+          // went out; the thank-you email below only sends when it didn't.
+          const surveyPromise: Promise<any> = fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": req.headers.authorization || "" },
             body: JSON.stringify({ job_id: jobId, customer_id: clientId }),
-          }).catch((e: Error) => console.error("[end-job survey] non-fatal:", e));
+          }).then(r => r.json()).catch((e: Error) => { console.error("[end-job survey] non-fatal:", e); return null; });
           import("../services/followUpService.js").then(({ enrollForJobComplete }) =>
             enrollForJobComplete(req.auth!.companyId, jobId, clientId).catch(() => {})
           ).catch(() => {});
@@ -630,7 +632,10 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
               };
               // Pass the client id so the per-client channel preference gate
               // applies (an explicit email/SMS OFF override was ignored here).
-              sendNotification("job_completed", "email", req.auth!.companyId, cl.email, null, mv, false, undefined, clientId).catch(() => {});
+              const survey = await surveyPromise;
+              if (!survey?.survey_email_sent) {
+                sendNotification("job_completed", "email", req.auth!.companyId, cl.email, null, mv, false, undefined, clientId).catch(() => {});
+              }
               sendNotification("job_completed", "sms", req.auth!.companyId, null, cl.phone, mv, false, undefined, clientId).catch(() => {});
             } catch (e) {
               console.error("[timeclock] job_completed notify non-fatal:", (e as Error).message);
