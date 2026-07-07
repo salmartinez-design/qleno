@@ -706,6 +706,26 @@ function channelLabel(ch: string) {
   return m[ch?.toLowerCase()] || ch || "Message";
 }
 
+// [comm-log-email-body 2026-07-07] Automated emails log their full HTML in the
+// body; show the readable text in the log, not the raw markup source.
+function plainBody(s: string): string {
+  if (!s || !/<[a-z][\s\S]*>/i.test(s)) return s;
+  return s
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&ndash;/g, "–")
+    .replace(/&mdash;/g, "—")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s*\n\s*/g, "\n")
+    .trim();
+}
+
 function ChannelIcon({ ch, size = 13 }: { ch: string; size?: number }) {
   const c = (ch || "").toLowerCase();
   if (c === "email") return <Mail size={size} />;
@@ -760,7 +780,7 @@ function EventTrail({ logId }: { logId: number }) {
 function CommLogDetailCard({ entry }: { entry: any }) {
   const [expanded, setExpanded] = useState(false);
   const [trailOpen, setTrailOpen] = useState(false);
-  const body = entry.body || entry.summary || "";
+  const body = plainBody(entry.body || entry.summary || "");
   const hasMore = body.length > 180;
   const showTrail = (entry.channel === "sms" || entry.channel === "text" || entry.channel === "email") &&
     (entry.twilio_message_sid || entry.resend_email_id || entry.source === "system");
@@ -1051,7 +1071,7 @@ export function CommLog2({ clientId }: { clientId: number }) {
                     <td style={{ padding: "6px 10px", color: "#6B6860" }}>{channelLabel(entry.channel)}</td>
                     <td style={{ padding: "6px 10px", color: "#374151", maxWidth: 200 }}>
                       <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {(entry.body || entry.summary || "").substring(0, 50)}
+                        {plainBody(entry.body || entry.summary || "").substring(0, 50)}
                       </span>
                     </td>
                     <td style={{ padding: "6px 10px", color: "#6B6860", fontSize: 11 }}>{entry.recipient || "—"}</td>
