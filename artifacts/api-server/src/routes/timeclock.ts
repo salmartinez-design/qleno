@@ -628,8 +628,10 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
                 scope: labelServiceType((jobRow as any)?.service_type),
                 service_address: [cl.address, cl.city, cl.state].filter(Boolean).join(", "),
               };
-              sendNotification("job_completed", "email", req.auth!.companyId, cl.email, null, mv).catch(() => {});
-              sendNotification("job_completed", "sms", req.auth!.companyId, null, cl.phone, mv).catch(() => {});
+              // Pass the client id so the per-client channel preference gate
+              // applies (an explicit email/SMS OFF override was ignored here).
+              sendNotification("job_completed", "email", req.auth!.companyId, cl.email, null, mv, false, undefined, clientId).catch(() => {});
+              sendNotification("job_completed", "sms", req.auth!.companyId, null, cl.phone, mv, false, undefined, clientId).catch(() => {});
             } catch (e) {
               console.error("[timeclock] job_completed notify non-fatal:", (e as Error).message);
             }
