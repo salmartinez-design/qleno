@@ -348,7 +348,7 @@ async function buildBalancesForUser(
   const out = [];
   for (const b of buckets) {
     const bal = await ensureBalanceRow(companyId, userId, b.id);
-    const computed = computeCurrentBalance({
+    let computed = computeCurrentBalance({
       accrual_mode: b.accrual_mode as
         | "flat_grant"
         | "accrue_per_hours"
@@ -357,6 +357,38 @@ async function buildBalancesForUser(
       used_hours: Number(bal.used_hours),
       annual_cap_hours: Number(b.annual_cap_hours),
     });
+    // [40hr-bank 2026-07-07] Office-recorded buckets (Unexcused) read from the
+    // ATTENDANCE LOG, not the balance row — nothing ever writes the row, so
+    // employees saw "0.0 recorded" no matter how many hours the office logged.
+    // granted = the annual allowance (PHES: 40), used = non-protected absence
+    // hours this benefit year. Discipline stays occurrence-based; this is the
+    // hours view Sal asked for ("employees get 40 hours of unexcused").
+    if (b.accrual_mode === "office_recorded") {
+      try {
+        const byStart = hireDate
+          ? benefitYearStartDate(hireDate, today).toISOString().slice(0, 10)
+          : `${today.slice(0, 4)}-01-01`;
+        const logs = await db
+          .select({
+            notes: employeeAttendanceLogTable.notes,
+            is_protected: employeeAttendanceLogTable.protected,
+          })
+          .from(employeeAttendanceLogTable)
+          .where(
+            and(
+              eq(employeeAttendanceLogTable.company_id, companyId),
+              eq(employeeAttendanceLogTable.employee_id, userId),
+              eq(employeeAttendanceLogTable.type, "absent"),
+              gte(employeeAttendanceLogTable.log_date, byStart),
+            ),
+          );
+        const usedHrs = round2(
+          logs.filter((r) => !r.is_protected).reduce((s, r) => s + parseUnexcusedHours(r.notes), 0),
+        );
+        const cap = Number(b.annual_cap_hours) || 0;
+        computed = { granted: cap, used: usedHrs, available: Math.max(0, round2(cap - usedHrs)) };
+      } catch { /* fall back to the balance-row numbers */ }
+    }
     // [hire-date-lockout 2026-07-07] A missing hire_date must not lock a
     // ZERO-wait bucket (Unpaid Leave has waiting_period_days=0 — nothing to
     // wait for), and buckets that already carry a granted balance (the MC
@@ -831,7 +863,7 @@ async function buildAttendanceSummary(
   const occHireDate = uRow[0]?.hire_date ? String(uRow[0].hire_date).slice(0, 10) : to;
   const benefitYearStart = benefitYearStartDate(occHireDate, to).toISOString().slice(0, 10);
   const byRows = await db
-    .select({ type: employeeAttendanceLogTable.type, is_protected: employeeAttendanceLogTable.protected })
+    .select({ type: employeeAttendanceLogTable.type, is_protected: employeeAttendanceLogTable.protected, notes: employeeAttendanceLogTable.notes })
     .from(employeeAttendanceLogTable)
     .where(
       and(
@@ -842,6 +874,30 @@ async function buildAttendanceSummary(
     );
   const unexOccCount = byRows.filter((r) => r.type === "absent" && !r.is_protected).length;
   const tardyOccCount = byRows.filter((r) => r.type === "tardy" && !r.is_protected).length;
+  // [40hr-bank 2026-07-07] Sal: "Employees get 40 hours of unexcused." The
+  // bucket card shows hours consumed against the tenant's annual allowance
+  // (leave_types office_recorded cap, PHES = 40) alongside the occurrence
+  // ladder — discipline still fires on OCCURRENCES per the handbook tables.
+  const unexHoursUsed = round2(
+    byRows
+      .filter((r) => r.type === "absent" && !r.is_protected)
+      .reduce((s, r) => s + parseUnexcusedHours(r.notes), 0),
+  );
+  let unexHoursCap: number | null = null;
+  try {
+    const capRow = await db
+      .select({ cap: leaveTypesTable.annual_cap_hours })
+      .from(leaveTypesTable)
+      .where(
+        and(
+          eq(leaveTypesTable.company_id, companyId),
+          eq(leaveTypesTable.accrual_mode, "office_recorded"),
+          eq(leaveTypesTable.active, true),
+        ),
+      )
+      .limit(1);
+    unexHoursCap = capRow[0]?.cap != null ? Number(capRow[0].cap) : null;
+  } catch { /* cap stays null — card falls back to occurrence-only */ }
   const fmtOccStep = (s: any | null) =>
     s ? { occurrence: Number(s.occurrence), label: s.label || DISC_LABEL[s.discipline_type] || "Discipline" } : null;
   const unexNextOcc = fmtOccStep(nextOccurrenceStep(unexOccSteps, unexOccCount));
@@ -899,6 +955,10 @@ async function buildAttendanceSummary(
       benefit_year_start: benefitYearStart,
       next_step: unexNextOcc,
       current_discipline: currentDiscipline,
+      // [40hr-bank] Hours consumed this benefit year vs the annual allowance
+      // (PHES: 40). Display-only — discipline stays occurrence-based.
+      hours_used: unexHoursUsed,
+      hours_cap: unexHoursCap,
       // Legacy cumulative-hours record (kept for reference, not the ladder).
       rolling_hours: rollingHours,
       hours_window_days: maxWindow,

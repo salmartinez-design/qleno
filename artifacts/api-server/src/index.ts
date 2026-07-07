@@ -15,6 +15,7 @@ import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
 import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./lib/job-history-sync.js";
 import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
 import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
+import { runAutoTardySweep } from "./lib/auto-tardy.js";
 import { runScorecardCompositeCron } from "./lib/scorecard-composite.js";
 import { setAppReady } from "./lib/readiness.js";
 import { processScheduledSms } from "./lib/sms-scheduler.js";
@@ -103,6 +104,18 @@ function startNotificationCron() {
     if (ctH === 1 && fired["rate_lock_nightly"] !== `${ctDate}-1`) {
       fired["rate_lock_nightly"] = `${ctDate}-1`;
       runRateLockNightlyChecks().catch((e: Error) => console.error("[cron] rate_lock_nightly error:", e));
+    }
+    // [auto-tardy 2026-07-07] 1:30 AM window (runs on the 1 AM tick after
+    // rate-lock) → sweep YESTERDAY's punched clock-ins: first job of each
+    // tech's day, >20 min past scheduled start = a tardy occurrence through
+    // the same ladder writer the office form uses. Nightly only — no boot
+    // run, so an office deletion of a mistaken auto-tardy is never
+    // re-inserted by a redeploy. No backfill (starts with the first run).
+    if (ctH === 1 && fired["auto_tardy"] !== `${ctDate}-1`) {
+      fired["auto_tardy"] = `${ctDate}-1`;
+      const yd = new Date(`${ctDate}T00:00:00Z`);
+      yd.setUTCDate(yd.getUTCDate() - 1);
+      runAutoTardySweep(yd.toISOString().slice(0, 10)).catch((e: Error) => console.error("[cron] auto_tardy error:", e));
     }
     // 2 AM CT → leave accrual: grant-on-eligibility (90-day sick / 1-year
     // PTO gates) + work-anniversary reset (re-front-load on each employee's
