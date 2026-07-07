@@ -699,6 +699,49 @@ export default function EmployeeProfilePage() {
       setRecBusy(false);
     }
   };
+  // [mc-migration 2026-07-07] Balance editor — the "Update" button on accrual
+  // buckets (PTO / PLAWA / Unpaid Leave) was a dead no-op. It now opens this
+  // editor and persists via PUT /leave/balances (owner/admin — same gate as
+  // the API), then refetches the buckets.
+  const [balModal, setBalModal] =
+    useState<null | { leave_type_id: number; display_name: string; accent: string }>(null);
+  const [balGranted, setBalGranted] = useState('');
+  const [balUsed, setBalUsed] = useState('');
+  const [balBusy, setBalBusy] = useState(false);
+  const [balErr, setBalErr] = useState<string | null>(null);
+  const canEditBalance = ['owner', 'admin', 'super_admin'].includes(getTokenRole() || '');
+  const openBalanceEdit = (b: any) => {
+    setBalGranted(String(Number(b.granted || 0)));
+    setBalUsed(String(Number(b.used || 0)));
+    setBalErr(null);
+    setBalModal({ leave_type_id: b.leave_type_id, display_name: b.display_name, accent: b.accent || NEUTRAL_ACCENT });
+  };
+  const submitBalanceEdit = async () => {
+    setBalErr(null);
+    const granted = Number(balGranted);
+    const used = Number(balUsed);
+    if (balGranted.trim() === '' || !Number.isFinite(granted) || granted < 0) { setBalErr('Granted hours must be 0 or more'); return; }
+    if (balUsed.trim() === '' || !Number.isFinite(used) || used < 0) { setBalErr('Used hours must be 0 or more'); return; }
+    setBalBusy(true);
+    try {
+      await apiFetch('/leave/balances', {
+        method: 'PUT',
+        body: JSON.stringify({
+          user_id: Number(userId),
+          leave_type_id: balModal!.leave_type_id,
+          granted_hours: granted,
+          used_hours: used,
+        }),
+      });
+      qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+      setBalModal(null);
+    } catch (e: any) {
+      setBalErr(e?.message === '403' ? 'Only owners and admins can set balances' : 'Could not save — try again');
+    } finally {
+      setBalBusy(false);
+    }
+  };
   const { data: leaveBalancesResp } = useQuery({
     queryKey: ['leave-balances', userId],
     queryFn: () => apiFetch(`/leave/balances?userId=${userId}`),
@@ -1563,7 +1606,7 @@ export default function EmployeeProfilePage() {
 
                       <div style={{ display:'flex', gap:8, marginTop:10 }}>
                         <button onClick={() => setHistoryBucket({ slug:b.slug, display_name:b.display_name })} style={{ flex:1,padding:'6px 0',border:`1px solid ${accent}`,borderRadius:6,fontSize:12,color:accent,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
-                        <button onClick={officeRecorded ? () => openRecord('absent', accent) : undefined} style={{ flex:1,padding:'6px 0',background:accent,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor: officeRecorded ? 'pointer':'default',opacity: officeRecorded ? 1 : 0.5,fontFamily:'inherit' }}>{officeRecorded ? 'Record' : 'Update'}</button>
+                        <button onClick={officeRecorded ? () => openRecord('absent', accent) : (canEditBalance ? () => openBalanceEdit(b) : undefined)} style={{ flex:1,padding:'6px 0',background:accent,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor: (officeRecorded || canEditBalance) ? 'pointer':'default',opacity: (officeRecorded || canEditBalance) ? 1 : 0.5,fontFamily:'inherit' }}>{officeRecorded ? 'Record' : 'Update'}</button>
                       </div>
                     </div>
                   );
@@ -1626,6 +1669,37 @@ export default function EmployeeProfilePage() {
                     </div>
                   </div>
                 )}
+
+                {/* [mc-migration] Set a bucket's granted/used balance (owner/admin).
+                    Persists via PUT /leave/balances — the same manual-set endpoint
+                    the Leave Review "Balances & Grants" section uses (#923). */}
+                {balModal && (() => {
+                  const g = Number(balGranted);
+                  const u = Number(balUsed);
+                  const preview = Number.isFinite(g) && Number.isFinite(u) ? Math.max(0, g - u) : null;
+                  return (
+                    <div onClick={() => !balBusy && setBalModal(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
+                      <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:14,padding:'22px 22px 20px',width:380,maxWidth:'92vw',fontFamily:"'Plus Jakarta Sans',sans-serif",boxShadow:'0 12px 40px rgba(0,0,0,0.18)' }}>
+                        <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14 }}>
+                          <span style={{ fontSize:16,fontWeight:800,color:'#1A1917' }}>Update {balModal.display_name}</span>
+                          <button onClick={() => !balBusy && setBalModal(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
+                        </div>
+                        <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Granted hours</label>
+                        <input type="number" min="0" step="0.25" value={balGranted} onChange={e => setBalGranted(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                        <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Used hours</label>
+                        <input type="number" min="0" step="0.25" value={balUsed} onChange={e => setBalUsed(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                        <p style={{ fontSize:12,color:'#6B6860',margin:'0 0 12px' }}>
+                          {preview != null ? <>Available after save: <strong style={{ color: balModal.accent }}>{preview.toFixed(1)} hrs</strong></> : 'Enter granted and used hours'}
+                        </p>
+                        {balErr && <p style={{ fontSize:12,color:'#991B1B',margin:'0 0 10px' }}>{balErr}</p>}
+                        <div style={{ display:'flex',gap:8 }}>
+                          <button onClick={() => !balBusy && setBalModal(null)} disabled={balBusy} style={{ flex:1,padding:'9px 0',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,color:'#6B6860',background:'none',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
+                          <button onClick={submitBalanceEdit} disabled={balBusy} style={{ flex:1,padding:'9px 0',border:'none',borderRadius:8,fontSize:13,fontWeight:700,color:'#FFFFFF',background:balModal.accent,cursor:'pointer',fontFamily:'inherit',opacity:balBusy?0.6:1 }}>{balBusy ? 'Saving…' : 'Save'}</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Per-bucket usage history modal (data-driven over all buckets) */}
                 {historyBucket && (() => {
