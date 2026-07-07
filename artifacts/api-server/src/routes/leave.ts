@@ -946,8 +946,14 @@ async function buildAttendanceSummary(
     const c = cleanUnexNote(notes);
     return c === "Unexcused absence" ? fallback : c;
   };
-  const byOf = (r: { logged_by: number | null }) =>
-    r.logged_by != null ? (loggerNames.get(r.logged_by) || "office") : "auto-detected";
+  // NULL logged_by is TWO populations: the auto-tardy sweep (its notes always
+  // carry the "auto:" marker) and historical rows (MaidCentral backfill).
+  // Labeling imports "auto-detected from clock-in" was wrong — the sweep
+  // didn't exist when they were written.
+  const byOf = (r: { logged_by: number | null; notes: string | null }) =>
+    r.logged_by != null
+      ? (loggerNames.get(r.logged_by) || "office")
+      : /\bauto:/i.test(r.notes ?? "") ? "auto-detected" : "imported record";
   const lateRows = att.filter((r) => r.type === "tardy").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Late"), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
   const absentRows = att.filter((r) => r.type === "absent" || r.type === "ncns").map((r) => dayRow(r.log_date, cleanOr(r.notes, "Absent"), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
   const unexRows = att.filter((r) => r.type === "absent" && !r.is_protected).map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
