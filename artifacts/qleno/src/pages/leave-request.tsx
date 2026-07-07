@@ -97,9 +97,10 @@ export default function LeaveRequestPage() {
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [dayUnit, setDayUnit] = useState<"full_day" | "morning" | "afternoon" | "custom">("full_day");
-  // [plain-hours 2026-07-07] Hours = a set NUMBER of hours (Sal). Replaces the
-  // start→end time-window composer; the API accepts `hours` directly.
-  const [customHoursAmt, setCustomHoursAmt] = useState("");
+  // [time-block 2026-07-07] Time block = start→end window; hours derived.
+  // (Sal settled on Full day | Time block after trying a bare hours number.)
+  const [customStart, setCustomStart] = useState("09:00");
+  const [customEnd, setCustomEnd] = useState("13:00");
   const [attachment, setAttachment] = useState<{ url: string; name: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const [note, setNote] = useState<string>("");
@@ -177,9 +178,8 @@ export default function LeaveRequestPage() {
     }
     const unit = multiDay ? "full_day" : dayUnit;
     if (unit === "custom") {
-      const hrs = Number(customHoursAmt);
-      if (!Number.isFinite(hrs) || hrs <= 0 || hrs > 8) {
-        toast({ title: "Enter the hours (up to 8 for a single day)", variant: "destructive" });
+      if (!customStart || !customEnd || customEnd <= customStart) {
+        toast({ title: "Pick a valid time block (end after start)", variant: "destructive" });
         return;
       }
     }
@@ -193,7 +193,7 @@ export default function LeaveRequestPage() {
           start_date: startDate,
           end_date: endDate,
           day_unit: unit,
-          ...(unit === "custom" ? { hours: Number(customHoursAmt) } : {}),
+          ...(unit === "custom" ? { start_time: customStart, end_time: customEnd } : {}),
           attachment_url: attachment.url,
           attachment_name: attachment.name,
           note: note || null,
@@ -377,12 +377,13 @@ export default function LeaveRequestPage() {
                 </div>
               ) : (
                 <>
+                  {/* [time-block 2026-07-07] Sal: exactly two options — Full
+                      day, or a Time block (start–end, hours derived). Morning
+                      and Afternoon halves removed. */}
                   <div style={{ display: "flex", gap: 6 }}>
                     {([
                       { v: "full_day", l: "Full day" },
-                      { v: "morning", l: "Morning" },
-                      { v: "afternoon", l: "Afternoon" },
-                      { v: "custom", l: "Hours" },
+                      { v: "custom", l: "Time block" },
                     ] as const).map((o) => (
                       <button
                         key={o.v}
@@ -401,11 +402,18 @@ export default function LeaveRequestPage() {
                     ))}
                   </div>
                   {dayUnit === "custom" && (
-                    // [plain-hours 2026-07-07] A set NUMBER of hours (Sal) —
-                    // no time-window composing required.
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                      <input type="number" min="0.25" max="8" step="0.25" value={customHoursAmt} onChange={(e) => setCustomHoursAmt(e.target.value)} placeholder="e.g. 4" style={{ ...inputStyle, width: "auto", flex: 1 }} />
-                      <span style={{ fontSize: 12, fontWeight: 700, color: INK, whiteSpace: "nowrap" }}>hours</span>
+                      <input type="time" value={customStart} onChange={(e) => setCustomStart(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1 }} />
+                      <span style={{ fontSize: 12, color: MUTED }}>to</span>
+                      <input type="time" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1 }} />
+                      {(() => {
+                        const [sh, sm] = customStart.split(":").map(Number);
+                        const [eh, em] = customEnd.split(":").map(Number);
+                        const hrs = (eh * 60 + em - (sh * 60 + sm)) / 60;
+                        return Number.isFinite(hrs) && hrs > 0
+                          ? <span style={{ fontSize: 12, fontWeight: 700, color: INK, whiteSpace: "nowrap" }}>{hrs.toFixed(1)} h</span>
+                          : <span style={{ fontSize: 12, fontWeight: 700, color: DANGER, whiteSpace: "nowrap" }}>—</span>;
+                      })()}
                     </div>
                   )}
                 </>
@@ -420,13 +428,16 @@ export default function LeaveRequestPage() {
             <div style={{ gridColumn: "1 / -1" }}>
               <FormField label="Attachment (required — doctor's note / file)">
                 {attachment ? (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: INK }}>
-                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{attachment.name}</span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: INK, border: `1px solid ${BORDER}`, borderRadius: 10, padding: "10px 12px", background: "#F0FBF8" }}>
+                    <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>{attachment.name}</span>
                     <button type="button" onClick={() => setAttachment(null)} style={{ fontFamily: FF, fontSize: 12, fontWeight: 600, color: DANGER, background: "none", border: "none", cursor: "pointer" }}>Remove</button>
                   </div>
                 ) : (
-                  <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 600, color: BRAND, cursor: "pointer" }}>
-                    {uploading ? "Uploading…" : "Choose / take a photo"}
+                  // [upload-box 2026-07-07] Was a bare text link that read as
+                  // missing (Sal: "the attachment upload is gone") — now a
+                  // full-width dashed drop-zone-style button.
+                  <label style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontSize: 13, fontWeight: 700, color: uploading ? MUTED : BRAND, cursor: uploading ? "default" : "pointer", border: `2px dashed ${uploading ? BORDER : BRAND}`, borderRadius: 10, padding: "16px 12px", background: "#FFFFFF" }}>
+                    {uploading ? "Uploading…" : "Tap to upload — photo or PDF of the doctor's note / file"}
                     <input
                       type="file"
                       accept="image/*,application/pdf"
