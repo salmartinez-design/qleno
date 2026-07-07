@@ -1312,8 +1312,13 @@ export default function EmployeeProfilePage() {
         </div>
 
         {/* ── TAB BAR ── */}
-        <div style={{ background:'#FFFFFF', borderLeft:'1px solid #E5E2DC', borderRight:'1px solid #E5E2DC', borderBottom:'1px solid #E5E2DC', overflowX:'auto', marginBottom:20 }}>
-          <div style={{ display:'flex', borderBottom:'1px solid #E5E2DC', whiteSpace:'nowrap' }}>
+        {/* [layout 2026-07-07] 20 tabs don't fit one row on most screens, and
+            a nowrap+overflow row just clips the tail (Mac hides the scrollbar
+            until you scroll — Sal: "things are cutting off on the right").
+            Desktop wraps to as many rows as needed so every tab is visible;
+            mobile keeps the compact horizontal scroll. */}
+        <div style={{ background:'#FFFFFF', borderLeft:'1px solid #E5E2DC', borderRight:'1px solid #E5E2DC', borderBottom:'1px solid #E5E2DC', overflowX: isMobile ? 'auto' : 'visible', marginBottom:20 }}>
+          <div style={{ display:'flex', flexWrap: isMobile ? 'nowrap' : 'wrap', borderBottom:'1px solid #E5E2DC', whiteSpace:'nowrap' }}>
             {TABS.map(tab => (
               <button key={tab}
                 onClick={() => setActiveTab(tab)}
