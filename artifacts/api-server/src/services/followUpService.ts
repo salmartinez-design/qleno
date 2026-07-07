@@ -7,8 +7,10 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { getBranchByZip } from "../lib/branchRouter.js";
-import { appBaseUrl } from "../lib/app-url.js";
+import { appBaseUrl, emailLogoUrl } from "../lib/app-url.js";
 import { shortenUrl } from "../lib/short-link.js";
+import { estTimeLabel } from "../lib/estimated-time.js";
+import { renderPhesQuote, type QuoteOption } from "../lib/phes-quote-email.js";
 
 // ── Merge field resolver ───────────────────────────────────────────────────────
 function resolveMergeFields(template: string, vars: Record<string, string>): string {
@@ -106,7 +108,13 @@ async function sendEmailRaw(
   const inner = /^\s*</.test(body)
     ? body
     : `<p style="font-size:15px;color:#1A1917;line-height:1.7;margin:0 0 20px;">${body.replace(/\n/g, "<br>")}</p>`;
-  const bodyHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#F7F6F3;">
+  // A COMPLETE HTML document (the bespoke quote email) is sent as-is — the
+  // branded shell would nest a second <html> inside a <div>. The unsub footer
+  // slots in before </body> so the one-click headers + visible link still apply.
+  const isFullDoc = /^\s*(<!doctype|<html)/i.test(body);
+  const bodyHtml = isFullDoc
+    ? (unsub?.footerHtml ? body.replace(/<\/body>/i, `${unsub.footerHtml}</body>`) : body)
+    : `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#F7F6F3;">
 <div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
 <div style="background:#5B9BD5;padding:14px 20px;border-radius:4px;margin-bottom:24px;">
   <span style="color:#fff;font-size:16px;font-weight:bold;">${brandName}</span>
@@ -167,33 +175,28 @@ function renderQuoteOption(q: any, showHeading: boolean): string {
     const amt = a?.amount ?? a?.price;
     rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${a?.name || "Add-on"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">${amt != null ? "$" + Number(amt).toFixed(2) : "—"}</td></tr>`);
   }
+  const est = estTimeLabel(q.manual_hours) || estTimeLabel(q.estimated_hours);
+  const estLine = est ? `<p style="font-size:13px;color:#6B6860;margin:2px 0 0;">Estimated time &middot; ${est}</p>` : "";
   const table = `<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">${rows.join("")}<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$${Number(total).toFixed(2)}</td></tr></table>`;
-  if (!showHeading) return table;
+  if (!showHeading) return `${estLine}${table}`;
   const freq = quoteFreqLabel(q.frequency);
-  return `<p style="font-size:15px;font-weight:700;color:#1A1917;margin:16px 0 2px;">${q.service_type || "Cleaning service"}${freq ? ` &middot; ${freq}` : ""}</p>${table}`;
+  return `<p style="font-size:15px;font-weight:700;color:#1A1917;margin:16px 0 2px;">${q.service_type || "Cleaning service"}${freq ? ` &middot; ${freq}` : ""}</p>${estLine}${table}`;
 }
 
-// Build the merge vars for a quote-tied enrollment touch (the quote email + SMS).
-// Pulls the triggering quote for the customer-facing link + brand info, then
-// gathers EVERY open quote for that lead so the customer sees all the options
-// they were quoted (e.g. a one-time deep clean AND a recurring plan), each
-// itemized, even the ones that didn't trigger this drip. Returns extra vars
-// merged on top of the base {first_name, company_name}.
-async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<Record<string, string>> {
+// Shared loader for the quote email surfaces: the triggering quote (+ company
+// brand) and EVERY still-open quote for that lead, one-time options first.
+// Used by buildQuoteMergeVars (legacy {{line_items}} vars, SMS) and
+// buildPhesQuoteEmailHtml (the bespoke on-brand email).
+async function loadQuoteEmailData(companyId: number, quoteId: number): Promise<{ q: any; quotes: any[] } | null> {
   const r = await db.execute(sql`
     SELECT q.id, q.total_price, q.base_price, q.address, q.service_type, q.frequency, q.addons,
-           q.sign_token, q.lead_email, q.lead_phone, q.client_id,
-           c.name AS company_name, c.phone AS company_phone, c.email AS company_email
+           q.sign_token, q.lead_email, q.lead_phone, q.client_id, q.estimated_hours, q.manual_hours,
+           c.name AS company_name, c.phone AS company_phone, c.email AS company_email, c.logo_url AS company_logo
     FROM quotes q JOIN companies c ON c.id = q.company_id
     WHERE q.id = ${quoteId} AND q.company_id = ${companyId} LIMIT 1
   `);
   const q: any = r.rows[0];
-  if (!q) return {};
-  const total = q.total_price ?? q.base_price ?? "0";
-  // Residential quotes use the /quote/ route (the hosted page self-labels as
-  // "Quote"). Clean short link for the customer SMS/email; falls back to full URL.
-  const fullLink = q.sign_token ? `${appBaseUrl()}/quote/${q.sign_token}` : `${appBaseUrl()}/quote`;
-  const link = q.sign_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
+  if (!q) return null;
 
   // All of this lead's still-open quotes. Match by client_id when known, else by
   // lead email/phone. Only quotes actually sent to the customer (or this trigger),
@@ -202,7 +205,8 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
   const leadEmail = String(q.lead_email || "").trim().toLowerCase();
   const leadPhone10 = String(q.lead_phone || "").replace(/\D/g, "").slice(-10);
   const allRows = await db.execute(sql`
-    SELECT id, total_price, base_price, service_type, frequency, addons
+    SELECT id, total_price, base_price, service_type, frequency, addons, sign_token,
+           estimated_hours, manual_hours
     FROM quotes
     WHERE company_id = ${companyId}
       AND status NOT IN ('accepted','booked','converted','expired','declined','lost')
@@ -215,6 +219,66 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
     ORDER BY (frequency IS NULL OR lower(frequency) IN ('onetime','one_time','one-time')) DESC, id ASC
   `);
   const quotes: any[] = (allRows.rows && allRows.rows.length ? allRows.rows : [q]);
+  return { q, quotes };
+}
+
+// One quote row → a bespoke-template option card (itemized rows + est. time +
+// its own /book-quote/<token> deep link).
+function quoteAsOption(qq: any): QuoteOption {
+  const rows: { label: string; amount: string }[] = [];
+  if (qq.base_price != null) rows.push({ label: qq.service_type || "Cleaning service", amount: `$${Number(qq.base_price).toFixed(2)}` });
+  for (const a of (Array.isArray(qq.addons) ? qq.addons : [])) {
+    const amt = a?.amount ?? a?.price;
+    rows.push({ label: a?.name || "Add-on", amount: amt != null ? `+$${Number(amt).toFixed(2)}` : "—" });
+  }
+  return {
+    title: qq.service_type || "Cleaning service",
+    freqLabel: quoteFreqLabel(qq.frequency),
+    estTime: estTimeLabel(qq.manual_hours) || estTimeLabel(qq.estimated_hours),
+    rows,
+    total: `$${Number(qq.total_price ?? qq.base_price ?? 0).toFixed(2)}`,
+    bookUrl: qq.sign_token ? `${appBaseUrl()}/book-quote/${qq.sign_token}` : "",
+  };
+}
+
+// The bespoke on-brand quote email (renderPhesQuote — same family as the
+// booking confirmation), with every open option itemized + a Book button per
+// option. Returns null for non-Phes tenants (they keep the plain template) or
+// when the quote can't be loaded, so callers can fall back safely.
+export async function buildPhesQuoteEmailHtml(companyId: number, quoteId: number, firstName: string): Promise<string | null> {
+  const data = await loadQuoteEmailData(companyId, quoteId);
+  if (!data) return null;
+  const { q, quotes } = data;
+  if (!/phes/i.test(q.company_name || "")) return null;
+  return renderPhesQuote({
+    logoUrl: emailLogoUrl(q.company_logo),
+    companyName: q.company_name || "Phes",
+    companyPhone: q.company_phone || "(773) 706-6000",
+    companyPhoneTel: q.company_phone ? String(q.company_phone).replace(/[^\d+]/g, "") : "+17737066000",
+    companyEmail: q.company_email || "info@phes.io",
+    website: "phes.io",
+    firstName,
+    serviceAddress: q.address || "",
+    options: quotes.map(quoteAsOption),
+    checklistUrl: "https://phes.io/cleaning-checklist",
+  });
+}
+
+// Build the merge vars for a quote-tied enrollment touch (the quote email + SMS).
+// Pulls the triggering quote for the customer-facing link + brand info, then
+// gathers EVERY open quote for that lead so the customer sees all the options
+// they were quoted (e.g. a one-time deep clean AND a recurring plan), each
+// itemized, even the ones that didn't trigger this drip. Returns extra vars
+// merged on top of the base {first_name, company_name}.
+async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<Record<string, string>> {
+  const data = await loadQuoteEmailData(companyId, quoteId);
+  if (!data) return {};
+  const { q, quotes } = data;
+  const total = q.total_price ?? q.base_price ?? "0";
+  // Residential quotes use the /quote/ route (the hosted page self-labels as
+  // "Quote"). Clean short link for the customer SMS/email; falls back to full URL.
+  const fullLink = q.sign_token ? `${appBaseUrl()}/quote/${q.sign_token}` : `${appBaseUrl()}/quote`;
+  const link = q.sign_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
   const multi = quotes.length > 1;
   const lineItems = multi
     ? quotes.map((qq) => renderQuoteOption(qq, true)).join("")
@@ -795,6 +859,15 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
     mergeVars.office_phone = mergeVars.company_phone;
   }
   let body      = resolveMergeFields(rawBody, mergeVars);
+  // [quote-email-live] The quote-delivery touch (the template carrying
+  // {{line_items}}) sends the bespoke on-brand quote email — same design family
+  // as the booking confirmation, every open option itemized with its own Book
+  // button. Phes-only; other tenants (and any load failure) keep the plain
+  // template rendered above. Subject stays the office-edited template subject.
+  if (enr.quote_id && step.channel === "email" && /\{\{\s*line_items\s*\}\}/.test(rawBody)) {
+    const bespoke = await buildPhesQuoteEmailHtml(enr.company_id, enr.quote_id, firstName).catch(() => null);
+    if (bespoke) body = bespoke;
+  }
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
   const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
   // Append a 1x1 open pixel to an estimate email body for `recipient`, minted so
@@ -1015,7 +1088,14 @@ export async function sendSingleEnrollmentTouch(
   const mergeVars: Record<string, string> = { first_name: firstName, company_name: ci.name, company_phone: ci.phone, company_email: ci.email };
   if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(companyId, enr.quote_id));
   if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(companyId, enr.estimate_id, enr.id));
-  const body = resolveMergeFields(rawBody, mergeVars);
+  let body = resolveMergeFields(rawBody, mergeVars);
+  // [quote-email-live] Same bespoke-quote-email swap as processEnrollment — a
+  // scoped one-off re-send of the quote-delivery touch must look identical to
+  // the cadence send.
+  if (enr.quote_id && step.channel === "email" && /\{\{\s*line_items\s*\}\}/.test(rawBody)) {
+    const bespoke = await buildPhesQuoteEmailHtml(companyId, enr.quote_id, firstName).catch(() => null);
+    if (bespoke) body = bespoke;
+  }
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
   const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
 

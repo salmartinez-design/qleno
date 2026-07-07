@@ -3588,7 +3588,15 @@ function FollowUpSequencesTab({ onTest }: { onTest?: (t: { key: string; label: s
                                   </button>
                                   {onTest && (
                                     <button
-                                      onClick={() => onTest({ key: "custom_dripstep", label: `${SEQ_LABELS[seq.sequence_type] ?? seq.name} · Step ${step.step_number}`, channel: step.channel === "email" ? "email" : "sms", body: step.message_template, subject: step.subject })}
+                                      onClick={() => {
+                                        // The quote-delivery touch (the email carrying {{line_items}})
+                                        // sends the bespoke on-brand quote email in production — test
+                                        // the real render (key quote_email), not the plain template.
+                                        const isQuoteDelivery = seq.sequence_type === "quote_followup" && step.channel === "email" && /\{\{\s*line_items\s*\}\}/.test(step.message_template || "");
+                                        onTest(isQuoteDelivery
+                                          ? { key: "quote_email", label: `${SEQ_LABELS[seq.sequence_type] ?? seq.name} · Step ${step.step_number}`, channel: "email" }
+                                          : { key: "custom_dripstep", label: `${SEQ_LABELS[seq.sequence_type] ?? seq.name} · Step ${step.step_number}`, channel: step.channel === "email" ? "email" : "sms", body: step.message_template, subject: step.subject });
+                                      }}
                                       title="Send a [TEST] copy to yourself"
                                       style={{ display: "inline-flex", alignItems: "center", padding: "4px 10px", background: "#ECFDF5", border: "none", borderRadius: 5, fontFamily: FFF, fontSize: 11, fontWeight: 600, color: "#047857", cursor: "pointer" }}
                                     >

@@ -4,6 +4,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { renderConfirmationEmail, extractPolicyCopy, fmtTime12h } from "./confirmation-email.js";
 import { renderPhesBookingConfirmation } from "./phes-booking-confirmation.js";
+import { estTimeLabel } from "./estimated-time.js";
 import { shortenUrl } from "./short-link.js";
 import { appBaseUrl } from "./app-url.js";
 import { BOOKING_SMS } from "./sms-copy.js";
@@ -110,6 +111,7 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
   try {
     const rows = await db.execute(sql`
       SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.scheduled_time, j.service_type,
+             j.allowed_hours, j.estimated_hours,
              j.address_street, j.address_city, j.address_state, j.address_zip,
              c.first_name, c.last_name, c.email AS client_email, c.phone AS client_phone,
              c.stripe_payment_method_id,
@@ -219,6 +221,9 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       arrivalWindow: arrivalWindowLabel || mv.arrival_window || fmtTime12h(j.scheduled_time),
       address: serviceAddress || "On file",
       service: labelService(j.service_type),
+      // allowed_hours is the live budget (edits update it); estimated_hours is
+      // the creation-time stamp — same precedence the commission panel uses.
+      estimatedTime: estTimeLabel(j.allowed_hours) || estTimeLabel(j.estimated_hours),
       servicesBreakdownHtml: mv.services_breakdown || "",
       scheduledDateISO,
       scheduledTimeRaw: j.scheduled_time,

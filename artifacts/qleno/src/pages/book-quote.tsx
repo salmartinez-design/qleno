@@ -22,6 +22,15 @@ async function pub(path: string, opts: RequestInit = {}) {
 const INK = "#1A1917", MUTE = "#6B6860", BORDER = "#E5E2DC", BRAND = "#00C9A0", BG = "#F7F6F3";
 const FONT = "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif";
 const money = (n: any) => `$${Number(n ?? 0).toFixed(2)}`;
+// "~3.5 hours" from a quote's estimated hours; "" hides the line (mirrors the
+// server's estTimeLabel so the page matches the quote email).
+const estTime = (hours: string | null | undefined) => {
+  const h = Number(hours);
+  if (!Number.isFinite(h) || h <= 0) return "";
+  const r = Math.round(h * 2) / 2;
+  return `~${Number.isInteger(r) ? String(r) : r.toFixed(1)} ${r === 1 ? "hour" : "hours"}`;
+};
+
 const freqLabel = (f: string | null | undefined) => {
   const k = String(f || "").toLowerCase().replace(/[\s-]+/g, "_");
   return ({ onetime: "One-time", one_time: "One-time", weekly: "Weekly", biweekly: "Every 2 weeks",
@@ -34,6 +43,7 @@ interface Quote {
   first_name: string; last_name: string; email: string; phone: string; address: string;
   service_type: string | null; frequency: string | null; scope_id: number | null;
   addon_ids: number[]; addons: any[]; sqft: number | null; total_price: string | null;
+  estimated_hours: string | null;
   bedrooms: number | null; bathrooms: number | null; half_baths: number | null;
   dirt_level: string | null; pets: number | null;
 }
@@ -208,6 +218,7 @@ export default function BookQuotePage() {
             <span style={{ fontSize: 16, fontWeight: 800 }}>{money(quote.total_price)}</span>
           </div>
           <div style={{ fontSize: 12.5, color: MUTE }}>{quote.address}</div>
+          {estTime(quote.estimated_hours) && <div style={{ fontSize: 12.5, color: MUTE, marginTop: 6 }}>Estimated time · {estTime(quote.estimated_hours)}</div>}
           {(quote.addons?.length ?? 0) > 0 && <div style={{ fontSize: 12.5, color: MUTE, marginTop: 6 }}>Includes: {quote.addons.map((a: any) => a?.name).filter(Boolean).join(" · ")}</div>}
         </div>
 

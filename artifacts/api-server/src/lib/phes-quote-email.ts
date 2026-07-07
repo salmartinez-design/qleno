@@ -27,6 +27,7 @@ const escAttr = (s: string) => String(s ?? "").replace(/"/g, "&quot;");
 export interface QuoteOption {
   title: string;        // service, e.g. "Deep Clean"
   freqLabel: string;    // "One-time" / "Every 2 weeks" (may be "")
+  estTime?: string;     // "~3.5 hours" ("" / omitted hides the line)
   rows: { label: string; amount: string }[]; // itemized: base + each add-on (amount incl. "$"/"−$")
   total: string;        // "$698.00"
   bookUrl: string;      // deep-link into the booking flow for THIS quote (may be "")
@@ -73,6 +74,9 @@ function optionCard(o: QuoteOption, single: boolean): string {
   const heading = single
     ? ""
     : `<div style="font-family:${FONT};font-size:15px;font-weight:800;color:${INK};margin:0 0 10px;">${esc(o.title)}${o.freqLabel ? ` <span style="color:${MUTE};font-weight:600;">&middot; ${esc(o.freqLabel)}</span>` : ""}</div>`;
+  const estLine = o.estTime
+    ? `<div style="font-family:${FONT};font-size:13px;color:${MUTE};margin:0 0 6px;">Estimated time &middot; ${esc(o.estTime)}</div>`
+    : "";
   const rows = o.rows.map(r => `<tr>
       <td style="padding:6px 0;font-family:${FONT};font-size:14px;color:${INK};">${esc(r.label)}</td>
       <td align="right" style="padding:6px 0;font-family:${FONT};font-size:14px;color:${INK};">${esc(r.amount)}</td>
@@ -89,6 +93,7 @@ function optionCard(o: QuoteOption, single: boolean): string {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${BORDER};border-radius:10px;margin:0 0 14px;">
       <tr><td style="padding:16px 18px;">
         ${heading}
+        ${estLine}
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0">${rows}${totalRow}</table>
         ${bookBtn}
       </td></tr>
