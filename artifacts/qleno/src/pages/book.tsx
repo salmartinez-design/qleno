@@ -3166,7 +3166,7 @@ export default function BookPage() {
           {step === 4 && (
             <div style={s.card}>
               <p style={s.h2}>Secure your appointment</p>
-              <p style={s.sub}>Your card is saved securely and charged only after each completed cleaning.</p>
+              <p style={s.sub}>Your card is saved securely and billed on the day of service.</p>
 
               {/* Stripe card form */}
               {stripeEnabled === false ? (
@@ -3223,7 +3223,7 @@ export default function BookPage() {
               {upsellAccepted && (
                 <div style={{ marginBottom: 20, padding: "14px 16px", background: "#F0F9FF", border: "1px solid #BAE6FD", borderRadius: 10 }}>
                   <p style={{ margin: 0, fontSize: 13, color: "#0369A1", lineHeight: 1.6 }}>
-                    The card you authorize today will be kept securely on file and used to process payment after each completed cleaning, including your recurring visits. You may update your card at any time by contacting our office.
+                    The card you authorize today will be kept securely on file and used to process payment on the day of each service, including your recurring visits. You may update your card at any time by contacting our office.
                   </p>
                 </div>
               )}
@@ -3338,7 +3338,7 @@ export default function BookPage() {
 
               {upsellAccepted && (
                 <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px", marginBottom: 24, fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
-                  The card you authorize today will be kept securely on file and used to process payment after each completed cleaning, including your recurring visits. You may update your card at any time by contacting our office.
+                  The card you authorize today will be kept securely on file and used to process payment on the day of each service, including your recurring visits. You may update your card at any time by contacting our office.
                 </div>
               )}
 
