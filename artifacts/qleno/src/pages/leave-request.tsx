@@ -164,10 +164,6 @@ export default function LeaveRequestPage() {
   }
 
   async function submit() {
-    if (previewId) {
-      toast({ title: "You are previewing as an employee — exit the preview to submit requests", variant: "destructive" });
-      return;
-    }
     if (!selectedBucket || !startDate || !endDate) {
       toast({ title: "Pick a bucket and dates", variant: "destructive" });
       return;
@@ -194,6 +190,11 @@ export default function LeaveRequestPage() {
           end_date: endDate,
           day_unit: unit,
           ...(unit === "custom" ? { start_time: customStart, end_time: customEnd } : {}),
+          // [on-behalf 2026-07-07] In View-as-Employee preview, the office
+          // files the request FOR the employee (it lands as theirs; the audit
+          // records who filed it). Sal: the disabled submit blocked acting on
+          // an employee's behalf.
+          ...(previewId ? { employee_id: previewId } : {}),
           attachment_url: attachment.url,
           attachment_name: attachment.name,
           note: note || null,
@@ -463,19 +464,19 @@ export default function LeaveRequestPage() {
           </div>
           <div style={{ marginTop: 12, display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 12 }}>
             {previewId != null && (
-              <span style={{ fontSize: 12, color: MUTED }}>Previewing — requests can only be submitted by the employee</span>
+              <span style={{ fontSize: 12, color: MUTED }}>Filing on behalf of {employeeView?.employeeName ?? "the employee"} — the request lands as theirs, recorded as filed by you</span>
             )}
             <button
               onClick={submit}
-              disabled={submitting || uploading || !attachment || previewId != null}
+              disabled={submitting || uploading || !attachment}
               style={{
                 fontFamily: FF, fontSize: 13, fontWeight: 700,
                 color: "#FFFFFF", backgroundColor: BRAND, border: "none",
                 borderRadius: 8, padding: "8px 14px", cursor: "pointer",
-                opacity: submitting || uploading || !attachment || previewId != null ? 0.4 : 1,
+                opacity: submitting || uploading || !attachment ? 0.4 : 1,
               }}
             >
-              Submit request
+              {previewId != null ? "Submit for employee" : "Submit request"}
             </button>
           </div>
         </div>
