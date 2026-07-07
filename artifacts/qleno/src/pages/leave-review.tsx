@@ -24,6 +24,21 @@ const BORDER = "#E5E2DC";
 const FLAG = "#BA7517";
 const DANGER = "#DC2626";
 
+// Human formats — Sal: "do not use military time."
+function fmt12(t: string): string {
+  const [hStr, mStr] = t.slice(0, 5).split(":");
+  let h = parseInt(hStr, 10);
+  if (isNaN(h)) return t;
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${mStr ?? "00"} ${ampm}`;
+}
+function fmtDay(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  if (isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+}
+
 type Status = "pending" | "approved" | "denied" | "cancelled";
 
 type Request = {
@@ -149,10 +164,11 @@ export default function LeaveReviewPage() {
                     <td style={{ padding: "8px", fontWeight: 600 }}>{fmtName(r)}</td>
                     <td style={{ padding: "8px" }}>{r.bucket_name ?? "—"}</td>
                     <td style={{ padding: "8px" }}>
-                      {r.start_date}
-                      {r.start_date !== r.end_date ? ` → ${r.end_date}` : ""}
+                      {fmtDay(r.start_date)}
+                      {r.start_date !== r.end_date ? ` – ${fmtDay(r.end_date)}` : ""}
                       {r.start_time && r.end_time && (
-                        <span style={{ color: "#9E9B94" }}> · {String(r.start_time).slice(0, 5)}–{String(r.end_time).slice(0, 5)}</span>
+                        // 12-hour, always (Sal: "do not use military time").
+                        <span style={{ color: "#9E9B94" }}> · {fmt12(String(r.start_time))}–{fmt12(String(r.end_time))}</span>
                       )}
                     </td>
                     <td style={{ padding: "8px", fontWeight: 700 }}>{Number(r.hours).toFixed(2)}</td>
@@ -208,11 +224,6 @@ function BalancesGrantsSection() {
   const [missing, setMissing] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
-  const [adjUser, setAdjUser] = useState<number | "">("");
-  const [adjBucket, setAdjBucket] = useState<number | "">("");
-  const [adjGranted, setAdjGranted] = useState("");
-  const [adjUsed, setAdjUsed] = useState("");
-  const [adjBusy, setAdjBusy] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -245,40 +256,8 @@ function BalancesGrantsSection() {
     }
   }
 
-  async function saveAdjust() {
-    if (!adjUser || !adjBucket || (!adjGranted && !adjUsed)) {
-      toast({ title: "Pick an employee, a bucket, and at least one value", variant: "destructive" });
-      return;
-    }
-    setAdjBusy(true);
-    try {
-      const res = await fetch("/api/leave/balances", {
-        method: "PUT",
-        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: adjUser, leave_type_id: adjBucket,
-          ...(adjGranted !== "" ? { granted_hours: Number(adjGranted) } : {}),
-          ...(adjUsed !== "" ? { used_hours: Number(adjUsed) } : {}),
-        }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.message || "save failed");
-      toast({ title: "Balance updated" });
-      setAdjGranted(""); setAdjUsed("");
-      await load();
-    } catch (e: any) {
-      toast({ title: e?.message || "Failed to update balance", variant: "destructive" });
-    } finally {
-      setAdjBusy(false);
-    }
-  }
-
   const pending = rows.filter(r => r.plan.action !== "none");
-  const people = [...new Map(rows.map(r => [r.user_id, `${r.first_name ?? ""} ${r.last_name ?? ""}`.trim() || `#${r.user_id}`])).entries()]
-    .sort((a, b) => a[1].localeCompare(b[1]));
-  const buckets = [...new Map(rows.map(r => [r.leave_type_id, r.display_name])).entries()];
   const actionLabel: Record<string, string> = { initial_grant: "First grant", annual_reset: "Annual reset", tier_topup: "Tenure top-up" };
-  const inputStyle: React.CSSProperties = { fontFamily: FF, fontSize: 12, color: INK, border: `1px solid ${BORDER}`, borderRadius: 6, padding: "6px 8px", background: CARD };
 
   return (
     <div style={{ marginTop: 28 }}>
@@ -333,28 +312,15 @@ function BalancesGrantsSection() {
         )}
       </div>
 
-      <div style={{ backgroundColor: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 14 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 8 }}>Manually set a balance</div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <select value={adjUser} onChange={e => setAdjUser(Number(e.target.value) || "")} style={{ ...inputStyle, minWidth: 160 }}>
-            <option value="">Employee…</option>
-            {people.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-          </select>
-          <select value={adjBucket} onChange={e => setAdjBucket(Number(e.target.value) || "")} style={{ ...inputStyle, minWidth: 130 }}>
-            <option value="">Bucket…</option>
-            {buckets.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
-          </select>
-          <input type="number" min={0} step="0.25" placeholder="Granted hrs" value={adjGranted} onChange={e => setAdjGranted(e.target.value)} style={{ ...inputStyle, width: 110 }} />
-          <input type="number" min={0} step="0.25" placeholder="Used hrs" value={adjUsed} onChange={e => setAdjUsed(e.target.value)} style={{ ...inputStyle, width: 110 }} />
-          <button onClick={saveAdjust} disabled={adjBusy}
-            style={{ fontFamily: FF, fontSize: 12, fontWeight: 700, color: "#FFFFFF", background: INK, border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", opacity: adjBusy ? 0.5 : 1 }}>
-            {adjBusy ? "Saving…" : "Save balance"}
-          </button>
-        </div>
-        <p style={{ fontSize: 11, color: MUTED, margin: "8px 0 0" }}>
-          Leave a field blank to keep it unchanged. Setting Granted also marks this benefit year as granted, so the nightly engine will not overwrite your number.
-        </p>
-      </div>
+      {/* [cleanup 2026-07-07] The "Manually set a balance" form is removed —
+          the raw granted/used inputs were the same trap that crushed Hilda's
+          bank (4 typed into Granted), and the employee-profile Update editor
+          does everything it did with modes, reasons, previews, and revert.
+          Balance edits live on the profile now; this page is for decisions
+          and grant visibility. */}
+      <p style={{ fontSize: 12, color: MUTED, margin: 0 }}>
+        To adjust an individual balance, open the employee's profile → Attendance → Update on the bucket. Every change lands in that bucket's Balance changes log.
+      </p>
     </div>
   );
 }
