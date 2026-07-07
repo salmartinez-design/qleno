@@ -7093,6 +7093,25 @@ export default function JobsPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  // [account-calendar 2026-07-07] Deep-link a specific job's drawer: ?job=<id>
+  // (paired with ?date= so the right day is loaded). The account calendar's
+  // day popover links here so the office can edit a visit in the full JobPanel
+  // one tap from the calendar. Param is stripped after opening so day
+  // navigation doesn't keep re-opening the same drawer.
+  useEffect(() => {
+    if (!data) return;
+    const sp = new URLSearchParams(window.location.search);
+    const jobParam = sp.get("job");
+    if (!jobParam) return;
+    const jobId = parseInt(jobParam, 10);
+    const all = [...(data.unassigned_jobs || []), ...(data.employees || []).flatMap((e: Employee) => e.jobs)];
+    const hit = all.find((j: DispatchJob) => j.id === jobId);
+    if (hit) setSelectedJob(hit);
+    sp.delete("job");
+    const rest = sp.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${rest ? `?${rest}` : ""}`);
+  }, [data]);
+
   // [AI.7] Fetch week summary for the Sun..Sat window containing selectedDate.
   // Mobile-only — week view doesn't render on desktop. Refetches when the
   // focal day crosses a week boundary, branch changes, or the underlying

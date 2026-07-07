@@ -337,13 +337,81 @@ export type Job = {
   branch_name: string | null;
 };
 
+// [clock-tz 2026-07-07] timeclock.clock_in_at is stored as Chicago WALL-CLOCK
+// (every write in api routes/timeclock.ts goes through centralWallClock — the
+// office time-clock convention), but the API serializes it with a "Z" suffix.
+// Parsing that as UTC made "Time on job" run ahead by the UTC−Chicago offset —
+// Maribel: "that clock is always marking like 5 hours more" (CDT = UTC−5).
+// clockInstant() resolves the wall digits back to the real instant via the tz
+// database, so the elapsed math is correct year-round (CST/CDT included).
+const CLOCK_TZ = "America/Chicago";
+function wallDigitsAsUtcMs(instant: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(instant);
+  const g = (t: string) => parts.find(p => p.type === t)?.value ?? "00";
+  let hh = g("hour"); if (hh === "24") hh = "00";
+  return Date.parse(`${g("year")}-${g("month")}-${g("day")}T${hh}:${g("minute")}:${g("second")}Z`);
+}
+function clockInstant(ts: string): Date {
+  const wallAsUtc = new Date(ts).getTime(); // the stored wall digits, read as UTC
+  // Find the instant whose Chicago wall digits equal the stored digits. Two
+  // passes converge across DST transitions.
+  let inst = wallAsUtc;
+  for (let i = 0; i < 2; i++) inst = wallAsUtc - (wallDigitsAsUtcMs(new Date(inst), CLOCK_TZ) - inst);
+  return new Date(inst);
+}
+// The stored digits ARE the local time the tech tapped — show them verbatim.
+function wallTimeLabel(ts: string): string {
+  const m = /T(\d{2}):(\d{2})/.exec(ts);
+  if (!m) return "";
+  let h = parseInt(m[1], 10);
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${m[2]} ${ampm}`;
+}
+
 function ElapsedTimer({ clockInAt }: { clockInAt: string }) {
-  const [elapsed, setElapsed] = useState(Date.now() - new Date(clockInAt).getTime());
+  const [elapsed, setElapsed] = useState(Date.now() - clockInstant(clockInAt).getTime());
   useEffect(() => {
-    const id = setInterval(() => setElapsed(Date.now() - new Date(clockInAt).getTime()), 1000);
+    const id = setInterval(() => setElapsed(Date.now() - clockInstant(clockInAt).getTime()), 1000);
     return () => clearInterval(id);
   }, [clockInAt]);
-  return <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatDuration(elapsed)}</span>;
+  return <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatDuration(Math.max(0, elapsed))}</span>;
+}
+
+// [tech-clock-detail 2026-07-07] Francisco: cleaners should see the exact time
+// they clocked in AND the time remaining against the scheduled duration.
+// Budget = allowed_hours (the load-bearing budget), falling back to the
+// estimated_hours creation stamp. Green while under budget, amber once over.
+function ClockInfoRow({ clockInAt, budgetHours }: { clockInAt: string; budgetHours: number | null }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  const elapsedMs = Math.max(0, now - clockInstant(clockInAt).getTime());
+  const fmtHM = (ms: number) => {
+    const totalMin = Math.floor(ms / 60000);
+    const h = Math.floor(totalMin / 60), m = totalMin % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+  let budgetPart: React.ReactNode = null;
+  if (budgetHours != null && budgetHours > 0) {
+    const remainingMs = budgetHours * 3600000 - elapsedMs;
+    const budgetLabel = `${Math.round(budgetHours * 10) / 10}h`;
+    budgetPart = remainingMs >= 0 ? (
+      <span style={{ color: "#166534", fontWeight: 600 }}>{fmtHM(remainingMs)} left of {budgetLabel}</span>
+    ) : (
+      <span style={{ color: "#B45309", fontWeight: 600 }}>{fmtHM(-remainingMs)} over the {budgetLabel} budget</span>
+    );
+  }
+  return (
+    <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 12px" }}>
+      Clocked in {wallTimeLabel(clockInAt)}{budgetPart ? <> · {budgetPart}</> : null}
+    </p>
+  );
 }
 
 function PhotoGrid({ jobId, type, photos, onUploaded }: {
@@ -1118,7 +1186,18 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
             <div style={{ fontSize: 36, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>
               <ElapsedTimer clockInAt={entry!.clock_in_at} />
             </div>
-            <p style={{ fontSize: 11, color: "#9E9B94", margin: "0 0 12px" }}>Time on job</p>
+            <p style={{ fontSize: 11, color: "#9E9B94", margin: "0 0 4px" }}>Time on job</p>
+            {/* Budget follows the card's labor-split convention: allowed_hours
+                is the TEAM-aggregated budget, so each tech's clock budget is
+                their share of it (a 6h job with 2 techs = 3h on the clock). */}
+            <ClockInfoRow
+              clockInAt={entry!.clock_in_at}
+              budgetHours={(() => {
+                const teamCount = job.team_count && job.team_count > 1 ? job.team_count : 1;
+                const raw = job.allowed_hours ?? job.estimated_hours;
+                return raw != null ? raw / teamCount : null;
+              })()}
+            />
             <button
               onClick={() => smsMutation.mutate(paused ? "resumed" : "paused")}
               disabled={smsMutation.isPending}

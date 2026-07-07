@@ -4,7 +4,7 @@ import {
   Building2, ChevronLeft, ChevronDown, Plus, Pencil, Trash2, DollarSign,
   MapPin, Users, Phone, Mail, Star, Bell, BellOff, Briefcase,
   TrendingUp, AlertCircle, CheckCircle2, Clock, FileText,
-  CreditCard, Home, Key,
+  CreditCard, Home, Key, CalendarDays,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -195,6 +195,10 @@ export default function AccountDetailPage() {
   const [expandedProp, setExpandedProp] = useState<number | null>(null);
   const [propRecent, setPropRecent] = useState<Record<number, any>>({});
   const [tab, setTab] = useState<Tab>("overview");
+  // [account-calendar 2026-07-07] Property preselected on the Calendar tab —
+  // the "View calendar" button on a building's detail card jumps here with
+  // that building filtered, so each property gets its own calendar.
+  const [calendarPropId, setCalendarPropId] = useState<number | null>(null);
   // [commercial-console] Properties grouped by zone + searchable so big
   // portfolios (PPM has 45 buildings) read as a few neighborhoods, not an
   // endless scroll. First slice of the master-detail console.
@@ -997,6 +1001,13 @@ export default function AccountDetailPage() {
                           </div>
                         </div>
                         <div className="flex items-center gap-1 flex-shrink-0">
+                          {/* [account-calendar 2026-07-07] This building's own
+                              calendar — jumps to the Calendar tab pre-filtered
+                              to this property. */}
+                          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-gray-500"
+                            onClick={() => { setCalendarPropId(p.id); setTab("calendar"); }}>
+                            <CalendarDays size={13} /> Calendar
+                          </Button>
                           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditProperty(p)}>
                             <Pencil size={13} className="text-gray-400" />
                           </Button>
@@ -1255,7 +1266,7 @@ export default function AccountDetailPage() {
 
         {/* ─── CALENDAR TAB ────────────────────────────────────────────────── */}
         {tab === "calendar" && id && (
-          <AccountJobsCalendar accountId={id} />
+          <AccountJobsCalendar accountId={id} initialPropertyId={calendarPropId} />
         )}
 
         {/* ─── JOBS TAB ────────────────────────────────────────────────────── */}
