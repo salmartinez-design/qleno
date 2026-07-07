@@ -2157,7 +2157,7 @@ export default function EmployeeProfilePage() {
                           <div style={{ minWidth:0 }}>
                             <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(d.date))} · {String(d.date)}</div>
                             <NoteChips note={d.reason} bucketMap={bucketDisplayMap} />
-                            {d.by && <div style={{ fontSize:11,color:'#9E9B94',marginTop:2 }}>{d.by === 'auto-detected' ? 'auto-detected from clock-in' : `recorded by ${d.by}`}</div>}
+                            {d.by && <div style={{ fontSize:11,color:'#9E9B94',marginTop:2 }}>{d.by === 'auto-detected' ? 'auto-detected from clock-in' : d.by === 'imported record' ? 'imported from MaidCentral' : `recorded by ${d.by}`}</div>}
                           </div>
                           <div style={{ display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap' }}>
                             {d.hours != null && <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(d.hours).toFixed(2)} h</span>}
