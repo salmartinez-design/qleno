@@ -89,6 +89,7 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
   // than one option. Mirrors renderQuoteOption(multi) markup in followUpService.
   line_items:
     '<p style="font-size:15px;font-weight:700;color:#1A1917;margin:2px 0 2px;">Deep Clean &middot; One-time</p>' +
+    '<p style="font-size:13px;color:#6B6860;margin:2px 0 0;">Estimated time &middot; ~5 hours</p>' +
     '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">' +
     '<tr><td style="padding:6px 0;color:#1A1917;">Deep Clean</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$608.00</td></tr>' +
     '<tr><td style="padding:6px 0;color:#1A1917;">Oven cleaning</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$50.00</td></tr>' +
@@ -96,6 +97,7 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
     '<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$698.00</td></tr>' +
     '</table>' +
     '<p style="font-size:15px;font-weight:700;color:#1A1917;margin:16px 0 2px;">Standard Clean &middot; Every 2 weeks</p>' +
+    '<p style="font-size:13px;color:#6B6860;margin:2px 0 0;">Estimated time &middot; ~2.5 hours</p>' +
     '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">' +
     '<tr><td style="padding:6px 0;color:#1A1917;">Standard Clean</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$140.00</td></tr>' +
     '<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$140.00</td></tr>' +
@@ -266,14 +268,14 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
     // shows the two-option scenario (one-time deep clean + 2 add-ons AND a
     // recurring plan), each with its own Book button.
     const sampleOptions: QuoteOption[] = [
-      { title: "Deep Clean", freqLabel: "One-time", total: "$698.00",
+      { title: "Deep Clean", freqLabel: "One-time", estTime: "~5 hours", total: "$698.00",
         rows: [
           { label: "Deep Clean", amount: "$608.00" },
           { label: "Oven cleaning", amount: "+$50.00" },
           { label: "Inside fridge", amount: "+$40.00" },
         ],
         bookUrl: "https://app.qleno.com/book-quote/SAMPLE-DEEP" },
-      { title: "Standard Clean", freqLabel: "Every 2 weeks", total: "$140.00",
+      { title: "Standard Clean", freqLabel: "Every 2 weeks", estTime: "~2.5 hours", total: "$140.00",
         rows: [{ label: "Standard Clean", amount: "$140.00" }],
         bookUrl: "https://app.qleno.com/book-quote/SAMPLE-REC" },
     ];
@@ -359,6 +361,7 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
             arrivalWindow: SAMPLE_CUSTOMER_VARS.arrival_window,
             address: SAMPLE_CUSTOMER_VARS.service_address,
             service: SAMPLE_CUSTOMER_VARS.service_type,
+            estimatedTime: "~3.5 hours",
             servicesBreakdownHtml: SAMPLE_SERVICES_BREAKDOWN_HTML,
             scheduledDateISO: "2026-06-27",
             scheduledTimeRaw: "9:00 AM",

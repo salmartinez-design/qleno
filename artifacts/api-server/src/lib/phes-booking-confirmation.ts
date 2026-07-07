@@ -37,6 +37,7 @@ export interface PhesConfOpts {
   arrivalWindow: string;   // "9:00 AM – 9:45 AM"
   address: string;
   service: string;
+  estimatedTime?: string;          // "~3.5 hours" ("" / omitted hides the row)
   servicesBreakdownHtml: string;   // pre-rendered itemized table (may be "")
   scheduledDateISO: string;        // "2026-06-27" — for calendar links
   scheduledTimeRaw: string | null; // "9:00 AM" / "09:00" — event start
@@ -144,6 +145,7 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
       ${detailRow("Date", o.date)}
       ${detailRow("Arrival window", o.arrivalWindow)}
       ${detailRow("Service", o.service)}
+      ${o.estimatedTime ? detailRow("Estimated time", o.estimatedTime) : ""}
       ${paymentRow}
       ${detailRow("Address", o.address || "On file", mapsHref)}
     </table>`;

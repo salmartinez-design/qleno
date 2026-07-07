@@ -248,6 +248,7 @@ router.get("/quote/:token", rateLimit, async (req, res) => {
     const r = await db.execute(drSql`
       SELECT q.id, q.company_id, q.lead_name, q.lead_email, q.lead_phone, q.address,
              q.service_type, q.frequency, q.scope_id, q.addons, q.total_price,
+             q.estimated_hours, q.manual_hours,
              q.bedrooms, q.bathrooms, q.half_baths, q.sqft, q.dirt_level, q.pets,
              q.status, q.special_instructions, c.slug AS company_slug
       FROM quotes q JOIN companies c ON c.id = q.company_id
@@ -288,6 +289,8 @@ router.get("/quote/:token", rateLimit, async (req, res) => {
       pets: q.pets ?? null,
       special_instructions: q.special_instructions || null,
       total_price: q.total_price ?? null,
+      // manual_hours is the office override; estimated_hours the computed stamp.
+      estimated_hours: (Number(q.manual_hours) > 0 ? q.manual_hours : q.estimated_hours) ?? null,
     });
   } catch (err) {
     console.error("GET /public/quote/:token:", err);
