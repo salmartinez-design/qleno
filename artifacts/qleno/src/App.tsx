@@ -252,6 +252,9 @@ function Router() {
         <Route path="/payroll" component={PayrollPage} />
         <Route path="/payroll/mileage-review" component={MileageReviewPage} />
         <Route path="/payroll/leave-review" component={LeaveReviewPage} />
+        {/* [redirect 2026-07-07] Old ACTION-REQUIRED emails (pre-#957) link to
+            /leave-review — send them to the real page instead of a 404. */}
+        <Route path="/leave-review">{() => <Redirect to="/payroll/leave-review" />}</Route>
         <Route path="/leave" component={LeaveRequestPage} />
         <Route path="/cleancyclopedia" component={CleancyclopediaPage} />
         <Route path="/help/:slug" component={HelpGuidePage} />
