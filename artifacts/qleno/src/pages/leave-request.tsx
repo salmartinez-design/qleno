@@ -79,6 +79,39 @@ function fmtHHMM(t: string): string {
   return `${h}:${mStr ?? "00"} ${ampm}`;
 }
 
+// [time-picker 2026-07-07] The native <input type="time"> spinner is clumsy —
+// worse on phones, where requests actually happen (Sal: "this one sucks even
+// more on mobile"). A plain select renders as the platform wheel on iOS /
+// Android: 30-minute steps across the working day, labeled "2:00 PM".
+const TIME_OPTIONS: string[] = (() => {
+  const out: string[] = [];
+  for (let h = 6; h <= 20; h++) {
+    out.push(`${String(h).padStart(2, "0")}:00`);
+    if (h < 20) out.push(`${String(h).padStart(2, "0")}:30`);
+  }
+  return out;
+})();
+function TimeSelect({ value, onChange, ariaLabel }: { value: string; onChange: (v: string) => void; ariaLabel: string }) {
+  return (
+    <select
+      aria-label={ariaLabel}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        flex: 1, fontFamily: FF, fontSize: 13, fontWeight: 600, color: INK,
+        padding: "9px 10px", borderRadius: 8, border: `1px solid ${BORDER}`,
+        background: CARD, appearance: "none" as const, WebkitAppearance: "none" as const,
+        textAlign: "center" as const,
+      }}
+    >
+      {!TIME_OPTIONS.includes(value) && <option value={value}>{fmtHHMM(value)}</option>}
+      {TIME_OPTIONS.map((t) => (
+        <option key={t} value={t}>{fmtHHMM(t)}</option>
+      ))}
+    </select>
+  );
+}
+
 export default function LeaveRequestPage() {
   const { toast } = useToast();
   // [preview-fix 2026-07-07] "View as Employee" used to show the OWNER'S own
@@ -404,9 +437,9 @@ export default function LeaveRequestPage() {
                   </div>
                   {dayUnit === "custom" && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                      <input type="time" value={customStart} onChange={(e) => setCustomStart(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1 }} />
+                      <TimeSelect value={customStart} onChange={setCustomStart} ariaLabel="Time block start" />
                       <span style={{ fontSize: 12, color: MUTED }}>to</span>
-                      <input type="time" value={customEnd} onChange={(e) => setCustomEnd(e.target.value)} style={{ ...inputStyle, width: "auto", flex: 1 }} />
+                      <TimeSelect value={customEnd} onChange={setCustomEnd} ariaLabel="Time block end" />
                       {(() => {
                         const [sh, sm] = customStart.split(":").map(Number);
                         const [eh, em] = customEnd.split(":").map(Number);
