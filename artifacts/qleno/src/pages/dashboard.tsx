@@ -683,7 +683,8 @@ export default function Dashboard() {
     { key: 'in_progress', label: 'In Progress', bg: '#E6F1FB', color: '#1E40AF', dispatchKey: 'in_progress', accent: undefined },
     { key: 'scheduled',   label: 'Scheduled',   bg: '#F7F6F3', color: '#1A1917', dispatchKey: 'scheduled',   accent: undefined },
     { key: 'complete',    label: 'Complete',     bg: '#EAF3DE', color: '#1D9E75', dispatchKey: 'complete',   accent: undefined },
-    { key: 'flagged',     label: 'Flagged',      bg: '#FAECE7', color: '#D85A30', dispatchKey: 'flagged',    accent: '#D85A30' },
+    // [flag-card-removed 2026-07-08] Flagged jobs live in the tickets system,
+    // not a dashboard status tile (Sal). Dropped from the status row.
     { key: 'unassigned',  label: 'Unassigned',   bg: '#FCEBEB', color: '#E24B4A', dispatchKey: 'unassigned', accent: '#E24B4A' },
   ];
 
@@ -775,7 +776,7 @@ export default function Dashboard() {
         {/* ── STATUS CHIPS ─────────────────────────────────────── */}
         <div>
           <p style={{ fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px', fontFamily: FF }}>Today's Status</p>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isMobile ? 8 : 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : `repeat(${STATUS_CARDS.length}, 1fr)`, gap: isMobile ? 8 : 12 }}>
             {STATUS_CARDS.map(card => {
               const val = Number(counts[card.key] ?? 0);
               return (
