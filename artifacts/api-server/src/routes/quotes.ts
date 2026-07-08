@@ -186,7 +186,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       base_price, total_price, discount_amount, discount_code, addons,
       bedrooms, bathrooms, half_baths, sqft, dirt_level, pets,
       special_instructions, internal_memo, client_notes, notes, status,
-      unit_suite, referral_source, office_notes, manual_adjustments,
+      unit_suite, referral_source, office_notes, call_notes, manual_adjustments,
     } = req.body;
 
     const scope = scope_id ? await db.select().from(pricingScopesTable).where(eq(pricingScopesTable.id, scope_id)).limit(1) : null;
@@ -219,6 +219,12 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       pets: pets || 0,
       special_instructions, internal_memo, client_notes, notes,
       office_notes: office_notes || null,
+      // [call-notes-fix 2026-07-08] POST dropped call_notes entirely, so a
+      // freshly-created quote's Call Notes never reached the column — and thus
+      // never carried to the job's office_notes on convert (Maribel: "these
+      // notes should go to office notes and be visible from the job card").
+      // Only PATCH saved it, so it worked only after an edit. Mirror office_notes.
+      call_notes: call_notes || null,
       manual_adjustments: manual_adjustments || [],
       unit_suite: unit_suite || null,
       referral_source: referral_source || null,

@@ -717,10 +717,8 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
             <button onClick={() => setSearchOpen(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', display: 'flex', alignItems: 'center' }}>
               <Search size={19} />
             </button>
-            <button onClick={() => setChatOpen(p => !p)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MessageSquare size={19} />
-              {unreadCount > 0 && <span style={{ position: 'absolute', top: 2, right: 2, width: 8, height: 8, borderRadius: 4, background: '#EF4444', border: '1px solid #fff' }} />}
-            </button>
+            {/* [header-cleanup 2026-07-08] Removed the team-chat icon next to
+                Search (Sal: "useless"). Staff messaging still reachable elsewhere. */}
 
             {/* Employee notifications bell (office tier) → Employees page */}
             {isOfficeTier && (
