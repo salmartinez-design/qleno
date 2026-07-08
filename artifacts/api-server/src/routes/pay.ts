@@ -34,6 +34,7 @@ import {
   jobClockEventsTable,
   jobsTable,
   clientsTable,
+  accountPropertiesTable,
   onMyWayEventsTable,
   mileageRatesTable,
   mileageLegsTable,
@@ -212,11 +213,16 @@ async function recomputeMileageForPeriod(
   const jobCoordRows = await db
     .select({
       job_id: jobsTable.id,
-      lat: clientsTable.lat,
-      lng: clientsTable.lng,
+      // [mileage-account-coords 2026-07-08] Commercial/account jobs carry no
+      // client_id — their address lives on account_properties. Resolve coords
+      // from the job's own geocode, else the client, else the account property,
+      // so account legs (e.g. PPM turnovers) stop skipping for "no coords".
+      lat: sql<string | null>`COALESCE(${jobsTable.job_lat}, ${clientsTable.lat}, ${accountPropertiesTable.lat})`,
+      lng: sql<string | null>`COALESCE(${jobsTable.job_lng}, ${clientsTable.lng}, ${accountPropertiesTable.lng})`,
     })
     .from(jobsTable)
     .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
+    .leftJoin(accountPropertiesTable, eq(jobsTable.account_property_id, accountPropertiesTable.id))
     .where(
       and(
         eq(jobsTable.company_id, companyId),
@@ -395,9 +401,15 @@ async function recomputeClockSequenceLegsForPeriod(
   if (jobIds.size === 0) return { inserted, skipped };
 
   const coordRows = await db
-    .select({ job_id: jobsTable.id, lat: clientsTable.lat, lng: clientsTable.lng })
+    .select({
+      job_id: jobsTable.id,
+      // Account-property coords fall-through for commercial jobs (no client_id).
+      lat: sql<string | null>`COALESCE(${jobsTable.job_lat}, ${clientsTable.lat}, ${accountPropertiesTable.lat})`,
+      lng: sql<string | null>`COALESCE(${jobsTable.job_lng}, ${clientsTable.lng}, ${accountPropertiesTable.lng})`,
+    })
     .from(jobsTable)
     .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
+    .leftJoin(accountPropertiesTable, eq(jobsTable.account_property_id, accountPropertiesTable.id))
     .where(and(eq(jobsTable.company_id, companyId), inArray(jobsTable.id, Array.from(jobIds))));
   const coordsByJobId = new Map<number, JobCoords>();
   for (const r of coordRows) {
@@ -843,15 +855,18 @@ async function deriveClockSequenceLegs(
   const rateForDate = (date: string) => pickMileageRateForDate(rateInputs, date);
 
   // All clock-ins in the period, per tech in time order, with the job's
-  // coordinates (prefer the geocoded job location, else the client's).
+  // coordinates: prefer the geocoded job location, else the client, else the
+  // account property (commercial/account jobs have no client_id — their address
+  // lives on account_properties).
   const rows = (await db.execute(sql`
     SELECT t.user_id, t.job_id,
            (t.clock_in_at AT TIME ZONE 'America/Chicago')::date::text AS leg_day,
-           COALESCE(j.job_lat, c.lat) AS lat,
-           COALESCE(j.job_lng, c.lng) AS lng
+           COALESCE(j.job_lat, c.lat, ap.lat) AS lat,
+           COALESCE(j.job_lng, c.lng, ap.lng) AS lng
       FROM timeclock t
       JOIN jobs j ON j.id = t.job_id
       LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN account_properties ap ON ap.id = j.account_property_id
      WHERE t.company_id = ${companyId}
        AND t.clock_in_at IS NOT NULL
        AND (t.clock_in_at AT TIME ZONE 'America/Chicago')::date BETWEEN ${startDate} AND ${endDate}
@@ -937,10 +952,11 @@ async function deriveScheduledLegsForPeriod(
   const rows = (await db.execute(sql`
     SELECT j.assigned_user_id AS user_id, j.id AS job_id,
            j.scheduled_date::text AS leg_day,
-           COALESCE(j.job_lat, c.lat) AS lat,
-           COALESCE(j.job_lng, c.lng) AS lng
+           COALESCE(j.job_lat, c.lat, ap.lat) AS lat,
+           COALESCE(j.job_lng, c.lng, ap.lng) AS lng
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN account_properties ap ON ap.id = j.account_property_id
      WHERE j.company_id = ${companyId}
        AND j.status = 'complete'
        AND j.assigned_user_id IS NOT NULL
