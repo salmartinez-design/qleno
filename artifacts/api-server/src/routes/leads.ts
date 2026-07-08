@@ -109,12 +109,29 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
         rp.name as referral_partner_name,
         (SELECT q.total_price FROM quotes q WHERE q.lead_id = l.id ORDER BY q.created_at DESC LIMIT 1) as linked_quote_price,
         (SELECT q.id FROM quotes q WHERE q.lead_id = l.id ORDER BY q.created_at DESC LIMIT 1) as linked_quote_id,
-        (SELECT q.status FROM quotes q WHERE q.lead_id = l.id ORDER BY q.created_at DESC LIMIT 1) as linked_quote_status
+        (SELECT q.status FROM quotes q WHERE q.lead_id = l.id ORDER BY q.created_at DESC LIMIT 1) as linked_quote_status,
+        drip.current_step as drip_step,
+        drip.total_steps as drip_total_steps,
+        drip.next_fire_at as drip_next_fire_at,
+        (SELECT MAX(ml.sent_at) FROM message_log ml
+          JOIN follow_up_enrollments fe2 ON fe2.id = ml.enrollment_id
+         WHERE fe2.lead_id = l.id AND ml.status = 'sent') as last_drip_touch_at
       FROM leads l
       LEFT JOIN users u ON u.id = l.assigned_to
       LEFT JOIN referral_partners rp ON rp.id = l.referral_partner_id
+      LEFT JOIN LATERAL (
+        SELECT fe.current_step,
+               fe.next_fire_at,
+               (SELECT COUNT(*) FROM follow_up_steps fst WHERE fst.sequence_id = fe.sequence_id) as total_steps
+        FROM follow_up_enrollments fe
+        JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+        WHERE fe.lead_id = l.id
+          AND fs.sequence_type IN ('lead_drip_web','lead_drip_phone')
+          AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+        ORDER BY fe.id DESC LIMIT 1
+      ) drip ON TRUE
       ${where}
-      ORDER BY l.created_at DESC
+      ORDER BY l.replied_at DESC NULLS LAST, l.created_at DESC
       LIMIT ${limitNum} OFFSET ${offset}
     `));
 
@@ -460,8 +477,14 @@ router.post("/:id/activity", requireAuth, requireRole("owner", "admin", "office"
     await logActivity(leadId, companyId, action_type, note || null, userId);
 
     if (action_type === "call_logged") {
+      // A logged call IS contact: stamp it, clear the un-answered-reply badge,
+      // and move a Needs Contact card to Contacted so the board keeps itself
+      // honest (Sal 2026-07-08: cards must move on real events, not memory).
       await db.execute(
-        sql`UPDATE leads SET contacted_at = NOW(), contacted_by = ${userId}, updated_at = NOW() WHERE id = ${leadId} AND company_id = ${companyId}`
+        sql`UPDATE leads SET contacted_at = NOW(), contacted_by = ${userId}, replied_at = NULL,
+              status = CASE WHEN status IN ('new','needs_contacted') THEN 'contacted' ELSE status END,
+              updated_at = NOW()
+            WHERE id = ${leadId} AND company_id = ${companyId}`
       );
     }
 
@@ -523,6 +546,14 @@ router.post("/:id/communications/sms", requireAuth, requireRole("owner", "admin"
       companyId, toRaw: lead.phone, fromNumber, body: message,
       providerId: twilioResult?.sid ?? null, sentBy: req.auth!.userId, leadId, status,
     });
+    // A manual text is contact made AND answers any outstanding reply: clear
+    // the badge and advance a Needs Contact card to Contacted.
+    await db.execute(
+      sql`UPDATE leads SET contacted_at = COALESCE(contacted_at, NOW()), replied_at = NULL,
+            status = CASE WHEN status IN ('new','needs_contacted') THEN 'contacted' ELSE status END,
+            updated_at = NOW()
+          WHERE id = ${leadId} AND company_id = ${companyId}`
+    ).catch(() => {});
     return res.status(201).json({ id, direction: "outbound", body: message, status, twilio: twilioResult });
   } catch (err) {
     console.error("POST /leads/:id/communications/sms:", err);
@@ -877,6 +908,24 @@ router.patch("/:id/drip/stop", requireAuth, requireRole("owner", "admin", "offic
     return res.json({ ok: true });
   } catch (err) {
     console.error("PATCH /leads/:id/drip/stop:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/leads/:id/ack-reply ─────────────────────────────────────────────
+// Clears the un-answered-reply badge (leads.replied_at). Fired when the office
+// opens the lead's detail panel — seeing the reply counts as acknowledging it.
+router.post("/:id/ack-reply", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const leadId = parseInt(req.params.id);
+    await db.execute(
+      sql`UPDATE leads SET replied_at = NULL, updated_at = NOW()
+          WHERE id = ${leadId} AND company_id = ${companyId} AND replied_at IS NOT NULL`
+    );
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("POST /leads/:id/ack-reply:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

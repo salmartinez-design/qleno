@@ -635,6 +635,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "leads.completion_date",   stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS completion_date TEXT` },
     { label: "leads.lead_type",         stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_type TEXT DEFAULT 'standard'` },
     { label: "leads.notes",             stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS notes TEXT` },
+    // Un-answered inbound reply marker: stamped by handleInboundReply, cleared
+    // when the office opens the lead or logs a call. Drives the board's
+    // REPLIED badge + top-of-column sort.
+    { label: "leads.replied_at",        stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ` },
 
     // ── Commission Engine columns (2026-04-08) ───────────────────────────────
     { label: "jobs.job_type",                stmt: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_type TEXT DEFAULT 'residential'` },
