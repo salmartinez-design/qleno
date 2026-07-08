@@ -1012,75 +1012,184 @@ function ReportsView() {
   if (!data) return <div style={{ padding: 32, color: "#9E9B94", fontFamily: FF }}>No data.</div>;
 
   const t = data.totals || {};
-  const closeRate = t.total > 0 ? Math.round((t.booked / t.total) * 100) : 0;
+  const total = Number(t.total) || 0;
+  const closeRate = total > 0 ? Math.round((t.booked / total) * 100) : 0;
+
+  const funnel = [
+    { label: "Needs Contact", n: Number(t.needs_contact) || 0, hint: "nobody has reached out yet" },
+    { label: "Contacted", n: Number(t.contacted) || 0, hint: "reached, no quote yet" },
+    { label: "Quoted", n: Number(t.quoted) || 0, hint: "quote in their hands" },
+    { label: "Booked", n: Number(t.booked) || 0, hint: "became customers", accent: true },
+  ];
+
+  const maxSource = Math.max(1, ...(data.bySource || []).map((s: any) => Number(s.total) || 0));
+  const maxOwner = Math.max(1, ...(data.byOwner || []).map((o: any) => Number(o.total) || 0));
+
+  // Lead-drip touch delivery, grouped per sequence so Phone and Web read separately.
+  const touchBySeq: Record<string, any[]> = {};
+  for (const tc of data.touchConversion || []) {
+    const key = tc.sequence_name || "Lead Drip";
+    (touchBySeq[key] = touchBySeq[key] || []).push(tc);
+  }
+
+  const dripRows = (data.dripSummary || []).filter((d: any) =>
+    Number(d.in_progress) + Number(d.completed) + Number(d.stopped_replied) + Number(d.stopped_booked) + Number(d.stopped_other) > 0 || d.is_active);
 
   return (
-    <div style={{ padding: "24px 28px", maxWidth: 900, overflowY: "auto" }}>
-      <div style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 20 }}>Pipeline Reports</div>
+    <div style={{ padding: "24px 28px", maxWidth: 940, overflowY: "auto" }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 4 }}>Pipeline Reports</div>
+      <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginBottom: 20 }}>
+        Where your leads come from, where they are right now, who's closing them, and what the automatic follow-ups are doing.
+      </div>
 
-      {/* KPI tiles */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
-        {[
-          { label: "Total Leads", n: t.total || 0 },
-          { label: "Booked", n: t.booked || 0, color: "#059669" },
-          { label: "Close Rate", n: `${closeRate}%`, color: closeRate >= 30 ? "#059669" : closeRate >= 15 ? "#D97706" : "#DC2626" },
-          { label: "Active", n: t.active || 0 },
-        ].map(tile => (
-          <div key={tile.label} style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px" }}>
-            <div style={{ fontSize: 26, fontWeight: 700, color: (tile as any).color || "#1A1917", fontFamily: FF, letterSpacing: -0.5 }}>{tile.n}</div>
-            <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>{tile.label}</div>
-          </div>
-        ))}
+      {/* Funnel: every lead is in exactly one of these stages */}
+      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px", marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 2 }}>Pipeline right now</div>
+        <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 14 }}>
+          {total} leads all-time · {t.lost || 0} closed as lost · every open lead sits in one of these stages
+        </div>
+        <div style={{ display: "flex", alignItems: "stretch", gap: 0 }}>
+          {funnel.map((f, i) => (
+            <div key={f.label} style={{ display: "flex", alignItems: "center", flex: 1 }}>
+              <div style={{ flex: 1, textAlign: "center", padding: "10px 6px", borderRadius: 8,
+                background: f.accent ? "#D9F6EF" : "#F7F6F3" }}>
+                <div style={{ fontSize: 22, fontWeight: 700, color: f.accent ? "#0F6E56" : "#1A1917", fontFamily: FF, letterSpacing: -0.5 }}>{f.n}</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: f.accent ? "#0F6E56" : "#1A1917", fontFamily: FF }}>{f.label}</div>
+                <div style={{ fontSize: 9.5, color: "#9E9B94", fontFamily: FF, marginTop: 1 }}>{f.hint}</div>
+              </div>
+              {i < funnel.length - 1 && (
+                <ChevronDown size={14} color="#C9C6BF" style={{ transform: "rotate(-90deg)", margin: "0 4px", flexShrink: 0 }} />
+              )}
+            </div>
+          ))}
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+          <span style={{ fontSize: 11, fontFamily: FF, color: closeRate >= 30 ? "#0F6E56" : closeRate >= 15 ? "#B45309" : "#DC2626", fontWeight: 700 }}>
+            {closeRate}% of all leads end up booking
+          </span>
+        </div>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-        {/* By Source */}
+        {/* Where leads come from */}
         <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 12 }}>By Source</div>
-          {(data.bySource || []).map((s: any) => (
-            <div key={s.source_label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 0", borderBottom: "0.5px solid #F2EFE9" }}>
-              <span style={{ fontSize: 11, color: "#1A1917", fontFamily: FF }}>{s.source_label}</span>
-              <div style={{ display: "flex", gap: 12, fontSize: 11, fontFamily: FF }}>
-                <span style={{ color: "#6B6860" }}>{s.total} leads</span>
-                <span style={{ color: "#059669", fontWeight: 600 }}>{s.close_rate}% close</span>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Where leads come from</div>
+          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>Bar = share of all leads · green = how many booked</div>
+          {(data.bySource || []).map((s: any) => {
+            const n = Number(s.total) || 0;
+            return (
+              <div key={s.source_label} style={{ padding: "7px 0", borderBottom: "0.5px solid #F2EFE9" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{SOURCE_LABELS[s.source_label] || s.source_label}</span>
+                  <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>
+                    {s.booked} of {n} booked <span style={{ color: "#0F6E56", fontWeight: 700 }}>({Math.round(Number(s.close_rate) || 0)}%)</span>
+                  </span>
+                </div>
+                <div style={{ height: 5, background: "#F2EFE9", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(n / maxSource) * 100}%`, background: "#00C9A0", borderRadius: 3 }} />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
 
-        {/* By Owner */}
+        {/* Who's closing */}
         <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px" }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 12 }}>By Owner</div>
-          {(data.byOwner || []).map((o: any) => (
-            <div key={o.owner_name} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "5px 0", borderBottom: "0.5px solid #F2EFE9" }}>
-              <span style={{ fontSize: 11, color: "#1A1917", fontFamily: FF }}>{o.owner_name || "Unassigned"}</span>
-              <div style={{ display: "flex", gap: 12, fontSize: 11, fontFamily: FF }}>
-                <span style={{ color: "#6B6860" }}>{o.total} leads</span>
-                <span style={{ color: "#059669", fontWeight: 600 }}>{o.close_rate || 0}% close</span>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Who's working the leads</div>
+          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>Leads assigned to each person and how many they closed</div>
+          {(data.byOwner || []).map((o: any) => {
+            const n = Number(o.total) || 0;
+            const unassigned = !o.owner_name || !String(o.owner_name).trim();
+            return (
+              <div key={o.owner_name || "unassigned"} style={{ padding: "7px 0", borderBottom: "0.5px solid #F2EFE9" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: unassigned ? "#B45309" : "#1A1917", fontFamily: FF }}>
+                    {unassigned ? "Unassigned — nobody owns these" : o.owner_name}
+                  </span>
+                  <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>
+                    {o.booked} of {n} booked <span style={{ color: "#0F6E56", fontWeight: 700 }}>({Math.round(Number(o.close_rate) || 0)}%)</span>
+                  </span>
+                </div>
+                <div style={{ height: 5, background: "#F2EFE9", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{ height: "100%", width: `${(n / maxOwner) * 100}%`, background: unassigned ? "#F0B95C" : "#00C9A0", borderRadius: 3 }} />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
 
-      {/* Touch conversion */}
-      {(data.touchConversion || []).length > 0 && (
+      {/* Sequence health: who's in each drip and why people left it */}
+      {dripRows.length > 0 && (
         <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px", marginTop: 16 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 12 }}>Drip Touch Performance</div>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {(data.touchConversion || []).map((tc: any) => (
-              <div key={tc.step_number} style={{ background: "#F7F6F3", borderRadius: 8, padding: "10px 14px", flex: "0 0 auto" }}>
-                <div style={{ fontSize: 10, color: "#9E9B94", fontFamily: FF }}>Touch {tc.step_number} · {tc.channel}</div>
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{tc.sent}</div>
-                <div style={{ fontSize: 10, color: "#6B6860", fontFamily: FF }}>sent</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Follow-up sequences</div>
+          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>
+            How many people are in each automatic sequence right now, and how they left it. "Replied" and "Booked" are wins — the drip did its job.
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1.4fr) repeat(4, 1fr)", gap: 0, fontSize: 11, fontFamily: FF }}>
+            <div style={{ color: "#9E9B94", fontWeight: 700, padding: "4px 0" }}>Sequence</div>
+            <div style={{ color: "#9E9B94", fontWeight: 700, padding: "4px 0", textAlign: "right" }}>In it now</div>
+            <div style={{ color: "#9E9B94", fontWeight: 700, padding: "4px 0", textAlign: "right" }}>Replied</div>
+            <div style={{ color: "#9E9B94", fontWeight: 700, padding: "4px 0", textAlign: "right" }}>Booked</div>
+            <div style={{ color: "#9E9B94", fontWeight: 700, padding: "4px 0", textAlign: "right" }}>Ran to the end</div>
+            {dripRows.map((d: any) => (
+              <div key={d.sequence_id} style={{ display: "contents" }}>
+                <div style={{ padding: "6px 0", borderTop: "0.5px solid #F2EFE9", color: "#1A1917", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+                  {d.sequence_name}
+                  {!d.is_active && <span style={{ fontSize: 9, fontWeight: 700, color: "#6B7280", background: "#F3F4F6", borderRadius: 4, padding: "1px 5px" }}>OFF</span>}
+                </div>
+                <div style={{ padding: "6px 0", borderTop: "0.5px solid #F2EFE9", textAlign: "right", fontWeight: 700, color: Number(d.in_progress) > 0 ? "#0F6E56" : "#B4B2A9" }}>{d.in_progress}</div>
+                <div style={{ padding: "6px 0", borderTop: "0.5px solid #F2EFE9", textAlign: "right", color: "#6B6860" }}>{d.stopped_replied}</div>
+                <div style={{ padding: "6px 0", borderTop: "0.5px solid #F2EFE9", textAlign: "right", color: "#6B6860" }}>{d.stopped_booked}</div>
+                <div style={{ padding: "6px 0", borderTop: "0.5px solid #F2EFE9", textAlign: "right", color: "#6B6860" }}>{d.completed}</div>
               </div>
             ))}
           </div>
         </div>
       )}
+
+      {/* Lead-drip touch delivery, one row per drip */}
+      {Object.keys(touchBySeq).length > 0 && (
+        <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px", marginTop: 16 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Lead drip — messages actually sent</div>
+          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>
+            Each tile is one touch in the drip. The number is how many times that message has gone out. Later touches send less because leads reply or book before reaching them — that's good.
+          </div>
+          {Object.entries(touchBySeq).map(([seqName, touches]) => (
+            <div key={seqName} style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 6 }}>{seqName}</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {touches.map((tc: any) => (
+                  <div key={`${seqName}-${tc.step_number}-${tc.channel}`}
+                    style={{ background: Number(tc.sent) > 0 ? "#F7F6F3" : "#FCFBF9", border: "0.5px solid #F2EFE9", borderRadius: 8, padding: "8px 12px", flex: "0 0 auto", minWidth: 86, opacity: Number(tc.sent) > 0 ? 1 : 0.6 }}>
+                    <div style={{ fontSize: 10, color: "#9E9B94", fontFamily: FF, display: "flex", alignItems: "center", gap: 4 }}>
+                      {tc.channel === "sms" ? <MessageSquare size={9} /> : <Mail size={9} />}
+                      Touch {tc.step_number} · {tc.channel === "sms" ? "text" : "email"}
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: Number(tc.sent) > 0 ? "#1A1917" : "#B4B2A9", fontFamily: FF }}>{tc.sent} <span style={{ fontSize: 10, fontWeight: 400, color: "#9E9B94" }}>sent</span></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
+
+// Friendly names for the raw source values stamped on leads.
+const SOURCE_LABELS: Record<string, string> = {
+  quote: "Office quote (built by your team)",
+  manual: "Added manually",
+  very_dirty: "Very Dirty form",
+  web_quote: "Website quote widget",
+  booking_widget: "Online booking",
+  widget: "Website widget",
+  website: "Website",
+  phone_in: "Phone call",
+  referral: "Referral",
+};
 
 // ── Sequences View ────────────────────────────────────────────────────────────
 
@@ -1120,13 +1229,16 @@ function SequencesView() {
   return (
     <div style={{ padding: "24px 28px", maxWidth: 700, overflowY: "auto" }}>
       <div style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 6 }}>Sequences</div>
-      <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginBottom: 20 }}>
-        Toggle sequences on/off. Active sequences auto-enroll matching new leads.
+      <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginBottom: 20, lineHeight: 1.5 }}>
+        A sequence is a series of automatic texts and emails. Each one starts on its own trigger,
+        and stops the moment the customer replies or books. Click a sequence to see every message
+        it sends and when. The toggle controls whether it sends at all — Off means new matching
+        leads are not enrolled and nothing goes out.
       </div>
 
       {leadSeqs.length > 0 && (
         <>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "#9E9B94", fontFamily: FF, marginBottom: 8 }}>Lead Drip</div>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "#9E9B94", fontFamily: FF, marginBottom: 8 }}>Lead Drips — chase new leads until you reach them</div>
           {leadSeqs.map(seq => (
             <SequenceRow key={seq.id} seq={seq} onToggle={() => toggleActive(seq)} />
           ))}
@@ -1135,7 +1247,7 @@ function SequencesView() {
 
       {otherSeqs.length > 0 && (
         <>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "#9E9B94", fontFamily: FF, margin: "16px 0 8px" }}>Other Sequences</div>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "#9E9B94", fontFamily: FF, margin: "16px 0 8px" }}>Customer Journey — quotes, retention, recovery</div>
           {otherSeqs.map(seq => (
             <SequenceRow key={seq.id} seq={seq} onToggle={() => toggleActive(seq)} />
           ))}
@@ -1145,19 +1257,133 @@ function SequencesView() {
   );
 }
 
+// Plain-English explainer per sequence type: who it targets, what starts it,
+// what stops it. Rendered on the card so the office never has to guess what a
+// toggle controls.
+const SEQ_INFO: Record<string, { audience: string; starts: string; stops: string }> = {
+  lead_drip_phone: {
+    audience: "Leads you talked to on the phone (office-created leads).",
+    starts: "Automatically, as soon as the lead lands in Needs Contact.",
+    stops: "When they reply, get a quote, or book.",
+  },
+  lead_drip_web: {
+    audience: "Leads that came in through the website booking widget.",
+    starts: "Automatically, as soon as the web lead lands in Needs Contact.",
+    stops: "When they reply, get a quote, or book.",
+  },
+  quote_followup: {
+    audience: "Customers you sent a quote to.",
+    starts: "When a quote is marked Sent (touch 1 IS the quote email).",
+    stops: "When they book or reply.",
+  },
+  post_job_retention: {
+    audience: "One-time customers after a completed job.",
+    starts: "After the job is completed.",
+    stops: "When they rebook or reply.",
+  },
+  abandoned_booking: {
+    audience: "People who started booking online but didn't finish.",
+    starts: "About 20 minutes after they abandon the booking form.",
+    stops: "When they finish booking or reply.",
+  },
+  estimate_followup: {
+    audience: "Commercial estimate contacts.",
+    starts: "When an estimate is sent.",
+    stops: "When it's accepted or declined, or they reply.",
+  },
+};
+
+// "Right away", "2 hours in", "Day 3" — cumulative timing label for a touch.
+function touchTimingLabel(cumulativeHours: number): string {
+  if (cumulativeHours <= 0) return "Right away";
+  if (cumulativeHours < 24) return `${cumulativeHours} hr${cumulativeHours === 1 ? "" : "s"} in`;
+  return `Day ${Math.floor(cumulativeHours / 24)}`;
+}
+
 function SequenceRow({ seq, onToggle }: { seq: any; onToggle: () => void }) {
+  const [open, setOpen] = useState(false);
+  const steps: any[] = seq.steps || [];
+  const smsCount = steps.filter(s => s.channel === "sms").length;
+  const emailCount = steps.filter(s => s.channel === "email").length;
+  const totalHours = steps.reduce((acc, s) => acc + (Number(s.delay_hours) || 0), 0);
+  const spanLabel = totalHours >= 24 ? `runs ${Math.max(1, Math.round(totalHours / 24))} days` : "same day";
+  const info = SEQ_INFO[seq.sequence_type];
+
+  // Cumulative offsets so each touch reads "Day N", not a raw delay.
+  let cum = 0;
+  const timed = steps.map(s => { cum += Number(s.delay_hours) || 0; return { ...s, cumHours: cum }; });
+
   return (
-    <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "14px 18px", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-      <div>
-        <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{seq.name}</div>
-        <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>{seq.sequence_type}</div>
+    <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, marginBottom: 8, overflow: "hidden" }}>
+      <div onClick={() => setOpen(o => !o)}
+        style={{ padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{seq.name}</span>
+            <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
+              {steps.length} touches · {smsCount} text{smsCount === 1 ? "" : "s"} + {emailCount} email{emailCount === 1 ? "" : "s"} · {spanLabel}
+            </span>
+          </div>
+          {info && (
+            <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, marginTop: 3 }}>
+              {info.audience}
+            </div>
+          )}
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <button onClick={e => { e.stopPropagation(); onToggle(); }}
+            title={seq.is_active ? "Sending is ON — new matching leads auto-enroll. Click to pause." : "Sending is OFF — nothing enrolls or sends. Click to activate."}
+            style={{ padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700,
+              background: seq.is_active ? "#D1FAE5" : "#F3F4F6",
+              color: seq.is_active ? "#059669" : "#6B7280" }}>
+            {seq.is_active ? "Active" : "Off"}
+          </button>
+          <ChevronDown size={15} color="#9E9B94" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
+        </div>
       </div>
-      <button onClick={onToggle}
-        style={{ padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700,
-          background: seq.is_active ? "#D1FAE5" : "#F3F4F6",
-          color: seq.is_active ? "#059669" : "#6B7280" }}>
-        {seq.is_active ? "Active" : "Inactive"}
-      </button>
+
+      {open && (
+        <div style={{ borderTop: "0.5px solid #E8E5E0", padding: "12px 18px 16px", background: "#FCFBF9" }}>
+          {info && (
+            <div style={{ display: "flex", gap: 24, marginBottom: 12, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 11, fontFamily: FF }}>
+                <span style={{ color: "#9E9B94", fontWeight: 700 }}>STARTS </span>
+                <span style={{ color: "#1A1917" }}>{info.starts}</span>
+              </div>
+              <div style={{ fontSize: 11, fontFamily: FF }}>
+                <span style={{ color: "#9E9B94", fontWeight: 700 }}>STOPS </span>
+                <span style={{ color: "#1A1917" }}>{info.stops}</span>
+              </div>
+            </div>
+          )}
+          {timed.map((s, i) => (
+            <div key={s.id || i} style={{ display: "flex", gap: 12, padding: "8px 0", borderTop: i === 0 ? "none" : "0.5px solid #F2EFE9" }}>
+              <div style={{ width: 74, flexShrink: 0, fontSize: 11, fontWeight: 700, color: "#1A1917", fontFamily: FF, paddingTop: 1 }}>
+                {touchTimingLabel(s.cumHours)}
+              </div>
+              <div style={{ flexShrink: 0, paddingTop: 1 }}>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "2px 8px", borderRadius: 5, fontSize: 10, fontWeight: 700, fontFamily: FF,
+                  background: s.channel === "sms" ? "#D9F6EF" : "#EFEDE8",
+                  color: s.channel === "sms" ? "#0F6E56" : "#57544D" }}>
+                  {s.channel === "sms" ? <MessageSquare size={10} /> : <Mail size={10} />}
+                  {s.channel === "sms" ? "Text" : "Email"}
+                </span>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {s.subject && (
+                  <div style={{ fontSize: 11.5, fontWeight: 600, color: "#1A1917", fontFamily: FF, marginBottom: 2 }}>{s.subject}</div>
+                )}
+                <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, lineHeight: 1.45, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                  {s.message_template}
+                </div>
+              </div>
+            </div>
+          ))}
+          {!steps.length && (
+            <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>No steps configured for this sequence.</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1387,7 +1613,14 @@ export default function LeadsPage() {
   useEffect(() => {
     fetch(`${API}/api/users?limit=200`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) setUsers(d.data || d || []); });
+      .then(d => {
+        if (!d) return;
+        // Lead owners are the people who answer the phone — office tier only.
+        // The full roster (cleaners, trainees, test users) doesn't belong here.
+        const all = (d.data || d || []) as any[];
+        setUsers(all.filter(u =>
+          ["owner", "admin", "office"].includes(u.role) && (u.is_active ?? u.active ?? true)));
+      });
     fetch(`${API}/api/referral-partners`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setPartners(d.partners || d || []); });

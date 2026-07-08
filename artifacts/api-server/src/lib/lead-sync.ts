@@ -88,6 +88,15 @@ export async function upsertLeadForQuote(companyId: number, quote: any): Promise
         RETURNING id`);
       leadId = (ins.rows[0] as any).id;
       await logActivity(companyId, leadId!, "created", "Lead created from quote", null);
+      // Auto-enroll the fresh needs-contact lead in the phone lead drip.
+      // Quote-builder leads are worked over the phone; without this only the
+      // manual New Lead form path enrolled, so the pipeline's dominant lead
+      // source never got a drip. Stopped again at the quoted/booked handoffs
+      // below and on inbound reply.
+      try {
+        const { enrollForLeadDrip } = await import("../services/followUpService.js");
+        await enrollForLeadDrip(companyId, leadId!, "phone_in");
+      } catch (e) { console.error("[lead-sync] enrollForLeadDrip", e); }
     } else {
       // Enrich the existing lead. The lead is frequently created bare during
       // draft autosave (no name/contact); fill/refresh its descriptive fields
@@ -124,6 +133,17 @@ export async function advanceLeadStage(
         ${opts.userId != null ? sql`, assigned_to = COALESCE(assigned_to, ${opts.userId})` : sql``}
        WHERE id = ${leadId} AND company_id = ${companyId}`);
     await logActivity(companyId, leadId, `stage_${stage}`, opts.note ?? null, opts.userId);
+    // Drip handoffs: quoted → the quote_followup cadence owns the conversation,
+    // so the nurture drip stops (otherwise the lead gets both). booked → all
+    // cadences stop; this covers the quote-convert paths, which advance the
+    // stage here without going through PATCH /leads.
+    if (stage === "quoted") {
+      const { stopLeadDripEnrollments } = await import("../services/followUpService.js");
+      await stopLeadDripEnrollments(companyId, leadId, "quote_sent").catch(() => {});
+    } else if (stage === "booked") {
+      const { stopEnrollmentsForLead } = await import("../services/followUpService.js");
+      await stopEnrollmentsForLead(leadId, "lead_booked").catch(() => {});
+    }
   } catch (e) { console.error("[lead-sync] advanceLeadStage", e); }
 }
 
