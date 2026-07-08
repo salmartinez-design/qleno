@@ -6240,9 +6240,18 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
     const h12 = ((h + 11) % 12) + 1;
     return `${h12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${ap}`;
   };
-  const blockText = toUnit === "custom" && employee.time_off_start && employee.time_off_end
-    ? ` · ${fmtBlockTime(employee.time_off_start)}–${fmtBlockTime(employee.time_off_end)} off`
-    : toUnit === "morning" ? " · AM off" : toUnit === "afternoon" ? " · PM off" : "";
+  // Compact: shared meridiem shown once ("2–6 PM", not "2 PM–6 PM OFF") so
+  // the sub-label stays on one line — the long form wrapped to three lines
+  // and spilled over the neighboring row (Jose, 7/8).
+  const blockText = (() => {
+    if (toUnit === "morning") return " · AM off";
+    if (toUnit === "afternoon") return " · PM off";
+    if (toUnit !== "custom" || !employee.time_off_start || !employee.time_off_end) return "";
+    const s = fmtBlockTime(employee.time_off_start), e = fmtBlockTime(employee.time_off_end);
+    const sm = s.slice(-2), em = e.slice(-2);
+    const sShort = sm === em ? s.slice(0, -3) : s;
+    return ` · ${sShort}–${e}`;
+  })();
   const timeOffText = employee.time_off
     ? `${employee.time_off_label ?? 'Off'}${blockText}`
     : null;
@@ -6288,7 +6297,10 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
             )}
             {employee.zone && <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: employee.zone.zone_color, flexShrink: 0 }} title={employee.zone.zone_name} />}
           </div>
-          <div style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em" }}>{employee.is_trainee ? "Trainee" : employee.role}{timeOffText ? ` · ${timeOffText}` : ""}</div>
+          {/* nowrap + ellipsis so a long time-off suffix can never wrap and
+              overflow the fixed row height into the neighbor's row. The full
+              text stays readable via the title tooltip. */}
+          <div title={`${employee.is_trainee ? "Trainee" : employee.role}${timeOffText ? ` · ${timeOffText}` : ""}`} style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", fontWeight: 700, letterSpacing: "0.05em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{employee.is_trainee ? "Trainee" : employee.role}{timeOffText ? ` · ${timeOffText}` : ""}</div>
           {/* [2026-06-04] Two lines so the two dollar figures don't read as
               one number. Line 1 = the work (jobs · hours · revenue billed).
               Line 2 = what the TECH earns that day (commission/pay), mint +
