@@ -758,11 +758,7 @@ export default function Dashboard() {
             <p style={{ fontSize: 13, color: '#6B6860', margin: '4px 0 0', fontFamily: FF }}>{todayDate}</p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'row', gap: 20, alignItems: 'center' }}>
-            {canAdmin && (
-              <button onClick={() => setShowCloseDay(true)} style={{ alignSelf: 'center', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', backgroundColor: 'rgba(255,255,255,0.7)', color: '#1A1917', border: '1px solid rgba(0,0,0,0.12)', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>
-                <Calendar size={14} /> Close Day
-              </button>
-            )}
+            {/* [header-cleanup 2026-07-08] Removed the Close Day button (Sal: "useless"). */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 120 }}>
               <span style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4, fontFamily: FF }}>Revenue this week</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
