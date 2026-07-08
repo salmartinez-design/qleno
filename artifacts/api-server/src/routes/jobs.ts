@@ -410,10 +410,19 @@ router.post("/", requireAuth, async (req, res) => {
     // [booking-confirmation GAP1] Customer booking confirmation (email + SMS w/
     // appointment-view link). Gate-respecting + per-tenant; no-ops when the job
     // has no client contact. Non-blocking.
+    // [notify-choice 2026-07-08] The wizard passes notify_client_via
+    // ('none'|'sms'|'email'|'both') so the office decides per-save whether the
+    // client hears about it — an internal re-book can send nothing. Absent or
+    // invalid → 'both' (the pre-existing behavior).
     if (client_id) {
-      import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
-        sendJobScheduledConfirmation(req, jobId)
-      ).catch(() => {});
+      const via = String((req.body as any).notify_client_via ?? "both");
+      const channels: Array<"email" | "sms"> =
+        via === "none" ? [] : via === "sms" ? ["sms"] : via === "email" ? ["email"] : ["email", "sms"];
+      if (channels.length) {
+        import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
+          sendJobScheduledConfirmation(req, jobId, { channels })
+        ).catch(() => {});
+      }
     }
 
     // [notifications A.2] Alert the assigned tech of a newly scheduled job (in-app).
@@ -3427,13 +3436,27 @@ router.patch("/:id", requireAuth, async (req, res) => {
       }
     } catch (e) { console.warn("[jobs PATCH] notify failed:", e); }
 
-    // [time-change-notice] Same-day time bump on THIS job → raise the manual
-    // "Send notification" note on its card (before.scheduled_time is the prior
-    // time). A date change is a cross-day reschedule (a separate flow) and
-    // clears any stale flag instead.
+    // [time-change-notice] Schedule change on THIS job → client notification.
+    // [notify-choice 2026-07-08] The edit modal now sends notify_client_via
+    // ('none'|'sms'|'email'|'both') with the save, so the office decides right
+    // there (Francisco: full control, like the skip modal). Behavior:
+    //   - 'sms'/'email'/'both'  → send the updated-schedule notification on
+    //     those channels now; no pending note (the decision was already made).
+    //   - 'none'                → send nothing, raise no note.
+    //   - absent (legacy/other callers) → the pre-existing behavior: same-day
+    //     time bump raises the manual Send-notification note; a date change
+    //     clears any stale flag.
     try {
       const tcFields = new Set(changes.map((c: any) => c.field));
-      if (tcFields.has("scheduled_time") && !tcFields.has("scheduled_date")) {
+      const schedChanged = tcFields.has("scheduled_time") || tcFields.has("scheduled_date");
+      const viaRaw = (req.body as any).notify_client_via;
+      const via = ["none", "sms", "email", "both"].includes(String(viaRaw)) ? String(viaRaw) : null;
+      if (schedChanged && via) {
+        await clearTimeChangePending(jobId, companyId);
+        if (via !== "none") {
+          sendTimeChangeNotification(jobId, companyId, via as "sms" | "email" | "both").catch(() => {});
+        }
+      } else if (tcFields.has("scheduled_time") && !tcFields.has("scheduled_date")) {
         await markTimeChangePending(jobId, companyId, before.scheduled_time ? String(before.scheduled_time).slice(0, 5) : null);
       } else if (tcFields.has("scheduled_date")) {
         await clearTimeChangePending(jobId, companyId);

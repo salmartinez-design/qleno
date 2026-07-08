@@ -304,6 +304,11 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const toggleEmployee = (id: number) => setSelectedEmployees(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  // [notify-choice 2026-07-08] Whether/how the client hears about this booking
+  // (Francisco: office controls every client notification). Default Both —
+  // a real new booking should confirm; the office flips to No for internal
+  // re-books so the client isn't spammed.
+  const [notifyVia, setNotifyVia] = useState<"none" | "sms" | "email" | "both">("both");
 
   // Smart suggestions
   const [suggestions, setSuggestions] = useState<SuggestedTech[]>([]);
@@ -886,6 +891,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           assigned_user_id: selectedEmployees[0] || undefined,
           status: "scheduled",
           branch_id: selectedBranchOverride !== "all" ? selectedBranchOverride : undefined,
+          // [notify-choice 2026-07-08] Office's pick for the booking
+          // confirmation (none/sms/email/both).
+          notify_client_via: notifyVia,
         };
       }
       // [multi-tech-create 2026-06-04] Send the FULL team in the create call.
@@ -2153,6 +2161,28 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
             </div>
           )}
         </div>
+
+        {/* [notify-choice 2026-07-08] Confirmation choice on the final step —
+            residential only (commercial account jobs never send a client
+            confirmation). Default Both = the booking confirmation a client
+            expects on a real new booking; No = silent internal re-book. */}
+        {step === maxStep && clientType !== "commercial" && (
+          <div style={{ padding: "10px 24px", borderTop: "1px solid #F3F4F6", background: "#FCFBF9", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: "#1A1917", flex: "1 1 200px" }}>
+              Send the client a booking confirmation?
+            </span>
+            <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+              {([["none", "No"], ["sms", "Text"], ["email", "Email"], ["both", "Both"]] as const).map(([val, label], i) => (
+                <button key={val} onClick={() => setNotifyVia(val)}
+                  style={{ padding: "7px 14px", border: "none", borderLeft: i === 0 ? "none" : "1px solid #E5E2DC", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit",
+                    background: notifyVia === val ? (val === "none" ? "#1A1917" : "var(--brand, #00C9A0)") : "#FFFFFF",
+                    color: notifyVia === val ? "#FFFFFF" : "#6B6860" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div style={{ padding: "16px 24px", borderTop: "1px solid #F3F4F6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>

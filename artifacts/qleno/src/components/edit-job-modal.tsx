@@ -269,6 +269,11 @@ export default function EditJobModal({
   // [AI.5] Normalize on init — DB may store "09:00:00" or "9:00" which would
   // silently kill canSave's regex (only HH:MM passes). See normalizeTimeStr.
   const [scheduledTime, setScheduledTime] = useState(normalizeTimeStr(job.scheduled_time));
+  // [notify-choice 2026-07-08] When the save changes the schedule, the office
+  // picks here whether the client hears about it and how (Francisco: full
+  // control, like the skip modal). Default None — internal adjustments stay
+  // silent; nothing auto-sends (Maribel 6/30).
+  const [notifyVia, setNotifyVia] = useState<"none" | "sms" | "email" | "both">("none");
   const [allowedHours, setAllowedHours] = useState<number>(initialAllowedHours);
   const [instructions, setInstructions] = useState(job.notes || "");
 
@@ -1217,6 +1222,10 @@ export default function EditJobModal({
         team_user_ids: selectedTechIds,
         instructions,
         cascade_scope: cascade,
+        // [notify-choice 2026-07-08] The office's per-save pick. The backend
+        // only acts on it when the save actually changed date/time; 'none'
+        // suppresses the pending-note nag too (decision already made).
+        notify_client_via: notifyVia,
         // [PR / 2026-04-30] Dry-run flag forwarded when the operator
         // clicked "Preview changes". Backend runs the cascade tx as
         // normal, captures counters, then ROLLBACKs at the end of the
@@ -2375,6 +2384,27 @@ export default function EditJobModal({
                 <div style={{ lineHeight: 1.4 }}>{lastSaveError.message}</div>
               </div>
               <button onClick={() => setLastSaveError(null)} style={{ fontSize: 12, color: "#991B1B", background: "none", border: "none", cursor: "pointer", fontFamily: FF, padding: 0 }}>Dismiss</button>
+            </div>
+          </div>
+        )}
+
+        {/* [notify-choice 2026-07-08] Only rendered when this save moves the
+            schedule. Office picks how (or whether) the client hears about it —
+            None = silent internal adjustment, no reminder note either. */}
+        {(scheduledDate !== job.scheduled_date || scheduledTime !== normalizeTimeStr(job.scheduled_time)) && (
+          <div style={{ padding: "10px 20px", borderTop: "1px solid #E5E2DC", backgroundColor: "#FCFBF9", flexShrink: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: "#1A1917", fontFamily: FF, flex: "1 1 180px" }}>
+              Tell the client about this schedule change?
+            </span>
+            <div style={{ display: "flex", gap: 0, border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+              {([["none", "No"], ["sms", "Text"], ["email", "Email"], ["both", "Both"]] as const).map(([val, label], i) => (
+                <button key={val} onClick={() => setNotifyVia(val)}
+                  style={{ padding: "7px 14px", border: "none", borderLeft: i === 0 ? "none" : "1px solid #E5E2DC", cursor: "pointer", fontFamily: FF, fontSize: 12, fontWeight: 700,
+                    background: notifyVia === val ? (val === "none" ? "#1A1917" : "#00C9A0") : "#FFFFFF",
+                    color: notifyVia === val ? "#FFFFFF" : "#6B6860" }}>
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
         )}
