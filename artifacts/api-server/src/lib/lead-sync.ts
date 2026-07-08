@@ -125,7 +125,7 @@ export async function upsertLeadForQuote(companyId: number, quote: any): Promise
 // Advance a lead's stage + stamp the matching timestamp + optional job/amount.
 export async function advanceLeadStage(
   companyId: number, leadId: number, stage: string,
-  opts: { jobId?: number; quoteAmount?: number | string | null; note?: string | null; userId?: number | null } = {},
+  opts: { jobId?: number; clientId?: number | null; quoteAmount?: number | string | null; note?: string | null; userId?: number | null } = {},
 ): Promise<void> {
   try {
     const stampCol = stage === "quoted" ? "quoted_at" : stage === "booked" ? "booked_at" : stage === "contacted" ? "contacted_at" : null;
@@ -133,6 +133,7 @@ export async function advanceLeadStage(
       UPDATE leads SET status = ${stage}, updated_at = NOW()
         ${stampCol ? sql`, ${sql.raw(stampCol)} = COALESCE(${sql.raw(stampCol)}, NOW())` : sql``}
         ${opts.jobId != null ? sql`, job_id = ${opts.jobId}` : sql``}
+        ${opts.clientId != null ? sql`, client_id = COALESCE(client_id, ${opts.clientId})` : sql``}
         ${opts.quoteAmount != null ? sql`, quote_amount = ${String(opts.quoteAmount)}` : sql``}
         ${opts.userId != null ? sql`, assigned_to = COALESCE(assigned_to, ${opts.userId})` : sql``}
        WHERE id = ${leadId} AND company_id = ${companyId}`);

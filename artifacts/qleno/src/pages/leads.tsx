@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import {
   UserPlus, Search, X,
   Phone, Mail, MapPin, Loader2,
-  MessageSquare, Briefcase, Activity, Eye, ChevronDown,
+  MessageSquare, Briefcase, Activity, Eye, ChevronDown, ChevronRight,
   Send, AlertCircle, CheckCircle2, TrendingUp, Zap,
   PauseCircle, StopCircle, SkipForward,
 } from "lucide-react";
@@ -53,6 +53,9 @@ interface Lead {
   quoted_at: string | null;
   closed_reason: string | null;
   job_id: number | null;
+  // [lead-booked-wiring 2026-07-08] The client this lead became when booked —
+  // drives the "View client" link + the booked-tab wiring.
+  client_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -637,6 +640,7 @@ function confView(c: any): { label: string; sub: string | null; color: string; I
 
 function JobsTab({ lead }: { lead: Lead }) {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [jobs, setJobs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [confStatus, setConfStatus] = useState<Record<number, any>>({});
@@ -697,13 +701,25 @@ function JobsTab({ lead }: { lead: Lead }) {
         const CvIcon = cv.Icon;
         return (
           <div key={j.id} style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "14px 16px" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+            {/* [lead-booked-wiring 2026-07-08] The whole header opens the real
+                job card on the dispatch board (same deep-link the client
+                profile uses), so a booked lead's job is one click away. */}
+            <div
+              onClick={() => navigate(`/dispatch?date=${(j.scheduled_date || "").slice(0, 10)}&job=${j.id}`)}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8, cursor: "pointer" }}
+              title="Open job on the dispatch board">
               <div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
                   {j.service_type || "Cleaning"} — {fmtDate(j.scheduled_date)}
+                  <ChevronRight size={13} color="#9E9B94" />
                 </div>
                 <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, marginTop: 2 }}>
-                  {j.status} {j.base_fee ? `- $${parseFloat(j.base_fee).toFixed(0)}` : ""}
+                  {j.status}{(() => {
+                    // Completed → the actual billed figure; otherwise the
+                    // quoted base_fee (matches the quote + dispatch card).
+                    const amt = j.status === "complete" && j.billed_amount ? j.billed_amount : j.base_fee;
+                    return amt ? ` · $${parseFloat(amt).toFixed(0)}` : "";
+                  })()}
                 </div>
               </div>
             </div>
@@ -839,6 +855,15 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            {/* [lead-booked-wiring 2026-07-08] Once booked, jump straight to
+                the customer profile — never renders when there's no client,
+                so it can't produce /customers/undefined. */}
+            {lead.client_id != null && (
+              <button onClick={() => navigate(`/customers/${lead.client_id}`)}
+                style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, border: "0.5px solid #A7F3D0", background: "#ECFDF5", color: "#065F46", cursor: "pointer", fontFamily: FF }}>
+                View client <ChevronRight size={11} />
+              </button>
+            )}
             <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 8px", borderRadius: 4, textTransform: "uppercase", letterSpacing: 0.4, fontFamily: FF, background: cfg.bg, color: cfg.color }}>
               {cfg.label}
             </span>

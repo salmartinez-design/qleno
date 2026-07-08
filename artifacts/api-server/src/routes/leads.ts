@@ -170,7 +170,7 @@ router.post("/backfill-from-quotes", requireAuth, requireRole("owner", "admin"),
     const { upsertLeadForQuote, advanceLeadStage } = await import("../lib/lead-sync.js");
     const quotes = await db.execute(sql`
       SELECT id, lead_id, lead_name, lead_email, lead_phone, address,
-             status, total_price, base_price, booked_job_id
+             status, total_price, base_price, booked_job_id, client_id
         FROM quotes WHERE company_id = ${companyId} AND lead_id IS NULL`);
     let created = 0;
     for (const q of quotes.rows as any[]) {
@@ -178,9 +178,20 @@ router.post("/backfill-from-quotes", requireAuth, requireRole("owner", "admin"),
       if (!leadId) continue;
       created++;
       const amt = q.total_price ?? q.base_price ?? null;
-      if (q.status === "booked" || q.booked_job_id) await advanceLeadStage(companyId, leadId, "booked", { jobId: q.booked_job_id ?? undefined, quoteAmount: amt });
+      if (q.status === "booked" || q.booked_job_id) await advanceLeadStage(companyId, leadId, "booked", { jobId: q.booked_job_id ?? undefined, clientId: q.client_id ?? undefined, quoteAmount: amt });
       else if (q.status === "sent" || q.status === "viewed") await advanceLeadStage(companyId, leadId, "quoted", { quoteAmount: amt });
     }
+    // [lead-booked-wiring 2026-07-08] Leads already linked to a quote
+    // (lead_id set, so skipped above) but missing their client/job links —
+    // fill them straight from the quote. Covers every already-booked lead.
+    await db.execute(sql`
+      UPDATE leads l SET
+             client_id = COALESCE(l.client_id, q.client_id),
+             job_id    = COALESCE(l.job_id, q.booked_job_id)
+        FROM quotes q
+       WHERE q.lead_id = l.id AND q.company_id = l.company_id AND l.company_id = ${companyId}
+         AND (q.client_id IS NOT NULL OR q.booked_job_id IS NOT NULL)
+         AND (l.client_id IS NULL OR l.job_id IS NULL)`).catch(() => {});
     return res.json({ ok: true, quotes_processed: (quotes.rows as any[]).length, leads_linked: created });
   } catch (err) {
     console.error("[leads] backfill-from-quotes", err);
@@ -501,18 +512,34 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
   try {
     const companyId = req.auth!.companyId!;
     const leadId = parseInt(req.params.id);
+    // [lead-booked-wiring 2026-07-08] Once the lead has converted, its
+    // conversation continues on the CLIENT (booking confirmation, reminders,
+    // the office's replies). Pull the client id so the thread keeps showing
+    // everything the customer received after they booked, not just the
+    // pre-booking lead texts (Sal: "The communication needs to be visible on
+    // the lead if she did move forward to book").
+    const [leadRow] = (await db.execute(sql`SELECT client_id FROM leads WHERE id = ${leadId} AND company_id = ${companyId} LIMIT 1`)).rows as any[];
+    const clientId: number | null = leadRow?.client_id ?? null;
     const rows = await db.execute(sql`
       SELECT id, direction, body, NULL AS channel, status, created_at, NULL AS step_number
         FROM sms_messages
        WHERE company_id = ${companyId} AND lead_id = ${leadId}
       UNION ALL
-      SELECT ml.id, 'outbound' AS direction, ml.body, fs.channel, ml.status, ml.sent_at AS created_at,
-             fst.step_number
+      -- [lead-booked-wiring 2026-07-08] Was joining follow_up_steps/sequences
+      -- on ml.step_id — a column that doesn't exist, so the WHOLE endpoint
+      -- 500'd and every lead's Messages tab read blank. channel + step_number
+      -- live directly on message_log; drop the broken joins.
+      SELECT ml.id, 'outbound' AS direction, ml.body, ml.channel::text, ml.status, ml.sent_at AS created_at,
+             ml.step_number
         FROM message_log ml
         JOIN follow_up_enrollments fe ON fe.id = ml.enrollment_id
-        JOIN follow_up_steps fst ON fst.id = ml.step_id
-        JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
        WHERE fe.company_id = ${companyId} AND fe.lead_id = ${leadId}
+      ${clientId != null ? sql`
+      UNION ALL
+      SELECT com.id, com.direction::text, COALESCE(com.summary, com.subject, com.body) AS body,
+             com.channel::text, com.delivery_status AS status, com.logged_at AS created_at, NULL AS step_number
+        FROM communication_log com
+       WHERE com.company_id = ${companyId} AND com.customer_id = ${clientId}` : sql``}
        ORDER BY created_at ASC`);
     return res.json(rows.rows);
   } catch (err) {
@@ -573,11 +600,18 @@ router.get("/:id/jobs", requireAuth, requireRole("owner", "admin", "office"), as
 
     const { job_id, email } = leadRow.rows[0] as any;
 
+    // [lead-booked-wiring 2026-07-08] Was LEFT JOIN on j.assigned_employee_id —
+    // that column doesn't exist (it's assigned_user_id), so this query threw
+    // 500 and the frontend's `if (r.ok)` swallowed it into "No jobs linked",
+    // even though convert had stamped leads.job_id. Also surface client_id +
+    // billed_amount so the panel can deep-link the job card and show the real
+    // total (base_fee is often the all-in flat price; billed_amount is the
+    // completed figure).
     const rows = await db.execute(sql`
-      SELECT j.id, j.service_type, j.status, j.scheduled_date, j.base_fee,
+      SELECT j.id, j.service_type, j.status, j.scheduled_date, j.base_fee, j.billed_amount, j.client_id,
              u.first_name as tech_first_name, u.last_name as tech_last_name
       FROM jobs j
-      LEFT JOIN users u ON u.id = j.assigned_employee_id
+      LEFT JOIN users u ON u.id = j.assigned_user_id
       WHERE j.company_id = ${companyId}
         AND (
           j.id = ${job_id || 0}
