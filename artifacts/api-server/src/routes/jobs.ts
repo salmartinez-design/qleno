@@ -2017,6 +2017,17 @@ router.patch("/:id", requireAuth, async (req, res) => {
       if (scheduled_time !== undefined) setParts.scheduled_time = scheduled_time;
       if (allowed_hours !== undefined) setParts.allowed_hours = String(allowed_hours);
       if (base_fee !== undefined) setParts.base_fee = String(base_fee);
+      // [price-edit-fix 2026-07-08] Keep billed_amount in sync when the price
+      // actually changes. The dispatch card reads billed_amount first
+      // (COALESCE(billed_amount, base_fee)); without this, editing the base
+      // rate saved to base_fee but the card kept rendering the stale cached
+      // billed_amount — so the office saw the edit "not work" and resorted to
+      // creating a duplicate job (Francisco). Gated on a REAL change so a
+      // tech-only / notes-only edit (which still echoes base_fee back) never
+      // clobbers a completed job's actually-invoiced amount.
+      if (base_fee !== undefined && String(base_fee) !== String(before.base_fee ?? "")) {
+        setParts.billed_amount = String(base_fee);
+      }
       if (hourly_rate !== undefined) setParts.hourly_rate = hourly_rate === null ? null : String(hourly_rate);
       if (nextManualOverride !== undefined) setParts.manual_rate_override = nextManualOverride;
       if (instructions !== undefined) setParts.notes = instructions;
