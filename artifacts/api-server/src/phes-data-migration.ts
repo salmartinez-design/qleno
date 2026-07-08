@@ -98,6 +98,40 @@ async function runBookingSchemaGuard(): Promise<void> {
          AND p.notes IS NOT NULL AND p.notes <> ''
          AND j.office_notes = p.notes
     ` },
+    // [time-block 2026-07-08] Manual time-off records gain a TYPE + TIME BLOCK
+    // so the dispatch board stops guessing "full-day PTO" for every office
+    // entry: Jose called off 2-6 PM but his whole row tinted absent; Hilda's
+    // 4h UNPAID deduction rendered as full-day PTO.
+    { label: "attendance_log.start_time", stmt: "ALTER TABLE employee_attendance_log ADD COLUMN IF NOT EXISTS start_time TIME" },
+    { label: "attendance_log.end_time", stmt: "ALTER TABLE employee_attendance_log ADD COLUMN IF NOT EXISTS end_time TIME" },
+    { label: "leave_usage.leave_type_id", stmt: "ALTER TABLE employee_leave_usage ADD COLUMN IF NOT EXISTS leave_type_id INTEGER" },
+    { label: "leave_usage.start_time", stmt: "ALTER TABLE employee_leave_usage ADD COLUMN IF NOT EXISTS start_time TIME" },
+    { label: "leave_usage.end_time", stmt: "ALTER TABLE employee_leave_usage ADD COLUMN IF NOT EXISTS end_time TIME" },
+    // Backfill leave_type_id from the notes tag the deduction flow has always
+    // written ("… usage/<bucket>"). Idempotent: only NULL rows.
+    { label: "leave_usage backfill type from notes tag", stmt: `
+      UPDATE employee_leave_usage elu SET leave_type_id = lt.id
+        FROM leave_types lt
+       WHERE elu.leave_type_id IS NULL AND lt.company_id = elu.company_id AND lt.active = true
+         AND elu.notes LIKE '%usage/%'
+         AND lower(split_part(elu.notes, 'usage/', 2)) IN (lower(lt.slug), lower(replace(lt.display_name, ' ', '_')), lower(split_part(lt.slug, '_', 1)))
+    ` },
+    // Sal's corrections for 2026-07-07 (idempotent via natural keys + NULL guards):
+    // Jose Ardila (44) worked his morning job and called off 2-6 PM — the
+    // occurrence stays full for discipline; the board shows just the block.
+    { label: "jose 7/7 absence time block", stmt: `
+      UPDATE employee_attendance_log SET start_time = '14:00', end_time = '18:00'
+       WHERE company_id = 1 AND employee_id = 44 AND log_date = '2026-07-07'
+         AND type = 'absent' AND start_time IS NULL
+    ` },
+    // Hilda Gallegos (516): 4h office deduction 2-6 PM was UNPAID LEAVE, not
+    // PTO and not a full day.
+    { label: "hilda 7/7 unpaid-leave block", stmt: `
+      UPDATE employee_leave_usage SET
+             leave_type_id = (SELECT id FROM leave_types WHERE company_id = 1 AND slug = 'unpaid_leave' LIMIT 1),
+             start_time = '14:00', end_time = '18:00'
+       WHERE company_id = 1 AND employee_id = 516 AND date_used = '2026-07-07' AND start_time IS NULL
+    ` },
     // [photo-stickiness 2026-07-07] Pin every recurring job to its cadence
     // slot. Legacy rows (pre-occurrence_date / MC cutover) have
     // occurrence_date NULL, so the engine's slot dedup falls back to the

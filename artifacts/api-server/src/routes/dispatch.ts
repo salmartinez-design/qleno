@@ -358,10 +358,21 @@ async function buildDispatchPayload(
     }
 
     // Time-off data for the board date
-    // PTO = leave_usage record exists for this date
+    // [time-block 2026-07-08] Manual entries now carry a DESIGNATION
+    // (leave_type_id on deductions) and an optional TIME BLOCK (start/end on
+    // both tables). The board used to guess: any office deduction rendered as
+    // full-day PTO (Hilda's 4h UNPAID 2-6 PM block), and a partial call-off
+    // tinted the whole row (Jose worked his morning job). Now the slug comes
+    // from the record and the tint covers only the designated window.
     const leaveUsage = await db
-      .select({ employee_id: employeeLeaveUsageTable.employee_id })
+      .select({
+        employee_id: employeeLeaveUsageTable.employee_id,
+        slug: leaveTypesTable.slug,
+        start_time: employeeLeaveUsageTable.start_time,
+        end_time: employeeLeaveUsageTable.end_time,
+      })
       .from(employeeLeaveUsageTable)
+      .leftJoin(leaveTypesTable, eq(employeeLeaveUsageTable.leave_type_id, leaveTypesTable.id))
       .where(and(
         eq(employeeLeaveUsageTable.company_id, companyId),
         eq(employeeLeaveUsageTable.date_used, date),
@@ -369,7 +380,12 @@ async function buildDispatchPayload(
 
     // Sick / absent from attendance log for this date
     const attendanceLogs = await db
-      .select({ employee_id: employeeAttendanceLogTable.employee_id, type: employeeAttendanceLogTable.type })
+      .select({
+        employee_id: employeeAttendanceLogTable.employee_id,
+        type: employeeAttendanceLogTable.type,
+        start_time: employeeAttendanceLogTable.start_time,
+        end_time: employeeAttendanceLogTable.end_time,
+      })
       .from(employeeAttendanceLogTable)
       .where(and(
         eq(employeeAttendanceLogTable.company_id, companyId),
@@ -378,12 +394,12 @@ async function buildDispatchPayload(
       ));
 
     // Approved leave requests overlapping the board date → the FOUR distinct
-    // buckets + the day unit (full/AM/PM). This is the authoritative source so
-    // PTO / PLAWA / Unpaid / Unexcused each show distinctly; a half-day keeps
-    // the tech available the worked half (we surface the unit; the board treats
-    // half-days as still-suggestable).
+    // buckets + the day unit (full/AM/PM/custom). This is the authoritative
+    // source so PTO / PLAWA / Unpaid / Unexcused each show distinctly; a
+    // half-day keeps the tech available the worked half (we surface the unit;
+    // the board treats half-days as still-suggestable).
     const approvedLeave = await db
-      .select({ user_id: leaveRequestsTable.user_id, slug: leaveTypesTable.slug, day_unit: leaveRequestsTable.day_unit })
+      .select({ user_id: leaveRequestsTable.user_id, slug: leaveTypesTable.slug, day_unit: leaveRequestsTable.day_unit, start_time: leaveRequestsTable.start_time, end_time: leaveRequestsTable.end_time })
       .from(leaveRequestsTable)
       .innerJoin(leaveTypesTable, eq(leaveRequestsTable.leave_type_id, leaveTypesTable.id))
       .where(and(
@@ -402,29 +418,52 @@ async function buildDispatchPayload(
     const bucketDisplayBySlug = new Map(
       tenantBuckets.map((b) => [String(b.slug), resolveBucketDisplay(b as any)]),
     );
-    const leaveByEmp = new Map<number, { slug: string; unit: string }>();
+    type TimeOffRec = { slug: string; unit: 'full_day' | 'morning' | 'afternoon' | 'custom'; start: string | null; end: string | null };
+    const hhmm = (t: any): string | null => (t ? String(t).slice(0, 5) : null);
+    const blockUnit = (start: any, end: any): 'full_day' | 'custom' => (start && end ? 'custom' : 'full_day');
+    // Priority: approved leave request (authoritative) → attendance log →
+    // manual leave-usage deduction. First writer per employee wins within
+    // each tier; a request always beats manual rows.
+    const timeOffByEmp = new Map<number, TimeOffRec>();
+    for (const r of [...attendanceLogs.map(a => ({
+      employee_id: a.employee_id,
+      // The board's designation for an office-recorded absence/ncns is the
+      // tenant's UNEXCUSED bucket (its color/label were picked by the
+      // office); plawa/protected map to the PLAWA bucket. 'absent' pseudo-
+      // bucket stays the fallback when the tenant has no unexcused bucket.
+      slug: (a.type === 'plawa_leave' || a.type === 'protected_leave')
+        ? 'plawa'
+        : (bucketDisplayBySlug.has('unexcused') ? 'unexcused' : 'absent'),
+      start_time: a.start_time, end_time: a.end_time,
+    })), ...leaveUsage.map(u => ({
+      employee_id: u.employee_id,
+      // Designation from the deduction's recorded bucket; legacy rows
+      // without one keep the old PTO assumption.
+      slug: u.slug ? String(u.slug) : 'pto_phes',
+      start_time: u.start_time, end_time: u.end_time,
+    }))]) {
+      if (!timeOffByEmp.has(r.employee_id)) {
+        timeOffByEmp.set(r.employee_id, { slug: r.slug, unit: blockUnit(r.start_time, r.end_time), start: hhmm(r.start_time), end: hhmm(r.end_time) });
+      }
+    }
     for (const r of approvedLeave) {
-      leaveByEmp.set(r.user_id, { slug: String(r.slug), unit: String(r.day_unit) });
+      timeOffByEmp.set(r.user_id, {
+        slug: String(r.slug),
+        unit: String(r.day_unit) as TimeOffRec['unit'],
+        start: hhmm((r as any).start_time),
+        end: hhmm((r as any).end_time),
+      });
     }
 
-    const ptoSet = new Set(leaveUsage.map(r => r.employee_id)); // legacy fallback
-    const sickSet = new Set(attendanceLogs.filter(r => r.type === 'plawa_leave' || r.type === 'protected_leave').map(r => r.employee_id));
-    const absentSet = new Set(attendanceLogs.filter(r => r.type === 'absent' || r.type === 'ncns').map(r => r.employee_id));
-
-    // Returns the bucket SLUG (or 'absent' pseudo-bucket) in effect for the day.
     function getTimeOff(empId: number): string | null {
-      const lv = leaveByEmp.get(empId);
-      if (lv) return lv.slug;
-      if (absentSet.has(empId)) return 'absent';
-      if (sickSet.has(empId)) return 'plawa';
-      if (ptoSet.has(empId)) return 'pto_phes';
-      return null;
+      return timeOffByEmp.get(empId)?.slug ?? null;
     }
-    function getTimeOffUnit(empId: number): 'full_day' | 'morning' | 'afternoon' | null {
-      const lv = leaveByEmp.get(empId);
-      if (lv) return lv.unit as 'full_day' | 'morning' | 'afternoon';
-      if (absentSet.has(empId) || sickSet.has(empId) || ptoSet.has(empId)) return 'full_day';
-      return null;
+    function getTimeOffUnit(empId: number): TimeOffRec['unit'] | null {
+      return timeOffByEmp.get(empId)?.unit ?? null;
+    }
+    function getTimeOffBlock(empId: number): { start: string | null; end: string | null } {
+      const rec = timeOffByEmp.get(empId);
+      return { start: rec?.start ?? null, end: rec?.end ?? null };
     }
     function getTimeOffColor(empId: number): string | null {
       const slug = getTimeOff(empId);
@@ -451,6 +490,8 @@ async function buildDispatchPayload(
           time_off_unit: getTimeOffUnit(e.id),
           time_off_color: getTimeOffColor(e.id),
           time_off_label: getTimeOffLabel(e.id),
+          time_off_start: getTimeOffBlock(e.id).start,
+          time_off_end: getTimeOffBlock(e.id).end,
           commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         })),
         unassigned_jobs: [],
@@ -1298,6 +1339,8 @@ async function buildDispatchPayload(
         time_off_unit: getTimeOffUnit(e.id),
         time_off_color: getTimeOffColor(e.id),
         time_off_label: getTimeOffLabel(e.id),
+        time_off_start: getTimeOffBlock(e.id).start,
+        time_off_end: getTimeOffBlock(e.id).end,
         commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         avatar_url: e.avatar_url ?? null,
       })),

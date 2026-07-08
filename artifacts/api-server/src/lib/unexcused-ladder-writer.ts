@@ -65,6 +65,11 @@ export interface UnexcusedLadderArgs {
   /** Optional human/system context. Appended to the notes regex
    *  marker as `unexcused hours: X.XX (<note>)`. */
   note?: string;
+  /** [time-block 2026-07-08] Optional block the absence covers ("HH:MM").
+   *  Both or neither. Display-only — the occurrence still counts fully for
+   *  the ladder; the dispatch board tints just this window. */
+  start_time?: string | null;
+  end_time?: string | null;
   /** NULL = system-recorded (auto-tardy sweep); a user id = office record. */
   logged_by: number | null;
 }
@@ -125,6 +130,8 @@ export async function recordUnexcusedEntryAndDriveLadder(
       type: args.type,
       protected: args.protected ?? false,
       notes: `unexcused hours: ${hours.toFixed(2)}${noteSuffix}`,
+      start_time: args.start_time ?? null,
+      end_time: args.end_time ?? null,
       logged_by: args.logged_by,
     })
     .returning({ id: employeeAttendanceLogTable.id });

@@ -1,5 +1,5 @@
 import {
-  pgTable, serial, integer, boolean, text, timestamp, date, pgEnum, numeric
+  pgTable, serial, integer, boolean, text, timestamp, date, pgEnum, numeric, time
 } from "drizzle-orm/pg-core";
 import { companiesTable } from "./companies";
 import { usersTable } from "./users";
@@ -22,6 +22,12 @@ export const employeeAttendanceLogTable = pgTable("employee_attendance_log", {
   type: attendanceLogTypeEnum("type").notNull(),
   protected: boolean("protected").default(false),
   notes: text("notes"),
+  // [time-block 2026-07-08] Optional block the entry covers (e.g. Jose worked
+  // his morning job and called off 2-6 PM). NULL = whole day. Display-only:
+  // the occurrence still counts fully for the discipline ladder; the dispatch
+  // board tints just this window instead of the entire row.
+  start_time: time("start_time"),
+  end_time: time("end_time"),
   logged_by: integer("logged_by").references(() => usersTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
@@ -65,6 +71,13 @@ export const employeeLeaveUsageTable = pgTable("employee_leave_usage", {
   date_used: date("date_used").notNull(),
   hours: numeric("hours", { precision: 6, scale: 2 }).notNull(),
   notes: text("notes"),
+  // [time-block 2026-07-08] Which bucket this deduction came from — was only a
+  // notes-string tag before, so the dispatch board had to GUESS "PTO" for
+  // every office deduction (Hilda's 4h unpaid block rendered as full-day PTO).
+  leave_type_id: integer("leave_type_id"),
+  // Optional block the deduction covers. NULL = whole day.
+  start_time: time("start_time"),
+  end_time: time("end_time"),
   logged_by: integer("logged_by").references(() => usersTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
