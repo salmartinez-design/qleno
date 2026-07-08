@@ -405,6 +405,27 @@ export async function computeOccurrencesForSchedule(
 
   const existingDates = new Set((existing.rows as any[]).map(r => String(r.occ)));
 
+  // [dup-guard 2026-07-08] Also treat an existing ACTIVE job for the SAME TARGET
+  // (this client, or this account+property) on a slot as filled — even when it
+  // isn't linked to THIS schedule. Legacy/imported jobs commonly have
+  // recurring_schedule_id NULL, so the schedule-scoped dedup above doesn't see
+  // them and the engine regenerates a DUPLICATE onto the same slot (Jennifer
+  // Joy: two jobs each on 7/15 & 7/22). Matching the billing target closes that.
+  // Cancelled jobs are excluded — a cancelled slot may legitimately be re-filled.
+  const _isAcctSchedule = (schedule as any).account_id != null;
+  const targetExisting = await db.execute(sql`
+    SELECT COALESCE(occurrence_date, scheduled_date)::text AS occ
+    FROM jobs
+    WHERE company_id = ${schedule.company_id}
+      AND status <> 'cancelled'
+      AND COALESCE(occurrence_date, scheduled_date) >= ${fromStr}
+      AND COALESCE(occurrence_date, scheduled_date) <= ${toStr}
+      AND ${_isAcctSchedule
+        ? sql`account_id = ${(schedule as any).account_id} AND account_property_id IS NOT DISTINCT FROM ${(schedule as any).account_property_id ?? null}`
+        : sql`client_id = ${(schedule as any).customer_id}`}
+  `);
+  for (const r of targetExisting.rows as any[]) existingDates.add(String(r.occ));
+
   // [recurring-delete-skip 2026-06-05] Occurrence dates the office deleted on
   // purpose. The generator must NOT regenerate them — otherwise a deleted
   // recurring occurrence "keeps coming back". Stored as YYYY-MM-DD on the
