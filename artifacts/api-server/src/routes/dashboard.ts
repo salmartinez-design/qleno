@@ -375,6 +375,13 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
     const daysToMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
     const weekStart = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysToMon);
     const weekStartStr = weekStart.toISOString().split("T")[0];
+    // [week-revenue-fullweek 2026-07-08] Full week end (Sunday). "Revenue this
+    // week" must count the WHOLE week's booked schedule, not just up to today —
+    // Sal: "for the week it should count jobs as they are added to the schedule
+    // (or deduct)." Capping at today dropped every Thu-Sun job already on the
+    // books, so the number read low and the vs-prior-week delta (which uses the
+    // full prior week) was apples-to-oranges (a phantom -45%).
+    const weekEndStr = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString().split("T")[0];
     const prevWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
     const prevWeekStartStr = prevWeekStart.toISOString().split("T")[0];
     const prevWeekEndStr = new Date(weekStart.getTime() - 1).toISOString().split("T")[0];
@@ -433,7 +440,7 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
         WHERE j.company_id = ${companyId}
           AND j.status != 'cancelled'
           AND j.scheduled_date >= ${weekStartStr}
-          AND j.scheduled_date <= ${todayStr}
+          AND j.scheduled_date <= ${weekEndStr}
       `),
       // Previous week revenue (for delta calculation)
       db.execute(sql`
