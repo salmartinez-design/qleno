@@ -130,6 +130,25 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
       return res.json({ success: true, sms_sent: false, reason: "Client opted out of SMS", log_id: log.id });
     }
 
+    // [notif-prefs-enforce 2026-07-07] Honor the per-client/account message
+    // toggle. This route predates the preference layer (PR #774) and was the
+    // ONLY live sender that skipped it — a client with "On My Way" or
+    // "Cleaning Started" SMS toggled OFF still got the text when the tech
+    // tapped the button. Same trigger keys the grid writes (on_my_way /
+    // job_started); events without a grid row (paused/resumed/complete) are
+    // unaffected. Fail-open like every other caller: only an explicit OFF
+    // suppresses.
+    const prefTrigger = JOBSTATUS_TO_TRIGGER[event];
+    if (prefTrigger && job.client_id) {
+      try {
+        const { isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
+        const enabled = await isMessageEnabledForJob({ companyId, clientId: job.client_id }, prefTrigger, "sms");
+        if (!enabled) {
+          return res.json({ success: true, sms_sent: false, reason: "This message is turned off for this client", log_id: log.id });
+        }
+      } catch { /* fail-open — a pref-layer error must never block the send */ }
+    }
+
     const clientName = `${client.first_name}`;
     const empName    = `${emp?.first_name ?? "Your cleaner"}`;
     const addr       = [client.address, client.city].filter(Boolean).join(", ") || "your address";
