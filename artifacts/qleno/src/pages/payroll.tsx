@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { EmployeeAvatar } from "@/components/employee-avatar";
-import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
+import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight, AlertTriangle, Navigation } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -1032,6 +1032,27 @@ export default function PayrollPage() {
     }
   }
 
+  // [mileage-auto 2026-07-08] On-demand mileage recompute — the manual twin of
+  // the nightly cron. Runs On My Way → clock-sequence → scheduled failsafe for
+  // the tenant's recent open periods, then refreshes the detail so new legs
+  // surface. Compute only; nothing becomes pay until the office reviews.
+  const [recomputingMi, setRecomputingMi] = useState(false);
+  async function handleRecomputeMileage() {
+    setRecomputingMi(true);
+    try {
+      const r = await apiFetch('/pay/recompute-mileage-now', { method: 'POST' });
+      const n = r?.data?.inserted ?? 0;
+      qc.invalidateQueries({ queryKey: ['payroll-detail'] });
+      window.alert(n > 0
+        ? `Mileage recomputed — ${n} new leg${n === 1 ? '' : 's'} added for review.`
+        : `Mileage recomputed — no new legs (already up to date).`);
+    } catch (e: any) {
+      window.alert(`Recompute failed: ${e?.message || e}`);
+    } finally {
+      setRecomputingMi(false);
+    }
+  }
+
   // Pay Templates removed per Sal (2026-06-08): additional pay is added directly
   // on the employee profile and cascades into the payroll summary by date.
 
@@ -1072,6 +1093,10 @@ export default function PayrollPage() {
                 <button onClick={() => setShowAddPay(true)}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#1A1917', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                   <Plus size={14} strokeWidth={1.8} /> Add pay
+                </button>
+                <button onClick={handleRecomputeMileage} disabled={recomputingMi} title="Recalculate driving mileage from clock-ins, On My Way taps, and the schedule. Pends for review — nothing is paid until you apply it."
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#1A1917', fontSize: 13, fontWeight: 600, cursor: recomputingMi ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                  <Navigation size={14} strokeWidth={1.8} /> {recomputingMi ? 'Recomputing…' : 'Recompute mileage'}
                 </button>
                 <button onClick={handlePublish} disabled={publishing}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#1A1917', fontSize: 13, fontWeight: 600, cursor: publishing ? 'default' : 'pointer', fontFamily: 'inherit' }}>

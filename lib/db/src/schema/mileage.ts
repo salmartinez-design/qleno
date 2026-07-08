@@ -56,6 +56,10 @@ import {
 export const mileageLegSourceEnum = pgEnum("mileage_leg_source", [
   "on_my_way",
   "clock_sequence",
+  // Schedule failsafe: tech neither tapped On My Way nor clocked, but a
+  // completed job places them there — drive estimated from the day's
+  // scheduled stops. Always measurement_is_estimated=true.
+  "scheduled",
 ]);
 import { companiesTable } from "./companies";
 import { usersTable } from "./users";

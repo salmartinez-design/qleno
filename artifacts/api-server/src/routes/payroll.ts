@@ -1000,6 +1000,52 @@ router.get("/detail", requireAuth, async (req, res) => {
       });
     }
 
+    // [mileage-read-fix 2026-07-08] Emit a record for techs who have MILEAGE or
+    // additional-pay/adjustments in this window but NO clocked completed-job pay
+    // line — otherwise the loop above skips them and their mileage silently
+    // drops. This is what made the tech My-Pay "YTD" mileage read $0 even though
+    // a leg existed: a window with mileage but no completed+clocked job produced
+    // no employee object, so the frontend's data[0] was undefined → $0.
+    const emitted = new Set<number>(linesByUser.keys());
+    const extraUids = new Set<number>();
+    for (const uid of mileageByUser.keys()) extraUids.add(uid);
+    for (const uid of adjByUser.keys()) extraUids.add(uid);
+    for (const p of addlPay) extraUids.add(p.user_id);
+    for (const uid of extraUids) {
+      if (emitted.has(uid)) continue;
+      if (sandboxUserIds.has(uid)) continue;
+      if (filterUserId && uid !== filterUserId) continue;
+      const user = userMap.get(uid) || { first_name: "Unknown", last_name: "" };
+      const addlByType: Record<string, number> = {};
+      for (const p of addlPay.filter(p => p.user_id === uid)) {
+        addlByType[p.type] = (addlByType[p.type] || 0) + parseFloat(String(p.amount || 0));
+      }
+      for (const [adjType, amt] of Object.entries(adjByUser.get(uid) || {})) {
+        addlByType[adjType] = (addlByType[adjType] || 0) + amt;
+      }
+      const mileage = Math.round((mileageByUser.get(uid) || 0) * 100) / 100;
+      const grandTotal = Object.values(addlByType).reduce((s, v) => s + v, 0);
+      result.push({
+        user_id: uid,
+        name: `${user.first_name} ${user.last_name}`.trim(),
+        jobs: [],
+        additional_pay: addlByType,
+        commission_by_branch: [],
+        totals: {
+          job_count: 0,
+          job_total: 0,
+          commission: 0,
+          hrs_scheduled: 0,
+          hrs_worked: 0,
+          mileage,
+          effective_rate: null,
+          quality_avg: null,
+          quality_count: 0,
+          grand_total: Math.round(grandTotal * 100) / 100,
+        },
+      });
+    }
+
     return res.json({ data: result, res_tech_pay_pct: resPct });
   } catch (err) {
     console.error("Payroll detail error:", err);

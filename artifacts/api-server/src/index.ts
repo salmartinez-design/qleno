@@ -17,6 +17,7 @@ import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill
 import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
 import { runAutoTardySweep } from "./lib/auto-tardy.js";
 import { runScorecardCompositeCron } from "./lib/scorecard-composite.js";
+import { runMileageAutoCompute } from "./lib/mileage-auto-cron.js";
 import { setAppReady } from "./lib/readiness.js";
 import { processScheduledSms } from "./lib/sms-scheduler.js";
 
@@ -142,6 +143,26 @@ function startNotificationCron() {
     if (ctH === 3 && fired["scorecard_composite"] !== `${ctDate}-3`) {
       fired["scorecard_composite"] = `${ctDate}-3`;
       runScorecardCompositeCron().catch((e: Error) => console.error("[cron] scorecard_composite error:", e));
+    }
+    // 4 AM CT → auto-compute mileage for every mileage-enabled tenant's open
+    // period(s). The engine (On My Way → clock-sequence → scheduled failsafe)
+    // existed but nothing triggered it, so payroll showed $0. This is that
+    // trigger. COMPUTE only — legs land status='computed' for the office to
+    // review; no pay moves. Idempotent + distance-cached, so re-runs are cheap.
+    // Gated by MILEAGE_AUTO_COMPUTE_ENABLED (default ON; "off" kills it).
+    if (ctH === 4 && fired["mileage_auto"] !== `${ctDate}-4` && process.env.MILEAGE_AUTO_COMPUTE_ENABLED !== "off") {
+      fired["mileage_auto"] = `${ctDate}-4`;
+      runMileageAutoCompute()
+        .then((r) => console.log(`[cron] mileage_auto: ${r.inserted} legs across ${r.periods} period(s), ${r.companies} tenant(s)`))
+        .catch((e: Error) => console.error("[cron] mileage_auto error:", e));
+    }
+    // Boot run (once, first tick) so flipping the env / deploying doesn't leave
+    // mileage stale until 4 AM. Idempotent — inserts only new legs.
+    if (!fired["mileage_auto_boot"] && process.env.MILEAGE_AUTO_COMPUTE_ENABLED !== "off") {
+      fired["mileage_auto_boot"] = "done";
+      runMileageAutoCompute()
+        .then((r) => console.log(`[boot] mileage_auto: ${r.inserted} legs across ${r.periods} period(s), ${r.companies} tenant(s)`))
+        .catch((e: Error) => console.error("[boot] mileage_auto error:", e));
     }
     // December 1 at 9 AM CT → annual re-acknowledgment cycle auto-open
     // for every tenant. Idempotent: skips tenants with an existing

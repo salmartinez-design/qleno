@@ -74,6 +74,7 @@ import {
 import { pickMileageRateForDate } from "../lib/mileage-rate-lookup.js";
 import { getDistanceProvider } from "../lib/distance-provider-factory.js";
 import type { DistanceProvider } from "../lib/distance-provider.js";
+import { runMileageAutoCompute } from "../lib/mileage-auto-cron.js";
 import {
   reconcileCommissionRows,
   type CommissionInputJob,
@@ -900,6 +901,127 @@ async function deriveClockSequenceLegs(
   return { legs_considered: legs.length, inserted, skipped };
 }
 
+// [mileage-schedule-failsafe 2026-07-08] Third mileage source — the FAILSAFE.
+// When a tech neither taps "On My Way" NOR clocks in/out on a PAST day, but a
+// completed job says they were there, mileage would otherwise be zero. This
+// derives the drive from that day's SCHEDULED stops (client addresses, in
+// start-time order), so the office still has mileage to review. Sal's confirmed
+// rule: "if the tech didn't clock in or out the mileage would still calculate
+// and pend for approval."
+//
+// Scope guards, deliberately narrow so it never double-counts the precise paths:
+//   - Only (tech, day) with ZERO punched clocks AND ZERO On My Way events that
+//     day — days with any clock activity are handled by the clock-sequence path.
+//   - Only PAST days (leg_date < today CT) — a day still in progress isn't final.
+//   - Only status='complete' jobs — the job actually happened.
+// Legs are stamped leg_source='scheduled' + measurement_is_estimated=true
+// (inferred, not witnessed) so the review UI flags them, status='computed' so
+// nothing is pay until the 2B gate. Idempotent via mileage_legs_scheduled_uq.
+async function deriveScheduledLegsForPeriod(
+  companyId: number,
+  periodId: number,
+  startDate: string,
+  endDate: string,
+  provider: DistanceProvider,
+): Promise<{ legs_considered: number; inserted: number; skipped: Record<string, number> }> {
+  const rateRows = await db
+    .select({ rate: mileageRatesTable.rate, effective_date: mileageRatesTable.effective_date, end_date: mileageRatesTable.end_date })
+    .from(mileageRatesTable).where(eq(mileageRatesTable.company_id, companyId));
+  const rateInputs = rateRows.map((r) => ({ rate: r.rate, effective_date: String(r.effective_date), end_date: r.end_date != null ? String(r.end_date) : null }));
+  const rateForDate = (date: string) => pickMileageRateForDate(rateInputs, date);
+
+  // Completed jobs in the window on PAST days, for techs who left NO clock and
+  // NO On My Way trace that day. Ordered by (tech, day, scheduled start) so
+  // consecutive rows form the drive A→B. Coords prefer the geocoded job point,
+  // else the client's.
+  const rows = (await db.execute(sql`
+    SELECT j.assigned_user_id AS user_id, j.id AS job_id,
+           j.scheduled_date::text AS leg_day,
+           COALESCE(j.job_lat, c.lat) AS lat,
+           COALESCE(j.job_lng, c.lng) AS lng
+      FROM jobs j
+      LEFT JOIN clients c ON c.id = j.client_id
+     WHERE j.company_id = ${companyId}
+       AND j.status = 'complete'
+       AND j.assigned_user_id IS NOT NULL
+       AND j.scheduled_date BETWEEN ${startDate} AND ${endDate}
+       AND j.scheduled_date < (now() AT TIME ZONE 'America/Chicago')::date
+       AND NOT EXISTS (
+             SELECT 1 FROM timeclock t
+              WHERE t.company_id = j.company_id
+                AND t.user_id = j.assigned_user_id
+                AND (t.clock_in_at AT TIME ZONE 'America/Chicago')::date = j.scheduled_date
+       )
+       AND NOT EXISTS (
+             SELECT 1 FROM on_my_way_events o
+              WHERE o.company_id = j.company_id
+                AND o.user_id = j.assigned_user_id
+                AND (o.sent_at AT TIME ZONE 'America/Chicago')::date = j.scheduled_date
+       )
+     ORDER BY j.assigned_user_id, j.scheduled_date, j.scheduled_time NULLS LAST, j.id ASC
+  `)).rows as any[];
+
+  type Leg = { user_id: number; from_job_id: number; to_job_id: number; leg_date: string; fromLat: number | null; fromLng: number | null; toLat: number | null; toLng: number | null };
+  const legs: Leg[] = [];
+  let prev: any = null;
+  for (const r of rows) {
+    if (prev && Number(prev.user_id) === Number(r.user_id) && String(prev.leg_day) === String(r.leg_day) && Number(prev.job_id) !== Number(r.job_id)) {
+      legs.push({
+        user_id: Number(r.user_id), from_job_id: Number(prev.job_id), to_job_id: Number(r.job_id), leg_date: String(r.leg_day),
+        fromLat: prev.lat != null ? Number(prev.lat) : null, fromLng: prev.lng != null ? Number(prev.lng) : null,
+        toLat: r.lat != null ? Number(r.lat) : null, toLng: r.lng != null ? Number(r.lng) : null,
+      });
+    }
+    prev = r;
+  }
+
+  const skipped: Record<string, number> = {};
+  let inserted = 0;
+  for (const leg of legs) {
+    if (leg.fromLat == null || leg.fromLng == null || leg.toLat == null || leg.toLng == null) { skipped.skip_no_coords = (skipped.skip_no_coords ?? 0) + 1; continue; }
+    const rate = rateForDate(leg.leg_date);
+    if (rate == null) { skipped.skip_no_rate = (skipped.skip_no_rate ?? 0) + 1; continue; }
+    const m = await provider.measureLeg(leg.fromLat, leg.fromLng, leg.toLat, leg.toLng);
+    if (m == null) { skipped.skip_no_measurement = (skipped.skip_no_measurement ?? 0) + 1; continue; }
+    const miles = m.meters / 1609.344;
+    if (!(miles > 0)) { skipped.skip_zero_distance = (skipped.skip_zero_distance ?? 0) + 1; continue; }
+    const rateNum = parseFloat(String(rate));
+    const amount = Math.round(miles * rateNum * 100) / 100;
+    const ins = await db.execute(sql`
+      INSERT INTO mileage_legs
+        (company_id, pay_period_id, user_id, source_on_my_way_event_id, leg_source,
+         from_job_id, to_job_id, leg_date, miles, minutes, rate_per_mile, amount,
+         measurement_source, measurement_is_estimated, status)
+      VALUES
+        (${companyId}, ${periodId}, ${leg.user_id}, NULL, 'scheduled',
+         ${leg.from_job_id}, ${leg.to_job_id}, ${leg.leg_date}, ${miles.toFixed(2)}, ${m.minutes}, ${rateNum.toFixed(4)}, ${amount.toFixed(2)},
+         ${m.source}, TRUE, 'computed')
+      ON CONFLICT (company_id, user_id, from_job_id, to_job_id) WHERE leg_source = 'scheduled' DO NOTHING
+      RETURNING id
+    `);
+    if ((ins.rows as any[]).length) inserted++;
+  }
+  return { legs_considered: legs.length, inserted, skipped };
+}
+
+// [mileage-auto 2026-07-08] One orchestrator both the manual route and the
+// nightly cron call, so "recompute mileage" means the same three sources
+// everywhere: On My Way (precise) → clock-sequence (clocked but no OMW) →
+// scheduled failsafe (no trace at all). Never throws per-source; each returns
+// its own inserted/skipped counts.
+export async function computeAllMileageForPeriod(
+  companyId: number,
+  periodId: number,
+  startDate: string,
+  endDate: string,
+): Promise<{ on_my_way: any; clock_sequence: any; scheduled: any; inserted: number }> {
+  const provider = getDistanceProvider(companyId);
+  const omw = await recomputeMileageForPeriod(companyId, periodId, startDate, endDate, provider);
+  const clocks = await deriveClockSequenceLegs(companyId, periodId, startDate, endDate, provider);
+  const scheduled = await deriveScheduledLegsForPeriod(companyId, periodId, startDate, endDate, provider);
+  return { on_my_way: omw, clock_sequence: clocks, scheduled, inserted: omw.inserted + clocks.inserted + scheduled.inserted };
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /periods/:id/recompute-mileage — Cutover 2A
 // ─────────────────────────────────────────────────────────────────────────────
@@ -924,23 +1046,40 @@ router.post("/periods/:id/recompute-mileage", adminWriteGate, async (req, res) =
   const period = await loadPeriod(companyId, periodId);
   if (!period) return notFound(res, "Period not found");
   if (period.status !== "open") return refusedDueToPeriodState(res, period.status);
-  // Provider is resolved at the factory — the route doesn't name a
-  // vendor. Per-tenant cache is layered in there too.
-  const provider = getDistanceProvider(companyId);
-  const omw = await recomputeMileageForPeriod(
-    companyId, periodId, String(period.start_date), String(period.end_date), provider,
-  );
-  const clocks = await deriveClockSequenceLegs(
-    companyId, periodId, String(period.start_date), String(period.end_date), provider,
+  // Provider + per-tenant cache resolved inside the orchestrator. Runs all
+  // three sources: On My Way → clock-sequence → scheduled failsafe.
+  const result = await computeAllMileageForPeriod(
+    companyId, periodId, String(period.start_date), String(period.end_date),
   );
   return res.json({
     data: {
-      on_my_way: omw,
-      clock_sequence: clocks,
-      inserted: omw.inserted + clocks.inserted,
+      on_my_way: result.on_my_way,
+      clock_sequence: result.clock_sequence,
+      scheduled: result.scheduled,
+      inserted: result.inserted,
     },
   });
 });
+
+// [mileage-auto 2026-07-08] Manual "Recompute mileage" — the on-demand twin of
+// the nightly cron. Office-accessible (they run payroll). Ensures the current
+// week's open period exists and recomputes all three sources for the tenant's
+// recent open periods. Idempotent; only new legs are inserted. Nothing becomes
+// pay — legs land status='computed' for the review gate.
+router.post(
+  "/recompute-mileage-now",
+  requireRole("owner", "admin", "office", "super_admin"),
+  async (req, res) => {
+    const companyId = req.auth!.companyId!;
+    try {
+      const r = await runMileageAutoCompute(companyId);
+      return res.json({ data: r });
+    } catch (e: any) {
+      console.error("[pay] recompute-mileage-now failed:", e);
+      return res.status(500).json({ error: "Failed to recompute mileage", message: e?.message });
+    }
+  },
+);
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Lifecycle gates: lock → approve → export

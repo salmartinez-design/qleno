@@ -135,6 +135,7 @@ export async function runCutoverDataMigration(): Promise<void> {
   }
   try {
     await ensureClockSequenceMileageFallback();
+    await ensureScheduledMileageFallback();
   } catch (err) {
     console.error(
       "[cutover-migration] clock_sequence mileage fallback schema failed (non-fatal):",
@@ -201,6 +202,34 @@ async function ensureClockSequenceMileageFallback(): Promise<void> {
       RAISE NOTICE 'cutover-migration: clock_sequence mileage fallback installed';
     END
     $$;
+    `),
+  );
+}
+
+/**
+ * [mileage-schedule-failsafe 2026-07-08] Third mileage source: 'scheduled'.
+ *
+ * When a tech neither taps "On My Way" NOR clocks in/out on a past day but a
+ * completed job says they were there, the schedule-failsafe builder estimates
+ * the drive from that day's scheduled stops (in start-time order) so mileage
+ * still surfaces for the office to review — Sal's confirmed failsafe. Legs land
+ * status='computed' + measurement_is_estimated=true; nothing becomes pay until
+ * the 2B review gate.
+ *
+ * ALTER TYPE ... ADD VALUE cannot run inside a transaction/DO block, so it runs
+ * as its own autocommit statement (same pattern as commercial service_type
+ * slugs). The dedup index references the new value in a SEPARATE statement so
+ * it's already committed. Both IF NOT EXISTS — safe on every boot.
+ */
+async function ensureScheduledMileageFallback(): Promise<void> {
+  await db.execute(
+    sql.raw(`ALTER TYPE mileage_leg_source ADD VALUE IF NOT EXISTS 'scheduled'`),
+  );
+  await db.execute(
+    sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS mileage_legs_scheduled_uq
+        ON mileage_legs (company_id, user_id, from_job_id, to_job_id)
+        WHERE leg_source = 'scheduled'
     `),
   );
 }
