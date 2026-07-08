@@ -335,7 +335,9 @@ function AttendanceCalendar({ userId }: { userId: number }) {
     const b = calBuckets.find((x: any) => String(x.slug || '').toLowerCase().includes(slugPart));
     if (!b) return null;
     const accent = b.accent || '#374151';
-    return { bg: `${accent}22`, ink: accent, label: b.chip_label || b.display_name };
+    // display_name first — the legend must read like the bucket cards
+    // (chip_label "Sick" vs card "PLAWA" was a naming mismatch Sal flagged).
+    return { bg: `${accent}2E`, ink: accent, label: b.display_name || b.chip_label };
   };
   const styles = {
     unexcused: bucketStyle('unexcused') ?? { bg:'#FEE2E2', ink:'#991B1B', label:'Unexcused' },
@@ -395,13 +397,14 @@ function AttendanceCalendar({ userId }: { userId: number }) {
         </button>
       </div>
 
-      {/* Legend derives from the tenant's bucket display config, so it always
-          matches the bucket cards' colors. */}
-      <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
+      {/* Legend mirrors the bucket card headers — solid accent dot + bold
+          accent label (the pale-wash swatches with gray text were unreadable
+          and didn't visually connect to the cards). */}
+      <div style={{ display:'flex', gap:14, flexWrap:'wrap', marginBottom:12, alignItems:'center' }}>
         {[styles.worked, styles.pto, styles.plawa, styles.unpaid, styles.unexcused].map(l => (
-          <div key={l.label} style={{ display:'flex',alignItems:'center',gap:5 }}>
-            <div style={{ width:10,height:10,borderRadius:2,background:l.bg,border:`1px solid ${l.ink}33` }}/>
-            <span style={{ fontSize:11,color:'#6B7280' }}>{l.label}</span>
+          <div key={l.label} style={{ display:'flex',alignItems:'center',gap:6 }}>
+            <span style={{ width:10,height:10,borderRadius:'50%',background:l.ink,flexShrink:0 }}/>
+            <span style={{ fontSize:11.5,fontWeight:700,color:l.ink,textTransform:'uppercase',letterSpacing:'0.03em' }}>{l.label}</span>
           </div>
         ))}
       </div>
