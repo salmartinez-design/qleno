@@ -58,6 +58,7 @@ import {
 } from "@workspace/db/schema";
 import { and, asc, desc, eq, gte, inArray, isNotNull, like, lte, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { utcIso } from "../lib/time-serialize.js";
 import { notifyUserAsync } from "../lib/push.js";
 import {
   computeCurrentBalance,
@@ -846,14 +847,10 @@ router.get("/balance-log", officeReadGate, async (req, res) => {
       const ov = row.old_value || null;
       const performer = `${row.first_name ?? ""} ${row.last_name ?? ""}`.trim();
       const actor = performer || SOURCE_LABEL[nv.source] || "System";
-      // performed_at is a zone-less Postgres timestamp stored in UTC; the raw
-      // driver hands it back as a bare string ("2026-07-07 21:26:37") which
-      // browsers parse as LOCAL time — Sal saw a 4:26 PM edit rendered as
-      // 9:26 PM. Normalize to an explicit-UTC ISO string.
-      const rawAt = String(row.performed_at ?? "");
-      const at = /Z$|[+-]\d{2}:?\d{2}$/.test(rawAt)
-        ? new Date(rawAt).toISOString()
-        : new Date(rawAt.replace(" ", "T") + "Z").toISOString();
+      // performed_at is a zone-less UTC timestamp → explicit-UTC ISO (shared
+      // utcIso, see lib/time-serialize.ts) so the browser doesn't misparse it as
+      // local (Sal saw a 4:26 PM edit render as 9:26 PM).
+      const at = utcIso(row.performed_at);
       return {
         at,
         action: row.action,

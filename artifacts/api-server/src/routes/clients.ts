@@ -11,6 +11,7 @@ import {
 import { eq, and, ilike, or, count, sum, desc, sql, gte, inArray, ne } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { utcIso } from "../lib/time-serialize.js";
 import { syncCustomer, queueSync } from "../services/quickbooks-sync.js";
 import { resolveZoneForZip } from "./zones.js";
 import crypto from "crypto";
@@ -1347,18 +1348,9 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
   const jobDate = (v: any): string | null => (v ? String(v).slice(0, 10) : null);
   const events: Ev[] = [];
 
-  // All five audit tables use zone-less timestamps stored in UTC; the raw
-  // driver hands them back as bare strings ("2026-07-07 12:08:34") which
-  // browsers parse as LOCAL time — Maribel saw a 7:08 AM cancellation
-  // rendered as 12:08 PM. Normalize to explicit-UTC ISO (same fix as leave.ts).
-  const utcIso = (v: any): string => {
-    if (v == null) return "";
-    if (v instanceof Date) return v.toISOString();
-    const s = String(v);
-    return /Z$|[+-]\d{2}:?\d{2}$/.test(s)
-      ? new Date(s).toISOString()
-      : new Date(s.replace(" ", "T") + "Z").toISOString();
-  };
+  // All five audit tables use zone-less timestamps stored in UTC → normalize to
+  // explicit-UTC ISO so the browser doesn't misparse them as local. Shared
+  // helper (utcIso) — see lib/time-serialize.ts.
 
   // 1. Per-field job edits (price changes, reschedule-by-edit, reassignments…)
   try {
@@ -2154,19 +2146,9 @@ router.get("/:id/cancellation-history", requireAuth, async (req, res) => {
       cancelled_by_name: string | null;
     }>).map(r => {
       const action = r.cancel_action ?? "legacy";
-      // [cancel-timestamp-fix 2026-07-08] cancelled_at is a zone-less timestamp
-      // stored in UTC; the driver hands it back as a bare string the browser
-      // parses as LOCAL, so a 6:10 PM Chicago cancel rendered as 12:10 AM (Sal:
-      // "weird stamp at 12:10am"). Normalize to explicit-UTC ISO — the same fix
-      // the Activity feed already applies (utcIso, ~line 1337).
-      const utcIso = (v: any): string => {
-        if (v == null) return "";
-        if (v instanceof Date) return v.toISOString();
-        const s = String(v);
-        return /Z$|[+-]\d{2}:?\d{2}$/.test(s)
-          ? new Date(s).toISOString()
-          : new Date(s.replace(" ", "T") + "Z").toISOString();
-      };
+      // [cancel-timestamp-fix 2026-07-08] cancelled_at is a zone-less UTC
+      // timestamp; normalize to explicit-UTC ISO (shared utcIso, see
+      // lib/time-serialize.ts) so a 6:10 PM cancel doesn't render as 12:10 AM.
       const labels: Record<string, string> = {
         move: "Moved (customer)",
         bump: "Bumped (office)",

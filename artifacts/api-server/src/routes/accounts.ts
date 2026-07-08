@@ -6,6 +6,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, and, sql, inArray, notExists, desc, gte, lte } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { utcIso } from "../lib/time-serialize.js";
 import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
 
 const router = Router();
@@ -511,16 +512,8 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
   type Ev = { event_type: string; occurred_at: string; user_name: string | null; field_name: string | null; old_value: any; new_value: any; related_job_id: number | null; related_job_date: string | null; action: string | null };
   const events: Ev[] = [];
 
-  // Zone-less UTC timestamps come back from the raw driver as bare strings —
-  // normalize to explicit-UTC ISO (same fix as the client activity feed).
-  const utcIso = (v: any): string => {
-    if (v == null) return "";
-    if (v instanceof Date) return v.toISOString();
-    const s = String(v);
-    return /Z$|[+-]\d{2}:?\d{2}$/.test(s)
-      ? new Date(s).toISOString()
-      : new Date(s.replace(" ", "T") + "Z").toISOString();
-  };
+  // Zone-less UTC timestamps → explicit-UTC ISO (shared utcIso, see
+  // lib/time-serialize.ts) so the browser doesn't misparse them as local.
   const jobDate = (v: any): string | null => (v ? String(v).slice(0, 10) : null);
 
   // 1. Per-field job edits on the account's jobs
