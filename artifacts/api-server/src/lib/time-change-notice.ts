@@ -143,6 +143,10 @@ function labelService(raw: string | null): string {
 export async function sendTimeChangeNotification(
   jobId: number,
   companyId: number,
+  // [notify-choice 2026-07-08] Which channels to use. The card note's Send
+  // button keeps the default (both); the edit-job modal passes the office's
+  // per-save pick.
+  via: "sms" | "email" | "both" = "both",
 ): Promise<{ ok: boolean; sent: boolean; reason?: string }> {
   try {
     const rows = await db.execute(sql`
@@ -183,8 +187,8 @@ export async function sendTimeChangeNotification(
     const commsOn = process.env.COMMS_ENABLED === "true" && j.comms_enabled === true;
 
     const { sendNotification } = await import("../services/notificationService.js");
-    if (email) await sendNotification("job_time_updated", "email", companyId, email, null, mv).catch(() => {});
-    if (phone) await sendNotification("job_time_updated", "sms", companyId, null, phone, mv).catch(() => {});
+    if (email && (via === "email" || via === "both")) await sendNotification("job_time_updated", "email", companyId, email, null, mv).catch(() => {});
+    if (phone && (via === "sms" || via === "both")) await sendNotification("job_time_updated", "sms", companyId, null, phone, mv).catch(() => {});
 
     return commsOn
       ? { ok: true, sent: true }

@@ -107,8 +107,19 @@ function originFromReq(req: Request): string {
 // Fetches everything from the job id, ensures the token, builds the link, and
 // fires the job_scheduled email + SMS. Gate-respecting (sendNotification gates
 // per tenant + global). Non-throwing — callers fire-and-forget.
-export async function sendJobScheduledConfirmation(req: Request, jobId: number): Promise<void> {
+// opts.channels restricts which channels go out (default: both). The office
+// picks this per-save in the job wizard, so an internal re-book can send
+// nothing; the payment-request resend passes ["email"] (previously this arg
+// was accepted at one call site but silently ignored — sends went out on both
+// channels regardless).
+export async function sendJobScheduledConfirmation(
+  req: Request,
+  jobId: number,
+  opts?: { channels?: Array<"email" | "sms"> },
+): Promise<void> {
   try {
+    const channels = opts?.channels ?? ["email", "sms"];
+    if (!channels.length) return;
     const rows = await db.execute(sql`
       SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.scheduled_time, j.service_type,
              j.allowed_hours, j.estimated_hours,
@@ -235,8 +246,8 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
     const renderEmail = isPhes ? renderPhes : renderStandard;
 
     const { sendNotification } = await import("../services/notificationService.js");
-    if (email) await sendNotification("job_scheduled", "email", j.company_id, email, null, mv, false, renderEmail, j.client_id).catch(() => {});
-    if (phone) await sendNotification("job_scheduled", "sms", j.company_id, null, phone, mv, false, undefined, j.client_id).catch(() => {});
+    if (email && channels.includes("email")) await sendNotification("job_scheduled", "email", j.company_id, email, null, mv, false, renderEmail, j.client_id).catch(() => {});
+    if (phone && channels.includes("sms")) await sendNotification("job_scheduled", "sms", j.company_id, null, phone, mv, false, undefined, j.client_id).catch(() => {});
   } catch (err) {
     console.error("[booking-confirmation] sendJobScheduledConfirmation failed:", err);
   }
