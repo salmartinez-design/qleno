@@ -239,6 +239,10 @@ async function buildDispatchPayload(
         property_state: accountPropertiesTable.state,
         property_zip: accountPropertiesTable.zip,
         property_access_notes: accountPropertiesTable.access_notes,
+        // [building-notes 2026-07-07] Live building-level OFFICE note — shown
+        // on every job at this property. Replaces the removed copy-into-
+        // jobs.office_notes propagation (the cross-visit note bleed).
+        property_notes: accountPropertiesTable.notes,
         office_notes: jobsTable.office_notes,
         office_notes_updated_by: jobsTable.office_notes_updated_by,
         office_notes_updated_at: jobsTable.office_notes_updated_at,
@@ -266,10 +270,12 @@ async function buildDispatchPayload(
         // "No invoice yet" even though the invoice existed (Maribel, Awaken
         // Church common-areas). Direct job_id match wins over a line-item
         // match; the @> containment predicate is the same one the account
-        // uninvoiced-jobs dedup guard uses.
-        invoice_id: sql<number | null>`(SELECT iv.id FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
-        invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
-        invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        // uninvoiced-jobs dedup guard uses. Third arm: historical merge
+        // parents created before lines carried job_id — follow the job's
+        // superseded child (which kept its job_id) up to its parent.
+        invoice_id: sql<number | null>`(SELECT iv.id FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
         // [commission-override 2026-06-27] Office-set pool rate override for demanding jobs.
         commission_override_pct: sql<number | null>`(SELECT commission_override_pct FROM jobs WHERE id = ${jobsTable.id} LIMIT 1)`,
       })
@@ -352,10 +358,21 @@ async function buildDispatchPayload(
     }
 
     // Time-off data for the board date
-    // PTO = leave_usage record exists for this date
+    // [time-block 2026-07-08] Manual entries now carry a DESIGNATION
+    // (leave_type_id on deductions) and an optional TIME BLOCK (start/end on
+    // both tables). The board used to guess: any office deduction rendered as
+    // full-day PTO (Hilda's 4h UNPAID 2-6 PM block), and a partial call-off
+    // tinted the whole row (Jose worked his morning job). Now the slug comes
+    // from the record and the tint covers only the designated window.
     const leaveUsage = await db
-      .select({ employee_id: employeeLeaveUsageTable.employee_id })
+      .select({
+        employee_id: employeeLeaveUsageTable.employee_id,
+        slug: leaveTypesTable.slug,
+        start_time: employeeLeaveUsageTable.start_time,
+        end_time: employeeLeaveUsageTable.end_time,
+      })
       .from(employeeLeaveUsageTable)
+      .leftJoin(leaveTypesTable, eq(employeeLeaveUsageTable.leave_type_id, leaveTypesTable.id))
       .where(and(
         eq(employeeLeaveUsageTable.company_id, companyId),
         eq(employeeLeaveUsageTable.date_used, date),
@@ -363,7 +380,12 @@ async function buildDispatchPayload(
 
     // Sick / absent from attendance log for this date
     const attendanceLogs = await db
-      .select({ employee_id: employeeAttendanceLogTable.employee_id, type: employeeAttendanceLogTable.type })
+      .select({
+        employee_id: employeeAttendanceLogTable.employee_id,
+        type: employeeAttendanceLogTable.type,
+        start_time: employeeAttendanceLogTable.start_time,
+        end_time: employeeAttendanceLogTable.end_time,
+      })
       .from(employeeAttendanceLogTable)
       .where(and(
         eq(employeeAttendanceLogTable.company_id, companyId),
@@ -372,12 +394,12 @@ async function buildDispatchPayload(
       ));
 
     // Approved leave requests overlapping the board date → the FOUR distinct
-    // buckets + the day unit (full/AM/PM). This is the authoritative source so
-    // PTO / PLAWA / Unpaid / Unexcused each show distinctly; a half-day keeps
-    // the tech available the worked half (we surface the unit; the board treats
-    // half-days as still-suggestable).
+    // buckets + the day unit (full/AM/PM/custom). This is the authoritative
+    // source so PTO / PLAWA / Unpaid / Unexcused each show distinctly; a
+    // half-day keeps the tech available the worked half (we surface the unit;
+    // the board treats half-days as still-suggestable).
     const approvedLeave = await db
-      .select({ user_id: leaveRequestsTable.user_id, slug: leaveTypesTable.slug, day_unit: leaveRequestsTable.day_unit })
+      .select({ user_id: leaveRequestsTable.user_id, slug: leaveTypesTable.slug, day_unit: leaveRequestsTable.day_unit, start_time: leaveRequestsTable.start_time, end_time: leaveRequestsTable.end_time })
       .from(leaveRequestsTable)
       .innerJoin(leaveTypesTable, eq(leaveRequestsTable.leave_type_id, leaveTypesTable.id))
       .where(and(
@@ -396,29 +418,52 @@ async function buildDispatchPayload(
     const bucketDisplayBySlug = new Map(
       tenantBuckets.map((b) => [String(b.slug), resolveBucketDisplay(b as any)]),
     );
-    const leaveByEmp = new Map<number, { slug: string; unit: string }>();
+    type TimeOffRec = { slug: string; unit: 'full_day' | 'morning' | 'afternoon' | 'custom'; start: string | null; end: string | null };
+    const hhmm = (t: any): string | null => (t ? String(t).slice(0, 5) : null);
+    const blockUnit = (start: any, end: any): 'full_day' | 'custom' => (start && end ? 'custom' : 'full_day');
+    // Priority: approved leave request (authoritative) → attendance log →
+    // manual leave-usage deduction. First writer per employee wins within
+    // each tier; a request always beats manual rows.
+    const timeOffByEmp = new Map<number, TimeOffRec>();
+    for (const r of [...attendanceLogs.map(a => ({
+      employee_id: a.employee_id,
+      // The board's designation for an office-recorded absence/ncns is the
+      // tenant's UNEXCUSED bucket (its color/label were picked by the
+      // office); plawa/protected map to the PLAWA bucket. 'absent' pseudo-
+      // bucket stays the fallback when the tenant has no unexcused bucket.
+      slug: (a.type === 'plawa_leave' || a.type === 'protected_leave')
+        ? 'plawa'
+        : (bucketDisplayBySlug.has('unexcused') ? 'unexcused' : 'absent'),
+      start_time: a.start_time, end_time: a.end_time,
+    })), ...leaveUsage.map(u => ({
+      employee_id: u.employee_id,
+      // Designation from the deduction's recorded bucket; legacy rows
+      // without one keep the old PTO assumption.
+      slug: u.slug ? String(u.slug) : 'pto_phes',
+      start_time: u.start_time, end_time: u.end_time,
+    }))]) {
+      if (!timeOffByEmp.has(r.employee_id)) {
+        timeOffByEmp.set(r.employee_id, { slug: r.slug, unit: blockUnit(r.start_time, r.end_time), start: hhmm(r.start_time), end: hhmm(r.end_time) });
+      }
+    }
     for (const r of approvedLeave) {
-      leaveByEmp.set(r.user_id, { slug: String(r.slug), unit: String(r.day_unit) });
+      timeOffByEmp.set(r.user_id, {
+        slug: String(r.slug),
+        unit: String(r.day_unit) as TimeOffRec['unit'],
+        start: hhmm((r as any).start_time),
+        end: hhmm((r as any).end_time),
+      });
     }
 
-    const ptoSet = new Set(leaveUsage.map(r => r.employee_id)); // legacy fallback
-    const sickSet = new Set(attendanceLogs.filter(r => r.type === 'plawa_leave' || r.type === 'protected_leave').map(r => r.employee_id));
-    const absentSet = new Set(attendanceLogs.filter(r => r.type === 'absent' || r.type === 'ncns').map(r => r.employee_id));
-
-    // Returns the bucket SLUG (or 'absent' pseudo-bucket) in effect for the day.
     function getTimeOff(empId: number): string | null {
-      const lv = leaveByEmp.get(empId);
-      if (lv) return lv.slug;
-      if (absentSet.has(empId)) return 'absent';
-      if (sickSet.has(empId)) return 'plawa';
-      if (ptoSet.has(empId)) return 'pto_phes';
-      return null;
+      return timeOffByEmp.get(empId)?.slug ?? null;
     }
-    function getTimeOffUnit(empId: number): 'full_day' | 'morning' | 'afternoon' | null {
-      const lv = leaveByEmp.get(empId);
-      if (lv) return lv.unit as 'full_day' | 'morning' | 'afternoon';
-      if (absentSet.has(empId) || sickSet.has(empId) || ptoSet.has(empId)) return 'full_day';
-      return null;
+    function getTimeOffUnit(empId: number): TimeOffRec['unit'] | null {
+      return timeOffByEmp.get(empId)?.unit ?? null;
+    }
+    function getTimeOffBlock(empId: number): { start: string | null; end: string | null } {
+      const rec = timeOffByEmp.get(empId);
+      return { start: rec?.start ?? null, end: rec?.end ?? null };
     }
     function getTimeOffColor(empId: number): string | null {
       const slug = getTimeOff(empId);
@@ -445,6 +490,8 @@ async function buildDispatchPayload(
           time_off_unit: getTimeOffUnit(e.id),
           time_off_color: getTimeOffColor(e.id),
           time_off_label: getTimeOffLabel(e.id),
+          time_off_start: getTimeOffBlock(e.id).start,
+          time_off_end: getTimeOffBlock(e.id).end,
           commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         })),
         unassigned_jobs: [],
@@ -1110,6 +1157,7 @@ async function buildDispatchPayload(
         charge_succeeded_at: j.charge_succeeded_at ?? null,
         property_address: displayAddress,
         property_access_notes: j.property_access_notes ?? null,
+        property_notes: (j as any).property_notes ?? null,
         office_notes: j.office_notes ?? null,
         office_notes_updated_at: (j as any).office_notes_updated_at ?? null,
         office_notes_updated_by_name: (j as any).office_notes_updated_by != null ? (userNameById.get((j as any).office_notes_updated_by) || null) : null,
@@ -1165,6 +1213,14 @@ async function buildDispatchPayload(
         is_new_client: !isCommercialPay && j.client_id != null
           ? !clientsWithPriorComplete.has(j.client_id)
           : false,
+        // [job-card-invoice-link 2026-07-07] The SELECT has computed these
+        // since 2026-06-27, but this shaper never carried them through — so
+        // job.invoice_id was ALWAYS undefined on the board and every
+        // completed job showed "No invoice yet" regardless of reality
+        // (Maribel: "jobs with invoices still say 'no invoice yet'").
+        invoice_id: (j as any).invoice_id != null ? Number((j as any).invoice_id) : null,
+        invoice_status: (j as any).invoice_status ?? null,
+        invoice_total: (j as any).invoice_total != null ? parseFloat(String((j as any).invoice_total)) : null,
       };
     });
 
@@ -1283,6 +1339,8 @@ async function buildDispatchPayload(
         time_off_unit: getTimeOffUnit(e.id),
         time_off_color: getTimeOffColor(e.id),
         time_off_label: getTimeOffLabel(e.id),
+        time_off_start: getTimeOffBlock(e.id).start,
+        time_off_end: getTimeOffBlock(e.id).end,
         commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         avatar_url: e.avatar_url ?? null,
       })),

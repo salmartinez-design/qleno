@@ -494,6 +494,105 @@ router.get("/:id/jobs-calendar", requireAuth, requireRole("owner", "admin", "off
   }
 });
 
+// [account-activity 2026-07-07] GET /api/accounts/:id/activity — one
+// chronological audit feed for the ACCOUNT, mirroring the client profile's
+// /api/clients/:id/activity (Maribel: "Accounts do not have a communications
+// log, or activity log … we need that to know if the invoices are going
+// out"). Scope: everything on the account's jobs (jobs.account_id) + comms
+// keyed to the account (communication_log.account_id, written by the invoice
+// send path) + the account's invoices (created/sent trail). Each source is
+// independently try/caught so a missing table never blanks the feed.
+router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  const accountId = parseInt(req.params.id);
+  if (isNaN(accountId)) return res.status(400).json({ error: "Invalid id" });
+  const companyId = req.auth!.companyId;
+  const limit = Math.min(parseInt(String(req.query.limit ?? "200")) || 200, 500);
+
+  type Ev = { event_type: string; occurred_at: string; user_name: string | null; field_name: string | null; old_value: any; new_value: any; related_job_id: number | null; related_job_date: string | null; action: string | null };
+  const events: Ev[] = [];
+
+  // Zone-less UTC timestamps come back from the raw driver as bare strings —
+  // normalize to explicit-UTC ISO (same fix as the client activity feed).
+  const utcIso = (v: any): string => {
+    if (v == null) return "";
+    if (v instanceof Date) return v.toISOString();
+    const s = String(v);
+    return /Z$|[+-]\d{2}:?\d{2}$/.test(s)
+      ? new Date(s).toISOString()
+      : new Date(s.replace(" ", "T") + "Z").toISOString();
+  };
+  const jobDate = (v: any): string | null => (v ? String(v).slice(0, 10) : null);
+
+  // 1. Per-field job edits on the account's jobs
+  try {
+    const r = await db.execute(sql`
+      SELECT jal.edited_at, jal.user_name, jal.field_name, jal.old_value, jal.new_value, jal.job_id, jal.cascade_scope, j.scheduled_date
+      FROM job_audit_log jal JOIN jobs j ON jal.job_id = j.id
+      WHERE j.account_id = ${accountId} AND jal.company_id = ${companyId}
+      ORDER BY jal.edited_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: "job_edit", occurred_at: x.edited_at, user_name: x.user_name, field_name: x.field_name, old_value: x.old_value, new_value: x.new_value, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.cascade_scope ?? null });
+  } catch (e) { console.error("[account-activity] job_audit_log:", (e as any)?.message); }
+
+  // 2. Cancellations / reschedules on the account's jobs
+  try {
+    const r = await db.execute(sql`
+      SELECT cl.cancelled_at, cl.cancel_action, cl.cancel_reason, cl.customer_charge_amount, cl.notes, cl.job_id, jb.scheduled_date,
+             NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS user_name
+      FROM cancellation_log cl JOIN jobs jb ON cl.job_id = jb.id LEFT JOIN users u ON cl.cancelled_by = u.id
+      WHERE jb.account_id = ${accountId} AND cl.company_id = ${companyId}
+      ORDER BY cl.cancelled_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: (x.cancel_action === "move" || x.cancel_action === "bump") ? "job_rescheduled" : "job_cancelled", occurred_at: x.cancelled_at, user_name: x.user_name, field_name: x.cancel_action, old_value: null, new_value: { reason: x.cancel_reason, charge: x.customer_charge_amount, notes: x.notes }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.cancel_action });
+  } catch (e) { console.error("[account-activity] cancellation_log:", (e as any)?.message); }
+
+  // 3. Communications — account-keyed rows (invoice emails) + rows tied to
+  // the account's jobs.
+  try {
+    const r = await db.execute(sql`
+      SELECT com.logged_at, com.channel, com.direction, com.summary, com.subject, com.job_id, com.delivery_status, jb.scheduled_date,
+             NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS user_name
+      FROM communication_log com
+      LEFT JOIN users u ON com.logged_by = u.id
+      LEFT JOIN jobs jb ON com.job_id = jb.id
+      WHERE com.company_id = ${companyId} AND (com.account_id = ${accountId} OR jb.account_id = ${accountId})
+      ORDER BY com.logged_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: "communication", occurred_at: x.logged_at, user_name: x.user_name, field_name: x.channel, old_value: null, new_value: { direction: x.direction, summary: x.summary, subject: x.subject, delivery_status: x.delivery_status }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.direction });
+  } catch (e) { console.error("[account-activity] communication_log:", (e as any)?.message); }
+
+  // 4. Job creations on the account's jobs
+  try {
+    const r = await db.execute(sql`
+      SELECT aal.performed_at, aal.action, aal.target_id, aal.new_value, jj.scheduled_date,
+             NULLIF(TRIM(COALESCE(au.first_name,'') || ' ' || COALESCE(au.last_name,'')), '') AS user_name
+      FROM app_audit_log aal
+      LEFT JOIN users au ON aal.performed_by = au.id
+      JOIN jobs jj ON aal.target_type = 'job' AND aal.target_id ~ '^[0-9]+$' AND aal.target_id::int = jj.id
+      WHERE aal.company_id = ${companyId} AND aal.action = 'CREATE' AND jj.account_id = ${accountId}
+      ORDER BY aal.performed_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) events.push({ event_type: "job_created", occurred_at: x.performed_at, user_name: x.user_name, field_name: null, old_value: null, new_value: x.new_value, related_job_id: Number(x.target_id), related_job_date: jobDate(x.scheduled_date), action: x.action });
+  } catch (e) { console.error("[account-activity] app_audit_log:", (e as any)?.message); }
+
+  // 5. Invoice trail — created + sent, for account invoices AND per-job
+  // invoices on the account's jobs. This is the "are the invoices going
+  // out" answer even before the comm-log rows existed.
+  try {
+    const r = await db.execute(sql`
+      SELECT iv.id, iv.invoice_number, iv.status, iv.total, iv.created_at, iv.sent_at, iv.job_id, jb.scheduled_date
+      FROM invoices iv LEFT JOIN jobs jb ON iv.job_id = jb.id
+      WHERE iv.company_id = ${companyId} AND (iv.account_id = ${accountId} OR jb.account_id = ${accountId})
+      ORDER BY iv.created_at DESC LIMIT ${limit}`);
+    for (const x of r.rows as any[]) {
+      const num = x.invoice_number || `#${x.id}`;
+      const rel = x.job_id != null ? Number(x.job_id) : null;
+      events.push({ event_type: "invoice", occurred_at: x.created_at, user_name: null, field_name: "created", old_value: null, new_value: { summary: `Invoice ${num} created (${x.status})`, amount: x.total }, related_job_id: rel, related_job_date: jobDate(x.scheduled_date), action: "created" });
+      if (x.sent_at) events.push({ event_type: "invoice", occurred_at: x.sent_at, user_name: null, field_name: "sent", old_value: null, new_value: { summary: `Invoice ${num} sent`, amount: x.total }, related_job_id: rel, related_job_date: jobDate(x.scheduled_date), action: "sent" });
+    }
+  } catch (e) { console.error("[account-activity] invoices:", (e as any)?.message); }
+
+  for (const e of events) e.occurred_at = utcIso(e.occurred_at);
+  events.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
+  return res.json({ events: events.slice(0, limit) });
+});
+
 // POST /api/accounts/:id/properties
 router.post("/:id/properties", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   const id = parseInt(req.params.id);
@@ -558,30 +657,35 @@ router.patch("/:id/properties/:propId", requireAuth, requireRole("owner", "admin
       .where(and(eq(accountPropertiesTable.id, propId), eq(accountPropertiesTable.company_id, companyId)))
       .returning();
 
-    // [building-notes 2026-07-01] Push the building's permanent notes onto every
-    // FUTURE scheduled job for this building so the office stops copy-pasting.
-    // Office notes → job.office_notes, Cleaner notes → job.notes. NON-destructive:
-    // only sync a job's box when it's empty or still holds the PREVIOUS building
-    // note — a per-job custom note is left untouched. Past/in-progress/completed
-    // jobs are never touched.
+    // [building-notes 2026-07-01 → REVERSED 2026-07-07] This used to COPY the
+    // building's notes into every future job's per-visit columns
+    // (property.notes → jobs.office_notes, property.access_notes → jobs.notes).
+    // That's how Jirsa's one-off note from last week ("unit G1" + door code +
+    // "fridge, oven") ended up on Jose's job this week labeled "Today's Job
+    // Notes — this visit only": anything typed in the building box fanned out
+    // to every empty future job, and the copy is indistinguishable from a real
+    // per-visit note. Building notes now display LIVE from the property on
+    // every surface (my-jobs "Building Access" + the dispatch card's building
+    // sections) — same visibility, zero bleed. jobs.notes / jobs.office_notes
+    // are per-visit only again. On edit, we UN-copy: future jobs still holding
+    // a verbatim copy of the OLD building note get cleared.
     if (prop && notesChanged) {
       try {
-        if ("notes" in updates) {
+        if ("notes" in updates && before?.notes) {
           await db.execute(sql`
-            UPDATE jobs SET office_notes = ${prop.notes ?? null},
-                            office_notes_updated_at = NOW(), office_notes_updated_by = ${req.auth!.userId}
+            UPDATE jobs SET office_notes = NULL, office_notes_updated_at = NOW(), office_notes_updated_by = ${req.auth!.userId}
              WHERE account_property_id = ${propId} AND company_id = ${companyId}
                AND status = 'scheduled' AND scheduled_date >= CURRENT_DATE
-               AND (office_notes IS NULL OR office_notes = '' OR office_notes IS NOT DISTINCT FROM ${before?.notes ?? null})`);
+               AND office_notes = ${before.notes}`);
         }
-        if ("access_notes" in updates) {
+        if ("access_notes" in updates && before?.access_notes) {
           await db.execute(sql`
-            UPDATE jobs SET notes = ${prop.access_notes ?? null}
+            UPDATE jobs SET notes = NULL
              WHERE account_property_id = ${propId} AND company_id = ${companyId}
                AND status = 'scheduled' AND scheduled_date >= CURRENT_DATE
-               AND (notes IS NULL OR notes = '' OR notes IS NOT DISTINCT FROM ${before?.access_notes ?? null})`);
+               AND notes = ${before.access_notes}`);
         }
-      } catch (e) { console.warn("[building-notes] propagate to jobs failed:", e); }
+      } catch (e) { console.warn("[building-notes] un-copy from jobs failed:", e); }
     }
 
     res.json(prop);

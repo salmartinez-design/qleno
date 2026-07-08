@@ -783,48 +783,127 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   }
 });
 
+// [invoice-send-truth 2026-07-07] Rebuilt around three lies Maribel hit ("I
+// tried to send one to myself and nothing happened"):
+//   1. The invoice was stamped status='sent' BEFORE the gated send fired, so
+//      a suppressed email still read as sent. Now the stamp happens only when
+//      a channel actually reached the provider.
+//   2. The recipient came from invoice.client_id only — a pure ACCOUNT
+//      invoice (client_id NULL) had nobody to send to and failed silently.
+//      Now: invoice.billing_contact_email → client email → the account's
+//      receives_invoices/billing contact.
+//   3. Nothing visible recorded the outcome. Now every attempt writes a
+//      communication_log row (client- or account-keyed, delivery_status
+//      sent/suppressed) and the response tells the office exactly what
+//      happened so the UI can say so.
 router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
 
     const [invoice] = await db
-      .select({ id: invoicesTable.id, client_id: invoicesTable.client_id, total: invoicesTable.total,
-                invoice_number: invoicesTable.invoice_number, due_date: invoicesTable.due_date })
+      .select({ id: invoicesTable.id, client_id: invoicesTable.client_id, account_id: invoicesTable.account_id,
+                job_id: invoicesTable.job_id, total: invoicesTable.total,
+                invoice_number: invoicesTable.invoice_number, due_date: invoicesTable.due_date,
+                billing_contact_name: invoicesTable.billing_contact_name,
+                billing_contact_email: invoicesTable.billing_contact_email })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .limit(1);
 
     if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
 
-    const [updated] = await db
-      .update(invoicesTable)
-      .set({ status: "sent", sent_at: new Date() })
-      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
-      .returning();
+    const companyId = req.auth!.companyId;
 
-    const [client] = await db
+    const [client] = invoice.client_id ? await db
       .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name,
                 email: clientsTable.email, phone: clientsTable.phone,
                 address: clientsTable.address, city: clientsTable.city })
       .from(clientsTable)
       .where(eq(clientsTable.id, invoice.client_id))
-      .limit(1);
+      .limit(1) : [];
 
-    const companyId = req.auth!.companyId;
+    // Recipient chain: invoice-level override → client → account contact.
+    let recipientEmail: string | null = invoice.billing_contact_email || client?.email || null;
+    let recipientName: string | null = invoice.billing_contact_name || client?.first_name || null;
+    if (!recipientEmail && invoice.account_id) {
+      const ac = await db.execute(sql`
+        SELECT name, email FROM account_contacts
+        WHERE account_id = ${invoice.account_id} AND company_id = ${companyId} AND email IS NOT NULL AND email <> ''
+        ORDER BY receives_invoices DESC, (role = 'billing') DESC, is_primary DESC, id ASC
+        LIMIT 1`);
+      const row = ac.rows[0] as any;
+      if (row?.email) { recipientEmail = row.email; recipientName = recipientName || row.name || null; }
+    }
+
+    if (!recipientEmail && !client?.phone) {
+      return res.status(400).json({
+        error: "Bad Request",
+        message: invoice.account_id
+          ? "No billing email on file — add an account contact with an email (mark it 'receives invoices') and try again."
+          : "This client has no email or phone on file — add one and try again.",
+      });
+    }
+
     const invNum  = invoice.invoice_number || generateInvoiceNumber(invoiceId);
     // Mint a Stripe pay-token so the email's "View and Pay" button charges the
     // invoice total on the public /pay/:token page.
     const invLink = await mintInvoicePayLink(companyId, invoice.client_id, invoiceId, invoice.total, req.auth!.userId);
     const mergeVars = {
-      first_name:       client?.first_name || "",
+      first_name:       recipientName || "",
       invoice_number:   invNum,
       invoice_amount:   parseFloat(invoice.total || "0").toFixed(2),
       invoice_due_date: invoice.due_date ? new Date(invoice.due_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "upon receipt",
       invoice_link:     invLink,
       service_address:  [client?.address, client?.city].filter(Boolean).join(", "),
     };
-    sendNotification("invoice_sent", "email", companyId, client?.email ?? null, null, mergeVars).catch(() => {});
-    sendNotification("invoice_sent", "sms",   companyId, null, client?.phone ?? null, mergeVars).catch(() => {});
+    const emailSent = recipientEmail
+      ? await sendNotification("invoice_sent", "email", companyId, recipientEmail, null, mergeVars).catch(() => false)
+      : false;
+    const smsSent = client?.phone
+      ? await sendNotification("invoice_sent", "sms", companyId, null, client.phone, mergeVars).catch(() => false)
+      : false;
+    const delivered = emailSent || smsSent;
+
+    // Why didn't it go out? sendNotification just wrote the reason to
+    // notification_log — read the freshest row back so the office sees
+    // "suppressed — company_comms_disabled" instead of silence.
+    let failReason: string | null = null;
+    if (!delivered) {
+      try {
+        const nl = await db.execute(sql`
+          SELECT status, error_message FROM notification_log
+          WHERE company_id = ${companyId} AND trigger = 'invoice_sent'
+          ORDER BY id DESC LIMIT 1`);
+        const row = nl.rows[0] as any;
+        if (row) failReason = row.error_message || row.status || null;
+      } catch { /* reason stays null */ }
+    }
+
+    // Trace row for the client/account communications + activity feeds —
+    // written for suppressed attempts too, so "did the invoice go out?" has
+    // a visible answer either way.
+    try {
+      await db.execute(sql`
+        INSERT INTO communication_log (company_id, customer_id, account_id, job_id, direction, channel, summary, subject, recipient, delivery_status, source, logged_by)
+        VALUES (${companyId}, ${invoice.client_id ?? null}, ${invoice.account_id ?? null}, ${invoice.job_id ?? null}, 'outbound', 'email',
+                ${delivered ? `Invoice ${invNum} emailed` : `Invoice ${invNum} email NOT sent${failReason ? ` — ${failReason}` : ""}`},
+                ${`Invoice ${invNum}`}, ${recipientEmail ?? client?.phone ?? "unknown"},
+                ${delivered ? "sent" : "suppressed"}, 'system', ${req.auth!.userId})`);
+    } catch (e) { console.error("[invoice-send] comm-log trace non-fatal:", (e as any)?.message); }
+
+    if (!delivered) {
+      const human =
+        failReason === "company_comms_disabled" ? "communications are turned OFF for this company — the email was suppressed, not sent" :
+        failReason === "COMMS_ENABLED=false" ? "communications are globally disabled — the email was suppressed, not sent" :
+        failReason ? failReason.replace(/_/g, " ") : "the message could not be delivered";
+      return res.status(422).json({ error: "Not Sent", message: `Invoice was NOT sent: ${human}.`, reason: failReason });
+    }
+
+    const [updated] = await db
+      .update(invoicesTable)
+      .set({ status: "sent", sent_at: new Date() })
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .returning();
 
     // [no-auto-issue 2026-07-06] Completion invoices no longer push to QB at
     // creation (they start as drafts), so finalizing here must push. One-way,
@@ -833,8 +912,8 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
 
     return res.json(formatInvoice({
       ...updated,
-      client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim(),
-      client_email: client?.email,
+      client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim() || recipientName || "",
+      client_email: recipientEmail,
     }));
   } catch (err) {
     console.error("Send invoice error:", err);
@@ -869,11 +948,19 @@ router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"),
     const clientEmail = client?.email;
     const invNum = invoice.invoice_number || generateInvoiceNumber(invoiceId);
 
+    // [invoice-send-truth 2026-07-07] Track whether the email actually went
+    // out — the log row below used to claim status='sent' even when the
+    // comms gate suppressed the send.
+    let reminderSent = false;
+    let reminderSkipReason: string | null = clientEmail ? (process.env.RESEND_API_KEY ? null : "RESEND_API_KEY not configured") : "No recipient email";
+
     if (clientEmail && process.env.RESEND_API_KEY) {
       const { isEmailOptedOut, buildEmailUnsubData } = await import("../lib/opt-out.js");
       if (process.env.COMMS_ENABLED !== "true") {
+        reminderSkipReason = "COMMS_ENABLED=false";
         console.log("[COMMS BLOCKED] Invoice reminder email suppressed:", { to: clientEmail, invoiceId });
       } else if (await isEmailOptedOut(req.auth!.companyId!, clientEmail)) {
+        reminderSkipReason = "email_opt_out";
         console.log("[comms-opt-out] Invoice reminder email suppressed (opt-out):", { to: clientEmail, invoiceId });
       } else {
       const { Resend } = await import("resend");
@@ -890,21 +977,33 @@ router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"),
                <p>Thank you,<br>Phes</p>${unsub?.footerHtml ?? ""}`,
         ...(unsub?.headers ? { headers: unsub.headers } : {}),
       });
+      reminderSent = true;
       }
     }
 
-    await db.update(invoicesTable)
-      .set({ last_reminder_sent_at: new Date() })
-      .where(eq(invoicesTable.id, invoiceId));
+    if (reminderSent) {
+      await db.update(invoicesTable)
+        .set({ last_reminder_sent_at: new Date() })
+        .where(eq(invoicesTable.id, invoiceId));
+    }
 
     await db.insert(notificationLogTable).values({
       company_id: req.auth!.companyId,
       recipient: clientEmail || "system",
       channel: "email",
       trigger: "invoice_reminder",
-      status: "sent",
+      status: reminderSent ? "sent" : "suppressed",
+      error_message: reminderSent ? null : reminderSkipReason,
       metadata: { invoice_id: invoiceId, amount: parseFloat(invoice.total || "0") } as any,
     });
+
+    if (!reminderSent) {
+      const human =
+        reminderSkipReason === "COMMS_ENABLED=false" ? "communications are globally disabled" :
+        reminderSkipReason === "email_opt_out" ? "this recipient unsubscribed from emails" :
+        reminderSkipReason || "the message could not be delivered";
+      return res.status(422).json({ error: "Not Sent", message: `Reminder was NOT sent: ${human}.`, reason: reminderSkipReason });
+    }
 
     return res.json({ ok: true, sent_to: clientEmail || null });
   } catch (err) {
@@ -1145,6 +1244,16 @@ router.post("/:id/recalc", requireAuth, requireRole("owner", "admin", "office"),
     if (!inv.job_id) {
       return res.status(400).json({ error: "Bad Request", message: "This invoice is not linked to a job — edit its line items directly" });
     }
+
+    // Refresh the job's billed_amount BEFORE rebuilding lines — recalc is the
+    // office's repair action, so it must pull CURRENT job pricing, not the
+    // stale stamp the invoice was originally built from (invoice #6387 kept
+    // reproducing a $150 total because billed_amount never re-folded a later
+    // fee adjustment).
+    try {
+      const { recomputeJobBilledAmount } = await import("./jobs.js");
+      await recomputeJobBilledAmount(inv.job_id, req.auth!.companyId!);
+    } catch (e) { console.error("[invoice-recalc] billed_amount refresh non-fatal:", e); }
 
     const built = await buildJobLineItems(req.auth!.companyId, inv.job_id);
     if (!built) return res.status(404).json({ error: "Not Found", message: "Linked job not found" });

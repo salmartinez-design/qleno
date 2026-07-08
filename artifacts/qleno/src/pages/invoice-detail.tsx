@@ -231,6 +231,16 @@ export default function InvoiceDetailPage() {
     setMarkingInvoiced(false);
   }
 
+  // [invoice-send-truth 2026-07-07] The server now answers honestly when a
+  // send was suppressed (comms gate, no recipient) instead of pretending it
+  // went out — show the office that exact reason, not a generic "failed".
+  function sendErrorMessage(err: any, fallback: string): string {
+    try {
+      const parsed = JSON.parse(err?.message || "");
+      return parsed?.message || fallback;
+    } catch { return err?.message || fallback; }
+  }
+
   async function handleSendInvoice() {
     setSendingInvoice(true);
     try {
@@ -238,8 +248,8 @@ export default function InvoiceDetailPage() {
       toast({ title: "Invoice sent to client" });
       qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
       qc.invalidateQueries({ queryKey: ["invoices"] });
-    } catch {
-      toast({ title: "Failed to send invoice", variant: "destructive" });
+    } catch (err: any) {
+      toast({ title: "Invoice not sent", description: sendErrorMessage(err, "Failed to send invoice"), variant: "destructive" });
     }
     setSendingInvoice(false);
   }
@@ -250,8 +260,8 @@ export default function InvoiceDetailPage() {
       await apiFetch(`/api/invoices/${invoiceId}/remind`, { method: "POST" });
       toast({ title: `Reminder sent to ${invoice?.client_email || "client"}` });
       qc.invalidateQueries({ queryKey: ["invoice", invoiceId] });
-    } catch {
-      toast({ title: "Failed to send reminder", variant: "destructive" });
+    } catch (err: any) {
+      toast({ title: "Reminder not sent", description: sendErrorMessage(err, "Failed to send reminder"), variant: "destructive" });
     }
     setSendingReminder(false);
   }

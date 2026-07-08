@@ -651,7 +651,7 @@ router.get("/attendance-log", officeReadGate, async (req, res) => {
 router.post("/usage", adminWriteGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
-    const body = req.body as { user_id?: number; leave_type_id?: number; date?: string; hours?: number | string; reason?: string };
+    const body = req.body as { user_id?: number; leave_type_id?: number; date?: string; hours?: number | string; reason?: string; start_time?: string; end_time?: string };
     const userId = Number(body?.user_id);
     const leaveTypeId = Number(body?.leave_type_id);
     const hours = Number(body?.hours);
@@ -659,6 +659,13 @@ router.post("/usage", adminWriteGate, async (req, res) => {
     if (!Number.isFinite(userId) || !Number.isFinite(leaveTypeId)) return bad(res, "user_id and leave_type_id required");
     if (!ISO_DATE_RE.test(date)) return bad(res, "date YYYY-MM-DD required");
     if (!Number.isFinite(hours) || hours <= 0 || hours > 24) return bad(res, "hours must be between 0 and 24");
+    // [time-block 2026-07-08] Optional block the deduction covers ("2-6 PM
+    // off"). Both or neither; the dispatch board tints just this window.
+    const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+    const startTime = TIME_RE.test(String(body?.start_time ?? "")) ? String(body!.start_time) : null;
+    const endTime = TIME_RE.test(String(body?.end_time ?? "")) ? String(body!.end_time) : null;
+    if ((startTime && !endTime) || (!startTime && endTime)) return bad(res, "start_time and end_time must both be set (HH:MM) or both blank");
+    if (startTime && endTime && startTime >= endTime) return bad(res, "start_time must be before end_time");
     const bucket = await findBucket(companyId, leaveTypeId);
     if (!bucket) return notFound(res, "Leave type not found");
     const reason = String(body?.reason ?? "").trim().slice(0, 500);
@@ -673,6 +680,11 @@ router.post("/usage", adminWriteGate, async (req, res) => {
       // Same class/bucket tag shape as approvals + MC imports, so the
       // calendar, View History filter, and usage-delete refund all work.
       notes: `office deduction${reason ? ` (${reason})` : ""} usage/${tag}`,
+      // Structured designation + block — the dispatch board reads these
+      // instead of guessing "full-day PTO" from the row's existence.
+      leave_type_id: leaveTypeId,
+      start_time: startTime,
+      end_time: endTime,
       logged_by: req.auth!.userId!,
     }).returning({ id: employeeLeaveUsageTable.id });
     await db
@@ -2161,6 +2173,8 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
     hours?: number | string;
     notes?: string;
     type?: string;
+    start_time?: string;
+    end_time?: string;
   };
   if (!body?.employee_id || !Number.isFinite(Number(body.employee_id)))
     return bad(res, "employee_id required");
@@ -2173,6 +2187,16 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
   // (the writer + occurrence ladder already support both, with separate
   // counters). Default 'absent' for backward compatibility with prior callers.
   const recordType = body.type === "tardy" ? "tardy" : "absent";
+  // [time-block 2026-07-08] Optional block the absence covers (Jose worked
+  // the morning, called off 2-6 PM). Display-only — the occurrence still
+  // counts fully; the dispatch board tints just this window.
+  const BLOCK_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+  const blockStart = BLOCK_RE.test(String(body?.start_time ?? "")) ? String(body!.start_time) : null;
+  const blockEnd = BLOCK_RE.test(String(body?.end_time ?? "")) ? String(body!.end_time) : null;
+  if ((blockStart && !blockEnd) || (!blockStart && blockEnd))
+    return bad(res, "start_time and end_time must both be set (HH:MM) or both blank");
+  if (blockStart && blockEnd && blockStart >= blockEnd)
+    return bad(res, "start_time must be before end_time");
   // Honor the legacy `notes` field: prior callers passed a full notes
   // string (e.g. "unexcused hours: 8.00") rather than a short context
   // suffix. The extracted helper composes its own canonical marker
@@ -2187,6 +2211,8 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
     type: recordType,
     protected: false,
     note: body.notes,
+    start_time: blockStart,
+    end_time: blockEnd,
     logged_by: actingUserId,
   });
   // [reasons 2026-07-07] Unexcused-bucket balance provenance: an absence

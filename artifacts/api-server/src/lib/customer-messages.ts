@@ -21,6 +21,11 @@ export interface CatalogChannelDefault {
   channel: MsgChannel;
   subject?: string; // email only
   body: string;
+  // Seed this channel's template PAUSED (is_active=false). Used when a
+  // channel is added to an existing message after launch — the toggle
+  // becomes authorable without silently turning a new send ON for every
+  // tenant. The office activates it in Customer Messages when ready.
+  seedPaused?: boolean;
 }
 
 // How a message's send time is determined:
@@ -166,6 +171,18 @@ export const CUSTOMER_MESSAGE_CATALOG: CustomerMessageDef[] = [
         body:
           "{{company_name}}: your cleaner {{tech_name}} is on the way, arriving around {{arrival_window}}.",
       },
+      // [notif-prefs-enforce 2026-07-07] The on-my-way EMAIL has sent (gated
+      // on the on_my_way:email pref key) since the job-sms route added it —
+      // but with no email channel in this catalog the preference grid never
+      // showed the cell, so the office had no way to turn it off per client.
+      // Listing it makes the already-enforced toggle authorable.
+      {
+        channel: "email",
+        subject: "Your {{company_name}} cleaner is on the way",
+        body:
+          "Hi {{first_name}},\n\nYour {{company_name}} cleaner {{technician_name}} is on the way to {{service_address}}, arriving {{appointment_window}}.\n\nSee you soon!\n\n{{company_name}}",
+        seedPaused: true,
+      },
     ],
   },
   {
@@ -284,7 +301,7 @@ export async function ensureCustomerMessageTemplates(
       await db.execute(sql`
         INSERT INTO notification_templates
           (company_id, trigger, channel, subject, body, body_html, body_text, is_active, created_at)
-        VALUES (${companyId}, ${def.trigger}, ${ch.channel}, ${subject}, ${body}, ${bodyHtml}, ${bodyText}, true, NOW())`);
+        VALUES (${companyId}, ${def.trigger}, ${ch.channel}, ${subject}, ${body}, ${bodyHtml}, ${bodyText}, ${ch.seedPaused ? false : true}, NOW())`);
       seeded++;
     }
   }
@@ -394,10 +411,24 @@ export async function ensureCustomerMessageSchedules(companyId: number): Promise
   let order = 0;
   for (const def of CUSTOMER_MESSAGE_CATALOG) {
     order += 10;
-    if (have.has(def.trigger)) continue;
     // channels are fixed known tokens ('email'/'sms') — safe to embed as a
     // Postgres array literal like '{email,sms}'.
     const channelsLiteral = `{${def.channels.map((c) => c.channel).join(",")}}`;
+    if (have.has(def.trigger)) {
+      // [notif-prefs-enforce 2026-07-07] A channel ADDED to a builtin after
+      // launch (on_my_way gained email) must reach existing tenants too —
+      // the insert below only fires for brand-new keys, so already-seeded
+      // schedule rows kept their original channel list forever and the
+      // Customer Messages panel never showed the new channel. Union it in
+      // (idempotent; builtin channel lists come from this catalog, they are
+      // not office-edited).
+      await db.execute(sql`
+        UPDATE customer_message_schedules
+           SET channels = ARRAY(SELECT DISTINCT unnest(channels || ${channelsLiteral}::text[]))
+         WHERE company_id = ${companyId} AND key = ${def.trigger} AND is_builtin = true
+           AND NOT (channels @> ${channelsLiteral}::text[])`);
+      continue;
+    }
     await db.execute(sql`
       INSERT INTO customer_message_schedules
         (company_id, key, label, anchor, offset_days, send_hour, channels, is_active, is_builtin, sort_order)

@@ -3499,11 +3499,17 @@ router.delete("/:id", requireAuth, async (req, res) => {
       SELECT recurring_schedule_id, occurrence_date::text AS occ, scheduled_date::text AS sched
       FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `)).rows[0]) as any;
-    async function tombstoneOccurrence() {
+    // [stale-alert-fix 2026-07-07] exec param: the tombstone now runs INSIDE
+    // the delete transaction. It used to run after commit — if it failed (or
+    // the process died in the gap), the occurrence was gone from jobs but not
+    // in skipped_dates, so the nightly engine regenerated a fresh 'scheduled'
+    // job and the client kept getting reminders for a visit the office
+    // deleted. Atomic now: no delete without its tombstone.
+    async function tombstoneOccurrence(exec: any = db) {
       const sid = recurInfo?.recurring_schedule_id;
       const skipDate = recurInfo?.occ ?? recurInfo?.sched;
       if (sid != null && skipDate) {
-        await db.execute(sql`
+        await exec.execute(sql`
           UPDATE recurring_schedules
           SET skipped_dates = ARRAY(
             SELECT DISTINCT unnest(COALESCE(skipped_dates, '{}'::date[]) || ARRAY[${skipDate}::date])
@@ -3609,8 +3615,10 @@ router.delete("/:id", requireAuth, async (req, res) => {
       await tx.execute(sql`UPDATE hr_logs SET job_id = NULL WHERE job_id = ${jobId}`);
       await tx.execute(sql`UPDATE scorecard_entries SET job_id = NULL WHERE job_id = ${jobId}`);
       await tx.delete(jobsTable).where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
+      // Tombstone in the SAME transaction — a deleted occurrence must never
+      // outlive its skipped_dates entry or the engine regenerates it.
+      await tombstoneOccurrence(tx);
     });
-    await tombstoneOccurrence();
     logAudit(req, "DELETE", "job", jobId, null, { status: existing.status });
     // Cascade to the client's own audit trail so all activity within a client
     // is auditable in one place. (Folded in from the removed duplicate route.)
@@ -4049,6 +4057,20 @@ router.post("/:id/photos", requireAuth, photoUpload.single("photo"), async (req,
   try {
     const jobId = parseInt(req.params.id);
     const { photo_type, data_url, lat, lng } = req.body;
+
+    // [photo-stickiness 2026-07-07] Validate the target job BEFORE accepting
+    // bytes. The route used to trust the client-supplied id blindly — a stale
+    // cached job id (or a cross-tenant id) silently attached the tech's
+    // before/after pics to the wrong job with no server-side guardrail.
+    const [target] = await db
+      .select({ id: jobsTable.id, status: jobsTable.status })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId)))
+      .limit(1);
+    if (!target) return res.status(404).json({ error: "Not Found", message: "Job not found" });
+    if (target.status === "cancelled") {
+      return res.status(409).json({ error: "Conflict", message: "This job is cancelled — photos can't be attached to it. Open today's job and retry." });
+    }
 
     // [photos-r2 2026-06-24] Resolve the image bytes from either a multipart
     // upload (new field app) or a base64 data_url (legacy frontend). Store in
@@ -5896,7 +5918,7 @@ router.get("/v2/export", requireAuth, async (req, res) => {
 // revenue rollups, manual charge) reads via COALESCE(billed_amount, base_fee), so
 // pushing the post-mod total there flows through automatically.
 
-async function recomputeJobBilledAmount(jobId: number, companyId: number): Promise<number> {
+export async function recomputeJobBilledAmount(jobId: number, companyId: number): Promise<number> {
   // [commercial-revenue 2026-06-04] Keep billed_amount — the cache payroll +
   // the weekly chart read — in lockstep with how dispatch computes revenue
   // live, so the two never diverge. Commercial work whose price is NOT a
@@ -5919,6 +5941,8 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
   const sumRows = await db.execute(sql`
     SELECT COALESCE(SUM(amount), 0)::numeric AS total,
            COALESCE(SUM(amount) FILTER (WHERE mod_type = 'flat'), 0)::numeric AS flat_total,
+           COALESCE(SUM(amount) FILTER (WHERE mod_type = 'time'), 0)::numeric AS time_total,
+           COALESCE(SUM(minutes) FILTER (WHERE mod_type = 'time'), 0)::numeric AS time_minutes,
            -- [commission-optin 2026-07-01] Only the flagged mods feed the commission base.
            COALESCE(SUM(amount) FILTER (WHERE affects_commission), 0)::numeric AS comm_total,
            COALESCE(SUM(amount) FILTER (WHERE affects_commission AND mod_type = 'flat'), 0)::numeric AS comm_flat_total
@@ -5927,6 +5951,8 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
   `);
   const modsTotal = parseFloat(String((sumRows.rows[0] as any)?.total ?? "0"));
   const flatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.flat_total ?? "0"));
+  const timeModsTotal = parseFloat(String((sumRows.rows[0] as any)?.time_total ?? "0"));
+  const timeModsMinutes = parseFloat(String((sumRows.rows[0] as any)?.time_minutes ?? "0"));
   const commModsTotal = parseFloat(String((sumRows.rows[0] as any)?.comm_total ?? "0"));
   const commFlatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.comm_flat_total ?? "0"));
 
@@ -5947,10 +5973,18 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
 
   let newBilled: number;
   if (isCommercial && !override && rate > 0 && hrs > 0) {
-    // Commercial: rate × allowed_hours + add-ons + FLAT mods only. 'time' mods
-    // already grew allowed_hours (PR #307), so they're in rate × hrs — adding
-    // their amount again would double-count the added time.
-    newBilled = rate * hrs + flatModsTotal + addOnsTotal;
+    // Commercial: rate × allowed_hours + add-ons + FLAT mods + the slice of
+    // each 'time' mod's dollars NOT already captured by the hours growth.
+    // 'time' mods grew allowed_hours (PR #307), so rate × hrs contains
+    // rate × their minutes — but the mod's stored AMOUNT is authoritative
+    // for billing (the office types it), and it can differ from rate × minutes:
+    // a "+0 min · +$20" fee misfiled as a time mod added $0 here while the
+    // invoice line builder subtracted its $20 from the service line (invoice
+    // #6387 pinned at $150 instead of $170). Add amount − rate×minutes so the
+    // stored amount always wins: a proper time mod nets 0 extra, a courtesy
+    // "+30 min · $0" mod nets the free time back OUT of the bill.
+    const timeModsExtra = timeModsTotal - (rate * timeModsMinutes) / 60;
+    newBilled = rate * hrs + flatModsTotal + timeModsExtra + addOnsTotal;
   } else {
     newBilled = base + modsTotal;
   }
@@ -6320,12 +6354,18 @@ router.post("/:id/resend-confirmation", requireAuth, requireRole("owner", "admin
     if (Number.isNaN(jobId)) return res.status(400).json({ error: "Bad job id" });
 
     const jr = await db.execute(sql`
-      SELECT j.id, c.email AS client_email
+      SELECT j.id, j.status, c.email AS client_email
       FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
       WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1
     `);
     const job = jr.rows[0] as any;
     if (!job) return res.status(404).json({ error: "Not found" });
+    // [stale-alert-fix 2026-07-07] Never confirm a booking that no longer
+    // stands — resending on a cancelled/completed job told the client they
+    // were "still booked".
+    if (job.status === "cancelled" || job.status === "complete") {
+      return res.status(409).json({ ok: false, error: "job_not_active", message: `This job is ${job.status} — a booking confirmation can't be sent for it.` });
+    }
     if (!job.client_email) return res.status(400).json({ ok: false, error: "no_client_email" });
 
     const { sendJobScheduledConfirmation } = await import("../lib/booking-confirmation.js");

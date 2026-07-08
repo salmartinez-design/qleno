@@ -70,6 +70,97 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
+    // [account-comms 2026-07-07] Comm-log entries for commercial ACCOUNTS
+    // (invoice emails etc.) — communication_log was client-keyed only, so
+    // account sends had nowhere to land and the account console couldn't show
+    // whether invoices actually went out (Maribel).
+    { label: "communication_log.account_id", stmt: "ALTER TABLE communication_log ADD COLUMN IF NOT EXISTS account_id INTEGER" },
+    { label: "communication_log.customer_id nullable", stmt: "ALTER TABLE communication_log ALTER COLUMN customer_id DROP NOT NULL" },
+    // [building-notes-unfanout 2026-07-07] The property PATCH used to copy
+    // building notes into every future job's per-visit note columns (see
+    // accounts.ts). Clear the stale copies on FUTURE scheduled jobs — a job
+    // note that is byte-identical to its building's current note is a fanned
+    // copy, not a per-visit instruction. Building notes render live now.
+    // Idempotent: once nulled, the predicate no longer matches.
+    { label: "un-fanout building cleaner notes from future jobs", stmt: `
+      UPDATE jobs j SET notes = NULL
+        FROM account_properties p
+       WHERE j.account_property_id = p.id AND j.company_id = p.company_id
+         AND j.status = 'scheduled' AND j.scheduled_date >= CURRENT_DATE
+         AND p.access_notes IS NOT NULL AND p.access_notes <> ''
+         AND j.notes = p.access_notes
+    ` },
+    { label: "un-fanout building office notes from future jobs", stmt: `
+      UPDATE jobs j SET office_notes = NULL
+        FROM account_properties p
+       WHERE j.account_property_id = p.id AND j.company_id = p.company_id
+         AND j.status = 'scheduled' AND j.scheduled_date >= CURRENT_DATE
+         AND p.notes IS NOT NULL AND p.notes <> ''
+         AND j.office_notes = p.notes
+    ` },
+    // [time-block 2026-07-08] Manual time-off records gain a TYPE + TIME BLOCK
+    // so the dispatch board stops guessing "full-day PTO" for every office
+    // entry: Jose called off 2-6 PM but his whole row tinted absent; Hilda's
+    // 4h UNPAID deduction rendered as full-day PTO.
+    { label: "attendance_log.start_time", stmt: "ALTER TABLE employee_attendance_log ADD COLUMN IF NOT EXISTS start_time TIME" },
+    { label: "attendance_log.end_time", stmt: "ALTER TABLE employee_attendance_log ADD COLUMN IF NOT EXISTS end_time TIME" },
+    { label: "leave_usage.leave_type_id", stmt: "ALTER TABLE employee_leave_usage ADD COLUMN IF NOT EXISTS leave_type_id INTEGER" },
+    { label: "leave_usage.start_time", stmt: "ALTER TABLE employee_leave_usage ADD COLUMN IF NOT EXISTS start_time TIME" },
+    { label: "leave_usage.end_time", stmt: "ALTER TABLE employee_leave_usage ADD COLUMN IF NOT EXISTS end_time TIME" },
+    // Backfill leave_type_id from the notes tag the deduction flow has always
+    // written ("… usage/<bucket>"). Idempotent: only NULL rows.
+    { label: "leave_usage backfill type from notes tag", stmt: `
+      UPDATE employee_leave_usage elu SET leave_type_id = lt.id
+        FROM leave_types lt
+       WHERE elu.leave_type_id IS NULL AND lt.company_id = elu.company_id AND lt.active = true
+         AND elu.notes LIKE '%usage/%'
+         AND lower(split_part(elu.notes, 'usage/', 2)) IN (lower(lt.slug), lower(replace(lt.display_name, ' ', '_')), lower(split_part(lt.slug, '_', 1)))
+    ` },
+    // Sal's corrections for 2026-07-07 (idempotent via natural keys + NULL guards):
+    // Jose Ardila (44) worked his morning job and called off 2-6 PM — the
+    // occurrence stays full for discipline; the board shows just the block.
+    { label: "jose 7/7 absence time block", stmt: `
+      UPDATE employee_attendance_log SET start_time = '14:00', end_time = '18:00'
+       WHERE company_id = 1 AND employee_id = 44 AND log_date = '2026-07-07'
+         AND type = 'absent' AND start_time IS NULL
+    ` },
+    // Hilda Gallegos (516): 4h office deduction 2-6 PM was UNPAID LEAVE, not
+    // PTO and not a full day.
+    { label: "hilda 7/7 unpaid-leave block", stmt: `
+      UPDATE employee_leave_usage SET
+             leave_type_id = (SELECT id FROM leave_types WHERE company_id = 1 AND slug = 'unpaid_leave' LIMIT 1),
+             start_time = '14:00', end_time = '18:00'
+       WHERE company_id = 1 AND employee_id = 516 AND date_used = '2026-07-07' AND start_time IS NULL
+    ` },
+    // [photo-stickiness 2026-07-07] Pin every recurring job to its cadence
+    // slot. Legacy rows (pre-occurrence_date / MC cutover) have
+    // occurrence_date NULL, so the engine's slot dedup falls back to the
+    // MUTABLE scheduled_date — rescheduling such a job freed its original
+    // slot and the nightly engine regenerated a fresh EMPTY job there, while
+    // the photographed/clocked work sat on the moved row ("before and after
+    // pics are not sticky to the exact job"). Stamping the current
+    // scheduled_date freezes the slot; future generation stamps it at insert.
+    // Idempotent: only touches NULL rows.
+    { label: "backfill jobs.occurrence_date on recurring rows", stmt: `
+      UPDATE jobs SET occurrence_date = scheduled_date
+       WHERE recurring_schedule_id IS NOT NULL AND occurrence_date IS NULL
+    ` },
+    // [office-reminders 2026-07-07] Internal office reminders/events (Maribel).
+    // Not customer comms — never sends anything. Surfaced on the dashboard.
+    { label: "office_reminders table", stmt: `
+      CREATE TABLE IF NOT EXISTS office_reminders (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        notes TEXT,
+        due_date DATE NOT NULL,
+        due_time TIME,
+        created_by INTEGER,
+        completed_at TIMESTAMP,
+        completed_by INTEGER,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for
     // the estimate drip. Opt-in: bridge fires only when a URL is set.
     // [estimate-w9 2026-06-26] Company tax info for the fillable W-9. Additive.

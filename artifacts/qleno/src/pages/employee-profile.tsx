@@ -734,11 +734,17 @@ export default function EmployeeProfilePage() {
   const [recDate, setRecDate] = useState('');
   const [recHours, setRecHours] = useState('');
   const [recReason, setRecReason] = useState('');
+  // [time-block 2026-07-08] Optional window the absence covers (Jose worked
+  // his morning job, called off 2-6 PM). Blank = whole day. Display-only —
+  // the occurrence still counts fully for discipline; the dispatch board
+  // tints just this window.
+  const [recStart, setRecStart] = useState('');
+  const [recEnd, setRecEnd] = useState('');
   const [recBusy, setRecBusy] = useState(false);
   const [recErr, setRecErr] = useState<string | null>(null);
   const openRecord = (type: 'absent' | 'tardy', accent: string) => {
     setRecDate(new Date().toISOString().slice(0, 10));
-    setRecHours(''); setRecReason(''); setRecErr(null);
+    setRecHours(''); setRecReason(''); setRecStart(''); setRecEnd(''); setRecErr(null);
     setRecordModal({ type, accent, title: type === 'tardy' ? 'Record tardy' : 'Record unexcused absence' });
   };
   const submitRecord = async () => {
@@ -746,6 +752,8 @@ export default function EmployeeProfilePage() {
     const hrs = Number(recHours);
     if (!recDate) { setRecErr('Pick a date'); return; }
     if (!Number.isFinite(hrs) || hrs <= 0) { setRecErr('Hours must be a positive number'); return; }
+    if ((recStart && !recEnd) || (!recStart && recEnd)) { setRecErr('Set both times for the block, or leave both blank for the whole day'); return; }
+    if (recStart && recEnd && recStart >= recEnd) { setRecErr('The block start must be before its end'); return; }
     setRecBusy(true);
     try {
       await apiFetch('/leave/unexcused/record', {
@@ -756,6 +764,8 @@ export default function EmployeeProfilePage() {
           hours: hrs,
           type: recordModal!.type,
           notes: recReason.trim() || undefined,
+          start_time: recStart || undefined,
+          end_time: recEnd || undefined,
         }),
       });
       qc.invalidateQueries({ queryKey: ['attendance-summary', userId] });
@@ -785,6 +795,10 @@ export default function EmployeeProfilePage() {
   const [balMode, setBalMode] = useState<'deduct' | 'add' | 'set'>('deduct');
   const [balDeduct, setBalDeduct] = useState('');
   const [balDate, setBalDate] = useState('');
+  // [time-block 2026-07-08] Optional window the deduction covers ("2-6 PM
+  // off"). Blank = whole day. The dispatch board tints just this window.
+  const [balStart, setBalStart] = useState('');
+  const [balEnd, setBalEnd] = useState('');
   const [balGranted, setBalGranted] = useState('');
   const [balUsed, setBalUsed] = useState('');
   const [balReason, setBalReason] = useState('');
@@ -798,6 +812,7 @@ export default function EmployeeProfilePage() {
     setBalUsed(String(Number(b.used || 0)));
     setBalDeduct('');
     setBalDate(new Date().toISOString().slice(0, 10));
+    setBalStart(''); setBalEnd('');
     setBalReason('');
     setBalMode('deduct');
     setBalErr(null);
@@ -818,6 +833,8 @@ export default function EmployeeProfilePage() {
       const hrs = Number(balDeduct);
       if (balDeduct.trim() === '' || !Number.isFinite(hrs) || hrs <= 0) { setBalErr('Hours to deduct must be more than 0'); return; }
       if (!balDate) { setBalErr('Pick the date the hours were taken'); return; }
+      if ((balStart && !balEnd) || (!balStart && balEnd)) { setBalErr('Set both times for the block, or leave both blank for the whole day'); return; }
+      if (balStart && balEnd && balStart >= balEnd) { setBalErr('The block start must be before its end'); return; }
       setBalBusy(true);
       try {
         await apiFetch('/leave/usage', {
@@ -828,6 +845,8 @@ export default function EmployeeProfilePage() {
             date: balDate,
             hours: hrs,
             reason: balReason.trim() || undefined,
+            start_time: balStart || undefined,
+            end_time: balEnd || undefined,
           }),
         });
         qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
@@ -1895,6 +1914,15 @@ export default function EmployeeProfilePage() {
                       <input type="date" value={recDate} onChange={e => setRecDate(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
                       <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>{recordModal.type === 'tardy' ? 'Hours late' : 'Hours missed'}</label>
                       <input type="number" min="0" step="0.25" value={recHours} onChange={e => setRecHours(e.target.value)} placeholder="e.g. 8" style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                      {/* [time-block] Optional window — a partial call-off
+                          ("worked the morning, off 2-6 PM") tints only that
+                          block on the dispatch board. Counts fully either way. */}
+                      <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Time block <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional — blank = whole day)</span></label>
+                      <div style={{ display:'flex',gap:8,marginBottom:12 }}>
+                        <input type="time" value={recStart} onChange={e => setRecStart(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
+                        <span style={{ alignSelf:'center',fontSize:12,color:'#9E9B94' }}>to</span>
+                        <input type="time" value={recEnd} onChange={e => setRecEnd(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
+                      </div>
                       <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Reason <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional)</span></label>
                       <textarea value={recReason} onChange={e => setRecReason(e.target.value)} placeholder="e.g. no-show, didn't call" rows={2} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box',resize:'vertical' }} />
                       {recErr && <p style={{ fontSize:12,color:'#991B1B',margin:'0 0 10px' }}>{recErr}</p>}
@@ -1950,6 +1978,14 @@ export default function EmployeeProfilePage() {
                               <>
                                 <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Date taken <span style={{ fontWeight:500,color:'#9E9B94' }}>(shows on the calendar and history)</span></label>
                                 <input type="date" value={balDate} onChange={e => setBalDate(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                                {/* [time-block] Optional window — "off 2-6 PM"
+                                    tints only that block on the dispatch board. */}
+                                <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Time block <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional — blank = whole day)</span></label>
+                                <div style={{ display:'flex',gap:8,marginBottom:12 }}>
+                                  <input type="time" value={balStart} onChange={e => setBalStart(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
+                                  <span style={{ alignSelf:'center',fontSize:12,color:'#9E9B94' }}>to</span>
+                                  <input type="time" value={balEnd} onChange={e => setBalEnd(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
+                                </div>
                               </>
                             )}
                           </>

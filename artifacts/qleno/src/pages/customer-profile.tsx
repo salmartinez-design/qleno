@@ -18,6 +18,7 @@ import {
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from "./customer-profile-tabs2";
 import { JobWizard } from "@/components/job-wizard";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
+import { ActivityFeed } from "@/components/activity-feed";
 // [job-card-redesign 2026-06-25] The SAME editable dispatch card, opened from the
 // client calendar (Maribel: "edit everything there, not just void/cancel"). Lazy
 // so jobs.tsx stays out of the profile's main chunk — loaded when a card opens.
@@ -4705,13 +4706,20 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
     return acc;
   }, {});
 
+  // [photo-stickiness 2026-07-07] Label each group by the date the photos were
+  // TAKEN (photo_timestamp), not the job's current scheduled_date — a
+  // rescheduled job drags its scheduled_date to the new day, which made old
+  // before/after pics render under a visit date they weren't shot on ("pics
+  // are not sticky to the exact job"). jobDate (the job's live date) is kept
+  // only for the dispatch deep-link, which loads the board by current date.
   const jobGroups = Object.entries(byJob).map(([jobId, rows]: [string, any[]]) => ({
     jobId: parseInt(jobId),
     jobDate: rows[0]?.job_date,
+    takenDate: (rows.find((r: any) => r.photo_timestamp)?.photo_timestamp || rows[0]?.job_date || "").slice(0, 10),
     serviceType: rows[0]?.service_type,
     techName: rows[0]?.tech_first ? `${rows[0].tech_first} ${rows[0].tech_last || ""}`.trim() : null,
     photos: rows,
-  })).sort((a, b) => (b.jobDate || "").localeCompare(a.jobDate || ""));
+  })).sort((a, b) => (b.takenDate || "").localeCompare(a.takenDate || ""));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -4729,10 +4737,10 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
           <div key={group.jobId} style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
             <div style={{ background: "#F7F6F3", padding: "10px 16px", display: "flex", alignItems: "center", gap: 14, borderBottom: "1px solid #E5E2DC" }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{fmtDate(group.jobDate)}{group.serviceType ? ` · ${group.serviceType}` : ""}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{fmtDate(group.takenDate)}{group.serviceType ? ` · ${group.serviceType}` : ""}{group.jobDate && group.takenDate && String(group.jobDate).slice(0, 10) !== group.takenDate ? ` · visit now on ${fmtDate(group.jobDate)}` : ""}</div>
                 {group.techName && <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>{group.techName}</div>}
               </div>
-              <a href={`/jobs/${group.jobId}`} style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "var(--brand)", textDecoration: "none" }}>Job #{group.jobId}</a>
+              <a href={`/dispatch?date=${(group.jobDate || "").slice(0, 10)}&job=${group.jobId}`} style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "var(--brand)", textDecoration: "none" }}>Job #{group.jobId}</a>
             </div>
             <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
               {group.photos.map((p: any) => (
@@ -5597,120 +5605,15 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
 // every recorded action (job created/edited/rescheduled/cancelled/deleted,
 // price changes, tech reassignments, client edits, messages) with who + when.
 // Reads the aggregated GET /api/clients/:id/activity endpoint.
+// [account-activity 2026-07-07] Rendering extracted to the shared
+// components/activity-feed.tsx so the account console shows the same feed.
 function ActivityTab({ clientId }: { clientId: number }) {
-  const { data, isLoading } = useQuery<any>({
-    queryKey: ["client-activity", clientId],
-    queryFn: () => apiFetch(`/api/clients/${clientId}/activity?limit=200`),
-  });
-  const events: any[] = data?.events || [];
-  const FF2 = "'Plus Jakarta Sans', sans-serif";
-  const fmtWhen = (s: string) => (s ? new Date(s).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
-  const META: Record<string, { label: string; color: string; bg: string }> = {
-    job_created:     { label: "Job created",    color: "#0A6E5A", bg: "#E6F8F2" },
-    job_edit:        { label: "Job edited",     color: "#1D4ED8", bg: "#EAF0FE" },
-    job_rescheduled: { label: "Rescheduled",    color: "#92400E", bg: "#FEF3C7" },
-    job_cancelled:   { label: "Cancelled",      color: "#B91C1C", bg: "#FEECEC" },
-    job_deleted:     { label: "Deleted",        color: "#7C2D12", bg: "#FBE8E0" },
-    client_edit:     { label: "Client edited",  color: "#5B21B6", bg: "#F1ECFD" },
-    client_created:  { label: "Client created", color: "#0A6E5A", bg: "#E6F8F2" },
-    communication:   { label: "Message",        color: "#374151", bg: "#F3F4F6" },
-  };
-  const label = (f: string | null) => (f ? f.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "");
-  // [audit-plain-english 2026-06-18] The activity feed read like code (raw JSON
-  // dumps, "[unknown — see X history]", field names). These helpers turn each
-  // entry into one plain sentence the office can read at a glance.
-  const isNum = (v: any) => v != null && v !== "" && Number.isFinite(Number(v));
-  const money = (v: any) => `$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const truthy = (v: any) => v === true || v === "true";
-  const time12 = (t: any) => {
-    const m = String(t).match(/^(\d{1,2}):(\d{2})/);
-    if (!m) return String(t);
-    const h = parseInt(m[1], 10); const ap = h < 12 ? "AM" : "PM";
-    return `${((h + 11) % 12) + 1}:${m[2]} ${ap}`;
-  };
-  // A readable scalar; objects/arrays/empties we can't summarize → null (caller
-  // falls back to a generic phrase rather than printing JSON).
-  const valText = (v: any): string | null => {
-    if (v == null || v === "") return null;
-    if (typeof v === "object") return Array.isArray(v) ? (v.length ? null : null) : null;
-    if (typeof v === "boolean") return v ? "yes" : "no";
-    if (typeof v === "string" && /unknown — see/i.test(v)) return null;
-    return String(v);
-  };
-  const describeEdit = (e: any): string => {
-    const nv = e.new_value ?? {}, ov = e.old_value ?? {};
-    const f = e.field_name as string;
-    const n = (nv && typeof nv === "object" && "value" in nv) ? (nv as any).value : nv;
-    const o = (ov && typeof ov === "object" && "value" in ov) ? (ov as any).value : ov;
-    switch (f) {
-      case "cascade_summary": {
-        const upd = Number(nv?.future_jobs_updated ?? 0), ins = Number(nv?.future_jobs_inserted ?? 0), del = Number(nv?.future_jobs_deleted ?? 0);
-        const parts: string[] = [];
-        if (upd) parts.push(`${upd} future visit${upd === 1 ? "" : "s"} updated`);
-        if (ins) parts.push(`${ins} added`);
-        if (del) parts.push(`${del} removed`);
-        return parts.length ? `Recurring schedule changed — ${parts.join(", ")}` : "Recurring schedule changed";
-      }
-      case "base_fee":      return `Price changed${isNum(o) ? ` from ${money(o)}` : ""} to ${money(n)}`;
-      case "billed_amount": return `Billed amount changed${isNum(o) ? ` from ${money(o)}` : ""} to ${money(n)}`;
-      case "hourly_rate":   return `Hourly rate set to ${money(n)}/hr`;
-      case "allowed_hours": return `Allowed hours set to ${n}`;
-      case "scheduled_time": return `Start time changed to ${time12(n)}`;
-      case "scheduled_date": return `Date changed to ${n}`;
-      case "manual_rate_override": return `Manual price override turned ${truthy(n) ? "on" : "off"}`;
-      case "team_user_ids": return "Team reassigned";
-      case "add_ons":       return "Add-ons updated";
-      case "service_type":  return `Service changed to ${label(String(n))}`;
-      case "notes": case "office_notes": return "Notes updated";
-      default: {
-        const nt = valText(n), ot = valText(o);
-        if (nt) return `${label(f)} changed${ot ? ` from ${ot}` : ""} to ${nt}`;
-        return `${label(f)} updated`;
-      }
-    }
-  };
-  const describe = (e: any): string => {
-    const nv = e.new_value || {}, ov = e.old_value || {};
-    switch (e.event_type) {
-      case "job_edit":        return describeEdit(e);
-      case "job_rescheduled": return `Rescheduled${nv.reason ? ` — ${nv.reason}` : ""}`;
-      case "job_cancelled":   return `Cancelled${nv.reason ? ` — ${String(nv.reason).replace(/_/g, " ")}` : ""}${nv.charge != null ? ` · fee ${money(nv.charge)}` : ""}`;
-      case "job_deleted":     return `Job deleted${ov.service_type ? ` · ${label(ov.service_type)}` : ""}${ov.scheduled_date ? ` · ${ov.scheduled_date}` : ""}`;
-      case "communication":   return `${nv.direction === "inbound" ? "Received" : "Sent"} ${e.field_name || "message"}${nv.summary ? ` — ${nv.summary}` : nv.subject ? ` — ${nv.subject}` : ""}`;
-      case "client_edit":     { const nt = valText(nv?.value ?? nv); return nt ? `${label(e.field_name)} changed to ${nt}` : `${label(e.field_name)} updated`; }
-      case "job_created":     return "Job created";
-      case "client_created":  return "Client created";
-      default:                return label(e.field_name) || "Updated";
-    }
-  };
   return (
-    <div>
-      <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 14, fontFamily: FF2 }}>
-        Every recorded action on this client — jobs, reschedules, cancellations, price changes, messages — with who and when.
-      </div>
-      {isLoading ? (
-        <div style={{ padding: 30, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>Loading…</div>
-      ) : events.length === 0 ? (
-        <div style={{ padding: 30, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>No recorded activity yet.</div>
-      ) : (
-        <div>
-          {events.map((e, i) => {
-            const m = META[e.event_type] || { label: e.event_type, color: "#374151", bg: "#F3F4F6" };
-            return (
-              <div key={i} style={{ display: "flex", gap: 12, padding: "12px 2px", borderTop: i === 0 ? "none" : "1px solid #F0EEE9" }}>
-                <span style={{ flexShrink: 0, alignSelf: "flex-start", fontSize: 11, fontWeight: 700, color: m.color, background: m.bg, borderRadius: 6, padding: "3px 9px", fontFamily: FF2, whiteSpace: "nowrap" }}>{m.label}</span>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13, color: "#1A1917", fontFamily: FF2, wordBreak: "break-word" }}>{describe(e)}</div>
-                  <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF2 }}>
-                    {fmtWhen(e.occurred_at)}{e.user_name ? ` · ${e.user_name}` : ""}{e.related_job_id ? ` · Job #${e.related_job_id}` : ""}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
+    <ActivityFeed
+      endpoint={`/api/clients/${clientId}/activity?limit=200`}
+      queryKey={["client-activity", clientId]}
+      introText="Every recorded action on this client — jobs, reschedules, cancellations, price changes, messages — with who and when."
+    />
   );
 }
 

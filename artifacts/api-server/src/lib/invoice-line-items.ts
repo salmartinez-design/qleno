@@ -18,7 +18,10 @@ import { jobsTable, jobAddOnsTable, addOnsTable, jobDiscountsTable, accountPrope
 import { eq, and, sql } from "drizzle-orm";
 import { ensureAutoPromosForJob } from "./auto-promos.js";
 
-export type InvoiceLineItem = { description: string; quantity: number; unit_price: number; total: number };
+// job_id on the SCOPE line makes the job discoverable from the invoice via the
+// dispatch `line_items @> [{job_id}]` containment lookup — without it, a job
+// folded into a merged/account invoice shows "No invoice yet" on its card.
+export type InvoiceLineItem = { description: string; quantity: number; unit_price: number; total: number; job_id?: number };
 
 export async function buildJobLineItems(
   companyId: number,
@@ -122,7 +125,7 @@ export async function buildJobLineItems(
   }
 
   const lineItems: InvoiceLineItem[] = [
-    { description: scopeDesc, quantity: scopeQty, unit_price: scopeUnit, total: scopeAmount },
+    { description: scopeDesc, quantity: scopeQty, unit_price: scopeUnit, total: scopeAmount, job_id: jobId },
   ];
   let runningTotal = scopeAmount;
 

@@ -21,6 +21,7 @@ import { formatInvoiceNumber } from "@/lib/invoice-number";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { AccountJobsCalendar } from "@/components/account-jobs-calendar";
+import { ActivityFeed } from "@/components/activity-feed";
 import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOffSet, type PrefData } from "@/components/notification-preference-grid";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 
@@ -85,7 +86,7 @@ const CONTACT_ROLES = [
   { value: "other", label: "Other" },
 ];
 
-type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs" | "invoices";
+type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs" | "invoices" | "activity";
 
 function fmt(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -653,6 +654,7 @@ export default function AccountDetailPage() {
     { key: "calendar", label: "Calendar" },
     { key: "jobs", label: "Uninvoiced Jobs", count: jobs.length },
     { key: "invoices", label: "Invoices" },
+    { key: "activity", label: "Activity" },
   ];
 
   return (
@@ -1456,6 +1458,20 @@ export default function AccountDetailPage() {
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* [account-activity 2026-07-07] Same audit feed the client profile
+            has — jobs, reschedules, cancellations, messages, and the invoice
+            created/sent trail, so the office can verify invoices actually
+            went out (or see exactly why one was suppressed). */}
+        {tab === "activity" && id && (
+          <div className="bg-white border border-gray-100 rounded-xl p-5">
+            <ActivityFeed
+              endpoint={`/api/accounts/${id}/activity?limit=200`}
+              queryKey={["account-activity", id]}
+              introText="Every recorded action on this account — jobs, reschedules, cancellations, messages, and invoices (created / sent / suppressed) — with who and when."
+            />
           </div>
         )}
       </div>
