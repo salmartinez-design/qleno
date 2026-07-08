@@ -748,6 +748,16 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
   // Sync status if lead prop changes
   useEffect(() => { setEditStatus(lead.status); }, [lead.id, lead.status]);
 
+  // Opening the panel acknowledges an un-answered reply: clear the board's
+  // REPLIED badge for this lead (server no-ops when there's nothing to clear).
+  useEffect(() => {
+    if (!(lead as any).replied_at) return;
+    fetch(`${API}/api/leads/${lead.id}/ack-reply`, { method: "POST", headers: getAuthHeaders() as HeadersInit })
+      .then(r => { if (r.ok) onUpdated(); })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lead.id]);
+
   // Mark the lead's linked quote as Sent — this is the trigger that starts the
   // quote follow-up drip (enrollForQuoteSent). Lives on the record so the
   // workflow is preserved now that the standalone Quotes list isn't a tab.
@@ -1263,7 +1273,7 @@ function SequencesView() {
 const SEQ_INFO: Record<string, { audience: string; starts: string; stops: string }> = {
   lead_drip_phone: {
     audience: "Leads you talked to on the phone (office-created leads).",
-    starts: "Automatically, as soon as the lead lands in Needs Contact.",
+    starts: "Automatically, the moment the lead is created (they land in Contacted).",
     stops: "When they reply, get a quote, or book.",
   },
   lead_drip_web: {
@@ -1517,6 +1527,32 @@ function leadChannel(lead: any): "Website" | "Office" {
   return /web|widget|online|quote|form|very_dirty/.test(s) ? "Website" : "Office";
 }
 
+// "2h ago" / "3d ago" — compact relative time for card status lines.
+function relTime(ts: string | null | undefined): string {
+  if (!ts) return "";
+  const ms = Date.now() - new Date(ts).getTime();
+  const mins = Math.round(ms / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.round(hrs / 24)}d ago`;
+}
+
+// One-line card status: the reply alarm wins, then drip progress, then age.
+function cardStatus(l: any): { text: string; color: string; bold?: boolean } {
+  if (l.replied_at) return { text: `Replied ${relTime(l.replied_at)} — call back`, color: "#DC2626", bold: true };
+  if (String(l.status) === "booked") return { text: "✓ Booked — drip stopped", color: "#0F6E56" };
+  if (l.drip_step) {
+    const touched = l.last_drip_touch_at ? ` · sent ${relTime(l.last_drip_touch_at)}` : "";
+    return { text: `Drip ${l.drip_step}/${l.drip_total_steps}${touched}`, color: "#8A8780" };
+  }
+  if (["new", "needs_contacted", "contacted"].includes(String(l.status))) {
+    return { text: `No drip running · added ${fmtDate(l.created_at)}`, color: "#B45309" };
+  }
+  return { text: fmtDate(l.created_at), color: "#B4B2A9" };
+}
+
 // Kanban board grouping the loaded leads by stage so you watch them move
 // New → Contacted → Quoted → Booked. Each card carries price + Website/Office +
 // (for booked) "drip stopped". Clicking a card opens the same detail panel.
@@ -1538,21 +1574,29 @@ function BoardView({ leads, selectedId, onSelect }: { leads: Lead[]; selectedId:
                 <span style={{ color: col.color }}>{col.label}</span><span style={{ color: "#9E9B94" }}>{items.length}</span>
               </div>
               <div style={{ overflowY: "auto", flex: 1 }}>
-                {items.map(l => {
-                  const booked = String(l.status) === "booked";
+                {[...items].sort((a: any, b: any) => {
+                  // Un-answered replies float to the top of their column.
+                  if (!!a.replied_at !== !!b.replied_at) return a.replied_at ? -1 : 1;
+                  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                }).map(l => {
                   const ch = leadChannel(l);
                   const price = Number((l as any).quote_amount || (l as any).linked_quote_price || 0);
+                  const replied = !!(l as any).replied_at;
+                  const st = cardStatus(l as any);
                   return (
-                    <div key={l.id} onClick={() => onSelect(l)} style={{ background: "#fff", border: `1px solid ${selectedId === l.id ? "#00C9A0" : "#E8E5E0"}`, boxShadow: selectedId === l.id ? "0 0 0 2px rgba(0,201,160,.18)" : "none", borderRadius: 8, padding: "9px 10px", marginBottom: 7, cursor: "pointer" }}>
+                    <div key={l.id} onClick={() => onSelect(l)} style={{ background: "#fff", border: `1px solid ${replied ? "#DC2626" : selectedId === l.id ? "#00C9A0" : "#E8E5E0"}`, boxShadow: selectedId === l.id ? "0 0 0 2px rgba(0,201,160,.18)" : replied ? "0 0 0 2px rgba(220,38,38,.12)" : "none", borderRadius: 8, padding: "9px 10px", marginBottom: 7, cursor: "pointer" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 }}>
-                        <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{[l.first_name, l.last_name].filter(Boolean).join(" ") || "—"}</span>
+                        <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[l.first_name, l.last_name].filter(Boolean).join(" ") || "—"}</span>
+                          {replied && <span style={{ fontSize: 8.5, fontWeight: 800, padding: "1px 6px", borderRadius: 4, flexShrink: 0, background: "#FEE2E2", color: "#B91C1C" }}>REPLIED</span>}
+                        </span>
                         {price > 0 && <span style={{ fontSize: 12.5, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>${price.toFixed(0)}</span>}
                       </div>
                       <div style={{ fontSize: 10.5, color: "#8A8780", margin: "2px 0 6px", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.scope || "—"}</span>
                         <span style={{ fontSize: 8.5, fontWeight: 800, padding: "1px 6px", borderRadius: 4, flexShrink: 0, background: ch === "Website" ? "#EDE9FE" : "#EEF1F4", color: ch === "Website" ? "#6D28D9" : "#475569" }}>{ch}</span>
                       </div>
-                      <div style={{ fontSize: 9.5, color: booked ? "#0F6E56" : "#B4B2A9", fontFamily: FF }}>{booked ? "✓ Booked — drip stopped" : fmtDate(l.created_at)}</div>
+                      <div style={{ fontSize: 9.5, color: st.color, fontWeight: st.bold ? 700 : 400, fontFamily: FF }}>{st.text}</div>
                     </div>
                   );
                 })}

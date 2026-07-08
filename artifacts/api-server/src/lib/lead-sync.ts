@@ -81,10 +81,14 @@ export async function upsertLeadForQuote(companyId: number, quote: any): Promise
       // A later PATCH/send/convert, once contact exists, will create the lead then.
       if (!first && !email && !phone10) return null;
       const insFirst = first || "Lead";
+      // Quote-builder leads land in CONTACTED, not Needs Contact — building a
+      // quote means the office just talked to them. Needs Contact stays
+      // reserved for leads nobody has actually reached (web forms). Decided by
+      // Sal 2026-07-08.
       const ins = await db.execute(sql`
-        INSERT INTO leads (company_id, first_name, last_name, email, phone, address, scope, source, status, created_at, updated_at)
+        INSERT INTO leads (company_id, first_name, last_name, email, phone, address, scope, source, status, contacted_at, created_at, updated_at)
         VALUES (${companyId}, ${insFirst}, ${last}, ${insEmail}, ${insPhone},
-                ${address}, ${scope}, ${quote.referral_source || "quote"}, 'needs_contacted', NOW(), NOW())
+                ${address}, ${scope}, ${quote.referral_source || "quote"}, 'contacted', NOW(), NOW(), NOW())
         RETURNING id`);
       leadId = (ins.rows[0] as any).id;
       await logActivity(companyId, leadId!, "created", "Lead created from quote", null);
@@ -168,6 +172,14 @@ export async function handleInboundReply(companyId: number, fromPhone: string, o
     await db.execute(sql`
       UPDATE follow_up_enrollments SET stopped_at = NOW(), stopped_reason = ${reason}
        WHERE company_id = ${companyId} AND lead_id = ${id} AND completed_at IS NULL AND stopped_at IS NULL`).catch(() => {});
+    // Surface the reply on the board: replied_at drives the REPLIED badge +
+    // top-of-column sort. Cleared when the office opens the lead or logs a
+    // call. Opt-outs don't get the badge — there's nothing to call back about.
+    if (!optOut) {
+      await db.execute(sql`
+        UPDATE leads SET replied_at = NOW(), updated_at = NOW()
+         WHERE id = ${id} AND company_id = ${companyId}`).catch(() => {});
+    }
     await logActivity(companyId, id, reason, optOut ? "Customer opted out (STOP)" : "Customer replied — cadence stopped", null);
   }
   return ids;
