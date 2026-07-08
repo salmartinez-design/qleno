@@ -657,30 +657,35 @@ router.patch("/:id/properties/:propId", requireAuth, requireRole("owner", "admin
       .where(and(eq(accountPropertiesTable.id, propId), eq(accountPropertiesTable.company_id, companyId)))
       .returning();
 
-    // [building-notes 2026-07-01] Push the building's permanent notes onto every
-    // FUTURE scheduled job for this building so the office stops copy-pasting.
-    // Office notes → job.office_notes, Cleaner notes → job.notes. NON-destructive:
-    // only sync a job's box when it's empty or still holds the PREVIOUS building
-    // note — a per-job custom note is left untouched. Past/in-progress/completed
-    // jobs are never touched.
+    // [building-notes 2026-07-01 → REVERSED 2026-07-07] This used to COPY the
+    // building's notes into every future job's per-visit columns
+    // (property.notes → jobs.office_notes, property.access_notes → jobs.notes).
+    // That's how Jirsa's one-off note from last week ("unit G1" + door code +
+    // "fridge, oven") ended up on Jose's job this week labeled "Today's Job
+    // Notes — this visit only": anything typed in the building box fanned out
+    // to every empty future job, and the copy is indistinguishable from a real
+    // per-visit note. Building notes now display LIVE from the property on
+    // every surface (my-jobs "Building Access" + the dispatch card's building
+    // sections) — same visibility, zero bleed. jobs.notes / jobs.office_notes
+    // are per-visit only again. On edit, we UN-copy: future jobs still holding
+    // a verbatim copy of the OLD building note get cleared.
     if (prop && notesChanged) {
       try {
-        if ("notes" in updates) {
+        if ("notes" in updates && before?.notes) {
           await db.execute(sql`
-            UPDATE jobs SET office_notes = ${prop.notes ?? null},
-                            office_notes_updated_at = NOW(), office_notes_updated_by = ${req.auth!.userId}
+            UPDATE jobs SET office_notes = NULL, office_notes_updated_at = NOW(), office_notes_updated_by = ${req.auth!.userId}
              WHERE account_property_id = ${propId} AND company_id = ${companyId}
                AND status = 'scheduled' AND scheduled_date >= CURRENT_DATE
-               AND (office_notes IS NULL OR office_notes = '' OR office_notes IS NOT DISTINCT FROM ${before?.notes ?? null})`);
+               AND office_notes = ${before.notes}`);
         }
-        if ("access_notes" in updates) {
+        if ("access_notes" in updates && before?.access_notes) {
           await db.execute(sql`
-            UPDATE jobs SET notes = ${prop.access_notes ?? null}
+            UPDATE jobs SET notes = NULL
              WHERE account_property_id = ${propId} AND company_id = ${companyId}
                AND status = 'scheduled' AND scheduled_date >= CURRENT_DATE
-               AND (notes IS NULL OR notes = '' OR notes IS NOT DISTINCT FROM ${before?.access_notes ?? null})`);
+               AND notes = ${before.access_notes}`);
         }
-      } catch (e) { console.warn("[building-notes] propagate to jobs failed:", e); }
+      } catch (e) { console.warn("[building-notes] un-copy from jobs failed:", e); }
     }
 
     res.json(prop);

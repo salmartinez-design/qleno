@@ -2835,6 +2835,17 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </div>
           )}
 
+          {/* [building-notes 2026-07-07] Live building-level office note —
+              shows on every visit at this property. Replaces the removed
+              copy-into-job propagation that caused last week's per-visit
+              notes to reappear on later visits. Edited on the property page. */}
+          {(job as any).property_notes && (
+            <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 14px", marginBottom: 14 }}>
+              <p style={{ fontSize: 10, fontWeight: 700, color: "#6B6963", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 3px" }}>Building Notes — every visit</p>
+              <p style={{ margin: 0, fontSize: 12, color: "#1A1917", lineHeight: 1.5 }}>{(job as any).property_notes}</p>
+            </div>
+          )}
+
           {job.billing_method === "hourly" && job.billed_hours != null && job.estimated_hours != null && job.billed_hours > job.estimated_hours + 0.5 && (
             <div style={{ background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
               <AlertTriangle size={14} style={{ color: "#92400E", flexShrink: 0, marginTop: 1 }} />
@@ -3697,10 +3708,22 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               st === "draft"   ? { bg: "#F3F4F6", color: "#374151", border: "#D1D5DB", label: "DRAFT" } :
                                  { bg: "#FEF3C7", color: "#92400E", border: "#FDE68A", label: "UNPAID" };
             return (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F7F6F3" }}>
-                <span style={{ fontSize: 12, color: "#6B6963", fontFamily: FF }}>Invoice{total ? ` ${total}` : ""}</span>
-                <span style={{ padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", backgroundColor: bg, color, border: `1px solid ${border}`, fontFamily: FF }}>{label}</span>
-                <a href={`/invoices/${inv}`} style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "#00C9A0", textDecoration: "none", fontFamily: FF }}>View →</a>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F7F6F3" }}>
+                  <span style={{ fontSize: 12, color: "#6B6963", fontFamily: FF }}>Invoice{total ? ` ${total}` : ""}</span>
+                  <span style={{ padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", backgroundColor: bg, color, border: `1px solid ${border}`, fontFamily: FF }}>{label}</span>
+                  <a href={`/invoices/${inv}`} style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "#00C9A0", textDecoration: "none", fontFamily: FF }}>View →</a>
+                </div>
+                {/* [closed-invoice-hint 2026-07-07] Maribel: "after they are
+                    closed we can't edit them from the job card." Unpaid
+                    (draft/sent/overdue) invoices DO mirror job-card billing
+                    edits — say so. Paid ones are frozen by design — say what
+                    the office needs to do instead of failing silently. */}
+                <div style={{ marginTop: 5, fontSize: 11, color: "#9E9B94", fontFamily: FF, lineHeight: 1.5 }}>
+                  {st === "paid"
+                    ? <>Paid invoices are locked. To fix it: open the invoice → Mark Unpaid (or refund if card-charged), edit here, then re-send.</>
+                    : <>Price, add-ons, and adjustments edited here update this invoice automatically until it's paid.</>}
+                </div>
               </div>
             );
           })()}

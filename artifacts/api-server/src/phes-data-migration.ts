@@ -76,6 +76,44 @@ async function runBookingSchemaGuard(): Promise<void> {
     // whether invoices actually went out (Maribel).
     { label: "communication_log.account_id", stmt: "ALTER TABLE communication_log ADD COLUMN IF NOT EXISTS account_id INTEGER" },
     { label: "communication_log.customer_id nullable", stmt: "ALTER TABLE communication_log ALTER COLUMN customer_id DROP NOT NULL" },
+    // [building-notes-unfanout 2026-07-07] The property PATCH used to copy
+    // building notes into every future job's per-visit note columns (see
+    // accounts.ts). Clear the stale copies on FUTURE scheduled jobs — a job
+    // note that is byte-identical to its building's current note is a fanned
+    // copy, not a per-visit instruction. Building notes render live now.
+    // Idempotent: once nulled, the predicate no longer matches.
+    { label: "un-fanout building cleaner notes from future jobs", stmt: `
+      UPDATE jobs j SET notes = NULL
+        FROM account_properties p
+       WHERE j.account_property_id = p.id AND j.company_id = p.company_id
+         AND j.status = 'scheduled' AND j.scheduled_date >= CURRENT_DATE
+         AND p.access_notes IS NOT NULL AND p.access_notes <> ''
+         AND j.notes = p.access_notes
+    ` },
+    { label: "un-fanout building office notes from future jobs", stmt: `
+      UPDATE jobs j SET office_notes = NULL
+        FROM account_properties p
+       WHERE j.account_property_id = p.id AND j.company_id = p.company_id
+         AND j.status = 'scheduled' AND j.scheduled_date >= CURRENT_DATE
+         AND p.notes IS NOT NULL AND p.notes <> ''
+         AND j.office_notes = p.notes
+    ` },
+    // [office-reminders 2026-07-07] Internal office reminders/events (Maribel).
+    // Not customer comms — never sends anything. Surfaced on the dashboard.
+    { label: "office_reminders table", stmt: `
+      CREATE TABLE IF NOT EXISTS office_reminders (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        notes TEXT,
+        due_date DATE NOT NULL,
+        due_time TIME,
+        created_by INTEGER,
+        completed_at TIMESTAMP,
+        completed_by INTEGER,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for
     // the estimate drip. Opt-in: bridge fires only when a URL is set.
     // [estimate-w9 2026-06-26] Company tax info for the fillable W-9. Additive.
