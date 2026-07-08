@@ -5788,6 +5788,13 @@ export default function CustomerProfilePage() {
   const lastCleaning = _rawLast && String(_rawLast).slice(0, 10) <= _todayStr ? _rawLast : null;
   const nextCleaning = _rawNext && String(_rawNext).slice(0, 10) >= _todayStr ? _rawNext : null;
   const initials = `${profile.first_name?.[0] || ""}${profile.last_name?.[0] || ""}`.toUpperCase();
+  // Name the browser tab after the customer (e.g. "Jennifer Campos — Qleno")
+  // so multiple open profile tabs are distinguishable. Falls back to the
+  // company name for commercial accounts, then a generic label.
+  const profileTitle =
+    `${profile.first_name || ""} ${profile.last_name || ""}`.trim() ||
+    profile.company_name ||
+    "Customer";
   const isRecurring = jhStats?.is_recurring ?? (profile.service_type === "recurring" || (profile.frequency && profile.frequency !== "on_demand"));
   const freqBadge = recurringSchedule?.frequency
     ? (FREQ_LABELS[recurringSchedule.frequency] || recurringSchedule.frequency)
@@ -6342,7 +6349,7 @@ export default function CustomerProfilePage() {
   // ─── Mobile Layout ─────────────────────────────────────────────────────────
   if (isMobile) {
     return (
-      <DashboardLayout fullBleed>
+      <DashboardLayout fullBleed title={profileTitle}>
         {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
         {showEditProfileDrawer && <EditProfileDrawer client={profile} onClose={() => setShowEditProfileDrawer(false)} onSave={updateMut.mutateAsync} onToast={showToast} />}
         <JobWizard
@@ -6518,7 +6525,7 @@ export default function CustomerProfilePage() {
 
   // ─── Desktop Layout (3-panel) ─────────────────────────────────────────────
   return (
-    <DashboardLayout fullBleed>
+    <DashboardLayout fullBleed title={profileTitle}>
       {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
       {showEditProfileDrawer && <EditProfileDrawer client={profile} onClose={() => setShowEditProfileDrawer(false)} onSave={updateMut.mutateAsync} onToast={showToast} />}
       <JobWizard
