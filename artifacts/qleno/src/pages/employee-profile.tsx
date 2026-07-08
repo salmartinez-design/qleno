@@ -719,7 +719,7 @@ export default function EmployeeProfilePage() {
   // /leave/usage feed (the deprecated /hr-leave/balance/:id is retired here).
   // The bucket of each usage row lives in its note tag ("…/pto","…/plawa",…).
   const [historyBucket, setHistoryBucket] =
-    useState<null | { slug: string; display_name: string; leave_type_id?: number }>(null);
+    useState<null | { slug: string; display_name: string; leave_type_id?: number; office_recorded?: boolean }>(null);
 
   // [attendance-record 2026-06-25] Office record form for an unexcused absence
   // or a tardy, with a reason. Posts to /leave/unexcused/record (type
@@ -1838,7 +1838,7 @@ export default function EmployeeProfilePage() {
                       )}
 
                       <div style={{ display:'flex', gap:8, marginTop:10 }}>
-                        <button onClick={() => setHistoryBucket({ slug:b.slug, display_name:b.display_name, leave_type_id:b.leave_type_id })} style={{ flex:1,padding:'6px 0',border:`1px solid ${accent}`,borderRadius:6,fontSize:12,color:accent,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
+                        <button onClick={() => setHistoryBucket({ slug:b.slug, display_name:b.display_name, leave_type_id:b.leave_type_id, office_recorded:officeRecorded })} style={{ flex:1,padding:'6px 0',border:`1px solid ${accent}`,borderRadius:6,fontSize:12,color:accent,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
                         <button onClick={officeRecorded ? () => openRecord('absent', accent) : (canEditBalance ? () => openBalanceEdit(b) : undefined)} style={{ flex:1,padding:'6px 0',background:accent,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor: (officeRecorded || canEditBalance) ? 'pointer':'default',opacity: (officeRecorded || canEditBalance) ? 1 : 0.5,fontFamily:'inherit' }}>{officeRecorded ? 'Record' : 'Update'}</button>
                       </div>
                     </div>
@@ -1978,7 +1978,16 @@ export default function EmployeeProfilePage() {
                 {/* Per-bucket usage history modal (data-driven over all buckets) */}
                 {historyBucket && (() => {
                   const tag = leaveBucketTag(historyBucket.slug);
-                  const rows = leaveUsage
+                  // [unexcused-history 2026-07-07] Office-recorded buckets
+                  // (Unexcused) keep their day records in the attendance log,
+                  // not employee_leave_usage — reading the usage feed here
+                  // rendered "No history" even when the calendar showed the
+                  // absence. Benefit-year rows from the summary match the
+                  // occurrence count on the card.
+                  const attDays: any[] | null = historyBucket.office_recorded
+                    ? (attnSummary?.unexcused?.days || [])
+                    : null;
+                  const rows = attDays ?? leaveUsage
                     .filter((u: any) => String(u.notes || '').includes(tag))
                     .sort((a: any, b: any) => String(b.date_used).localeCompare(String(a.date_used)));
                   return (
@@ -1990,7 +1999,26 @@ export default function EmployeeProfilePage() {
                         </div>
                         {rows.length === 0 ? (
                           <p style={{ color:'#9E9B94',fontSize:13,margin:0 }}>No {historyBucket.display_name} history recorded.</p>
-                        ) : rows.map((u: any, i: number) => (
+                        ) : attDays ? rows.map((d: any, i: number) => (
+                          <div key={d.id ?? i} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+                            <div style={{ minWidth:0 }}>
+                              <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(d.date))} · {String(d.date)}</div>
+                              <NoteChips note={d.reason} bucketMap={bucketDisplayMap} />
+                              {d.by && <div style={{ fontSize:11,color:'#9E9B94',marginTop:2 }}>{d.by === 'auto-detected' ? 'auto-detected from clock-in' : d.by === 'imported record' ? 'imported from MaidCentral' : `recorded by ${d.by}`}</div>}
+                            </div>
+                            <div style={{ display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap' }}>
+                              {d.hours != null && <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(d.hours).toFixed(2)} h</span>}
+                              {canDeleteAttendance && d.id != null && d.src === 'att' && (
+                                <button
+                                  onClick={() => deleteEntry('attendance', d.id)}
+                                  disabled={entryDelBusy === `attendance:${d.id}`}
+                                  title="Remove this entry — the hours go back to the bucket"
+                                  style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `attendance:${d.id}` ? 0.5 : 1 }}
+                                >Remove</button>
+                              )}
+                            </div>
+                          </div>
+                        )) : rows.map((u: any, i: number) => (
                           <div key={u.id ?? i} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
                             <div style={{ minWidth:0 }}>
                               <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(u.date_used).slice(0,10))} · {String(u.date_used).slice(0,10)}</div>

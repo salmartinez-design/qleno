@@ -1011,7 +1011,14 @@ async function buildAttendanceSummary(
   const occHireDate = uRow[0]?.hire_date ? String(uRow[0].hire_date).slice(0, 10) : to;
   const benefitYearStart = benefitYearStartDate(occHireDate, to).toISOString().slice(0, 10);
   const byRows = await db
-    .select({ type: employeeAttendanceLogTable.type, is_protected: employeeAttendanceLogTable.protected, notes: employeeAttendanceLogTable.notes })
+    .select({
+      id: employeeAttendanceLogTable.id,
+      log_date: employeeAttendanceLogTable.log_date,
+      type: employeeAttendanceLogTable.type,
+      is_protected: employeeAttendanceLogTable.protected,
+      notes: employeeAttendanceLogTable.notes,
+      logged_by: employeeAttendanceLogTable.logged_by,
+    })
     .from(employeeAttendanceLogTable)
     .where(
       and(
@@ -1020,6 +1027,24 @@ async function buildAttendanceSummary(
         gte(employeeAttendanceLogTable.log_date, benefitYearStart),
       ),
     );
+  // The benefit year can reach further back than the rolling stats window, so
+  // byRows may carry logger ids the windowed query never saw.
+  const byLoggerIds = [...new Set(byRows.map((r) => r.logged_by).filter((v): v is number => v != null && !loggerNames.has(v)))];
+  if (byLoggerIds.length) {
+    const loggers = await db
+      .select({ id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name })
+      .from(usersTable)
+      .where(inArray(usersTable.id, byLoggerIds));
+    for (const l of loggers) loggerNames.set(l.id, `${l.first_name ?? ""} ${l.last_name ?? ""}`.trim());
+  }
+  // [unexcused-history 2026-07-07] The Unexcused bucket's records live in the
+  // attendance log, not employee_leave_usage — the bucket's View History modal
+  // needs these day rows (benefit-year scoped, same window as the occurrence
+  // count) or it renders empty while the calendar shows the absence.
+  const unexBenefitYearDays = byRows
+    .filter((r) => r.type === "absent" && !r.is_protected)
+    .sort((a, b) => String(b.log_date).localeCompare(String(a.log_date)))
+    .map((r) => dayRow(r.log_date, cleanUnexNote(r.notes), parseUnexcusedHours(r.notes), r.id, "att", byOf(r)));
   const unexOccCount = byRows.filter((r) => r.type === "absent" && !r.is_protected).length;
   const tardyOccCount = byRows.filter((r) => r.type === "tardy" && !r.is_protected).length;
   // [40hr-bank 2026-07-07] Sal: "Employees get 40 hours of unexcused." The
@@ -1101,6 +1126,9 @@ async function buildAttendanceSummary(
       // benefit year. Falls back to plain count when no steps are configured.
       occurrences: unexOccCount,
       benefit_year_start: benefitYearStart,
+      // Benefit-year day rows for the bucket's View History modal — same
+      // window the occurrence count uses, so the list always matches the card.
+      days: unexBenefitYearDays,
       next_step: unexNextOcc,
       current_discipline: currentDiscipline,
       // [40hr-bank] Hours consumed this benefit year vs the annual allowance
