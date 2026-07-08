@@ -165,22 +165,39 @@ const ADD_PAY_TYPES = [
 ];
 function AddPayModal({ employees, period, onClose, onSaved }:
   { employees: any[]; period: { start: string; end: string }; onClose: () => void; onSaved: () => void }) {
+  // [bulk-pay 2026-07-08] One-at-a-time was painful for shop-wide items like
+  // holiday pay (Sal added "4th Of July" to every tech by hand). Modal now has
+  // a Single / Everyone toggle: Everyone selects all field techs at once (each
+  // toggleable off) and posts through /payroll/bulk-pay. Effective date drives
+  // the pay period on both paths — the bulk route now stamps created_at too.
+  const [mode, setMode] = useState<'single' | 'bulk'>('single');
   const [userId, setUserId] = useState<string>('');
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(employees.map((e: any) => Number(e.id))));
   const [type, setType] = useState('tips');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(period.end);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const amt = parseFloat(amount);
-  const valid = userId !== '' && Number.isFinite(amt) && amt > 0 && !!date;
+  const bulkIds = employees.map((e: any) => Number(e.id)).filter(id => selected.has(id));
+  const hasWho = mode === 'single' ? userId !== '' : bulkIds.length > 0;
+  const valid = hasWho && Number.isFinite(amt) && amt > 0 && !!date;
+  const toggle = (id: number) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   async function save() {
     if (!valid) return;
     setSaving(true);
     try {
-      await apiFetch(`/users/${userId}/additional-pay`, {
-        method: 'POST',
-        body: JSON.stringify({ amount: amt.toFixed(2), type, notes: notes || null, date }),
-      });
+      if (mode === 'bulk') {
+        await apiFetch('/payroll/bulk-pay', {
+          method: 'POST',
+          body: JSON.stringify({ employee_ids: bulkIds, amount: amt.toFixed(2), type, notes: notes || null, date }),
+        });
+      } else {
+        await apiFetch(`/users/${userId}/additional-pay`, {
+          method: 'POST',
+          body: JSON.stringify({ amount: amt.toFixed(2), type, notes: notes || null, date }),
+        });
+      }
       onSaved();
     } catch (e: any) {
       window.alert(`Could not add pay: ${e?.message || e}`);
@@ -190,6 +207,7 @@ function AddPayModal({ employees, period, onClose, onSaved }:
   }
   const field: React.CSSProperties = { height: 38, padding: '0 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, color: '#1A1917', background: '#fff', outline: 'none', width: '100%', fontFamily: 'inherit' };
   const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 };
+  const tab = (active: boolean): React.CSSProperties => ({ flex: 1, padding: '7px 0', textAlign: 'center', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderRadius: 7, background: active ? '#fff' : 'transparent', color: active ? '#1A1917' : '#9E9B94', boxShadow: active ? '0 1px 3px rgba(10,14,26,.1)' : 'none' });
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(10,14,26,.4)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 420, maxWidth: '100%', boxShadow: '0 24px 70px rgba(10,14,26,.28)', overflow: 'hidden', fontFamily: 'inherit' }}>
@@ -199,14 +217,45 @@ function AddPayModal({ employees, period, onClose, onSaved }:
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={lbl}>Employee</label>
-            <select style={field} value={userId} onChange={e => setUserId(e.target.value)}>
-              <option value="">Select employee…</option>
-              {employees.map((e: any) => (
-                <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
-              ))}
-            </select>
+            <label style={lbl}>Apply to</label>
+            <div style={{ display: 'flex', gap: 4, background: '#F4F2EE', borderRadius: 9, padding: 3 }}>
+              <div style={tab(mode === 'single')} onClick={() => setMode('single')}>One employee</div>
+              <div style={tab(mode === 'bulk')} onClick={() => setMode('bulk')}>Everyone</div>
+            </div>
           </div>
+          {mode === 'single' ? (
+            <div>
+              <label style={lbl}>Employee</label>
+              <select style={field} value={userId} onChange={e => setUserId(e.target.value)}>
+                <option value="">Select employee…</option>
+                {employees.map((e: any) => (
+                  <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                <label style={{ ...lbl, marginBottom: 0 }}>Field techs <span style={{ textTransform: 'none', fontWeight: 500, color: '#C4C0B8' }}>({bulkIds.length} of {employees.length})</span></label>
+                <div style={{ display: 'flex', gap: 10, fontSize: 11, fontWeight: 700 }}>
+                  <span style={{ color: 'var(--brand)', cursor: 'pointer' }} onClick={() => setSelected(new Set(employees.map((e: any) => Number(e.id))))}>All</span>
+                  <span style={{ color: '#9E9B94', cursor: 'pointer' }} onClick={() => setSelected(new Set())}>None</span>
+                </div>
+              </div>
+              <div style={{ maxHeight: 168, overflowY: 'auto', border: '1px solid #E5E2DC', borderRadius: 8 }}>
+                {employees.map((e: any, i: number) => {
+                  const id = Number(e.id);
+                  const on = selected.has(id);
+                  return (
+                    <div key={id} onClick={() => toggle(id)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 12px', cursor: 'pointer', borderTop: i === 0 ? 'none' : '1px solid #F0EEE8', background: on ? '#F3FBF8' : '#fff' }}>
+                      <span style={{ width: 16, height: 16, borderRadius: 4, border: on ? 'none' : '1.5px solid #C4C0B8', background: on ? 'var(--brand)' : '#fff', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900, flexShrink: 0 }}>{on ? '✓' : ''}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1917' }}>{e.first_name} {e.last_name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ flex: 1 }}>
               <label style={lbl}>Type</label>
@@ -215,7 +264,7 @@ function AddPayModal({ employees, period, onClose, onSaved }:
               </select>
             </div>
             <div style={{ flex: 1 }}>
-              <label style={lbl}>Amount ($)</label>
+              <label style={lbl}>Amount ($) {mode === 'bulk' && <span style={{ textTransform: 'none', fontWeight: 500, color: '#C4C0B8' }}>each</span>}</label>
               <input style={field} type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
             </div>
           </div>
@@ -225,12 +274,12 @@ function AddPayModal({ employees, period, onClose, onSaved }:
           </div>
           <div>
             <label style={lbl}>Notes <span style={{ textTransform: 'none', fontWeight: 500, color: '#C4C0B8' }}>(optional)</span></label>
-            <input style={field} value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. customer tip, weekend OT" />
+            <input style={field} value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. 4th of July holiday pay" />
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '0 20px 20px' }}>
           <button onClick={onClose} style={{ padding: '9px 16px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#6B7280', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-          <button onClick={save} disabled={!valid || saving} style={{ padding: '9px 18px', border: 'none', borderRadius: 8, background: valid && !saving ? 'var(--brand)' : '#C4C0B8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: valid && !saving ? 'pointer' : 'default', fontFamily: 'inherit' }}>{saving ? 'Saving…' : 'Add pay'}</button>
+          <button onClick={save} disabled={!valid || saving} style={{ padding: '9px 18px', border: 'none', borderRadius: 8, background: valid && !saving ? 'var(--brand)' : '#C4C0B8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: valid && !saving ? 'pointer' : 'default', fontFamily: 'inherit' }}>{saving ? 'Saving…' : (mode === 'bulk' ? `Add pay · ${bulkIds.length}` : 'Add pay')}</button>
         </div>
       </div>
     </div>
@@ -863,12 +912,16 @@ export default function PayrollPage() {
   const branchQuery = activeBranchId !== "all" ? { branch_id: String(activeBranchId) } : {};
   const { data, isLoading } = useListUsers(branchQuery, { request: { headers: getAuthHeaders() } });
   const employees = data?.data || [];
-  // Payroll only includes ACTIVE, real employees. Excludes owners, QA/sandbox
+  // Payroll only includes ACTIVE, real FIELD TECHS. Excludes owners, office
+  // staff, admins, and the external accountant/CPA (role='accountant', e.g.
+  // Maribel) — payroll pays field techs on commission + mileage, so non-field
+  // roles have no place in the run or the Add-pay dropdown (Sal: "only field
+  // techs should be here. why is our cpa here"). Also drops QA/sandbox
   // fixtures, archived/terminated/inactive accounts, and non-production test
-  // logins (e.g. *.internal, @phes-test.*, *.former@) so test auditors and
-  // former staff don't clutter the run.
+  // logins so test auditors and former staff don't clutter the run.
+  const NON_FIELD_ROLES = ['owner', 'admin', 'office', 'super_admin', 'accountant'];
   const billableEmployees = employees.filter((e: any) => {
-    if (e.role === 'owner') return false;
+    if (NON_FIELD_ROLES.includes(e.role)) return false;
     if (e.is_sandbox) return false;
     if (e.is_active === false) return false;
     if (e.hr_status === 'inactive') return false;

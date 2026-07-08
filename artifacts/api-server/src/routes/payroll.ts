@@ -1423,12 +1423,17 @@ router.delete("/templates/:id", requireAuth, requireRole("owner", "admin"), asyn
 
 router.post("/bulk-pay", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
-    const { employee_ids, type, amount, notes } = req.body;
+    const { employee_ids, type, amount, notes, date } = req.body;
     if (!Array.isArray(employee_ids) || !employee_ids.length || !type || !amount) {
       return res.status(400).json({ error: "employee_ids (array), type, amount required" });
     }
     const companyId = req.auth!.companyId;
     const parsedAmount = parseFloat(amount);
+    // Stamp created_at to the effective date (noon UTC) so the entries land in
+    // the intended pay period — same mechanism as the single additional-pay
+    // route. Without this, bulk holiday/tip pay always buckets into "now",
+    // landing in the wrong week for a past-dated adjustment (e.g. 4th of July).
+    const createdAt = date ? new Date(`${date}T12:00:00Z`) : new Date();
 
     // Verify all employees belong to this company
     const emps = await db
@@ -1447,6 +1452,7 @@ router.post("/bulk-pay", requireAuth, requireRole("owner", "admin", "office"), a
       amount: parsedAmount.toFixed(2),
       notes: notes || null,
       status: "pending" as const,
+      created_at: createdAt,
     }));
 
     await db.insert(additionalPayTable).values(inserts);
