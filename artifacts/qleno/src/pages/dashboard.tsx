@@ -71,7 +71,10 @@ function LeadsCard({ isMobile }: { isMobile: boolean }) {
     apiFetch("/api/leads/summary").then(r => r.ok ? r.json() : null).then(setData).catch(() => {});
   }, []);
   if (!data) return null;
-  const m = data.this_month || {}; const p = data.pipeline || {};
+  // [today-view 2026-07-08] Sal wants today, not month — "as an owner I need to
+  // know what's going on today; month I check in a report." Card reads today's
+  // intake; the pipeline chips below stay all-time (that's the current backlog).
+  const m = data.today || {}; const p = data.pipeline || {};
   const Tile = ({ label, value, sub, onClick, accent }: { label: string; value: number; sub?: string; onClick: () => void; accent?: string }) => (
     <button onClick={onClick} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "12px 14px", cursor: "pointer", fontFamily: FF }}>
       <div style={{ fontSize: 22, fontWeight: 700, color: accent || "#1A1917", lineHeight: 1 }}>{value}</div>
@@ -82,14 +85,14 @@ function LeadsCard({ isMobile }: { isMobile: boolean }) {
   return (
     <div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 0 10px" }}>
-        <p style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, fontFamily: FF }}>Leads · This Month</p>
+        <p style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, fontFamily: FF }}>Leads · Today</p>
         <button onClick={() => navigate("/leads")} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>Open pipeline →</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 8 }}>
         <Tile label="New leads" value={m.total ?? 0} sub={`${m.online ?? 0} online · ${m.office ?? 0} office`} onClick={() => navigate("/leads")} />
         <Tile label="Online" value={m.online ?? 0} sub="from the web" onClick={() => navigate("/leads")} />
         <Tile label="Office" value={m.office ?? 0} sub="phone / walk-in" onClick={() => navigate("/leads")} />
-        <Tile label="Booked" value={m.booked ?? 0} sub="closed this month" accent="#0A6E5A" onClick={() => navigate("/leads")} />
+        <Tile label="Booked" value={m.booked ?? 0} sub="closed today" accent="#0A6E5A" onClick={() => navigate("/leads")} />
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
         {[
@@ -679,20 +682,23 @@ export default function Dashboard() {
   const actions: any[] = kpis?.action_items || [];
 
   // Status chips — navigate to /dispatch?status=<key>
+  // [today-view 2026-07-08] Owner's at-a-glance for the day. "Scheduled Today"
+  // is the REAL total booked today (was showing only not-started, so it read
+  // wrong); "Remaining" is what's left; the always-0 "In Progress" tile is
+  // gone (Phes jobs go scheduled→complete via the clock, never stamped
+  // in_progress). Flagged lives in tickets.
   const STATUS_CARDS = [
-    { key: 'in_progress', label: 'In Progress', bg: '#E6F1FB', color: '#1E40AF', dispatchKey: 'in_progress', accent: undefined },
-    { key: 'scheduled',   label: 'Scheduled',   bg: '#F7F6F3', color: '#1A1917', dispatchKey: 'scheduled',   accent: undefined },
-    { key: 'complete',    label: 'Complete',     bg: '#EAF3DE', color: '#1D9E75', dispatchKey: 'complete',   accent: undefined },
-    // [flag-card-removed 2026-07-08] Flagged jobs live in the tickets system,
-    // not a dashboard status tile (Sal). Dropped from the status row.
-    { key: 'unassigned',  label: 'Unassigned',   bg: '#FCEBEB', color: '#E24B4A', dispatchKey: 'unassigned', accent: '#E24B4A' },
+    { key: 'scheduled_total', label: 'Scheduled Today', bg: '#F7F6F3', color: '#1A1917', dispatchKey: 'all',        accent: undefined },
+    { key: 'remaining',       label: 'Remaining',       bg: '#E6F1FB', color: '#1E40AF', dispatchKey: 'scheduled',  accent: undefined },
+    { key: 'complete',        label: 'Complete',        bg: '#EAF3DE', color: '#1D9E75', dispatchKey: 'complete',   accent: undefined },
+    { key: 'unassigned',      label: 'Unassigned',      bg: '#FCEBEB', color: '#E24B4A', dispatchKey: 'unassigned', accent: '#E24B4A' },
   ];
 
   // Intelligence strip — hide if all values are dashes
   const hcp = kpis?.hcp;
   const HCP_TILES = [
     { label: 'Daily Revenue',        value: hcp == null ? '—' : fmt$(hcp.rev_booked_today), sub: "today's scheduled jobs" },
-    { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_this_week), sub: 'this week' },
+    { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_today), sub: 'booked today' },
     { label: 'Quotes Given',         value: hcp == null ? '—' : String(hcp.quotes_given_today), sub: 'today' },
     { label: 'Booked Online',        value: hcp == null ? '—' : String(hcp.booked_online_month), sub: 'this month' },
   ];
@@ -811,7 +817,7 @@ export default function Dashboard() {
           }}>
             {[
               { label: 'Daily Revenue',        value: hcp == null ? '—' : fmtWF(hcp.rev_booked_today), sub: "today's scheduled jobs" },
-              { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_this_week), sub: 'this week' },
+              { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_today), sub: 'booked today' },
             ].map((tile, i) => (
               <div key={i} style={{ ...CARD, padding: '20px 24px', minHeight: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px', fontFamily: FF }}>{tile.label}</p>

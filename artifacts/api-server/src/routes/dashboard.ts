@@ -337,15 +337,28 @@ router.get("/today", requireAuth, officeGate, async (req, res) => {
     // Use the dedicated COUNT query for accurate flagged count (not limited by detail LIMIT 5)
     const flaggedCount = Number(flaggedCountRow[0]?.c || 0);
 
+    // [today-view 2026-07-08] Owner-useful partition of the day. The old tiles
+    // showed status='scheduled' as "Scheduled" (9) which read as the day's
+    // TOTAL when it was only the not-yet-done ones (the day actually has
+    // scheduled + in_progress + complete = 18). And "In Progress" sat at 0
+    // because Phes jobs go scheduled→complete via the clock without ever being
+    // stamped 'in_progress' (Sal: "jobs in progress makes no sense"). New:
+    // Scheduled Today = the real total, Remaining = still to do. Cancelled is
+    // excluded from the day's total.
+    const inProgressN = Number(inProgress[0].c);
+    const scheduledN = Number(scheduled[0].c);
+    const completeN = Number(complete[0].c);
     return res.json({
       counts: {
-        in_progress: Number(inProgress[0].c),
-        scheduled: Number(scheduled[0].c),
-        complete: Number(complete[0].c),
+        in_progress: inProgressN,
+        scheduled: scheduledN,
+        complete: completeN,
         cancelled: Number(cancelled[0].c),
         en_route: enRouteCount,
         flagged: flaggedCount,
         unassigned: unassignedCount,
+        scheduled_total: inProgressN + scheduledN + completeN,
+        remaining: inProgressN + scheduledN,
       },
       today_revenue: todayRevenue,
       alerts,
@@ -539,19 +552,16 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
           sql`${jobsTable.status} != 'cancelled'`,
         )),
 
-      // HCP: New Jobs Booked This Week — genuinely new bookings only.
-      // Exclude recurring-engine-generated occurrences (recurring_schedule_id
-      // set — those are cron output, not human bookings) AND require the job to
-      // be scheduled this week or later. The scheduled_date floor drops the
-      // one-time data import (which stamped every migrated job with this week's
-      // created_at but kept their real, mostly-past scheduled dates) — that was
-      // inflating this to ~773 for a freshly-imported tenant.
+      // HCP: Jobs Booked TODAY (Sal: "new jobs booked should only be jobs
+      // booked today"). Count bookings CREATED today (Chicago), non-cancelled,
+      // excluding recurring-engine occurrences (recurring_schedule_id set —
+      // one new recurring client generates many future occurrences with
+      // today's created_at; we count the booking, not every generated visit).
       db.select({ c: count() }).from(jobsTable)
         .where(and(
           eq(jobsTable.company_id, companyId),
-          gte(jobsTable.created_at, weekStart),
+          sql`(${jobsTable.created_at} AT TIME ZONE 'America/Chicago')::date = (now() AT TIME ZONE 'America/Chicago')::date`,
           isNull(jobsTable.recurring_schedule_id),
-          gte(jobsTable.scheduled_date, weekStartStr),
           sql`${jobsTable.status} != 'cancelled'`,
         )),
 
@@ -696,7 +706,7 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
 
     // HCP values (hcpRevBookedToday uses sum() → string|null; hcpNew/Quotes/Booked use count() → number)
     const revBookedToday = parseFloat(String(hcpRevBookedToday[0]?.total ?? "0"));
-    const newJobsThisWeek = Number(hcpNewJobsThisWeek[0]?.c || 0);
+    const newJobsToday = Number(hcpNewJobsThisWeek[0]?.c || 0);
     const quotesGivenToday = Number(hcpQuotesToday[0]?.c || 0);
     const bookedOnlineMonth = Number(hcpBookedOnlineMonth[0]?.c || 0);
 
@@ -799,7 +809,7 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
       // HouseCall Pro KPI bar
       hcp: {
         rev_booked_today: revBookedToday,
-        new_jobs_this_week: newJobsThisWeek,
+        new_jobs_today: newJobsToday,
         quotes_given_today: quotesGivenToday,
         booked_online_month: bookedOnlineMonth,
       },
