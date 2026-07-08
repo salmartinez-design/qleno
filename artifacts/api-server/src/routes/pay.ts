@@ -962,10 +962,18 @@ async function deriveScheduledLegsForPeriod(
        AND j.assigned_user_id IS NOT NULL
        AND j.scheduled_date BETWEEN ${startDate} AND ${endDate}
        AND j.scheduled_date < (now() AT TIME ZONE 'America/Chicago')::date
+       -- Defer to the clock-sequence path only when a PUNCHED (GPS) clock
+       -- exists — that's the only kind it builds legs from. A day with only
+       -- office-entered (manual/estimated) clocks otherwise falls in a dead
+       -- zone: clock-sequence skips it (source != 'punched') AND the failsafe
+       -- was suppressed by the mere presence of the manual row, so the tech got
+       -- ZERO mileage (Sal: Alejandra's 7/6 PPM legs "nothing populated"). Now
+       -- the schedule estimate fills that gap.
        AND NOT EXISTS (
              SELECT 1 FROM timeclock t
               WHERE t.company_id = j.company_id
                 AND t.user_id = j.assigned_user_id
+                AND t.source = 'punched'
                 AND (t.clock_in_at AT TIME ZONE 'America/Chicago')::date = j.scheduled_date
        )
        AND NOT EXISTS (
