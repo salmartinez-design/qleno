@@ -160,6 +160,38 @@ router.get("/status-counts", requireAuth, requireRole("owner", "admin", "office"
   }
 });
 
+// ── GET /api/leads/summary ─────────────────────────────────────────────────────
+// [dashboard-leads 2026-07-08] Pipeline snapshot for the dashboard card:
+// open-pipeline counts by stage + this-month intake split online vs office +
+// booked. "Online" = came through the web (web_quote/website/booking_widget or
+// lead_source web_quote); everything else is an office-entered lead.
+router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const online = sql`(COALESCE(NULLIF(source,''), lead_source) IN ('web_quote','website','booking_widget') OR lead_source = 'web_quote')`;
+    const r = await db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE status IN ('new','needs_contacted'))            AS needs_contact,
+        COUNT(*) FILTER (WHERE status = 'contacted')                          AS contacted,
+        COUNT(*) FILTER (WHERE status = 'quoted')                             AS quoted,
+        COUNT(*) FILTER (WHERE status = 'booked')                             AS booked,
+        COUNT(*) FILTER (WHERE date_trunc('month', created_at) = date_trunc('month', (now() AT TIME ZONE 'America/Chicago')))                          AS month_total,
+        COUNT(*) FILTER (WHERE date_trunc('month', created_at) = date_trunc('month', (now() AT TIME ZONE 'America/Chicago')) AND ${online})            AS month_online,
+        COUNT(*) FILTER (WHERE date_trunc('month', created_at) = date_trunc('month', (now() AT TIME ZONE 'America/Chicago')) AND NOT ${online})        AS month_office,
+        COUNT(*) FILTER (WHERE status = 'booked' AND date_trunc('month', COALESCE(booked_at, updated_at)) = date_trunc('month', (now() AT TIME ZONE 'America/Chicago'))) AS month_booked
+      FROM leads WHERE company_id = ${companyId}`);
+    const row = (r.rows[0] as any) || {};
+    const n = (k: string) => parseInt(row[k] ?? "0") || 0;
+    return res.json({
+      pipeline: { needs_contact: n("needs_contact"), contacted: n("contacted"), quoted: n("quoted"), booked: n("booked") },
+      this_month: { total: n("month_total"), online: n("month_online"), office: n("month_office"), booked: n("month_booked") },
+    });
+  } catch (err) {
+    console.error("GET /leads/summary:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── POST /api/leads/backfill-from-quotes ───────────────────────────────────────
 // Create-or-link a lead for every quote that has no lead_id yet, and set the
 // lead's stage from the quote status (booked→booked, sent/viewed→quoted,

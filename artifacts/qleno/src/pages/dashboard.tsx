@@ -60,6 +60,55 @@ function useToday(branchId: number | "all") {
 // "Do we have the options to set reminders form Qleno?"). Plain company-wide
 // list — nothing here messages customers. Overdue reminders stay visible in
 // red until completed or deleted.
+// [dashboard-leads 2026-07-08] Sal: the dashboard never showed the leads
+// pipeline — how many came in online vs office, or that a lead closed to
+// booked. This card surfaces this-month intake (online/office/booked) + the
+// open pipeline, each tile clicking through to the filtered Leads board.
+function LeadsCard({ isMobile }: { isMobile: boolean }) {
+  const [, navigate] = useLocation();
+  const [data, setData] = useState<any>(null);
+  useEffect(() => {
+    apiFetch("/api/leads/summary").then(r => r.ok ? r.json() : null).then(setData).catch(() => {});
+  }, []);
+  if (!data) return null;
+  const m = data.this_month || {}; const p = data.pipeline || {};
+  const Tile = ({ label, value, sub, onClick, accent }: { label: string; value: number; sub?: string; onClick: () => void; accent?: string }) => (
+    <button onClick={onClick} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "12px 14px", cursor: "pointer", fontFamily: FF }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: accent || "#1A1917", lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginTop: 4 }}>{label}</div>
+      {sub && <div style={{ fontSize: 10, color: "#9E9B94", marginTop: 1 }}>{sub}</div>}
+    </button>
+  );
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 0 10px" }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, fontFamily: FF }}>Leads · This Month</p>
+        <button onClick={() => navigate("/leads")} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>Open pipeline →</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 8 }}>
+        <Tile label="New leads" value={m.total ?? 0} sub={`${m.online ?? 0} online · ${m.office ?? 0} office`} onClick={() => navigate("/leads")} />
+        <Tile label="Online" value={m.online ?? 0} sub="from the web" onClick={() => navigate("/leads")} />
+        <Tile label="Office" value={m.office ?? 0} sub="phone / walk-in" onClick={() => navigate("/leads")} />
+        <Tile label="Booked" value={m.booked ?? 0} sub="closed this month" accent="#0A6E5A" onClick={() => navigate("/leads")} />
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+        {[
+          { k: "Needs contact", v: p.needs_contact ?? 0, c: "#B91C1C" },
+          { k: "Contacted", v: p.contacted ?? 0, c: "#92400E" },
+          { k: "Quoted", v: p.quoted ?? 0, c: "#1D4ED8" },
+          { k: "Booked (open)", v: p.booked ?? 0, c: "#0A6E5A" },
+        ].map(chip => (
+          <button key={chip.k} onClick={() => navigate("/leads")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: chip.c }} />
+            <span style={{ fontSize: 12, color: "#6B6860" }}>{chip.k}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{chip.v}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function OfficeReminders({ isMobile }: { isMobile: boolean }) {
   const [reminders, setReminders] = useState<any[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -743,6 +792,9 @@ export default function Dashboard() {
             })}
           </div>
         </div>
+
+        {/* ── LEADS PIPELINE ───────────────────────────────────── */}
+        <LeadsCard isMobile={isMobile} />
 
         {/* ── OFFICE REMINDERS ─────────────────────────────────── */}
         {canAdmin && <OfficeReminders isMobile={isMobile} />}
