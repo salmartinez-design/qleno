@@ -17,6 +17,24 @@ function apiFetch(path: string) {
   return fetch(`${API}${path}`, { headers: getAuthHeaders() });
 }
 
+// [dashboard-resilience 2026-07-08] A dashboard tab that's open across a deploy
+// hits the readiness gate (HTTP 503, "warming up") for ~30–60s. The one-shot
+// GETs used to give up on that first failure and leave the card blank/zero
+// until a manual reload (Sal: "shows zeros / long time to load again"). This
+// retries a read a few times with short backoff so the dashboard self-heals
+// within seconds of the server coming back — no reload needed. GET-only; never
+// used for writes.
+async function fetchJsonWithRetry(path: string, tries = 6, delayMs = 2500): Promise<any | null> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await apiFetch(path);
+      if (r.ok) return await r.json();
+    } catch { /* network/warmup — fall through to retry */ }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, delayMs));
+  }
+  return null;
+}
+
 function fmt$(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
@@ -42,16 +60,15 @@ function useToday(branchId: number | "all") {
   const [data, setData] = useState<any>(null);
   useEffect(() => {
     setData(null);
+    let alive = true;
     const qs = branchId !== "all" ? `?branch_id=${branchId}` : "";
     const load = async () => {
-      try {
-        const r = await apiFetch(`/api/dashboard/today${qs}`);
-        if (r.ok) setData(await r.json());
-      } catch {}
+      const j = await fetchJsonWithRetry(`/api/dashboard/today${qs}`);
+      if (alive && j) setData(j);
     };
     load();
     const iv = setInterval(load, 60000);
-    return () => clearInterval(iv);
+    return () => { alive = false; clearInterval(iv); };
   }, [branchId]);
   return data;
 }
@@ -68,7 +85,9 @@ function LeadsCard({ isMobile }: { isMobile: boolean }) {
   const [, navigate] = useLocation();
   const [data, setData] = useState<any>(null);
   useEffect(() => {
-    apiFetch("/api/leads/summary").then(r => r.ok ? r.json() : null).then(setData).catch(() => {});
+    let alive = true;
+    fetchJsonWithRetry("/api/leads/summary").then((j) => { if (alive && j) setData(j); });
+    return () => { alive = false; };
   }, []);
   if (!data) return null;
   // [today-view 2026-07-08] Sal wants today, not month — "as an owner I need to
@@ -220,13 +239,9 @@ function OfficeReminders({ isMobile }: { isMobile: boolean }) {
 function useKpis() {
   const [data, setData] = useState<any>(null);
   useEffect(() => {
-    const load = async () => {
-      try {
-        const r = await apiFetch('/api/dashboard/kpis');
-        if (r.ok) setData(await r.json());
-      } catch {}
-    };
-    load();
+    let alive = true;
+    fetchJsonWithRetry('/api/dashboard/kpis').then((j) => { if (alive && j) setData(j); });
+    return () => { alive = false; };
   }, []);
   return data;
 }
@@ -234,16 +249,11 @@ function useKpis() {
 function useRevenueChart() {
   const [data, setData] = useState<{ data: { month: string; revenue: number; jobs: number }[]; prior_year: { month: string; revenue: number }[] }>({ data: [], prior_year: [] });
   useEffect(() => {
-    const load = async () => {
-      try {
-        const r = await apiFetch('/api/dashboard/revenue-chart');
-        if (r.ok) {
-          const json = await r.json();
-          setData({ data: json.data || [], prior_year: json.prior_year || [] });
-        }
-      } catch {}
-    };
-    load();
+    let alive = true;
+    fetchJsonWithRetry('/api/dashboard/revenue-chart').then((json) => {
+      if (alive && json) setData({ data: json.data || [], prior_year: json.prior_year || [] });
+    });
+    return () => { alive = false; };
   }, []);
   return data;
 }
