@@ -6062,6 +6062,10 @@ export default function CustomerProfilePage() {
 
           {/* Right column */}
           <div>
+            {/* [comm-log-first 2026-07-08] Communication Log leads the column —
+                the office reaches for it far more than Invoices (Sal). */}
+            <CommLog2 clientId={clientId} />
+
             {/* Invoices */}
             <div style={CS}>
               <SectionHead title="Invoices" />
@@ -6073,9 +6077,6 @@ export default function CustomerProfilePage() {
               <SectionHead title="QuickBooks" />
               <QuickBooksTab clientId={clientId} client={profile} refetch={refetchProfile} />
             </div>
-
-            {/* Communication Log */}
-            <CommLog2 clientId={clientId} />
           </div>
         </div>
       )}
@@ -6253,14 +6254,20 @@ export default function CustomerProfilePage() {
                 <PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} />
               </div>
 
-              {/* Notification Preferences */}
+              {/* [notifications-merge 2026-07-08] One Notifications card, not
+                  two redundant ones (Sal). Top = which automated messages THIS
+                  customer gets. Bottom = additional people to CC on specific
+                  events (a spouse, property manager). Same concept, one place. */}
               <div style={CS}>
                 <NotificationPreferencesCard clientId={clientId} />
-              </div>
-
-              {/* Contacts & Notifications */}
-              <div style={CS}>
-                <SectionHead title="Contacts & Notifications" action={<span style={{ fontSize: 11, color: "#9E9B94" }}>{(profile.notification_settings || []).length} configured</span>} />
+                <div style={{ borderTop: "1px solid #EEECE7", margin: "18px 0 14px" }} />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Additional recipients</h3>
+                  <span style={{ fontSize: 11, color: "#9E9B94" }}>{(profile.notification_settings || []).length} configured</span>
+                </div>
+                <p style={{ margin: "0 0 12px", fontSize: 12, color: "#6B6860", maxWidth: 520 }}>
+                  Extra people to notify on specific events — e.g. a spouse or property manager. The preferences above control what the customer themselves receives.
+                </p>
                 <ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} />
               </div>
 
@@ -6424,12 +6431,12 @@ export default function CustomerProfilePage() {
                 <div style={CTitle}>Billing & Payments</div>
                 <CardOnFileTab client={profile} refetch={refetchProfile} />
               </div>
-              <CollapsibleSection title="Invoices" count={invoices.length || undefined}>
-                <BillingTab invoices={invoices} />
-              </CollapsibleSection>
-              {/* Communications log / message history — was desktop-only; now on mobile too. */}
+              {/* [comm-log-first 2026-07-08] Comms above invoices on mobile too. */}
               <CollapsibleSection title="Communications">
                 <CommLog2 clientId={clientId} />
+              </CollapsibleSection>
+              <CollapsibleSection title="Invoices" count={invoices.length || undefined}>
+                <BillingTab invoices={invoices} />
               </CollapsibleSection>
             </>)}
             {activeTab === "messages" && (
@@ -6486,8 +6493,14 @@ export default function CustomerProfilePage() {
               <CollapsibleSection title="Quotes"><QuotesTab clientId={clientId} client={profile} /></CollapsibleSection>
               <CollapsibleSection title="Agreements" count={(profile.agreements || []).length || undefined}><AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} /></CollapsibleSection>
               <CollapsibleSection title="Scorecards" count={(profile.scorecards || []).length || undefined}><ScorecardsTab scorecards={profile.scorecards || []} /></CollapsibleSection>
-              <CollapsibleSection title="Notification Preferences"><NotificationPreferencesCard clientId={clientId} /></CollapsibleSection>
-              <CollapsibleSection title="Contacts" count={(profile.notification_settings || []).length || undefined}><ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} /></CollapsibleSection>
+              {/* [notifications-merge 2026-07-08] One Notifications section. */}
+              <CollapsibleSection title="Notifications" count={(profile.notification_settings || []).length || undefined}>
+                <NotificationPreferencesCard clientId={clientId} />
+                <div style={{ borderTop: "1px solid #EEECE7", margin: "18px 0 14px" }} />
+                <h3 style={{ margin: "0 0 4px", fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Additional recipients</h3>
+                <p style={{ margin: "0 0 12px", fontSize: 12, color: "#6B6860" }}>Extra people to notify on specific events. The preferences above control what the customer receives.</p>
+                <ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} />
+              </CollapsibleSection>
               <CollapsibleSection title="Portal"><PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} /></CollapsibleSection>
               <CollapsibleSection title="Tech Preferences"><TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} /></CollapsibleSection>
             </>)}

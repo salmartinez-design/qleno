@@ -1703,6 +1703,19 @@ async function runBookingSchemaGuard(): Promise<void> {
     // customer's records (Sal: "It all needs to be wired together when they
     // go from lead to booked"). Stamp the client onto the lead too.
     { label: "leads.client_id",     stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS client_id INTEGER` },
+    // [service-address-cascade 2026-07-08] Seed a PRIMARY client_home for every
+    // client that converted from a quote but has no home row (their address
+    // sat on the clients row, so the profile Property tab read empty). Scoped
+    // to quote-converted clients so it can't churn MaidCentral imports.
+    // Idempotent via NOT EXISTS.
+    { label: "seed primary home for booked-from-quote clients", stmt: `
+      INSERT INTO client_homes (company_id, client_id, address, city, state, zip, is_primary)
+      SELECT c.company_id, c.id, c.address, c.city, c.state, c.zip, true
+        FROM clients c
+       WHERE c.address IS NOT NULL AND c.address <> ''
+         AND EXISTS (SELECT 1 FROM quotes q WHERE q.client_id = c.id AND q.company_id = c.company_id AND (q.status = 'booked' OR q.booked_job_id IS NOT NULL))
+         AND NOT EXISTS (SELECT 1 FROM client_homes h WHERE h.client_id = c.id)
+    ` },
     // Backfill both links from every converted quote (quote is the source of
     // truth for lead↔client↔job). Idempotent — only fills NULLs.
     { label: "backfill leads.client_id + job_id from converted quotes", stmt: `

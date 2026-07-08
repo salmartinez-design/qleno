@@ -560,6 +560,27 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       if (clientId) { try { await db.execute(sql`UPDATE quotes SET client_id = ${clientId} WHERE id = ${id} AND company_id = ${companyId}`); } catch { /* noop */ } }
     }
 
+    // [service-address-cascade 2026-07-08] A newly-converted client had their
+    // address on the clients row but NO client_homes row — so the profile's
+    // Property tab showed an empty "Add Another Home" even though we knew
+    // exactly where the job is (Sal: "her being a new client it only makes
+    // sense it defaults to the first service address"). Seed a PRIMARY home
+    // from the client's address + the quote's property details, only when the
+    // client has none yet (NOT EXISTS guard never clobbers an existing home).
+    // Placed here so it covers BOTH the recurring and single-job convert paths.
+    if (clientId) {
+      try {
+        await db.execute(sql`
+          INSERT INTO client_homes (company_id, client_id, address, city, state, zip, sq_footage, bedrooms, bathrooms, is_primary)
+          SELECT ${companyId}, c.id, COALESCE(NULLIF(c.address,''), ${(q as any).address ?? null}), c.city, c.state, c.zip,
+                 ${(q as any).sqft ?? null}, ${(q as any).bedrooms ?? null}, ${(q as any).bathrooms ?? null}, true
+            FROM clients c
+           WHERE c.id = ${clientId} AND c.company_id = ${companyId}
+             AND COALESCE(NULLIF(c.address,''), ${(q as any).address ?? null}) IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM client_homes h WHERE h.client_id = ${clientId})`);
+      } catch (e) { console.error("[convert] seed client_home non-fatal:", (e as any)?.message); }
+    }
+
     const isRecurring = jobFreq !== "on_demand";
     if (isRecurring && clientId) {
       // [rebook-preserve 2026-06-20] Re-booking an existing recurring client must
