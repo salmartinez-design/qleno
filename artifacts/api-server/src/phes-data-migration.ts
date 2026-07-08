@@ -98,6 +98,19 @@ async function runBookingSchemaGuard(): Promise<void> {
          AND p.notes IS NOT NULL AND p.notes <> ''
          AND j.office_notes = p.notes
     ` },
+    // [photo-stickiness 2026-07-07] Pin every recurring job to its cadence
+    // slot. Legacy rows (pre-occurrence_date / MC cutover) have
+    // occurrence_date NULL, so the engine's slot dedup falls back to the
+    // MUTABLE scheduled_date — rescheduling such a job freed its original
+    // slot and the nightly engine regenerated a fresh EMPTY job there, while
+    // the photographed/clocked work sat on the moved row ("before and after
+    // pics are not sticky to the exact job"). Stamping the current
+    // scheduled_date freezes the slot; future generation stamps it at insert.
+    // Idempotent: only touches NULL rows.
+    { label: "backfill jobs.occurrence_date on recurring rows", stmt: `
+      UPDATE jobs SET occurrence_date = scheduled_date
+       WHERE recurring_schedule_id IS NOT NULL AND occurrence_date IS NULL
+    ` },
     // [office-reminders 2026-07-07] Internal office reminders/events (Maribel).
     // Not customer comms — never sends anything. Surfaced on the dashboard.
     { label: "office_reminders table", stmt: `

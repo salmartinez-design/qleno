@@ -4706,13 +4706,20 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
     return acc;
   }, {});
 
+  // [photo-stickiness 2026-07-07] Label each group by the date the photos were
+  // TAKEN (photo_timestamp), not the job's current scheduled_date — a
+  // rescheduled job drags its scheduled_date to the new day, which made old
+  // before/after pics render under a visit date they weren't shot on ("pics
+  // are not sticky to the exact job"). jobDate (the job's live date) is kept
+  // only for the dispatch deep-link, which loads the board by current date.
   const jobGroups = Object.entries(byJob).map(([jobId, rows]: [string, any[]]) => ({
     jobId: parseInt(jobId),
     jobDate: rows[0]?.job_date,
+    takenDate: (rows.find((r: any) => r.photo_timestamp)?.photo_timestamp || rows[0]?.job_date || "").slice(0, 10),
     serviceType: rows[0]?.service_type,
     techName: rows[0]?.tech_first ? `${rows[0].tech_first} ${rows[0].tech_last || ""}`.trim() : null,
     photos: rows,
-  })).sort((a, b) => (b.jobDate || "").localeCompare(a.jobDate || ""));
+  })).sort((a, b) => (b.takenDate || "").localeCompare(a.takenDate || ""));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -4730,7 +4737,7 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
           <div key={group.jobId} style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
             <div style={{ background: "#F7F6F3", padding: "10px 16px", display: "flex", alignItems: "center", gap: 14, borderBottom: "1px solid #E5E2DC" }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{fmtDate(group.jobDate)}{group.serviceType ? ` · ${group.serviceType}` : ""}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{fmtDate(group.takenDate)}{group.serviceType ? ` · ${group.serviceType}` : ""}{group.jobDate && group.takenDate && String(group.jobDate).slice(0, 10) !== group.takenDate ? ` · visit now on ${fmtDate(group.jobDate)}` : ""}</div>
                 {group.techName && <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>{group.techName}</div>}
               </div>
               <a href={`/dispatch?date=${(group.jobDate || "").slice(0, 10)}&job=${group.jobId}`} style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "var(--brand)", textDecoration: "none" }}>Job #{group.jobId}</a>

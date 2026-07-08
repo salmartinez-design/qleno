@@ -4058,6 +4058,20 @@ router.post("/:id/photos", requireAuth, photoUpload.single("photo"), async (req,
     const jobId = parseInt(req.params.id);
     const { photo_type, data_url, lat, lng } = req.body;
 
+    // [photo-stickiness 2026-07-07] Validate the target job BEFORE accepting
+    // bytes. The route used to trust the client-supplied id blindly — a stale
+    // cached job id (or a cross-tenant id) silently attached the tech's
+    // before/after pics to the wrong job with no server-side guardrail.
+    const [target] = await db
+      .select({ id: jobsTable.id, status: jobsTable.status })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId)))
+      .limit(1);
+    if (!target) return res.status(404).json({ error: "Not Found", message: "Job not found" });
+    if (target.status === "cancelled") {
+      return res.status(409).json({ error: "Conflict", message: "This job is cancelled — photos can't be attached to it. Open today's job and retry." });
+    }
+
     // [photos-r2 2026-06-24] Resolve the image bytes from either a multipart
     // upload (new field app) or a base64 data_url (legacy frontend). Store in
     // R2 when configured; fall back to inline base64 only until R2 is wired up
