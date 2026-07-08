@@ -613,6 +613,32 @@ export async function stopEnrollmentsForLead(
   }
 }
 
+// ── Stop only the LEAD DRIP enrollments for a lead ────────────────────────────
+// Used at the quoted handoff: the quote_followup cadence takes over the
+// conversation, so the nurture drip must stop or the lead gets both.
+export async function stopLeadDripEnrollments(
+  companyId: number,
+  leadId: number,
+  reason: string,
+): Promise<void> {
+  try {
+    await db.execute(sql`
+      UPDATE follow_up_enrollments fe
+      SET stopped_at = NOW(), stopped_reason = ${reason}
+      FROM follow_up_sequences fs
+      WHERE fs.id = fe.sequence_id
+        AND fe.company_id = ${companyId}
+        AND fe.lead_id = ${leadId}
+        AND fs.sequence_type IN ('lead_drip_web','lead_drip_phone')
+        AND fe.completed_at IS NULL
+        AND fe.stopped_at IS NULL
+    `);
+    console.log(`[follow-up] Stopped lead-drip enrollments for lead ${leadId} — reason: ${reason}`);
+  } catch (err) {
+    console.error("[follow-up] stopLeadDripEnrollments error (non-fatal):", err);
+  }
+}
+
 // ── Stop enrollments for an estimate (accepted / declined) ──────────────────────
 export async function stopEnrollmentsForEstimate(
   estimateId: number,

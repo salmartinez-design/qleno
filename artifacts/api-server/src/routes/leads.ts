@@ -649,13 +649,16 @@ router.get("/reports", requireAuth, requireRole("owner", "admin", "office"), asy
     const fromClause = from ? `AND l.created_at >= '${from}'::date` : "";
     const toClause = to ? `AND l.created_at < ('${to}'::date + interval '1 day')` : "";
 
-    const [totals, bySource, byOwner, touchConv] = await Promise.all([
+    const [totals, bySource, byOwner, touchConv, dripSummary] = await Promise.all([
       db.execute(sql.raw(`
         SELECT
           COUNT(*) FILTER (WHERE TRUE) AS total,
           COUNT(*) FILTER (WHERE status = 'booked') AS booked,
           COUNT(*) FILTER (WHERE status IN ('no_response','not_interested','closed')) AS lost,
-          COUNT(*) FILTER (WHERE status NOT IN ('booked','no_response','not_interested','closed')) AS active
+          COUNT(*) FILTER (WHERE status NOT IN ('booked','no_response','not_interested','closed')) AS active,
+          COUNT(*) FILTER (WHERE status IN ('new','needs_contacted')) AS needs_contact,
+          COUNT(*) FILTER (WHERE status = 'contacted') AS contacted,
+          COUNT(*) FILTER (WHERE status = 'quoted') AS quoted
         FROM leads l WHERE company_id = ${companyId} ${fromClause} ${toClause}
       `)),
       db.execute(sql.raw(`
@@ -685,6 +688,8 @@ router.get("/reports", requireAuth, requireRole("owner", "admin", "office"), asy
       `)),
       db.execute(sql.raw(`
         SELECT
+          fs.sequence_type,
+          fs.name AS sequence_name,
           fst.step_number,
           fst.channel,
           COUNT(ml.id) AS sent,
@@ -697,8 +702,30 @@ router.get("/reports", requireAuth, requireRole("owner", "admin", "office"), asy
           AND fs.sequence_type IN ('lead_drip_web','lead_drip_phone')
           ${from ? `AND fe.enrolled_at >= '${from}'::date` : ""}
           ${to ? `AND fe.enrolled_at < ('${to}'::date + interval '1 day')` : ""}
-        GROUP BY fst.step_number, fst.channel
-        ORDER BY fst.step_number
+        GROUP BY fs.sequence_type, fs.name, fst.step_number, fst.channel
+        ORDER BY fs.sequence_type, fst.step_number
+      `)),
+      // Per-sequence enrollment health across ALL sequences (not just lead
+      // drips): who's in it right now, who finished, and why people left.
+      db.execute(sql.raw(`
+        SELECT
+          fs.id AS sequence_id,
+          fs.name AS sequence_name,
+          fs.sequence_type,
+          fs.is_active,
+          COUNT(fe.id) FILTER (WHERE fe.completed_at IS NULL AND fe.stopped_at IS NULL) AS in_progress,
+          COUNT(fe.id) FILTER (WHERE fe.completed_at IS NOT NULL) AS completed,
+          COUNT(fe.id) FILTER (WHERE fe.stopped_reason IN ('replied','lead_replied')) AS stopped_replied,
+          COUNT(fe.id) FILTER (WHERE fe.stopped_reason IN ('lead_booked','booked','quote_accepted')) AS stopped_booked,
+          COUNT(fe.id) FILTER (WHERE fe.stopped_at IS NOT NULL
+            AND fe.stopped_reason NOT IN ('replied','lead_replied','lead_booked','booked','quote_accepted')) AS stopped_other
+        FROM follow_up_sequences fs
+        LEFT JOIN follow_up_enrollments fe ON fe.sequence_id = fs.id
+          ${from ? `AND fe.enrolled_at >= '${from}'::date` : ""}
+          ${to ? `AND fe.enrolled_at < ('${to}'::date + interval '1 day')` : ""}
+        WHERE fs.company_id = ${companyId}
+        GROUP BY fs.id, fs.name, fs.sequence_type, fs.is_active
+        ORDER BY fs.id
       `)),
     ]);
 
@@ -707,6 +734,7 @@ router.get("/reports", requireAuth, requireRole("owner", "admin", "office"), asy
       bySource: bySource.rows,
       byOwner: byOwner.rows,
       touchConversion: touchConv.rows,
+      dripSummary: dripSummary.rows,
     });
   } catch (err) {
     console.error("GET /leads/reports:", err);
