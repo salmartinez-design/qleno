@@ -1885,7 +1885,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [rateMods, setRateMods] = useState<RateMod[]>([]);
   const [rateModsLoaded, setRateModsLoaded] = useState(false);
   const [modAddOpen, setModAddOpen] = useState(false);
-  const [modType, setModType] = useState<"time" | "flat">("time");
+  // Default to "flat" — most adjustments are fees (parking, unit fee). The old
+  // "time" default made a $20 parking fee land as a 0-minute TIME mod, whose
+  // dollars the commercial billed-amount recompute excludes (invoice #6387).
+  const [modType, setModType] = useState<"time" | "flat">("flat");
   const [modMinutes, setModMinutes] = useState("");
   const [modAmount, setModAmount] = useState("");
   const [modReason, setModReason] = useState("");
@@ -1934,7 +1937,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || d.error || "Failed");
       setRateMods(prev => [...prev, d.mod as RateMod]);
-      setModType("time"); setModMinutes(""); setModAmount(""); setModReason(""); setModAffectsCommission(false);
+      setModType("flat"); setModMinutes(""); setModAmount(""); setModReason(""); setModAffectsCommission(false);
       setModAddOpen(false);
       toast({ title: "Adjustment added" });
       onUpdate();
@@ -6952,10 +6955,20 @@ export default function JobsPage() {
     // any ?date= the date-sync effect just wrote.
     const sp = new URLSearchParams(window.location.search);
     if (sp.get("new") === "1") {
+      // [account-calendar-booking 2026-07-07] An account Calendar "+ New job"
+      // arrives with the account (+ optional property) — preselect them in
+      // the wizard so it opens on the commercial branch with context intact.
+      const acctId = parseInt(sp.get("account_id") || "");
+      const propId = parseInt(sp.get("property_id") || "");
+      setWizardPreset({
+        accountId: Number.isFinite(acctId) ? acctId : null,
+        propertyId: Number.isFinite(propId) ? propId : null,
+        date: sp.get("date") || null,
+      });
       setShowWizard(true);
       // Strip ?new=1 via wouter's navigate (keeps wouter's reactive search in
       // sync, so clicking New → Job again re-fires) while preserving ?date=.
-      sp.delete("new");
+      sp.delete("new"); sp.delete("account_id"); sp.delete("property_id");
       const rest = sp.toString();
       navigate(`${window.location.pathname}${rest ? `?${rest}` : ""}`, { replace: true });
     }
@@ -6965,6 +6978,9 @@ export default function JobsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<DispatchJob | null>(null);
   const [showWizard, setShowWizard] = useState(false);
+  // Account/property/date context carried in from an account-calendar
+  // "+ New job" deep link; null for a plain New → Job open.
+  const [wizardPreset, setWizardPreset] = useState<{ accountId: number | null; propertyId: number | null; date: string | null } | null>(null);
   const [draggingJob, setDraggingJob] = useState<DispatchJob | null>(null);
   // [panel-resync 2026-06-18] Keep the open drawer in sync with refreshed board
   // data. After a reassign/edit, load() refetches `data` but selectedJob still
@@ -7934,7 +7950,7 @@ export default function JobsPage() {
           // (the "every service shows Jirsa's notes" cross-client bleed).
           <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile />
         )}
-        <JobWizard open={showWizard} onClose={() => setShowWizard(false)} onCreated={() => { setShowWizard(false); load(); }} />
+        <JobWizard open={showWizard} onClose={() => { setShowWizard(false); setWizardPreset(null); }} onCreated={() => { setShowWizard(false); setWizardPreset(null); load(); }} preselectedAccountId={wizardPreset?.accountId} preselectedPropertyId={wizardPreset?.propertyId} presetDate={wizardPreset?.date} />
         <LegendPopover open={legendOpen} onClose={() => setLegendOpen(false)} mobile={isMobile} anchorRect={legendAnchor} />
         <MobileDateSheet open={dateSheetOpen} selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setDateSheetOpen(false)} />
       </DashboardLayout>
@@ -8327,7 +8343,7 @@ export default function JobsPage() {
         // key={selectedJob.id}: fresh panel per job — see note on the mobile mount.
         <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile={false} />
       )}
-      <JobWizard open={showWizard} onClose={() => setShowWizard(false)} onCreated={() => { setShowWizard(false); load(); }} />
+      <JobWizard open={showWizard} onClose={() => { setShowWizard(false); setWizardPreset(null); }} onCreated={() => { setShowWizard(false); setWizardPreset(null); load(); }} preselectedAccountId={wizardPreset?.accountId} preselectedPropertyId={wizardPreset?.propertyId} presetDate={wizardPreset?.date} />
 
       {/* Cutover 3B — Attendance overlay drawer. Mounted at the same
           level as JobPanel so it can sit on top of dispatch without

@@ -152,9 +152,17 @@ interface JobWizardProps {
    * to the client's primary type per Sal's spec.
    */
   isHybridClient?: boolean;
+  /**
+   * [account-calendar-booking 2026-07-07] Optional preselected commercial
+   * account (+ property). Used when opening the wizard from an account's
+   * Calendar tab "+ New job" — the wizard opens on the commercial branch
+   * with the account already picked, landing on the property step.
+   */
+  preselectedAccountId?: number | null;
+  preselectedPropertyId?: number | null;
 }
 
-export function JobWizard({ open, onClose, onCreated, preselectedClient, presetDate, isHybridClient }: JobWizardProps) {
+export function JobWizard({ open, onClose, onCreated, preselectedClient, presetDate, isHybridClient, preselectedAccountId, preselectedPropertyId }: JobWizardProps) {
   const { activeBranchId, branches } = useBranch();
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<string | number>("all");
   const [step, setStep] = useState(0);
@@ -310,7 +318,12 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   // on first mount; subsequent opens with different presetDate
   // values would still show today's date.
   useEffect(() => {
-    if (open && presetDate) setScheduledDate(presetDate);
+    if (open && presetDate) {
+      setScheduledDate(presetDate);
+      // The commercial branch tracks its own date — seed it too so an
+      // account-calendar "+ New job" lands on the day that was clicked.
+      setCommercialScheduledDate(presetDate);
+    }
   }, [open, presetDate]);
 
   // Load company-wide active add-ons once when the wizard opens. Failure
@@ -421,9 +434,20 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           email: preselectedClient.email || "",
         });
         setStep(2); // jump straight to Details — client + address known
+      } else if (preselectedAccountId) {
+        // [account-calendar-booking 2026-07-07] Opened from an account's
+        // Calendar tab — flip to the commercial branch, fetch + select the
+        // account, and land on the property step so the operator only picks
+        // the building (or confirms the prefiltered one) and moves on.
+        setClientType("commercial");
+        setStep(1);
+        fetch(`${API}/api/accounts/${preselectedAccountId}`, { headers: getAuthHeaders() })
+          .then(r => (r.ok ? r.json() : null))
+          .then(d => { const a = d?.data || d; if (a?.id) setSelectedAccount(a); })
+          .catch(() => {});
       }
     }
-  }, [open, preselectedClient?.id]);
+  }, [open, preselectedClient?.id, preselectedAccountId]);
 
   // Residential client search
   useEffect(() => {
@@ -459,7 +483,15 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
     if (!selectedAccount) { setProperties([]); setSelectedProperty(null); return; }
     fetch(`${API}/api/accounts/${selectedAccount.id}/properties`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : { data: [] })
-      .then(d => setProperties(d.data || d || []))
+      .then(d => {
+        const rows = d.data || d || [];
+        setProperties(rows);
+        // Preselect the property the account calendar was filtered to.
+        if (preselectedPropertyId) {
+          const hit = rows.find((p: any) => p.id === preselectedPropertyId);
+          if (hit) setSelectedProperty(hit);
+        }
+      })
       .catch(() => {});
   }, [selectedAccount]);
 

@@ -199,11 +199,17 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
     return "#00C9A0";
   }
 
+  // Dispatch lives at /dispatch — the old /jobs path now redirects to the
+  // jobs REPORT page, which silently dropped these deep links there (Maribel:
+  // "Booking from the account's calendar is not working, It send me here").
   function openJobInDispatch(j: CalJob) {
-    navigate(`/jobs?date=${(j.scheduled_date || "").slice(0, 10)}&job=${j.id}`);
+    navigate(`/dispatch?date=${(j.scheduled_date || "").slice(0, 10)}&job=${j.id}`);
   }
   function newJobOnDay(key: string) {
-    navigate(`/jobs?date=${key}&new=1`);
+    // Carry the account (and the active property filter) into the wizard so
+    // it opens on the commercial branch with this account preselected.
+    const prop = propFilter !== "all" ? `&property_id=${propFilter}` : "";
+    navigate(`/dispatch?date=${key}&new=1&account_id=${accountId}${prop}`);
   }
 
   const isMovable = (j: CalJob) => j.status !== "complete" && j.status !== "cancelled";
