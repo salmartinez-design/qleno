@@ -16,6 +16,15 @@ router.get("/healthz", (_req, res) => {
   res.json({ status: "ok" });
 });
 
+// [auto-update 2026-07-08] Lightweight version probe (NO db ping) the client
+// polls to detect a new deploy — so the office isn't left staring at a stale
+// bundle after a release (Sal kept seeing the pre-fix dashboard). Returns the
+// deploy's git SHA; the frontend compares it against the one it booted with.
+router.get("/version", (_req, res) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.json({ version: VERSION, deployed_at: DEPLOYED_AT });
+});
+
 router.get("/health", async (_req, res) => {
   const timestamp = new Date().toISOString();
 
