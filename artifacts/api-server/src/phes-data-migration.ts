@@ -6127,7 +6127,11 @@ async function runAleCuervoMigration() {
       UPDATE users SET
         mc_employee_id           = '42877',
         dob                      = '1992-01-16',
-        hire_date                = '2023-05-11',
+        -- 2025-08-01 is her REHIRE date (MC Snapshot + Sal 2026-07-07); the
+        -- benefit year / occurrence ladder anchor to it. 2023-05-11 was a
+        -- copy-paste of Norma Puga's hire date and silently shrank her
+        -- discipline window on every boot.
+        hire_date                = '2025-08-01',
         email                    = 'acuervo68@yahoo.com',
         phone                    = '773-812-2419',
         drivers_license_number   = 'C61501592616',
