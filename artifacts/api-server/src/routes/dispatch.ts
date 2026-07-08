@@ -266,10 +266,12 @@ async function buildDispatchPayload(
         // "No invoice yet" even though the invoice existed (Maribel, Awaken
         // Church common-areas). Direct job_id match wins over a line-item
         // match; the @> containment predicate is the same one the account
-        // uninvoiced-jobs dedup guard uses.
-        invoice_id: sql<number | null>`(SELECT iv.id FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
-        invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
-        invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        // uninvoiced-jobs dedup guard uses. Third arm: historical merge
+        // parents created before lines carried job_id — follow the job's
+        // superseded child (which kept its job_id) up to its parent.
+        invoice_id: sql<number | null>`(SELECT iv.id FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
         // [commission-override 2026-06-27] Office-set pool rate override for demanding jobs.
         commission_override_pct: sql<number | null>`(SELECT commission_override_pct FROM jobs WHERE id = ${jobsTable.id} LIMIT 1)`,
       })
@@ -1165,6 +1167,14 @@ async function buildDispatchPayload(
         is_new_client: !isCommercialPay && j.client_id != null
           ? !clientsWithPriorComplete.has(j.client_id)
           : false,
+        // [job-card-invoice-link 2026-07-07] The SELECT has computed these
+        // since 2026-06-27, but this shaper never carried them through — so
+        // job.invoice_id was ALWAYS undefined on the board and every
+        // completed job showed "No invoice yet" regardless of reality
+        // (Maribel: "jobs with invoices still say 'no invoice yet'").
+        invoice_id: (j as any).invoice_id != null ? Number((j as any).invoice_id) : null,
+        invoice_status: (j as any).invoice_status ?? null,
+        invoice_total: (j as any).invoice_total != null ? parseFloat(String((j as any).invoice_total)) : null,
       };
     });
 

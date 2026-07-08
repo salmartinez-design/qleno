@@ -5896,7 +5896,7 @@ router.get("/v2/export", requireAuth, async (req, res) => {
 // revenue rollups, manual charge) reads via COALESCE(billed_amount, base_fee), so
 // pushing the post-mod total there flows through automatically.
 
-async function recomputeJobBilledAmount(jobId: number, companyId: number): Promise<number> {
+export async function recomputeJobBilledAmount(jobId: number, companyId: number): Promise<number> {
   // [commercial-revenue 2026-06-04] Keep billed_amount — the cache payroll +
   // the weekly chart read — in lockstep with how dispatch computes revenue
   // live, so the two never diverge. Commercial work whose price is NOT a
@@ -5919,6 +5919,8 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
   const sumRows = await db.execute(sql`
     SELECT COALESCE(SUM(amount), 0)::numeric AS total,
            COALESCE(SUM(amount) FILTER (WHERE mod_type = 'flat'), 0)::numeric AS flat_total,
+           COALESCE(SUM(amount) FILTER (WHERE mod_type = 'time'), 0)::numeric AS time_total,
+           COALESCE(SUM(minutes) FILTER (WHERE mod_type = 'time'), 0)::numeric AS time_minutes,
            -- [commission-optin 2026-07-01] Only the flagged mods feed the commission base.
            COALESCE(SUM(amount) FILTER (WHERE affects_commission), 0)::numeric AS comm_total,
            COALESCE(SUM(amount) FILTER (WHERE affects_commission AND mod_type = 'flat'), 0)::numeric AS comm_flat_total
@@ -5927,6 +5929,8 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
   `);
   const modsTotal = parseFloat(String((sumRows.rows[0] as any)?.total ?? "0"));
   const flatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.flat_total ?? "0"));
+  const timeModsTotal = parseFloat(String((sumRows.rows[0] as any)?.time_total ?? "0"));
+  const timeModsMinutes = parseFloat(String((sumRows.rows[0] as any)?.time_minutes ?? "0"));
   const commModsTotal = parseFloat(String((sumRows.rows[0] as any)?.comm_total ?? "0"));
   const commFlatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.comm_flat_total ?? "0"));
 
@@ -5947,10 +5951,18 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
 
   let newBilled: number;
   if (isCommercial && !override && rate > 0 && hrs > 0) {
-    // Commercial: rate × allowed_hours + add-ons + FLAT mods only. 'time' mods
-    // already grew allowed_hours (PR #307), so they're in rate × hrs — adding
-    // their amount again would double-count the added time.
-    newBilled = rate * hrs + flatModsTotal + addOnsTotal;
+    // Commercial: rate × allowed_hours + add-ons + FLAT mods + the slice of
+    // each 'time' mod's dollars NOT already captured by the hours growth.
+    // 'time' mods grew allowed_hours (PR #307), so rate × hrs contains
+    // rate × their minutes — but the mod's stored AMOUNT is authoritative
+    // for billing (the office types it), and it can differ from rate × minutes:
+    // a "+0 min · +$20" fee misfiled as a time mod added $0 here while the
+    // invoice line builder subtracted its $20 from the service line (invoice
+    // #6387 pinned at $150 instead of $170). Add amount − rate×minutes so the
+    // stored amount always wins: a proper time mod nets 0 extra, a courtesy
+    // "+30 min · $0" mod nets the free time back OUT of the bill.
+    const timeModsExtra = timeModsTotal - (rate * timeModsMinutes) / 60;
+    newBilled = rate * hrs + flatModsTotal + timeModsExtra + addOnsTotal;
   } else {
     newBilled = base + modsTotal;
   }
