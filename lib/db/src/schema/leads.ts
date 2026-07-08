@@ -58,6 +58,10 @@ export const leadsTable = pgTable("leads", {
   closed_reason: text("closed_reason"),
   agreement_signed: boolean("agreement_signed"),
   job_id: integer("job_id"),
+  // [lead-booked-wiring 2026-07-08] The client this lead became when its quote
+  // converted. Lets the lead panel link to the customer + surface their comms
+  // once booked. Stamped by advanceLeadStage(..., { clientId }).
+  client_id: integer("client_id"),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at"),
 });

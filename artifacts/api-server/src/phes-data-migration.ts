@@ -1696,6 +1696,24 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "leads.closed_reason", stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS closed_reason TEXT` },
     { label: "leads.job_id",        stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS job_id INTEGER` },
     { label: "leads.contacted_by",  stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS contacted_by INTEGER` },
+    // [lead-booked-wiring 2026-07-08] The lead panel went blind the moment a
+    // lead converted: the quote knew its client + job, but the lead only
+    // learned job_id, never the client — so "View client" resolved to
+    // /customers/undefined and Messages/Activity couldn't reach the
+    // customer's records (Sal: "It all needs to be wired together when they
+    // go from lead to booked"). Stamp the client onto the lead too.
+    { label: "leads.client_id",     stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS client_id INTEGER` },
+    // Backfill both links from every converted quote (quote is the source of
+    // truth for lead↔client↔job). Idempotent — only fills NULLs.
+    { label: "backfill leads.client_id + job_id from converted quotes", stmt: `
+      UPDATE leads l SET
+             client_id = COALESCE(l.client_id, q.client_id),
+             job_id    = COALESCE(l.job_id, q.booked_job_id)
+        FROM quotes q
+       WHERE q.lead_id = l.id AND q.company_id = l.company_id
+         AND (q.client_id IS NOT NULL OR q.booked_job_id IS NOT NULL)
+         AND (l.client_id IS NULL OR l.job_id IS NULL)
+    ` },
     // [lead-pipeline-foundation 2026-06-25] routes/leads.ts PATCH references
     // agreement_signed UNCONDITIONALLY (agreement_signed = COALESCE(...)), but
     // the column was never migrated and is absent in prod — so every

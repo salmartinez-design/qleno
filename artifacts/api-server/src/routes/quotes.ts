@@ -727,7 +727,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         if (leadId) {
           const firstJobRow = await db.execute(sql`SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId} ORDER BY scheduled_date ASC, id ASC LIMIT 1`);
           const firstJobId = (firstJobRow.rows[0] as any)?.id ?? null;
-          await advanceLeadStage(companyId, leadId, "booked", { jobId: firstJobId ?? undefined, userId: req.auth!.userId });
+          await advanceLeadStage(companyId, leadId, "booked", { jobId: firstJobId ?? undefined, clientId: clientId ?? undefined, userId: req.auth!.userId });
         }
       }).catch(() => {});
       return res.json({
@@ -867,7 +867,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // Quote→lead: advance to Booked + link the job (non-blocking).
     import("../lib/lead-sync.js").then(async ({ upsertLeadForQuote, advanceLeadStage }) => {
       const leadId = await upsertLeadForQuote(companyId, { ...(q as any), id });
-      if (leadId) await advanceLeadStage(companyId, leadId, "booked", { jobId, userId: req.auth!.userId });
+      if (leadId) await advanceLeadStage(companyId, leadId, "booked", { jobId, clientId: clientId ?? undefined, userId: req.auth!.userId });
     }).catch(() => {});
 
     return res.json({ success: true, quote: q, job_id: jobId, message: "Quote converted and job created." });
