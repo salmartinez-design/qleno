@@ -56,6 +56,115 @@ function useToday(branchId: number | "all") {
   return data;
 }
 
+// [office-reminders 2026-07-07] Internal reminders for the office (Maribel:
+// "Do we have the options to set reminders form Qleno?"). Plain company-wide
+// list — nothing here messages customers. Overdue reminders stay visible in
+// red until completed or deleted.
+function OfficeReminders({ isMobile }: { isMobile: boolean }) {
+  const [reminders, setReminders] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [title, setTitle] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/office-reminders");
+      if (r.ok) { const d = await r.json(); setReminders(d.reminders || []); }
+    } catch {}
+    setLoaded(true);
+  };
+  useEffect(() => { load(); }, []);
+
+  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+
+  async function add() {
+    if (!title.trim() || !dueDate || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API}/api/office-reminders`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), due_date: dueDate }),
+      });
+      if (r.ok) { setTitle(""); setDueDate(""); setAddOpen(false); await load(); }
+    } catch {}
+    setBusy(false);
+  }
+  async function complete(id: number) {
+    setReminders(prev => prev.filter(x => x.id !== id));
+    try {
+      await fetch(`${API}/api/office-reminders/${id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: true }),
+      });
+    } catch { load(); }
+  }
+  async function remove(id: number) {
+    setReminders(prev => prev.filter(x => x.id !== id));
+    try {
+      await fetch(`${API}/api/office-reminders/${id}`, { method: "DELETE", headers: getAuthHeaders() });
+    } catch { load(); }
+  }
+  const fmtDue = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+
+  return (
+    <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "16px 20px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: reminders.length || addOpen ? 10 : 0 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, fontFamily: FF }}>
+          Office Reminders{reminders.length ? ` (${reminders.length})` : ""}
+        </p>
+        <button onClick={() => setAddOpen(o => !o)}
+          style={{ padding: "5px 12px", border: "1px solid #E5E2DC", borderRadius: 7, background: addOpen ? "#F7F6F3" : "#FFFFFF", color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+          {addOpen ? "Close" : "+ Reminder"}
+        </button>
+      </div>
+      {addOpen && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: isMobile ? "wrap" : "nowrap" }}>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Call Daveco about payment"
+            onKeyDown={e => { if (e.key === "Enter") add(); }}
+            style={{ flex: "1 1 220px", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#FFFFFF" }} />
+          <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+            style={{ padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#FFFFFF" }} />
+          <button onClick={add} disabled={busy || !title.trim() || !dueDate}
+            style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: busy || !title.trim() || !dueDate ? "#D0CEC9" : "#00C9A0", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
+            Add
+          </button>
+        </div>
+      )}
+      {!loaded ? null : reminders.length === 0 ? (
+        !addOpen && <p style={{ fontSize: 12, color: "#9E9B94", margin: "8px 0 0", fontFamily: FF }}>No reminders. Use "+ Reminder" for office to-dos — "call Daveco Friday", "Lupe out until July 11".</p>
+      ) : (
+        <div>
+          {reminders.map((r, i) => {
+            const overdue = r.due_date < todayStr;
+            const isToday = r.due_date === todayStr;
+            return (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid #F0EEE9" }}>
+                <button onClick={() => complete(r.id)} title="Mark done"
+                  style={{ width: 18, height: 18, flexShrink: 0, border: "1.5px solid #C9C6BF", borderRadius: 5, background: "#FFFFFF", cursor: "pointer", padding: 0 }} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <p style={{ margin: 0, fontSize: 13, color: "#1A1917", fontFamily: FF, wordBreak: "break-word" }}>{r.title}</p>
+                  <p style={{ margin: "1px 0 0", fontSize: 11, fontWeight: 600, fontFamily: FF, color: overdue ? "#B91C1C" : isToday ? "#0A6E5A" : "#9E9B94" }}>
+                    {overdue ? `Overdue — ${fmtDue(r.due_date)}` : isToday ? "Today" : fmtDue(r.due_date)}
+                    {r.created_by_name ? ` · ${r.created_by_name}` : ""}
+                  </p>
+                </div>
+                <button onClick={() => remove(r.id)} title="Delete"
+                  style={{ flexShrink: 0, border: "none", background: "none", color: "#C9C6BF", cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 4, fontFamily: FF }}>
+                  ×
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function useKpis() {
   const [data, setData] = useState<any>(null);
   useEffect(() => {
@@ -634,6 +743,9 @@ export default function Dashboard() {
             })}
           </div>
         </div>
+
+        {/* ── OFFICE REMINDERS ─────────────────────────────────── */}
+        {canAdmin && <OfficeReminders isMobile={isMobile} />}
 
         {/* ── HCP STRIP (above monthly revenue row) ── */}
         {hcp != null && (
