@@ -12,7 +12,11 @@ export const commChannelEnum = pgEnum("comm_channel", [
 export const communicationLogTable = pgTable("communication_log", {
   id: serial("id").primaryKey(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
-  customer_id: integer("customer_id").references(() => clientsTable.id).notNull(),
+  // [account-comms 2026-07-07] Nullable: an entry belongs to a CLIENT
+  // (customer_id) or a commercial ACCOUNT (account_id) — invoice emails to an
+  // account have no client. At least one of the two should be set.
+  customer_id: integer("customer_id").references(() => clientsTable.id),
+  account_id: integer("account_id"),
   job_id: integer("job_id").references(() => jobsTable.id),
   direction: commDirectionEnum("direction").notNull(),
   channel: commChannelEnum("channel").notNull(),

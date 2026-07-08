@@ -70,6 +70,12 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
+    // [account-comms 2026-07-07] Comm-log entries for commercial ACCOUNTS
+    // (invoice emails etc.) — communication_log was client-keyed only, so
+    // account sends had nowhere to land and the account console couldn't show
+    // whether invoices actually went out (Maribel).
+    { label: "communication_log.account_id", stmt: "ALTER TABLE communication_log ADD COLUMN IF NOT EXISTS account_id INTEGER" },
+    { label: "communication_log.customer_id nullable", stmt: "ALTER TABLE communication_log ALTER COLUMN customer_id DROP NOT NULL" },
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for
     // the estimate drip. Opt-in: bridge fires only when a URL is set.
     // [estimate-w9 2026-06-26] Company tax info for the fillable W-9. Additive.
