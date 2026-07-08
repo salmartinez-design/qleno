@@ -938,7 +938,7 @@ export default function InvoicesPage() {
 
   // [invoice-merge 2026-07-02] Only unpaid invoices are selectable to merge.
   const isMergeable = (inv: any) => {
-    const st = (inv.status === "sent" && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
+    const st = (inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
     return ["draft", "sent", "overdue"].includes(st);
   };
   const mergeTotal = invoices.filter((i: any) => mergeSel.has(i.id)).reduce((s: number, i: any) => s + (i.total || 0), 0);
@@ -1223,7 +1223,10 @@ export default function InvoicesPage() {
                     <p style={{ color: "#6B7280", fontSize: 13, margin: 0, fontFamily: FF }}>No invoices found.</p>
                   </div>
                 ) : invoices.map((inv: any) => {
-                  const effectiveStatus = (inv.status === "sent" && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
+                  const effectiveStatus = (inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
+                  // [auto-issue 2026-07-08] "sent" with no sent_at was auto-ISSUED
+                  // at completion, never emailed — label it honestly.
+                  const statusLabel = effectiveStatus === "sent" && !inv.sent_at ? "issued" : effectiveStatus;
                   const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
                   return (
                     <div key={inv.id}
@@ -1233,7 +1236,7 @@ export default function InvoicesPage() {
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
                           <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{inv.client_name}</span>
                           <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" as const, fontFamily: FF }}>
-                            {effectiveStatus}
+                            {statusLabel}
                           </span>
                         </div>
                         <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
@@ -1278,7 +1281,10 @@ export default function InvoicesPage() {
                     </td>
                   </tr>
                 ) : invoices.map((inv: any) => {
-                  const effectiveStatus = (inv.status === "sent" && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
+                  const effectiveStatus = (inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
+                  // [auto-issue 2026-07-08] "sent" with no sent_at was auto-ISSUED
+                  // at completion, never emailed — label it honestly.
+                  const statusLabel = effectiveStatus === "sent" && !inv.sent_at ? "issued" : effectiveStatus;
                   const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
                   return (
                     /* [invoice-open-new-tab 2026-07-03] cmd/ctrl+click or middle-click
@@ -1347,7 +1353,7 @@ export default function InvoicesPage() {
                       <td style={{ padding: 0 }}>
                         <InvoiceCellLink invId={inv.id} navigate={navigate}>
                           <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF }}>
-                            {effectiveStatus}
+                            {statusLabel}
                           </span>
                           {inv.refunded_amount != null && Number(inv.refunded_amount) > 0 && (
                             <span style={{ marginLeft: 4, display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF, backgroundColor: "#EDE9FE", color: "#6D28D9", border: "1px solid #DDD6FE" }}>

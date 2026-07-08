@@ -87,6 +87,13 @@ export const companiesTable = pgTable("companies", {
   auto_charge_on_invoice: boolean("auto_charge_on_invoice").notNull().default(false),
   annual_revenue_goal: integer("annual_revenue_goal"),
   payment_terms_days: integer("payment_terms_days").notNull().default(0),
+  // [auto-issue 2026-07-08] Completion auto-ISSUES the per-visit invoice
+  // (numbered, in AR, QB-pushed) — no email, no charge (Sal: "we do not auto
+  // bill but when a job is completed the invoice needs to generate", HCP
+  // parity). Distinct from auto_send_invoices (emailing) and
+  // auto_charge_on_invoice (billing), both still unwired. Batch/account
+  // invoices keep their draft+pending merge flow regardless.
+  auto_issue_invoices: boolean("auto_issue_invoices").notNull().default(false),
   mileage_rate: numeric("mileage_rate", { precision: 6, scale: 4 }).notNull().default("0.7250"),
   phone: text("phone"),
   email: text("email"),

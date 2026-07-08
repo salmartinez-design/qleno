@@ -1435,6 +1435,9 @@ export default function AccountDetailPage() {
                     {acctInvoices.map((inv: any) => {
                       const desc = Array.isArray(inv.line_items) && inv.line_items[0]?.description ? inv.line_items[0].description : "—";
                       const st = String(inv.status || "");
+                      // [auto-issue 2026-07-08] sent-with-no-sent_at = auto-issued
+                      // at completion, never emailed — never label it "sent".
+                      const stLabel = st === "sent" && !inv.sent_at ? "issued" : st;
                       const stCls = st === "paid" ? "bg-green-50 text-green-700" : st === "sent" ? "bg-blue-50 text-blue-700" : st === "overdue" ? "bg-red-50 text-red-700" : "bg-gray-100 text-gray-500";
                       return (
                         <tr key={inv.id} className="hover:bg-gray-50">
@@ -1443,7 +1446,7 @@ export default function AccountDetailPage() {
                             <Link href={`/invoices/${inv.id}`} className="text-[#00A886] hover:underline">{formatInvoiceNumber(inv)}</Link>
                           </td>
                           <td className="px-4 py-3 text-gray-500 truncate max-w-[280px] hidden sm:table-cell">{desc}</td>
-                          <td className="px-4 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded uppercase ${stCls}`}>{st}</span></td>
+                          <td className="px-4 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded uppercase ${stCls}`}>{stLabel}</span></td>
                           <td className="px-4 py-3 text-right font-semibold text-[#00C9A0]">{fmtDecimal(parseFloat(inv.total || "0"))}</td>
                         </tr>
                       );
