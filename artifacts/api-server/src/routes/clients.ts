@@ -1371,7 +1371,18 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
       FROM cancellation_log cl LEFT JOIN users u ON cl.cancelled_by = u.id LEFT JOIN jobs jb ON cl.job_id = jb.id
       WHERE cl.customer_id = ${clientId} AND cl.company_id = ${companyId}
       ORDER BY cl.cancelled_at DESC LIMIT ${limit}`);
-    for (const x of r.rows as any[]) events.push({ event_type: (x.cancel_action === "move" || x.cancel_action === "bump") ? "job_rescheduled" : "job_cancelled", occurred_at: x.cancelled_at, user_name: x.user_name, field_name: x.cancel_action, old_value: null, new_value: { reason: x.cancel_reason, charge: x.customer_charge_amount, notes: x.notes }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.cancel_action });
+    // [service-ended-activity 2026-07-08] cancel_service ends the whole cadence
+    // (deactivates the recurring schedule + cancels every future visit). It used
+    // to render identically to a one-off "Cancelled — customer request", so the
+    // office had no distinct record that the SERVICE was ended (Sal: "she
+    // cancelled her cadence for good... under activity there is no mention").
+    // Emit a distinct 'service_ended' event so it reads as what it is.
+    for (const x of r.rows as any[]) {
+      const et = (x.cancel_action === "move" || x.cancel_action === "bump")
+        ? "job_rescheduled"
+        : (x.cancel_action === "cancel_service" ? "service_ended" : "job_cancelled");
+      events.push({ event_type: et, occurred_at: x.cancelled_at, user_name: x.user_name, field_name: x.cancel_action, old_value: null, new_value: { reason: x.cancel_reason, charge: x.customer_charge_amount, notes: x.notes }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.cancel_action });
+    }
   } catch (e) { console.error("[client-activity] cancellation_log:", (e as any)?.message); }
 
   // 4. Communications (SMS / email / calls / notes)
@@ -2126,6 +2137,19 @@ router.get("/:id/cancellation-history", requireAuth, async (req, res) => {
       cancelled_by_name: string | null;
     }>).map(r => {
       const action = r.cancel_action ?? "legacy";
+      // [cancel-timestamp-fix 2026-07-08] cancelled_at is a zone-less timestamp
+      // stored in UTC; the driver hands it back as a bare string the browser
+      // parses as LOCAL, so a 6:10 PM Chicago cancel rendered as 12:10 AM (Sal:
+      // "weird stamp at 12:10am"). Normalize to explicit-UTC ISO — the same fix
+      // the Activity feed already applies (utcIso, ~line 1337).
+      const utcIso = (v: any): string => {
+        if (v == null) return "";
+        if (v instanceof Date) return v.toISOString();
+        const s = String(v);
+        return /Z$|[+-]\d{2}:?\d{2}$/.test(s)
+          ? new Date(s).toISOString()
+          : new Date(s.replace(" ", "T") + "Z").toISOString();
+      };
       const labels: Record<string, string> = {
         move: "Moved (customer)",
         bump: "Bumped (office)",
@@ -2145,7 +2169,7 @@ router.get("/:id/cancellation-history", requireAuth, async (req, res) => {
         customer_charge_amount: parseFloat(String(r.customer_charge_amount ?? 0)),
         affects_future_jobs: r.affects_future_jobs,
         notes: r.notes,
-        cancelled_at: r.cancelled_at,
+        cancelled_at: utcIso(r.cancelled_at),
         cancelled_by_name: r.cancelled_by_name?.trim() || null,
         job_id: r.job_id,
         original_date: r.original_date,

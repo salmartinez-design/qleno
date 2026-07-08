@@ -38,6 +38,7 @@ export function ActivityFeed({ endpoint, queryKey, introText }: {
     job_edit:        { label: "Job edited",     color: "#1D4ED8", bg: "#EAF0FE" },
     job_rescheduled: { label: "Rescheduled",    color: "#92400E", bg: "#FEF3C7" },
     job_cancelled:   { label: "Cancelled",      color: "#B91C1C", bg: "#FEECEC" },
+    service_ended:   { label: "Service ended",  color: "#7F1D1D", bg: "#FBD9D9" },
     job_deleted:     { label: "Deleted",        color: "#7C2D12", bg: "#FBE8E0" },
     client_edit:     { label: "Client edited",  color: "#5B21B6", bg: "#F1ECFD" },
     client_created:  { label: "Client created", color: "#0A6E5A", bg: "#E6F8F2" },
@@ -102,6 +103,7 @@ export function ActivityFeed({ endpoint, queryKey, introText }: {
       case "job_edit":        return describeEdit(e);
       case "job_rescheduled": return `Rescheduled${nv.reason ? ` — ${nv.reason}` : ""}`;
       case "job_cancelled":   return `Cancelled${nv.reason ? ` — ${String(nv.reason).replace(/_/g, " ")}` : ""}${nv.charge != null ? ` · fee ${money(nv.charge)}` : ""}`;
+      case "service_ended":   return `Service ended — all future visits cancelled, recurring schedule deactivated${nv.notes ? ` · ${nv.notes}` : ""}`;
       case "job_deleted":     return `Job deleted${ov.service_type ? ` · ${label(ov.service_type)}` : ""}${ov.scheduled_date ? ` · ${ov.scheduled_date}` : ""}`;
       case "communication":   return `${nv.delivery_status === "suppressed" ? "Suppressed" : nv.direction === "inbound" ? "Received" : "Sent"} ${e.field_name || "message"}${nv.summary ? ` — ${nv.summary}` : nv.subject ? ` — ${nv.subject}` : ""}`;
       case "invoice":         return `${nv.summary || "Invoice event"}${nv.amount != null ? ` · ${money(nv.amount)}` : ""}`;
