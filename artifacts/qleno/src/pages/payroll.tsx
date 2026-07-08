@@ -580,6 +580,12 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                           {days.map(d => {
                             const dayBilled = byDay[d].reduce((s, j) => s + Number(j.job_total || 0), 0);
                             const dayPay = byDay[d].reduce((s, j) => s + Number(j.commission || 0), 0);
+                            // [payroll 2026-07-08] Per-day worked hours + effective
+                            // $/hr on the day band — MaidCentral parity ("Daily Hours"
+                            // + "Daily Pay $X/hr"). Rate is dayPay ÷ dayWorked; only
+                            // clocked jobs carry hours so unclocked days show "—/hr".
+                            const dayWorked = byDay[d].reduce((s, j) => s + Number(j.hrs_worked || 0), 0);
+                            const dayRate = dayWorked > 0 ? dayPay / dayWorked : 0;
                             return (
                             <Fragment key={d}>
                               {/* [payroll-scan 2026-06-20] Day band — a shaded
@@ -591,7 +597,9 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                   <span style={{ fontSize: 11, fontWeight: 800, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{dayName(d)} · {mdy(d)}</span>
                                   <span style={{ float: 'right', fontSize: 12, color: '#6B6860' }}>
                                     <span style={{ color: '#1A1917', fontWeight: 700 }}>{money(dayBilled)}</span> billed · <span style={{ color: '#00A383', fontWeight: 700 }}>{money(dayPay)}</span> pay
-                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 8 }}>{laborOf(dayBilled, dayPay)} labor</span>
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 8 }} title="Hours worked this day (for records — not paid hourly)">{dayWorked > 0 ? `${dayWorked.toFixed(1)}h` : '—'}</span>
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#0A7C66', background: '#E7F7F1', border: '1px solid #C9EDE2', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Effective rate this day = pay ÷ hours worked">{dayRate > 0 ? `${money(dayRate)}/hr` : '—/hr'}</span>
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }}>{laborOf(dayBilled, dayPay)} labor</span>
                                   </span>
                                 </td>
                               </tr>
