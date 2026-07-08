@@ -2596,7 +2596,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               d.setDate(d.getDate() + days);
               nextStr = `Next visit ~${d.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}`;
             }
-            const href = job.client_id ? `/customers/${job.client_id}` : job.account_id ? `/accounts/${job.account_id}` : null;
+            // [tab-deeplink 2026-07-08] Land on the actual SCHEDULE (client
+            // Jobs calendar / account Calendar), not the profile's default tab.
+            const href = job.client_id ? `/customers/${job.client_id}?tab=jobs` : job.account_id ? `/accounts/${job.account_id}?tab=calendar` : null;
             if (!nextStr && !href) return null;
             return (
               <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginBottom: 12, fontSize: 12, color: "#6B6860" }}>

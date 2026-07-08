@@ -196,7 +196,13 @@ export default function AccountDetailPage() {
   // Expandable property cards — click to drop down details + last service.
   const [expandedProp, setExpandedProp] = useState<number | null>(null);
   const [propRecent, setPropRecent] = useState<Record<number, any>>({});
-  const [tab, setTab] = useState<Tab>("overview");
+  // [tab-deeplink 2026-07-08] Honor ?tab= (e.g. the job card's "View
+  // schedule" lands on the Calendar tab, not Overview).
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    const valid: Tab[] = ["overview", "properties", "rate_cards", "contacts", "calendar", "jobs", "invoices", "activity"];
+    return t && (valid as string[]).includes(t) ? (t as Tab) : "overview";
+  });
   // [account-calendar 2026-07-07] Property preselected on the Calendar tab —
   // the "View calendar" button on a building's detail card jumps here with
   // that building filtered, so each property gets its own calendar.
