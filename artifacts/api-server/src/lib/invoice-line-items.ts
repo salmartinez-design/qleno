@@ -107,6 +107,23 @@ export async function buildJobLineItems(
       if (prop?.name) scopeDesc = `${prop.name} — ${svcLabel}`;
     } catch { /* non-fatal — fall back to the service label */ }
   }
+  // Add-ons are fetched up front because the FLAT branch below must subtract
+  // their subtotal from the scope line (see comment there). Only itemized when
+  // billed_amount is unset — a metered total already rolls them in.
+  const addons: Array<{ name: string | null; quantity: number | null; unit_price: string | null; subtotal: string | null }> = !job.billed_amount
+    ? await exec
+        .select({
+          name: addOnsTable.name,
+          quantity: jobAddOnsTable.quantity,
+          unit_price: jobAddOnsTable.unit_price,
+          subtotal: jobAddOnsTable.subtotal,
+        })
+        .from(jobAddOnsTable)
+        .leftJoin(addOnsTable, eq(jobAddOnsTable.add_on_id, addOnsTable.id))
+        .where(eq(jobAddOnsTable.job_id, jobId))
+    : [];
+  const addOnsSubtotal = addons.reduce((s, a) => s + parseFloat(String(a.subtotal ?? "0")), 0);
+
   let scopeQty: number, scopeUnit: number, scopeAmount: number;
   if (isMetered) {
     // Pull flat mods back out of the metered total — they get their own lines
@@ -119,7 +136,15 @@ export async function buildJobLineItems(
     scopeUnit = rateNum;
     scopeAmount = Math.round(hoursNum * rateNum * 100) / 100;   // labor only
   } else {
-    scopeAmount = parseFloat(String(job.base_fee ?? "0"));
+    // [addon-doublecount 2026-07-08] base_fee is the ALL-IN residential total
+    // (the wizard/quote/edit-modal convention — it already CONTAINS the add-on
+    // subtotals; same invariant the dispatch card fix documented). The add-ons
+    // are itemized as their own lines below, so they must come OUT of the
+    // scope line — printing base_fee verbatim and re-adding them told Joni's
+    // customer $640.80 in the booking-confirmation email while the office
+    // quote correctly said $528.40 (Francisco: "the email is adding the total
+    // with add ons and adding again the add ons").
+    scopeAmount = Math.max(0, Math.round((parseFloat(String(job.base_fee ?? "0")) - addOnsSubtotal) * 100) / 100);
     scopeQty = 1;
     scopeUnit = scopeAmount;
   }
@@ -129,27 +154,15 @@ export async function buildJobLineItems(
   ];
   let runningTotal = scopeAmount;
 
-  if (!job.billed_amount) {
-    const addons = await exec
-      .select({
-        name: addOnsTable.name,
-        quantity: jobAddOnsTable.quantity,
-        unit_price: jobAddOnsTable.unit_price,
-        subtotal: jobAddOnsTable.subtotal,
-      })
-      .from(jobAddOnsTable)
-      .leftJoin(addOnsTable, eq(jobAddOnsTable.add_on_id, addOnsTable.id))
-      .where(eq(jobAddOnsTable.job_id, jobId));
-    for (const a of addons) {
-      const lineTotal = parseFloat(String(a.subtotal ?? "0"));
-      runningTotal += lineTotal;
-      lineItems.push({
-        description: a.name || "Add-on",
-        quantity: a.quantity ?? 1,
-        unit_price: parseFloat(String(a.unit_price ?? "0")),
-        total: lineTotal,
-      });
-    }
+  for (const a of addons) {
+    const lineTotal = parseFloat(String(a.subtotal ?? "0"));
+    runningTotal += lineTotal;
+    lineItems.push({
+      description: a.name || "Add-on",
+      quantity: a.quantity ?? 1,
+      unit_price: parseFloat(String(a.unit_price ?? "0")),
+      total: lineTotal,
+    });
   }
 
   // Time & Fee Adjustments (flat AND time) as their own labeled lines — e.g.
