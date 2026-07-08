@@ -26,7 +26,11 @@ function daysOverdue(dueDateStr: string | null): number {
 }
 
 function formatInvoice(inv: any) {
-  const overdue = inv.status === "sent" && inv.due_date && new Date(inv.due_date) < new Date();
+  // [auto-issue 2026-07-08] Aging starts when the invoice was actually
+  // COMMUNICATED (sent_at) — an auto-issued due-on-receipt invoice was
+  // reading OVERDUE the day after completion, before any customer ever saw
+  // it. "Due on receipt" can't start before receipt.
+  const overdue = inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date) < new Date();
   return {
     ...inv,
     subtotal: parseFloat(inv.subtotal || "0"),

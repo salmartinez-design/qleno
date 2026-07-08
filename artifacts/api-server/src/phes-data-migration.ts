@@ -70,6 +70,21 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
+    // [auto-issue 2026-07-08] Completion auto-issues per-visit invoices for
+    // Phes (both branches) — see ensure-invoice.ts. Off by default for any
+    // future tenant.
+    { label: "companies.auto_issue_invoices", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS auto_issue_invoices BOOLEAN NOT NULL DEFAULT false" },
+    { label: "enable auto-issue for Phes", stmt: "UPDATE companies SET auto_issue_invoices = true WHERE id IN (1, 4) AND auto_issue_invoices = false" },
+    // One-time backlog flip: drafts that piled up under the no-auto-issue
+    // window (7/6-7/8) become issued so the office doesn't hand-finalize
+    // them. Frozen by created_at so an invoice deliberately re-drafted later
+    // is never re-flipped by a reboot. Batch/account pending drafts untouched.
+    { label: "issue the 7/6-7/8 completion-draft backlog", stmt: `
+      UPDATE invoices i SET status = 'sent'
+       WHERE i.company_id IN (1, 4) AND i.status = 'draft' AND i.batch_status IS NULL
+         AND i.job_id IS NOT NULL AND i.created_at < '2026-07-09'
+         AND EXISTS (SELECT 1 FROM jobs j WHERE j.id = i.job_id AND j.status = 'complete')
+    ` },
     // [account-comms 2026-07-07] Comm-log entries for commercial ACCOUNTS
     // (invoice emails etc.) — communication_log was client-keyed only, so
     // account sends had nowhere to land and the account console couldn't show

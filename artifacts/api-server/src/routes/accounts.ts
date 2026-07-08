@@ -916,6 +916,9 @@ router.get("/:id/invoices", requireAuth, requireRole("owner", "admin", "office")
         id: invoicesTable.id,
         invoice_number: invoicesTable.invoice_number,
         status: invoicesTable.status,
+        // [auto-issue 2026-07-08] sent_at lets the tab label sent-with-no-
+        // sent_at as ISSUED (auto-issued at completion, never emailed).
+        sent_at: invoicesTable.sent_at,
         total: invoicesTable.total,
         due_date: invoicesTable.due_date,
         created_at: invoicesTable.created_at,

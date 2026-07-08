@@ -67,11 +67,11 @@ const STATUS_STYLES: Record<string, React.CSSProperties> = {
   sent:    { background: "#DBEAFE", color: "#1E40AF", border: "1px solid #BFDBFE" },
 };
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, label }: { status: string; label?: string }) {
   const s = STATUS_STYLES[status] || STATUS_STYLES.draft;
   return (
     <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "4px 10px", borderRadius: 6, fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" }}>
-      {status}
+      {label ?? status}
     </span>
   );
 }
@@ -493,8 +493,13 @@ export default function InvoiceDetailPage() {
 
   // [date-tz-fix] Anchor the date-only due_date to end of day so an invoice is
   // not flagged overdue a day early (bare YYYY-MM-DD parses as UTC midnight).
-  const isOverdue = invoice.status === "overdue" || (invoice.status === "sent" && invoice.due_date && new Date(invoice.due_date + "T23:59:59") < new Date());
+  // [auto-issue 2026-07-08] Aging requires the invoice to have been
+  // communicated (sent_at) — never-sent issued invoices stay ISSUED.
+  const isOverdue = invoice.status === "overdue" || (invoice.status === "sent" && invoice.sent_at && invoice.due_date && new Date(invoice.due_date + "T23:59:59") < new Date());
   const effectiveStatus = isOverdue ? "overdue" : invoice.status;
+  // [auto-issue 2026-07-08] "sent" with no sent_at was auto-ISSUED at
+  // completion, never emailed — the badge must never claim SENT for it.
+  const statusLabel = effectiveStatus === "sent" && !invoice.sent_at ? "issued" : effectiveStatus;
   const canEditInvoice = !["paid", "void", "superseded"].includes(invoice.status);
   const dueLabel = invoice.due_date
     ? new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
@@ -542,7 +547,7 @@ export default function InvoiceDetailPage() {
             <div style={{ textAlign: "right" }}>
               <p style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: "0.12em", color: "#1A1917" }}>INVOICE</p>
               <p style={{ margin: "6px 0 0", fontSize: 13, color: "#6B7280" }}>No. <span style={{ color: "#1A1917", fontWeight: 700 }}>{formatInvoiceNumber(invoice)}</span></p>
-              <div style={{ marginTop: 8 }}><StatusBadge status={effectiveStatus} /></div>
+              <div style={{ marginTop: 8 }}><StatusBadge status={effectiveStatus} label={statusLabel} /></div>
             </div>
           </div>
           <div style={{ height: 3, background: "#00C9A0" }} />
@@ -772,7 +777,7 @@ export default function InvoiceDetailPage() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px 24px" }}>
             {[
               { label: "Invoice Number", value: formatInvoiceNumber(invoice) },
-              { label: "Status", value: <StatusBadge status={effectiveStatus} /> },
+              { label: "Status", value: <StatusBadge status={effectiveStatus} label={statusLabel} /> },
               { label: "Bill To", value: !canEditInvoice ? billToLabel : (
                 billToOpen ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>

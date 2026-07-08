@@ -119,6 +119,10 @@ export async function ensureInvoiceForCompletedJob(
     let termsDays = 0;
     let billingTerms: string = "per_visit";
     let paymentSource: string | null = null;
+    // [auto-issue 2026-07-08] Per-company: completion ISSUES the per-visit
+    // invoice instead of parking a draft. Only read on the non-account branch
+    // — account/batch invoices always stay draft+pending for the merge flow.
+    let autoIssue = false;
 
     if (job.account_id) {
       // [per-job-drafts 2026-07-02] Every commercial-account job now gets its
@@ -136,11 +140,12 @@ export async function ensureInvoiceForCompletedJob(
       accountDraft = true;
     } else {
       const [co] = await db
-        .select({ payment_terms_days: companiesTable.payment_terms_days })
+        .select({ payment_terms_days: companiesTable.payment_terms_days, auto_issue_invoices: companiesTable.auto_issue_invoices })
         .from(companiesTable)
         .where(eq(companiesTable.id, companyId))
         .limit(1);
       termsDays = co?.payment_terms_days ?? 0;
+      autoIssue = co?.auto_issue_invoices === true;
     }
 
     // Client-driven billing_terms + payment_source (residential / per-client).
@@ -210,19 +215,23 @@ export async function ensureInvoiceForCompletedJob(
         job_id: jobId,
         client_id: job.client_id ?? null,
         account_id: job.account_id ?? null,
-        // [no-auto-issue 2026-07-06] EVERY completion invoice starts as a
-        // DRAFT — reverses [invoice-lifecycle 2026-06-21], which finalized
-        // per_visit completions as 'sent' the moment the job closed. That made
-        // the office see "Sent: <completion time>" on invoices nobody reviewed
-        // and read it as "the customer was emailed at job completion"
-        // (Maribel: "invoices should not be sent as soon as the job is
-        // finished"; Sal: "this should already be happening"). Nothing was
-        // ever actually emailed from this path, but the status said otherwise.
-        // The office now finalizes explicitly: "Mark as invoiced" (no email)
-        // or "Send + email" on the invoice detail — both of which stamp
-        // sent_at and push to QB. batch_invoice clients keep the pending
-        // batch tag for month-end consolidation.
-        status: "draft",
+        // [auto-issue 2026-07-08] Third iteration of this lifecycle, keep the
+        // history straight:
+        //   1. [invoice-lifecycle 2026-06-21] completion finalized as 'sent'
+        //      — but the UI showed "Sent: <completion time>", which read as
+        //      "the customer was emailed" when nothing was ever emailed.
+        //   2. [no-auto-issue 2026-07-06] everything became a DRAFT to kill
+        //      that lie — but then drafts piled up and the office had to
+        //      hand-finalize every completed job (Sal: "we should not have
+        //      to manually create all these invoices", HCP parity).
+        //   3. Now: when companies.auto_issue_invoices is ON, a per-visit
+        //      completion invoice is ISSUED (status 'sent', enters AR, QB
+        //      push below) with sent_at NULL — and every surface labels
+        //      sent-with-no-sent_at as "ISSUED", never "SENT", so both
+        //      complaints stay fixed. Emailing/charging remains a human
+        //      action. batch_invoice clients + account jobs keep the
+        //      draft+pending tag for month-end consolidation/merge.
+        status: !isBatch && autoIssue ? "sent" : "draft",
         batch_status: isBatch ? "pending" : null,
         sent_at: null,
         payment_source: paymentSource,
@@ -243,11 +252,15 @@ export async function ensureInvoiceForCompletedJob(
       console.error("[ensure-invoice] invoice-number assignment non-fatal:", numErr);
     }
 
-    // [no-auto-issue 2026-07-06] No QB push at creation — every completion
-    // invoice is now a draft, and drafts never push (same rule batch pending
-    // drafts always followed). The push happens when the office finalizes:
-    // PUT status→sent ("Mark as invoiced"), POST /:id/send ("Send + email"),
-    // and mark-paid all queue syncInvoice.
+    // [auto-issue 2026-07-08] An ISSUED invoice enters the books immediately,
+    // so push it to QuickBooks now (idempotent — syncInvoice finds-by-
+    // DocNumber before create, #881). Drafts still never push; their push
+    // happens when the office finalizes (Mark as invoiced / Send / mark-paid).
+    if (!isBatch && autoIssue) {
+      import("../services/quickbooks-sync.js").then(({ syncInvoice }) => {
+        syncInvoice(companyId, newInv.id).catch((e: any) => console.error("[ensure-invoice] QB push non-fatal:", e));
+      }).catch((e) => console.error("[ensure-invoice] QB module load non-fatal:", e));
+    }
 
     return { created: true, skipped: false, invoiceId: newInv.id, status: newInv.status, total: newInv.total, error: false };
   } catch (err) {
