@@ -1401,8 +1401,10 @@ function BillingTab({ invoices }: { invoices: any[] }) {
                 <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{fmtCurrency(inv.total)}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", color: inv.paid_at ? "#9E9B94" : "#1A1917" }}>{inv.paid_at ? "$0.00" : fmtCurrency(inv.total)}</td>
                 <td style={{ padding: "12px 16px" }}>
+                  {/* [auto-issue 2026-07-08] sent-with-no-sent_at = auto-issued
+                      at completion, never emailed — label ISSUED, not SENT. */}
                   <span style={{ ...statusStyle[inv.status] || statusStyle.draft, padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    {inv.status}
+                    {inv.status === "sent" && !inv.sent_at ? "issued" : inv.status}
                   </span>
                 </td>
                 <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
@@ -5755,7 +5757,13 @@ export default function CustomerProfilePage() {
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
   const [showEditProfileDrawer, setShowEditProfileDrawer] = useState(false);
   const [showAlarmCode, setShowAlarmCode] = useState(false);
-  const [activeTab, setActiveTab] = useState<ProfileTab>("client");
+  // [tab-deeplink 2026-07-08] Honor ?tab= so links can land on a specific
+  // tab — the job card's "View schedule" was dumping the office on the
+  // default Client tab instead of the Jobs calendar (Sal).
+  const [activeTab, setActiveTab] = useState<ProfileTab>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t && PROFILE_TABS.some(pt => pt.id === t) ? (t as ProfileTab) : "client";
+  });
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => setToast({ message, type }), []);
 
   const goBack = () => navigate("/customers");
