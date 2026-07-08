@@ -3499,11 +3499,17 @@ router.delete("/:id", requireAuth, async (req, res) => {
       SELECT recurring_schedule_id, occurrence_date::text AS occ, scheduled_date::text AS sched
       FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `)).rows[0]) as any;
-    async function tombstoneOccurrence() {
+    // [stale-alert-fix 2026-07-07] exec param: the tombstone now runs INSIDE
+    // the delete transaction. It used to run after commit — if it failed (or
+    // the process died in the gap), the occurrence was gone from jobs but not
+    // in skipped_dates, so the nightly engine regenerated a fresh 'scheduled'
+    // job and the client kept getting reminders for a visit the office
+    // deleted. Atomic now: no delete without its tombstone.
+    async function tombstoneOccurrence(exec: any = db) {
       const sid = recurInfo?.recurring_schedule_id;
       const skipDate = recurInfo?.occ ?? recurInfo?.sched;
       if (sid != null && skipDate) {
-        await db.execute(sql`
+        await exec.execute(sql`
           UPDATE recurring_schedules
           SET skipped_dates = ARRAY(
             SELECT DISTINCT unnest(COALESCE(skipped_dates, '{}'::date[]) || ARRAY[${skipDate}::date])
@@ -3609,8 +3615,10 @@ router.delete("/:id", requireAuth, async (req, res) => {
       await tx.execute(sql`UPDATE hr_logs SET job_id = NULL WHERE job_id = ${jobId}`);
       await tx.execute(sql`UPDATE scorecard_entries SET job_id = NULL WHERE job_id = ${jobId}`);
       await tx.delete(jobsTable).where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
+      // Tombstone in the SAME transaction — a deleted occurrence must never
+      // outlive its skipped_dates entry or the engine regenerates it.
+      await tombstoneOccurrence(tx);
     });
-    await tombstoneOccurrence();
     logAudit(req, "DELETE", "job", jobId, null, { status: existing.status });
     // Cascade to the client's own audit trail so all activity within a client
     // is auditable in one place. (Folded in from the removed duplicate route.)
@@ -6332,12 +6340,18 @@ router.post("/:id/resend-confirmation", requireAuth, requireRole("owner", "admin
     if (Number.isNaN(jobId)) return res.status(400).json({ error: "Bad job id" });
 
     const jr = await db.execute(sql`
-      SELECT j.id, c.email AS client_email
+      SELECT j.id, j.status, c.email AS client_email
       FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
       WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1
     `);
     const job = jr.rows[0] as any;
     if (!job) return res.status(404).json({ error: "Not found" });
+    // [stale-alert-fix 2026-07-07] Never confirm a booking that no longer
+    // stands — resending on a cancelled/completed job told the client they
+    // were "still booked".
+    if (job.status === "cancelled" || job.status === "complete") {
+      return res.status(409).json({ ok: false, error: "job_not_active", message: `This job is ${job.status} — a booking confirmation can't be sent for it.` });
+    }
     if (!job.client_email) return res.status(400).json({ ok: false, error: "no_client_email" });
 
     const { sendJobScheduledConfirmation } = await import("../lib/booking-confirmation.js");

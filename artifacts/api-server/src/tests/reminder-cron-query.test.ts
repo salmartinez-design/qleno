@@ -31,4 +31,12 @@ describe("reminder cron query", () => {
     assert.match(src, /JOIN companies co ON co\.id = j\.company_id/);
     assert.match(src, /co\.comms_enabled = true/);
   });
+  // [stale-alert-fix 2026-07-07] A charged cancellation/lockout is stored as
+  // status='complete' (fee billed) with its original FUTURE date — the
+  // after-appointment branch used to send the post-visit thank-you/review
+  // message for it, so cancelled clients kept getting texts "as if they are
+  // still booked". Pin the cancellation_log exclusion.
+  it("after-appointment branch excludes charged cancellations/lockouts", () => {
+    assert.match(src, /NOT EXISTS \([\s\S]{0,200}?cl\.job_id = j\.id AND cl\.cancel_action IN \('cancel', 'lockout'\)/);
+  });
 });

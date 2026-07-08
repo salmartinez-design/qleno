@@ -654,7 +654,16 @@ export async function runScheduledJobMessages(): Promise<void> {
                  AND j.scheduled_date <= (${todayStr}::date - ${offset}::int)
                  AND j.scheduled_date >= (${todayStr}::date - ${offset}::int - 1)
                  AND j.status = 'complete'
-                 AND (a.id IS NULL OR a.comms_enabled = true)`
+                 AND (a.id IS NULL OR a.comms_enabled = true)
+                 -- [stale-alert-fix 2026-07-07] A charged cancellation/lockout
+                 -- is stored as status='complete' (fee billed) but NO visit
+                 -- happened — sending the post-visit thank-you/review message
+                 -- for it told cancelled clients they were "still booked".
+                 -- Real completions have no cancel/lockout row in the log.
+                 AND NOT EXISTS (
+                   SELECT 1 FROM cancellation_log cl
+                    WHERE cl.job_id = j.id AND cl.cancel_action IN ('cancel', 'lockout')
+                 )`
       );
       const jobs: any[] = (rows as any).rows ?? [];
       // [reminder-diag 2026-06-29] Per-schedule candidate count + skip tally.

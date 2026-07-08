@@ -485,6 +485,33 @@ router.post("/action", requireAuth, async (req, res) => {
     return logged;
   });
 
+  // [stale-alert-fix 2026-07-07] Office heads-up: scheduled texts queued for
+  // this client (POST /api/sms/schedule) are thread-level, not job-linked, so
+  // they fire even after the visit they talk about is cancelled or moved —
+  // and their pre-composed body quotes the OLD date. We can't safely
+  // auto-cancel them (they may be about something else entirely); surface a
+  // bell notification so the office reviews the queue instead of the client
+  // getting a "see you Tuesday" text for a cancelled Tuesday.
+  if (row.client_id) {
+    (async () => {
+      try {
+        const pend = await db.execute(sql`
+          SELECT id FROM scheduled_sms
+           WHERE company_id = ${companyId} AND client_id = ${row.client_id} AND status = 'pending'`);
+        const n = (pend.rows as any[]).length;
+        if (n > 0) {
+          const verb = action === "move" || action === "bump" ? "rescheduled" : "cancelled";
+          await db.execute(sql`
+            INSERT INTO notifications (company_id, user_id, type, title, body, link)
+            VALUES (${companyId}, NULL, 'scheduled_sms_review',
+                    ${`Queued text may be stale — ${row.client_name ?? "client"}`},
+                    ${`A visit was just ${verb}, but ${n} scheduled text${n === 1 ? " is" : "s are"} still queued for this client and may mention the old appointment. Review them in the message thread.`},
+                    ${`/customers/${row.client_id}`})`);
+        }
+      } catch (e) { console.warn("[cancel-action] scheduled-sms staleness check non-fatal:", e); }
+    })();
+  }
+
   // Fire-and-forget client notification — runs after the transaction commits
   // so a notify failure never rolls back the cancellation itself.
   if (body.notify_client && row.client_id) {
