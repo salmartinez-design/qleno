@@ -954,15 +954,6 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               {canUseShortcuts && <kbd style={{ fontSize: 10, border: '1px solid #E5E2DC', borderRadius: 3, padding: '1px 5px', color: '#C0BDB8' }}>⇧/</kbd>}
             </button>
 
-            <button onClick={() => setChatOpen(p => !p)} title="Team Chat"
-              style={{ background: chatOpen ? 'var(--brand-dim)' : 'none', border: 'none', cursor: 'pointer', color: chatOpen ? 'var(--brand)' : '#6B7280', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center', position: 'relative' } as any}>
-              <MessageSquare size={20} />
-              {unreadCount > 0 && (
-                <span style={{ position: 'absolute', top: 2, right: 2, width: 9, height: 9, borderRadius: 5, background: '#EF4444', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff', fontWeight: 700 }}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
 
             {/* ── Quick Create "New" dropdown ─────────────────────────────── */}
             <div ref={quickCreateRef} style={{ position: 'relative' }}>
