@@ -6,6 +6,7 @@ import {
   clientNotificationsTable, clientCommunicationsTable, clientAgreementsTable,
   serviceZonesTable, quotesTable, contactTicketsTable, clientAttachmentsTable,
   recurringSchedulesTable, jobPhotosTable, qbCustomerMapTable, companiesTable,
+  accountPropertiesTable,
 } from "@workspace/db/schema";
 import { eq, and, ilike, or, count, sum, desc, sql, gte, inArray, ne } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -1307,7 +1308,23 @@ router.post("/geocode-all", requireAuth, requireRole("owner", "admin"), async (r
     }
     await new Promise(r => setTimeout(r, 200));
   }
-  return res.json({ geocoded: updated, total: clients.length });
+  // [mileage-account-coords 2026-07-08] Also geocode ACCOUNT PROPERTIES.
+  // Commercial/account jobs (e.g. PPM turnovers) carry their address on the
+  // account property, not a client — and those were never geocoded, so every
+  // mileage leg touching an account job skipped for "no coords" and the tech's
+  // mileage came out $0 (Sal: on 7/6 Alejandra's PPM legs "nothing populated").
+  const props = await db.select().from(accountPropertiesTable)
+    .where(and(eq(accountPropertiesTable.company_id, req.auth!.companyId), sql`${accountPropertiesTable.address} IS NOT NULL`, sql`${accountPropertiesTable.lat} IS NULL`));
+  let propsUpdated = 0;
+  for (const p of props) {
+    const geo = await geocodeAddress(p.address!, p.city ?? undefined, p.state ?? undefined, p.zip ?? undefined);
+    if (geo) {
+      await db.update(accountPropertiesTable).set({ lat: geo.lat, lng: geo.lng }).where(eq(accountPropertiesTable.id, p.id));
+      propsUpdated++;
+    }
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return res.json({ geocoded: updated, total: clients.length, properties_geocoded: propsUpdated, properties_total: props.length });
 });
 
 // ─── CLIENT ACTIVITY FEED ────────────────────────────────────────────────────
