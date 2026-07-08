@@ -508,6 +508,46 @@ const CommsPausedBanner = () => {
   ) : null;
 };
 
+// [auto-update 2026-07-08] A deploy ships a new JS bundle, but an already-open
+// tab keeps running the OLD one in memory until a full reload — so the office
+// kept seeing pre-fix numbers after a release (Sal, repeatedly). This polls
+// /api/version and, when the deployed SHA changes from the one this tab booted
+// with, shows a slim reload bar. Non-disruptive: it never auto-reloads (that
+// would nuke a half-typed form) — one click when they're ready.
+function UpdateBanner() {
+  const [stale, setStale] = useState(false);
+  const bootVersion = useRef<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      try {
+        const r = await fetch(`${API}/api/version`, { cache: "no-store" });
+        if (!r.ok || !alive) return;
+        const v = (await r.json())?.version;
+        if (!v || v === "unknown") return;
+        if (bootVersion.current == null) { bootVersion.current = v; return; }
+        if (v !== bootVersion.current) setStale(true);
+      } catch { /* offline / transient — ignore */ }
+    };
+    check();
+    const iv = setInterval(check, 120000); // every 2 min
+    const onFocus = () => check();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => { alive = false; clearInterval(iv); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
+  }, []);
+  if (!stale) return null;
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "#0A0E1A", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "8px 14px", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
+      <span>A new version of Qleno is available.</span>
+      <button onClick={() => { try { window.location.reload(); } catch { /* noop */ } }}
+        style={{ background: "#00C9A0", color: "#04241d", border: "none", borderRadius: 6, padding: "5px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+        Reload
+      </button>
+    </div>
+  );
+}
+
 export function DashboardLayout({ children, title, fullBleed, onNewJob }: DashboardLayoutProps) {
   const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
@@ -694,6 +734,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
     const isMoreActive = !bottomTabs.some(t => t.href === '/dashboard' ? location === t.href : location.startsWith(t.href));
     return (
       <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", backgroundColor: '#F7F6F3', minHeight: '100dvh', color: '#1A1917', position: 'relative' }}>
+        <UpdateBanner />
         {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
         {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} userId={user?.id || 0} />}
         {shortcutsOpen && canUseShortcuts && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
@@ -884,6 +925,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   // Desktop layout
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100%', backgroundColor: '#F7F6F3', overflow: 'hidden' }}>
+      <UpdateBanner />
       {/* Sidebar slot — 56px wide; sidebar overlays via absolute positioning */}
       <div style={{ position: 'relative', width: 56, flexShrink: 0 }}>
         <AppSidebar />
