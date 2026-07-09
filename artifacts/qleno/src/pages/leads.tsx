@@ -1582,15 +1582,21 @@ function cardStatus(l: any): { text: string; color: string; bold?: boolean } {
 // New → Contacted → Quoted → Booked. Each card carries price + Website/Office +
 // (for booked) "drip stopped". Clicking a card opens the same detail panel.
 function BoardView({ leads, selectedId, onSelect }: { leads: Lead[]; selectedId: number | null; onSelect: (l: Lead) => void }) {
+  // [no-response-column 2026-07-09] A 5th "Closed" column captures the terminal
+  // statuses (no_response / not_interested / closed). Without it those leads
+  // matched NO column and rendered nowhere — the office set a lead to
+  // "No Response" and it appeared to vanish (Francisco). They're never lost,
+  // just parked here where they can still be reopened.
   const COLS = [
     { key: "needs", label: "Needs contact", color: "#B91C1C", match: (s: string) => !["contacted", "quoted", "booked", "no_response", "not_interested", "closed"].includes(s) },
     { key: "contacted", label: "Contacted", color: "#C2410C", match: (s: string) => s === "contacted" },
     { key: "quoted", label: "Quoted", color: "#1D4ED8", match: (s: string) => s === "quoted" },
     { key: "booked", label: "Booked", color: "#0F6E56", match: (s: string) => s === "booked" },
+    { key: "closed", label: "Closed", color: "#6B7280", match: (s: string) => ["no_response", "not_interested", "closed"].includes(s) },
   ];
   return (
     <div style={{ flex: 1, overflow: "auto", padding: 12, background: "#F7F6F3" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(190px,1fr))", gap: 10, minWidth: 800, height: "100%" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(180px,1fr))", gap: 10, minWidth: 980, height: "100%" }}>
         {COLS.map(col => {
           const items = leads.filter(l => col.match(String(l.status || "")));
           return (

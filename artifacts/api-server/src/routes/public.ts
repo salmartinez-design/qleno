@@ -1548,34 +1548,25 @@ router.post("/book/walkthrough", rateLimit, async (req, res) => {
       clientId = (newClient.rows[0] as any).id;
     }
 
-    const jobNotes = `Commercial Walkthrough — booked via online widget. Address: ${address || "N/A"}.`;
     const wtBookLoc = (booking_location === "oak_lawn" || booking_location === "schaumburg") ? booking_location : null;
-    const wtAddrStreet = address_street || null;
-    const wtAddrCity = address_city || null;
-    const wtAddrState = address_state || null;
     const wtAddrZip = address_zip || zip || null;
-    const wtAddrLat = address_lat ? parseFloat(String(address_lat)) : null;
-    const wtAddrLng = address_lng ? parseFloat(String(address_lng)) : null;
-    const wtAddrVerified = address_verified === true || address_verified === "true" ? true : false;
-    const jobResult = await db.execute(
-      drizzleSql`
-        INSERT INTO jobs (
-          company_id, client_id, service_type, status, scheduled_date, frequency, base_fee, estimated_hours, hourly_rate,
-          booking_location, address_street, address_city, address_state, address_zip, address_lat, address_lng, address_verified,
-          job_type, notes, created_at
-        ) VALUES (
-          ${company_id}, ${clientId}, 'office_cleaning', 'scheduled', ${preferred_date || new Date().toISOString().split('T')[0]}, 'on_demand', 0, 0, 0,
-          ${wtBookLoc}, ${wtAddrStreet}, ${wtAddrCity}, ${wtAddrState}, ${wtAddrZip}, ${wtAddrLat}, ${wtAddrLng}, ${wtAddrVerified},
-          'commercial', ${jobNotes}, NOW()
-        ) RETURNING id
-      `
-    );
-    const jobId = (jobResult.rows[0] as any).id;
 
-    // [widget-lead 2026-07-04] A commercial walkthrough request must land in the
-    // Lead Pipeline so the office follows up (do the walkthrough, then quote).
-    // needs_contacted (not booked) — the sale isn't closed yet. Non-fatal.
-    await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address: address || null, zip: wtAddrZip, scope: "Commercial Walkthrough", source: "booking_widget", status: "needs_contacted", jobId });
+    // [walkthrough-no-job 2026-07-09] A walkthrough is a SALES step, NOT a
+    // cleaning. Do NOT create a $0 job on the dispatch board — it clutters the
+    // grid and skews revenue/hours (Maribel: "did the walkthrough create a
+    // job?"). Instead land it in the Lead Pipeline (needs_contacted) carrying
+    // the requested date + address in details, so the office can schedule the
+    // actual walkthrough and then quote. The alert email below still fires.
+    await upsertWidgetLead(company_id, {
+      email, phone, first_name, last_name,
+      address: address || null, zip: wtAddrZip,
+      scope: "Commercial Walkthrough", source: "booking_widget", status: "needs_contacted",
+      details: {
+        requested_walkthrough_date: preferred_date || null,
+        walkthrough_address: address || null,
+        booking_location: wtBookLoc,
+      },
+    });
 
     const resendKey = process.env.RESEND_API_KEY;
     if (process.env.COMMS_ENABLED !== "true") {
@@ -1611,8 +1602,8 @@ router.post("/book/walkthrough", rateLimit, async (req, res) => {
       }
     }
 
-    console.log(`[WALKTHROUGH] Booked — client_id=${clientId} job_id=${jobId}`);
-    return res.status(201).json({ ok: true, client_id: clientId, job_id: jobId });
+    console.log(`[WALKTHROUGH] Lead created — client_id=${clientId} (no dispatch job)`);
+    return res.status(201).json({ ok: true, client_id: clientId });
   } catch (err: any) {
     console.error("POST /public/book/walkthrough:", err);
     return res.status(500).json({ error: "Internal Server Error" });

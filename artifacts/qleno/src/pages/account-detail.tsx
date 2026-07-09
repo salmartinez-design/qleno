@@ -86,7 +86,7 @@ const CONTACT_ROLES = [
   { value: "other", label: "Other" },
 ];
 
-type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs" | "invoices" | "activity";
+type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs" | "invoices" | "messages" | "activity";
 
 function fmt(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -109,6 +109,76 @@ function statusBadge(status: string) {
 function statusLabel(s: string) {
   const map: Record<string, string> = { scheduled: "Scheduled", in_progress: "In Progress", complete: "Complete", cancelled: "Cancelled" };
   return map[s] ?? s;
+}
+
+// [account-messages 2026-07-09] Read-only communications log for an account —
+// the SMS + email history across the account's contacts, giving accounts
+// parity with the client profile's Communication Log (Maribel: "Accounts still
+// doesn't have a communications log, only activity"). No compose yet (accounts
+// get send later); this answers "did the message go out / did they reply?".
+function AccountMessagesLog({ accountId }: { accountId: string }) {
+  const [rows, setRows] = useState<any[] | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/accounts/${accountId}/messages`, { headers: getAuthHeaders() });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const j = await r.json();
+        if (alive) setRows(Array.isArray(j.data) ? j.data : []);
+      } catch (e: any) {
+        if (alive) { setError(e?.message || "Failed to load"); setRows([]); }
+      }
+    })();
+    return () => { alive = false; };
+  }, [accountId]);
+
+  if (rows === null) return <div className="text-sm text-gray-400 py-8 text-center">Loading messages…</div>;
+  if (error) return <div className="text-sm text-red-500 py-8 text-center">Couldn't load messages: {error}</div>;
+  if (rows.length === 0) return (
+    <div className="text-sm text-gray-400 py-10 text-center">
+      No messages yet for this account's contacts. Automated texts, emails, and invoice sends will show up here.
+    </div>
+  );
+
+  const fmtWhen = (at: string | null) => {
+    if (!at) return "—";
+    const d = new Date(at);
+    return isNaN(d.getTime()) ? "—" : d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
+  };
+  const chanLabel = (c: string) => (c === "sms" ? "SMS" : c === "email" ? "Email" : c === "phone" ? "Call" : (c || "—"));
+  const inboundOf = (d: string) => String(d ?? "").toLowerCase() === "inbound";
+
+  return (
+    <div className="divide-y divide-gray-100">
+      {rows.map((m, i) => {
+        const inbound = inboundOf(m.direction);
+        return (
+          <div key={i} className="py-3 flex gap-3">
+            <span className={`mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-full text-[10px] font-semibold shrink-0 ${inbound ? "bg-[#00C9A0]/10 text-[#00A886]" : "bg-gray-100 text-gray-600"}`}>
+              {chanLabel(m.channel).slice(0, 3)}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-xs font-semibold text-gray-800 truncate">
+                  {inbound ? "From" : "To"} {m.recipient || "—"}
+                  <span className="ml-2 font-normal text-gray-400">{chanLabel(m.channel)} · {inbound ? "Received" : "Sent"}</span>
+                </div>
+                <div className="text-[11px] text-gray-400 whitespace-nowrap">{fmtWhen(m.at)}</div>
+              </div>
+              {m.subject && <div className="text-xs font-medium text-gray-700 mt-0.5 truncate">{m.subject}</div>}
+              {m.body && <div className="text-xs text-gray-600 mt-0.5 whitespace-pre-wrap break-words">{m.body}</div>}
+              <div className="mt-1 flex items-center gap-2 text-[10px] text-gray-400">
+                {m.type && <span className="px-1.5 py-0.5 bg-gray-50 rounded">{String(m.type).replace(/_/g, " ")}</span>}
+                {m.status && <span>{String(m.status)}</span>}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 // [notif-prefs] Per-account control over which automated customer messages fire,
@@ -660,6 +730,7 @@ export default function AccountDetailPage() {
     { key: "calendar", label: "Calendar" },
     { key: "jobs", label: "Uninvoiced Jobs", count: jobs.length },
     { key: "invoices", label: "Invoices" },
+    { key: "messages", label: "Messages" },
     { key: "activity", label: "Activity" },
   ];
 
@@ -1481,6 +1552,19 @@ export default function AccountDetailPage() {
               queryKey={["account-activity", id]}
               introText="Every recorded action on this account — jobs, reschedules, cancellations, messages, and invoices (created / sent / suppressed) — with who and when."
             />
+          </div>
+        )}
+
+        {/* [account-messages 2026-07-09] Read-only communications log — the SMS
+            + email history across the account's contacts, so the office can see
+            what actually went out and whether the customer replied. */}
+        {tab === "messages" && id && (
+          <div className="bg-white border border-gray-100 rounded-xl p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-800">Communications</h3>
+              <span className="text-[11px] text-gray-400">Texts, emails &amp; invoice sends across this account's contacts</span>
+            </div>
+            <AccountMessagesLog accountId={id} />
           </div>
         )}
       </div>

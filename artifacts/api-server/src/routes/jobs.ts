@@ -467,6 +467,15 @@ router.post("/", requireAuth, async (req, res) => {
         stopEnrollmentsForClient(client_id, "rebooked", "post_job_retention").catch(() => {});
       });
     }
+    // [lead-drip-booking-stop 2026-07-09] If this client is still an OPEN lead,
+    // mark the lead booked and stop its lead drip. A direct booking (not the
+    // quote→convert path) previously left the lead drip firing after the
+    // customer was already scheduled (the "Joni" bug). Non-blocking.
+    if (client_id) {
+      import("../lib/lead-sync.js").then(({ bookLeadForClientJob }) => {
+        bookLeadForClientJob(req.auth!.companyId!, Number(client_id), jobId).catch(() => {});
+      }).catch(() => {});
+    }
     // Fire-and-forget: ensure client exists in QuickBooks (residential + commercial).
     // syncCustomer is idempotent — skips if qb_customer_map already has a mapping
     // and no-ops if tenant isn't QB-connected. Booking UX never waits on QB.
@@ -2789,7 +2798,11 @@ router.patch("/:id", requireAuth, async (req, res) => {
                 : newFreq === "weekdays" ? [1,2,3,4,5]
                 : (newDow ?? []);
               const dowSet = new Set(dowArr);
-              validDateSet = new Set(cands.filter(c => dowSet.has(new Date(c.scheduled_date).getDay())).map(c => c.scheduled_date));
+              // [tz-weekday-fix 2026-07-09] Parse the bare YYYY-MM-DD at LOCAL
+              // midnight (`T00:00:00`) — `new Date("2026-08-19")` is parsed as
+              // UTC and .getDay() then returns the PREVIOUS day in US
+              // timezones, mis-bucketing which occurrences match the weekday.
+              validDateSet = new Set(cands.filter(c => dowSet.has(new Date(`${c.scheduled_date}T00:00:00`).getDay())).map(c => c.scheduled_date));
             } else {
               // Single-day path. Match by day-of-week + interval cadence.
               // For weekly/biweekly/every_3_weeks: candidate must be the
@@ -2807,7 +2820,8 @@ router.patch("/:id", requireAuth, async (req, res) => {
                 // Need a stable anchor. Use the earliest existing future job
                 // that matches the target DOW (if any); else just match by DOW.
                 validDateSet = new Set(cands.filter(c => {
-                  const d = new Date(c.scheduled_date);
+                  // Local-midnight parse — see tz-weekday-fix note above.
+                  const d = new Date(`${c.scheduled_date}T00:00:00`);
                   return d.getDay() === target;
                 }).map(c => c.scheduled_date));
               } else if (newFreq === "monthly") {
