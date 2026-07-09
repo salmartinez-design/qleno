@@ -756,6 +756,42 @@ router.get("/detail", requireAuth, async (req, res) => {
       for (const r of mRows.rows as any[]) mileageByUser.set(Number(r.user_id), parseFloat(String(r.total || 0)));
     } catch { /* mileage_legs absent — skip */ }
 
+    // [mileage-visibility 2026-07-08] The per-leg detail so the payroll By-Employee
+    // view can SHOW each drive (date + from→to + miles + $) per day, not just a
+    // hidden weekly total. Sal kept seeing "$0 / nothing populated" on Monday
+    // because this screen never displayed the legs even though they exist.
+    const legsByUser = new Map<number, any[]>();
+    try {
+      const lRows = await db.execute(sql`
+        SELECT ml.user_id, ml.leg_date::text AS leg_date, ml.miles, ml.amount, ml.status,
+               COALESCE(NULLIF(TRIM(fc.first_name||' '||COALESCE(fc.last_name,'')),''), fa.account_name, 'Job '||ml.from_job_id) AS from_label,
+               COALESCE(NULLIF(TRIM(tc.first_name||' '||COALESCE(tc.last_name,'')),''), ta.account_name, 'Job '||ml.to_job_id) AS to_label
+        FROM mileage_legs ml
+        LEFT JOIN jobs fj ON fj.id = ml.from_job_id
+        LEFT JOIN clients fc ON fc.id = fj.client_id
+        LEFT JOIN accounts fa ON fa.id = fj.account_id
+        LEFT JOIN jobs tj ON tj.id = ml.to_job_id
+        LEFT JOIN clients tc ON tc.id = tj.client_id
+        LEFT JOIN accounts ta ON ta.id = tj.account_id
+        WHERE ml.company_id = ${companyId} AND ml.status <> 'discarded'
+          AND ml.leg_date >= ${String(pay_period_start)} AND ml.leg_date <= ${String(pay_period_end)}
+          ${filterUserId ? sql`AND ml.user_id = ${filterUserId}` : sql``}
+        ORDER BY ml.user_id, ml.leg_date
+      `);
+      for (const r of lRows.rows as any[]) {
+        const uid = Number(r.user_id);
+        if (!legsByUser.has(uid)) legsByUser.set(uid, []);
+        legsByUser.get(uid)!.push({
+          leg_date: String(r.leg_date),
+          miles: parseFloat(String(r.miles || 0)),
+          amount: parseFloat(String(r.amount || 0)),
+          status: r.status,
+          from: r.from_label,
+          to: r.to_label,
+        });
+      }
+    } catch { /* mileage_legs absent — skip */ }
+
     // ── [payroll-P0] per-tech-CLOCKED attribution via the pay-type engine ────
     // A tech earns from every job they personally clocked (helpers included).
     // Pay type is per-tech (job_technicians): fee_split / allowed_hours / hourly,
@@ -985,6 +1021,7 @@ router.get("/detail", requireAuth, async (req, res) => {
         // commission come from" sub-table the UI renders inside each
         // employee's expanded panel.
         commission_by_branch: branchRollup,
+        mileage_legs: legsByUser.get(uid) || [],
         totals: {
           job_count: jobRows.length,
           job_total: Math.round(totalJobTotal * 100) / 100,
@@ -1031,6 +1068,7 @@ router.get("/detail", requireAuth, async (req, res) => {
         jobs: [],
         additional_pay: addlByType,
         commission_by_branch: [],
+        mileage_legs: legsByUser.get(uid) || [],
         totals: {
           job_count: 0,
           job_total: 0,
