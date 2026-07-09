@@ -152,6 +152,41 @@ export async function advanceLeadStage(
   } catch (e) { console.error("[lead-sync] advanceLeadStage", e); }
 }
 
+// [lead-drip-booking-stop 2026-07-09] When a job is booked DIRECTLY (POST
+// /jobs) for someone who is still an open lead, their lead drip kept firing
+// (Francisco: "why is Joni getting follow-ups if she's already booked?").
+// Previously only the quote→convert path advanced the lead. Mirror it here:
+// find the client's still-OPEN lead(s) — by the client_id link, else the same
+// email/phone match the lead was created with — advance each to booked and let
+// advanceLeadStage stop every cadence. Terminal leads (booked / lost /
+// no_response / closed) are skipped so we never reopen or touch a closed
+// record. Non-blocking; a miss just leaves the drip as-is.
+export async function bookLeadForClientJob(
+  companyId: number, clientId: number, jobId: number,
+): Promise<void> {
+  try {
+    const cl = await db.execute(sql`
+      SELECT email, phone FROM clients WHERE id = ${clientId} AND company_id = ${companyId} LIMIT 1`);
+    const row = cl.rows[0] as any;
+    const email = row?.email ? String(row.email).toLowerCase().trim() : null;
+    const phone10 = digits(row?.phone).slice(-10) || null;
+    const found = await db.execute(sql`
+      SELECT id FROM leads
+       WHERE company_id = ${companyId}
+         AND status NOT IN ('booked', 'not_interested', 'no_response', 'closed')
+         AND (
+           client_id = ${clientId}
+           OR (${email}::text IS NOT NULL AND lower(email) = ${email})
+           OR (${phone10}::text IS NOT NULL AND right(regexp_replace(coalesce(phone,''), '\\D', '', 'g'), 10) = ${phone10})
+         )`);
+    for (const r of found.rows as any[]) {
+      await advanceLeadStage(companyId, Number(r.id), "booked", {
+        jobId, clientId, note: "Job booked directly — lead marked booked, drip stopped",
+      });
+    }
+  } catch (e) { console.error("[lead-sync] bookLeadForClientJob", e); }
+}
+
 // Link a follow-up enrollment to its lead (after enrollForQuoteSent enrolled by quote).
 export async function linkEnrollmentToLead(companyId: number, quoteId: number, leadId: number): Promise<void> {
   await db.execute(sql`

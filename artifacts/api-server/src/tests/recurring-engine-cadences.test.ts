@@ -109,6 +109,41 @@ describe("Recurring engine — every_4_weeks cadence (the bug fix)", () => {
   });
 });
 
+describe("Recurring engine — monthly WITHOUT days_of_month = 'Every 4 weeks' (Crystal Sanchez drift)", () => {
+  // The residential wizard labels the option "Every 4 weeks" but stores it as
+  // frequency='monthly' with NO days_of_month. This used to fall into the
+  // day-of-month path (start.getDate()) + snapToBusinessDay, so a Wednesday
+  // cadence drifted to Monday from the 2nd occurrence on. It must now walk a
+  // stable 28-day interval on the same weekday.
+  it("monthly + Wednesday + no days_of_month → every 4th Wednesday, NEVER Monday", () => {
+    const dates = generateOccurrences(
+      mkSchedule({ frequency: "monthly", day_of_week: "wednesday", start_date: "2026-08-19" }),
+      new Date(2026, 7, 1), new Date(2026, 10, 30), // Aug 1 → Nov 30 2026
+    );
+    assert.ok(dates.length >= 3, `Expected ≥3 occurrences, got ${dates.length}`);
+    // Every occurrence stays on Wednesday — the whole point of the bug report.
+    for (const d of dates) assert.equal(dowOf(d), "Wed", `${isoOf(d)} is ${dowOf(d)}, expected Wed`);
+    // First lands on the start date; then strict 28-day gaps.
+    assert.equal(isoOf(dates[0]), "2026-08-19");
+    for (let i = 1; i < dates.length; i++) {
+      // Round — a DST fall-back (Nov 1 2026) adds an hour to the raw span.
+      const diff = Math.round((dates[i].getTime() - dates[i - 1].getTime()) / 86400000);
+      assert.equal(diff, 28, `Gap ${isoOf(dates[i - 1])}→${isoOf(dates[i])} is ${diff}d (expected 28)`);
+    }
+  });
+
+  it("monthly + no day_of_week + no days_of_month → 28-day interval anchored on start weekday", () => {
+    // start Aug 19 2026 is a Wednesday; without day_of_week the engine anchors
+    // on the start date's weekday.
+    const dates = generateOccurrences(
+      mkSchedule({ frequency: "monthly", start_date: "2026-08-19" }),
+      new Date(2026, 7, 1), new Date(2026, 10, 30),
+    );
+    assert.ok(dates.length >= 3);
+    for (const d of dates) assert.equal(dowOf(d), "Wed");
+  });
+});
+
 describe("Recurring engine — custom interval (custom_frequency_weeks)", () => {
   it("custom + 5 weeks + Thursday → 35-day intervals on Thursday", () => {
     const dates = generateOccurrences(

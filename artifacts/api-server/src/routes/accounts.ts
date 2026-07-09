@@ -586,6 +586,91 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
   return res.json({ events: events.slice(0, limit) });
 });
 
+// [account-messages 2026-07-09] GET /api/accounts/:id/messages — a read-only
+// communications log for the ACCOUNT, giving it parity with the client profile's
+// /api/clients/:id/messages (Maribel: "Accounts still doesn't have a
+// communications log, only activity"). Unlike clients, notification_log /
+// sms_messages / message_log have NO account_id, so we resolve the account's
+// contact emails + phones (account_contacts) and match those, plus
+// communication_log by account_id / the account's jobs. Read-only — no compose
+// endpoint yet (clients have one; accounts follow later). Each contact is
+// normalized: email lowercased, phone to last-10-digits. Timestamps are
+// UTC-normalized on the way out (utcIso) like the activity feed.
+router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const accountId = parseInt(req.params.id);
+    if (isNaN(accountId)) return res.status(400).json({ error: "Invalid id" });
+    const companyId = req.auth!.companyId!;
+    const [acct] = await db.select({ id: accountsTable.id }).from(accountsTable)
+      .where(and(eq(accountsTable.id, accountId), eq(accountsTable.company_id, companyId))).limit(1);
+    if (!acct) return res.status(404).json({ error: "Not Found" });
+
+    // Resolve the account's contact emails + phones so the no-account_id tables
+    // (notification_log / sms_messages / message_log) can still be matched.
+    const contacts = await db.execute(sql`
+      SELECT email, phone FROM account_contacts
+       WHERE account_id = ${accountId} AND company_id = ${companyId}`);
+    const emailSet = new Set<string>();
+    const phoneSet = new Set<string>();
+    for (const c of contacts.rows as any[]) {
+      if (c.email) emailSet.add(String(c.email).toLowerCase().trim());
+      const d = String(c.phone ?? "").replace(/\D/g, "");
+      if (d.length >= 10) phoneSet.add(d.slice(-10));
+    }
+    const emails = Array.from(emailSet);
+    const phones = Array.from(phoneSet);
+
+    const result = await db.execute(sql`
+      SELECT * FROM (
+        SELECT nl.sent_at AS at, nl.channel::text AS channel, 'outbound'::text AS direction,
+               nl.trigger::text AS type, nl.recipient::text AS recipient, nl.status::text AS status,
+               (nl.metadata->>'subject')::text AS subject, (nl.metadata->>'body')::text AS body,
+               (nl.metadata->>'html')::text AS email_html, 'automated'::text AS source
+          FROM notification_log nl
+         WHERE nl.company_id = ${companyId}
+           AND ( lower(nl.recipient) = ANY(${emails}::text[])
+              OR RIGHT(regexp_replace(COALESCE(nl.recipient, ''), '[^0-9]', '', 'g'), 10) = ANY(${phones}::text[]) )
+        UNION ALL
+        SELECT created_at AS at, 'sms'::text AS channel, direction::text AS direction,
+               'sms'::text AS type, COALESCE(to_number, from_number)::text AS recipient,
+               status::text AS status, NULL::text AS subject, body::text AS body,
+               NULL::text AS email_html, 'two_way'::text AS source
+          FROM sms_messages
+         WHERE company_id = ${companyId} AND (
+               RIGHT(regexp_replace(COALESCE(contact_phone, ''), '[^0-9]', '', 'g'), 10) = ANY(${phones}::text[])
+            OR RIGHT(regexp_replace(COALESCE(to_number, ''),    '[^0-9]', '', 'g'), 10) = ANY(${phones}::text[])
+            OR RIGHT(regexp_replace(COALESCE(from_number, ''),   '[^0-9]', '', 'g'), 10) = ANY(${phones}::text[]) )
+        UNION ALL
+        SELECT com.logged_at AS at, com.channel::text AS channel, com.direction::text AS direction,
+               COALESCE(com.source, 'message')::text AS type, com.recipient::text AS recipient,
+               com.delivery_status::text AS status, com.subject::text AS subject, com.body::text AS body,
+               NULL::text AS email_html, 'logged'::text AS source
+          FROM communication_log com
+          LEFT JOIN jobs jb ON com.job_id = jb.id
+         WHERE com.company_id = ${companyId} AND (com.account_id = ${accountId} OR jb.account_id = ${accountId})
+        UNION ALL
+        SELECT sent_at AS at, channel::text AS channel, 'outbound'::text AS direction,
+               COALESCE(sequence_name, 'message')::text AS type,
+               COALESCE(recipient_email, recipient_phone)::text AS recipient,
+               status::text AS status, subject::text AS subject, body::text AS body,
+               CASE WHEN channel = 'email' AND body ~ '<[a-zA-Z]' THEN body END AS email_html,
+               'cadence'::text AS source
+          FROM message_log
+         WHERE company_id = ${companyId} AND (
+               lower(recipient_email) = ANY(${emails}::text[])
+            OR RIGHT(regexp_replace(COALESCE(recipient_phone, ''), '[^0-9]', '', 'g'), 10) = ANY(${phones}::text[]) )
+      ) t
+      ORDER BY at DESC NULLS LAST
+      LIMIT 200`);
+
+    const rows = (result.rows as any[]).map(r => ({ ...r, at: r.at ? utcIso(r.at) : null }));
+    return res.json({ data: rows });
+  } catch (err) {
+    console.error("[account-messages]:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // POST /api/accounts/:id/properties
 router.post("/:id/properties", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   const id = parseInt(req.params.id);

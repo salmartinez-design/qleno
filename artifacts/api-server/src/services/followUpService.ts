@@ -433,6 +433,12 @@ export async function enrollForJobComplete(
 export async function enrollForAbandonedBooking(
   companyId: number,
   abandonedBookingId: number,
+  // [cart-drip-visible 2026-07-09] The lead this abandoned booking maps to.
+  // Stamped onto the enrollment so the cart drip shows on the LEAD card + Drip
+  // tab (both key off lead_id) and auto-fires there — before this, the cart
+  // drip ran only against the hidden abandoned_bookings row, so the lead read
+  // "No drip running" even though it was firing.
+  leadId?: number | null,
 ): Promise<void> {
   try {
     const seqRows = await db.execute(sql`
@@ -450,15 +456,25 @@ export async function enrollForAbandonedBooking(
         AND completed_at IS NULL AND stopped_at IS NULL
       LIMIT 1
     `);
-    if (existing.rows.length > 0) return;
+    if (existing.rows.length > 0) {
+      // Already enrolled (e.g. a repeat abandon on the same email). Backfill the
+      // lead link if it wasn't set yet, so the lead surfaces the running drip.
+      if (leadId != null) {
+        await db.execute(sql`
+          UPDATE follow_up_enrollments SET lead_id = ${leadId}
+          WHERE id = ${(existing.rows[0] as any).id} AND lead_id IS NULL
+        `);
+      }
+      return;
+    }
 
     await db.execute(sql`
       INSERT INTO follow_up_enrollments
-        (company_id, sequence_id, abandoned_booking_id, current_step, next_fire_at)
+        (company_id, sequence_id, abandoned_booking_id, lead_id, current_step, next_fire_at)
       VALUES
-        (${companyId}, ${sequenceId}, ${abandonedBookingId}, 1, NOW() + INTERVAL '20 minutes')
+        (${companyId}, ${sequenceId}, ${abandonedBookingId}, ${leadId ?? null}, 1, NOW() + INTERVAL '20 minutes')
     `);
-    console.log(`[follow-up] Enrolled abandoned_booking ${abandonedBookingId} in abandoned_booking sequence ${sequenceId}`);
+    console.log(`[follow-up] Enrolled abandoned_booking ${abandonedBookingId} (lead ${leadId ?? "—"}) in abandoned_booking sequence ${sequenceId}`);
   } catch (err) {
     console.error("[follow-up] enrollForAbandonedBooking error (non-fatal):", err);
   }
@@ -563,6 +579,22 @@ export async function enrollForLeadDrip(
 ): Promise<void> {
   try {
     const seqType = leadSource === 'phone_in' ? 'lead_drip_phone' : 'lead_drip_web';
+    // [cart-drip-visible 2026-07-09] If this lead already has an active
+    // abandoned-booking (cart) drip, that drip OWNS the conversation — don't
+    // stack a second lead drip on top (an abandoner who later submits a full
+    // quote would otherwise get double-texted). The cart drip is the more
+    // specific, purpose-built sequence, so it wins.
+    const cart = await db.execute(sql`
+      SELECT fe.id FROM follow_up_enrollments fe
+      JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+      WHERE fe.lead_id = ${leadId} AND fs.sequence_type = 'abandoned_booking'
+        AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+      LIMIT 1
+    `);
+    if (cart.rows.length > 0) {
+      console.log(`[follow-up] lead ${leadId} already in abandoned_booking (cart) drip — skipping ${seqType} to avoid a double drip.`);
+      return;
+    }
     const seqRows = await db.execute(sql`
       SELECT id FROM follow_up_sequences
       WHERE company_id = ${companyId} AND sequence_type = ${seqType} AND is_active = true
@@ -756,11 +788,63 @@ export async function processDueEnrollments(): Promise<void> {
   }
 }
 
+// [booked-send-guard 2026-07-09] The sender (processDueEnrollments) trusts
+// `stopped_at` 100% — it never re-checks whether the recipient is already
+// booked. So if ANY booking path forgets to stop the enrollment, a booked
+// customer keeps getting follow-ups (Francisco: "why are booked clients
+// receiving follow up messages?"). This is a catch-all defense at send time:
+// right before sending, if the subject is already booked / converted (lead),
+// booked / accepted (quote), or a retention target who now has an upcoming job
+// (client), we STOP the enrollment and skip the send. It closes the whole class
+// no matter which booking path missed its stop hook. Returns a stop reason
+// string when the subject is booked, else null. Best-effort — a check error
+// never blocks the normal flow (returns null so the send proceeds as before).
+async function subjectAlreadyBooked(enr: any): Promise<string | null> {
+  try {
+    if (enr.lead_id) {
+      const r = await db.execute(sql`SELECT status FROM leads WHERE id = ${enr.lead_id} LIMIT 1`);
+      const st = String((r.rows[0] as any)?.status ?? "");
+      // A lead that's booked (won) or terminal (dead) should not be chased.
+      if (["booked", "not_interested", "no_response", "closed"].includes(st)) return `lead_${st}`;
+    }
+    if (enr.quote_id) {
+      const r = await db.execute(sql`SELECT status FROM quotes WHERE id = ${enr.quote_id} LIMIT 1`);
+      const st = String((r.rows[0] as any)?.status ?? "");
+      if (["booked", "accepted", "converted", "won"].includes(st)) return `quote_${st}`;
+    }
+    // post_job_retention is a win-back for clients with NO upcoming visit. If a
+    // future (non-cancelled) job now exists they've rebooked — stop chasing.
+    // Scoped to that sequence type so other client-keyed sequences are unaffected.
+    if (enr.client_id && enr.sequence_type === "post_job_retention") {
+      const r = await db.execute(sql`
+        SELECT 1 FROM jobs
+         WHERE client_id = ${enr.client_id} AND company_id = ${enr.company_id}
+           AND status NOT IN ('cancelled', 'complete')
+           AND scheduled_date >= CURRENT_DATE
+         LIMIT 1`);
+      if (r.rows.length) return "client_rebooked";
+    }
+  } catch (e) {
+    console.error("[follow-up] subjectAlreadyBooked check failed for enrollment", enr.id, e);
+  }
+  return null;
+}
+
 // Returns the outcome of the touch it just processed (used by the immediate
 // "Send now" path to report whether the email actually went out). The cron
 // callers ignore the return.
 type TouchResult = { channel: string; status: string; recipient: string | null };
 async function processEnrollment(enr: any): Promise<TouchResult | null> {
+  // [booked-send-guard 2026-07-09] Skip + stop before doing any work if the
+  // subject is already booked/converted — see subjectAlreadyBooked above.
+  const bookedReason = await subjectAlreadyBooked(enr);
+  if (bookedReason) {
+    await db.execute(sql`
+      UPDATE follow_up_enrollments SET stopped_at = NOW(), stopped_reason = ${bookedReason}
+       WHERE id = ${enr.id} AND stopped_at IS NULL`);
+    console.log(`[follow-up] enrollment ${enr.id} stopped pre-send (${bookedReason}) — subject already booked`);
+    return null;
+  }
   // Fetch the current step (template_id links to a managed message_templates row)
   const stepRows = await db.execute(sql`
     SELECT id, step_number, delay_hours, channel, subject, message_template, template_id
@@ -1027,6 +1111,80 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
     console.log(`[follow-up] Enrollment ${enr.id} completed — all steps sent`);
   }
   return { channel: step.channel, status: sendStatus, recipient: step.channel === "sms" ? recipientPhone : recipientEmail };
+}
+
+// [seq-test-run 2026-07-09] Owner/admin/OFFICE real-time sequence tester (like
+// GHL): fire a sequence's messages to a TEST phone/email right now so staff can
+// preview the whole campaign land, without waiting the real delays. Sample
+// merge data is filled in, every message is prefixed "[TEST]", and NOTHING is
+// persisted — no enrollment, no message_log, no analytics, no lead. It bypasses
+// the COMMS_ENABLED / company / branch gate ladder exactly like testSendService
+// (staff-sanctioned) but still requires real Twilio/Resend creds. Tenant-scoped
+// by companyId. Pass stepNumber to fire ONE step (the step-through UI); omit it
+// to fire the whole sequence (the fast auto-run UI).
+export type SeqTestStepResult = {
+  step_number: number; channel: string; status: "sent" | "skipped" | "failed";
+  recipient: string | null; error?: string; subject?: string | null; preview?: string;
+};
+export async function runSequenceTest(
+  companyId: number,
+  sequenceId: number,
+  opts: { toPhone?: string | null; toEmail?: string | null; stepNumber?: number | null },
+): Promise<{ sequence_name: string; results: SeqTestStepResult[] }> {
+  const seqRows = await db.execute(sql`
+    SELECT id, name FROM follow_up_sequences
+    WHERE id = ${sequenceId} AND company_id = ${companyId} LIMIT 1`);
+  if (!seqRows.rows.length) throw new Error("sequence_not_found");
+  const seqName = String((seqRows.rows[0] as any).name);
+
+  const stepRows = await db.execute(sql`
+    SELECT step_number, channel, subject, message_template
+    FROM follow_up_steps
+    WHERE sequence_id = ${sequenceId}
+      ${opts.stepNumber != null ? sql`AND step_number = ${opts.stepNumber}` : sql``}
+    ORDER BY step_number ASC`);
+
+  const info = await companyInfo(companyId);
+  const fromAddr = await companyFromAddress(companyId);
+  // Sample merge data so every {{field}} renders something real in the preview.
+  // Unknown fields resolve to "" via resolveMergeFields, so this covers the
+  // common lead/quote/estimate/cart fields; anything else just blanks out.
+  const vars: Record<string, string> = {
+    first_name: "Alex", last_name: "Sample", name: "Alex Sample",
+    company_name: info.name || "our team",
+    company_phone: info.phone || "", office_phone: info.phone || "", company_email: info.email || "",
+    resume_link: "https://app.qleno.com/book?resume=test",
+    quote_link: "https://app.qleno.com/quote/test", estimate_link: "https://app.qleno.com/estimate/test",
+    line_items: "Deep Clean (2,000 sqft), Oven Cleaning", quote_total: "$581.00",
+    monthly: "$0.00", property: "123 Sample St",
+  };
+
+  const results: SeqTestStepResult[] = [];
+  let sender: any = null;
+  for (const st of stepRows.rows as any[]) {
+    const channel = String(st.channel);
+    const body = resolveMergeFields(String(st.message_template || ""), vars);
+    const subject = st.subject ? resolveMergeFields(String(st.subject), vars) : null;
+    try {
+      if (channel === "email") {
+        if (!opts.toEmail) { results.push({ step_number: st.step_number, channel, status: "skipped", recipient: null, error: "no test email entered", subject, preview: body }); continue; }
+        await sendEmailRaw(opts.toEmail, `[TEST] ${subject ?? seqName}`, body, fromAddr);
+        results.push({ step_number: st.step_number, channel, status: "sent", recipient: opts.toEmail, subject, preview: body });
+      } else {
+        if (!opts.toPhone) { results.push({ step_number: st.step_number, channel, status: "skipped", recipient: null, error: "no test phone entered", subject: null, preview: body }); continue; }
+        if (!sender) sender = await resolveSender(companyId, null);
+        if (!sender.account_sid || !sender.auth_token) throw new Error("Texting is not set up (Twilio credentials missing)");
+        if (!sender.from_number) throw new Error("No from-number configured for texts");
+        await sendSmsVia(sender, opts.toPhone, `[TEST] ${body}`);
+        results.push({ step_number: st.step_number, channel, status: "sent", recipient: opts.toPhone, subject: null, preview: `[TEST] ${body}` });
+      }
+    } catch (e: any) {
+      results.push({ step_number: st.step_number, channel, status: "failed", recipient: channel === "email" ? (opts.toEmail ?? null) : (opts.toPhone ?? null), error: String(e?.message || e), subject, preview: body });
+    }
+  }
+  const sent = results.filter(r => r.status === "sent").length;
+  console.log(`[follow-up] TEST run seq ${sequenceId} "${seqName}" → ${sent}/${results.length} sent (phone=${opts.toPhone ? "y" : "n"} email=${opts.toEmail ? "y" : "n"})`);
+  return { sequence_name: seqName, results };
 }
 
 // [estimate-send-now] Fire an estimate's Day-0 touch IMMEDIATELY (instead of

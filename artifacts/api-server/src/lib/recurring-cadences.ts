@@ -177,10 +177,21 @@ export function generateCadenceDates(
     return dates;
   }
 
-  if (freq === "monthly") {
-    const dayOfMonth = schedule.days_of_month && schedule.days_of_month.length > 0
-      ? schedule.days_of_month[0]
-      : start.getDate();
+  // [monthly-weekday-drift 2026-07-09] Genuine date-based monthly needs an
+  // explicit days_of_month anchor. A `monthly` schedule with NO days_of_month
+  // is the residential "Every 4 weeks" case — the job wizard / edit-job modal
+  // label that option "Every 4 weeks" but STORE it as frequency='monthly'. The
+  // office means "every 4 weeks on the SAME WEEKDAY", not "same date each
+  // month". The old day-of-month path fell back to start.getDate() and then
+  // snapToBusinessDay shoved any weekend date forward to Monday — so a
+  // Wednesday cadence became Monday from the 2nd occurrence on (Crystal
+  // Sanchez: Aug 19 Wed → Sep 21 Mon → Oct 19 Mon). When there's no
+  // days_of_month we fall through to the weekday-anchored 28-day interval path
+  // below (freq==='monthly' → intervalDays=28), which is stable and preserves
+  // the weekday. This also self-heals every schedule already mis-stored this
+  // way, with no data migration.
+  if (freq === "monthly" && schedule.days_of_month && schedule.days_of_month.length > 0) {
+    const dayOfMonth = schedule.days_of_month[0];
     let cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
     while (cursor <= effectiveEnd) {
       const day = resolveDayOfMonth(cursor.getFullYear(), cursor.getMonth(), dayOfMonth);
@@ -218,7 +229,11 @@ export function generateCadenceDates(
     intervalDays = 14;
   } else if (freq === "every_3_weeks") {
     intervalDays = 21;
-  } else if (freq === "every_4_weeks") {
+  } else if (freq === "every_4_weeks" || freq === "monthly") {
+    // every_4_weeks: explicit. monthly reaching here means it had NO
+    // days_of_month anchor (the day-of-month branch above returns early when
+    // one is set) — i.e. the residential "Every 4 weeks" cadence. Both walk the
+    // same weekday every 28 days instead of snapping a day-of-month to Monday.
     intervalDays = 28;
   } else if (freq === "custom" && schedule.custom_frequency_weeks != null) {
     intervalDays = schedule.custom_frequency_weeks * 7;
