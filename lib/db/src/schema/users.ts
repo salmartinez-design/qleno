@@ -144,6 +144,13 @@ export const usersTable = pgTable("users", {
    */
   last_login_at: timestamp("last_login_at"),
   crew_id: integer("crew_id"),
+  // [dispatch-visibility 2026-07-09] Per-employee opt-out from the dispatch /
+  // jobs board. Default true = every field tech shows. Turn OFF for placeholder
+  // or QA/test accounts (e.g. Trainee Placeholder, Test Auditor) the office
+  // doesn't want cluttering the daily technician timeline. Accountants (the
+  // external CPA role) are excluded from the board by role regardless of this
+  // flag. The dispatch SELECT filters on `show_on_dispatch IS NOT FALSE`.
+  show_on_dispatch: boolean("show_on_dispatch").notNull().default(true),
   home_branch_id: integer("home_branch_id").references(() => branchesTable.id),
   // ── Cutover 1A (data backbone) — additive columns for geofence /
   //    dispatch defaults. The existing address/city/state/zip cover the

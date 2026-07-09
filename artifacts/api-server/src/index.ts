@@ -316,6 +316,12 @@ async function runStartupMigrations() {
       // exactly what the visitor filled out.
       await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS details jsonb`);
       await db.execute(sql`ALTER TABLE abandoned_bookings ADD COLUMN IF NOT EXISTS details jsonb`);
+      // [dispatch-visibility 2026-07-09] Per-employee opt-out from the dispatch
+      // board. Default true so every existing tech keeps showing; the office
+      // turns it OFF for placeholder / QA-test accounts (Trainee Placeholder,
+      // Test Auditor) via the User Account tab toggle. NOT NULL + DEFAULT true
+      // is safe on existing rows (they backfill to true). Idempotent.
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS show_on_dispatch boolean NOT NULL DEFAULT true`);
       // [property-link-heal 2026-07-07] Account jobs/schedules carry BOTH a
       // property link (account_property_id) and their own service address; a
       // setup mistake can point the link at the WRONG building (Daveco: the

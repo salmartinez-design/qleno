@@ -159,8 +159,13 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
          -- technician. The old role IN (technician, team_lead) was narrower than
          -- the board, so cleaners shown on the board but carrying any other role
          -- were missing from the Add Team Member picker.
+         -- [dispatch-visibility 2026-07-09] Keep parity with the board: exclude
+         -- the accountant/CPA role, and honor the per-employee show_on_dispatch
+         -- toggle so a placeholder/test account hidden from the board can't be
+         -- assigned to a job either.
+         AND u.show_on_dispatch IS NOT FALSE
          AND (
-              u.role NOT IN ('admin', 'owner', 'office', 'super_admin')
+              u.role NOT IN ('admin', 'owner', 'office', 'super_admin', 'accountant')
            OR (COALESCE(u.tags, '{}') && ARRAY['field','technician']::text[])
          )
          AND (
@@ -516,6 +521,9 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       personal_email, address, city, state, zip, dob, gender,
       employment_type, bank_name, emergency_contact_name,
       emergency_contact_phone, notes,
+      // [dispatch-visibility 2026-07-09] Toggle for hiding placeholder / QA-test
+      // accounts from the dispatch board (User Account tab).
+      show_on_dispatch,
     } = req.body;
 
     // Only the OWNER may change a user's role (grant/revoke admin etc.).
@@ -581,6 +589,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(emergency_contact_name !== undefined && { emergency_contact_name }),
         ...(emergency_contact_phone !== undefined && { emergency_contact_phone }),
         ...(notes !== undefined && { notes }),
+        ...(show_on_dispatch !== undefined && { show_on_dispatch: !!show_on_dispatch }),
       })
       .where(and(
         eq(usersTable.id, userId),
