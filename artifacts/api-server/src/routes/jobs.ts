@@ -3599,55 +3599,66 @@ router.delete("/:id", requireAuth, async (req, res) => {
       });
     }
     await db.transaction(async (tx) => {
+      // [delete-resilient 2026-07-08] Each child-cleanup runs in its own
+      // SAVEPOINT. If a statement fails because the table/column doesn't exist
+      // on THIS database (schema drift — e.g. hr_logs.job_id was in the code but
+      // never migrated to prod, which 500'd EVERY delete: Francisco/Maribel's
+      // "deleting jobs has not been working"), we roll back just that step and
+      // continue. If the missing ref had no column, there's no FK to violate, so
+      // skipping it is safe; if a real FK still blocks, the final job DELETE
+      // below surfaces it clearly. One brittle cleanup can no longer nuke the
+      // whole delete.
+      let spN = 0;
+      const clean = async (stmt: any) => {
+        const sp = `jd_sp_${spN++}`;
+        await tx.execute(sql.raw(`SAVEPOINT ${sp}`));
+        try {
+          await tx.execute(stmt);
+          await tx.execute(sql.raw(`RELEASE SAVEPOINT ${sp}`));
+        } catch (e) {
+          await tx.execute(sql.raw(`ROLLBACK TO SAVEPOINT ${sp}`));
+          console.warn(`[job-delete] skipped a cleanup step for job ${jobId}:`, (e as any)?.message ?? e);
+        }
+      };
       // Per-job ephemeral / replaceable data → DELETE child rows (job_id NOT NULL).
-      await tx.execute(sql`DELETE FROM timeclock WHERE job_id = ${jobId} AND company_id = ${companyId}`);
-      await tx.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM clock_in_attempts WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM job_status_logs WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM job_photos WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM job_supplies WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM scorecards WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM client_ratings WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM satisfaction_surveys WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM cancellation_log WHERE job_id = ${jobId}`);
-      // [delete-fk-sweep 2026-07-06] The list above missed several FK'd child
-      // tables, so any job with clock events / a discount / a worksheet / an
-      // on-my-way ping FK-failed the whole transaction — Maribel: "I tried
-      // everything but still can't delete that job from today". Complete sweep
-      // of every jobs FK without ON DELETE CASCADE (job_technicians,
-      // job_rate_mods, job_audit_log cascade on their own).
-      await tx.execute(sql`DELETE FROM job_clock_events WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM job_discounts WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM job_worksheet WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM efficiency_entries WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM attendance_proposals WHERE job_id = ${jobId}`);
-      // Mileage legs FK the job with NOT NULL columns, so unapplied legs
-      // (computed/reviewed/discarded — records, not pay) are deleted; the
-      // recompute engine rebuilds them from the remaining clock sequence.
-      // Applied legs are blocked BEFORE this transaction (money moved — the
-      // leg is the audit trail for a paid pay_adjustment). Legs must go
-      // before on_my_way_events (legs FK their source OMW event).
-      await tx.execute(sql`DELETE FROM mileage_legs WHERE (from_job_id = ${jobId} OR to_job_id = ${jobId}) AND status <> 'applied'`);
-      await tx.execute(sql`UPDATE on_my_way_events SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM on_my_way_events WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM technician_notes WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM team_photo_notes WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM timeclock WHERE job_id = ${jobId} AND company_id = ${companyId}`);
+      await clean(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM clock_in_attempts WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_status_logs WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_photos WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_supplies WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM scorecards WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM client_ratings WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM satisfaction_surveys WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM cancellation_log WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_clock_events WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_discounts WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_worksheet WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM efficiency_entries WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM attendance_proposals WHERE job_id = ${jobId}`);
+      // Mileage legs FK the job with NOT NULL columns; unapplied legs are records
+      // (applied legs are blocked before this transaction). Legs go before
+      // on_my_way_events (legs FK their source OMW event).
+      await clean(sql`DELETE FROM mileage_legs WHERE (from_job_id = ${jobId} OR to_job_id = ${jobId}) AND status <> 'applied'`);
+      await clean(sql`UPDATE on_my_way_events SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
+      await clean(sql`DELETE FROM on_my_way_events WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM technician_notes WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM team_photo_notes WHERE job_id = ${jobId}`);
       // Financial / legal / cross-entity records → NULL the back-reference; the
       // parent row stays intact for billing/accounting/reporting.
-      await tx.execute(sql`UPDATE quotes SET booked_job_id = NULL WHERE booked_job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE invoices SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE additional_pay SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE loyalty_points_log SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE communication_log SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE contact_tickets SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE form_submissions SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE quality_complaints SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE mileage_requests SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE mileage_requests SET to_job_id = NULL WHERE to_job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE cancellation_log SET rescheduled_to_job_id = NULL WHERE rescheduled_to_job_id = ${jobId}`);
-      // [delete-fk-sweep 2026-07-06] Payroll/audit records that outlive the job.
-      await tx.execute(sql`UPDATE hr_logs SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE scorecard_entries SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE quotes SET booked_job_id = NULL WHERE booked_job_id = ${jobId}`);
+      await clean(sql`UPDATE invoices SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE additional_pay SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE loyalty_points_log SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE communication_log SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE contact_tickets SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE form_submissions SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE quality_complaints SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE mileage_requests SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
+      await clean(sql`UPDATE mileage_requests SET to_job_id = NULL WHERE to_job_id = ${jobId}`);
+      await clean(sql`UPDATE cancellation_log SET rescheduled_to_job_id = NULL WHERE rescheduled_to_job_id = ${jobId}`);
+      await clean(sql`UPDATE hr_logs SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE scorecard_entries SET job_id = NULL WHERE job_id = ${jobId}`);
       await tx.delete(jobsTable).where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
       // Tombstone in the SAME transaction — a deleted occurrence must never
       // outlive its skipped_dates entry or the engine regenerates it.
