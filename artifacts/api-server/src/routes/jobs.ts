@@ -3662,9 +3662,19 @@ router.delete("/:id", requireAuth, async (req, res) => {
       billed_amount: existing.billed_amount, status: existing.status,
     }, null);
     return res.json({ success: true, message: "Job deleted" });
-  } catch (err) {
+  } catch (err: any) {
+    // [delete-diagnostics 2026-07-08] Surface the ACTUAL Postgres error so
+    // "Failed to delete job" stops being a dead end for the office (Francisco/
+    // Maribel: "deleting jobs has not been working"). Includes the SQLSTATE +
+    // message (e.g. a missing table 42P01, or an uncovered FK 23503) so the
+    // real cause is visible instead of hidden in server logs.
     console.error("Delete job error:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete job" });
+    return res.status(500).json({
+      error: "Internal Server Error",
+      message: `Failed to delete job: ${err?.message || err}`,
+      code: err?.code ?? null,
+      detail: err?.detail ?? null,
+    });
   }
 });
 
