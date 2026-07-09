@@ -292,30 +292,55 @@ async function ensureAbandonedBookingFollowup(): Promise<void> {
     `,
   );
 
-  const step2Email =
+  // [cart-copy-refresh 2026-07-09] ORIGINAL default copy kept verbatim so the
+  // refresh pass below can recognize an un-customized step and replace ONLY
+  // those (a tenant that edited their wording is never clobbered).
+  const legacyStep2Email =
     `<h2 style="font-size:22px;color:#1A1917;margin:0 0 12px;">Still want that cleaning, {{first_name}}?</h2>` +
     `<p style="font-size:15px;color:#1A1917;line-height:1.6;margin:0 0 16px;">You started booking with {{company_name}} but didn't quite finish. No worries — your details are saved and you can pick up right where you left off.</p>` +
     `<p style="text-align:center;margin:24px 0;"><a href="{{resume_link}}" style="background:#00C9A0;color:#0A0E1A;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:8px;display:inline-block;font-size:15px;">Finish my booking</a></p>` +
     `<p style="font-size:14px;color:#1A1917;line-height:1.6;margin:0;">Why customers choose us: every cleaner is vetted and background-checked, every clean is backed by our satisfaction guarantee (if we miss a spot, we come back and re-clean for free), and rescheduling is always easy.</p>` +
     `<p style="font-size:14px;color:#1A1917;line-height:1.6;margin:16px 0 0;">Questions? Call or text {{office_phone}} or just reply to this email.</p>` +
     `<p style="font-size:14px;color:#1A1917;margin:16px 0 0;">The {{company_name}} Team</p>`;
-
-  const step4Email =
+  const legacyStep4Email =
     `<h2 style="font-size:22px;color:#1A1917;margin:0 0 12px;">Here's 10% off to finish up, {{first_name}}</h2>` +
     `<p style="font-size:15px;color:#1A1917;line-height:1.6;margin:0 0 16px;">We'd love to get your home on the schedule — so here's <strong>10% off your first clean</strong> when you complete your booking. Your saved details are ready to go.</p>` +
     `<p style="text-align:center;margin:24px 0;"><a href="{{resume_link}}" style="background:#00C9A0;color:#0A0E1A;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:8px;display:inline-block;font-size:15px;">Finish my booking &amp; save 10%</a></p>` +
     `<p style="font-size:14px;color:#1A1917;line-height:1.6;margin:0;">Offer applies to your first clean. Questions? Call or text {{office_phone}} or reply to this email.</p>` +
     `<p style="font-size:14px;color:#1A1917;margin:16px 0 0;">The {{company_name}} Team</p>`;
+  const legacyBodies: Record<number, string> = {
+    1: "Hi {{first_name}}, looks like you started booking your {{company_name}} cleaning but didn't finish — want me to hold your spot? Pick up where you left off: {{resume_link}}",
+    2: legacyStep2Email,
+    3: "Hi {{first_name}}, your {{company_name}} booking is still saved and we have openings this week. Want me to get you on the schedule? {{resume_link}}",
+    4: legacyStep4Email,
+    5: "Hi {{first_name}}, I'll close out your booking for now — reply anytime and we'll pick right back up. Thanks from the {{company_name}} team.",
+  };
+
+  // Owner-approved rewrite (2026-07-09): no dashes, real human sales voice.
+  const step2Email =
+    `<h2 style="font-size:22px;color:#1A1917;margin:0 0 12px;">Still want that cleaning, {{first_name}}?</h2>` +
+    `<p style="font-size:15px;color:#1A1917;line-height:1.6;margin:0 0 16px;">You got most of the way through booking with {{company_name}} and then life probably got in the way. Totally fine. Everything you entered is saved, so finishing up takes about a minute.</p>` +
+    `<p style="text-align:center;margin:24px 0;"><a href="{{resume_link}}" style="background:#00C9A0;color:#0A0E1A;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:8px;display:inline-block;font-size:15px;">Finish my booking</a></p>` +
+    `<p style="font-size:14px;color:#1A1917;line-height:1.6;margin:0;">A few things people tell us put them at ease: every cleaner is vetted and background checked, every visit is backed by our satisfaction guarantee (if we miss a spot, we come back and make it right at no charge), and if your plans shift, rescheduling is easy.</p>` +
+    `<p style="font-size:14px;color:#1A1917;line-height:1.6;margin:16px 0 0;">Have a question first? Just reply to this email, or call or text us at {{office_phone}}. Happy to help.</p>` +
+    `<p style="font-size:14px;color:#1A1917;margin:16px 0 0;">Talk soon,<br>The {{company_name}} Team</p>`;
+
+  const step4Email =
+    `<h2 style="font-size:22px;color:#1A1917;margin:0 0 12px;">Here's 10% off your first clean, {{first_name}}</h2>` +
+    `<p style="font-size:15px;color:#1A1917;line-height:1.6;margin:0 0 16px;">I think you'll love how your place feels after a visit from {{company_name}}, so here's a little nudge to get you on the calendar: <strong>10% off your first clean</strong> when you finish booking. Your details are all still saved.</p>` +
+    `<p style="text-align:center;margin:24px 0;"><a href="{{resume_link}}" style="background:#00C9A0;color:#0A0E1A;text-decoration:none;font-weight:700;padding:14px 28px;border-radius:8px;display:inline-block;font-size:15px;">Finish booking and save 10%</a></p>` +
+    `<p style="font-size:14px;color:#1A1917;line-height:1.6;margin:0;">This one's good for your first clean. Any questions, just reply here or reach us at {{office_phone}} anytime.</p>` +
+    `<p style="font-size:14px;color:#1A1917;margin:16px 0 0;">Talk soon,<br>The {{company_name}} Team</p>`;
 
   const steps = [
     { n: 1, h: 0, ch: "sms", subj: null,
-      body: "Hi {{first_name}}, looks like you started booking your {{company_name}} cleaning but didn't finish — want me to hold your spot? Pick up where you left off: {{resume_link}}" },
+      body: "Hi {{first_name}}, it's {{company_name}}. Looked like you were booking a cleaning and got pulled away before finishing. Want me to hold your spot? You can pick up right where you left off here: {{resume_link}}" },
     { n: 2, h: 2, ch: "email", subj: "Still want that cleaning, {{first_name}}?", body: step2Email },
     { n: 3, h: 22, ch: "sms", subj: null,
-      body: "Hi {{first_name}}, your {{company_name}} booking is still saved and we have openings this week. Want me to get you on the schedule? {{resume_link}}" },
-    { n: 4, h: 48, ch: "email", subj: "Here's 10% to finish up", body: step4Email },
+      body: "Hi {{first_name}}, quick one. We still have a couple of openings this week and your booking is saved. Want me to grab one for you before they're gone? {{resume_link}}" },
+    { n: 4, h: 48, ch: "email", subj: "10% off if you finish up, {{first_name}}", body: step4Email },
     { n: 5, h: 72, ch: "sms", subj: null,
-      body: "Hi {{first_name}}, I'll close out your booking for now — reply anytime and we'll pick right back up. Thanks from the {{company_name}} team." },
+      body: "Hi {{first_name}}, I'll set your booking aside for now so I'm not clogging up your phone. Whenever you're ready, just reply and we'll pick right back up. Thanks so much, the {{company_name}} team." },
   ];
 
   for (const row of companies.rows as any[]) {
@@ -340,6 +365,23 @@ async function ensureAbandonedBookingFollowup(): Promise<void> {
       `[cutover-migration] seeded abandoned_booking sequence ${seqId} (5 steps) for company ${companyId}`,
     );
   }
+
+  // [cart-copy-refresh 2026-07-09] Push the approved rewrite to EVERY tenant's
+  // EXISTING abandoned_booking steps, but only where the step still holds the
+  // original default copy — so a tenant who customized their wording keeps it.
+  // Idempotent: once a step matches the new copy the WHERE no longer matches.
+  for (const s of steps) {
+    await db.execute(sql`
+      UPDATE follow_up_steps fst
+         SET message_template = ${s.body}, subject = ${s.subj}
+        FROM follow_up_sequences fs
+       WHERE fst.sequence_id = fs.id
+         AND fs.sequence_type = 'abandoned_booking'
+         AND fst.step_number = ${s.n}
+         AND fst.message_template = ${legacyBodies[s.n]}
+    `);
+  }
+  console.log("[cutover-migration] refreshed abandoned_booking copy to approved rewrite where still default (all tenants)");
 }
 
 /**
