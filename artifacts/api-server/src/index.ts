@@ -316,6 +316,11 @@ async function runStartupMigrations() {
       // exactly what the visitor filled out.
       await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS details jsonb`);
       await db.execute(sql`ALTER TABLE abandoned_bookings ADD COLUMN IF NOT EXISTS details jsonb`);
+      // [source-precedence 2026-07-09] Guarantee leads.lead_source exists before
+      // the public widget path writes it (upsertWidgetLead now stamps it = source
+      // so online leads stop showing the "Office" chip). Mirrors the value in
+      // phes-data-migration; idempotent, so no-op where it already exists.
+      await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_source text NOT NULL DEFAULT 'manual'`);
       // [dispatch-visibility 2026-07-09] Per-employee opt-out from the dispatch
       // board. Default true so every existing tech keeps showing; the office
       // turns it OFF for placeholder / QA-test accounts (Trainee Placeholder,

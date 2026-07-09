@@ -791,9 +791,32 @@ export default function QuoteBuilderPage() {
 
   // ── Build payload & save ─────────────────────────────────────────────────
   function buildPayload(status: string) {
-    const primaryScopeId = finalScopeId ?? (selectedScopes.length === 1 ? selectedScopes[0].scope_id : null);
+    // [draft-persist 2026-07-09] A draft saved BEFORE the Review step (where the
+    // office picks finalScopeId) used to null out scope/base/total/add-ons when
+    // 2+ scopes were selected, because primaryScopeId resolved to null and every
+    // pricing field derives from it. That produced the $0.00 reopened draft.
+    // Fall back to the first selected scope so a draft always persists real
+    // pricing; the remaining scopes still ride along as alternate_options below.
+    const primaryScopeId = finalScopeId ?? (selectedScopes.length >= 1 ? selectedScopes[0].scope_id : null);
     const primaryScopeState = selectedScopes.find(s => s.scope_id === primaryScopeId);
     const cr = primaryScopeState?.calc ?? null;
+    // [draft-addons 2026-07-09] Persist the FULL add-on selection, not just the
+    // priced breakdown. Time-based add-ons (Oven, Cabinets, Basement…) are
+    // price_type='time_only'; the pricing engine omits them from addon_breakdown
+    // (their cost folds into hours), so they were dropped on save and lost on
+    // reopen even for a single hourly scope. Carry them as zero-amount rows keyed
+    // by id so reopen restores the selection and convert keeps them as job
+    // add-ons. No double-count: amount=0 and the time already lives in
+    // estimated_hours.
+    const pricedAddons = cr?.addon_breakdown ?? [];
+    const pricedAddonIds = new Set(pricedAddons.map(a => a.id));
+    const extraSelectedAddons = (primaryScopeState?.addon_ids ?? [])
+      .filter(id => !pricedAddonIds.has(id))
+      .map(id => {
+        const meta = primaryScopeState?.addons.find(a => a.id === id);
+        return { id, name: meta?.name ?? "", amount: 0, price_type: meta?.price_type ?? "time_only" };
+      });
+    const addonsPersist = [...pricedAddons, ...extraSelectedAddons];
     const client = clientLoaded;
     const alternateOptions = selectedScopes
       .filter(s => s.scope_id !== primaryScopeId)
@@ -818,7 +841,7 @@ export default function QuoteBuilderPage() {
       bedrooms, bathrooms,
       half_baths: halfBaths,
       pets, dirt_level: dirtLevel,
-      addons: cr?.addon_breakdown ?? [],
+      addons: addonsPersist,
       discount_code: discountCode || null,
       base_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.base_price) : null),
       addons_total: cr ? String(cr.addons_total) : "0",
