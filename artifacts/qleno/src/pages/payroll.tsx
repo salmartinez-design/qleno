@@ -601,6 +601,13 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     const byDay: Record<string, any[]> = {};
                     for (const j of emp.jobs) { const k = String(j.date).slice(0, 10); (byDay[k] = byDay[k] || []).push(j); }
                     const days = Object.keys(byDay).sort();
+                    // [mileage-visibility 2026-07-08] Per-day mileage legs so the
+                    // office SEES each drive right on this screen (Sal: "Monday's
+                    // mileage is not populating" — it was computed, just never shown
+                    // here). Grouped by date; rendered under each day band. Pending
+                    // = not yet applied to pay (office reviews on the mileage screen).
+                    const milesByDate: Record<string, any[]> = {};
+                    for (const leg of (emp.mileage_legs || [])) { const k = String(leg.leg_date).slice(0, 10); (milesByDate[k] = milesByDate[k] || []).push(leg); }
                     // [payroll-scan 2026-06-20] Eff as a colored pill so the eye
                     // scans the column: green = at/under budget (≥100%), amber =
                     // over budget (<100%). "—" stays plain when not yet clocked.
@@ -635,6 +642,9 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                             // clocked jobs carry hours so unclocked days show "—/hr".
                             const dayWorked = byDay[d].reduce((s, j) => s + Number(j.hrs_worked || 0), 0);
                             const dayRate = dayWorked > 0 ? dayPay / dayWorked : 0;
+                            const dayLegs = milesByDate[d] || [];
+                            const dayMiles = dayLegs.reduce((s: number, l: any) => s + Number(l.miles || 0), 0);
+                            const dayMileagePay = dayLegs.reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
                             return (
                             <Fragment key={d}>
                               {/* [payroll-scan 2026-06-20] Day band — a shaded
@@ -649,9 +659,25 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 8 }} title="Hours worked this day (for records — not paid hourly)">{dayWorked > 0 ? `${dayWorked.toFixed(1)}h` : '—'}</span>
                                     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#0A7C66', background: '#E7F7F1', border: '1px solid #C9EDE2', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Effective rate this day = pay ÷ hours worked">{dayRate > 0 ? `${money(dayRate)}/hr` : '—/hr'}</span>
                                     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }}>{laborOf(dayBilled, dayPay)} labor</span>
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: dayMiles > 0 ? '#0A6E8A' : '#9B9890', background: dayMiles > 0 ? '#E0F2F9' : '#fff', border: `1px solid ${dayMiles > 0 ? '#BFE4F0' : '#E5E2DC'}`, borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Driving mileage between this day's jobs (pending office review)">{dayMiles > 0 ? `${dayMiles.toFixed(1)} mi · ${money(dayMileagePay)}` : '0 mi'}</span>
                                   </span>
                                 </td>
                               </tr>
+                              {/* [mileage-visibility 2026-07-08] The actual drives for
+                                  this day, so mileage is visible where the office lives
+                                  (not just a weekly total). Pending until applied. */}
+                              {dayLegs.map((leg: any, li: number) => (
+                                <tr key={`mi-${d}-${li}`}>
+                                  <td colSpan={cols} style={{ ...td, borderTop: '0.5px dashed #E7EEF2', paddingTop: 6, paddingBottom: 6, background: '#FAFCFD' }}>
+                                    <span style={{ fontSize: 12, color: '#0A6E8A', fontWeight: 700 }}>↳ Drive</span>
+                                    <span style={{ fontSize: 12, color: '#6B6860', marginLeft: 8 }}>{leg.from} → {leg.to}</span>
+                                    <span style={{ float: 'right', fontSize: 12, color: '#6B6860' }}>
+                                      <span style={{ color: '#1A1917', fontWeight: 700 }}>{Number(leg.miles).toFixed(1)} mi</span> · <span style={{ color: '#0A6E8A', fontWeight: 700 }}>{money(Number(leg.amount))}</span>
+                                      <span style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, color: '#9B7B17', background: '#FEF6E0', border: '1px solid #F0E4BE', borderRadius: 5, padding: '1px 6px', marginLeft: 8, textTransform: 'uppercase' }}>{leg.status === 'applied' ? 'Applied' : 'Pending'}</span>
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
                               {byDay[d].map((job: any) => {
                                 const billed = Number(job.job_total || 0);
                                 return (
