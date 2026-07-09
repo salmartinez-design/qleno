@@ -343,6 +343,26 @@ function fmtClock(iso: string | null | undefined) {
   return `${h12}:${min} ${ap}`;
 }
 function clockDuration(a: string, b: string) { const ms = new Date(b).getTime() - new Date(a).getTime(); if (isNaN(ms) || ms < 0) return "—"; const mins = Math.round(ms / 60000); const h = Math.floor(mins / 60), m = mins % 60; return h > 0 ? `${h}h ${m}m` : `${m}m`; }
+// [clock-tz 2026-07-09] Helpers for the LIVE active-job timer. Clock stamps are
+// stored WALL-CLOCK (see fmtClock) and serialized as "...THH:MMZ", so comparing
+// one against a real Date.now() over-counts by the Central offset (the "+5h"
+// board-timer bug). Both helpers express their value as the wall-clock digits
+// built into a UTC epoch via Date.UTC — so the offset cancels (exactly what
+// clockDuration does by subtracting two wall stamps), and the result is correct
+// regardless of the viewer's own browser timezone. Never new Date() a stamp here.
+function wallStampMs(iso: string | null | undefined): number {
+  const m = String(iso ?? "").match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return NaN;
+  return Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +(m[6] ?? 0));
+}
+function centralWallNowMs(): number {
+  const p = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(new Date()).reduce((a, x) => { a[x.type] = x.value; return a; }, {} as Record<string, string>);
+  const hh = p.hour === "24" ? "00" : p.hour; // hour12:false can emit "24" at midnight
+  return Date.UTC(+p.year, +p.month - 1, +p.day, +hh, +p.minute, +p.second);
+}
 function slotBg(count: number) { if (count === 0) return "#DCFCE7"; if (count <= 2) return "#FEF3C7"; return "#FEE2E2"; }
 function slotTxt(count: number) { if (count === 0) return "#15803D"; if (count <= 2) return "#92400E"; return "#991B1B"; }
 // Honest labels: the count is total jobs booked that hour across the whole
@@ -5675,8 +5695,11 @@ function JobChip({
   // Live timer + progress bar — timeline only. List and drag are
   // either too dense or too transient for a live-updating element.
   const clockInAt = job.clock_entry?.clock_in_at;
+  // [clock-tz 2026-07-09] Compare wall-clock clock-in against Central wall-clock
+  // "now" so the timer doesn't over-count by the Central offset (was showing
+  // "+5h", e.g. 7h 26m for a 2h 26m-old punch). See wallStampMs/centralWallNowMs.
   const elapsedMin = layout === "timeline" && status === "active" && clockInAt
-    ? Math.max(0, Math.round((Date.now() - new Date(clockInAt).getTime()) / 60000))
+    ? Math.max(0, Math.round((centralWallNowMs() - wallStampMs(clockInAt)) / 60000))
     : 0;
   const allowedMin = job.duration_minutes > 0 ? job.duration_minutes : 60;
   const progressFraction = layout === "timeline" && status === "active" && clockInAt

@@ -46,7 +46,11 @@ async function buildDispatchPayload(
 
     // Only show field technicians on the dispatch board:
     // - role = technician or team_lead always included
-    // - role = admin/owner/office only if their tags array contains 'field' or 'technician'
+    // - role = admin/owner/office/accountant only if their tags array contains 'field' or 'technician'
+    // - the external CPA 'accountant' role (e.g. Tim Dillon) is office staff,
+    //   NOT a field tech — excluded by role so it never lands on the timeline.
+    // - any employee with show_on_dispatch=false (placeholder / QA-test accounts
+    //   like Trainee Placeholder or Test Auditor) is hidden regardless of role.
     const employees = await db
       .select({
         id: usersTable.id,
@@ -65,8 +69,11 @@ async function buildDispatchPayload(
       .where(and(
         eq(usersTable.company_id, companyId),
         eq(usersTable.is_active, true),
+        // Hidden accounts (placeholder / QA-test) never appear on the board.
+        // IS NOT FALSE keeps legacy rows (pre-migration NULL) visible.
+        sql`${usersTable.show_on_dispatch} IS NOT FALSE`,
         sql`(
-          ${usersTable.role} NOT IN ('admin', 'owner', 'office', 'super_admin')
+          ${usersTable.role} NOT IN ('admin', 'owner', 'office', 'super_admin', 'accountant')
           OR (COALESCE(${usersTable.tags}, '{}') && ARRAY['field','technician']::text[])
         )`
       ))

@@ -684,7 +684,10 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
   useEffect(() => { loadPhotos(); }, [loadPhotos]);
 
   const clockInMutation = useMutation({
-    mutationFn: async ({ lat, lng, accuracy, override_token }: { lat: number; lng: number; accuracy?: number; override_token?: string }) => {
+    // [clock-gps 2026-07-09] lat/lng optional — a punch may be recorded without
+    // GPS (weak signal / timeout) rather than blocking the tech. Backend accepts
+    // null coords and flags it "no GPS" for office review.
+    mutationFn: async ({ lat, lng, accuracy, override_token }: { lat?: number; lng?: number; accuracy?: number; override_token?: string }) => {
       const ts = new Date().toISOString();
       try {
         const res = await apiFetch("/timeclock/clock-in", {
@@ -738,7 +741,8 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
   });
 
   const clockOutMutation = useMutation({
-    mutationFn: async ({ lat, lng }: { lat: number; lng: number }) => {
+    // [clock-gps 2026-07-09] lat/lng optional — see clockInMutation.
+    mutationFn: async ({ lat, lng }: { lat?: number; lng?: number }) => {
       const ts = new Date().toISOString();
       try {
         const res = await apiFetch(`/timeclock/${entry!.id}/clock-out`, {
@@ -844,18 +848,44 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
     );
   };
 
-  const getLocation = (cb: (lat: number, lng: number, accuracy?: number) => void) => {
+  // [clock-gps 2026-07-09] Location must NEVER fully block a tech from punching.
+  // Previously ANY geolocation failure (permission denied, timeout, weak signal)
+  // showed "Please enable location in your browser settings" and refused to clock
+  // in/out — so a tech whose GPS merely timed out (indoors, low-power mode, older
+  // phone) was locked out and the office had to key her hours by hand. Now:
+  //   • only a real PERMISSION_DENIED (or a browser with no geolocation) shows the
+  //     "allow location" message and stops — the user must grant access;
+  //   • a timeout / position-unavailable proceeds WITHOUT coords. The backend
+  //     records a null-coord "no GPS" punch (flagged on the board + reconcile
+  //     screen for office review) — the same state the office already produces
+  //     when it clocks a tech in on their behalf.
+  // Options loosened too: accept a recent cached fix (maximumAge) so a punch
+  // doesn't force a fresh high-accuracy lock every time.
+  const getLocation = (cb: (lat?: number, lng?: number, accuracy?: number) => void) => {
+    if (!navigator.geolocation) {
+      // Browser can't share location at all — don't block; record without GPS.
+      toast({ title: "Clocking in without GPS", description: "This device can't share location. Your punch is recorded and flagged for the office." });
+      cb();
+      return;
+    }
     setGeoLoading(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGeoLoading(false);
         cb(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
       },
-      () => {
+      (err) => {
         setGeoLoading(false);
-        toast({ variant: "destructive", title: "Location access required", description: "Please enable location in your browser settings." });
+        if (err && err.code === err.PERMISSION_DENIED) {
+          // Genuine permission problem — the one case where the tech must act.
+          toast({ variant: "destructive", title: "Location access required", description: "Allow location for this site in your browser settings, then tap again." });
+          return;
+        }
+        // Timeout / position-unavailable — don't lock her out; punch without GPS.
+        toast({ title: "Couldn't get GPS — punching without location", description: "Recorded and flagged for the office. Step near a window to include GPS next time." });
+        cb();
       },
-      { enableHighAccuracy: true, timeout: 15000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
     );
   };
 

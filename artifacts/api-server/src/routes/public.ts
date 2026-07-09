@@ -101,17 +101,27 @@ async function upsertWidgetLead(companyId: number, opts: {
       }
       return Number(existing.id);
     }
+    // [source-precedence 2026-07-09] Stamp lead_source = source (not the DB
+    // default 'manual'). Without this, every online/widget lead landed with
+    // lead_source='manual' and rendered as the "Office" chip in the pipeline,
+    // misrepresenting client-submitted leads as office-created ones.
     const ins = await db.execute(s`
-      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, status, quote_amount, quoted_at, job_id, booked_at, details, created_at, updated_at)
+      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, lead_source, status, quote_amount, quoted_at, job_id, booked_at, details, created_at, updated_at)
       VALUES (${companyId}, ${opts.first_name ?? null}, ${opts.last_name ?? null}, ${opts.phone ?? null}, ${opts.email ?? null},
-              ${opts.address ?? null}, ${opts.zip ?? null}, ${opts.scope ?? null}, ${opts.source}, ${opts.status},
+              ${opts.address ?? null}, ${opts.zip ?? null}, ${opts.scope ?? null}, ${opts.source}, ${opts.source}, ${opts.status},
               ${opts.quoteAmount ?? null}, ${opts.status === "quoted" ? s`NOW()` : s`NULL`},
               ${opts.jobId ?? null}, ${opts.booked ? s`NOW()` : s`NULL`},
               COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb), NOW(), NOW())
       RETURNING id`);
     return Number((ins.rows as any[])[0]?.id) || null;
   } catch (e) {
-    console.error("[widget-lead] upsert failed:", e);
+    // Non-fatal by design (a DB hiccup must not break the customer's widget),
+    // but log with enough context to diagnose a dropped lead — this catch is
+    // what silently swallowed the Georgann Gambill lead. Callers now also log
+    // when this returns null.
+    console.error("[widget-lead] upsert failed:", {
+      companyId, email: opts.email, phone: opts.phone, source: opts.source, status: opts.status,
+    }, e);
     return null;
   }
 }
@@ -1832,6 +1842,23 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
     // upsertWidgetLead only ever UPGRADES stage, so this never downgrades a booking.
     const leadStage = stage === "quoted" ? "quoted" : "needs_contacted";
     const quoteAmt = quote_amount != null && !isNaN(Number(quote_amount)) ? Number(quote_amount) : null;
+
+    // [widget-lead-first 2026-07-09] Create/upgrade the pipeline Lead FIRST —
+    // before the abandoned_bookings write and drip enrollment. The lead (contact
+    // + full quote snapshot in details) is what the office actually needs; it
+    // must never again be the order-last, failure-swallowed afterthought that let
+    // a completed online quote fire the "you didn't finish" recovery drip while
+    // leaving NO lead in the pipeline (the Georgann Gambill incident). Deduped by
+    // email/phone; upgrades to booked later. Non-fatal, but we now log loudly on
+    // failure so a dropped lead is diagnosable instead of silent.
+    const leadId = await upsertWidgetLead(company_id, {
+      email, phone, first_name, last_name, address, zip, scope,
+      source: "web_quote", status: leadStage, quoteAmount: quoteAmt, details: detailsOrNull,
+    });
+    if (leadId == null) {
+      console.error("[abandon-track] LEAD CREATION FAILED — recording abandoned booking + drip, but NO pipeline lead was created:", { company_id, email, phone, stage: leadStage });
+    }
+
     const { sql: drizzleSql } = await import("drizzle-orm");
     if (email) {
       const existing = await db.execute(
@@ -1853,14 +1880,11 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
             updated_at = NOW()
           WHERE company_id = ${company_id} AND email = ${email}
         `);
-        // [widget-lead 2026-07-04] An online quote (contact entered, not yet
-        // booked) must show in the Lead Pipeline so the office follows up.
-        // Deduped: upgrades to booked later if they complete the booking.
-        const updLeadId = await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: leadStage, quoteAmount: quoteAmt, details: detailsOrNull });
         // Idempotent enroll (no-ops if already enrolled or sequence inactive).
-        // [cart-drip-visible 2026-07-09] Pass the lead id so the cart drip links
-        // to the lead and surfaces on the lead card + Drip tab.
-        await enrollForAbandonedBooking(company_id, abId, updLeadId);
+        // The Lead was already created/upgraded above (widget-lead-first) as
+        // `leadId`. [cart-drip-visible 2026-07-09] Pass that lead id so the cart
+        // drip links to the lead and surfaces on the lead card + Drip tab.
+        await enrollForAbandonedBooking(company_id, abId, leadId);
         // [quote-details-carry 2026-07-07] Second office alert when the SAME
         // visitor advances to the price step ("did they only click this
         // quote?" — this says they saw a real number). Fires once: only on
@@ -1868,7 +1892,7 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
         if (leadStage === "quoted" && prevStep < 4 && Number(step_abandoned) >= 4) {
           await sendQuoteLeadAlert(company_id, "quoted", {
             first_name, last_name, email, phone, address, zip, scope,
-            quoteAmount: quoteAmt, details: detailsOrNull, leadId: updLeadId,
+            quoteAmount: quoteAmt, details: detailsOrNull, leadId,
           }).catch((e: any) => console.error("[abandon-track] quoted alert error:", e));
         }
         return res.json({ ok: true, action: "updated" });
@@ -1882,11 +1906,10 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
       RETURNING id
     `);
     const newAbId = (inserted.rows[0] as any)?.id;
-    // [widget-lead 2026-07-04] Online quote → Lead Pipeline lead (stage: needs_contacted or quoted).
-    const newLeadId = await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: leadStage, quoteAmount: quoteAmt, details: detailsOrNull });
-    // [cart-drip-visible 2026-07-09] Enroll AFTER the lead exists so the cart
-    // drip links to the lead and shows on the lead card + Drip tab.
-    if (newAbId) await enrollForAbandonedBooking(company_id, newAbId, newLeadId);
+    // Lead already created above (widget-lead-first) as `leadId`.
+    // [cart-drip-visible 2026-07-09] Enroll with that lead id so the cart drip
+    // links to the lead and shows on the lead card + Drip tab.
+    if (newAbId) await enrollForAbandonedBooking(company_id, newAbId, leadId);
 
     // Immediate office notification — bypass COMMS_ENABLED (this is an inbound
     // lead signal, not automated outbound). Same bypass logic as /api/contact.
@@ -1894,7 +1917,7 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
     try {
       await sendQuoteLeadAlert(company_id, "new", {
         first_name, last_name, email, phone, address, zip, scope,
-        quoteAmount: quoteAmt, details: detailsOrNull, leadId: newLeadId,
+        quoteAmount: quoteAmt, details: detailsOrNull, leadId,
       });
       // Office SMS alert via per-tenant sender
       const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
