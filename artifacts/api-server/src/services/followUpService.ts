@@ -1113,6 +1113,80 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
   return { channel: step.channel, status: sendStatus, recipient: step.channel === "sms" ? recipientPhone : recipientEmail };
 }
 
+// [seq-test-run 2026-07-09] Owner/admin/OFFICE real-time sequence tester (like
+// GHL): fire a sequence's messages to a TEST phone/email right now so staff can
+// preview the whole campaign land, without waiting the real delays. Sample
+// merge data is filled in, every message is prefixed "[TEST]", and NOTHING is
+// persisted — no enrollment, no message_log, no analytics, no lead. It bypasses
+// the COMMS_ENABLED / company / branch gate ladder exactly like testSendService
+// (staff-sanctioned) but still requires real Twilio/Resend creds. Tenant-scoped
+// by companyId. Pass stepNumber to fire ONE step (the step-through UI); omit it
+// to fire the whole sequence (the fast auto-run UI).
+export type SeqTestStepResult = {
+  step_number: number; channel: string; status: "sent" | "skipped" | "failed";
+  recipient: string | null; error?: string; subject?: string | null; preview?: string;
+};
+export async function runSequenceTest(
+  companyId: number,
+  sequenceId: number,
+  opts: { toPhone?: string | null; toEmail?: string | null; stepNumber?: number | null },
+): Promise<{ sequence_name: string; results: SeqTestStepResult[] }> {
+  const seqRows = await db.execute(sql`
+    SELECT id, name FROM follow_up_sequences
+    WHERE id = ${sequenceId} AND company_id = ${companyId} LIMIT 1`);
+  if (!seqRows.rows.length) throw new Error("sequence_not_found");
+  const seqName = String((seqRows.rows[0] as any).name);
+
+  const stepRows = await db.execute(sql`
+    SELECT step_number, channel, subject, message_template
+    FROM follow_up_steps
+    WHERE sequence_id = ${sequenceId}
+      ${opts.stepNumber != null ? sql`AND step_number = ${opts.stepNumber}` : sql``}
+    ORDER BY step_number ASC`);
+
+  const info = await companyInfo(companyId);
+  const fromAddr = await companyFromAddress(companyId);
+  // Sample merge data so every {{field}} renders something real in the preview.
+  // Unknown fields resolve to "" via resolveMergeFields, so this covers the
+  // common lead/quote/estimate/cart fields; anything else just blanks out.
+  const vars: Record<string, string> = {
+    first_name: "Alex", last_name: "Sample", name: "Alex Sample",
+    company_name: info.name || "our team",
+    company_phone: info.phone || "", office_phone: info.phone || "", company_email: info.email || "",
+    resume_link: "https://app.qleno.com/book?resume=test",
+    quote_link: "https://app.qleno.com/quote/test", estimate_link: "https://app.qleno.com/estimate/test",
+    line_items: "Deep Clean (2,000 sqft), Oven Cleaning", quote_total: "$581.00",
+    monthly: "$0.00", property: "123 Sample St",
+  };
+
+  const results: SeqTestStepResult[] = [];
+  let sender: any = null;
+  for (const st of stepRows.rows as any[]) {
+    const channel = String(st.channel);
+    const body = resolveMergeFields(String(st.message_template || ""), vars);
+    const subject = st.subject ? resolveMergeFields(String(st.subject), vars) : null;
+    try {
+      if (channel === "email") {
+        if (!opts.toEmail) { results.push({ step_number: st.step_number, channel, status: "skipped", recipient: null, error: "no test email entered", subject, preview: body }); continue; }
+        await sendEmailRaw(opts.toEmail, `[TEST] ${subject ?? seqName}`, body, fromAddr);
+        results.push({ step_number: st.step_number, channel, status: "sent", recipient: opts.toEmail, subject, preview: body });
+      } else {
+        if (!opts.toPhone) { results.push({ step_number: st.step_number, channel, status: "skipped", recipient: null, error: "no test phone entered", subject: null, preview: body }); continue; }
+        if (!sender) sender = await resolveSender(companyId, null);
+        if (!sender.account_sid || !sender.auth_token) throw new Error("Texting is not set up (Twilio credentials missing)");
+        if (!sender.from_number) throw new Error("No from-number configured for texts");
+        await sendSmsVia(sender, opts.toPhone, `[TEST] ${body}`);
+        results.push({ step_number: st.step_number, channel, status: "sent", recipient: opts.toPhone, subject: null, preview: `[TEST] ${body}` });
+      }
+    } catch (e: any) {
+      results.push({ step_number: st.step_number, channel, status: "failed", recipient: channel === "email" ? (opts.toEmail ?? null) : (opts.toPhone ?? null), error: String(e?.message || e), subject, preview: body });
+    }
+  }
+  const sent = results.filter(r => r.status === "sent").length;
+  console.log(`[follow-up] TEST run seq ${sequenceId} "${seqName}" → ${sent}/${results.length} sent (phone=${opts.toPhone ? "y" : "n"} email=${opts.toEmail ? "y" : "n"})`);
+  return { sequence_name: seqName, results };
+}
+
 // [estimate-send-now] Fire an estimate's Day-0 touch IMMEDIATELY (instead of
 // waiting up to 30 min for the cron), through the same gated processEnrollment
 // path (comms gates, opt-out, CC, engagement event, step-advance all apply).

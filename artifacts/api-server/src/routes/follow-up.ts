@@ -16,12 +16,41 @@ import {
   enrollForJobComplete,
   stopEnrollmentsForQuote,
   sendSingleEnrollmentTouch,
+  runSequenceTest,
 } from "../services/followUpService.js";
 
 const router = Router();
 
+// ── POST /api/follow-up/sequences/:id/test-run ───────────────────────────────
+// [seq-test-run 2026-07-09] Real-time sequence tester — fire the sequence's
+// messages to a test phone/email NOW so office staff can preview the whole
+// campaign land (ignores the real delays + the comms-off gate; tagged [TEST];
+// persists nothing). owner/admin/OFFICE. Body: { to_phone?, to_email?,
+// step_number? } — pass step_number to fire one step (step-through), omit it to
+// fire the whole sequence (fast auto-run).
+router.post("/sequences/:id/test-run", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const sequenceId = parseInt(req.params.id);
+    if (isNaN(sequenceId)) return res.status(400).json({ error: "Invalid sequence id" });
+    const { to_phone, to_email, step_number } = req.body as { to_phone?: string; to_email?: string; step_number?: number };
+    if (!to_phone && !to_email) return res.status(400).json({ error: "Enter a test phone and/or email to send to." });
+    const out = await runSequenceTest(companyId, sequenceId, {
+      toPhone: (to_phone || "").trim() || null,
+      toEmail: (to_email || "").trim() || null,
+      stepNumber: step_number != null ? Number(step_number) : null,
+    });
+    return res.json(out);
+  } catch (err: any) {
+    console.error("POST /follow-up/sequences/:id/test-run:", err);
+    return res.status(err?.message === "sequence_not_found" ? 404 : 500).json({ error: err?.message || "Test run failed" });
+  }
+});
+
 // ── GET /api/follow-up/sequences ──────────────────────────────────────────────
-router.get("/sequences", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+// [seq-test-run 2026-07-09] owner/admin/office — office needs to view sequences
+// to run the real-time tester. Editing/activating stays owner/admin (PATCH below).
+router.get("/sequences", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const seqs = await db.execute(sql`

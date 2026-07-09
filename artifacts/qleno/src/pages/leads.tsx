@@ -1337,6 +1337,34 @@ function touchTimingLabel(cumulativeHours: number): string {
 
 function SequenceRow({ seq, onToggle }: { seq: any; onToggle: () => void }) {
   const [open, setOpen] = useState(false);
+  // [seq-test-run 2026-07-09] Real-time tester state — send the campaign to a
+  // test phone/email now. Contacts persist in localStorage so staff don't
+  // re-type them each time.
+  const [testOpen, setTestOpen] = useState(false);
+  const [testPhone, setTestPhone] = useState(() => { try { return localStorage.getItem("qleno_test_phone") || ""; } catch { return ""; } });
+  const [testEmail, setTestEmail] = useState(() => { try { return localStorage.getItem("qleno_test_email") || ""; } catch { return ""; } });
+  const [testing, setTesting] = useState(false);
+  const [testResults, setTestResults] = useState<Record<number, { status: string; error?: string }>>({});
+  const [testMsg, setTestMsg] = useState("");
+  async function runTest(stepNumber?: number) {
+    if (!testPhone.trim() && !testEmail.trim()) { setTestMsg("Enter a test phone and/or email first."); return; }
+    try { localStorage.setItem("qleno_test_phone", testPhone.trim()); localStorage.setItem("qleno_test_email", testEmail.trim()); } catch { /* ignore */ }
+    setTesting(true); setTestMsg("");
+    try {
+      const r = await fetch(`${API}/api/follow-up/sequences/${seq.id}/test-run`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ to_phone: testPhone.trim() || undefined, to_email: testEmail.trim() || undefined, step_number: stepNumber }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setTestMsg(d.error || "Test failed."); setTesting(false); return; }
+      const map = { ...testResults };
+      for (const res of (d.results || []) as any[]) map[res.step_number] = { status: res.status, error: res.error };
+      setTestResults(map);
+      const sent = ((d.results || []) as any[]).filter(x => x.status === "sent").length;
+      setTestMsg(`Sent ${sent} of ${(d.results || []).length}. Check your phone and email.`);
+    } catch (e: any) { setTestMsg(e?.message || "Test failed."); }
+    setTesting(false);
+  }
   const steps: any[] = seq.steps || [];
   const smsCount = steps.filter(s => s.channel === "sms").length;
   const emailCount = steps.filter(s => s.channel === "email").length;
@@ -1366,6 +1394,11 @@ function SequenceRow({ seq, onToggle }: { seq: any; onToggle: () => void }) {
           )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <button onClick={e => { e.stopPropagation(); setTestOpen(true); setOpen(true); }}
+            title="Send this campaign to a test phone/email right now"
+            style={{ padding: "5px 12px", borderRadius: 6, border: "0.5px solid #E5E2DC", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700, background: "#fff", color: "#0A0E1A" }}>
+            Test
+          </button>
           <button onClick={e => { e.stopPropagation(); onToggle(); }}
             title={seq.is_active ? "Sending is ON — new matching leads auto-enroll. Click to pause." : "Sending is OFF — nothing enrolls or sends. Click to activate."}
             style={{ padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700,
@@ -1379,6 +1412,30 @@ function SequenceRow({ seq, onToggle }: { seq: any; onToggle: () => void }) {
 
       {open && (
         <div style={{ borderTop: "0.5px solid #E8E5E0", padding: "12px 18px 16px", background: "#FCFBF9" }}>
+          {testOpen && (
+            <div style={{ background: "#F0F7FF", border: "0.5px solid #CFE3FF", borderRadius: 8, padding: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 11.5, fontWeight: 800, color: "#0A0E1A", fontFamily: FF, marginBottom: 8 }}>Test this campaign in real time</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+                <input value={testPhone} onChange={e => setTestPhone(e.target.value)} placeholder="Test phone (for texts)"
+                  style={{ flex: 1, minWidth: 150, padding: "7px 10px", borderRadius: 6, border: "0.5px solid #D8D4CC", fontSize: 12, fontFamily: FF }} />
+                <input value={testEmail} onChange={e => setTestEmail(e.target.value)} placeholder="Test email (for emails)"
+                  style={{ flex: 1, minWidth: 150, padding: "7px 10px", borderRadius: 6, border: "0.5px solid #D8D4CC", fontSize: 12, fontFamily: FF }} />
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                <button disabled={testing} onClick={() => runTest()}
+                  style={{ padding: "7px 16px", borderRadius: 6, border: "none", cursor: testing ? "default" : "pointer", fontFamily: FF, fontSize: 12, fontWeight: 700, background: "#00C9A0", color: "#0A0E1A", opacity: testing ? 0.6 : 1 }}>
+                  {testing ? "Sending…" : "Send all messages now"}
+                </button>
+                <span style={{ fontSize: 10.5, color: "#6B6860", fontFamily: FF }}>
+                  Sends every message to you now, tagged [TEST]. Skips the delays. No real lead created.
+                </span>
+              </div>
+              {testMsg && <div style={{ fontSize: 11, color: "#0A0E1A", fontFamily: FF, marginTop: 8, fontWeight: 600 }}>{testMsg}</div>}
+              <div style={{ fontSize: 10.5, color: "#8A8780", fontFamily: FF, marginTop: 6 }}>
+                Or use the "Send" button on each message below to step through one at a time.
+              </div>
+            </div>
+          )}
           {info && (
             <div style={{ display: "flex", gap: 24, marginBottom: 12, flexWrap: "wrap" }}>
               <div style={{ fontSize: 11, fontFamily: FF }}>
@@ -1412,6 +1469,21 @@ function SequenceRow({ seq, onToggle }: { seq: any; onToggle: () => void }) {
                   {s.message_template}
                 </div>
               </div>
+              {testOpen && (
+                <div style={{ flexShrink: 0, display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3, paddingTop: 1 }}>
+                  <button disabled={testing} onClick={() => runTest(s.step_number)}
+                    style={{ padding: "3px 11px", borderRadius: 5, border: "0.5px solid #CFE3FF", background: "#fff", cursor: testing ? "default" : "pointer", fontSize: 10, fontWeight: 700, fontFamily: FF, color: "#0A0E1A" }}>
+                    Send
+                  </button>
+                  {testResults[s.step_number] && (
+                    <span style={{ fontSize: 9.5, fontWeight: 700, fontFamily: FF,
+                      color: testResults[s.step_number].status === "sent" ? "#059669" : testResults[s.step_number].status === "failed" ? "#DC2626" : "#9E9B94" }}
+                      title={testResults[s.step_number].error || ""}>
+                      {testResults[s.step_number].status === "sent" ? "sent ✓" : testResults[s.step_number].status === "failed" ? "failed" : "skipped"}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           ))}
           {!steps.length && (
