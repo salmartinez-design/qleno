@@ -6,7 +6,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { EmployeeAvatar } from "@/components/employee-avatar";
-import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight, AlertTriangle } from "lucide-react";
+import { Download, Calendar, Plus, X, Zap, Trash2, ChevronDown, ChevronRight, AlertTriangle, Navigation } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, Legend } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -165,22 +165,39 @@ const ADD_PAY_TYPES = [
 ];
 function AddPayModal({ employees, period, onClose, onSaved }:
   { employees: any[]; period: { start: string; end: string }; onClose: () => void; onSaved: () => void }) {
+  // [bulk-pay 2026-07-08] One-at-a-time was painful for shop-wide items like
+  // holiday pay (Sal added "4th Of July" to every tech by hand). Modal now has
+  // a Single / Everyone toggle: Everyone selects all field techs at once (each
+  // toggleable off) and posts through /payroll/bulk-pay. Effective date drives
+  // the pay period on both paths — the bulk route now stamps created_at too.
+  const [mode, setMode] = useState<'single' | 'bulk'>('single');
   const [userId, setUserId] = useState<string>('');
+  const [selected, setSelected] = useState<Set<number>>(() => new Set(employees.map((e: any) => Number(e.id))));
   const [type, setType] = useState('tips');
   const [amount, setAmount] = useState('');
   const [date, setDate] = useState(period.end);
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const amt = parseFloat(amount);
-  const valid = userId !== '' && Number.isFinite(amt) && amt > 0 && !!date;
+  const bulkIds = employees.map((e: any) => Number(e.id)).filter(id => selected.has(id));
+  const hasWho = mode === 'single' ? userId !== '' : bulkIds.length > 0;
+  const valid = hasWho && Number.isFinite(amt) && amt > 0 && !!date;
+  const toggle = (id: number) => setSelected(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
   async function save() {
     if (!valid) return;
     setSaving(true);
     try {
-      await apiFetch(`/users/${userId}/additional-pay`, {
-        method: 'POST',
-        body: JSON.stringify({ amount: amt.toFixed(2), type, notes: notes || null, date }),
-      });
+      if (mode === 'bulk') {
+        await apiFetch('/payroll/bulk-pay', {
+          method: 'POST',
+          body: JSON.stringify({ employee_ids: bulkIds, amount: amt.toFixed(2), type, notes: notes || null, date }),
+        });
+      } else {
+        await apiFetch(`/users/${userId}/additional-pay`, {
+          method: 'POST',
+          body: JSON.stringify({ amount: amt.toFixed(2), type, notes: notes || null, date }),
+        });
+      }
       onSaved();
     } catch (e: any) {
       window.alert(`Could not add pay: ${e?.message || e}`);
@@ -190,6 +207,7 @@ function AddPayModal({ employees, period, onClose, onSaved }:
   }
   const field: React.CSSProperties = { height: 38, padding: '0 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, color: '#1A1917', background: '#fff', outline: 'none', width: '100%', fontFamily: 'inherit' };
   const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'block', marginBottom: 5 };
+  const tab = (active: boolean): React.CSSProperties => ({ flex: 1, padding: '7px 0', textAlign: 'center', fontSize: 12, fontWeight: 700, cursor: 'pointer', borderRadius: 7, background: active ? '#fff' : 'transparent', color: active ? '#1A1917' : '#9E9B94', boxShadow: active ? '0 1px 3px rgba(10,14,26,.1)' : 'none' });
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(10,14,26,.4)', zIndex: 60, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, width: 420, maxWidth: '100%', boxShadow: '0 24px 70px rgba(10,14,26,.28)', overflow: 'hidden', fontFamily: 'inherit' }}>
@@ -199,14 +217,45 @@ function AddPayModal({ employees, period, onClose, onSaved }:
         </div>
         <div style={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
           <div>
-            <label style={lbl}>Employee</label>
-            <select style={field} value={userId} onChange={e => setUserId(e.target.value)}>
-              <option value="">Select employee…</option>
-              {employees.map((e: any) => (
-                <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
-              ))}
-            </select>
+            <label style={lbl}>Apply to</label>
+            <div style={{ display: 'flex', gap: 4, background: '#F4F2EE', borderRadius: 9, padding: 3 }}>
+              <div style={tab(mode === 'single')} onClick={() => setMode('single')}>One employee</div>
+              <div style={tab(mode === 'bulk')} onClick={() => setMode('bulk')}>Everyone</div>
+            </div>
           </div>
+          {mode === 'single' ? (
+            <div>
+              <label style={lbl}>Employee</label>
+              <select style={field} value={userId} onChange={e => setUserId(e.target.value)}>
+                <option value="">Select employee…</option>
+                {employees.map((e: any) => (
+                  <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 5 }}>
+                <label style={{ ...lbl, marginBottom: 0 }}>Field techs <span style={{ textTransform: 'none', fontWeight: 500, color: '#C4C0B8' }}>({bulkIds.length} of {employees.length})</span></label>
+                <div style={{ display: 'flex', gap: 10, fontSize: 11, fontWeight: 700 }}>
+                  <span style={{ color: 'var(--brand)', cursor: 'pointer' }} onClick={() => setSelected(new Set(employees.map((e: any) => Number(e.id))))}>All</span>
+                  <span style={{ color: '#9E9B94', cursor: 'pointer' }} onClick={() => setSelected(new Set())}>None</span>
+                </div>
+              </div>
+              <div style={{ maxHeight: 168, overflowY: 'auto', border: '1px solid #E5E2DC', borderRadius: 8 }}>
+                {employees.map((e: any, i: number) => {
+                  const id = Number(e.id);
+                  const on = selected.has(id);
+                  return (
+                    <div key={id} onClick={() => toggle(id)} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 12px', cursor: 'pointer', borderTop: i === 0 ? 'none' : '1px solid #F0EEE8', background: on ? '#F3FBF8' : '#fff' }}>
+                      <span style={{ width: 16, height: 16, borderRadius: 4, border: on ? 'none' : '1.5px solid #C4C0B8', background: on ? 'var(--brand)' : '#fff', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 900, flexShrink: 0 }}>{on ? '✓' : ''}</span>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: '#1A1917' }}>{e.first_name} {e.last_name}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 12 }}>
             <div style={{ flex: 1 }}>
               <label style={lbl}>Type</label>
@@ -215,7 +264,7 @@ function AddPayModal({ employees, period, onClose, onSaved }:
               </select>
             </div>
             <div style={{ flex: 1 }}>
-              <label style={lbl}>Amount ($)</label>
+              <label style={lbl}>Amount ($) {mode === 'bulk' && <span style={{ textTransform: 'none', fontWeight: 500, color: '#C4C0B8' }}>each</span>}</label>
               <input style={field} type="number" min="0" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" />
             </div>
           </div>
@@ -225,12 +274,12 @@ function AddPayModal({ employees, period, onClose, onSaved }:
           </div>
           <div>
             <label style={lbl}>Notes <span style={{ textTransform: 'none', fontWeight: 500, color: '#C4C0B8' }}>(optional)</span></label>
-            <input style={field} value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. customer tip, weekend OT" />
+            <input style={field} value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. 4th of July holiday pay" />
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '0 20px 20px' }}>
           <button onClick={onClose} style={{ padding: '9px 16px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#6B7280', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
-          <button onClick={save} disabled={!valid || saving} style={{ padding: '9px 18px', border: 'none', borderRadius: 8, background: valid && !saving ? 'var(--brand)' : '#C4C0B8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: valid && !saving ? 'pointer' : 'default', fontFamily: 'inherit' }}>{saving ? 'Saving…' : 'Add pay'}</button>
+          <button onClick={save} disabled={!valid || saving} style={{ padding: '9px 18px', border: 'none', borderRadius: 8, background: valid && !saving ? 'var(--brand)' : '#C4C0B8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: valid && !saving ? 'pointer' : 'default', fontFamily: 'inherit' }}>{saving ? 'Saving…' : (mode === 'bulk' ? `Add pay · ${bulkIds.length}` : 'Add pay')}</button>
         </div>
       </div>
     </div>
@@ -552,6 +601,13 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     const byDay: Record<string, any[]> = {};
                     for (const j of emp.jobs) { const k = String(j.date).slice(0, 10); (byDay[k] = byDay[k] || []).push(j); }
                     const days = Object.keys(byDay).sort();
+                    // [mileage-visibility 2026-07-08] Per-day mileage legs so the
+                    // office SEES each drive right on this screen (Sal: "Monday's
+                    // mileage is not populating" — it was computed, just never shown
+                    // here). Grouped by date; rendered under each day band. Pending
+                    // = not yet applied to pay (office reviews on the mileage screen).
+                    const milesByDate: Record<string, any[]> = {};
+                    for (const leg of (emp.mileage_legs || [])) { const k = String(leg.leg_date).slice(0, 10); (milesByDate[k] = milesByDate[k] || []).push(leg); }
                     // [payroll-scan 2026-06-20] Eff as a colored pill so the eye
                     // scans the column: green = at/under budget (≥100%), amber =
                     // over budget (<100%). "—" stays plain when not yet clocked.
@@ -580,6 +636,15 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                           {days.map(d => {
                             const dayBilled = byDay[d].reduce((s, j) => s + Number(j.job_total || 0), 0);
                             const dayPay = byDay[d].reduce((s, j) => s + Number(j.commission || 0), 0);
+                            // [payroll 2026-07-08] Per-day worked hours + effective
+                            // $/hr on the day band — MaidCentral parity ("Daily Hours"
+                            // + "Daily Pay $X/hr"). Rate is dayPay ÷ dayWorked; only
+                            // clocked jobs carry hours so unclocked days show "—/hr".
+                            const dayWorked = byDay[d].reduce((s, j) => s + Number(j.hrs_worked || 0), 0);
+                            const dayRate = dayWorked > 0 ? dayPay / dayWorked : 0;
+                            const dayLegs = milesByDate[d] || [];
+                            const dayMiles = dayLegs.reduce((s: number, l: any) => s + Number(l.miles || 0), 0);
+                            const dayMileagePay = dayLegs.reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
                             return (
                             <Fragment key={d}>
                               {/* [payroll-scan 2026-06-20] Day band — a shaded
@@ -591,10 +656,28 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                   <span style={{ fontSize: 11, fontWeight: 800, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{dayName(d)} · {mdy(d)}</span>
                                   <span style={{ float: 'right', fontSize: 12, color: '#6B6860' }}>
                                     <span style={{ color: '#1A1917', fontWeight: 700 }}>{money(dayBilled)}</span> billed · <span style={{ color: '#00A383', fontWeight: 700 }}>{money(dayPay)}</span> pay
-                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 8 }}>{laborOf(dayBilled, dayPay)} labor</span>
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 8 }} title="Hours worked this day (for records — not paid hourly)">{dayWorked > 0 ? `${dayWorked.toFixed(1)}h` : '—'}</span>
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#0A7C66', background: '#E7F7F1', border: '1px solid #C9EDE2', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Effective rate this day = pay ÷ hours worked">{dayRate > 0 ? `${money(dayRate)}/hr` : '—/hr'}</span>
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }}>{laborOf(dayBilled, dayPay)} labor</span>
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: dayMiles > 0 ? '#0A6E8A' : '#9B9890', background: dayMiles > 0 ? '#E0F2F9' : '#fff', border: `1px solid ${dayMiles > 0 ? '#BFE4F0' : '#E5E2DC'}`, borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Driving mileage between this day's jobs (pending office review)">{dayMiles > 0 ? `${dayMiles.toFixed(1)} mi · ${money(dayMileagePay)}` : '0 mi'}</span>
                                   </span>
                                 </td>
                               </tr>
+                              {/* [mileage-visibility 2026-07-08] The actual drives for
+                                  this day, so mileage is visible where the office lives
+                                  (not just a weekly total). Pending until applied. */}
+                              {dayLegs.map((leg: any, li: number) => (
+                                <tr key={`mi-${d}-${li}`}>
+                                  <td colSpan={cols} style={{ ...td, borderTop: '0.5px dashed #E7EEF2', paddingTop: 6, paddingBottom: 6, background: '#FAFCFD' }}>
+                                    <span style={{ fontSize: 12, color: '#0A6E8A', fontWeight: 700 }}>↳ Drive</span>
+                                    <span style={{ fontSize: 12, color: '#6B6860', marginLeft: 8 }}>{leg.from} → {leg.to}</span>
+                                    <span style={{ float: 'right', fontSize: 12, color: '#6B6860' }}>
+                                      <span style={{ color: '#1A1917', fontWeight: 700 }}>{Number(leg.miles).toFixed(1)} mi</span> · <span style={{ color: '#0A6E8A', fontWeight: 700 }}>{money(Number(leg.amount))}</span>
+                                      <span style={{ display: 'inline-block', fontSize: 9, fontWeight: 700, color: '#9B7B17', background: '#FEF6E0', border: '1px solid #F0E4BE', borderRadius: 5, padding: '1px 6px', marginLeft: 8, textTransform: 'uppercase' }}>{leg.status === 'applied' ? 'Applied' : 'Pending'}</span>
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
                               {byDay[d].map((job: any) => {
                                 const billed = Number(job.job_total || 0);
                                 return (
@@ -863,12 +946,16 @@ export default function PayrollPage() {
   const branchQuery = activeBranchId !== "all" ? { branch_id: String(activeBranchId) } : {};
   const { data, isLoading } = useListUsers(branchQuery, { request: { headers: getAuthHeaders() } });
   const employees = data?.data || [];
-  // Payroll only includes ACTIVE, real employees. Excludes owners, QA/sandbox
+  // Payroll only includes ACTIVE, real FIELD TECHS. Excludes owners, office
+  // staff, admins, and the external accountant/CPA (role='accountant', e.g.
+  // Maribel) — payroll pays field techs on commission + mileage, so non-field
+  // roles have no place in the run or the Add-pay dropdown (Sal: "only field
+  // techs should be here. why is our cpa here"). Also drops QA/sandbox
   // fixtures, archived/terminated/inactive accounts, and non-production test
-  // logins (e.g. *.internal, @phes-test.*, *.former@) so test auditors and
-  // former staff don't clutter the run.
+  // logins so test auditors and former staff don't clutter the run.
+  const NON_FIELD_ROLES = ['owner', 'admin', 'office', 'super_admin', 'accountant'];
   const billableEmployees = employees.filter((e: any) => {
-    if (e.role === 'owner') return false;
+    if (NON_FIELD_ROLES.includes(e.role)) return false;
     if (e.is_sandbox) return false;
     if (e.is_active === false) return false;
     if (e.hr_status === 'inactive') return false;
@@ -971,6 +1058,27 @@ export default function PayrollPage() {
     }
   }
 
+  // [mileage-auto 2026-07-08] On-demand mileage recompute — the manual twin of
+  // the nightly cron. Runs On My Way → clock-sequence → scheduled failsafe for
+  // the tenant's recent open periods, then refreshes the detail so new legs
+  // surface. Compute only; nothing becomes pay until the office reviews.
+  const [recomputingMi, setRecomputingMi] = useState(false);
+  async function handleRecomputeMileage() {
+    setRecomputingMi(true);
+    try {
+      const r = await apiFetch('/pay/recompute-mileage-now', { method: 'POST' });
+      const n = r?.data?.inserted ?? 0;
+      qc.invalidateQueries({ queryKey: ['payroll-detail'] });
+      window.alert(n > 0
+        ? `Mileage recomputed — ${n} new leg${n === 1 ? '' : 's'} added for review.`
+        : `Mileage recomputed — no new legs (already up to date).`);
+    } catch (e: any) {
+      window.alert(`Recompute failed: ${e?.message || e}`);
+    } finally {
+      setRecomputingMi(false);
+    }
+  }
+
   // Pay Templates removed per Sal (2026-06-08): additional pay is added directly
   // on the employee profile and cascades into the payroll summary by date.
 
@@ -1011,6 +1119,10 @@ export default function PayrollPage() {
                 <button onClick={() => setShowAddPay(true)}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#1A1917', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
                   <Plus size={14} strokeWidth={1.8} /> Add pay
+                </button>
+                <button onClick={handleRecomputeMileage} disabled={recomputingMi} title="Recalculate driving mileage from clock-ins, On My Way taps, and the schedule. Pends for review — nothing is paid until you apply it."
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#1A1917', fontSize: 13, fontWeight: 600, cursor: recomputingMi ? 'default' : 'pointer', fontFamily: 'inherit' }}>
+                  <Navigation size={14} strokeWidth={1.8} /> {recomputingMi ? 'Recomputing…' : 'Recompute mileage'}
                 </button>
                 <button onClick={handlePublish} disabled={publishing}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#1A1917', fontSize: 13, fontWeight: 600, cursor: publishing ? 'default' : 'pointer', fontFamily: 'inherit' }}>

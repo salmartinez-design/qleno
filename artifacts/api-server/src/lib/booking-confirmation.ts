@@ -3,8 +3,12 @@ import { randomBytes } from "crypto";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { renderConfirmationEmail, extractPolicyCopy, fmtTime12h } from "./confirmation-email.js";
+import { renderPhesBookingConfirmation } from "./phes-booking-confirmation.js";
+import { estTimeLabel } from "./estimated-time.js";
 import { shortenUrl } from "./short-link.js";
+import { appBaseUrl } from "./app-url.js";
 import { BOOKING_SMS } from "./sms-copy.js";
+import { buildAppointmentVars } from "./appointment-vars.js";
 
 // [booking-confirmation GAP1] Customer booking confirmation: a no-login,
 // token-based "your appointment" view (like /quote/:token, /estimate/:token)
@@ -20,6 +24,10 @@ import { BOOKING_SMS } from "./sms-copy.js";
 export async function ensureBookingConfirmationSetup(): Promise<void> {
   try {
     await db.execute(sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS customer_view_token text`);
+    // [arrival-window] Per-tenant customer arrival window width (minutes). The
+    // {{arrival_window}} tag renders start → start + this many minutes. Default
+    // 45; distinct from arrival_alert_window_minutes (the SMS alert lead time).
+    await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS arrival_window_minutes integer NOT NULL DEFAULT 45`);
     await db.execute(sql`
       CREATE UNIQUE INDEX IF NOT EXISTS jobs_customer_view_token_key
       ON jobs (customer_view_token) WHERE customer_view_token IS NOT NULL
@@ -99,15 +107,29 @@ function originFromReq(req: Request): string {
 // Fetches everything from the job id, ensures the token, builds the link, and
 // fires the job_scheduled email + SMS. Gate-respecting (sendNotification gates
 // per tenant + global). Non-throwing — callers fire-and-forget.
-export async function sendJobScheduledConfirmation(req: Request, jobId: number): Promise<void> {
+// opts.channels restricts which channels go out (default: both). The office
+// picks this per-save in the job wizard, so an internal re-book can send
+// nothing; the payment-request resend passes ["email"] (previously this arg
+// was accepted at one call site but silently ignored — sends went out on both
+// channels regardless).
+export async function sendJobScheduledConfirmation(
+  req: Request,
+  jobId: number,
+  opts?: { channels?: Array<"email" | "sms"> },
+): Promise<void> {
   try {
+    const channels = opts?.channels ?? ["email", "sms"];
+    if (!channels.length) return;
     const rows = await db.execute(sql`
-      SELECT j.id, j.company_id, j.scheduled_date, j.scheduled_time, j.service_type,
+      SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.scheduled_time, j.service_type,
+             j.allowed_hours, j.estimated_hours,
              j.address_street, j.address_city, j.address_state, j.address_zip,
              c.first_name, c.last_name, c.email AS client_email, c.phone AS client_phone,
+             c.stripe_payment_method_id,
              u.first_name AS tech_first, u.avatar_url AS tech_avatar,
              co.name AS company_name, co.logo_url AS company_logo,
-             co.phone AS company_phone, co.email AS company_email
+             co.phone AS company_phone, co.email AS company_email,
+             co.arrival_window_minutes
       FROM jobs j
       LEFT JOIN clients c ON c.id = j.client_id
       LEFT JOIN users u ON u.id = j.assigned_user_id
@@ -129,25 +151,55 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
     const stateZip = [j.address_state, j.address_zip].filter(Boolean).join(" ");
     const serviceAddress = [j.address_street, j.address_city, stateZip].filter(Boolean).join(", ");
 
+    // [arrival-window] Compute the customer arrival window (start → start + N min)
+    // from the tenant setting so {{arrival_window}} renders a real range, not
+    // just the start time. Single source: companies.arrival_window_minutes (45).
+    const { computeArrivalWindow } = await import("../services/notificationService.js");
+    const arrivalWinMins = Number(j.arrival_window_minutes) || 45;
+    const arrivalWindowLabel = computeArrivalWindow(j.scheduled_time, null, arrivalWinMins);
+
     const mv: Record<string, string> = {
       first_name: (j.first_name || "").trim(),
       appointment_date: j.scheduled_date ? fmtApptDate(j.scheduled_date) : "your scheduled date",
       appointment_time: j.scheduled_time || "your scheduled window",
       service_type: labelService(j.service_type),
       service_address: serviceAddress,
+      // Short-form aliases so a template authored with {{service}} / {{address}}
+      // resolves too (canonical tags are service_type / service_address).
+      service: labelService(j.service_type),
+      address: serviceAddress,
       appointment_link: link || "",
+      // [appointment-vars] Add the short-name aliases ({{date}} / {{time}}) and
+      // {{appointment_window}}, and normalize the time to "9:00 AM". Present
+      // values override the raw fields above; missing ones keep the fallback.
+      ...buildAppointmentVars({ scheduledDate: j.scheduled_date, scheduledTime: j.scheduled_time, arrivalWindow: arrivalWindowLabel }),
     };
+
+    // [services-breakdown] Populate {{services_breakdown}} from the job's locked
+    // line items so a template that inserts the chip renders the real itemized
+    // table (never a blank tag). Compute the line items ONCE here so we also get
+    // the numeric total for the PHES payment row.
+    const { buildJobLineItems } = await import("./invoice-line-items.js");
+    const { renderServicesBreakdown } = await import("./services-breakdown.js");
+    const built = await buildJobLineItems(j.company_id, j.id).catch(() => null);
+    const lineItems = (built?.lineItems ?? []).map((li) => ({ description: li.description, total: Number(li.total) || 0 }));
+    mv.services_breakdown = renderServicesBreakdown(lineItems);
+    const paymentTotal = built ? `$${built.subtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "";
 
     // Dedicated confirmation-email renderer (Pass 2). Cleaner first name + photo
     // ONLY — no last name/contact. Per-tenant contact from the record, branch
     // fallback otherwise. The renderer reuses the merged template body's policy
     // copy verbatim (extractPolicyCopy) and reskins everything else.
-    const origin = originFromReq(req);
+    const origin = appBaseUrl();
     const FALLBACK_PHONE = "(847) 538-3729", FALLBACK_PHONE_TEL = "+18475383729", FALLBACK_EMAIL = "schaumburg@phes.io";
     const cPhone = j.company_phone || FALLBACK_PHONE;
     const cPhoneTel = j.company_phone ? String(j.company_phone).replace(/[^\d+]/g, "") : FALLBACK_PHONE_TEL;
     const cEmail = j.company_email || FALLBACK_EMAIL;
-    const renderEmail = (mergedBody: string): string => renderConfirmationEmail({
+    // PHES gets a fully hand-crafted bespoke template (copy baked in); every
+    // other tenant keeps the standard renderer. Future tenant-editable layouts
+    // are a separate PR. Gated on company name (covers both Phes branches).
+    const isPhes = /phes/i.test(j.company_name || "");
+    const renderStandard = (mergedBody: string): string => renderConfirmationEmail({
       logoUrl: j.company_logo || `${origin}/phes-logo.jpeg`,
       companyName: j.company_name || "Phes Schaumburg",
       clientFirst: (j.first_name || "").trim(),
@@ -162,11 +214,40 @@ export async function sendJobScheduledConfirmation(req: Request, jobId: number):
       phone: cPhone, phoneTel: cPhoneTel, email: cEmail,
       qlenoMark: `${origin}/images/logo-mark.png`,
       policyCopyHtml: extractPolicyCopy(mergedBody),
+      // Render the itemized table in the confirmation email's structured layout
+      // (the renderer drops the rest of the body), so the {{services_breakdown}}
+      // chip behaves the same here as in a test send.
+      servicesBreakdownHtml: mv.services_breakdown,
     });
+    const scheduledDateISO = j.scheduled_date instanceof Date
+      ? j.scheduled_date.toISOString().slice(0, 10)
+      : String(j.scheduled_date || "").slice(0, 10);
+    const renderPhes = (): string => renderPhesBookingConfirmation({
+      logoUrl: j.company_logo || `${origin}/phes-logo.jpeg`,
+      companyName: j.company_name || "Phes",
+      companyPhone: cPhone, companyPhoneTel: cPhoneTel, companyEmail: cEmail,
+      website: "phes.io",
+      firstName: (j.first_name || "").trim(),
+      date: mv.appointment_date || mv.date || (j.scheduled_date ? fmtApptDate(j.scheduled_date) : "your scheduled date"),
+      arrivalWindow: arrivalWindowLabel || mv.arrival_window || fmtTime12h(j.scheduled_time),
+      address: serviceAddress || "On file",
+      service: labelService(j.service_type),
+      // allowed_hours is the live budget (edits update it); estimated_hours is
+      // the creation-time stamp — same precedence the commission panel uses.
+      estimatedTime: estTimeLabel(j.allowed_hours) || estTimeLabel(j.estimated_hours),
+      servicesBreakdownHtml: mv.services_breakdown || "",
+      scheduledDateISO,
+      scheduledTimeRaw: j.scheduled_time,
+      paymentTotal,
+      hasCardOnFile: !!j.stripe_payment_method_id,
+      // TODO: make the checklist URL tenant-configurable (Company Settings).
+      checklistUrl: "https://phes.io/checklist",
+    });
+    const renderEmail = isPhes ? renderPhes : renderStandard;
 
     const { sendNotification } = await import("../services/notificationService.js");
-    if (email) await sendNotification("job_scheduled", "email", j.company_id, email, null, mv, false, renderEmail).catch(() => {});
-    if (phone) await sendNotification("job_scheduled", "sms", j.company_id, null, phone, mv).catch(() => {});
+    if (email && channels.includes("email")) await sendNotification("job_scheduled", "email", j.company_id, email, null, mv, false, renderEmail, j.client_id).catch(() => {});
+    if (phone && channels.includes("sms")) await sendNotification("job_scheduled", "sms", j.company_id, null, phone, mv, false, undefined, j.client_id).catch(() => {});
   } catch (err) {
     console.error("[booking-confirmation] sendJobScheduledConfirmation failed:", err);
   }

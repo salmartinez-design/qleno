@@ -54,7 +54,7 @@ function loadGoogleMaps(): Promise<boolean> {
 // Attaches Google Places autocomplete to an input while `enabled` is true.
 // Calls `onPick` with parsed address parts when the user selects a suggestion.
 export function useAddressAutocomplete(
-  inputRef: React.RefObject<HTMLInputElement>,
+  inputRef: React.RefObject<HTMLInputElement | null>,
   enabled: boolean,
   onPick: (parts: AddressParts) => void,
 ) {

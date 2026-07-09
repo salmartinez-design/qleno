@@ -103,7 +103,7 @@ export async function ensureAutoPromosForJob(
   let job: any;
   try {
     [job] = (await exec.execute(sql`
-      SELECT service_type, base_fee, billed_amount, recurring_schedule_id
+      SELECT service_type, base_fee, billed_amount, recurring_schedule_id, account_id
         FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `)).rows as any[];
   } catch {
@@ -128,8 +128,15 @@ export async function ensureAutoPromosForJob(
   if (!active.length) return null;
 
   // Is this the 2nd visit of a recurring plan?
+  // [auto-promo-residential-only 2026-07-03] The Second Visit Promo is the
+  // advertised RESIDENTIAL offer ("book a recurring plan, 15% off your 2nd
+  // visit"). Commercial/account jobs (account_id set) are negotiated contracts
+  // and must NEVER auto-discount — before this guard the promo silently applied
+  // to the 2nd occurrence of any commercial account schedule too (e.g. Awaken
+  // Chicago Church zeroed out via a 15% line the office couldn't remove). Gate
+  // it to residential rows (account_id IS NULL).
   let isSecond = false;
-  if (job.recurring_schedule_id != null && active.some((p) => p.kind === SECOND_RECURRING)) {
+  if (job.recurring_schedule_id != null && job.account_id == null && active.some((p) => p.kind === SECOND_RECURRING)) {
     const ordinal = await getRecurringOrdinal(companyId, jobId, exec);
     isSecond = ordinal === 2;
   }
@@ -203,7 +210,13 @@ export async function runAutoPromosMigration(seedCompanyIds: number[] = [1, 4]):
     `);
     for (const cid of seedCompanyIds) {
       // Only seed if the company exists and has no active row for the kind.
-      for (const kind of [SECOND_RECURRING, DEEP_CLEAN]) {
+      // [deep-clean-promo-removal 2026-07-02] DEEP_CLEAN is intentionally NOT
+      // seeded anymore — the blanket "15% off any deep clean, year-round" offer
+      // was silently discounting every deep-clean invoice. Only the advertised
+      // second-visit promo is seeded. (Removing it from the seed is also what
+      // makes the deactivation below stick — otherwise the next boot would
+      // re-insert a fresh active deep_clean row.)
+      for (const kind of [SECOND_RECURRING]) {
         await db.execute(sql`
           INSERT INTO auto_promos (company_id, kind, discount_pct, label)
           SELECT ${cid}, ${kind}, 15.00, ${defaultPromoLabel(kind, 15)}
@@ -215,6 +228,19 @@ export async function runAutoPromosMigration(seedCompanyIds: number[] = [1, 4]):
         `);
       }
     }
+
+    // [deep-clean-promo-removal 2026-07-02] Deactivate the existing blanket
+    // deep-clean auto-promo for Oak Lawn (co1) per owner decision — deep cleans
+    // no longer auto-discount; the office applies discounts manually per job.
+    // Idempotent (0 rows once cleared). Schaumburg (co4) is a separate company
+    // and is intentionally left untouched here. Existing invoices already
+    // stamped with an AUTO_DEEP_CLEAN discount correct themselves on the next
+    // "Recalc from job" / edit (ensureAutoPromosForJob re-derives to none).
+    await db.execute(sql`
+      UPDATE auto_promos SET is_active = false
+       WHERE company_id = 1 AND kind = ${DEEP_CLEAN} AND is_active = true
+    `);
+
     console.log(`[auto-promos] migration ok — seeded companies ${seedCompanyIds.join(", ")}`);
   } catch (err) {
     console.error("[auto-promos] migration error (non-fatal):", err);

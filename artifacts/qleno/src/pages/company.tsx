@@ -10,6 +10,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Upload, X, ImageIcon, CheckCircle, AlertCircle, RefreshCw, Link, Unlink, Clock, BarChart2, Mail, MessageSquare, ChevronDown, ChevronUp, Edit2, Save, Lock } from "lucide-react";
 import { HRPoliciesTab } from "./company/hr-policies";
 import { DocumentsTab } from "./company/documents";
+import { RichTextEditor, cleanHtml } from "@/components/rich-text-editor";
+import { EasyMessageEditor } from "@/components/easy-message-editor";
+import { MessagePreview } from "@/components/message-preview";
 import { PricingTab } from "./company/pricing";
 import { AddonsTab } from "./company/addons-tab";
 
@@ -51,8 +54,7 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string }[] }[] = [
   {
     label: 'Customer Comms',
     tabs: [
-      { id: 'follow-up', label: 'Follow-Up Sequences' },
-      { id: 'notifications', label: 'Notifications' },
+      { id: 'notifications', label: 'Customer Communications' },
       { id: 'survey', label: 'Customer Survey' },
     ],
   },
@@ -75,7 +77,7 @@ export default function CompanyPage() {
     <DashboardLayout>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
         <div>
-          <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '42px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Company Settings</h1>
+          <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Company Settings</h1>
           <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', marginTop: '6px' }}>Manage your company profile, branding, and integrations.</p>
           {branchName && (
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 10, backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(91,155,213,0.3)', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: 'var(--brand)', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600 }}>
@@ -137,7 +139,6 @@ export default function CompanyPage() {
             {activeTab === 'addons' && <AddonsTab />}
             {activeTab === 'online-booking' && <OnlineBookingTab />}
             {activeTab === 'service-zones' && <ServiceZonesTab />}
-            {activeTab === 'follow-up' && <FollowUpSequencesTab />}
             {activeTab === 'hr-policies' && <HRPoliciesTab />}
             {activeTab === 'documents' && <DocumentsTab />}
           </div>
@@ -471,6 +472,78 @@ function BranchContactCard({ branchId }: { branchId: number }) {
   );
 }
 
+// Company-level outbound comms MASTER switch (companies.comms_enabled). This is
+// the tenant gate that sits ABOVE every location toggle: a message only sends
+// when the global COMMS_ENABLED, this company master, AND (for branch sends) the
+// location toggle are all on. The column defaults OFF and previously had no UI,
+// so a tenant with valid creds could silently send nothing. Owner/admin only.
+function CompanyCommsCard() {
+  const { toast } = useToast();
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const canEdit = ['owner', 'admin'].includes(getTokenRole() || '');
+  const { data: status } = useQuery({
+    queryKey: ['comms-status'],
+    queryFn: async () => {
+      const r = await fetch(`${API}/api/comms-status`, { headers: getAuthHeaders() });
+      if (!r.ok) throw new Error();
+      return r.json();
+    },
+  });
+  const qc = useQueryClient();
+  const enabled = !!status?.company_comms_enabled;
+  const globalEnabled = status?.global_enabled !== false;
+  const [saving, setSaving] = useState(false);
+  const toggle = async () => {
+    if (!canEdit) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/comms-status`, {
+        method: 'PATCH', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ comms_enabled: !enabled }),
+      });
+      if (!r.ok) throw new Error();
+      qc.invalidateQueries({ queryKey: ['comms-status'] });
+      toast({ title: `Company communications ${!enabled ? 'ENABLED' : 'disabled'}` });
+    } catch { toast({ variant: 'destructive', title: 'Failed to update communications setting' }); }
+    setSaving(false);
+  };
+  return (
+    <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(91,155,213,0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div>
+        <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 14, color: 'var(--brand)', margin: '0 0 4px' }}>Company Communications</p>
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>
+          Master switch for all SMS &amp; email for this business. When off, NO automated
+          notifications are sent to any customer, including booking confirmations and
+          appointment reminders. This must be on for any message to send. Defaults off.
+        </p>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={toggle} disabled={saving || !canEdit} aria-pressed={enabled}
+          style={{ position: 'relative', width: 46, height: 26, borderRadius: 999, border: 'none',
+            cursor: (saving || !canEdit) ? 'not-allowed' : 'pointer', backgroundColor: enabled ? 'var(--brand)' : '#CBD2D9',
+            transition: 'background-color 0.15s', flexShrink: 0 }}>
+          <span style={{ position: 'absolute', top: 3, left: enabled ? 23 : 3, width: 20, height: 20,
+            borderRadius: '50%', backgroundColor: '#fff', transition: 'left 0.15s' }} />
+        </button>
+        <span style={{ fontFamily: FF, fontSize: 13, fontWeight: 600, color: enabled ? 'var(--brand)' : '#6B7280' }}>
+          {enabled ? 'Sending enabled for this business' : 'Sending OFF — no messages will send'}
+        </span>
+      </div>
+      {enabled && !globalEnabled && (
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#B45309', margin: 0 }}>
+          Company switch is on, but the platform-wide comms master is currently off, so
+          sends are still paused. Contact your administrator.
+        </p>
+      )}
+      {!canEdit && (
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>
+          Only an owner or admin can change this.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function BranchCommsCard({ branchId }: { branchId: number }) {
   const { toast } = useToast();
   const qc = useQueryClient();
@@ -576,6 +649,7 @@ function GeneralTab() {
   return (
     <div style={{ maxWidth: '560px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {activeBranchId !== "all" && <BranchContactCard branchId={activeBranchId as number} />}
+      <CompanyCommsCard />
       {activeBranchId !== "all" && <BranchCommsCard branchId={activeBranchId as number} />}
       <Section title="Company Name" desc="">
         <input
@@ -729,8 +803,25 @@ function IntegrationsTab() {
 
   useEffect(() => { loadStatus(); }, [loadStatus]);
 
-  const handleConnect = () => {
-    window.location.href = `${API}/api/integrations/quickbooks/connect`;
+  const handleConnect = async () => {
+    // Fetch the Intuit authorize URL WITH the Bearer token (the connect endpoint
+    // requires auth), then navigate the browser to it. A plain navigation to the
+    // connect endpoint can't carry the token and would 401.
+    try {
+      const res = await f("/connect");
+      if (!res.ok) {
+        toast({ title: "Could not start QuickBooks connection", variant: "destructive" });
+        return;
+      }
+      const data = await res.json();
+      if (data?.authUrl) {
+        window.location.href = data.authUrl;
+      } else {
+        toast({ title: "Could not start QuickBooks connection", variant: "destructive" });
+      }
+    } catch {
+      toast({ title: "Could not start QuickBooks connection", variant: "destructive" });
+    }
   };
 
   const handleDisconnect = async () => {
@@ -1400,7 +1491,113 @@ const SMS_TOGGLES = [
   { key: "sms_complete_enabled",   label: "Job Complete", desc: "Sent when employee clocks out after completing the job" },
 ] as const;
 
-function SmsSmsSettingsCard() {
+// Office "new lead" alerts — where the office is notified the second someone
+// starts an online quote. Email falls back to the company email server-side; the
+// text alert is OFF until a phone is entered (the abandon-track office SMS only
+// fires when lead_notify_phone is set), so "leave it off" = blank phone.
+function LeadAlertsCard() {
+  const { toast } = useToast();
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [smsOn, setSmsOn] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/api/companies/me`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        const c = d.data ?? d;
+        setEmail(c.lead_notify_email ?? "");
+        setPhone(c.lead_notify_phone ?? "");
+        setSmsOn(!!c.lead_notify_phone);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function saveLeadAlerts() {
+    if (smsOn && !phone.trim()) {
+      toast({ title: "Enter a mobile number to turn on text alerts", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/companies/me`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lead_notify_email: email.trim() || null,
+          lead_notify_phone: smsOn ? (phone.trim() || null) : null,
+        }),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: "Lead alerts saved" });
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setSaving(false); }
+  }
+
+  if (loading) return null;
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '18px 20px', marginBottom: 24, fontFamily: FF }}>
+      <div style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>New Lead Alerts</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>How the office is notified the moment someone starts an online quote.</p>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Alert Email</p>
+        <input
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          placeholder="info@phes.io"
+          style={{ width: '100%', padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF, outline: 'none', boxSizing: 'border-box' }}
+        />
+        <p style={{ fontSize: 11, color: '#9E9B94', margin: '5px 0 0' }}>Every new lead emails here. Leave blank to use your company email.</p>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#F7F6F3', borderRadius: 8, marginBottom: smsOn ? 12 : 16 }}>
+        <div>
+          <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 2px' }}>Text me on new leads</p>
+          <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>Also text the office on every new lead. Requires Twilio.</p>
+        </div>
+        <button
+          onClick={() => setSmsOn(v => !v)}
+          style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: smsOn ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}
+        >
+          <div style={{ width: 18, height: 18, borderRadius: 9, background: '#fff', position: 'absolute', top: 3, left: smsOn ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
+        </button>
+      </div>
+
+      {smsOn && (
+        <div style={{ marginBottom: 16 }}>
+          <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Alert Phone</p>
+          <input
+            value={phone}
+            onChange={e => setPhone(e.target.value)}
+            placeholder="+17085551234"
+            style={{ width: '100%', padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF, outline: 'none', boxSizing: 'border-box' }}
+          />
+          <p style={{ fontSize: 11, color: '#9E9B94', margin: '5px 0 0' }}>Mobile number that gets the text. Texts stay off until this is filled in.</p>
+        </div>
+      )}
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          onClick={saveLeadAlerts}
+          disabled={saving}
+          style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF, opacity: saving ? 0.7 : 1 }}
+        >
+          {saving ? "Saving…" : "Save Lead Alerts"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: string; channel: string }) => void }) {
   const { toast } = useToast();
   const FF = "'Plus Jakarta Sans', sans-serif";
   const [settings, setSettings] = useState<Record<string, boolean>>({
@@ -1409,6 +1606,7 @@ function SmsSmsSettingsCard() {
   });
   const [twilioFrom, setTwilioFrom] = useState("");
   const [arrivalAlertWindow, setArrivalAlertWindow] = useState("45");
+  const [arrivalWindow, setArrivalWindow] = useState("45");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -1426,6 +1624,7 @@ function SmsSmsSettingsCard() {
         });
         setTwilioFrom(c.twilio_from_number ?? "");
         setArrivalAlertWindow(String(c.arrival_alert_window_minutes ?? 45));
+        setArrivalWindow(String(c.arrival_window_minutes ?? 45));
       })
       .finally(() => setLoading(false));
   }, []);
@@ -1436,7 +1635,7 @@ function SmsSmsSettingsCard() {
       const r = await fetch(`${API}/api/companies/me`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ ...settings, twilio_from_number: twilioFrom || null, arrival_alert_window_minutes: parseInt(arrivalAlertWindow) || 45 }),
+        body: JSON.stringify({ ...settings, twilio_from_number: twilioFrom || null, arrival_alert_window_minutes: parseInt(arrivalAlertWindow) || 45, arrival_window_minutes: parseInt(arrivalWindow) || 45 }),
       });
       if (!r.ok) throw new Error();
       toast({ title: "SMS settings saved" });
@@ -1461,18 +1660,24 @@ function SmsSmsSettingsCard() {
               <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 2px' }}>{t.label}</p>
               <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{t.desc}</p>
             </div>
-            <button
-              onClick={() => setSettings(prev => ({ ...prev, [t.key]: !prev[t.key] }))}
-              style={{
-                width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                background: settings[t.key] ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
-              }}>
-              <div style={{
-                width: 18, height: 18, borderRadius: 9, background: '#fff',
-                position: 'absolute', top: 3, left: settings[t.key] ? 23 : 3,
-                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-              }} />
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+              <button onClick={() => onTest({ key: `jobstatus_${t.key.replace(/^sms_/, '').replace(/_enabled$/, '')}`, label: t.label, channel: 'sms' })} title="Send a [TEST] copy to yourself"
+                style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
+                Send Test
+              </button>
+              <button
+                onClick={() => setSettings(prev => ({ ...prev, [t.key]: !prev[t.key] }))}
+                style={{
+                  width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+                  background: settings[t.key] ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                }}>
+                <div style={{
+                  width: 18, height: 18, borderRadius: 9, background: '#fff',
+                  position: 'absolute', top: 3, left: settings[t.key] ? 23 : 3,
+                  transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                }} />
+              </button>
+            </div>
           </div>
         ))}
       </div>
@@ -1490,6 +1695,21 @@ function SmsSmsSettingsCard() {
           <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF }}>minutes before arrival — client receives "on my way" SMS</span>
         </div>
         <p style={{ fontSize: 11, color: '#9E9B94', margin: '5px 0 0' }}>Used as the <span style={{ fontFamily: 'monospace' }}>&#123;&#123;arrival_alert_window&#125;&#125;</span> placeholder in SMS templates.</p>
+      </div>
+      <div style={{ marginBottom: 16 }}>
+        <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Customer Arrival Window</p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <input
+            type="number"
+            min="5"
+            max="240"
+            value={arrivalWindow}
+            onChange={e => setArrivalWindow(e.target.value)}
+            style={{ width: 80, padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF, outline: 'none' }}
+          />
+          <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF }}>minutes — the window shown to customers (e.g. 9:00–9:45 AM)</span>
+        </div>
+        <p style={{ fontSize: 11, color: '#9E9B94', margin: '5px 0 0' }}>Sets the <span style={{ fontFamily: 'monospace' }}>&#123;&#123;arrival_window&#125;&#125;</span> range in booking confirmation + reminder emails and texts.</p>
       </div>
       <div style={{ marginBottom: 16 }}>
         <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 6px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Twilio From Number</p>
@@ -1514,25 +1734,123 @@ function SmsSmsSettingsCard() {
   );
 }
 
+// Sample values used to render a live preview of each message in the editor,
+// so the office sees what the customer actually gets (no {{tags}} on screen).
+const CM_SAMPLE: Record<string, string> = {
+  first_name: "Maria", client_name: "Maria Gomez", company_name: "Phes",
+  company_phone: "(708) 974-5517", company_email: "info@phes.io",
+  service_type: "Standard Cleaning", date: "Friday, June 27, 2026", time: "9:00 AM",
+  // The deployed templates use the appointment_* tag names (matching what the
+  // send paths now supply via buildAppointmentVars). Keep these in the preview
+  // sample so the on-screen preview never shows a blank date/time/window while
+  // the real message fills it. Mirror date/time/window across both naming
+  // conventions.
+  appointment_date: "Friday, June 27, 2026", appointment_time: "9:00 AM",
+  arrival_window: "9:00 AM – 9:45 AM", appointment_window: "9:00 AM – 9:45 AM",
+  service_address: "123 Oak St, Oak Lawn, IL 60453",
+  address: "123 Oak St, Oak Lawn, IL 60453", service: "Standard Cleaning",
+  tech_name: "Ana", appointment_link: "https://phes.io/appt/1234", review_link: "https://phes.io/review/1234",
+  // Collapsed-card excerpt only strips to text; the styled table renders in the
+  // editor preview + test send (see easy-message-editor SAMPLE_BREAKDOWN).
+  services_breakdown: "Deep Clean $608.00 · Oven cleaning +$50.00 · First visit total $673.00",
+};
+function cmFill(s: string): string {
+  return (s || "").replace(/\{\{([^}]+)\}\}/g, (_, k) => CM_SAMPLE[String(k).trim()] ?? "");
+}
+// Strip HTML to a clean one-line text excerpt for the collapsed message cards —
+// imported template bodies are full HTML (tags + inline styles), which read as
+// garbage when shown raw. Renders block boundaries as spaces and drops tags.
+function cmStrip(html: string): string {
+  if (!html) return "";
+  if (typeof document === "undefined") return html.replace(/<[^>]+>/g, " ");
+  const el = document.createElement("div");
+  el.innerHTML = html;
+  return (el.textContent || "").replace(/\s+/g, " ").trim();
+}
+// Is this body raw HTML (vs plain text)? Decides email render path: HTML bodies
+// render via the editor + a rendered preview; plain bodies keep \n handling.
+function cmIsHtml(s: string): boolean {
+  return /<[a-z][\s\S]*>/i.test(s || "");
+}
+const CM_GROUPS: { key: string; title: string; sub: string }[] = [
+  { key: "before", title: "Before the visit", sub: "Confirmation and reminders" },
+  { key: "during", title: "During the visit", sub: "Day-of, while the team is en route" },
+  { key: "after", title: "After the visit", sub: "Thank-you and review request" },
+];
+
 function NotificationsTab() {
   const { toast } = useToast();
-  const [templates, setTemplates] = useState<any[]>([]);
+  const { activeBranchId } = useBranch();
+  const [messages, setMessages] = useState<any[]>([]);
+  const [mergeTags, setMergeTags] = useState<string[]>([]);
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editBody, setEditBody] = useState("");
   const [editSubject, setEditSubject] = useState("");
   const [showLog, setShowLog] = useState(false);
-  const [testing, setTesting] = useState<number | null>(null);
   const [saving, setSaving] = useState<number | null>(null);
+  const [timingKey, setTimingKey] = useState<string | null>(null);
+  const [timingDays, setTimingDays] = useState(1);
+  const [timingHour, setTimingHour] = useState(9);
+  const [showAdd, setShowAdd] = useState(false);
+  const blankAdd = { label: "", anchor: "before_appointment", offset_days: 1, send_hour: 9, email_subject: "", email_body: "", sms_body: "" };
+  const [addForm, setAddForm] = useState<any>(blankAdd);
+  const [addBusy, setAddBusy] = useState(false);
+  // Send Test: open a small confirm with an editable recipient, then deliver a
+  // [TEST]-tagged copy of THIS template (sample data) to staff via the test-send
+  // API. Isolated from Recent Sends + all automations (backend guarantees it).
+  // body/subject are optional overrides — used by follow-up drip steps, whose
+  // wording lives in follow_up_steps (not notification_templates). Passing the
+  // step template as body renders a [TEST] through the same {{tag}} + send path
+  // as a saved message (custom_ key skips the template lookup server-side).
+  const [testFor, setTestFor] = useState<{ key: string; label: string; channel: string; body?: string; subject?: string | null } | null>(null);
+  const [testRecipient, setTestRecipient] = useState("");
+  const [testBusy, setTestBusy] = useState(false);
+
+  function openTest(t: { key: string; label: string; channel: string; body?: string; subject?: string | null }) {
+    setTestFor(t);
+    setTestRecipient("");
+  }
+  async function sendTest() {
+    if (!testFor) return;
+    const isSms = testFor.channel === "sms";
+    const rec = testRecipient.trim();
+    if (isSms && !rec) { toast({ title: "Enter a phone number for the test text", variant: "destructive" }); return; }
+    setTestBusy(true);
+    try {
+      const r = await fetch(`${API}/api/notifications/test-send`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          template_key: testFor.key,
+          channel: testFor.channel,
+          fixture: "sample",
+          recipient_override: rec || null,
+          branch_id: activeBranchId === "all" ? null : activeBranchId,
+          ...(testFor.body !== undefined ? { body: testFor.body } : {}),
+          ...(testFor.subject !== undefined ? { subject: testFor.subject } : {}),
+        }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.status === "failed") {
+        toast({ title: j.message || j.error || "Test failed to send", variant: "destructive" });
+      } else {
+        toast({ title: `Test ${isSms ? "text" : "email"} sent to ${j.recipient}` });
+        setTestFor(null);
+      }
+    } catch { toast({ title: "Test failed to send", variant: "destructive" }); }
+    finally { setTestBusy(false); }
+  }
 
   async function load() {
     try {
-      const [t, l] = await Promise.all([
-        fetch(`${API}/api/notifications/templates`, { headers: getAuthHeaders() }).then(r => r.json()),
+      const [m, l] = await Promise.all([
+        fetch(`${API}/api/notifications/customer-messages`, { headers: getAuthHeaders() }).then(r => r.json()),
         fetch(`${API}/api/notifications/log`, { headers: getAuthHeaders() }).then(r => r.json()),
       ]);
-      setTemplates(t.data || []);
+      setMessages(m.data || []);
+      setMergeTags(m.merge_tags || []);
       setLogs(l.data || []);
     } catch {}
     finally { setLoading(false); }
@@ -1540,81 +1858,181 @@ function NotificationsTab() {
 
   useEffect(() => { load(); }, []);
 
-  async function toggle(id: number, is_active: boolean) {
-    const tmpl = templates.find(t => t.id === id);
-    if (!tmpl) return;
-    setTemplates(prev => prev.map(t => t.id === id ? { ...t, is_active } : t));
+  // Optimistically flip a channel's on/off, then persist. id = template row id.
+  async function toggle(id: number, ch: any, is_active: boolean) {
+    setMessages(prev => prev.map(m => ({ ...m, channels: m.channels.map((c: any) => c.id === id ? { ...c, is_active } : c) })));
     try {
       await fetch(`${API}/api/notifications/templates/${id}`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active, subject: tmpl.subject, body: tmpl.body }),
+        body: JSON.stringify({ is_active, subject: ch.subject, body: ch.body }),
       });
-      toast({ title: `Notification ${is_active ? "enabled" : "disabled"}` });
+      toast({ title: is_active ? "Message turned on" : "Message paused" });
     } catch {
       toast({ title: "Failed to update", variant: "destructive" });
       load();
     }
   }
 
-  async function save(id: number) {
+  // The EasyMessageEditor owns its own subject/body state and hands them back on
+  // save, so this persists the passed values directly (no shared edit* state).
+  async function saveDirect(id: number, ch: any, subject: string, body: string) {
     setSaving(id);
     try {
-      const tmpl = templates.find(t => t.id === id)!;
       await fetch(`${API}/api/notifications/templates/${id}`, {
         method: "PATCH",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ is_active: tmpl.is_active, subject: editSubject, body: editBody }),
+        body: JSON.stringify({ is_active: ch.is_active, subject, body }),
       });
-      setTemplates(prev => prev.map(t => t.id === id ? { ...t, subject: editSubject, body: editBody } : t));
-      toast({ title: "Template saved" });
+      setMessages(prev => prev.map(m => ({ ...m, channels: m.channels.map((c: any) => c.id === id ? { ...c, subject, body } : c) })));
+      toast({ title: "Message saved" });
       setEditingId(null);
     } catch { toast({ title: "Failed to save", variant: "destructive" }); }
     finally { setSaving(null); }
   }
 
-  async function testNotification(id: number) {
-    setTesting(id);
+  function startTiming(msg: any) {
+    setTimingKey(msg.key);
+    setTimingDays(msg.offset_days ?? 1);
+    setTimingHour(msg.send_hour ?? 9);
+  }
+  async function saveTiming(key: string) {
     try {
-      const r = await fetch(`${API}/api/notifications/templates/${id}/test`, {
-        method: "POST", headers: getAuthHeaders(),
+      await fetch(`${API}/api/notifications/customer-messages/${key}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ offset_days: timingDays, send_hour: timingHour }),
       });
-      const d = await r.json();
-      toast({ title: "Test sent!", description: d.message });
+      setTimingKey(null);
+      toast({ title: "Timing updated" });
       load();
-    } catch { toast({ title: "Test failed", variant: "destructive" }); }
-    finally { setTesting(null); }
+    } catch { toast({ title: "Failed to update timing", variant: "destructive" }); }
+  }
+  async function addMessage() {
+    if (!addForm.label.trim()) { toast({ title: "Give the message a name", variant: "destructive" }); return; }
+    if (!addForm.email_body && !addForm.sms_body) { toast({ title: "Add an email or text body", variant: "destructive" }); return; }
+    setAddBusy(true);
+    try {
+      const r = await fetch(`${API}/api/notifications/customer-messages`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify(addForm),
+      });
+      if (!r.ok) throw new Error();
+      setShowAdd(false); setAddForm(blankAdd);
+      toast({ title: "Message added" });
+      load();
+    } catch { toast({ title: "Failed to add message", variant: "destructive" }); }
+    finally { setAddBusy(false); }
+  }
+  async function deleteMessage(key: string, label: string) {
+    if (!confirm(`Delete "${label}"? This automated message will stop sending.`)) return;
+    try {
+      await fetch(`${API}/api/notifications/customer-messages/${key}`, { method: "DELETE", headers: getAuthHeaders() });
+      toast({ title: "Message deleted" });
+      load();
+    } catch { toast({ title: "Failed to delete", variant: "destructive" }); }
   }
 
-  function startEdit(tmpl: any) {
-    setEditingId(tmpl.id);
-    setEditBody(tmpl.body);
-    setEditSubject(tmpl.subject || "");
+  function startEdit(ch: any) {
+    setEditingId(ch.id);
+    // [import-cleanup] Email bodies are HTML — many were imported from
+    // MaidCentral full of data-path-to-node cruft + bloated inline styles.
+    // Clean them as they're opened so the office edits (and re-saves) tidy
+    // markup. SMS bodies are plain text and left untouched.
+    setEditBody(ch.channel === "email" ? cleanHtml(ch.body || "") : (ch.body || ""));
+    setEditSubject(ch.subject || "");
   }
 
   const FF = "'Plus Jakarta Sans', sans-serif";
   const CARD: React.CSSProperties = { background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '18px 20px', marginBottom: 12 };
+  const chTags: Record<string, { label: string; color: string; bg: string }> = {
+    email: { label: 'EMAIL', color: '#1D4ED8', bg: '#EFF6FF' },
+    sms: { label: 'TEXT', color: '#047857', bg: '#ECFDF5' },
+  };
 
   if (loading) return <div style={{ padding: '40px 0', textAlign: 'center', color: '#9E9B94', fontFamily: FF }}>Loading…</div>;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, fontFamily: FF }}>
-      <SmsSmsSettingsCard />
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
         <div>
-          <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 4px' }}>Notification Triggers</p>
-          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Configure automatic messages sent to clients and staff</p>
+          <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 4px' }}>Customer Communications</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, maxWidth: 560, lineHeight: 1.5 }}>Every automated text and email a customer gets — from first quote through follow-up — in the order they receive them. Edit the wording or timing, send yourself a test, or pause any one.</p>
         </div>
-        <button onClick={() => setShowLog(!showLog)}
-          style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF }}>
-          {showLog ? "Hide Log" : "View Log"} {logs.length > 0 && `(${logs.length})`}
-        </button>
+        <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+          <button onClick={() => { setAddForm(blankAdd); setShowAdd(true); }}
+            style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--brand, #5B9BD5)', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF }}>
+            + Add a message
+          </button>
+          <button onClick={() => setShowLog(!showLog)}
+            style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF }}>
+            {showLog ? "Hide Recent Sends" : "Recent Sends"} {logs.length > 0 && `(${logs.length})`}
+          </button>
+        </div>
       </div>
+
+      {showAdd && (
+        <div onClick={() => setShowAdd(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(10,14,26,0.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', zIndex: 1000, padding: '40px 16px', overflowY: 'auto' }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 14, padding: 24, width: '100%', maxWidth: 560, fontFamily: FF }}>
+            <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 4px' }}>Add a message</p>
+            <p style={{ fontSize: 12, color: '#9E9B94', margin: '0 0 16px' }}>A new automated message that fires for every job, on your schedule.</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Name (internal)</p>
+                <input value={addForm.label} onChange={e => setAddForm({ ...addForm, label: e.target.value })} placeholder="e.g. Two-day follow-up"
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: 'border-box' }} />
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13, color: '#374151' }}>
+                <span>Send</span>
+                <input type="number" min={0} max={60} value={addForm.offset_days} onChange={e => setAddForm({ ...addForm, offset_days: Math.max(0, Math.min(60, parseInt(e.target.value) || 0)) })}
+                  style={{ width: 56, padding: '6px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 13 }} />
+                <span>day(s)</span>
+                <select value={addForm.anchor} onChange={e => setAddForm({ ...addForm, anchor: e.target.value })} style={{ padding: '6px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 13 }}>
+                  <option value="before_appointment">before the appointment</option>
+                  <option value="after_appointment">after the appointment</option>
+                </select>
+                <span>at</span>
+                <select value={addForm.send_hour} onChange={e => setAddForm({ ...addForm, send_hour: parseInt(e.target.value) })} style={{ padding: '6px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 13 }}>
+                  {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{`${((h + 11) % 12) + 1}:00 ${h < 12 ? 'AM' : 'PM'}`}</option>)}
+                </select>
+                <span>CT</span>
+              </div>
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Text message (leave blank to skip)</p>
+                <textarea value={addForm.sms_body} onChange={e => setAddForm({ ...addForm, sms_body: e.target.value })} placeholder="Hi {{first_name}}, ..."
+                  style={{ width: '100%', height: 64, padding: '9px 11px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 12, fontFamily: FF, resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }} />
+              </div>
+              <div>
+                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Email (leave blank to skip)</p>
+                <input value={addForm.email_subject} onChange={e => setAddForm({ ...addForm, email_subject: e.target.value })} placeholder="Email subject"
+                  style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: 'border-box', marginBottom: 6 }} />
+                <RichTextEditor
+                  value={addForm.email_body}
+                  onChange={v => setAddForm({ ...addForm, email_body: v })}
+                  minHeight={120}
+                  mergeTags={(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => ({ key: `{{${v}}}`, desc: v }))}
+                />
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                <span style={{ fontSize: 10, color: '#9E9B94', alignSelf: 'center', marginRight: 2 }}>Tags:</span>
+                {(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => (
+                  <span key={v} style={{ fontSize: 10, color: '#7C3AED', background: '#EDE9FE', borderRadius: 4, padding: '2px 7px' }}>{`{{${v}}}`}</span>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
+                <button onClick={() => setShowAdd(false)} style={{ padding: '8px 16px', border: '1px solid #E5E2DC', borderRadius: 7, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: FF }}>Cancel</button>
+                <button onClick={addMessage} disabled={addBusy} style={{ padding: '8px 18px', border: 'none', borderRadius: 7, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF }}>{addBusy ? 'Adding…' : 'Add message'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showLog && (
         <div style={{ ...CARD, marginBottom: 20 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 12px' }}>Recent Notification Log</p>
-          {logs.length === 0 && <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>No notifications sent yet.</p>}
+          <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 12px' }}>Recent Sends (all customers)</p>
+          {logs.length === 0 && <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>No messages sent yet.</p>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 240, overflowY: 'auto' }}>
             {logs.map(l => (
               <div key={l.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 10px', background: '#F7F6F3', borderRadius: 6, alignItems: 'center' }}>
@@ -1623,8 +2041,8 @@ function NotificationsTab() {
                   <span style={{ fontSize: 11, color: '#9E9B94', marginLeft: 8 }}>{CHANNEL_LABELS[l.channel] || l.channel} → {l.recipient}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: l.status === 'test_sent' ? '#7C3AED' : '#16A34A', fontWeight: 600 }}>{l.status}</span>
-                  <span style={{ fontSize: 10, color: '#9E9B94' }}>{new Date(l.sent_at).toLocaleString()}</span>
+                  <span style={{ fontSize: 11, color: l.status === 'sent' ? '#16A34A' : l.status === 'test_sent' ? '#7C3AED' : '#B45309', fontWeight: 600 }}>{l.status}</span>
+                  <span style={{ fontSize: 10, color: '#9E9B94' }}>{l.sent_at ? new Date(l.sent_at).toLocaleString() : ""}</span>
                 </div>
               </div>
             ))}
@@ -1632,84 +2050,299 @@ function NotificationsTab() {
         </div>
       )}
 
-      {templates.map(tmpl => (
-        <div key={tmpl.id} style={{ ...CARD, borderLeft: `3px solid ${tmpl.is_active ? 'var(--brand, #5B9BD5)' : '#E5E2DC'}` }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: editingId === tmpl.id ? 14 : 0 }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.04em', color: '#6B7280' }}>{CHANNEL_LABELS[tmpl.channel] || tmpl.channel}</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: '#1A1917' }}>{TRIGGER_LABELS[tmpl.trigger] || tmpl.trigger}</span>
-                <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: '#9E9B94', background: '#F3F4F6', padding: '2px 7px', borderRadius: 4 }}>{tmpl.channel}</span>
-              </div>
-              {editingId !== tmpl.id && (
-                <p style={{ fontSize: 12, color: '#6B7280', margin: 0, lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-                  {tmpl.subject ? <><strong>{tmpl.subject}</strong> — </> : ""}{tmpl.body}
-                </p>
-              )}
+      {CM_GROUPS.map(group => {
+        const groupMsgs = messages.filter(m => m.group === group.key);
+        if (groupMsgs.length === 0) return null;
+        return (
+          <div key={group.key} style={{ marginBottom: 24 }}>
+            <div style={{ marginBottom: 10 }}>
+              <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>{group.title}</p>
+              <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{group.sub}</p>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-              <button
-                onClick={() => toggle(tmpl.id, !tmpl.is_active)}
-                style={{
-                  width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                  background: tmpl.is_active ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s',
-                }}>
-                <div style={{
-                  width: 18, height: 18, borderRadius: 9, background: '#fff',
-                  position: 'absolute', top: 3, left: tmpl.is_active ? 23 : 3,
-                  transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-                }}/>
-              </button>
-              <div style={{ display: 'flex', gap: 5 }}>
-                <button onClick={() => editingId === tmpl.id ? setEditingId(null) : startEdit(tmpl)}
-                  style={{ fontSize: 11, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
-                  {editingId === tmpl.id ? "Cancel" : "Edit"}
-                </button>
-                <button onClick={() => testNotification(tmpl.id)} disabled={testing === tmpl.id}
-                  style={{ fontSize: 11, color: '#6B7280', background: '#F3F4F6', border: 'none', borderRadius: 5, padding: '3px 8px', cursor: 'pointer', fontFamily: FF }}>
-                  {testing === tmpl.id ? "…" : "Test"}
-                </button>
-              </div>
+            {groupMsgs.map(msg => {
+              const anyOn = msg.channels.some((c: any) => c.is_active);
+              return (
+                <div key={msg.key} style={{ ...CARD, borderLeft: `3px solid ${anyOn ? 'var(--brand, #5B9BD5)' : '#E5E2DC'}` }}>
+                  <div style={{ marginBottom: 12 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
+                      <span style={{ fontSize: 14, fontWeight: 800, color: '#1A1917' }}>{msg.label}</span>
+                      {msg.channels.map((c: any) => (
+                        <span key={c.channel} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: chTags[c.channel]?.color, background: chTags[c.channel]?.bg, padding: '2px 6px', borderRadius: 4 }}>{chTags[c.channel]?.label}</span>
+                      ))}
+                      {!msg.is_builtin && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#7C3AED', background: '#EDE9FE', padding: '2px 6px', borderRadius: 4 }}>CUSTOM</span>}
+                      {!msg.is_builtin && (
+                        <button onClick={() => deleteMessage(msg.key, msg.label)} style={{ marginLeft: 'auto', fontSize: 11, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Delete</button>
+                      )}
+                    </div>
+                    {timingKey === msg.key ? (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: '#374151' }}>
+                        <span>Send</span>
+                        <input type="number" min={0} max={60} value={timingDays} onChange={e => setTimingDays(Math.max(0, Math.min(60, parseInt(e.target.value) || 0)))}
+                          style={{ width: 52, padding: '5px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 12 }} />
+                        <span>day(s) {msg.anchor === 'after_appointment' ? 'after' : 'before'}, at</span>
+                        <select value={timingHour} onChange={e => setTimingHour(parseInt(e.target.value))}
+                          style={{ padding: '5px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 12 }}>
+                          {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{`${((h + 11) % 12) + 1}:00 ${h < 12 ? 'AM' : 'PM'}`}</option>)}
+                        </select>
+                        <span>CT</span>
+                        <button onClick={() => saveTiming(msg.key)} style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: 'var(--brand, #5B9BD5)', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontFamily: FF }}>Save</button>
+                        <button onClick={() => setTimingKey(null)} style={{ fontSize: 11, color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Cancel</button>
+                      </div>
+                    ) : (
+                      <p style={{ fontSize: 11.5, color: '#6B7280', margin: 0, lineHeight: 1.5 }}>
+                        <span style={{ fontWeight: 600, color: '#374151' }}>When:</span> {msg.timing}
+                        {msg.editable_timing && <button onClick={() => startTiming(msg)} style={{ marginLeft: 8, fontSize: 11, color: 'var(--brand, #5B9BD5)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>Edit timing</button>}
+                      </p>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {/* [survey-wiring 2026-07-07] The survey TEXT is sent by the
+                        scorecard engine using the template in Company Settings →
+                        Customer Survey — the review_request:sms template row here
+                        was a leftover from the retired Google-review cron and
+                        nothing sends it. Hide it and point at the real setting so
+                        the post-visit ask has ONE configuration surface per
+                        channel. */}
+                    {(msg.key === 'review_request' ? msg.channels.filter((c: any) => c.channel !== 'sms') : msg.channels).map((ch: any) => (
+                      <div key={ch.channel} style={{ border: '1px solid #F0EEE9', borderRadius: 9, padding: '12px 14px', background: ch.is_active ? '#fff' : '#FAFAF8' }}>
+                        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: chTags[ch.channel]?.color }}>{chTags[ch.channel]?.label}</span>
+                            {editingId !== ch.id && (
+                              <p style={{ fontSize: 12, color: ch.is_active ? '#374151' : '#9E9B94', margin: '4px 0 0', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                                {ch.channel === 'email' && ch.subject ? <><strong>{cmFill(ch.subject)}</strong>{" — "}</> : ""}{ch.channel === 'email' ? cmStrip(cmFill(ch.body)) : cmFill(ch.body)}
+                              </p>
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+                            <button onClick={() => toggle(ch.id, ch, !ch.is_active)} title={ch.is_active ? "On — tap to pause" : "Paused — tap to turn on"}
+                              style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: ch.is_active ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s' }}>
+                              <div style={{ width: 18, height: 18, borderRadius: 9, background: '#fff', position: 'absolute', top: 3, left: ch.is_active ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }}/>
+                            </button>
+                            <button onClick={() => editingId === ch.id ? setEditingId(null) : startEdit(ch)}
+                              style={{ fontSize: 11, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
+                              {editingId === ch.id ? "Cancel" : "Edit"}
+                            </button>
+                            <button onClick={() => openTest({ key: msg.key, label: msg.label, channel: ch.channel })} title="Send a [TEST] copy to yourself"
+                              style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
+                              Send Test
+                            </button>
+                          </div>
+                        </div>
+
+                        {editingId === ch.id && (
+                          <div style={{ marginTop: 14 }}>
+                            <EasyMessageEditor
+                              channel={ch.channel}
+                              initialSubject={ch.channel === 'email' ? (ch.subject || '') : ''}
+                              initialBody={ch.body || ''}
+                              mergeTags={mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)}
+                              templateKey={msg.key}
+                              branchId={activeBranchId === 'all' ? null : activeBranchId}
+                              saving={saving === ch.id}
+                              onSave={(subject, body) => saveDirect(ch.id, ch, subject, body)}
+                              onCancel={() => setEditingId(null)}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                    {msg.key === 'review_request' && (
+                      <p style={{ fontSize: 11.5, color: '#6B7280', margin: '2px 0 0', lineHeight: 1.5 }}>
+                        The survey <strong>text message</strong> (and the send delay) are configured in <strong>Company Settings → Customer Survey</strong> — both channels carry the same tokenized survey link.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+      })}
+
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 10 }}>
+          <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>Winning them back</p>
+          <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>Automated follow-up drips for quotes, abandoned bookings, and past clients. Each runs on its own until they book.</p>
+        </div>
+        <FollowUpSequencesTab onTest={openTest} />
+      </div>
+
+      <OfficeNotificationsCard onTest={openTest} />
+      <TimeOffEmailsCard onTest={openTest} />
+      <LeadAlertsCard />
+      <SmsSmsSettingsCard onTest={openTest} />
+
+      {testFor && (
+        <div onClick={() => !testBusy && setTestFor(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 24, width: 400, maxWidth: '100%', fontFamily: FF }}>
+            <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 6px' }}>Send a test {testFor.channel === 'sms' ? 'text' : 'email'}</p>
+            <p style={{ fontSize: 12.5, color: '#6B7280', margin: '0 0 14px', lineHeight: 1.5 }}>
+              “{testFor.label}” will be sent to YOU with sample data, tagged <strong>[TEST]</strong>. The customer never receives it.
+              {testFor.channel === 'sms' && <span style={{ color: '#B45309' }}> This sends a real text via Twilio (about 1¢).</span>}
+            </p>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{testFor.channel === 'sms' ? 'Send text to (phone)' : 'Send email to'}</label>
+            <input
+              type={testFor.channel === 'sms' ? 'tel' : 'email'}
+              value={testRecipient}
+              onChange={e => setTestRecipient(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') sendTest(); }}
+              placeholder={testFor.channel === 'sms' ? '+1 555 123 4567' : 'you@yourcompany.com'}
+              autoFocus
+              style={{ width: '100%', boxSizing: 'border-box', padding: '9px 11px', border: '1px solid #E5E2DC', borderRadius: 8, fontFamily: FF, fontSize: 13, margin: '6px 0 4px' }}
+            />
+            <p style={{ fontSize: 11, color: '#9E9B94', margin: '0 0 18px' }}>{testFor.channel === 'sms' ? 'Required — the cell you’ll check.' : 'Leave blank to use your login email.'}</p>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button disabled={testBusy} onClick={() => setTestFor(null)} style={{ fontSize: 12, color: '#6B7280', background: 'none', border: 'none', cursor: testBusy ? 'not-allowed' : 'pointer', fontFamily: FF }}>Cancel</button>
+              <button disabled={testBusy} onClick={sendTest} style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--brand, #5B9BD5)', border: 'none', borderRadius: 6, padding: '8px 16px', cursor: testBusy ? 'not-allowed' : 'pointer', fontFamily: FF }}>{testBusy ? 'Sending…' : 'Send Test'}</button>
             </div>
           </div>
-
-          {editingId === tmpl.id && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {tmpl.channel === 'email' && (
-                <div>
-                  <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Subject Line</p>
-                  <input value={editSubject} onChange={e => setEditSubject(e.target.value)}
-                    style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, outline: 'none', boxSizing: 'border-box' }}/>
-                </div>
-              )}
-              <div>
-                <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', margin: '0 0 5px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Message Body</p>
-                <textarea value={editBody} onChange={e => setEditBody(e.target.value)}
-                  style={{ width: '100%', height: 120, padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 12, fontFamily: FF, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5 }}/>
-              </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 4 }}>
-                <span style={{ fontSize: 10, color: '#9E9B94', alignSelf: 'center', marginRight: 2 }}>Variables:</span>
-                {VARIABLES_HELP.map(v => (
-                  <button key={v} onClick={() => setEditBody(b => b + v)}
-                    style={{ fontSize: 10, color: '#7C3AED', background: '#EDE9FE', border: 'none', borderRadius: 4, padding: '2px 7px', cursor: 'pointer', fontFamily: FF }}>
-                    {v}
-                  </button>
-                ))}
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-                <button onClick={() => setEditingId(null)}
-                  style={{ padding: '7px 14px', border: '1px solid #E5E2DC', borderRadius: 7, background: '#fff', fontSize: 12, cursor: 'pointer', fontFamily: FF }}>
-                  Cancel
-                </button>
-                <button onClick={() => save(tmpl.id)} disabled={saving === tmpl.id}
-                  style={{ padding: '7px 16px', border: 'none', borderRadius: 7, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: FF }}>
-                  {saving === tmpl.id ? "Saving…" : "Save Template"}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
-      ))}
+      )}
+    </div>
+  );
+}
+
+// [leave-templates 2026-07-07] The five staff-facing time-off emails — office
+// alert on submission + employee pending/emergency/approved/denied. Each row
+// sends a [TEST] copy with sample employee data through the same render path
+// production uses (notification_templates row → merge tags → branded shell).
+function TimeOffEmailsCard({ onTest }: { onTest: (t: { key: string; label: string; channel: string }) => void }) {
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const rows = [
+    { key: "leave_request_office", label: "Office — new request alert", desc: "Sent to every office/owner/admin user the moment an employee submits a time-off request. ACTION REQUIRED with a Review button." },
+    { key: "leave_request_pending", label: "Employee — request received", desc: "Confirmation to the employee that their request is in and pending office approval." },
+    { key: "leave_request_emergency", label: "Employee — emergency request received", desc: "Confirmation variant for short-notice (within 7 days) or sick requests." },
+    { key: "leave_request_approved", label: "Employee — request approved", desc: "Sent when the office approves. Balance is deducted at the same moment." },
+    { key: "leave_request_denied", label: "Employee — request denied", desc: "Sent when the office denies, including the office's decision note." },
+  ];
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '18px 20px', marginBottom: 12, fontFamily: FF }}>
+      <div style={{ marginBottom: 14 }}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Time-Off Emails (Staff)</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>
+          Internal emails for the employee time-off flow. These are staff messages — they send even while customer communications are paused.
+        </p>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {rows.map(row => (
+          <div key={row.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#F7F6F3', borderRadius: 8 }}>
+            <div style={{ flex: 1, paddingRight: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 2px' }}>{row.label}</p>
+              <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{row.desc}</p>
+            </div>
+            <button onClick={() => onTest({ key: row.key, label: row.label, channel: 'email' })} title="Send a [TEST] copy to yourself"
+              style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600, flexShrink: 0 }}>
+              Send Test
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OfficeNotificationsCard({ onTest }: { onTest: (t: { key: string; label: string; channel: string }) => void }) {
+  const { toast } = useToast();
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const [showZone, setShowZone] = useState(true);
+  const [showTechs, setShowTechs] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetch(`${API}/api/companies/me`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (!d) return;
+        const c = d.data ?? d;
+        setShowZone(c.office_email_show_zone !== false);
+        setShowTechs(c.office_email_show_available_techs !== false);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/companies/me`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ office_email_show_zone: showZone, office_email_show_available_techs: showTechs }),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: "Office notification settings saved" });
+    } catch { toast({ title: "Failed to save", variant: "destructive" }); }
+    finally { setSaving(false); }
+  }
+
+  if (loading) return null;
+
+  const rows = [
+    {
+      key: "zone",
+      checked: showZone,
+      onChange: setShowZone,
+      label: "Zone in subject line",
+      desc: "Adds the booking zone (e.g. Evergreen Park) to the email subject so you can scan at a glance before opening.",
+    },
+    {
+      key: "techs",
+      checked: showTechs,
+      onChange: setShowTechs,
+      label: "Available technicians",
+      desc: "Lists techs with no conflicting jobs on the booking date. Pulled live from dispatch at send time.",
+    },
+  ];
+
+  return (
+    <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '18px 20px', marginBottom: 12, fontFamily: FF }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, marginBottom: 14 }}>
+        <div>
+          <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Office Booking Notification</p>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Controls what appears in the email your office receives when a new booking comes in online.</p>
+        </div>
+        <button onClick={() => onTest({ key: 'office_booking', label: 'Office Booking Notification', channel: 'email' })} title="Send a [TEST] copy to yourself"
+          style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600, flexShrink: 0 }}>
+          Send Test
+        </button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
+        {rows.map(row => (
+          <div key={row.key} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#F7F6F3', borderRadius: 8 }}>
+            <div style={{ flex: 1, paddingRight: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 2px' }}>{row.label}</p>
+              <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{row.desc}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => row.onChange(!row.checked)}
+              style={{
+                width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
+                background: row.checked ? 'var(--brand, #00C9A0)' : '#E5E2DC',
+                position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+              }}
+            >
+              <div style={{
+                width: 18, height: 18, borderRadius: 9, background: '#fff',
+                position: 'absolute', top: 3, left: row.checked ? 23 : 3,
+                transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+              }} />
+            </button>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button
+          onClick={save}
+          disabled={saving}
+          style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand, #00C9A0)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF, opacity: saving ? 0.7 : 1 }}
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -1934,6 +2567,13 @@ function InvoicingTab() {
     default_invoice_notes_commercial: '',
     auto_send_invoices: false,
     auto_charge_on_invoice: false,
+    invoice_business_name: '',
+    invoice_tagline: '',
+    invoice_address: '',
+    invoice_footer_message: '',
+    invoice_payment_instructions: '',
+    invoice_guarantee: '',
+    invoice_terms: '',
   });
 
   useEffect(() => {
@@ -1949,6 +2589,13 @@ function InvoicingTab() {
           default_invoice_notes_commercial: c.default_invoice_notes_commercial || '',
           auto_send_invoices: !!c.auto_send_invoices,
           auto_charge_on_invoice: !!c.auto_charge_on_invoice,
+          invoice_business_name: c.invoice_business_name || '',
+          invoice_tagline: c.invoice_tagline || '',
+          invoice_address: c.invoice_address || '',
+          invoice_footer_message: c.invoice_footer_message || '',
+          invoice_payment_instructions: c.invoice_payment_instructions || '',
+          invoice_guarantee: c.invoice_guarantee || '',
+          invoice_terms: c.invoice_terms || '',
         });
       })
       .catch(console.error)
@@ -1991,6 +2638,10 @@ function InvoicingTab() {
     width: '100%', padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
     fontSize: 13, fontFamily: FF, color: '#1A1917', background: '#fff', resize: 'vertical',
     minHeight: 80, boxSizing: 'border-box',
+  };
+  const inputStyle: React.CSSProperties = {
+    width: '100%', padding: '10px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
+    fontSize: 14, fontFamily: FF, color: '#1A1917', background: '#fff', boxSizing: 'border-box',
   };
 
   if (loading) return <div style={{ padding: 40, textAlign: 'center', color: '#9E9B94', fontFamily: FF }}>Loading...</div>;
@@ -2079,6 +2730,46 @@ function InvoicingTab() {
         </div>
       </div>
 
+      {/* Invoice Header & Footer (shown on every customer invoice) */}
+      <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' }}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>Invoice Header &amp; Footer</div>
+        <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, fontFamily: FF }}>
+          Shown on every invoice your customers receive. Upload your logo in the Branding tab. Leave a field blank to use a generic default.
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div>
+              <label style={labelStyle}>Business Name</label>
+              <input value={settings.invoice_business_name} onChange={e => setSettings(s => ({ ...s, invoice_business_name: e.target.value }))} placeholder="Your Company LLC" style={inputStyle} />
+            </div>
+            <div>
+              <label style={labelStyle}>Tagline</label>
+              <input value={settings.invoice_tagline} onChange={e => setSettings(s => ({ ...s, invoice_tagline: e.target.value }))} placeholder="Residential & Commercial Cleaning" style={inputStyle} />
+            </div>
+          </div>
+          <div>
+            <label style={labelStyle}>Business Address</label>
+            <input value={settings.invoice_address} onChange={e => setSettings(s => ({ ...s, invoice_address: e.target.value }))} placeholder="123 Main St, Suite 100, City, ST 00000" style={inputStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Footer Message</label>
+            <textarea value={settings.invoice_footer_message} onChange={e => setSettings(s => ({ ...s, invoice_footer_message: e.target.value }))} placeholder="Thank you for choosing us." style={textareaStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Payment Instructions</label>
+            <textarea value={settings.invoice_payment_instructions} onChange={e => setSettings(s => ({ ...s, invoice_payment_instructions: e.target.value }))} placeholder="Pay securely online using the link on this invoice. Questions? Contact us." style={textareaStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Satisfaction Guarantee</label>
+            <textarea value={settings.invoice_guarantee} onChange={e => setSettings(s => ({ ...s, invoice_guarantee: e.target.value }))} placeholder="Describe your guarantee, insurance, and bonding." style={textareaStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Terms &amp; Cancellation Policy</label>
+            <textarea value={settings.invoice_terms} onChange={e => setSettings(s => ({ ...s, invoice_terms: e.target.value }))} placeholder="Your cancellation and reschedule policy." style={textareaStyle} />
+          </div>
+        </div>
+      </div>
+
       <button
         onClick={handleSave}
         disabled={saving}
@@ -2116,6 +2807,52 @@ function OnlineBookingTab() {
   const [avail, setAvail] = useState<BookingAvailDays>({ sun: false, mon: true, tue: true, wed: true, thu: true, fri: true, sat: false });
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Referral source management
+  const [refSources, setRefSources] = useState<Array<{ id: number; name: string; slug: string; is_active: boolean; display_order: number }>>([]);
+  const [refLoaded, setRefLoaded] = useState(false);
+  const [newRefName, setNewRefName] = useState('');
+  const [addingRef, setAddingRef] = useState(false);
+
+  useEffect(() => {
+    fetch(`${BASE}/api/acquisition-sources?include_inactive=true`, { headers: getAuthHeaders() })
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d)) setRefSources(d); setRefLoaded(true); })
+      .catch(() => setRefLoaded(true));
+  }, [BASE]);
+
+  async function toggleRefSource(id: number, is_active: boolean) {
+    try {
+      await fetch(`${BASE}/api/acquisition-sources/${id}`, {
+        method: 'PATCH',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active }),
+      });
+      setRefSources(prev => prev.map(s => s.id === id ? { ...s, is_active } : s));
+    } catch {
+      toast({ title: 'Error', description: 'Could not update source.', variant: 'destructive' });
+    }
+  }
+
+  async function addRefSource() {
+    if (!newRefName.trim()) return;
+    setAddingRef(true);
+    try {
+      const r = await fetch(`${BASE}/api/acquisition-sources`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newRefName.trim() }),
+      });
+      if (!r.ok) throw new Error('Failed');
+      const created = await r.json();
+      setRefSources(prev => [...prev, created]);
+      setNewRefName('');
+    } catch {
+      toast({ title: 'Error', description: 'Could not add source.', variant: 'destructive' });
+    } finally {
+      setAddingRef(false);
+    }
+  }
 
   useEffect(() => {
     fetch(`${BASE}/api/companies/booking-settings`, { headers: getAuthHeaders() })
@@ -2239,6 +2976,57 @@ function OnlineBookingTab() {
             Unassigned (required)
           </div>
         </div>
+      </div>
+
+      <div style={cardStyle}>
+        <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>"How did you hear about us?" Options</div>
+        <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16, fontFamily: FF }}>
+          These appear in the referral dropdown on your booking form. Toggle off to hide a source without deleting it.
+        </p>
+        {!refLoaded ? (
+          <p style={{ fontSize: 13, color: '#9E9B94', fontFamily: FF }}>Loading…</p>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {refSources.map(src => (
+              <div key={src.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', border: '1px solid #E5E2DC', borderRadius: 8, background: src.is_active ? '#fff' : '#F7F6F3' }}>
+                <span style={{ fontSize: 13, fontWeight: 600, color: src.is_active ? '#1A1917' : '#9E9B94', fontFamily: FF }}>{src.name}</span>
+                <button
+                  onClick={() => toggleRefSource(src.id, !src.is_active)}
+                  style={{
+                    padding: '5px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: FF,
+                    border: `1.5px solid ${src.is_active ? '#E5E2DC' : 'var(--brand, #00C9A0)'}`,
+                    background: src.is_active ? '#fff' : 'transparent',
+                    color: src.is_active ? '#6B7280' : 'var(--brand, #00C9A0)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {src.is_active ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <input
+                value={newRefName}
+                onChange={e => setNewRefName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') addRefSource(); }}
+                placeholder="Add new source (e.g. Yard Sign)"
+                style={{ flex: 1, padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontFamily: FF, outline: 'none', color: '#1A1917' }}
+              />
+              <button
+                onClick={addRefSource}
+                disabled={addingRef || !newRefName.trim()}
+                style={{
+                  padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: FF,
+                  background: 'var(--brand, #00C9A0)', color: '#fff', border: 'none',
+                  cursor: (addingRef || !newRefName.trim()) ? 'not-allowed' : 'pointer',
+                  opacity: (addingRef || !newRefName.trim()) ? 0.6 : 1,
+                }}
+              >
+                Add
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <button
@@ -2585,7 +3373,7 @@ function delayLabel(hours: number): string {
   return `Day ${d}`;
 }
 
-function FollowUpSequencesTab() {
+function FollowUpSequencesTab({ onTest }: { onTest?: (t: { key: string; label: string; channel: string; body?: string; subject?: string | null }) => void }) {
   const FFF = "'Plus Jakarta Sans', sans-serif";
   const FU_API = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { toast } = useToast();
@@ -2666,12 +3454,7 @@ function FollowUpSequencesTab() {
   if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#9E9B94", fontFamily: FFF }}>Loading sequences...</div>;
 
   return (
-    <div style={{ maxWidth: 760 }}>
-      <p style={{ fontFamily: FFF, fontSize: 13, color: "#6B6860", marginBottom: 24 }}>
-        Automated follow-up messages sent via SMS and email. Each sequence runs independently.
-        Toggle a sequence on or off without losing your message templates.
-      </p>
-
+    <div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
         {sequences.map(seq => {
           const isExpanded = expandedSeq === seq.id;
@@ -2780,6 +3563,7 @@ function FollowUpSequencesTab() {
                                     Variables: {"{{client_name}}"} {"{{company_name}}"} {"{{phone}}"} {"{{quote_link}}"}
                                   </p>
                                 </div>
+                                <MessagePreview channel={step.channel === "email" ? "email" : "sms"} subject={step.channel === "email" ? editSubject : undefined} body={editTemplate} />
                                 <div style={{ display: "flex", gap: 8 }}>
                                   <button
                                     onClick={() => saveStep(seq.id, step.id)}
@@ -2807,12 +3591,31 @@ function FollowUpSequencesTab() {
                                 <p style={{ fontFamily: FFF, fontSize: 12, color: "#1A1917", margin: 0, whiteSpace: "pre-wrap", lineHeight: 1.6 }}>
                                   {step.message_template}
                                 </p>
-                                <button
-                                  onClick={() => startEditStep(step)}
-                                  style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 6, padding: "4px 10px", background: "none", border: "1px solid #E5E2DC", borderRadius: 5, fontFamily: FFF, fontSize: 11, color: "#6B6860", cursor: "pointer" }}
-                                >
-                                  <Edit2 size={10} /> Edit
-                                </button>
+                                <div style={{ display: "inline-flex", gap: 6, marginTop: 6 }}>
+                                  <button
+                                    onClick={() => startEditStep(step)}
+                                    style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", background: "none", border: "1px solid #E5E2DC", borderRadius: 5, fontFamily: FFF, fontSize: 11, color: "#6B6860", cursor: "pointer" }}
+                                  >
+                                    <Edit2 size={10} /> Edit
+                                  </button>
+                                  {onTest && (
+                                    <button
+                                      onClick={() => {
+                                        // The quote-delivery touch (the email carrying {{line_items}})
+                                        // sends the bespoke on-brand quote email in production — test
+                                        // the real render (key quote_email), not the plain template.
+                                        const isQuoteDelivery = seq.sequence_type === "quote_followup" && step.channel === "email" && /\{\{\s*line_items\s*\}\}/.test(step.message_template || "");
+                                        onTest(isQuoteDelivery
+                                          ? { key: "quote_email", label: `${SEQ_LABELS[seq.sequence_type] ?? seq.name} · Step ${step.step_number}`, channel: "email" }
+                                          : { key: "custom_dripstep", label: `${SEQ_LABELS[seq.sequence_type] ?? seq.name} · Step ${step.step_number}`, channel: step.channel === "email" ? "email" : "sms", body: step.message_template, subject: step.subject });
+                                      }}
+                                      title="Send a [TEST] copy to yourself"
+                                      style={{ display: "inline-flex", alignItems: "center", padding: "4px 10px", background: "#ECFDF5", border: "none", borderRadius: 5, fontFamily: FFF, fontSize: 11, fontWeight: 600, color: "#047857", cursor: "pointer" }}
+                                    >
+                                      Send Test
+                                    </button>
+                                  )}
+                                </div>
                               </div>
                             )}
                           </div>
@@ -2910,7 +3713,8 @@ function CustomerSurveyTab() {
           <label style={label}>Message template</label>
           <textarea rows={3} style={{ ...input, resize: "vertical" }} value={f.survey_message_template}
             onChange={e => setF(p => ({ ...p, survey_message_template: e.target.value }))} />
-          <p style={{ fontSize: 11, color: "#9E9B94", margin: "6px 0 0" }}>Variables: <code>{"{{first_name}}"}</code>, <code>{"{{survey_link}}"}</code></p>
+          <p style={{ fontSize: 11, color: "#9E9B94", margin: "6px 0 8px" }}>Variables: <code>{"{{first_name}}"}</code>, <code>{"{{survey_link}}"}</code></p>
+          <MessagePreview channel="sms" body={f.survey_message_template} />
         </div>
         <div style={{ maxWidth: 220 }}>
           <label style={label}>Send delay after completion (hours)</label>

@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import {
-  paymentLinksTable, clientsTable, companiesTable, invoicesTable, notificationLogTable
+  paymentLinksTable, clientsTable, companiesTable, invoicesTable, notificationLogTable,
+  paymentsTable, jobsTable
 } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -81,7 +82,11 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
           const { Resend } = await import("resend") as any;
           const resend = new Resend(resendKey);
           await resend.emails.send({
-            from: `${companyName} <noreply@qlenopro.com>`,
+            // [card-link-from-addr 2026-06-26] Was noreply@qlenopro.com — an
+            // UNVERIFIED Resend domain, so every card-link email was silently
+            // rejected. Use the tenant's verified sender (the same address the
+            // working confirmation/reminder emails use).
+            from: `${companyName} <${(company as any).email_from_address || "info@phes.io"}>`,
             to: toEmail,
             subject: `${companyName} — Save your payment method`,
             html: buildCardLinkEmail({ clientName, companyName, payUrl, brandColor: company.brand_color }),
@@ -108,18 +113,38 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       const toPhone = client.billing_contact_phone || client.phone;
       const twilioSid = process.env.TWILIO_ACCOUNT_SID;
       const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-      const twilioFrom = company.twilio_from_number; // per-tenant only — no global-env fallback
+      // [card-link-from-number 2026-06-26] co1 keeps its Twilio number on the
+      // BRANCH (company.twilio_from_number is NULL), so reading the company
+      // column alone silently SKIPPED every card-link SMS. Fall back to the
+      // branch number via resolveSender — same fix as on-my-way / reminders.
+      const { resolveSender } = await import("../lib/comms-sender.js");
+      const sender = await resolveSender(companyId, (client as any).branch_id ?? null);
+      const twilioFrom = company.twilio_from_number || sender.from_number;
       if (!twilioSid || !twilioToken || !twilioFrom || !toPhone) {
         console.warn("Twilio not configured or no phone — skipping SMS");
       } else {
         try {
-          const twilio = (await import("twilio")).default;
-          const client2 = twilio(twilioSid, twilioToken);
-          await client2.messages.create({
-            from: twilioFrom,
-            to: toPhone,
-            body: `${companyName}: Please save your payment method for future invoices. Link expires in 72 hours: ${payUrl}`,
-          });
+          // [card-link-twilio-rest 2026-06-26] The `twilio` SDK is NOT a
+          // dependency (never installed), so `import("twilio")` threw and the
+          // card-link SMS silently failed for everyone. Use the raw Twilio REST
+          // API via fetch — the same approach every WORKING SMS path uses
+          // (reminders, on-my-way, sendNotification).
+          const smsRes = await fetch(
+            `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`,
+            {
+              method: "POST",
+              headers: {
+                Authorization: `Basic ${Buffer.from(`${twilioSid}:${twilioToken}`).toString("base64")}`,
+                "Content-Type": "application/x-www-form-urlencoded",
+              },
+              body: new URLSearchParams({
+                To: toPhone,
+                From: twilioFrom,
+                Body: `${companyName}: Please save your payment method for future invoices. Link expires in 72 hours: ${payUrl}`,
+              }).toString(),
+            }
+          );
+          if (!smsRes.ok) throw new Error((await smsRes.text()).slice(0, 200));
           await db.insert(notificationLogTable).values({
             company_id: companyId,
             trigger: "payment_link_sms",
@@ -177,12 +202,16 @@ router.get("/public/:token", async (req, res) => {
       .where(eq(companiesTable.id, link.company_id));
 
     let invoiceNumber: string | null = null;
+    let invoiceAlreadyPaid = false;
+    let invoiceJobId: number | null = null;
     if (link.invoice_id) {
       const [inv] = await db
-        .select({ invoice_number: invoicesTable.invoice_number })
+        .select({ invoice_number: invoicesTable.invoice_number, status: invoicesTable.status, job_id: invoicesTable.job_id })
         .from(invoicesTable)
         .where(eq(invoicesTable.id, link.invoice_id));
       invoiceNumber = inv?.invoice_number ?? null;
+      invoiceAlreadyPaid = inv?.status === "paid";
+      invoiceJobId = inv?.job_id ?? null;
     }
 
     // Create Stripe setup intent if Stripe is configured
@@ -214,18 +243,46 @@ router.get("/public/:token", async (req, res) => {
             .where(eq(clientsTable.id, link.client_id));
         }
 
-        const setupIntent = await stripe.setupIntents.create({
-          customer: stripeCustomerId,
-          payment_method_types: ["card"],
-          metadata: { payment_link_id: String(link.id), company_id: String(link.company_id) },
-        });
-
-        clientSecret = setupIntent.client_secret;
-        stripePublishableKey = stripePubKey;
-
-        await db.update(paymentLinksTable)
-          .set({ stripe_setup_intent_id: setupIntent.id })
-          .where(eq(paymentLinksTable.id, link.id));
+        // [invoice-pay 2026-06-22] A 'pay_invoice' link CHARGES the invoice total
+        // via a PaymentIntent; everything else SAVES a card via a SetupIntent.
+        // The intent id is stored in stripe_setup_intent_id either way (a link is
+        // only ever one purpose) and re-checked server-side on confirm.
+        const amountCents = Math.round(parseFloat(String(link.amount ?? "0")) * 100);
+        if (link.purpose === "pay_invoice" && link.invoice_id && amountCents > 0 && !invoiceAlreadyPaid) {
+          const paymentIntent = await stripe.paymentIntents.create({
+            amount: amountCents,
+            currency: "usd",
+            customer: stripeCustomerId,
+            // Offer every method enabled in the Stripe Dashboard — card/debit,
+            // Apple Pay & Google Pay (card wallets), and ACH bank debit
+            // (us_bank_account). The Payment Element renders whatever is on.
+            automatic_payment_methods: { enabled: true },
+            description: invoiceNumber ? `Invoice ${invoiceNumber}` : `Invoice ${link.invoice_id}`,
+            // client_id + job_id are what the Stripe webhook reads to mark the
+            // invoice paid (esp. for ACH, which confirms asynchronously).
+            metadata: {
+              payment_link_id: String(link.id), company_id: String(link.company_id),
+              invoice_id: String(link.invoice_id), client_id: String(link.client_id),
+              ...(invoiceJobId != null ? { job_id: String(invoiceJobId) } : {}),
+            },
+          });
+          clientSecret = paymentIntent.client_secret;
+          stripePublishableKey = stripePubKey;
+          await db.update(paymentLinksTable)
+            .set({ stripe_setup_intent_id: paymentIntent.id })
+            .where(eq(paymentLinksTable.id, link.id));
+        } else {
+          const setupIntent = await stripe.setupIntents.create({
+            customer: stripeCustomerId,
+            payment_method_types: ["card"],
+            metadata: { payment_link_id: String(link.id), company_id: String(link.company_id) },
+          });
+          clientSecret = setupIntent.client_secret;
+          stripePublishableKey = stripePubKey;
+          await db.update(paymentLinksTable)
+            .set({ stripe_setup_intent_id: setupIntent.id })
+            .where(eq(paymentLinksTable.id, link.id));
+        }
       } catch (err) {
         console.error("Stripe setup intent error:", err);
       }
@@ -236,6 +293,7 @@ router.get("/public/:token", async (req, res) => {
       company,
       client: client ? { id: client.id, first_name: client.first_name, last_name: client.last_name } : null,
       invoice_number: invoiceNumber,
+      invoice_paid: invoiceAlreadyPaid,
       stripe_publishable_key: stripePublishableKey,
       client_secret: clientSecret,
     });
@@ -307,6 +365,83 @@ router.post("/public/:token/save-card", async (req, res) => {
   } catch (err: any) {
     console.error("Save card error:", err);
     res.status(500).json({ error: err.message || "Failed to save card" });
+  }
+});
+
+// ─── POST /pay/:token/pay — PUBLIC: confirm an invoice payment ────────────────
+// The customer has confirmed the PaymentIntent client-side. We re-check its
+// status SERVER-SIDE (never trust the client) and, if it succeeded, mark the
+// invoice paid + record the Stripe payment. Idempotent: a second call on an
+// already-paid invoice just returns success. NOTE for production hardening: add
+// a Stripe `payment_intent.succeeded` webhook so a closed browser after a
+// successful charge still marks the invoice paid.
+router.post("/public/:token/pay", async (req, res) => {
+  try {
+    const { token } = req.params;
+
+    const [link] = await db.select().from(paymentLinksTable).where(eq(paymentLinksTable.token, token));
+    if (!link) return res.status(404).json({ error: "INVALID_LINK" });
+    if (link.purpose !== "pay_invoice" || !link.invoice_id) return res.status(400).json({ error: "NOT_A_PAYMENT_LINK" });
+    if (link.expires_at < new Date()) return res.status(410).json({ error: "EXPIRED" });
+
+    const [invoice] = await db
+      .select({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total,
+                client_id: invoicesTable.client_id, job_id: invoicesTable.job_id })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, link.invoice_id), eq(invoicesTable.company_id, link.company_id)));
+    if (!invoice) return res.status(404).json({ error: "INVOICE_NOT_FOUND" });
+    if (invoice.status === "paid") return res.json({ success: true, already_paid: true });
+
+    const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+    if (!stripeSecretKey || stripeSecretKey === "payments disabled") {
+      return res.status(503).json({ error: "Payment processing not configured" });
+    }
+    const Stripe = (await import("stripe")).default;
+    const stripe = new Stripe(stripeSecretKey, { apiVersion: "2024-06-20" as any });
+
+    // Re-verify the PaymentIntent succeeded — the stored intent id is authoritative.
+    if (!link.stripe_setup_intent_id) return res.status(400).json({ error: "NO_INTENT" });
+    const pi = await stripe.paymentIntents.retrieve(link.stripe_setup_intent_id);
+    if (pi.status !== "succeeded") {
+      return res.status(402).json({ error: "PAYMENT_NOT_COMPLETE", stripe_status: pi.status });
+    }
+
+    const paidAmount = pi.amount_received != null ? pi.amount_received / 100 : parseFloat(invoice.total || "0");
+
+    // stripe_payment_id lets the async webhook recognize this PaymentIntent was
+    // already recorded here (instant path) and skip a duplicate row.
+    await db.insert(paymentsTable).values({
+      company_id: link.company_id,
+      client_id: invoice.client_id,
+      invoice_id: invoice.id,
+      amount: paidAmount.toFixed(2),
+      method: "stripe",
+      status: "completed",
+      stripe_payment_id: pi.id,
+    });
+
+    await db.update(invoicesTable)
+      .set({ status: "paid", paid_at: new Date(), payment_source: "stripe", stripe_payment_intent_id: pi.id })
+      .where(and(eq(invoicesTable.id, invoice.id), eq(invoicesTable.company_id, link.company_id)));
+
+    if (invoice.job_id) {
+      await db.update(jobsTable)
+        .set({ charge_succeeded_at: new Date() })
+        .where(eq(jobsTable.id, invoice.job_id));
+    }
+
+    await db.update(paymentLinksTable).set({ used_at: new Date() }).where(eq(paymentLinksTable.id, link.id));
+
+    await db.insert(notificationLogTable).values({
+      company_id: link.company_id, recipient: "system", channel: "system",
+      trigger: "payment_collected", status: "sent",
+      metadata: { invoice_id: invoice.id, amount: paidAmount, method: "stripe", source: "customer_pay_link" } as any,
+    });
+
+    res.json({ success: true, amount: paidAmount });
+  } catch (err: any) {
+    console.error("Invoice pay error:", err);
+    res.status(500).json({ error: err.message || "Failed to record payment" });
   }
 });
 

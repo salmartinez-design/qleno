@@ -10,7 +10,10 @@ import {
   getQbBaseUrl,
   QB_ACCOUNTING_SCOPE,
   syncAll,
+  backfillFromCutover,
+  queueSync,
   refreshQBToken,
+  dedupeQbInvoices,
 } from "../../services/quickbooks-sync.js";
 
 const router = Router();
@@ -36,7 +39,11 @@ function getPublicBase(req: any): string {
 function getRedirectUri(req: any): string {
   // Prefer env-configured value for production
   if (process.env.QB_REDIRECT_URI) return process.env.QB_REDIRECT_URI;
-  return `${getPublicBase(req)}/qleno/api/integrations/quickbooks/callback`;
+  // The callback route is mounted at /api/integrations/quickbooks/callback
+  // (the main router mounts at /api). The earlier `/qleno` prefix pointed at a
+  // non-existent path, so the Intuit handshake's redirect_uri never matched a
+  // real route. QB_REDIRECT_URI still overrides this for prod.
+  return `${getPublicBase(req)}/api/integrations/quickbooks/callback`;
 }
 
 // ── GET /api/integrations/quickbooks/connect ───────────────────────────────
@@ -55,7 +62,11 @@ router.get("/connect", requireAuth, requireRole("owner", "admin"), async (req, r
     });
 
     const authUrl = `https://appcenter.intuit.com/connect/oauth2?${params.toString()}`;
-    return res.redirect(authUrl);
+    // Return the URL as JSON instead of a 302. The frontend calls this endpoint
+    // with the Bearer token attached (a fetch), then navigates the browser to
+    // authUrl. A direct 302 here can't be reached: a top-level navigation to
+    // /connect carries no Authorization header, so requireAuth would 401.
+    return res.json({ authUrl });
   } catch (err) {
     console.error("[QB] Connect error:", err);
     return res.status(500).json({ error: "Failed to initiate QB connection" });
@@ -64,11 +75,11 @@ router.get("/connect", requireAuth, requireRole("owner", "admin"), async (req, r
 
 // ── GET /api/integrations/quickbooks/callback ─────────────────────────────
 router.get("/callback", async (req, res) => {
-  // Derive the frontend base from the request (Railway-safe) instead of the
-  // legacy REPLIT_DEV_DOMAIN — an empty REPLIT_DEV_DOMAIN used to produce a
-  // relative redirect to `/company?...` that resolved under `/api/integrations/
-  // quickbooks/`, giving a broken success URL.
-  const baseFrontend = `${getPublicBase(req)}/qleno`;
+  // Derive the frontend base from the request (Railway-safe). The frontend is
+  // served at the domain root (e.g. app.qleno.com), so redirect straight to
+  // /company. The legacy `/qleno` base-path prefix is a Replit artifact — on
+  // Railway it made every successful connect land on a 404 at /qleno/company.
+  const baseFrontend = getPublicBase(req);
 
   try {
     const { code, state, realmId } = req.query as Record<string, string>;
@@ -141,6 +152,13 @@ router.get("/callback", async (req, res) => {
       })
       .where(eq(companiesTable.id, companyId));
 
+    // [qb-cutover] On connect, backfill any invoices/payments issued while QB was
+    // disconnected (service date >= qb_sync_start_date) so nothing is stranded.
+    // Fire-and-forget so the OAuth redirect isn't blocked on the QB round-trips.
+    queueSync(() => backfillFromCutover(companyId).then(
+      r => console.log(`[QB] cutover backfill: queued ${r.queued}, synced ${r.result.synced}, failed ${r.result.failed}`),
+    ));
+
     return res.redirect(`${baseFrontend}/company?tab=integrations&qb=connected`);
   } catch (err) {
     console.error("[QB] Callback error:", err);
@@ -203,6 +221,7 @@ router.get("/status", requireAuth, async (req, res) => {
         qb_company_name: companiesTable.qb_company_name,
         qb_last_sync_at: companiesTable.qb_last_sync_at,
         invoice_sequence_start: companiesTable.invoice_sequence_start,
+        qb_sync_start_date: companiesTable.qb_sync_start_date,
       })
       .from(companiesTable)
       .where(eq(companiesTable.id, companyId))
@@ -233,11 +252,75 @@ router.get("/status", requireAuth, async (req, res) => {
       last_sync_at: company.qb_last_sync_at,
       realm_id: company.qb_realm_id,
       invoice_sequence_start: company.invoice_sequence_start,
+      sync_start_date: company.qb_sync_start_date,
       stats,
     });
   } catch (err) {
     console.error("[QB] Status error:", err);
     return res.status(500).json({ error: "Failed to get status" });
+  }
+});
+
+// ── PATCH /api/integrations/quickbooks/cutover ────────────────────────────
+// Configure the migration guardrails for a tenant moving onto QuickBooks from
+// another system that already feeds the same QB company (e.g. Oak Lawn ←
+// MaidCentral). `sync_start_date` makes Qleno push ONLY invoices created on/
+// after that date, so it never re-pushes history the prior system already
+// sent. `invoice_sequence_start` continues the prior system's invoice numbers
+// instead of restarting at 1. Both are owner/admin-only.
+router.patch("/cutover", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const { sync_start_date, invoice_sequence_start } = req.body as {
+      sync_start_date?: string | null;
+      invoice_sequence_start?: number;
+    };
+
+    const updates: Record<string, any> = {};
+
+    if (sync_start_date !== undefined) {
+      if (sync_start_date === null || sync_start_date === "") {
+        updates.qb_sync_start_date = null;
+      } else {
+        const d = new Date(sync_start_date);
+        if (isNaN(d.getTime())) {
+          return res.status(400).json({ error: "Invalid sync_start_date" });
+        }
+        updates.qb_sync_start_date = d;
+      }
+    }
+
+    if (invoice_sequence_start !== undefined) {
+      const n = Number(invoice_sequence_start);
+      if (!Number.isInteger(n) || n < 1) {
+        return res.status(400).json({ error: "invoice_sequence_start must be a positive integer" });
+      }
+      updates.invoice_sequence_start = n;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: "Nothing to update" });
+    }
+
+    await db.update(companiesTable).set(updates).where(eq(companiesTable.id, companyId));
+
+    const [company] = await db
+      .select({
+        qb_sync_start_date: companiesTable.qb_sync_start_date,
+        invoice_sequence_start: companiesTable.invoice_sequence_start,
+      })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, companyId))
+      .limit(1);
+
+    return res.json({
+      ok: true,
+      sync_start_date: company?.qb_sync_start_date ?? null,
+      invoice_sequence_start: company?.invoice_sequence_start,
+    });
+  } catch (err) {
+    console.error("[QB] Cutover config error:", err);
+    return res.status(500).json({ error: "Failed to update cutover config" });
   }
 });
 
@@ -250,6 +333,37 @@ router.post("/sync", requireAuth, requireRole("owner", "admin"), async (req, res
   } catch (err) {
     console.error("[QB] Manual sync error:", err);
     return res.status(500).json({ error: "Sync failed" });
+  }
+});
+
+// ── POST /api/integrations/quickbooks/backfill ────────────────────────────
+// [qb-cutover] Manually re-run the post-connect backfill (idempotent). Pushes
+// every issued, not-yet-synced invoice with service date >= qb_sync_start_date.
+router.post("/backfill", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const out = await backfillFromCutover(companyId);
+    return res.json({ ok: true, ...out });
+  } catch (err) {
+    console.error("[QB] Backfill error:", err);
+    return res.status(500).json({ error: "Backfill failed" });
+  }
+});
+
+// ── POST /api/integrations/quickbooks/dedupe ──────────────────────────────
+// [qb-invoice-idempotency 2026-07-03] One-time cleanup of duplicate QB invoices
+// (same DocNumber pushed 2-3x before the idempotency guard). Defaults to
+// DRY-RUN — pass ?apply=true (or {apply:true}) to actually delete the extra
+// copies. Keeps the canonical copy per DocNumber; deletes the phantoms.
+router.post("/dedupe", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const apply = req.query.apply === "true" || req.body?.apply === true;
+    const out = await dedupeQbInvoices(companyId, !apply);
+    return res.json({ ok: true, ...out });
+  } catch (err: any) {
+    console.error("[QB] Dedupe error:", err);
+    return res.status(500).json({ error: err?.message || "Dedupe failed" });
   }
 });
 

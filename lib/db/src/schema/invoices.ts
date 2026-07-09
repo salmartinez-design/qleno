@@ -30,6 +30,25 @@ export const invoicesTable = pgTable("invoices", {
   tips: numeric("tips", { precision: 10, scale: 2 }).notNull().default("0"),
   total: numeric("total", { precision: 10, scale: 2 }).notNull().default("0"),
   due_date: date("due_date"),
+  // [invoice-service-date 2026-07-03] Manual service-date override. When NULL the
+  // API derives the service date from the linked job (job_id) or, for consolidated
+  // invoices, the earliest line-item job date. Set when the office edits "Service
+  // Date" on the invoice (Maribel). Added to the live DB via an idempotent
+  // ADD COLUMN IF NOT EXISTS in runStartupMigrations, before the API gate opens.
+  service_date: date("service_date"),
+  // [invoice-bill-to 2026-07-03] Manual "Bill to" name override on the invoice
+  // document. When NULL the invoice bills to the client/account name; when set
+  // (e.g. the specific HOA the account manages — "Krys always asks to put the
+  // name of the HOA there") the document + PDF show this instead. Added to the
+  // live DB via idempotent ADD COLUMN IF NOT EXISTS in runStartupMigrations.
+  bill_to_name: text("bill_to_name"),
+  // [manual-edit-detach 2026-07-06] Stamped when the office hand-edits line
+  // items / tip via PUT /api/invoices/:id. While set, the invoice is detached
+  // from job mirroring — the mark-paid pre-payment recalc and the job-edit
+  // draft re-sync skip it, so a deliberate manual amount survives Mark Paid.
+  // Cleared by POST /:id/recalc (explicit "recalc from job" re-attaches).
+  // Added to the live DB via ADD COLUMN IF NOT EXISTS in runStartupMigrations.
+  manually_edited_at: timestamp("manually_edited_at"),
   sent_at: timestamp("sent_at"),
   last_reminder_sent_at: timestamp("last_reminder_sent_at"),
   payment_failed: boolean("payment_failed").default(false),
@@ -63,6 +82,14 @@ export const invoicesTable = pgTable("invoices", {
   // the self-reference style used elsewhere (e.g. account_id) and avoid a
   // circular Drizzle self-ref.
   parent_invoice_id: integer("parent_invoice_id"),
+  // [refunds 2026-06-27] Partial or full refund issued against a paid invoice.
+  // refunded_amount tracks how much was returned (≤ total); null means no refund.
+  // Status stays 'paid' — money moved both directions; the net is total−refunded_amount.
+  // For Stripe invoices the refund is initiated via the Stripe API before this is set.
+  // For manual payments the refund is recorded here only (money returned offline).
+  refunded_amount: numeric("refunded_amount", { precision: 10, scale: 2 }),
+  refund_reason: text("refund_reason"),
+  refunded_at: timestamp("refunded_at"),
 });
 
 export const insertInvoiceSchema = createInsertSchema(invoicesTable).omit({ id: true, created_at: true });

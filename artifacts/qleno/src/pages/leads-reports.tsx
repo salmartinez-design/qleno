@@ -160,7 +160,7 @@ export default function LeadsReportsPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "0 0 48px" }}>
+      <div style={{ padding: "0 0 48px" }}>
         <Link href="/leads" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, color: "#6B6860",
           textDecoration: "none", marginBottom: 12 }}>
           <ChevronLeft size={14} /> Back to Pipeline

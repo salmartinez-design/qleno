@@ -7,8 +7,10 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { getBranchByZip } from "../lib/branchRouter.js";
-import { appBaseUrl } from "../lib/app-url.js";
+import { appBaseUrl, emailLogoUrl } from "../lib/app-url.js";
 import { shortenUrl } from "../lib/short-link.js";
+import { estTimeLabel } from "../lib/estimated-time.js";
+import { renderPhesQuote, type QuoteOption } from "../lib/phes-quote-email.js";
 
 // ── Merge field resolver ───────────────────────────────────────────────────────
 function resolveMergeFields(template: string, vars: Record<string, string>): string {
@@ -91,6 +93,8 @@ async function sendEmailRaw(
   brand?: EmailBrand,
   // [comms-opt-out] Optional List-Unsubscribe headers + footer link.
   unsub?: { headers: Record<string, string>; footerHtml: string },
+  // [multi-recipient-estimates] Optional CC recipients.
+  cc?: string[],
 ): Promise<string | null> {
   const key = process.env.RESEND_API_KEY;
   if (!key) throw new Error("Resend not configured");
@@ -104,7 +108,13 @@ async function sendEmailRaw(
   const inner = /^\s*</.test(body)
     ? body
     : `<p style="font-size:15px;color:#1A1917;line-height:1.7;margin:0 0 20px;">${body.replace(/\n/g, "<br>")}</p>`;
-  const bodyHtml = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#F7F6F3;">
+  // A COMPLETE HTML document (the bespoke quote email) is sent as-is — the
+  // branded shell would nest a second <html> inside a <div>. The unsub footer
+  // slots in before </body> so the one-click headers + visible link still apply.
+  const isFullDoc = /^\s*(<!doctype|<html)/i.test(body);
+  const bodyHtml = isFullDoc
+    ? (unsub?.footerHtml ? body.replace(/<\/body>/i, `${unsub.footerHtml}</body>`) : body)
+    : `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#F7F6F3;">
 <div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
 <div style="background:#5B9BD5;padding:14px 20px;border-radius:4px;margin-bottom:24px;">
   <span style="color:#fff;font-size:16px;font-weight:bold;">${brandName}</span>
@@ -113,9 +123,11 @@ ${inner}
 <p style="font-size:13px;color:#9E9B94;margin:20px 0 0;">${brandName} &mdash; ${brandPhone} &mdash; ${brandEmail}</p>
 ${unsub?.footerHtml ?? ""}
 </div></div>`;
+  const ccList = (cc ?? []).filter((e) => e && e.toLowerCase() !== to.toLowerCase());
   const res: any = await resend.emails.send({
     from: fromAddress,
     to: [to],
+    ...(ccList.length ? { cc: ccList } : {}),
     subject,
     html: bodyHtml,
     ...(unsub?.headers && Object.keys(unsub.headers).length ? { headers: unsub.headers } : {}),
@@ -130,36 +142,32 @@ ${unsub?.footerHtml ?? ""}
   return res?.data?.id ?? res?.id ?? null;
 }
 
-async function sendEmail(to: string, subject: string, body: string, fromAddress?: string, brand?: EmailBrand, unsub?: { headers: Record<string, string>; footerHtml: string }): Promise<void> {
+async function sendEmail(to: string, subject: string, body: string, fromAddress?: string, brand?: EmailBrand, unsub?: { headers: Record<string, string>; footerHtml: string }, cc?: string[]): Promise<void> {
   if (process.env.COMMS_ENABLED !== "true") {
     console.log("[COMMS BLOCKED] Follow-up email suppressed:", { to, subject });
     return;
   }
-  await sendEmailRaw(to, subject, body, fromAddress, brand, unsub);
+  await sendEmailRaw(to, subject, body, fromAddress, brand, unsub, cc);
 }
 
-// Build the merge vars for a quote-tied enrollment touch (the quote email + SMS).
-// Pulls the quote's public sign_token (→ the customer-facing estimate page),
-// total, line items, address, contact + the tenant's company/brand info so the
-// MaidCentral-styled quote email renders fully on BOTH the cron and send-one
-// paths. Returns extra vars merged on top of the base {first_name, company_name}.
-async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<Record<string, string>> {
-  const r = await db.execute(sql`
-    SELECT q.id, q.total_price, q.base_price, q.address, q.service_type, q.addons,
-           q.sign_token, q.lead_email, q.lead_phone,
-           c.name AS company_name, c.phone AS company_phone, c.email AS company_email
-    FROM quotes q JOIN companies c ON c.id = q.company_id
-    WHERE q.id = ${quoteId} AND q.company_id = ${companyId} LIMIT 1
-  `);
-  const q: any = r.rows[0];
-  if (!q) return {};
+// Human label for a quote's frequency, used as the option heading when a lead
+// has more than one quote (e.g. "Deep Clean · One-time" vs "Standard · Every 2 weeks").
+function quoteFreqLabel(f: string | null | undefined): string {
+  const k = String(f || "").toLowerCase().replace(/[\s-]+/g, "_");
+  const map: Record<string, string> = {
+    onetime: "One-time", one_time: "One-time",
+    weekly: "Weekly", biweekly: "Every 2 weeks", bi_weekly: "Every 2 weeks",
+    every_2_weeks: "Every 2 weeks", every_4_weeks: "Every 4 weeks",
+    monthly: "Monthly", quarterly: "Quarterly",
+  };
+  return map[k] || (f ? String(f).replace(/_/g, " ") : "");
+}
+
+// Render ONE quote as an itemized option block: an optional heading
+// (service · frequency) + a line-item table (base + each add-on) + a Total row.
+// Mirrors the booking-confirmation breakdown so every option reads the same.
+function renderQuoteOption(q: any, showHeading: boolean): string {
   const total = q.total_price ?? q.base_price ?? "0";
-  // Residential quotes use the /quote/ route (the hosted page self-labels as
-  // "Quote"). Commercial estimates use /estimate/. This is a quote, so /quote/.
-  // Clean short link (/s/<code>) for the customer SMS/email instead of the long
-  // hex sign_token URL. Falls back to the full URL on any failure.
-  const fullLink = q.sign_token ? `${appBaseUrl()}/quote/${q.sign_token}` : `${appBaseUrl()}/quote`;
-  const link = q.sign_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
   const addons = Array.isArray(q.addons) ? q.addons : [];
   const rows: string[] = [];
   if (q.base_price != null) rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${q.service_type || "Cleaning service"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$${Number(q.base_price).toFixed(2)}</td></tr>`);
@@ -167,7 +175,115 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
     const amt = a?.amount ?? a?.price;
     rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${a?.name || "Add-on"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">${amt != null ? "$" + Number(amt).toFixed(2) : "—"}</td></tr>`);
   }
-  const lineItems = `<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">${rows.join("")}<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$${Number(total).toFixed(2)}</td></tr></table>`;
+  const est = estTimeLabel(q.manual_hours) || estTimeLabel(q.estimated_hours);
+  const estLine = est ? `<p style="font-size:13px;color:#6B6860;margin:2px 0 0;">Estimated time &middot; ${est}</p>` : "";
+  const table = `<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">${rows.join("")}<tr><td style="padding:8px 0 0;font-weight:700;border-top:1px solid #E5E2DC;">Total</td><td style="padding:8px 0 0;text-align:right;font-weight:700;border-top:1px solid #E5E2DC;">$${Number(total).toFixed(2)}</td></tr></table>`;
+  if (!showHeading) return `${estLine}${table}`;
+  const freq = quoteFreqLabel(q.frequency);
+  return `<p style="font-size:15px;font-weight:700;color:#1A1917;margin:16px 0 2px;">${q.service_type || "Cleaning service"}${freq ? ` &middot; ${freq}` : ""}</p>${estLine}${table}`;
+}
+
+// Shared loader for the quote email surfaces: the triggering quote (+ company
+// brand) and EVERY still-open quote for that lead, one-time options first.
+// Used by buildQuoteMergeVars (legacy {{line_items}} vars, SMS) and
+// buildPhesQuoteEmailHtml (the bespoke on-brand email).
+async function loadQuoteEmailData(companyId: number, quoteId: number): Promise<{ q: any; quotes: any[] } | null> {
+  const r = await db.execute(sql`
+    SELECT q.id, q.total_price, q.base_price, q.address, q.service_type, q.frequency, q.addons,
+           q.sign_token, q.lead_email, q.lead_phone, q.client_id, q.estimated_hours, q.manual_hours,
+           c.name AS company_name, c.phone AS company_phone, c.email AS company_email, c.logo_url AS company_logo
+    FROM quotes q JOIN companies c ON c.id = q.company_id
+    WHERE q.id = ${quoteId} AND q.company_id = ${companyId} LIMIT 1
+  `);
+  const q: any = r.rows[0];
+  if (!q) return null;
+
+  // All of this lead's still-open quotes. Match by client_id when known, else by
+  // lead email/phone. Only quotes actually sent to the customer (or this trigger),
+  // excluding anything already accepted / booked / expired / declined. One-time
+  // options list before recurring so the "book now" clean reads first.
+  const leadEmail = String(q.lead_email || "").trim().toLowerCase();
+  const leadPhone10 = String(q.lead_phone || "").replace(/\D/g, "").slice(-10);
+  const allRows = await db.execute(sql`
+    SELECT id, total_price, base_price, service_type, frequency, addons, sign_token,
+           estimated_hours, manual_hours
+    FROM quotes
+    WHERE company_id = ${companyId}
+      AND status NOT IN ('accepted','booked','converted','expired','declined','lost')
+      AND (sent_at IS NOT NULL OR id = ${quoteId})
+      AND (
+        (${q.client_id}::int IS NOT NULL AND client_id = ${q.client_id})
+        OR (${q.client_id}::int IS NULL AND ${leadEmail} <> '' AND lower(lead_email) = ${leadEmail})
+        OR (${q.client_id}::int IS NULL AND ${leadPhone10} <> '' AND right(regexp_replace(coalesce(lead_phone,''),'\\D','','g'),10) = ${leadPhone10})
+      )
+    ORDER BY (frequency IS NULL OR lower(frequency) IN ('onetime','one_time','one-time')) DESC, id ASC
+  `);
+  const quotes: any[] = (allRows.rows && allRows.rows.length ? allRows.rows : [q]);
+  return { q, quotes };
+}
+
+// One quote row → a bespoke-template option card (itemized rows + est. time +
+// its own /book-quote/<token> deep link).
+function quoteAsOption(qq: any): QuoteOption {
+  const rows: { label: string; amount: string }[] = [];
+  if (qq.base_price != null) rows.push({ label: qq.service_type || "Cleaning service", amount: `$${Number(qq.base_price).toFixed(2)}` });
+  for (const a of (Array.isArray(qq.addons) ? qq.addons : [])) {
+    const amt = a?.amount ?? a?.price;
+    rows.push({ label: a?.name || "Add-on", amount: amt != null ? `+$${Number(amt).toFixed(2)}` : "—" });
+  }
+  return {
+    title: qq.service_type || "Cleaning service",
+    freqLabel: quoteFreqLabel(qq.frequency),
+    estTime: estTimeLabel(qq.manual_hours) || estTimeLabel(qq.estimated_hours),
+    rows,
+    total: `$${Number(qq.total_price ?? qq.base_price ?? 0).toFixed(2)}`,
+    bookUrl: qq.sign_token ? `${appBaseUrl()}/book-quote/${qq.sign_token}` : "",
+  };
+}
+
+// The bespoke on-brand quote email (renderPhesQuote — same family as the
+// booking confirmation), with every open option itemized + a Book button per
+// option. Returns null for non-Phes tenants (they keep the plain template) or
+// when the quote can't be loaded, so callers can fall back safely.
+export async function buildPhesQuoteEmailHtml(companyId: number, quoteId: number, firstName: string): Promise<string | null> {
+  const data = await loadQuoteEmailData(companyId, quoteId);
+  if (!data) return null;
+  const { q, quotes } = data;
+  if (!/phes/i.test(q.company_name || "")) return null;
+  return renderPhesQuote({
+    logoUrl: emailLogoUrl(q.company_logo),
+    companyName: q.company_name || "Phes",
+    companyPhone: q.company_phone || "(773) 706-6000",
+    companyPhoneTel: q.company_phone ? String(q.company_phone).replace(/[^\d+]/g, "") : "+17737066000",
+    companyEmail: q.company_email || "info@phes.io",
+    website: "phes.io",
+    firstName,
+    serviceAddress: q.address || "",
+    options: quotes.map(quoteAsOption),
+    checklistUrl: "https://phes.io/cleaning-checklist",
+  });
+}
+
+// Build the merge vars for a quote-tied enrollment touch (the quote email + SMS).
+// Pulls the triggering quote for the customer-facing link + brand info, then
+// gathers EVERY open quote for that lead so the customer sees all the options
+// they were quoted (e.g. a one-time deep clean AND a recurring plan), each
+// itemized, even the ones that didn't trigger this drip. Returns extra vars
+// merged on top of the base {first_name, company_name}.
+async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<Record<string, string>> {
+  const data = await loadQuoteEmailData(companyId, quoteId);
+  if (!data) return {};
+  const { q, quotes } = data;
+  const total = q.total_price ?? q.base_price ?? "0";
+  // Residential quotes use the /quote/ route (the hosted page self-labels as
+  // "Quote"). Clean short link for the customer SMS/email; falls back to full URL.
+  const fullLink = q.sign_token ? `${appBaseUrl()}/quote/${q.sign_token}` : `${appBaseUrl()}/quote`;
+  const link = q.sign_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
+  const multi = quotes.length > 1;
+  const lineItems = multi
+    ? quotes.map((qq) => renderQuoteOption(qq, true)).join("")
+    : renderQuoteOption(quotes[0], false);
+
   return {
     company_name:    q.company_name || "Phes",
     company_phone:   q.company_phone || "(773) 706-6000",
@@ -175,10 +291,48 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
     estimate_link:   link,
     quote_number:    String(q.id),
     quote_total:     Number(total).toFixed(2),
+    quote_count:     String(quotes.length),
     service_address: q.address || "",
     customer_email:  q.lead_email || "",
     customer_phone:  q.lead_phone || "",
     line_items:      lineItems,
+  };
+}
+
+// Build merge vars for a commercial-estimate enrollment touch. Pulls the
+// estimate's public token (→ the hosted /estimate/ page), total, property +
+// contact and the tenant brand. Merge fields used by the estimate sequence copy:
+// {{first_name}} {{company_name}} {{company_phone}} {{property}} {{monthly}} {{estimate_link}}.
+async function buildEstimateMergeVars(companyId: number, estimateId: number, enrollmentId?: number, recipientOverride?: string | null): Promise<Record<string, string>> {
+  const r = await db.execute(sql`
+    SELECT e.id, e.total, e.property_name, e.service_address, e.public_token, e.contact_name, e.contact_email,
+           c.name AS company_name, c.phone AS company_phone, c.email AS company_email
+    FROM estimates e JOIN companies c ON c.id = e.company_id
+    WHERE e.id = ${estimateId} AND e.company_id = ${companyId} LIMIT 1
+  `);
+  const e: any = r.rows[0];
+  if (!e) return {};
+  const fullLink = e.public_token ? `${appBaseUrl()}/estimate/${e.public_token}` : `${appBaseUrl()}/estimate`;
+  // [engagement-phase4] When sending a real touch (enrollmentId present), route
+  // the link through our own click-redirect so the click is recorded natively
+  // and attributed to this estimate + enrollment. Falls back to a short link.
+  let link: string;
+  if (enrollmentId) {
+    const { createTrackedLink } = await import("../lib/engagement.js");
+    link = await createTrackedLink({ companyId, targetUrl: fullLink, estimateId, enrollmentId, recipient: recipientOverride ?? e.contact_email ?? null });
+  } else {
+    link = e.public_token ? ((await shortenUrl(fullLink, companyId)) || fullLink) : fullLink;
+  }
+  const total = e.total != null ? Number(e.total).toFixed(2) : "0.00";
+  return {
+    company_name:   e.company_name || "Phes",
+    company_phone:  e.company_phone || "(773) 706-6000",
+    company_email:  e.company_email || "info@phes.io",
+    property:       e.property_name || e.service_address || "your property",
+    monthly:        total,
+    estimate_total: total,
+    estimate_link:  link,
+    estimate_number: String(e.id),
   };
 }
 
@@ -355,6 +509,192 @@ export async function stopEnrollmentsForQuote(
   }
 }
 
+// ── Enroll for estimate follow-up (commercial drip) ────────────────────────────
+// Fired from POST /api/estimates/:id/send. Enrolls only when the tenant has an
+// ACTIVE 'estimate_followup' sequence — seeded is_active=FALSE by default, so the
+// drip is INERT until the office explicitly turns it on. Even when active, the
+// actual sends still pass through the COMMS_ENABLED + company/branch comms gates
+// in processEnrollment, so nothing leaves while a tenant's comms are off.
+export async function enrollForEstimateSent(
+  companyId: number,
+  estimateId: number,
+): Promise<void> {
+  try {
+    const seqRows = await db.execute(sql`
+      SELECT id FROM follow_up_sequences
+      WHERE company_id = ${companyId} AND sequence_type = 'estimate_followup' AND is_active = true
+      LIMIT 1
+    `);
+    if (!seqRows.rows.length) {
+      console.log(`[follow-up] No active estimate_followup sequence for company ${companyId} — estimate ${estimateId} not enrolled (drip inert).`);
+      return;
+    }
+    const sequenceId = (seqRows.rows[0] as any).id;
+
+    // Deduplicate: one active enrollment per estimate.
+    const existing = await db.execute(sql`
+      SELECT id FROM follow_up_enrollments
+      WHERE sequence_id = ${sequenceId} AND estimate_id = ${estimateId}
+        AND completed_at IS NULL AND stopped_at IS NULL
+      LIMIT 1
+    `);
+    if (existing.rows.length > 0) return;
+
+    await db.execute(sql`
+      INSERT INTO follow_up_enrollments
+        (company_id, sequence_id, estimate_id, current_step, next_fire_at)
+      VALUES
+        (${companyId}, ${sequenceId}, ${estimateId}, 1, NOW())
+    `);
+    console.log(`[follow-up] Enrolled estimate ${estimateId} in estimate_followup sequence ${sequenceId}`);
+  } catch (err) {
+    console.error("[follow-up] enrollForEstimateSent error (non-fatal):", err);
+  }
+}
+
+// ── Enroll a lead in the appropriate drip sequence ────────────────────────────
+// Selects lead_drip_web or lead_drip_phone by leadSource. Both are seeded
+// is_active=FALSE so nothing fires until the office enables the sequence.
+// Even when active, sends still pass through the COMMS_ENABLED gate.
+export async function enrollForLeadDrip(
+  companyId: number,
+  leadId: number,
+  leadSource: string,
+): Promise<void> {
+  try {
+    const seqType = leadSource === 'phone_in' ? 'lead_drip_phone' : 'lead_drip_web';
+    const seqRows = await db.execute(sql`
+      SELECT id FROM follow_up_sequences
+      WHERE company_id = ${companyId} AND sequence_type = ${seqType} AND is_active = true
+      LIMIT 1
+    `);
+    if (!seqRows.rows.length) {
+      console.log(`[follow-up] No active ${seqType} sequence for company ${companyId} — lead ${leadId} not enrolled (drip inert).`);
+      return;
+    }
+    const sequenceId = (seqRows.rows[0] as any).id;
+
+    const existing = await db.execute(sql`
+      SELECT id FROM follow_up_enrollments
+      WHERE sequence_id = ${sequenceId} AND lead_id = ${leadId}
+        AND completed_at IS NULL AND stopped_at IS NULL
+      LIMIT 1
+    `);
+    if (existing.rows.length > 0) return;
+
+    await db.execute(sql`
+      INSERT INTO follow_up_enrollments
+        (company_id, sequence_id, lead_id, current_step, next_fire_at)
+      VALUES
+        (${companyId}, ${sequenceId}, ${leadId}, 1, NOW())
+    `);
+    console.log(`[follow-up] Enrolled lead ${leadId} in ${seqType} sequence ${sequenceId}`);
+  } catch (err) {
+    console.error("[follow-up] enrollForLeadDrip error (non-fatal):", err);
+  }
+}
+
+// ── Stop all drip enrollments for a lead (booked / opted out) ────────────────
+export async function stopEnrollmentsForLead(
+  leadId: number,
+  reason: string,
+): Promise<void> {
+  try {
+    await db.execute(sql`
+      UPDATE follow_up_enrollments
+      SET stopped_at = NOW(), stopped_reason = ${reason}
+      WHERE lead_id = ${leadId}
+        AND completed_at IS NULL
+        AND stopped_at IS NULL
+    `);
+    console.log(`[follow-up] Stopped lead enrollments for lead ${leadId} — reason: ${reason}`);
+  } catch (err) {
+    console.error("[follow-up] stopEnrollmentsForLead error (non-fatal):", err);
+  }
+}
+
+// ── Stop only the LEAD DRIP enrollments for a lead ────────────────────────────
+// Used at the quoted handoff: the quote_followup cadence takes over the
+// conversation, so the nurture drip must stop or the lead gets both.
+export async function stopLeadDripEnrollments(
+  companyId: number,
+  leadId: number,
+  reason: string,
+): Promise<void> {
+  try {
+    await db.execute(sql`
+      UPDATE follow_up_enrollments fe
+      SET stopped_at = NOW(), stopped_reason = ${reason}
+      FROM follow_up_sequences fs
+      WHERE fs.id = fe.sequence_id
+        AND fe.company_id = ${companyId}
+        AND fe.lead_id = ${leadId}
+        AND fs.sequence_type IN ('lead_drip_web','lead_drip_phone')
+        AND fe.completed_at IS NULL
+        AND fe.stopped_at IS NULL
+    `);
+    console.log(`[follow-up] Stopped lead-drip enrollments for lead ${leadId} — reason: ${reason}`);
+  } catch (err) {
+    console.error("[follow-up] stopLeadDripEnrollments error (non-fatal):", err);
+  }
+}
+
+// ── Stop enrollments for an estimate (accepted / declined) ──────────────────────
+export async function stopEnrollmentsForEstimate(
+  estimateId: number,
+  reason: string,
+): Promise<void> {
+  try {
+    await db.execute(sql`
+      UPDATE follow_up_enrollments
+      SET stopped_at = NOW(), stopped_reason = ${reason}
+      WHERE estimate_id = ${estimateId}
+        AND completed_at IS NULL
+        AND stopped_at IS NULL
+    `);
+    console.log(`[follow-up] Stopped estimate enrollments for estimate ${estimateId} — reason: ${reason}`);
+  } catch (err) {
+    console.error("[follow-up] stopEnrollmentsForEstimate error (non-fatal):", err);
+  }
+}
+
+// ── Stop estimate enrollments by replier phone (stop-on-reply) ──────────────────
+// The inbound-SMS webhook calls this so a property manager texting back halts the
+// estimate drip, matched on the estimate's contact_phone (last-10 digits).
+export async function stopEstimateEnrollmentsByPhone(
+  companyId: number,
+  phone: string,
+  reason: string,
+): Promise<void> {
+  try {
+    const digits = (phone || "").replace(/\D/g, "").slice(-10);
+    if (digits.length !== 10) return;
+    const stopped = await db.execute(sql`
+      UPDATE follow_up_enrollments fe
+      SET stopped_at = NOW(), stopped_reason = ${reason}
+      FROM estimates e
+      WHERE fe.estimate_id = e.id
+        AND fe.company_id = ${companyId}
+        AND right(regexp_replace(e.contact_phone, '\\D', '', 'g'), 10) = ${digits}
+        AND fe.completed_at IS NULL
+        AND fe.stopped_at IS NULL
+      RETURNING fe.id AS enrollment_id, fe.estimate_id
+    `);
+    // [engagement-phase4] Record an inbound reply against each stopped estimate.
+    const { recordEngagementEvent } = await import("../lib/engagement.js");
+    for (const r of (stopped as any).rows ?? []) {
+      await recordEngagementEvent({
+        companyId, estimateId: r.estimate_id, enrollmentId: r.enrollment_id,
+        eventType: "replied", channel: "sms", recipient: digits,
+        meta: { reason },
+      });
+    }
+    console.log(`[follow-up] Stopped ${((stopped as any).rows ?? []).length} estimate enrollment(s) by phone ${digits} (company=${companyId}) — reason: ${reason}`);
+  } catch (err) {
+    console.error("[follow-up] stopEstimateEnrollmentsByPhone error (non-fatal):", err);
+  }
+}
+
 // ── Stop abandoned-booking enrollments (the customer finished booking) ──────────
 // Keyed by email since /book/confirm knows the email, not the abandoned row id.
 // Run BEFORE the confirm-time DELETE of the abandoned_bookings row (the FK is
@@ -391,7 +731,7 @@ export async function processDueEnrollments(): Promise<void> {
     const due = await db.execute(sql`
       SELECT
         fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id,
-        fe.abandoned_booking_id, fe.current_step,
+        fe.abandoned_booking_id, fe.estimate_id, fe.current_step,
         fs.name AS sequence_name, fs.sequence_type
       FROM follow_up_enrollments fe
       JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
@@ -416,7 +756,11 @@ export async function processDueEnrollments(): Promise<void> {
   }
 }
 
-async function processEnrollment(enr: any): Promise<void> {
+// Returns the outcome of the touch it just processed (used by the immediate
+// "Send now" path to report whether the email actually went out). The cron
+// callers ignore the return.
+type TouchResult = { channel: string; status: string; recipient: string | null };
+async function processEnrollment(enr: any): Promise<TouchResult | null> {
   // Fetch the current step (template_id links to a managed message_templates row)
   const stepRows = await db.execute(sql`
     SELECT id, step_number, delay_hours, channel, subject, message_template, template_id
@@ -429,7 +773,7 @@ async function processEnrollment(enr: any): Promise<void> {
     await db.execute(sql`
       UPDATE follow_up_enrollments SET completed_at = NOW() WHERE id = ${enr.id}
     `);
-    return;
+    return null;
   }
   const step = stepRows.rows[0] as any;
 
@@ -438,6 +782,8 @@ async function processEnrollment(enr: any): Promise<void> {
   let recipientEmail: string | null = null;
   let recipientPhone: string | null = null;
   let zip: string | null = null;
+  // [multi-recipient-estimates] Extra CC emails (estimate enrollments only).
+  let ccEmails: string[] = [];
 
   if (enr.client_id) {
     const clientRows = await db.execute(sql`
@@ -483,6 +829,18 @@ async function processEnrollment(enr: any): Promise<void> {
       recipientPhone = a.phone || null;
       zip = a.zip || null;
     }
+  } else if (enr.estimate_id) {
+    const estRows = await db.execute(sql`
+      SELECT contact_name, contact_email, cc_emails, contact_phone, service_address FROM estimates WHERE id = ${enr.estimate_id} LIMIT 1
+    `);
+    if (estRows.rows.length) {
+      const e = estRows.rows[0] as any;
+      firstName = (e.contact_name || "").split(" ")[0] || "";
+      recipientEmail = e.contact_email || null;
+      ccEmails = String(e.cc_emails || "").split(",").map((s: string) => s.trim()).filter(Boolean);
+      recipientPhone = e.contact_phone || null;
+      zip = (String(e.service_address || "").match(/\b(\d{5})\b/) || [])[1] || null;
+    }
   }
 
   // Per-branch routing — every comm goes through getBranchByZip (CLAUDE.md).
@@ -514,6 +872,9 @@ async function processEnrollment(enr: any): Promise<void> {
   // Quote-tied enrollments (the quote email/SMS) get the full quote merge set:
   // public estimate link, total, itemized line items, address, contact, brand.
   if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(enr.company_id, enr.quote_id));
+  // Estimate enrollments get the commercial-estimate merge set (contact, property,
+  // monthly total, hosted view link).
+  if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(enr.company_id, enr.estimate_id, enr.id));
   // Abandoned-booking enrollments get {{resume_link}} (the company booking page)
   // + {{office_phone}} (the steps reference both).
   if (enr.abandoned_booking_id) {
@@ -523,9 +884,28 @@ async function processEnrollment(enr: any): Promise<void> {
     mergeVars.resume_link = slug ? `${base}/book/${slug}` : `${base}/book`;
     mergeVars.office_phone = mergeVars.company_phone;
   }
-  const body    = resolveMergeFields(rawBody, mergeVars);
+  let body      = resolveMergeFields(rawBody, mergeVars);
+  // [quote-email-live] The quote-delivery touch (the template carrying
+  // {{line_items}}) sends the bespoke on-brand quote email — same design family
+  // as the booking confirmation, every open option itemized with its own Book
+  // button. Phes-only; other tenants (and any load failure) keep the plain
+  // template rendered above. Subject stays the office-edited template subject.
+  if (enr.quote_id && step.channel === "email" && /\{\{\s*line_items\s*\}\}/.test(rawBody)) {
+    const bespoke = await buildPhesQuoteEmailHtml(enr.company_id, enr.quote_id, firstName).catch(() => null);
+    if (bespoke) body = bespoke;
+  }
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
   const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
+  // Append a 1x1 open pixel to an estimate email body for `recipient`, minted so
+  // the open attributes to that exact person. Used per-recipient below.
+  const withPixel = async (b: string, recipient: string): Promise<string> => {
+    if (!(enr.estimate_id && step.channel === "email")) return b;
+    try {
+      const { createOpenPixel } = await import("../lib/engagement.js");
+      const px = await createOpenPixel({ companyId: enr.company_id, estimateId: enr.estimate_id, enrollmentId: enr.id, recipient });
+      return px ? `${b}\n<img src="${px}" width="1" height="1" alt="" style="display:none" />` : b;
+    } catch { return b; }
+  };
 
   let sendStatus = "sent";
   let sendError  = "";
@@ -560,8 +940,30 @@ async function processEnrollment(enr: any): Promise<void> {
         sendError  = sender.reason || "branch_comms_disabled";
         console.log(`[follow-up] email suppressed (${sendError}) enrollment ${enr.id}`);
       } else {
-        const unsub = await buildEmailUnsubData(enr.company_id, recipientEmail);
-        await sendEmail(recipientEmail, subject, body, await companyFromAddress(enr.company_id), emailBrand, unsub ?? undefined);
+        const fromAddr = await companyFromAddress(enr.company_id);
+        if (enr.estimate_id) {
+          // [per-recipient-tracking] Estimate touches send an individual email to
+          // each recipient (To + every CC) with their OWN tracked link + open
+          // pixel, so opens/clicks attribute to the exact person. The To send
+          // drives the touch status; CC failures are logged, not fatal.
+          const recipients = [...new Set([recipientEmail, ...ccEmails].map(s => s.trim().toLowerCase()).filter(Boolean))];
+          for (let i = 0; i < recipients.length; i++) {
+            const rcpt = recipients[i];
+            if (i > 0 && await isEmailOptedOut(enr.company_id, rcpt)) continue;
+            const rVars = { ...mergeVars, ...(await buildEstimateMergeVars(enr.company_id, enr.estimate_id, enr.id, rcpt)) };
+            const rBody = await withPixel(resolveMergeFields(rawBody, rVars), rcpt);
+            const rUnsub = await buildEmailUnsubData(enr.company_id, rcpt);
+            if (i === 0) {
+              await sendEmail(rcpt, subject, rBody, fromAddr, emailBrand, rUnsub ?? undefined);
+            } else {
+              try { await sendEmail(rcpt, subject, rBody, fromAddr, emailBrand, rUnsub ?? undefined); }
+              catch (e: any) { console.error(`[follow-up] CC send failed (${rcpt}) enrollment ${enr.id}:`, e?.message || e); }
+            }
+          }
+        } else {
+          const unsub = await buildEmailUnsubData(enr.company_id, recipientEmail);
+          await sendEmail(recipientEmail, subject, body, fromAddr, emailBrand, unsub ?? undefined, ccEmails);
+        }
       }
     } else {
       sendStatus = "failed";
@@ -584,6 +986,21 @@ async function processEnrollment(enr: any): Promise<void> {
        ${subject || null}, ${body}, ${sendStatus},
        ${enr.sequence_name}, ${step.step_number})
   `);
+
+  // [engagement-phase4] Fan the cadence send into the engagement timeline
+  // (estimate enrollments only). sent → 'sent'; otherwise → 'failed' with reason.
+  if (enr.estimate_id) {
+    const { recordEngagementEvent } = await import("../lib/engagement.js");
+    await recordEngagementEvent({
+      companyId: enr.company_id,
+      estimateId: enr.estimate_id,
+      enrollmentId: enr.id,
+      eventType: sendStatus === "sent" ? "sent" : "failed",
+      channel: step.channel,
+      recipient: step.channel === "sms" ? recipientPhone : recipientEmail,
+      meta: { step_number: step.step_number, status: sendStatus, ...(sendError ? { error: sendError } : {}) },
+    });
+  }
 
   // Advance or complete — next_fire_at clamped to 8am–9pm America/Chicago.
   const nextStepRows = await db.execute(sql`
@@ -609,6 +1026,39 @@ async function processEnrollment(enr: any): Promise<void> {
     `);
     console.log(`[follow-up] Enrollment ${enr.id} completed — all steps sent`);
   }
+  return { channel: step.channel, status: sendStatus, recipient: step.channel === "sms" ? recipientPhone : recipientEmail };
+}
+
+// [estimate-send-now] Fire an estimate's Day-0 touch IMMEDIATELY (instead of
+// waiting up to 30 min for the cron), through the same gated processEnrollment
+// path (comms gates, opt-out, CC, engagement event, step-advance all apply).
+// Returns whether the email actually went out so the office gets instant
+// confirmation. Safe no-op if the estimate isn't enrolled / already advanced.
+export async function fireEstimateDay0(
+  companyId: number, estimateId: number,
+): Promise<{ emailed: boolean; status: string; channel?: string; recipient?: string | null; reason?: string }> {
+  try {
+    const rows = await db.execute(sql`
+      SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id,
+             fe.abandoned_booking_id, fe.estimate_id, fe.current_step,
+             fs.name AS sequence_name, fs.sequence_type
+      FROM follow_up_enrollments fe
+      JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+      WHERE fe.estimate_id = ${estimateId} AND fe.company_id = ${companyId}
+        AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+      ORDER BY fe.id DESC LIMIT 1
+    `);
+    const enr = (rows as any).rows[0];
+    if (!enr) return { emailed: false, status: "not_enrolled", reason: "not_enrolled" };
+    // Only fire if still on the first (Day-0) step — never re-send a later touch.
+    if (Number(enr.current_step) !== 1) return { emailed: false, status: "already_started", reason: "already_started" };
+    const r = await processEnrollment(enr);
+    if (!r) return { emailed: false, status: "no_step", reason: "no_step" };
+    return { emailed: r.status === "sent" && r.channel === "email", status: r.status, channel: r.channel, recipient: r.recipient, reason: r.status !== "sent" ? r.status : undefined };
+  } catch (err: any) {
+    console.error("[estimate-send-now] fireEstimateDay0 error:", err?.message ?? err);
+    return { emailed: false, status: "error", reason: err?.message ?? "error" };
+  }
 }
 
 // ── Scoped one-off: send a SINGLE enrollment's current touch ────────────────────
@@ -620,7 +1070,7 @@ export async function sendSingleEnrollmentTouch(
   companyId: number, enrollmentId: number, stepOverride?: number,
 ): Promise<{ sent: boolean; channel?: string; recipient?: string | null; step?: number; reason?: string; advanced_to_step?: number | null; completed?: boolean; provider_id?: string | null; error?: string }> {
   const enrRows = await db.execute(sql`
-    SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id, fe.current_step,
+    SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id, fe.estimate_id, fe.current_step,
            fs.name AS sequence_name
     FROM follow_up_enrollments fe
     JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
@@ -648,6 +1098,9 @@ export async function sendSingleEnrollmentTouch(
   } else if (enr.lead_id) {
     const r = await db.execute(sql`SELECT first_name, email, phone, zip FROM leads WHERE id = ${enr.lead_id} LIMIT 1`);
     const l = r.rows[0] as any; if (l) { firstName = l.first_name || ""; recipientEmail = l.email || null; recipientPhone = l.phone || null; zip = l.zip || null; }
+  } else if (enr.estimate_id) {
+    const r = await db.execute(sql`SELECT contact_name, contact_email, contact_phone, service_address FROM estimates WHERE id = ${enr.estimate_id} LIMIT 1`);
+    const e = r.rows[0] as any; if (e) { firstName = (e.contact_name || "").split(" ")[0] || ""; recipientEmail = e.contact_email || null; recipientPhone = e.contact_phone || null; zip = (String(e.service_address || "").match(/\b(\d{5})\b/) || [])[1] || null; }
   }
   const branch = getBranchByZip(zip || "");
 
@@ -660,7 +1113,15 @@ export async function sendSingleEnrollmentTouch(
   const ci = await companyInfo(companyId);
   const mergeVars: Record<string, string> = { first_name: firstName, company_name: ci.name, company_phone: ci.phone, company_email: ci.email };
   if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(companyId, enr.quote_id));
-  const body = resolveMergeFields(rawBody, mergeVars);
+  if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(companyId, enr.estimate_id, enr.id));
+  let body = resolveMergeFields(rawBody, mergeVars);
+  // [quote-email-live] Same bespoke-quote-email swap as processEnrollment — a
+  // scoped one-off re-send of the quote-delivery touch must look identical to
+  // the cadence send.
+  if (enr.quote_id && step.channel === "email" && /\{\{\s*line_items\s*\}\}/.test(rawBody)) {
+    const bespoke = await buildPhesQuoteEmailHtml(companyId, enr.quote_id, firstName).catch(() => null);
+    if (bespoke) body = bespoke;
+  }
   const subject = rawSubject ? resolveMergeFields(rawSubject, mergeVars) : "";
   const emailBrand: EmailBrand = { companyName: mergeVars.company_name, phone: mergeVars.company_phone, email: mergeVars.company_email };
 

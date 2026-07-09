@@ -69,51 +69,64 @@ export async function matchContact(companyId: number, fromRaw: string): Promise<
   return { client_id: null, lead_id: null, name: null };
 }
 
-// Persist an INBOUND SMS. Matches the sender to a client/lead and stores the
-// body unread (read_at null). Returns the inserted row id + the match.
+// Persist an INBOUND SMS (or MMS). Matches the sender to a client/lead and
+// stores the body unread (read_at null). mediaUrls holds R2 keys for any images.
 export async function recordInboundSms(args: {
-  companyId: number; fromRaw: string; toRaw: string; body: string; providerId?: string | null;
+  companyId: number; fromRaw: string; toRaw: string; body: string;
+  providerId?: string | null; mediaUrls?: string[] | null;
 }): Promise<{ id: number; match: ContactMatch }> {
   const match = await matchContact(args.companyId, args.fromRaw);
   const cp = phone10(args.fromRaw);
+  const mediaPg = args.mediaUrls && args.mediaUrls.length > 0
+    ? sql`ARRAY[${sql.join(args.mediaUrls.map(u => sql`${u}`), sql`, `)}]::text[]`
+    : sql`NULL`;
   const r = await db.execute(sql`
     INSERT INTO sms_messages
-      (company_id, contact_phone, client_id, lead_id, direction, body, from_number, to_number, provider_id, status, read_at)
+      (company_id, contact_phone, client_id, lead_id, direction, body, from_number, to_number, provider_id, status, read_at, media_urls)
     VALUES
       (${args.companyId}, ${cp}, ${match.client_id}, ${match.lead_id}, 'inbound', ${args.body},
-       ${args.fromRaw}, ${args.toRaw}, ${args.providerId ?? null}, 'received', NULL)
+       ${args.fromRaw}, ${args.toRaw}, ${args.providerId ?? null}, 'received', NULL, ${mediaPg})
     RETURNING id`);
   return { id: Number((r.rows[0] as any).id), match };
 }
 
-// Persist an OUTBOUND SMS (manual reply / send). Outbound is "read" on insert.
+// Persist an OUTBOUND SMS/MMS (manual reply / send). Outbound is "read" on insert.
 export async function recordOutboundSms(args: {
   companyId: number; toRaw: string; fromNumber: string | null; body: string;
   providerId?: string | null; sentBy?: number | null; clientId?: number | null; leadId?: number | null;
-  status?: string;
+  status?: string; mediaUrls?: string[] | null; scheduledSmsId?: number | null;
 }): Promise<{ id: number }> {
   const cp = phone10(args.toRaw);
+  const mediaPg = args.mediaUrls && args.mediaUrls.length > 0
+    ? sql`ARRAY[${sql.join(args.mediaUrls.map(u => sql`${u}`), sql`, `)}]::text[]`
+    : sql`NULL`;
   const r = await db.execute(sql`
     INSERT INTO sms_messages
-      (company_id, contact_phone, client_id, lead_id, direction, body, from_number, to_number, provider_id, status, read_at, sent_by)
+      (company_id, contact_phone, client_id, lead_id, direction, body, from_number, to_number,
+       provider_id, status, read_at, sent_by, media_urls, scheduled_sms_id)
     VALUES
       (${args.companyId}, ${cp}, ${args.clientId ?? null}, ${args.leadId ?? null}, 'outbound', ${args.body},
-       ${args.fromNumber ?? null}, ${args.toRaw}, ${args.providerId ?? null}, ${args.status ?? "sent"}, NOW(), ${args.sentBy ?? null})
+       ${args.fromNumber ?? null}, ${args.toRaw}, ${args.providerId ?? null}, ${args.status ?? "sent"},
+       NOW(), ${args.sentBy ?? null}, ${mediaPg}, ${args.scheduledSmsId ?? null})
     RETURNING id`);
   return { id: Number((r.rows[0] as any).id) };
 }
 
 // Read a contact's SMS thread (chronological) by client_id, lead_id, or phone.
+// Returns sent_by_name so the UI can show which team member sent each outbound message.
 export async function getThread(companyId: number, key: { clientId?: number | null; leadId?: number | null; phone?: string | null }) {
   let where;
-  if (key.clientId != null) where = sql`client_id = ${key.clientId}`;
-  else if (key.leadId != null) where = sql`lead_id = ${key.leadId}`;
-  else where = sql`contact_phone = ${phone10(key.phone)}`;
+  if (key.clientId != null) where = sql`m.client_id = ${key.clientId}`;
+  else if (key.leadId != null) where = sql`m.lead_id = ${key.leadId}`;
+  else where = sql`m.contact_phone = ${phone10(key.phone)}`;
   const r = await db.execute(sql`
-    SELECT id, direction, body, from_number, to_number, status, read_at, created_at, contact_phone, client_id, lead_id
-      FROM sms_messages
-     WHERE company_id = ${companyId} AND ${where}
-     ORDER BY created_at ASC`);
+    SELECT m.id, m.direction, m.body, m.from_number, m.to_number, m.status, m.read_at, m.created_at,
+           m.contact_phone, m.client_id, m.lead_id, m.media_urls, m.sent_by,
+           NULLIF(trim(u.first_name || ' ' || coalesce(u.last_name, '')), '') AS sent_by_name
+      FROM sms_messages m
+      LEFT JOIN users u ON u.id = m.sent_by
+     WHERE m.company_id = ${companyId} AND ${where}
+     ORDER BY m.created_at ASC`);
   return r.rows;
 }
 

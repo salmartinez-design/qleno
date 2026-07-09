@@ -14,12 +14,9 @@ const MINT = "#00C9A0";
 const SUBLINE = "#9DA3B0";
 // Real Phes logo asset (public/). Used when the tenant has no logo_url of its own.
 const PHES_LOGO = `${API}/phes-logo.jpeg`;
-// Branch contact — fallback only. The public payload carries no per-tenant
-// phone/email yet, so these hardcoded Phes Schaumburg values render until that
-// field is exposed (tracked for a later backend pass).
-const FALLBACK_PHONE = "(847) 538-3729";
-const FALLBACK_PHONE_TEL = "+18475383729";
-const FALLBACK_EMAIL = "schaumburg@phes.io";
+// Contact comes from the estimate's branch (when set) or the company — never
+// hardcode a branch. tel: link is the digits with a US +1 prefix.
+const telOf = (phone: string) => `+1${phone.replace(/\D/g, "").replace(/^1/, "")}`;
 
 type Item = {
   name: string | null;
@@ -38,6 +35,11 @@ type PublicEstimate = {
   intro_note: string | null;
   terms: string | null;
   status: string;
+  // [estimate-flat-mode] 'flat' → render scope list + single price; else itemized.
+  billing_mode?: string | null;
+  // [estimate-flat-clarity] price unit ("/ visit") + optional scope paragraph.
+  flat_price_unit?: string | null;
+  scope_note?: string | null;
   subtotal: string;
   discount_amount: string;
   total: string;
@@ -52,6 +54,10 @@ type PublicEstimate = {
   company_name: string;
   company_logo: string | null;
   company_brand_color: string | null;
+  company_phone?: string | null;
+  company_email?: string | null;
+  branch_name?: string | null;
+  branch_phone?: string | null;
   items: Item[];
   // Phes doc-type model: residential = QUOTE, commercial = ESTIMATE. The public
   // endpoint sets is_quote=true when the token resolved a quote (not an estimate)
@@ -105,6 +111,7 @@ export default function EstimatePublicPage() {
   const [loading, setLoading] = useState(true);
   const [showAccept, setShowAccept] = useState(false);
   const [acceptName, setAcceptName] = useState("");
+  const [smsConsent, setSmsConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   // [multi-frequency] the customer's highlighted tier (defaults to their prior
@@ -140,7 +147,7 @@ export default function EstimatePublicPage() {
       const r = await fetch(`${API}/api/estimates/public/${encodeURIComponent(token)}/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: acceptName.trim(), selected_frequency: freq }),
+        body: JSON.stringify({ name: acceptName.trim(), selected_frequency: freq, sms_consent: smsConsent }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setActionMsg(body.message || "Could not accept — please contact us."); return; }
@@ -262,6 +269,43 @@ export default function EstimatePublicPage() {
 
             {(() => {
               const opts = (Array.isArray(est.options) ? est.options : []).filter(o => o.configured);
+              // [estimate-flat-mode] One price + a scope checklist (no per-line
+              // prices). The total is the single flat price the office set.
+              if (est.billing_mode === "flat") {
+                const unitSuffix = est.flat_price_unit && est.flat_price_unit !== "total" ? ` / ${est.flat_price_unit}` : "";
+                return (
+                  <>
+                    {est.scope_note && (
+                      <p style={{ fontSize: 14, color: "#374151", margin: "0 0 16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{est.scope_note}</p>
+                    )}
+                    {est.items.length > 0 && (
+                      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", margin: "0 0 10px" }}>What's included</p>
+                        {est.items.map((it, i) => (
+                          <div key={i} style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "6px 0" }}>
+                            <span style={{ width: 18, height: 18, borderRadius: 5, background: MINT, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, marginTop: 1, fontSize: 12, fontWeight: 800, lineHeight: 1 }}>✓</span>
+                            <span style={{ fontSize: 14, color: INK }}>
+                              {it.name || "Service"}
+                              {it.frequency && <span style={{ color: MUTE }}>{` · ${it.frequency}`}</span>}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    <div style={{ marginBottom: 18 }}>
+                      {Number(est.discount_amount) > 0 && (
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#047857", padding: "3px 0" }}>
+                          <span>Discount</span><span>−{money(est.discount_amount)}</span>
+                        </div>
+                      )}
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", borderTop: `2px solid ${INK}`, marginTop: 8, paddingTop: 10 }}>
+                        <span style={{ fontSize: 15, fontWeight: 800, color: INK }}>Total</span>
+                        <span style={{ fontSize: 26, fontWeight: 800, color: MINT, letterSpacing: "-0.01em" }}>{money(est.total)}<span style={{ fontSize: 15, fontWeight: 700, color: MUTE }}>{unitSuffix}</span></span>
+                      </div>
+                    </div>
+                  </>
+                );
+              }
               // No snapshot → keep the original single line-items + total render.
               if (opts.length < 1) {
                 return (
@@ -368,13 +412,20 @@ export default function EstimatePublicPage() {
           </button>
         </div>
 
-        {/* Contact block */}
-        <div style={{ textAlign: "center", marginTop: 22, fontSize: 13, color: MUTE, lineHeight: 1.6 }}>
-          Questions? Call or text{" "}
-          <a href={`tel:${FALLBACK_PHONE_TEL}`} style={{ color: INK, fontWeight: 700, textDecoration: "none" }}>{FALLBACK_PHONE}</a>
-          {" · "}
-          <a href={`mailto:${FALLBACK_EMAIL}`} style={{ color: INK, fontWeight: 700, textDecoration: "none" }}>{FALLBACK_EMAIL}</a>
-        </div>
+        {/* Contact block — branch contact when set, else company; never hardcoded. */}
+        {(() => {
+          const phone = est.branch_phone || est.company_phone || null;
+          const email = est.company_email || null;
+          if (!phone && !email) return null;
+          return (
+            <div style={{ textAlign: "center", marginTop: 22, fontSize: 13, color: MUTE, lineHeight: 1.6 }}>
+              Questions? Call or text{" "}
+              {phone && <a href={`tel:${telOf(phone)}`} style={{ color: INK, fontWeight: 700, textDecoration: "none" }}>{phone}</a>}
+              {phone && email && " · "}
+              {email && <a href={`mailto:${email}`} style={{ color: INK, fontWeight: 700, textDecoration: "none" }}>{email}</a>}
+            </div>
+          );
+        })()}
 
         {/* Footer — Powered by Qleno (the only Qleno mention) */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, marginTop: 18, paddingTop: 16, borderTop: `1px solid ${BORDER}` }}>
@@ -407,6 +458,15 @@ export default function EstimatePublicPage() {
               autoFocus
               style={{ width: "100%", padding: "11px 13px", border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 15, fontFamily: FF, boxSizing: "border-box", marginBottom: 10 }}
             />
+            <label style={{ display: "flex", alignItems: "flex-start", gap: 9, cursor: "pointer", margin: "0 0 12px" }}>
+              <input type="checkbox" checked={smsConsent} onChange={e => setSmsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: MINT, width: 16, height: 16, flexShrink: 0 }} />
+              <span style={{ fontSize: 12, color: MUTE, lineHeight: 1.55 }}>
+                By checking this box, you agree to receive recurring automated marketing and transactional text messages (promotions, offers, and appointment updates) from Phes at the number provided. Consent is not a condition of purchase. Message frequency varies. Message and data rates may apply. Reply STOP to unsubscribe or HELP for help. You must be 18 or older. See our{" "}
+                <a href="https://phes.io/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#2199e8", textDecoration: "underline" }}>Terms of Service</a>
+                {" "}and{" "}
+                <a href="https://phes.io/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: "#2199e8", textDecoration: "underline" }}>Privacy Policy</a>.
+              </span>
+            </label>
             {actionMsg && <p style={{ fontSize: 12, color: "#991B1B", margin: "0 0 10px" }}>{actionMsg}</p>}
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setShowAccept(false); setActionMsg(null); }} disabled={submitting}
@@ -414,7 +474,7 @@ export default function EstimatePublicPage() {
                 Cancel
               </button>
               <button onClick={accept} disabled={submitting}
-                style={{ flex: 1.4, height: 44, background: MINT, color: "#04241d", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: FF, opacity: submitting ? 0.7 : 1 }}>
+                style={{ flex: 1.4, height: 44, background: MINT, color: "#04241d", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: submitting ? "not-allowed" : "pointer", fontFamily: FF, opacity: submitting ? 0.7 : 1 }}>
                 {submitting ? "Confirming…" : "Confirm Accept"}
               </button>
             </div>

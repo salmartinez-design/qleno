@@ -31,6 +31,65 @@ export function extractPolicyCopy(mergedBody: string): string {
   return mergedBody.slice(start >= 0 ? start : startKey, end > 0 ? end : mergedBody.length);
 }
 
+// ── Policy-copy brand styling ────────────────────────────────────────────────
+// The authored body's section headings + copy come through as plain HTML. Give
+// the email a branded feel: accent every <h3> heading (brand color + hairline),
+// and wrap the "15% off" and "24-hour guarantee" sections in colored callout
+// tables (single-cell <table> for email-client compatibility). All no-ops when a
+// heading/section isn't present, so an unformatted body is passed through
+// unchanged. Headings must be <h3> to be styled — plain-text lines are left as-is.
+const BRAND_ACCENT = "#5B9BD5";
+const HEAD_RULE = "#D6E3F2";
+
+// Style every <h3>/<h2> that doesn't already carry an inline style (callout
+// headings, styled below, are skipped by the negative lookahead).
+function styleHeadings(html: string, font: string): string {
+  return html
+    .replace(/<h3(?![^>]*\bstyle=)([^>]*)>/gi,
+      (_m, a) => `<h3${a} style="font-family:${font};font-size:15px;font-weight:700;color:${BRAND_ACCENT};border-bottom:2px solid ${HEAD_RULE};padding-bottom:5px;margin:22px 0 10px;">`)
+    .replace(/<h2(?![^>]*\bstyle=)([^>]*)>/gi,
+      (_m, a) => `<h2${a} style="font-family:${font};font-size:17px;font-weight:700;color:${BRAND_ACCENT};border-bottom:2px solid ${HEAD_RULE};padding-bottom:6px;margin:24px 0 12px;">`);
+}
+
+// Wrap ONE h3-delimited section (heading + its body) in a colored callout table.
+// The section always contains at least its heading, so this never emits an empty
+// box. The heading is recolored to the callout's own dark tone.
+function calloutBox(section: string, bg: string, fg: string, headFg: string, font: string): string {
+  const inner = section.replace(/<h3\b[^>]*>/i,
+    `<h3 style="font-family:${font};font-size:15px;font-weight:700;color:${headFg};margin:0 0 6px;">`);
+  return `<table role="presentation" cellpadding="16" cellspacing="0" style="width:100%;background:${bg};border-radius:8px;margin:16px 0;"><tr><td style="font-family:${font};font-size:14px;color:${fg};line-height:1.6;">${inner}</td></tr></table>`;
+}
+
+// Split the copy into h3-delimited sections, classify each ONCE by heading text,
+// and rebuild in a single pass. This replaces the old two sequential wrap passes,
+// where the second callout could slice through the first (a later <h3> that was
+// now nested inside an earlier callout's table) — the bug that produced an empty
+// green stripe and put the 15%-off body in a blue box. Normal sections just get
+// brand-accented headings.
+export function stylePolicyCopy(html: string, font: string): string {
+  if (!html) return html;
+  const heads: { text: string; index: number }[] = [];
+  const re = /<h3\b[^>]*>([\s\S]*?)<\/h3>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) heads.push({ text: m[1].replace(/<[^>]+>/g, ""), index: m.index });
+  if (heads.length === 0) return styleHeadings(html, font);
+
+  let out = html.slice(0, heads[0].index); // preamble before the first heading
+  for (let i = 0; i < heads.length; i++) {
+    const start = heads[i].index;
+    const end = i + 1 < heads.length ? heads[i + 1].index : html.length;
+    const section = html.slice(start, end);
+    if (/15%\s*off/i.test(heads[i].text)) {
+      out += calloutBox(section, "#E1F5EE", "#04342C", "#0F6E56", font);   // green — promo
+    } else if (/24[\s-]*h(?:ou)?r\s*guarantee/i.test(heads[i].text)) {
+      out += calloutBox(section, "#E6F1FB", "#042C53", "#185FA5", font);   // blue — guarantee
+    } else {
+      out += styleHeadings(section, font);                                 // brand-accent heading
+    }
+  }
+  return out;
+}
+
 export type ConfEmailOpts = {
   logoUrl: string; companyName: string; clientFirst: string;
   apptDate: string; apptTime: string; serviceType: string;
@@ -38,6 +97,11 @@ export type ConfEmailOpts = {
   techFirst: string | null; techAvatar: string | null;
   link: string | null; phone: string; phoneTel: string; email: string;
   qlenoMark: string; policyCopyHtml: string;
+  // [services-breakdown] Pre-rendered {{services_breakdown}} table HTML. This
+  // renderer rebuilds the email from structured fields and otherwise drops the
+  // authored body, so an inserted breakdown chip would silently vanish on the
+  // ONE email it matters most for — pass it through and render it explicitly.
+  servicesBreakdownHtml?: string | null;
 };
 
 export function renderConfirmationEmail(o: ConfEmailOpts): string {
@@ -75,6 +139,14 @@ export function renderConfirmationEmail(o: ConfEmailOpts): string {
       </td>
     </tr>` : "";
 
+  // Itemized booking table, rendered under the appointment details when the
+  // template body uses the {{services_breakdown}} chip.
+  const breakdown = o.servicesBreakdownHtml ? `
+    <div style="margin:22px 0 0;">
+      <div style="font-family:${FONT};font-size:13px;font-weight:700;color:${INK};margin:0 0 6px;">Your booking</div>
+      ${o.servicesBreakdownHtml}
+    </div>` : "";
+
   const cta = o.link ? `
     <table role="presentation" cellpadding="0" cellspacing="0" style="margin:24px auto 4px;"><tr>
       <td bgcolor="${MINT}" align="center" style="border-radius:8px;">
@@ -90,7 +162,7 @@ export function renderConfirmationEmail(o: ConfEmailOpts): string {
     <!-- Navy masthead -->
     <tr><td bgcolor="${NAVY}" style="background:${NAVY};padding:20px 28px;">
       <table role="presentation" cellpadding="0" cellspacing="0"><tr>
-        <td valign="middle" style="padding-right:13px;"><img src="${escAttr(o.logoUrl)}" width="40" alt="${escAttr(o.companyName)}" style="height:40px;width:auto;border-radius:8px;background:#ffffff;display:block;border:0;" /></td>
+        <td valign="middle" style="padding-right:13px;"><img src="${escAttr(o.logoUrl)}" width="72" alt="${escAttr(o.companyName)}" style="height:72px;width:auto;border-radius:8px;background:#ffffff;display:block;border:0;" /></td>
         <td valign="middle">
           <div style="font-family:${FONT};font-size:18px;font-weight:700;color:#ffffff;line-height:1.2;">${o.companyName}</div>
           <div style="font-family:${FONT};font-size:12px;color:${SUBLINE};line-height:1.4;">Residential &amp; Commercial Cleaning</div>
@@ -111,9 +183,11 @@ export function renderConfirmationEmail(o: ConfEmailOpts): string {
         ${cleanerRow}
       </table>
 
+      ${breakdown}
+
       ${cta}
 
-      <div style="margin:24px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;">${o.policyCopyHtml}</div>
+      <div style="margin:24px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;">${stylePolicyCopy(o.policyCopyHtml, FONT)}</div>
 
       <p style="margin:22px 0 0;text-align:center;font-family:${FONT};font-size:13px;color:${MUTE};line-height:1.6;">
         Questions? Call or text <a href="tel:${escAttr(o.phoneTel)}" style="color:${INK};font-weight:700;text-decoration:none;">${o.phone}</a> &middot; <a href="mailto:${escAttr(o.email)}" style="color:${INK};font-weight:700;text-decoration:none;">${o.email}</a>

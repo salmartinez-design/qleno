@@ -50,7 +50,9 @@ function parseYmd(s: string | undefined): Date | null {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
-const DAY_HEADERS = ["S", "M", "T", "W", "T", "F", "S"];
+// Two-letter headers to match the Jobs/dispatch month picker (jobs.tsx), so
+// every styled calendar in the app reads the same.
+const DAY_HEADERS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 export function CalendarPopover({
   value,

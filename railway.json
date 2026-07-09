@@ -4,6 +4,7 @@
     "builder": "DOCKERFILE"
   },
   "deploy": {
-    "healthcheckTimeout": 300
+    "healthcheckPath": "/api/healthz",
+    "healthcheckTimeout": 600
   }
 }

@@ -1,8 +1,11 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable } from "@workspace/db/schema";
+import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable, additionalPayTable } from "@workspace/db/schema";
+import { computeTipSplit, type TipSplitTech } from "../lib/tip-split.js";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, requireRole } from "../lib/auth.js";
+import { getResendEmailStatus } from "../lib/comms-sender.js";
+import { gatherConfirmationData, buildConfirmationPdf } from "../lib/confirmation-pdf.js";
 import { notifyUserAsync } from "../lib/push.js";
 import { logAudit, logClientActivity } from "../lib/audit.js";
 import { generateJobCompletionPdf } from "../lib/generate-job-pdf.js";
@@ -10,34 +13,99 @@ import { geocodeAddress } from "../lib/geocode.js";
 import { resolveZoneForZip } from "./zones.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
+import { resolveAccountBillingClientId } from "../lib/account-billing-client.js";
+import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
+import { isSameDayTimeChange, markTimeChangePending, clearTimeChangePending, sendTimeChangeNotification } from "../lib/time-change-notice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
+import multer from "multer";
+import crypto from "node:crypto";
+import { r2Configured, r2Upload, r2SignedGetUrl, isR2Key, jobPhotoKey } from "../lib/r2.js";
+
+// [photos-r2 2026-06-24] In-memory upload buffer for job photos → streamed to
+// R2. 15 MB cap (phone photos run a few MB). Accept only images.
+const photoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => cb(null, /^image\//.test(file.mimetype)),
+});
 
 const router = Router();
 
-// [invoice-sync 2026-06-11] Keep a job's existing DRAFT invoice in lockstep with
-// its price + add-ons + applied discounts. NEVER touches a sent/paid invoice
-// (QB is write-only + sent invoices are immutable) and never creates one — only
-// syncs a draft that already exists. Fully non-fatal: an invoice hiccup must
-// never break the underlying job write.
+// [invoice-sync 2026-06-11] Keep a job's existing invoice in lockstep with its
+// price + add-ons + applied discounts. Never CREATES one — only syncs an invoice
+// that already exists. Fully non-fatal: an invoice hiccup must never break the
+// underlying job write.
+// [invoice-mirror 2026-07-02] Now keeps ANY UNPAID invoice (draft/sent/overdue)
+// in lockstep, not just drafts. The office's rule: the invoice mirrors the job
+// card, so applying a discount (office or promo code) or editing price/add-ons
+// on the job must flow to its invoice even after it's finalized. Only 'paid'
+// (money moved) and 'void'/'superseded' (closed out) are left immutable. QB
+// stays one-way — the corrected invoice is re-pushed, never pulled.
 // [2026-06-17] Rebuilds via the shared buildJobLineItems (scope + ALL add-ons +
 // ALL discounts) — the prior version omitted add-ons and would DROP them from a
 // draft on re-sync. Same code the creation engine + office recalc use, so a job
 // edit in dispatch now reflects correctly on its draft invoice.
-async function syncJobInvoiceDraft(jobId: number, companyId: number): Promise<void> {
+// [2026-06-27] Extended with opts:
+//   cancel:true  → voids the draft instead of syncing (job cancelled)
+//   newDate      → recalculates due_date when the job is rescheduled
+async function syncJobInvoiceDraft(
+  jobId: number,
+  companyId: number,
+  opts: { cancel?: boolean; newDate?: string } = {},
+): Promise<void> {
   try {
     const [existing] = await db
-      .select({ id: invoicesTable.id, status: invoicesTable.status })
+      .select({ id: invoicesTable.id, status: invoicesTable.status, payment_terms: invoicesTable.payment_terms, manually_edited_at: invoicesTable.manually_edited_at })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.job_id, jobId), eq(invoicesTable.company_id, companyId)))
       .limit(1);
-    if (!existing || existing.status !== "draft") return;
+    // [invoice-mirror 2026-07-02] The invoice must always MIRROR the job card —
+    // not just while it's a draft. Previously this returned unless status ===
+    // 'draft', so once an invoice was finalized ('sent'/'overdue') any later
+    // job-card edit stopped flowing to it and the two diverged (the office kept
+    // seeing "job card says X, invoice says Y" — e.g. Shellie's amount). Now we
+    // keep any UNPAID invoice in sync with its job. Terminal states are left
+    // alone: 'paid' (money already moved — never silently mutate; unmark/refund
+    // first), and 'void'/'superseded' (already closed out).
+    if (!existing || ["paid", "void", "superseded"].includes(existing.status)) return;
+
+    // Cancellation: void the (unpaid) invoice so AR stays clean.
+    if (opts.cancel) {
+      await db.update(invoicesTable)
+        .set({ status: "void" })
+        .where(eq(invoicesTable.id, existing.id));
+      return;
+    }
+
+    // [manual-edit-detach 2026-07-06] The office hand-edited this invoice's
+    // amounts — it is deliberately detached from the job, so a later job edit
+    // must NOT clobber the manual figures. Void-on-cancel above still applies;
+    // the explicit "Recalc from job" action clears the flag and re-attaches.
+    if (existing.manually_edited_at) return;
 
     const built = await buildJobLineItems(companyId, jobId);
     if (!built) return;
 
+    const updateFields: Record<string, unknown> = {
+      line_items: built.lineItems,
+      subtotal: built.subtotal.toFixed(2),
+      total: built.subtotal.toFixed(2),
+    };
+
+    // Reschedule: shift the due date to match the new job date.
+    if (opts.newDate) {
+      const termsDays =
+        existing.payment_terms === "net_30" ? 30 :
+        existing.payment_terms === "net_15" ? 15 :
+        existing.payment_terms === "net_7"  ? 7  : 0;
+      const base = new Date(opts.newDate);
+      base.setDate(base.getDate() + termsDays);
+      updateFields.due_date = base.toISOString().split("T")[0];
+    }
+
     await db.update(invoicesTable)
-      .set({ line_items: built.lineItems, subtotal: built.subtotal.toFixed(2), total: built.subtotal.toFixed(2) })
+      .set(updateFields)
       .where(eq(invoicesTable.id, existing.id));
 
     // Re-push to QuickBooks (no-op for non-connected tenants). Accounting, not
@@ -210,6 +278,9 @@ router.get("/", requireAuth, async (req, res) => {
     }
     if (branch_id && branch_id !== "all") conditions.push(eq(jobsTable.branch_id, parseInt(branch_id as string)));
     if (uninvoiced === "true") {
+      // [billing-cutover 2026-07-02] Pre-cutover jobs were invoiced + paid in
+      // MaidCentral — never surface them as "not yet invoiced" in Qleno.
+      conditions.push(gte(jobsTable.scheduled_date, INVOICE_CUTOVER_DATE));
       conditions.push(
         notExists(
           db.select({ id: invoicesTable.id })
@@ -239,6 +310,10 @@ router.get("/", requireAuth, async (req, res) => {
         actual_hours: jobsTable.actual_hours,
         notes: jobsTable.notes,
         created_at: jobsTable.created_at,
+        // [account-jobs-under-accounts 2026-07-02] Surface account_id so the
+        // Invoices "Not yet invoiced" list can exclude commercial/account jobs
+        // (invoiced under their Account). Plain column, additive — no join.
+        account_id: jobsTable.account_id,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -292,7 +367,7 @@ router.post("/", requireAuth, async (req, res) => {
       client_id, assigned_user_id, service_type, scheduled_date, scheduled_time,
       frequency, base_fee, allowed_hours, notes,
       account_id, account_property_id, billing_method, hourly_rate, estimated_hours,
-      branch_id, add_ons, team_user_ids,
+      branch_id, add_ons, team_user_ids, days_of_week,
     } = req.body;
 
     // [multi-tech-create 2026-06-04] The wizard's tech picker is multi-select.
@@ -335,10 +410,19 @@ router.post("/", requireAuth, async (req, res) => {
     // [booking-confirmation GAP1] Customer booking confirmation (email + SMS w/
     // appointment-view link). Gate-respecting + per-tenant; no-ops when the job
     // has no client contact. Non-blocking.
+    // [notify-choice 2026-07-08] The wizard passes notify_client_via
+    // ('none'|'sms'|'email'|'both') so the office decides per-save whether the
+    // client hears about it — an internal re-book can send nothing. Absent or
+    // invalid → 'both' (the pre-existing behavior).
     if (client_id) {
-      import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
-        sendJobScheduledConfirmation(req, jobId)
-      ).catch(() => {});
+      const via = String((req.body as any).notify_client_via ?? "both");
+      const channels: Array<"email" | "sms"> =
+        via === "none" ? [] : via === "sms" ? ["sms"] : via === "email" ? ["email"] : ["email", "sms"];
+      if (channels.length) {
+        import("../lib/booking-confirmation.js").then(({ sendJobScheduledConfirmation }) =>
+          sendJobScheduledConfirmation(req, jobId, { channels })
+        ).catch(() => {});
+      }
     }
 
     // [notifications A.2] Alert the assigned tech of a newly scheduled job (in-app).
@@ -470,33 +554,94 @@ router.post("/", requireAuth, async (req, res) => {
     // generate the next 90 days. Calls generateJobsFromSchedule directly, so it
     // works regardless of the disabled RECURRING_ENGINE cron. Gated by a
     // FEE-GUARD: never fan out a $0/blank series (the 744-phantom-job incident).
-    const RECURRING_FREQS = new Set(["weekly", "biweekly", "monthly", "weekdays", "every_3_weeks"]);
-    const _feeNum = Number(base_fee);
+    // [account-recurrence 2026-06-29] Commercial/account jobs carry
+    // account_id + account_property_id but NO client_id — their identity is
+    // the account, not a person. The old guard required `client_id`, so
+    // scheduling a recurrence under an account silently produced only the
+    // first visit (Francisco's report). Resolve the account's billing
+    // contact (recurring_schedules.customer_id is NOT NULL) and fan out the
+    // same way residential does. $0 is legitimate for account series (the
+    // account is the billing entity — monthly-batch invoicing), so the
+    // positive-fee guard only applies to RESIDENTIAL (744-phantom guard).
+    const RECURRING_FREQS = new Set(["weekly", "biweekly", "monthly", "weekdays", "every_3_weeks", "daily", "custom_days"]);
+    // custom_days needs the operator's selected weekdays (0=Sun..6=Sat); every
+    // other cadence anchors on start_date and ignores this. Sanitize to a valid
+    // 0–6 int set so a bad payload can't poison the schedule.
+    const _daysOfWeek = Array.isArray(days_of_week)
+      ? [...new Set(days_of_week.map((n: any) => Number(n)).filter((n: number) => Number.isInteger(n) && n >= 0 && n <= 6))]
+      : [];
+    const _feeNum = Number(base_fee ?? 0);
+    const _isAccountJob = !!account_id;
+    let _scheduleCustomerId: number | null = client_id ? Number(client_id) : null;
+    if (!_scheduleCustomerId && _isAccountJob) {
+      try {
+        _scheduleCustomerId = await resolveAccountBillingClientId(
+          req.auth!.companyId!, account_id, account_property_id,
+        );
+        if (!_scheduleCustomerId) {
+          // [account-recurrence 2026-07-03] No longer a blocker — the schedule is
+          // created with customer_id=null and the engine generates from account_id.
+          console.log(`[job-create recurrence] account ${account_id} has no billing client — creating account recurrence with null customer_id (job ${jobId})`);
+        }
+      } catch (e) {
+        console.warn("[job-create recurrence] account billing-client resolve failed:", e);
+      }
+    }
+    const _feeOk = Number.isFinite(_feeNum) && (_feeNum > 0 || _isAccountJob);
+    // custom_days can't generate a series without at least one selected weekday.
+    const _freqOk = typeof frequency === "string" && RECURRING_FREQS.has(frequency) &&
+      (frequency !== "custom_days" || _daysOfWeek.length > 0);
     if (
-      client_id &&
-      typeof frequency === "string" && RECURRING_FREQS.has(frequency) &&
-      Number.isFinite(_feeNum) && _feeNum > 0
+      // [account-recurrence 2026-07-03] Account jobs fan out even with no client
+      // (customer_id=null); residential still requires the client.
+      (_scheduleCustomerId || _isAccountJob) &&
+      _freqOk &&
+      _feeOk
     ) {
       try {
         const _durationMin = allowed_hours != null && Number(allowed_hours) > 0
           ? Math.round(Number(allowed_hours) * 60)
           : (estimated_hours != null && Number(estimated_hours) > 0 ? Math.round(Number(estimated_hours) * 60) : null);
 
+        // Stamp the property's structured address onto the schedule so every
+        // generated occurrence carries the right service location (the engine
+        // reads service_address_* off the schedule for account jobs).
+        let _svcStreet: string | null = null, _svcCity: string | null = null,
+            _svcState: string | null = null, _svcZip: string | null = null;
+        if (account_property_id) {
+          const [p] = await db
+            .select({ address: accountPropertiesTable.address, city: accountPropertiesTable.city, state: accountPropertiesTable.state, zip: accountPropertiesTable.zip })
+            .from(accountPropertiesTable)
+            .where(eq(accountPropertiesTable.id, account_property_id))
+            .limit(1);
+          if (p) { _svcStreet = p.address ?? null; _svcCity = p.city ?? null; _svcState = p.state ?? null; _svcZip = p.zip ?? null; }
+        }
+
         const [sched] = await db
           .insert(recurringSchedulesTable)
           .values({
             company_id: req.auth!.companyId!,
-            customer_id: client_id,
+            customer_id: _scheduleCustomerId,
             frequency: frequency as any, // narrowed to string; column wants the freq enum union
             day_of_week: null, // cadence anchors on start_date's weekday when null
+            // Multi-day weekday pattern — only custom_days carries it; daily/
+            // weekdays resolve their own pattern in the engine, single-day
+            // cadences anchor on start_date. (See recurring_schedules invariant.)
+            days_of_week: frequency === "custom_days" && _daysOfWeek.length ? _daysOfWeek : null,
             start_date: scheduled_date,
             end_date: null,
             assigned_employee_id: primaryTechId ? Number(primaryTechId) : null,
             service_type,
             scheduled_time: scheduled_time || null,
             duration_minutes: _durationMin,
-            base_fee: String(base_fee),
+            base_fee: String(base_fee ?? "0"),
             notes: notes || null,
+            account_id: account_id || null,
+            account_property_id: account_property_id || null,
+            service_address_street: _svcStreet,
+            service_address_city: _svcCity,
+            service_address_state: _svcState,
+            service_address_zip: _svcZip,
           })
           .returning();
 
@@ -1270,6 +1415,15 @@ router.put("/:id", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const { assigned_user_id, service_type, status, scheduled_date, scheduled_time, frequency, base_fee, allowed_hours, notes, office_notes } = req.body;
 
+    // [time-change-notice] Capture the prior date/time BEFORE the update so we
+    // can tell a same-day time bump (→ raise the manual client-notify note) from
+    // a cross-day reschedule (a different flow). Cheap single-row read.
+    let priorSched: { scheduled_date: any; scheduled_time: any } | null = null;
+    if (scheduled_time !== undefined || scheduled_date !== undefined) {
+      const pr = await db.execute(sql`SELECT scheduled_date, scheduled_time FROM jobs WHERE id = ${jobId} AND company_id = ${req.auth!.companyId} LIMIT 1`);
+      priorSched = (pr.rows[0] as any) ?? null;
+    }
+
     const updated = await db
       .update(jobsTable)
       .set({
@@ -1326,6 +1480,13 @@ router.put("/:id", requireAuth, async (req, res) => {
 
     logAudit(req, "UPDATE", "job", jobId, null, updated[0]);
 
+    // Sync draft invoice due_date when PUT reschedule shifts the job date.
+    if (scheduled_date !== undefined) {
+      syncJobInvoiceDraft(jobId, req.auth!.companyId!, {
+        newDate: String(scheduled_date),
+      }).catch(e => console.error("[PUT invoice-sync] non-fatal:", e));
+    }
+
     // [push 2026-06-03] Schedule-change push to the assigned tech. Strictly
     // gated on a date/time change so office-notes / status-only saves don't
     // fire it. Fire-and-forget; no-op unless COMMS_ENABLED + a device exists.
@@ -1348,6 +1509,19 @@ router.put("/:id", requireAuth, async (req, res) => {
       })).catch(() => {});
     }
 
+    // [time-change-notice] Same-day time bump → flag the job so the detail card
+    // shows the "Time updated … Send notification" note. A cross-day reschedule
+    // clears any stale flag (it's the email-reschedule flow, not this note).
+    if (priorSched) {
+      const nextDate = scheduled_date !== undefined ? scheduled_date : priorSched.scheduled_date;
+      const nextTime = scheduled_time !== undefined ? scheduled_time : priorSched.scheduled_time;
+      if (isSameDayTimeChange(priorSched.scheduled_date, priorSched.scheduled_time, nextDate, nextTime)) {
+        await markTimeChangePending(jobId, req.auth!.companyId!, priorSched.scheduled_time ? String(priorSched.scheduled_time).slice(0, 5) : null);
+      } else if (scheduled_date !== undefined && String(priorSched.scheduled_date ?? "").slice(0, 10) !== String(nextDate ?? "").slice(0, 10)) {
+        await clearTimeChangePending(jobId, req.auth!.companyId!);
+      }
+    }
+
     return res.json({
       ...updated[0],
       client_name: "",
@@ -1358,6 +1532,41 @@ router.put("/:id", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Update job error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to update job" });
+  }
+});
+
+// [time-change-notice 2026-06-30] Office clicks "Send notification" on the
+// same-day time-change note → text/email the client the new arrival time, then
+// clear the flag so the note disappears. Gate-respecting (suppressed while comms
+// are paused); returns whether a send could actually go out so the UI can show
+// "Sent" vs "Comms are paused — not sent".
+router.post("/:id/notify-time-change", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: "Bad Request", message: "Invalid job id" });
+    const result = await sendTimeChangeNotification(jobId, companyId);
+    if (!result.ok) return res.status(400).json({ error: "Bad Request", message: result.reason ?? "Could not send" });
+    await clearTimeChangePending(jobId, companyId);
+    return res.json({ ok: true, sent: result.sent, reason: result.reason ?? null });
+  } catch (err) {
+    console.error("notify-time-change error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to notify client" });
+  }
+});
+
+// [time-change-notice] Office dismisses the note without sending (e.g. already
+// told the client by phone). Just clears the flag.
+router.post("/:id/time-change/dismiss", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: "Bad Request", message: "Invalid job id" });
+    await clearTimeChangePending(jobId, companyId);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("time-change dismiss error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to dismiss" });
   }
 });
 
@@ -1418,6 +1627,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // 06-01 (recreated as 5976/5977). Property change is an atomic
       // FK rewrite — it must NEVER delete or archive the job row.
       account_property_id,
+      // [commission-override 2026-06-27] Per-job pool rate override for demanding jobs.
+      // null = clear override (revert to company rate); undefined = not sent (no change).
+      commission_override_pct,
     } = req.body ?? {};
 
     // [PR / 2026-04-30] Cascade dry-run mode. Counters-only for v1
@@ -1805,6 +2017,17 @@ router.patch("/:id", requireAuth, async (req, res) => {
       if (scheduled_time !== undefined) setParts.scheduled_time = scheduled_time;
       if (allowed_hours !== undefined) setParts.allowed_hours = String(allowed_hours);
       if (base_fee !== undefined) setParts.base_fee = String(base_fee);
+      // [price-edit-fix 2026-07-08] Keep billed_amount in sync when the price
+      // actually changes. The dispatch card reads billed_amount first
+      // (COALESCE(billed_amount, base_fee)); without this, editing the base
+      // rate saved to base_fee but the card kept rendering the stale cached
+      // billed_amount — so the office saw the edit "not work" and resorted to
+      // creating a duplicate job (Francisco). Gated on a REAL change so a
+      // tech-only / notes-only edit (which still echoes base_fee back) never
+      // clobbers a completed job's actually-invoiced amount.
+      if (base_fee !== undefined && String(base_fee) !== String(before.base_fee ?? "")) {
+        setParts.billed_amount = String(base_fee);
+      }
       if (hourly_rate !== undefined) setParts.hourly_rate = hourly_rate === null ? null : String(hourly_rate);
       if (nextManualOverride !== undefined) setParts.manual_rate_override = nextManualOverride;
       if (instructions !== undefined) setParts.notes = instructions;
@@ -1819,6 +2042,20 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // id. Fixes the lost-job repro from 06-01.
       if (account_property_id !== undefined && Number(account_property_id ?? null) !== Number(before.account_property_id ?? null)) {
         setParts.account_property_id = account_property_id == null ? null : Number(account_property_id);
+      }
+      // [commission-override 2026-06-27] Write job-level rate + propagate to
+      // all job_technicians.commission_pct so the payroll engine picks it up
+      // without any engine code changes.
+      if (commission_override_pct !== undefined) {
+        const pct = commission_override_pct == null ? null : parseFloat(String(commission_override_pct));
+        if (pct === null || (Number.isFinite(pct) && pct > 0 && pct <= 1)) {
+          await tx.execute(sql`
+            UPDATE jobs SET commission_override_pct = ${pct} WHERE id = ${jobId} AND company_id = ${companyId}
+          `);
+          await tx.execute(sql`
+            UPDATE job_technicians SET commission_pct = ${pct} WHERE job_id = ${jobId} AND company_id = ${companyId}
+          `);
+        }
       }
 
       // [PR / 2026-05-01 — re-implementation of yesterday's PR #34]
@@ -2194,6 +2431,12 @@ router.patch("/:id", requireAuth, async (req, res) => {
             const newJobId = await insertJobFromSchedule(
               sched, date, tx, null, cascadeClientZip,
             );
+            // [recurring-insert-resilience 2026-07-03] insertJobFromSchedule now
+            // returns null when the row hit ON CONFLICT DO NOTHING (occurrence
+            // already exists despite the empty-day check — e.g. a race or a
+            // legacy row the check missed). Skip mirroring onto a non-existent
+            // id rather than crashing the cascade.
+            if (newJobId != null) {
             cascadeInserted++;
             for (let i = 0; i < techList.length; i++) {
               const uid = techList[i];
@@ -2223,6 +2466,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
             }
             if (cascadeParking && parkingApplies(sched, date)) {
               await stampParkingFeeOnJob(newJobId, cascadeParking, tx);
+            }
             }
             continue;
           }
@@ -3171,8 +3415,16 @@ router.patch("/:id", requireAuth, async (req, res) => {
     `);
     const updated = updatedRows.rows[0];
 
-    // Keep the job's draft invoice (if any) in step with the new price/discounts.
-    await syncJobInvoiceDraft(jobId, companyId);
+    // Keep the job's draft invoice (if any) in step with the job state.
+    // cancel → void the draft; reschedule → shift due_date; else → sync line items.
+    {
+      const changedFieldsForInv = new Set(changes.map((c: any) => c.field));
+      const isCancel = (updated as any)?.status === "cancelled";
+      const newDate = changedFieldsForInv.has("scheduled_date")
+        ? String((updated as any)?.scheduled_date ?? "").slice(0, 10) || undefined
+        : undefined;
+      await syncJobInvoiceDraft(jobId, companyId, { cancel: isCancel, newDate });
+    }
 
     // [notifications A.2] Alert the affected tech(s) about this change (in-app,
     // fire-and-forget). Reassign → new tech "assigned" + old tech "removed";
@@ -3194,6 +3446,33 @@ router.patch("/:id", requireAuth, async (req, res) => {
         if (newAssigned) await notifyUser({ companyId, userId: newAssigned, type: "job_changed", title: "Job time changed", body: `${svc} now ${dateStr}`, link, meta: { job_id: jobId } });
       }
     } catch (e) { console.warn("[jobs PATCH] notify failed:", e); }
+
+    // [time-change-notice] Schedule change on THIS job → client notification.
+    // [notify-choice 2026-07-08] The edit modal now sends notify_client_via
+    // ('none'|'sms'|'email'|'both') with the save, so the office decides right
+    // there (Francisco: full control, like the skip modal). Behavior:
+    //   - 'sms'/'email'/'both'  → send the updated-schedule notification on
+    //     those channels now; no pending note (the decision was already made).
+    //   - 'none'                → send nothing, raise no note.
+    //   - absent (legacy/other callers) → the pre-existing behavior: same-day
+    //     time bump raises the manual Send-notification note; a date change
+    //     clears any stale flag.
+    try {
+      const tcFields = new Set(changes.map((c: any) => c.field));
+      const schedChanged = tcFields.has("scheduled_time") || tcFields.has("scheduled_date");
+      const viaRaw = (req.body as any).notify_client_via;
+      const via = ["none", "sms", "email", "both"].includes(String(viaRaw)) ? String(viaRaw) : null;
+      if (schedChanged && via) {
+        await clearTimeChangePending(jobId, companyId);
+        if (via !== "none") {
+          sendTimeChangeNotification(jobId, companyId, via as "sms" | "email" | "both").catch(() => {});
+        }
+      } else if (tcFields.has("scheduled_time") && !tcFields.has("scheduled_date")) {
+        await markTimeChangePending(jobId, companyId, before.scheduled_time ? String(before.scheduled_time).slice(0, 5) : null);
+      } else if (tcFields.has("scheduled_date")) {
+        await clearTimeChangePending(jobId, companyId);
+      }
+    } catch (e) { console.warn("[jobs PATCH] time-change-notice failed:", e); }
 
     return res.json({
       ok: true,
@@ -3254,11 +3533,17 @@ router.delete("/:id", requireAuth, async (req, res) => {
       SELECT recurring_schedule_id, occurrence_date::text AS occ, scheduled_date::text AS sched
       FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `)).rows[0]) as any;
-    async function tombstoneOccurrence() {
+    // [stale-alert-fix 2026-07-07] exec param: the tombstone now runs INSIDE
+    // the delete transaction. It used to run after commit — if it failed (or
+    // the process died in the gap), the occurrence was gone from jobs but not
+    // in skipped_dates, so the nightly engine regenerated a fresh 'scheduled'
+    // job and the client kept getting reminders for a visit the office
+    // deleted. Atomic now: no delete without its tombstone.
+    async function tombstoneOccurrence(exec: any = db) {
       const sid = recurInfo?.recurring_schedule_id;
       const skipDate = recurInfo?.occ ?? recurInfo?.sched;
       if (sid != null && skipDate) {
-        await db.execute(sql`
+        await exec.execute(sql`
           UPDATE recurring_schedules
           SET skipped_dates = ARRAY(
             SELECT DISTINCT unnest(COALESCE(skipped_dates, '{}'::date[]) || ARRAY[${skipDate}::date])
@@ -3281,7 +3566,11 @@ router.delete("/:id", requireAuth, async (req, res) => {
       return res.status(403).json({ error: "Forbidden", message: "You don't have permission to delete jobs" });
     }
     const [existing] = await db
-      .select({ id: jobsTable.id, status: jobsTable.status })
+      .select({
+        id: jobsTable.id, status: jobsTable.status, client_id: jobsTable.client_id,
+        scheduled_date: jobsTable.scheduled_date, service_type: jobsTable.service_type,
+        base_fee: jobsTable.base_fee, billed_amount: jobsTable.billed_amount,
+      })
       .from(jobsTable)
       .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
       .limit(1);
@@ -3294,39 +3583,109 @@ router.delete("/:id", requireAuth, async (req, res) => {
         message: "This job has a tech clocked in. Clock them out before deleting it.",
       });
     }
+    // [delete-fk-sweep 2026-07-06] An APPLIED mileage leg is paid money — the
+    // leg is the audit trail behind a real pay_adjustment, so the job it hangs
+    // on can't be silently deleted. Surface a clear reason instead of the raw
+    // FK 500 the office was hitting. Unapplied legs are cleaned up below.
+    const appliedLegs = await db.execute(sql`
+      SELECT 1 FROM mileage_legs
+      WHERE (from_job_id = ${jobId} OR to_job_id = ${jobId}) AND status = 'applied'
+      LIMIT 1
+    `);
+    if ((appliedLegs as any).rows.length > 0) {
+      return res.status(409).json({
+        error: "Conflict",
+        message: "This job is part of an applied (paid) mileage leg. Cancel the job instead of deleting it.",
+      });
+    }
     await db.transaction(async (tx) => {
+      // [delete-resilient 2026-07-08] Each child-cleanup runs in its own
+      // SAVEPOINT. If a statement fails because the table/column doesn't exist
+      // on THIS database (schema drift — e.g. hr_logs.job_id was in the code but
+      // never migrated to prod, which 500'd EVERY delete: Francisco/Maribel's
+      // "deleting jobs has not been working"), we roll back just that step and
+      // continue. If the missing ref had no column, there's no FK to violate, so
+      // skipping it is safe; if a real FK still blocks, the final job DELETE
+      // below surfaces it clearly. One brittle cleanup can no longer nuke the
+      // whole delete.
+      let spN = 0;
+      const clean = async (stmt: any) => {
+        const sp = `jd_sp_${spN++}`;
+        await tx.execute(sql.raw(`SAVEPOINT ${sp}`));
+        try {
+          await tx.execute(stmt);
+          await tx.execute(sql.raw(`RELEASE SAVEPOINT ${sp}`));
+        } catch (e) {
+          await tx.execute(sql.raw(`ROLLBACK TO SAVEPOINT ${sp}`));
+          console.warn(`[job-delete] skipped a cleanup step for job ${jobId}:`, (e as any)?.message ?? e);
+        }
+      };
       // Per-job ephemeral / replaceable data → DELETE child rows (job_id NOT NULL).
-      await tx.execute(sql`DELETE FROM timeclock WHERE job_id = ${jobId} AND company_id = ${companyId}`);
-      await tx.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM clock_in_attempts WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM job_status_logs WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM job_photos WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM job_supplies WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM scorecards WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM client_ratings WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM satisfaction_surveys WHERE job_id = ${jobId}`);
-      await tx.execute(sql`DELETE FROM cancellation_log WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM timeclock WHERE job_id = ${jobId} AND company_id = ${companyId}`);
+      await clean(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM clock_in_attempts WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_status_logs WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_photos WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_supplies WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM scorecards WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM client_ratings WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM satisfaction_surveys WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM cancellation_log WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_clock_events WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_discounts WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM job_worksheet WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM efficiency_entries WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM attendance_proposals WHERE job_id = ${jobId}`);
+      // Mileage legs FK the job with NOT NULL columns; unapplied legs are records
+      // (applied legs are blocked before this transaction). Legs go before
+      // on_my_way_events (legs FK their source OMW event).
+      await clean(sql`DELETE FROM mileage_legs WHERE (from_job_id = ${jobId} OR to_job_id = ${jobId}) AND status <> 'applied'`);
+      await clean(sql`UPDATE on_my_way_events SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
+      await clean(sql`DELETE FROM on_my_way_events WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM technician_notes WHERE job_id = ${jobId}`);
+      await clean(sql`DELETE FROM team_photo_notes WHERE job_id = ${jobId}`);
       // Financial / legal / cross-entity records → NULL the back-reference; the
       // parent row stays intact for billing/accounting/reporting.
-      await tx.execute(sql`UPDATE quotes SET booked_job_id = NULL WHERE booked_job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE invoices SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE additional_pay SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE loyalty_points_log SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE communication_log SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE contact_tickets SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE form_submissions SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE quality_complaints SET job_id = NULL WHERE job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE mileage_requests SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE mileage_requests SET to_job_id = NULL WHERE to_job_id = ${jobId}`);
-      await tx.execute(sql`UPDATE cancellation_log SET rescheduled_to_job_id = NULL WHERE rescheduled_to_job_id = ${jobId}`);
+      await clean(sql`UPDATE quotes SET booked_job_id = NULL WHERE booked_job_id = ${jobId}`);
+      await clean(sql`UPDATE invoices SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE additional_pay SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE loyalty_points_log SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE communication_log SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE contact_tickets SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE form_submissions SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE quality_complaints SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE mileage_requests SET from_job_id = NULL WHERE from_job_id = ${jobId}`);
+      await clean(sql`UPDATE mileage_requests SET to_job_id = NULL WHERE to_job_id = ${jobId}`);
+      await clean(sql`UPDATE cancellation_log SET rescheduled_to_job_id = NULL WHERE rescheduled_to_job_id = ${jobId}`);
+      await clean(sql`UPDATE hr_logs SET job_id = NULL WHERE job_id = ${jobId}`);
+      await clean(sql`UPDATE scorecard_entries SET job_id = NULL WHERE job_id = ${jobId}`);
       await tx.delete(jobsTable).where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
+      // Tombstone in the SAME transaction — a deleted occurrence must never
+      // outlive its skipped_dates entry or the engine regenerates it.
+      await tombstoneOccurrence(tx);
     });
-    await tombstoneOccurrence();
     logAudit(req, "DELETE", "job", jobId, null, { status: existing.status });
+    // Cascade to the client's own audit trail so all activity within a client
+    // is auditable in one place. (Folded in from the removed duplicate route.)
+    logClientActivity(req, existing.client_id, "job_deleted", {
+      job_id: jobId, scheduled_date: existing.scheduled_date,
+      service_type: existing.service_type, base_fee: existing.base_fee,
+      billed_amount: existing.billed_amount, status: existing.status,
+    }, null);
     return res.json({ success: true, message: "Job deleted" });
-  } catch (err) {
+  } catch (err: any) {
+    // [delete-diagnostics 2026-07-08] Surface the ACTUAL Postgres error so
+    // "Failed to delete job" stops being a dead end for the office (Francisco/
+    // Maribel: "deleting jobs has not been working"). Includes the SQLSTATE +
+    // message (e.g. a missing table 42P01, or an uncovered FK 23503) so the
+    // real cause is visible instead of hidden in server logs.
     console.error("Delete job error:", err);
-    return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete job" });
+    return res.status(500).json({
+      error: "Internal Server Error",
+      message: `Failed to delete job: ${err?.message || err}`,
+      code: err?.code ?? null,
+      detail: err?.detail ?? null,
+    });
   }
 });
 
@@ -3621,16 +3980,21 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     // ─────────────────────────────────────────────────────────────────────
 
     // ── NPS survey trigger (non-blocking) ────────────────────────────────
+    // [one-completion-email] The promise is threaded into the job_completed
+    // notify block below: when the survey EMAIL reaches the inbox, the
+    // thank-you email is skipped so the customer gets exactly ONE email per
+    // visit (thank-you only on survey-throttled visits). SMS unaffected.
     const clientId = (updated[0] as any).client_id;
+    let surveyPromise: Promise<any> = Promise.resolve(null);
     if (clientId) {
-      fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
+      surveyPromise = fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": req.headers.authorization || "",
         },
         body: JSON.stringify({ job_id: jobId, customer_id: clientId }),
-      }).catch((npsErr: Error) => console.error("NPS send error (non-fatal):", npsErr));
+      }).then(r => r.json()).catch((npsErr: Error) => { console.error("NPS send error (non-fatal):", npsErr); return null; });
     }
     // ─────────────────────────────────────────────────────────────────────
 
@@ -3649,17 +4013,28 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
                   address: clientsTable.address, city: clientsTable.city, state: clientsTable.state,
                   first_name: clientsTable.first_name })
         .from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1)
-        .then(([cl]) => {
+        .then(async ([cl]) => {
           if (!cl) return;
+          // [account-comms-toggle] Skip if this client's account paused comms.
+          const { isClientAccountCommsPaused } = await import("../lib/account-comms.js");
+          if (await isClientAccountCommsPaused(clientId)) return;
           const addr = [cl.address, cl.city, cl.state].filter(Boolean).join(", ");
+          // [appointment-vars] Format the date ("Friday, June 27, 2026" instead
+          // of a raw ISO string) and emit every date/time/window alias so a
+          // completion template resolves whichever tag it uses.
+          const { buildAppointmentVars } = await import("../lib/appointment-vars.js");
           const mv = {
             first_name:       cl.first_name || "",
-            appointment_date: jd.scheduled_date || new Date().toISOString().slice(0, 10),
             scope:            labelServiceType(jd.service_type),
+            service_type:     labelServiceType(jd.service_type),
             service_address:  addr,
+            ...buildAppointmentVars({ scheduledDate: jd.scheduled_date, scheduledTime: jd.scheduled_time }),
           };
-          sendNotification("job_completed", "email", companyId, cl.email, null, mv).catch(() => {});
-          sendNotification("job_completed", "sms",   companyId, null, cl.phone, mv).catch(() => {});
+          const survey = await surveyPromise;
+          if (!survey?.survey_email_sent) {
+            sendNotification("job_completed", "email", companyId, cl.email, null, mv, false, undefined, clientId).catch(() => {});
+          }
+          sendNotification("job_completed", "sms",   companyId, null, cl.phone, mv, false, undefined, clientId).catch(() => {});
         }).catch(() => {});
     }
     // ─────────────────────────────────────────────────────────────────────
@@ -3707,12 +4082,18 @@ router.get("/:id/photos", requireAuth, async (req, res) => {
     const beforeCount = photos.filter(p => p.photo_type === "before").length;
     const afterCount = photos.filter(p => p.photo_type === "after").length;
 
+    // [photos-r2] R2-stored photos carry an object key in `url`; sign it into a
+    // short-lived GET URL the browser can load. Legacy base64 / already-URL rows
+    // pass through untouched (so old photos keep rendering during migration).
+    const data = await Promise.all(photos.map(async p => ({
+      ...p,
+      url: isR2Key(p.url) ? await r2SignedGetUrl(p.url) : p.url,
+      lat: p.lat ? parseFloat(p.lat) : null,
+      lng: p.lng ? parseFloat(p.lng) : null,
+    })));
+
     return res.json({
-      data: photos.map(p => ({
-        ...p,
-        lat: p.lat ? parseFloat(p.lat) : null,
-        lng: p.lng ? parseFloat(p.lng) : null,
-      })),
+      data,
       before_count: beforeCount,
       after_count: afterCount,
     });
@@ -3722,7 +4103,7 @@ router.get("/:id/photos", requireAuth, async (req, res) => {
   }
 });
 
-router.post("/:id/photos", requireAuth, async (req, res) => {
+router.post("/:id/photos", requireAuth, photoUpload.single("photo"), async (req, res) => {
   // [AF] PHOTOS_ENABLED is now an explicit kill switch — photo uploads are
   // ENABLED by default and only blocked when PHOTOS_ENABLED="false".
   if (process.env.PHOTOS_ENABLED === "false") {
@@ -3732,23 +4113,65 @@ router.post("/:id/photos", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const { photo_type, data_url, lat, lng } = req.body;
 
+    // [photo-stickiness 2026-07-07] Validate the target job BEFORE accepting
+    // bytes. The route used to trust the client-supplied id blindly — a stale
+    // cached job id (or a cross-tenant id) silently attached the tech's
+    // before/after pics to the wrong job with no server-side guardrail.
+    const [target] = await db
+      .select({ id: jobsTable.id, status: jobsTable.status })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId)))
+      .limit(1);
+    if (!target) return res.status(404).json({ error: "Not Found", message: "Job not found" });
+    if (target.status === "cancelled") {
+      return res.status(409).json({ error: "Conflict", message: "This job is cancelled — photos can't be attached to it. Open today's job and retry." });
+    }
+
+    // [photos-r2 2026-06-24] Resolve the image bytes from either a multipart
+    // upload (new field app) or a base64 data_url (legacy frontend). Store in
+    // R2 when configured; fall back to inline base64 only until R2 is wired up
+    // so uploads never break mid-migration.
+    let buffer: Buffer | null = null;
+    let contentType = "image/jpeg";
+    if (req.file) {
+      buffer = req.file.buffer;
+      contentType = req.file.mimetype || "image/jpeg";
+    } else if (typeof data_url === "string" && data_url.startsWith("data:")) {
+      const m = data_url.match(/^data:([^;]+);base64,([\s\S]*)$/);
+      if (m) { contentType = m[1]; buffer = Buffer.from(m[2], "base64"); }
+    }
+
+    let storedUrl: string;
+    if (buffer && r2Configured()) {
+      const ext = (contentType.split("/")[1] || "jpg").split("+")[0];
+      const key = jobPhotoKey(req.auth!.companyId, jobId, ext, crypto.randomBytes(12).toString("hex"));
+      await r2Upload(key, buffer, contentType);
+      storedUrl = key;
+    } else {
+      storedUrl = typeof data_url === "string" && data_url
+        ? data_url
+        : (buffer ? `data:${contentType};base64,${buffer.toString("base64")}` : "");
+    }
+
     const photo = await db
       .insert(jobPhotosTable)
       .values({
         job_id: jobId,
         company_id: req.auth!.companyId,
         photo_type,
-        url: data_url,
+        url: storedUrl,
         lat,
         lng,
         uploaded_by: req.auth!.userId,
       })
       .returning();
 
+    const row = photo[0];
     return res.status(201).json({
-      ...photo[0],
-      lat: photo[0].lat ? parseFloat(photo[0].lat) : null,
-      lng: photo[0].lng ? parseFloat(photo[0].lng) : null,
+      ...row,
+      url: isR2Key(row.url) ? await r2SignedGetUrl(row.url) : row.url,
+      lat: row.lat ? parseFloat(row.lat) : null,
+      lng: row.lng ? parseFloat(row.lng) : null,
     });
   } catch (err) {
     console.error("Upload photo error:", err);
@@ -4024,11 +4447,15 @@ router.post("/:id/technicians", requireAuth, async (req, res) => {
     if (!user_id) return res.status(400).json({ error: "user_id required" });
 
     const jobRows = await db.execute(sql`
-      SELECT id, assigned_user_id FROM jobs
+      SELECT id, assigned_user_id, commission_override_pct FROM jobs
       WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `);
     if (!jobRows.rows.length) return res.status(404).json({ error: "Job not found" });
-    const oldAssignedUserId = (jobRows.rows[0] as any).assigned_user_id ?? null;
+    const jobRow = jobRows.rows[0] as any;
+    const oldAssignedUserId = jobRow.assigned_user_id ?? null;
+    const inheritedCommPct = jobRow.commission_override_pct != null
+      ? parseFloat(String(jobRow.commission_override_pct))
+      : null;
 
     // Decide primary status: explicit request wins; else auto-promote when
     // there's no existing primary (covers unassigned jobs and any legacy
@@ -4055,11 +4482,20 @@ router.post("/:id/technicians", requireAuth, async (req, res) => {
         `);
       }
       // Upsert the (job, tech) row with the resolved primary flag.
-      await tx.execute(sql`
-        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
-        VALUES (${jobId}, ${user_id}, ${companyId}, ${willBePrimary})
-        ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
-      `);
+      // [commission-override] Inherit job-level commission_override_pct when set.
+      if (inheritedCommPct != null) {
+        await tx.execute(sql`
+          INSERT INTO job_technicians (job_id, user_id, company_id, is_primary, commission_pct)
+          VALUES (${jobId}, ${user_id}, ${companyId}, ${willBePrimary}, ${inheritedCommPct})
+          ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary, commission_pct = EXCLUDED.commission_pct
+        `);
+      } else {
+        await tx.execute(sql`
+          INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+          VALUES (${jobId}, ${user_id}, ${companyId}, ${willBePrimary})
+          ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+        `);
+      }
       // Mirror primary onto jobs.assigned_user_id so the dispatch grid sees the change.
       if (willBePrimary) {
         await tx.execute(sql`
@@ -4328,6 +4764,398 @@ router.put("/:id/technicians/:techId/override", requireAuth, async (req, res) =>
     return res.json({ data: result });
   } catch (err) {
     console.error("PUT /jobs/:id/technicians/:techId/override error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── TIPS ─────────────────────────────────────────────────────────────────
+//
+// Office-entered tips on a job, attributed to the tech(s) who worked it. A tip
+// is a pass-through to the cleaner — it lands in additional_pay as type='tips'
+// (the canonical tip ledger that already feeds the tech earnings panel, the
+// Tips Report, and the payroll snapshot's tips bucket). It NEVER feeds the
+// commission engine (commission reads the job total, never additional_pay).
+//
+// The default per-tech split mirrors the commission minute-split: proportional
+// to each tech's actual clocked hours on the job (see lib/tip-split.ts). The
+// office can override the per-tech amounts in the UI before saving (e.g. the
+// customer named one cleaner). Works on COMPLETED jobs — that's the main case
+// (client calls in a tip after the visit).
+
+interface JobTipCtx {
+  scheduledDate: string;
+  techs: Array<TipSplitTech & { name: string }>;
+}
+
+// Load the job's techs + each one's clocked hours, using the SAME clock basis
+// the payroll/commission engine uses (timeclock, punched + clocked-out pairs).
+async function loadJobTipContext(jobId: number, companyId: number): Promise<JobTipCtx | null> {
+  const jr = await db.execute(sql`
+    SELECT scheduled_date::text AS scheduled_date, assigned_user_id
+    FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+  if (!jr.rows.length) return null;
+  const job = jr.rows[0] as any;
+
+  const tr = await db.execute(sql`
+    SELECT jt.user_id, jt.is_primary, u.first_name, u.last_name
+    FROM job_technicians jt JOIN users u ON u.id = jt.user_id
+    WHERE jt.job_id = ${jobId} ORDER BY jt.is_primary DESC, jt.id`);
+  let techRows = tr.rows as any[];
+  if (!techRows.length && job.assigned_user_id) {
+    const u = await db.execute(sql`SELECT id AS user_id, first_name, last_name FROM users WHERE id = ${job.assigned_user_id} LIMIT 1`);
+    techRows = (u.rows as any[]).map((r) => ({ ...r, is_primary: true }));
+  }
+
+  const ch = await db.execute(sql`
+    SELECT user_id, ROUND(SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at)) / 3600.0)::numeric, 2) AS hrs
+    FROM timeclock
+    WHERE company_id = ${companyId} AND job_id = ${jobId} AND clock_out_at IS NOT NULL AND source = 'punched'
+    GROUP BY user_id`);
+  const hoursByUser = new Map<number, number>();
+  for (const r of ch.rows as any[]) hoursByUser.set(Number(r.user_id), parseFloat(String(r.hrs || 0)));
+
+  return {
+    scheduledDate: job.scheduled_date,
+    techs: techRows.map((t) => ({
+      user_id: Number(t.user_id),
+      name: `${t.first_name ?? ""} ${t.last_name ?? ""}`.trim(),
+      is_primary: !!t.is_primary,
+      hours: hoursByUser.get(Number(t.user_id)) ?? 0,
+    })),
+  };
+}
+
+// List a job's live tips (voided rows hidden — they're gone from pay too).
+async function listJobTips(jobId: number, companyId: number) {
+  const r = await db.execute(sql`
+    SELECT ap.id, ap.user_id, ap.amount, ap.notes, ap.status, ap.created_at,
+           TRIM(COALESCE(u.first_name, '') || ' ' || COALESCE(u.last_name, '')) AS name
+    FROM additional_pay ap LEFT JOIN users u ON u.id = ap.user_id
+    WHERE ap.company_id = ${companyId} AND ap.job_id = ${jobId}
+      AND ap.type = 'tips' AND ap.status <> 'voided'
+    ORDER BY ap.created_at DESC, ap.id DESC`);
+  return (r.rows as any[]).map((t) => ({
+    id: Number(t.id), user_id: Number(t.user_id), name: t.name,
+    amount: parseFloat(String(t.amount || 0)), notes: t.notes,
+    status: t.status, created_at: t.created_at,
+  }));
+}
+
+// Period guard: a tip's natural pay period is the JOB DATE. If that period is
+// already approved/exported, the tip can't ride in it — bucket it into the
+// current OPEN period (via created_at, the column the snapshot buckets on) and
+// tag the note so the reslot is traceable. No pay_periods rows / period open →
+// no-op (tip dates to the job, the normal case). NEVER silently drops the tip.
+async function resolveTipPeriodDate(
+  companyId: number,
+  naturalDateStr: string,
+): Promise<{ createdAt: Date; tag: string | null }> {
+  const natural = new Date(`${naturalDateStr}T12:00:00Z`);
+  try {
+    const pr = await db.execute(sql`
+      SELECT status FROM pay_periods
+      WHERE company_id = ${companyId} AND start_date <= ${naturalDateStr} AND end_date >= ${naturalDateStr}
+      ORDER BY start_date DESC LIMIT 1`);
+    const p = pr.rows[0] as any;
+    if (p && (p.status === "approved" || p.status === "exported")) {
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const op = await db.execute(sql`
+        SELECT start_date::text AS start_date, end_date::text AS end_date FROM pay_periods
+        WHERE company_id = ${companyId} AND status = 'open'
+        ORDER BY (start_date <= ${todayStr} AND end_date >= ${todayStr}) DESC, end_date DESC LIMIT 1`);
+      const o = op.rows[0] as any;
+      if (o) {
+        const within = todayStr >= o.start_date && todayStr <= o.end_date;
+        const createdAt = new Date(`${within ? todayStr : o.end_date}T12:00:00Z`);
+        return { createdAt, tag: `[tip reslotted from ${naturalDateStr}: pay period ${p.status}]` };
+      }
+      // No open period to receive it — keep the job date but flag it for review.
+      return { createdAt: natural, tag: `[tip on ${naturalDateStr}: pay period ${p.status}]` };
+    }
+  } catch { /* pay_periods table absent / not in use — natural date stands */ }
+  return { createdAt: natural, tag: null };
+}
+
+// ── Tip → invoice (the "no manual invoice editing" piece) ───────────────────
+// A tip the customer adds AFTER the job is paid needs to land on their bill so
+// the invoice total matches what was actually collected — without making the
+// office hand-edit a paid invoice (which the normal edit path blocks on
+// purpose). The office collects the tip in Square/cash (or, for Stripe clients
+// with a card on file, Qleno can charge it). Either way `applyTipToInvoice`
+// adds the tip to the invoice AND records a matching payment row, so a paid
+// invoice goes from paid-in-full → still-paid-in-full at the new total. The
+// books never drift: total goes up by the tip, payments go up by the tip.
+
+interface JobBilling {
+  client_id: number | null;
+  payment_source: string | null; // 'stripe' | 'square' | 'check' | 'ach' | null
+  stripe_customer_id: string | null;
+  stripe_payment_method_id: string | null;
+  card_last_four: string | null;
+  card_brand: string | null;
+  invoice: { id: number; subtotal: number; tips: number; total: number; status: string } | null;
+}
+
+async function loadJobBilling(jobId: number, companyId: number): Promise<JobBilling | null> {
+  const r = await db.execute(sql`
+    SELECT j.client_id,
+           c.payment_source, c.stripe_customer_id, c.stripe_payment_method_id,
+           COALESCE(c.card_last_four, c.square_card_last4) AS card_last_four,
+           COALESCE(c.card_brand, c.square_card_brand) AS card_brand,
+           inv.id AS invoice_id, inv.subtotal, inv.tips, inv.total, inv.status
+    FROM jobs j
+    LEFT JOIN clients c ON c.id = j.client_id
+    LEFT JOIN invoices inv ON inv.id = (
+      SELECT id FROM invoices WHERE job_id = j.id AND company_id = ${companyId}
+        AND status <> 'void' AND status <> 'superseded'
+      ORDER BY created_at DESC LIMIT 1)
+    WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1`);
+  if (!r.rows.length) return null;
+  const x = r.rows[0] as any;
+  return {
+    client_id: x.client_id != null ? Number(x.client_id) : null,
+    payment_source: x.payment_source ?? null,
+    stripe_customer_id: x.stripe_customer_id ?? null,
+    stripe_payment_method_id: x.stripe_payment_method_id ?? null,
+    card_last_four: x.card_last_four ?? null,
+    card_brand: x.card_brand ?? null,
+    invoice: x.invoice_id != null ? {
+      id: Number(x.invoice_id),
+      subtotal: parseFloat(String(x.subtotal || 0)),
+      tips: parseFloat(String(x.tips || 0)),
+      total: parseFloat(String(x.total || 0)),
+      status: String(x.status),
+    } : null,
+  };
+}
+
+// Add `tipTotal` to the job's invoice and record a matching payment so the
+// invoice stays balanced. `paymentMeta` is the Stripe result when Qleno charged
+// the card, or null when the office collected it externally (Square/cash).
+async function applyTipToInvoice(
+  companyId: number, jobId: number, billing: JobBilling, tipTotal: number,
+  processedByUserId: number,
+  paymentMeta: { stripe_payment_id?: string; method: string; last_4?: string | null; card_brand?: string | null },
+): Promise<{ id: number; tips: number; total: number; status: string } | null> {
+  if (!billing.invoice) return null;
+  const inv = billing.invoice;
+  const newTips = Math.round((inv.tips + tipTotal) * 100) / 100;
+  const newTotal = Math.round((inv.subtotal + newTips) * 100) / 100;
+
+  await db.execute(sql`
+    UPDATE invoices SET tips = ${newTips.toFixed(2)}, total = ${newTotal.toFixed(2)}
+    WHERE id = ${inv.id} AND company_id = ${companyId}`);
+
+  // Balancing payment row — the tip was collected (externally or via Stripe).
+  await db.insert(paymentsTable).values({
+    company_id: companyId,
+    client_id: billing.client_id!,
+    invoice_id: inv.id,
+    job_id: jobId,
+    amount: String(tipTotal.toFixed(2)),
+    method: paymentMeta.method,
+    status: "completed",
+    stripe_payment_id: paymentMeta.stripe_payment_id ?? null,
+    last_4: paymentMeta.last_4 ?? null,
+    card_brand: paymentMeta.card_brand ?? null,
+    processed_by: processedByUserId,
+    attempted_at: new Date(),
+  });
+
+  // QB re-push (one-way, fire-and-forget, no-op when not connected).
+  import("../services/quickbooks-sync.js").then(({ syncInvoice, syncPayment }) => {
+    syncInvoice(companyId, inv.id).catch(() => {});
+    syncPayment?.(companyId, inv.id).catch?.(() => {});
+  }).catch(() => {});
+
+  try { await logAudit({ auth: { companyId, userId: processedByUserId } } as any, "invoice_tip.add", "invoice", inv.id, { tips: inv.tips, total: inv.total }, { tips: newTips, total: newTotal, added: tipTotal }); } catch {}
+  return { id: inv.id, tips: newTips, total: newTotal, status: inv.status };
+}
+
+// GET /api/jobs/:id/tips — list this job's tips + total
+router.get("/:id/tips", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const data = await listJobTips(jobId, companyId);
+    const total = Math.round(data.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+    return res.json({ data, total });
+  } catch (err) {
+    console.error("GET /jobs/:id/tips error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// GET /api/jobs/:id/tips/split-preview?total=40 — per-tech default split for
+// the UI to pre-fill (editable). Returns ALL techs (0 default) so the office
+// can hand a share to a tech who didn't clock; never drops a tech.
+router.get("/:id/tips/split-preview", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const total = Number(req.query.total);
+    const ctx = await loadJobTipContext(jobId, companyId);
+    if (!ctx) return res.status(404).json({ error: "Job not found" });
+    const allocs = Number.isFinite(total) && total > 0 ? computeTipSplit(total, ctx.techs) : [];
+    const byUser = new Map(allocs.map((a) => [a.user_id, a.amount]));
+    const anyClocked = ctx.techs.some((t) => t.hours > 0);
+    const data = ctx.techs.map((t) => ({
+      user_id: t.user_id, name: t.name, is_primary: t.is_primary, hours: t.hours,
+      amount: byUser.get(t.user_id) ?? 0,
+    }));
+    // Billing context so the UI can show the right options: whether there's an
+    // invoice to update, and whether Qleno can charge the card (Stripe only).
+    const billing = await loadJobBilling(jobId, companyId);
+    const canChargeCard = !!billing && billing.payment_source === "stripe"
+      && !!billing.stripe_customer_id && !!billing.stripe_payment_method_id;
+    return res.json({
+      data,
+      basis: anyClocked ? "clocked_hours" : "even",
+      billing: {
+        has_invoice: !!billing?.invoice,
+        invoice_status: billing?.invoice?.status ?? null,
+        payment_source: billing?.payment_source ?? null,
+        can_charge_card: canChargeCard,
+        card_label: canChargeCard ? `${billing!.card_brand ?? "card"} ···· ${billing!.card_last_four ?? "----"}` : null,
+      },
+    });
+  } catch (err) {
+    console.error("GET /jobs/:id/tips/split-preview error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// POST /api/jobs/:id/tips — record a tip on a job, attributed to its tech(s),
+// and (by default) reflect it on the customer's invoice — no manual editing.
+// Body: {
+//   total?: number, allocations?: [{user_id, amount}], note?: string,
+//   update_invoice?: boolean (default true)  — add the tip to the job's invoice
+//                                               + record a balancing payment,
+//   charge_card?: boolean (default false)    — Stripe clients only: charge the
+//                                               card on file for the tip now.
+// }
+// Order of operations protects money: if charging a card, that happens FIRST
+// and the whole request aborts on failure (no payout, no invoice change). For
+// Square/cash the office already collected the tip externally; Qleno just
+// records it. Office/owner only.
+router.post("/:id/tips", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const { total, allocations, note, update_invoice, charge_card } = req.body ?? {};
+    const updateInvoice = update_invoice !== false; // default true
+    const chargeCard = charge_card === true;        // default false
+
+    const ctx = await loadJobTipContext(jobId, companyId);
+    if (!ctx) return res.status(404).json({ error: "Job not found" });
+    if (!ctx.techs.length) return res.status(400).json({ error: "Job has no assigned technician to attribute the tip to" });
+    const validIds = new Set(ctx.techs.map((t) => t.user_id));
+
+    let allocs: Array<{ user_id: number; amount: number }>;
+    if (Array.isArray(allocations) && allocations.length) {
+      allocs = [];
+      for (const a of allocations) {
+        const uid = Number(a?.user_id);
+        const amt = Math.round((Number(a?.amount) || 0) * 100) / 100;
+        if (!validIds.has(uid)) return res.status(400).json({ error: `User ${uid} is not on this job` });
+        if (amt > 0) allocs.push({ user_id: uid, amount: amt });
+      }
+      if (!allocs.length) return res.status(400).json({ error: "No positive tip amounts provided" });
+    } else {
+      const t = Number(total);
+      if (!Number.isFinite(t) || t <= 0) return res.status(400).json({ error: "Provide a positive total or allocations" });
+      allocs = computeTipSplit(t, ctx.techs);
+      if (!allocs.length) return res.status(400).json({ error: "Tip total too small to split" });
+    }
+    const tipTotal = Math.round(allocs.reduce((s, a) => s + a.amount, 0) * 100) / 100;
+
+    // Billing side. Resolve the invoice + figure out how the tip was/will be collected.
+    const billing = updateInvoice ? await loadJobBilling(jobId, companyId) : null;
+    let paymentMeta: { stripe_payment_id?: string; method: string; last_4?: string | null; card_brand?: string | null } | null = null;
+
+    if (chargeCard) {
+      // Stripe-only auto-charge. Must succeed BEFORE we pay anyone out.
+      if (!billing || billing.payment_source !== "stripe" || !billing.stripe_customer_id || !billing.stripe_payment_method_id) {
+        return res.status(400).json({ error: "Can't charge a card for this client — no Stripe card on file. Collect the tip in Square/cash and leave 'charge card' off." });
+      }
+      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      if (!stripeKey) return res.status(503).json({ error: "Stripe not configured" });
+      try {
+        const Stripe = (await import("stripe")).default;
+        const stripe = new Stripe(stripeKey, { apiVersion: "2024-12-18.acacia" });
+        const pi = await stripe.paymentIntents.create({
+          amount: Math.round(tipTotal * 100), currency: "usd",
+          customer: billing.stripe_customer_id, payment_method: billing.stripe_payment_method_id,
+          confirm: true, off_session: true,
+          description: `Tip — Job #${jobId}`,
+          metadata: { job_id: String(jobId), company_id: String(companyId), kind: "tip" },
+        });
+        if (pi.status !== "succeeded") throw new Error(`Payment status: ${pi.status}`);
+        paymentMeta = { stripe_payment_id: pi.id, method: "stripe", last_4: billing.card_last_four, card_brand: billing.card_brand };
+      } catch (e: any) {
+        return res.status(402).json({ error: `Card charge failed: ${e?.message || "declined"}. Nothing was saved.` });
+      }
+    } else if (updateInvoice && billing?.invoice) {
+      // Office collected it externally (Square/cash/etc.) — record it as such.
+      paymentMeta = { method: billing.payment_source || "manual", last_4: null, card_brand: null };
+    }
+
+    // Pay the tech(s).
+    const { createdAt, tag } = await resolveTipPeriodDate(companyId, ctx.scheduledDate);
+    const baseNote = note ? String(note).slice(0, 300).trim() : "";
+    const finalNote = [baseNote, tag].filter(Boolean).join(" ").trim() || null;
+    for (const a of allocs) {
+      await db.insert(additionalPayTable).values({
+        company_id: companyId, user_id: a.user_id, amount: a.amount.toFixed(2),
+        type: "tips", notes: finalNote, job_id: jobId, status: "pending", created_at: createdAt,
+      });
+    }
+    try { await logAudit(req, "job_tip.add", "job", jobId, null, { allocations: allocs, note: finalNote, reslotted: !!tag, update_invoice: updateInvoice, charged: chargeCard }); } catch {}
+
+    // Reflect on the invoice (bump tip + total, record the balancing payment).
+    let invoiceResult: { id: number; tips: number; total: number; status: string } | null = null;
+    let invoiceNote: string | null = null;
+    if (updateInvoice) {
+      if (billing?.invoice && paymentMeta) {
+        invoiceResult = await applyTipToInvoice(companyId, jobId, billing, tipTotal, userId, paymentMeta);
+      } else if (!billing?.invoice) {
+        invoiceNote = "No invoice on this job yet — tip paid to the cleaner, nothing to add to a bill.";
+      }
+    }
+
+    const data = await listJobTips(jobId, companyId);
+    const totalNow = Math.round(data.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+    return res.status(201).json({
+      data, total: totalNow, reslotted: !!tag,
+      charged: chargeCard, invoice: invoiceResult, invoice_note: invoiceNote,
+    });
+  } catch (err) {
+    console.error("POST /jobs/:id/tips error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// DELETE /api/jobs/:id/tips/:tipId — remove a tip (void: keeps the audit trail
+// and drops it from pay since the snapshot ignores voided rows). Works after a
+// period locks too — voiding just removes future inclusion.
+router.delete("/:id/tips/:tipId", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const tipId = parseInt(req.params.tipId);
+    const companyId = req.auth!.companyId!;
+    const upd = await db.execute(sql`
+      UPDATE additional_pay SET status = 'voided', voided_at = now(), voided_by = ${req.auth!.userId}
+      WHERE id = ${tipId} AND job_id = ${jobId} AND company_id = ${companyId}
+        AND type = 'tips' AND status <> 'voided'
+      RETURNING id`);
+    if (!upd.rows.length) return res.status(404).json({ error: "Tip not found or already removed" });
+    try { await logAudit(req, "job_tip.void", "job", jobId, null, { tip_id: tipId }); } catch {}
+    const data = await listJobTips(jobId, companyId);
+    const total = Math.round(data.reduce((s, t) => s + t.amount, 0) * 100) / 100;
+    return res.json({ data, total });
+  } catch (err) {
+    console.error("DELETE /jobs/:id/tips/:tipId error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -4912,6 +5740,9 @@ router.post("/v2/bulk", requireAuth, async (req, res) => {
     switch (action) {
       case "mark_complete": {
         await db.execute(sql`UPDATE jobs SET status = 'complete' WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        // Fire invoice creation for every newly-completed job (idempotent — skips if invoice exists).
+        Promise.allSettled(idList.map(id => ensureInvoiceForCompletedJob(companyId, id, req.auth!.userId ?? null)))
+          .catch(e => console.error("[bulk mark_complete] invoice creation non-fatal:", e));
         return res.json({ success: true, affected: idList.length });
       }
       case "mark_paid": {
@@ -4921,6 +5752,9 @@ router.post("/v2/bulk", requireAuth, async (req, res) => {
       case "cancel": {
         const reason = String(payload?.reason || "cancelled").slice(0, 200);
         await db.execute(sql`UPDATE jobs SET status = 'cancelled', notes = COALESCE(notes, '') || ${` [Cancelled: ${reason}]`} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
+        // Void any draft invoices tied to these now-cancelled jobs.
+        Promise.allSettled(idList.map(id => syncJobInvoiceDraft(id, companyId, { cancel: true })))
+          .catch(e => console.error("[bulk cancel] invoice void non-fatal:", e));
         return res.json({ success: true, affected: idList.length });
       }
       case "reassign": {
@@ -4938,6 +5772,9 @@ router.post("/v2/bulk", requireAuth, async (req, res) => {
         } else {
           await db.execute(sql`UPDATE jobs SET scheduled_date = ${date} WHERE id = ANY(${idList}::int[]) AND company_id = ${companyId}`);
         }
+        // Shift due_date on any draft invoices for these rescheduled jobs.
+        Promise.allSettled(idList.map(id => syncJobInvoiceDraft(id, companyId, { newDate: date })))
+          .catch(e => console.error("[bulk reschedule] invoice sync non-fatal:", e));
         return res.json({ success: true, affected: idList.length });
       }
       case "flag": {
@@ -5136,7 +5973,7 @@ router.get("/v2/export", requireAuth, async (req, res) => {
 // revenue rollups, manual charge) reads via COALESCE(billed_amount, base_fee), so
 // pushing the post-mod total there flows through automatically.
 
-async function recomputeJobBilledAmount(jobId: number, companyId: number): Promise<number> {
+export async function recomputeJobBilledAmount(jobId: number, companyId: number): Promise<number> {
   // [commercial-revenue 2026-06-04] Keep billed_amount — the cache payroll +
   // the weekly chart read — in lockstep with how dispatch computes revenue
   // live, so the two never diverge. Commercial work whose price is NOT a
@@ -5145,9 +5982,11 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
   // behavior untouched (residential price semantics aren't in scope here).
   const rows = await db.execute(sql`
     SELECT j.base_fee, j.hourly_rate, j.allowed_hours, j.account_id,
-           j.manual_rate_override, c.client_type
+           j.manual_rate_override, c.client_type,
+           co.commercial_hourly_rate AS company_commercial_rate
     FROM jobs j
     LEFT JOIN clients c ON c.id = j.client_id
+    LEFT JOIN companies co ON co.id = j.company_id
     WHERE j.id = ${jobId} AND j.company_id = ${companyId}
     LIMIT 1
   `);
@@ -5156,12 +5995,31 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
   const base = parseFloat(String(job.base_fee || "0"));
   const sumRows = await db.execute(sql`
     SELECT COALESCE(SUM(amount), 0)::numeric AS total,
-           COALESCE(SUM(amount) FILTER (WHERE mod_type = 'flat'), 0)::numeric AS flat_total
+           COALESCE(SUM(amount) FILTER (WHERE mod_type = 'flat'), 0)::numeric AS flat_total,
+           COALESCE(SUM(amount) FILTER (WHERE mod_type = 'time'), 0)::numeric AS time_total,
+           COALESCE(SUM(minutes) FILTER (WHERE mod_type = 'time'), 0)::numeric AS time_minutes,
+           -- [commission-optin 2026-07-01] Only the flagged mods feed the commission base.
+           COALESCE(SUM(amount) FILTER (WHERE affects_commission), 0)::numeric AS comm_total,
+           COALESCE(SUM(amount) FILTER (WHERE affects_commission AND mod_type = 'flat'), 0)::numeric AS comm_flat_total
     FROM job_rate_mods
     WHERE job_id = ${jobId} AND company_id = ${companyId}
   `);
   const modsTotal = parseFloat(String((sumRows.rows[0] as any)?.total ?? "0"));
   const flatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.flat_total ?? "0"));
+  const timeModsTotal = parseFloat(String((sumRows.rows[0] as any)?.time_total ?? "0"));
+  const timeModsMinutes = parseFloat(String((sumRows.rows[0] as any)?.time_minutes ?? "0"));
+  const commModsTotal = parseFloat(String((sumRows.rows[0] as any)?.comm_total ?? "0"));
+  const commFlatModsTotal = parseFloat(String((sumRows.rows[0] as any)?.comm_flat_total ?? "0"));
+
+  // Add-ons split into full total (billing) and commission-flagged total.
+  const addOnRows = await db.execute(sql`
+    SELECT COALESCE(SUM(subtotal), 0)::numeric AS total,
+           COALESCE(SUM(subtotal) FILTER (WHERE affects_commission), 0)::numeric AS comm_total
+    FROM job_add_ons
+    WHERE job_id = ${jobId}
+  `);
+  const addOnsTotal = parseFloat(String((addOnRows.rows[0] as any)?.total ?? "0"));
+  const commAddOnsTotal = parseFloat(String((addOnRows.rows[0] as any)?.comm_total ?? "0"));
 
   const isCommercial = job.account_id != null || job.client_type === "commercial";
   const override = job.manual_rate_override === true;
@@ -5170,23 +6028,51 @@ async function recomputeJobBilledAmount(jobId: number, companyId: number): Promi
 
   let newBilled: number;
   if (isCommercial && !override && rate > 0 && hrs > 0) {
-    // Commercial: rate × allowed_hours + add-ons + FLAT mods only. 'time' mods
-    // already grew allowed_hours (PR #307), so they're in rate × hrs — adding
-    // their amount again would double-count the added time.
-    const addOnRows = await db.execute(sql`
-      SELECT COALESCE(SUM(subtotal), 0)::numeric AS total
-      FROM job_add_ons
-      WHERE job_id = ${jobId}
-    `);
-    const addOnsTotal = parseFloat(String((addOnRows.rows[0] as any)?.total ?? "0"));
-    newBilled = rate * hrs + flatModsTotal + addOnsTotal;
+    // Commercial: rate × allowed_hours + add-ons + FLAT mods + the slice of
+    // each 'time' mod's dollars NOT already captured by the hours growth.
+    // 'time' mods grew allowed_hours (PR #307), so rate × hrs contains
+    // rate × their minutes — but the mod's stored AMOUNT is authoritative
+    // for billing (the office types it), and it can differ from rate × minutes:
+    // a "+0 min · +$20" fee misfiled as a time mod added $0 here while the
+    // invoice line builder subtracted its $20 from the service line (invoice
+    // #6387 pinned at $150 instead of $170). Add amount − rate×minutes so the
+    // stored amount always wins: a proper time mod nets 0 extra, a courtesy
+    // "+30 min · $0" mod nets the free time back OUT of the bill.
+    const timeModsExtra = timeModsTotal - (rate * timeModsMinutes) / 60;
+    newBilled = rate * hrs + flatModsTotal + timeModsExtra + addOnsTotal;
   } else {
     newBilled = base + modsTotal;
   }
 
+  // [commission-optin 2026-07-01] Commission base = the commissionable slice:
+  // base (or hrs × the TENANT commercial commission rate) + ONLY the flagged
+  // mods/add-ons. The pay engine reads this instead of billed_amount, so an
+  // add-on/adjustment counts toward the fee split only when the office opts in.
+  let commissionBase: number;
+  if (isCommercial) {
+    const commRate = parseFloat(String(job.company_commercial_rate || "0"));
+    // Mirror the engine's commercial pool (allowed_hours × commission rate),
+    // then add the flagged FLAT mods + flagged add-ons (time mods already live
+    // in allowed_hours, same reasoning as billing above).
+    commissionBase = commRate * hrs + commFlatModsTotal + commAddOnsTotal;
+  } else {
+    commissionBase = base + commModsTotal + commAddOnsTotal;
+  }
+
+  // For residential hourly jobs (hourly_rate set, not commercial), keep billed_hours
+  // in sync with billed_amount so the invoice line item shows the right qty×rate.
+  // Commercial jobs drive hours via allowed_hours (adjustAllowedHours); skip them.
+  const updateFields: Record<string, unknown> = {
+    billed_amount: newBilled.toFixed(2),
+    commission_base: commissionBase.toFixed(2),
+  };
+  if (!isCommercial && rate > 0) {
+    updateFields.billed_hours = (newBilled / rate).toFixed(2);
+  }
+
   await db
     .update(jobsTable)
-    .set({ billed_amount: newBilled.toFixed(2) })
+    .set(updateFields as any)
     .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
   return newBilled;
 }
@@ -5243,8 +6129,11 @@ router.post("/:id/rate-mods", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
     const userId = req.auth!.userId;
-    const { mod_type, minutes, amount, reason, dry_run } = req.body ?? {};
+    const { mod_type, minutes, amount, reason, dry_run, affects_commission } = req.body ?? {};
     const isDryRun = dry_run === true;
+    // [commission-optin 2026-07-01] Opt-in: whether this adjustment counts
+    // toward the tech's fee split. Defaults false (does not affect commission).
+    const affectsCommission = affects_commission === true;
 
     if (mod_type !== "time" && mod_type !== "flat") {
       return res.status(400).json({ error: "Bad Request", message: "mod_type must be 'time' or 'flat'" });
@@ -5289,13 +6178,13 @@ router.post("/:id/rate-mods", requireAuth, async (req, res) => {
     }
 
     const insert = await db.execute(sql`
-      INSERT INTO job_rate_mods (company_id, job_id, mod_type, minutes, amount, reason, created_by)
+      INSERT INTO job_rate_mods (company_id, job_id, mod_type, minutes, amount, reason, created_by, affects_commission)
       VALUES (
         ${companyId}, ${jobId}, ${mod_type},
         ${mod_type === "time" ? Number(minutes) : null},
-        ${amt.toFixed(2)}, ${reason.trim()}, ${userId}
+        ${amt.toFixed(2)}, ${reason.trim()}, ${userId}, ${affectsCommission}
       )
-      RETURNING id, mod_type, minutes, amount, reason, created_by, created_at
+      RETURNING id, mod_type, minutes, amount, reason, created_by, created_at, affects_commission
     `);
     const newBilled = await recomputeJobBilledAmount(jobId, companyId);
     // Time mods extend the job's allowed hours (commercial commission + block).
@@ -5340,6 +6229,7 @@ router.delete("/:id/rate-mods/:modId", requireAuth, async (req, res) => {
     const newBilled = await recomputeJobBilledAmount(jobId, companyId);
     const newAllowedHours = mod.mod_type === "time" && mod.minutes
       ? await adjustAllowedHours(jobId, companyId, -Number(mod.minutes)) : null;
+    syncJobInvoiceDraft(jobId, companyId).catch(e => console.error("[rate-mod-delete] invoice draft sync non-fatal:", e));
     logAudit(req, "DELETE", "job_rate_mod", modId, null, null);
     return res.json({ success: true, billed_amount: newBilled.toFixed(2), allowed_hours: newAllowedHours });
   } catch (err) {
@@ -5348,69 +6238,10 @@ router.delete("/:id/rate-mods/:modId", requireAuth, async (req, res) => {
   }
 });
 
-// ─── DELETE A JOB ────────────────────────────────────────────────────────────
-// For made-up / test jobs. Recorded in the audit trail. Clears child rows that
-// would block the delete (clock entries, photos, add-ons, status logs, etc.)
-// and detaches (nulls) records we keep — invoices, payroll, mileage. Returns
-// 409 if the job has links that can't be safely removed → cancel it instead.
-router.delete("/:id", requireAuth, async (req, res) => {
-  const role = req.auth!.role;
-  if (!["owner", "admin", "office"].includes(role)) {
-    return res.status(403).json({ error: "Forbidden", message: "Only office, admin, or owner can delete a job." });
-  }
-  const jobId = parseInt(req.params.id);
-  if (isNaN(jobId)) return res.status(400).json({ error: "Invalid id" });
-  const [job] = await db.select().from(jobsTable)
-    .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId))).limit(1);
-  if (!job) return res.status(404).json({ error: "Not found" });
-  try {
-    await db.transaction(async (tx) => {
-      const childTables = [
-        "job_add_ons", "job_photos", "job_supplies", "job_status_logs", "job_clock_events",
-        "job_worksheet", "client_ratings", "cancellation_log", "timeclock", "clock_in_attempts",
-        "attendance_proposals", "job_technicians",
-      ];
-      for (const t of childTables) await tx.execute(sql.raw(`DELETE FROM ${t} WHERE job_id = ${jobId}`));
-      const detach: [string, string][] = [
-        ["additional_pay", "job_id"], ["communication_log", "job_id"], ["contact_tickets", "job_id"],
-        ["form_submissions", "job_id"], ["hr_logs", "job_id"], ["loyalty", "job_id"], ["invoices", "job_id"],
-        // [delete-always-works 2026-06-04] quotes.booked_job_id was the missing
-        // FK that made delete fail (409 "can't delete") for any job created from
-        // a converted quote. Detach it so delete always succeeds.
-        ["quotes", "booked_job_id"],
-        ["mileage", "from_job_id"], ["mileage", "to_job_id"],
-        ["mileage_requests", "from_job_id"], ["mileage_requests", "to_job_id"],
-        ["cancellation_log", "rescheduled_to_job_id"],
-      ];
-      for (const [t, c] of detach) {
-        // Tolerate tables/columns that don't exist in a given tenant — a single
-        // missing detach target must never block the delete.
-        try { await tx.execute(sql.raw(`UPDATE ${t} SET ${c} = NULL WHERE ${c} = ${jobId}`)); }
-        catch (e) { console.error(`[delete-job] detach ${t}.${c} skipped:`, (e as any)?.message); }
-      }
-      await tx.execute(sql.raw(`DELETE FROM jobs WHERE id = ${jobId}`));
-    });
-    // Global audit trail.
-    logAudit(req, "DELETE", "job", jobId, null, {
-      client_id: job.client_id, scheduled_date: job.scheduled_date,
-      service_type: job.service_type, base_fee: job.base_fee,
-    });
-    // Cascade to the client's own audit trail so all activity within a client
-    // is auditable in one place.
-    logClientActivity(req, job.client_id, "job_deleted", {
-      job_id: jobId, scheduled_date: job.scheduled_date,
-      service_type: job.service_type, base_fee: job.base_fee,
-      billed_amount: job.billed_amount, status: job.status,
-    }, null);
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error("Delete job error:", err);
-    return res.status(409).json({
-      error: "Could not delete",
-      message: "This job has linked records (e.g. an invoice or payroll entry) and can't be deleted. Cancel it instead.",
-    });
-  }
-});
+// [delete-fk-sweep 2026-07-06] The duplicate DELETE /:id route that lived here
+// was DEAD CODE — Express matches the first registration, so the unified
+// delete above (search: delete-any-job) always won and this one never ran.
+// Its extra child-table cleanup has been folded into the live route.
 
 // ─── SET A JOB'S ZONE (manual override) ──────────────────────────────────────
 // [zone-picker 2026-06-04] Lets the office assign a zone directly on a gray/
@@ -5468,6 +6299,143 @@ router.post("/:id/note", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Append job note error:", err);
     return res.status(500).json({ error: "Could not save note" });
+  }
+});
+
+// ─── Booking-confirmation email: status / PDF copy / manual resend ──────────
+// The office needs to (1) know whether a booked client actually received the
+// confirmation email, (2) view a copy of what was sent, and (3) re-send it.
+// Surfaced per-job in the Lead drawer's Jobs tab.
+
+// Latest job_scheduled EMAIL notification_log row for a job. Matches on the
+// stamped metadata.job_id first (reliable, written by sendJobScheduledConfirmation),
+// then falls back to the client's email for rows logged before that stamp
+// existed. Returns null when nothing was ever logged (e.g. comms were gated off
+// at booking time, so no email was attempted).
+async function getConfirmationEmailLog(companyId: number, jobId: number, clientEmail: string) {
+  const r = await db.execute(sql`
+    SELECT status, error_message, sent_at, recipient, metadata
+    FROM notification_log
+    WHERE company_id = ${companyId}
+      AND trigger = 'job_scheduled'
+      AND channel = 'email'
+      AND (
+        metadata->>'job_id' = ${String(jobId)}
+        OR (${clientEmail} <> '' AND recipient = ${clientEmail})
+      )
+    ORDER BY (metadata->>'job_id' = ${String(jobId)}) DESC, sent_at DESC
+    LIMIT 1
+  `);
+  return (r.rows[0] as any) || null;
+}
+
+// GET /api/jobs/:id/confirmation-status — did the client get the email?
+router.get("/:id/confirmation-status", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const jobId = parseInt(req.params.id);
+    if (Number.isNaN(jobId)) return res.status(400).json({ error: "Bad job id" });
+
+    const jr = await db.execute(sql`
+      SELECT j.id, c.email AS client_email
+      FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+      WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1
+    `);
+    const job = jr.rows[0] as any;
+    if (!job) return res.status(404).json({ error: "Not found" });
+    const clientEmail = job.client_email || "";
+
+    const log = await getConfirmationEmailLog(companyId, jobId, clientEmail);
+    if (!log) return res.json({ found: false, recipient: clientEmail || null });
+
+    const providerId = (log.metadata as any)?._provider_id || null;
+    // Live Resend lookup for ACTUAL delivery/open — works retroactively for
+    // already-sent emails and doesn't depend on the delivery webhook being wired.
+    let resend: { last_event: string; to: string; created_at: string } | null = null;
+    if (log.status === "sent" && providerId) {
+      const s = await getResendEmailStatus(providerId);
+      if (s.ok) resend = { last_event: s.last_event, to: s.to, created_at: s.created_at };
+    }
+
+    return res.json({
+      found: true,
+      status: log.status,              // sent | suppressed | failed | skipped
+      reason: log.error_message || null, // why, for suppressed/failed
+      sent_at: log.sent_at,
+      recipient: log.recipient,
+      provider_id: providerId,
+      resend,                          // { last_event } from the live API, or null
+    });
+  } catch (err) {
+    console.error("[confirmation-status]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// GET /api/jobs/:id/confirmation.pdf — a PDF copy of the confirmation email.
+router.get("/:id/confirmation.pdf", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const jobId = parseInt(req.params.id);
+    if (Number.isNaN(jobId)) return res.status(400).json({ error: "Bad job id" });
+
+    const data = await gatherConfirmationData(jobId, companyId);
+    if (!data) return res.status(404).json({ error: "Not found" });
+
+    // Stamp the real sent-to / sent-on from the log when we have it.
+    const log = await getConfirmationEmailLog(companyId, jobId, data.recipientEmail || "");
+    if (log?.sent_at) data.sentAt = new Date(log.sent_at);
+    if (log?.recipient) data.recipientEmail = log.recipient;
+
+    const buf = await buildConfirmationPdf(data);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="confirmation-job-${jobId}.pdf"`);
+    return res.send(buf);
+  } catch (err) {
+    console.error("[confirmation-pdf]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// POST /api/jobs/:id/resend-confirmation — manually re-send the email.
+// Email-only (the office ask is about email; SMS is left to the booking trigger)
+// and goes through the normal gated path: a company with comms disabled or a
+// client who opted out is reported back, not force-sent. The fresh log row tells
+// the office the real outcome.
+router.post("/:id/resend-confirmation", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const jobId = parseInt(req.params.id);
+    if (Number.isNaN(jobId)) return res.status(400).json({ error: "Bad job id" });
+
+    const jr = await db.execute(sql`
+      SELECT j.id, j.status, c.email AS client_email
+      FROM jobs j LEFT JOIN clients c ON c.id = j.client_id
+      WHERE j.id = ${jobId} AND j.company_id = ${companyId} LIMIT 1
+    `);
+    const job = jr.rows[0] as any;
+    if (!job) return res.status(404).json({ error: "Not found" });
+    // [stale-alert-fix 2026-07-07] Never confirm a booking that no longer
+    // stands — resending on a cancelled/completed job told the client they
+    // were "still booked".
+    if (job.status === "cancelled" || job.status === "complete") {
+      return res.status(409).json({ ok: false, error: "job_not_active", message: `This job is ${job.status} — a booking confirmation can't be sent for it.` });
+    }
+    if (!job.client_email) return res.status(400).json({ ok: false, error: "no_client_email" });
+
+    const { sendJobScheduledConfirmation } = await import("../lib/booking-confirmation.js");
+    await sendJobScheduledConfirmation(req, jobId, { channels: ["email"] });
+
+    const log = await getConfirmationEmailLog(companyId, jobId, job.client_email || "");
+    return res.json({
+      ok: true,
+      status: log?.status || "unknown",
+      reason: log?.error_message || null,
+      recipient: log?.recipient || job.client_email,
+    });
+  } catch (err) {
+    console.error("[resend-confirmation]", err);
+    return res.status(500).json({ error: "Server error" });
   }
 });
 

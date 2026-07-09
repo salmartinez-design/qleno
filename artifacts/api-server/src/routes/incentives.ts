@@ -110,6 +110,9 @@ router.post("/award", requireAuth, requireRole("owner", "admin"), async (req, re
 
     const companyId = req.auth!.companyId;
     const role = req.auth!.role;
+    // [office-admin-parity 2026-06-26] Office + admin are approvers (same as
+    // owner), so their own awards auto-approve rather than waiting on approval.
+    const canApprove = role === "owner" || role === "admin" || role === "office";
 
     const programs = await db.select().from(incentiveProgramsTable)
       .where(and(eq(incentiveProgramsTable.id, parseInt(program_id)), eq(incentiveProgramsTable.company_id, companyId)))
@@ -140,7 +143,7 @@ router.post("/award", requireAuth, requireRole("owner", "admin"), async (req, re
       }
     }
 
-    const status = role === "owner" ? "approved" : "pending_approval";
+    const status = canApprove ? "approved" : "pending_approval";
     const [row] = await db.insert(incentiveEarnedTable).values({
       company_id: companyId,
       employee_id: parseInt(employee_id),
@@ -150,11 +153,11 @@ router.post("/award", requireAuth, requireRole("owner", "admin"), async (req, re
       notes: notes || null,
       status,
       awarded_by: req.auth!.userId,
-      approved_by: role === "owner" ? req.auth!.userId : null,
-      approved_at: role === "owner" ? new Date() : null,
+      approved_by: canApprove ? req.auth!.userId : null,
+      approved_at: canApprove ? new Date() : null,
     }).returning();
 
-    return res.status(201).json({ ...row, message: role === "owner" ? "Incentive awarded." : "Submitted for owner approval." });
+    return res.status(201).json({ ...row, message: canApprove ? "Incentive awarded." : "Submitted for owner approval." });
   } catch (err) {
     console.error("[incentives/award]", err);
     return res.status(500).json({ error: "Server error" });
@@ -201,8 +204,9 @@ router.get("/earned", requireAuth, async (req, res) => {
   }
 });
 
-// ── GET /api/incentives/pending-approval (owner only) ──
-router.get("/pending-approval", requireAuth, requireRole("owner"), async (req, res) => {
+// ── GET /api/incentives/pending-approval (owner/admin/office) ──
+// [office-admin-parity 2026-06-26] Office tier reviews + approves/rejects incentive awards (Sal: full access).
+router.get("/pending-approval", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const rows = await db
       .select({
@@ -236,8 +240,8 @@ router.get("/pending-approval", requireAuth, requireRole("owner"), async (req, r
   }
 });
 
-// ── POST /api/incentives/:id/approve (owner only) ──
-router.post("/:id/approve", requireAuth, requireRole("owner"), async (req, res) => {
+// ── POST /api/incentives/:id/approve (owner/admin/office) ──
+router.post("/:id/approve", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const [row] = await db.update(incentiveEarnedTable)
       .set({ status: "approved", approved_by: req.auth!.userId, approved_at: new Date() })
@@ -250,8 +254,8 @@ router.post("/:id/approve", requireAuth, requireRole("owner"), async (req, res) 
   }
 });
 
-// ── POST /api/incentives/:id/reject (owner only) ──
-router.post("/:id/reject", requireAuth, requireRole("owner"), async (req, res) => {
+// ── POST /api/incentives/:id/reject (owner/admin/office) ──
+router.post("/:id/reject", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const { rejection_note } = req.body;
     if (!rejection_note) return res.status(400).json({ error: "rejection_note required" });

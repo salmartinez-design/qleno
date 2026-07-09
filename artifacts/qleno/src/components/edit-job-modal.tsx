@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { X, AlertTriangle, Loader2 } from "lucide-react";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { useAuthStore } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -268,6 +269,11 @@ export default function EditJobModal({
   // [AI.5] Normalize on init — DB may store "09:00:00" or "9:00" which would
   // silently kill canSave's regex (only HH:MM passes). See normalizeTimeStr.
   const [scheduledTime, setScheduledTime] = useState(normalizeTimeStr(job.scheduled_time));
+  // [notify-choice 2026-07-08] When the save changes the schedule, the office
+  // picks here whether the client hears about it and how (Francisco: full
+  // control, like the skip modal). Default None — internal adjustments stay
+  // silent; nothing auto-sends (Maribel 6/30).
+  const [notifyVia, setNotifyVia] = useState<"none" | "sms" | "email" | "both">("none");
   const [allowedHours, setAllowedHours] = useState<number>(initialAllowedHours);
   const [instructions, setInstructions] = useState(job.notes || "");
 
@@ -300,7 +306,12 @@ export default function EditJobModal({
   // existing add-ons, so an add-on that ISN'T in the current scope's catalog
   // (e.g. a quote-originated add-on from another scope) can still be rendered
   // as a removable row. Without this it had no catalog row and no way to delete.
-  const [existingAddonInfo, setExistingAddonInfo] = useState<Map<number, { name: string; subtotal: number }>>(new Map());
+  // [bug4 2026-06-24] add_on_id carried for "orphan" add-ons that have NO
+  // pricing_addon_id (e.g. hourly "Time Add" add-ons attached without a catalog
+  // link). They load under a negative synthetic key; save persists them by this
+  // real add_on_id. Without it they were silently dropped on load → invisible →
+  // impossible to remove (the stuck-add-on bug).
+  const [existingAddonInfo, setExistingAddonInfo] = useState<Map<number, { name: string; subtotal: number; add_on_id?: number }>>(new Map());
 
   // [W2] Client property sqft. Pre-filled from GET /api/jobs/:id which now
   // joins client_homes and surfaces sq_footage. Operator can edit inline;
@@ -601,7 +612,7 @@ export default function EditJobModal({
         const existing = Array.isArray(d.existing_add_ons) ? d.existing_add_ons : [];
         const addonMap = new Map<number, number>();
         const priceMap = new Map<number, number>();
-        const infoMap = new Map<number, { name: string; subtotal: number }>();
+        const infoMap = new Map<number, { name: string; subtotal: number; add_on_id?: number }>();
         for (const a of existing) {
           if (a.pricing_addon_id != null) {
             const pid = Number(a.pricing_addon_id);
@@ -612,6 +623,16 @@ export default function EditJobModal({
             if (a.unit_price != null) priceMap.set(pid, Number(a.unit_price));
             // (#14B) Keep name/subtotal so a non-catalog add-on still renders.
             infoMap.set(pid, { name: String(a.name ?? "Add-on"), subtotal: Number(a.subtotal ?? 0) });
+          } else if (a.add_on_id != null) {
+            // [bug4 2026-06-24] Add-on with NO pricing_addon_id (e.g. hourly
+            // "Time Add" add-ons attached without a catalog link). Previously
+            // skipped here → never shown → impossible to remove. Load under a
+            // NEGATIVE synthetic key (can't collide with positive catalog ids)
+            // so it renders as a removable orphan row; the save persists it by
+            // its real add_on_id. Removing it just drops it from selectedAddons.
+            const key = -Number(a.add_on_id);
+            addonMap.set(key, Number(a.quantity ?? 1));
+            infoMap.set(key, { name: String(a.name ?? "Add-on"), subtotal: Number(a.subtotal ?? 0), add_on_id: Number(a.add_on_id) });
           }
         }
         setSelectedAddons(addonMap);
@@ -866,9 +887,13 @@ export default function EditJobModal({
             // Nicholas Cooper math gap ($60/hr vs scope ~$71.67/hr).
             hourly_rate_override: clientHourlyRate,
             frequency,
-            addon_ids: Array.from(selectedAddons.keys()),
+            // [bug4 2026-06-24] Exclude orphan add-ons (negative synthetic keys,
+            // no catalog link) from the calc — they carry no catalog price and a
+            // negative id would not resolve server-side. They stay on the job via
+            // the save's orphan branch; they just don't participate in pricing.
+            addon_ids: Array.from(selectedAddons.keys()).filter(k => k >= 0),
             addon_quantities: Object.fromEntries(
-              Array.from(selectedAddons.entries()).map(([k, v]) => [String(k), v])
+              Array.from(selectedAddons.entries()).filter(([k]) => k >= 0).map(([k, v]) => [String(k), v])
             ),
           }),
         });
@@ -1141,6 +1166,21 @@ export default function EditJobModal({
       // permits this since pricing_addons rows have similar shape). A future
       // pass can map distinct addon catalogs.
       const addOnsPayload = Array.from(selectedAddons.entries()).map(([pricingAddonId, qty]) => {
+        // [bug4 2026-06-24] Orphan add-on (negative synthetic key, no catalog
+        // link) — persist by its real add_on_id + stored subtotal, no
+        // pricing_addon_id. Removing one drops it from selectedAddons so it
+        // never reaches this payload and the DELETE-then-reinsert clears it.
+        if (pricingAddonId < 0) {
+          const info = existingAddonInfo.get(pricingAddonId);
+          const sub = info?.subtotal ?? 0;
+          return {
+            add_on_id: info?.add_on_id ?? Math.abs(pricingAddonId),
+            pricing_addon_id: null,
+            qty,
+            unit_price: qty ? Math.round((sub / qty) * 100) / 100 : sub,
+            subtotal: sub,
+          };
+        }
         const detail = calcResult?.addon_breakdown?.find(x => x.id === pricingAddonId);
         // Operator-typed override wins over the calc engine. Catalog price is
         // a fallback only — without an override and without a calc result,
@@ -1182,6 +1222,10 @@ export default function EditJobModal({
         team_user_ids: selectedTechIds,
         instructions,
         cascade_scope: cascade,
+        // [notify-choice 2026-07-08] The office's per-save pick. The backend
+        // only acts on it when the save actually changed date/time; 'none'
+        // suppresses the pending-note nag too (decision already made).
+        notify_client_via: notifyVia,
         // [PR / 2026-04-30] Dry-run flag forwarded when the operator
         // clicked "Preview changes". Backend runs the cascade tx as
         // normal, captures counters, then ROLLBACKs at the end of the
@@ -2287,6 +2331,16 @@ export default function EditJobModal({
               style={{ ...INPUT, height: "auto", padding: "10px 12px", lineHeight: 1.5, resize: "vertical" }} />
           </div>
 
+          {/* [team-photo-notes] Pictures + notes for the team. Attach to this
+              job, or tick sticky to pin to the customer for every visit. */}
+          <div style={SECTION}>
+            <TeamPhotoNotes
+              jobId={job.id}
+              jobClientId={job.client_id ?? null}
+              jobAccountId={job.account_id ?? null}
+            />
+          </div>
+
           <div style={{ height: 16 }} />
         </div>
 
@@ -2330,6 +2384,27 @@ export default function EditJobModal({
                 <div style={{ lineHeight: 1.4 }}>{lastSaveError.message}</div>
               </div>
               <button onClick={() => setLastSaveError(null)} style={{ fontSize: 12, color: "#991B1B", background: "none", border: "none", cursor: "pointer", fontFamily: FF, padding: 0 }}>Dismiss</button>
+            </div>
+          </div>
+        )}
+
+        {/* [notify-choice 2026-07-08] Only rendered when this save moves the
+            schedule. Office picks how (or whether) the client hears about it —
+            None = silent internal adjustment, no reminder note either. */}
+        {(scheduledDate !== job.scheduled_date || scheduledTime !== normalizeTimeStr(job.scheduled_time)) && (
+          <div style={{ padding: "10px 20px", borderTop: "1px solid #E5E2DC", backgroundColor: "#FCFBF9", flexShrink: 0, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: "#1A1917", fontFamily: FF, flex: "1 1 180px" }}>
+              Tell the client about this schedule change?
+            </span>
+            <div style={{ display: "flex", gap: 0, border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+              {([["none", "No"], ["sms", "Text"], ["email", "Email"], ["both", "Both"]] as const).map(([val, label], i) => (
+                <button key={val} onClick={() => setNotifyVia(val)}
+                  style={{ padding: "7px 14px", border: "none", borderLeft: i === 0 ? "none" : "1px solid #E5E2DC", cursor: "pointer", fontFamily: FF, fontSize: 12, fontWeight: 700,
+                    background: notifyVia === val ? (val === "none" ? "#1A1917" : "#00C9A0") : "#FFFFFF",
+                    color: notifyVia === val ? "#FFFFFF" : "#6B6860" }}>
+                  {label}
+                </button>
+              ))}
             </div>
           </div>
         )}

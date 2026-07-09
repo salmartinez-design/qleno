@@ -24,7 +24,11 @@ export const estimatesTable = pgTable("estimates", {
   account_property_id: integer("account_property_id").references(() => accountPropertiesTable.id),
   client_id: integer("client_id").references(() => clientsTable.id),
   contact_name: text("contact_name"),
-  contact_email: text("contact_email"),
+  contact_email: text("contact_email"),       // primary recipient (To)
+  // [multi-recipient-estimates 2026-06-25] Additional recipient emails (CC),
+  // comma-separated + normalized. Every drip EMAIL touch goes To contact_email
+  // and CCs all of these. SMS still goes to the primary mobile only.
+  cc_emails: text("cc_emails"),
   contact_phone: text("contact_phone"),
   property_name: text("property_name"),
   service_address: text("service_address"),
@@ -35,6 +39,19 @@ export const estimatesTable = pgTable("estimates", {
   terms: text("terms"),
   internal_notes: text("internal_notes"),
   status: text("status").notNull().default("draft"), // draft|sent|viewed|accepted|declined|expired
+  // [estimate-flat-mode 2026-06-26] How the estimate is priced/shown:
+  //   'itemized' (default) — line items each carry a price; total = sum.
+  //   'flat'     — one price for the whole job; line items are scope only
+  //                (name + frequency, no per-line price) and total = flat_price.
+  billing_mode: text("billing_mode").notNull().default("itemized"),
+  flat_price: numeric("flat_price", { precision: 12, scale: 2 }).notNull().default("0"),
+  // [estimate-flat-clarity 2026-06-26] What the flat price is per (visit / week /
+  // month / …) so the client sees "$150 / visit", and an optional free-text scope
+  // paragraph for when the office would rather describe the work than itemize it.
+  flat_price_unit: text("flat_price_unit").notNull().default("visit"),
+  scope_note: text("scope_note"),
+  // [estimate-industry 2026-06-26] Facility type for win-rate-by-industry reporting.
+  facility_type: text("facility_type"),
   subtotal: numeric("subtotal", { precision: 12, scale: 2 }).notNull().default("0"),
   discount_amount: numeric("discount_amount", { precision: 12, scale: 2 }).notNull().default("0"),
   total: numeric("total", { precision: 12, scale: 2 }).notNull().default("0"),
@@ -46,7 +63,9 @@ export const estimatesTable = pgTable("estimates", {
   accepted_at: timestamp("accepted_at"),
   declined_at: timestamp("declined_at"),
   accepted_name: text("accepted_name"),
-  // GoHighLevel sync bookkeeping (Phase 3)
+  // DEPRECATED [native-estimate-workflow 2026-06-25]: the GoHighLevel outbound
+  // bridge was removed — the estimate workflow is now 100% native to Qleno.
+  // Retained (harmless) for historical rows but no longer written or read.
   ghl_synced_at: timestamp("ghl_synced_at"),
   created_by: integer("created_by").references(() => usersTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
@@ -73,9 +92,18 @@ export const estimateTemplatesTable = pgTable("estimate_templates", {
   id: serial("id").primaryKey(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
   name: text("name").notNull(),
+  // [estimate-templates-phase2 2026-06-25] Optional vertical so the builder can
+  // offer a one-click picker (common_areas | office | retail | medical | null).
+  // null = a user-saved template with no fixed vertical.
+  category: text("category"),
   title: text("title"),
   intro_note: text("intro_note"),
   terms: text("terms"),
+  // [estimate-packages 2026-06-26] A "package" is a flat-price template: one
+  // price + scope-only items. billing_mode mirrors estimates.billing_mode so
+  // applying a package drops straight into the flat-price view.
+  billing_mode: text("billing_mode").notNull().default("itemized"),
+  flat_price: numeric("flat_price", { precision: 12, scale: 2 }).notNull().default("0"),
   created_by: integer("created_by").references(() => usersTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });

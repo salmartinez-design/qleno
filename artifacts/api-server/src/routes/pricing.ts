@@ -526,6 +526,10 @@ router.post("/calculate", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const { scope_id, sqft, hours, frequency, addon_ids, discount_code, manual_adjustment, addon_quantities,
+            // [combo-optional] Bundle ids the office toggled OFF on the quote.
+            // Matching bundles are still RETURNED (so the UI can show + re-enable
+            // them) but not subtracted from the total.
+            disabled_bundle_ids,
             // [PR #63] Per-client hourly rate override. When the caller
             // (edit-job modal) passes a positive number, it wins over the
             // scope's tenant-wide hourly_rate. Frequency multipliers still
@@ -642,7 +646,11 @@ router.post("/calculate", requireAuth, async (req, res) => {
 
     // ── Bundle discounts (must match public/calculate logic exactly) ──────────
     let bundle_discount = 0;
-    const bundle_breakdown: Array<{ name: string; discount: number }> = [];
+    const bundle_breakdown: Array<{ id: number; name: string; discount: number; applied: boolean }> = [];
+    const disabledBundleSet = new Set(
+      (Array.isArray(disabled_bundle_ids) ? disabled_bundle_ids : [])
+        .map((x: any) => parseInt(String(x))).filter((n: number) => !isNaN(n)),
+    );
     if (Array.isArray(addon_ids) && addon_ids.length > 0) {
       const validIdsForBundles = addon_ids.map((id: any) => parseInt(String(id))).filter(n => !isNaN(n));
       if (validIdsForBundles.length > 0) {
@@ -677,16 +685,19 @@ router.post("/calculate", requireAuth, async (req, res) => {
           } else if (bundle.discount_type === "percentage") {
             disc = (dv / 100) * base_price;
           }
-          return { name: String(bundle.name), required, disc };
-        }).filter(Boolean) as Array<{ name: string; required: number[]; disc: number }>;
+          return { id: Number(bundle.id), name: String(bundle.name), required, disc };
+        }).filter(Boolean) as Array<{ id: number; name: string; required: number[]; disc: number }>;
         // Most specific first; equal specificity → larger discount wins.
         candidates.sort((a, b) => (b.required.length - a.required.length) || (b.disc - a.disc));
         const consumedAddons = new Set<number>();
         for (const c of candidates) {
           if (c.required.some(rid => consumedAddons.has(rid))) continue; // overlaps a higher-priority bundle
           c.required.forEach(rid => consumedAddons.add(rid));
-          bundle_discount += c.disc;
-          bundle_breakdown.push({ name: c.name, discount: Math.round(c.disc * 100) / 100 });
+          // [combo-optional] A bundle the office toggled off is still surfaced
+          // (so the UI can show + re-enable it) but its discount is NOT applied.
+          const applied = !disabledBundleSet.has(c.id);
+          if (applied) bundle_discount += c.disc;
+          bundle_breakdown.push({ id: c.id, name: c.name, discount: Math.round(c.disc * 100) / 100, applied });
         }
       }
     }

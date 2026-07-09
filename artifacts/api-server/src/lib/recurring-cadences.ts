@@ -90,12 +90,29 @@ export function resolveDayOfMonth(year: number, month: number, day: number): num
   return day;
 }
 
+// [commercial-cadence] Nth weekday of a month — "3rd Wednesday", "last Friday".
+// nth: 1..4 = first..fourth; 5 (or anything >=5) = LAST occurrence in the
+// month. weekday: 0=Sun..6=Sat. Used by the monthly_weekday cadence.
+export function nthWeekdayOfMonth(year: number, month: number, nth: number, weekday: number): Date {
+  if (nth >= 5) {
+    const last = new Date(year, month + 1, 0);
+    const back = (last.getDay() - weekday + 7) % 7;
+    return new Date(year, month, last.getDate() - back);
+  }
+  const first = new Date(year, month, 1);
+  const offset = (weekday - first.getDay() + 7) % 7;
+  return new Date(year, month, 1 + offset + (nth - 1) * 7);
+}
+
 export interface CadenceInput {
   frequency: string;
   day_of_week: string | null;
   days_of_week?: number[] | null;
   days_of_month?: number[] | null;
   custom_frequency_weeks?: number | null;
+  // [commercial-cadence] 1..4 = first..fourth, 5 = last. Pairs with
+  // day_of_week for the monthly_weekday cadence ("3rd Wednesday" etc).
+  week_of_month?: number | null;
   // string from a Drizzle typed select; Date from a raw pg `date` column.
   start_date: string | Date;
   end_date?: string | Date | null;
@@ -177,6 +194,19 @@ export function generateCadenceDates(
     return dates;
   }
 
+  // ── Nth-weekday path: "3rd Wednesday", "last Friday" ────────────────────
+  // [commercial-cadence] week_of_month (1..4, or 5=last) + day_of_week.
+  if (freq === "monthly_weekday") {
+    const nth = schedule.week_of_month ?? 1;
+    let cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
+    while (cursor <= effectiveEnd) {
+      const d = nthWeekdayOfMonth(cursor.getFullYear(), cursor.getMonth(), nth, targetDow);
+      if (d >= start && d >= fromDate && d <= effectiveEnd) dates.push(d);
+      cursor = addMonths(cursor, 1);
+    }
+    return dates;
+  }
+
   // Interval picker for weekly/biweekly/every_3_weeks/every_4_weeks/custom.
   // [2026-06-01] every_4_weeks added as first-class to fix Sal's "monthly"
   // recurring (Wednesdays every 4 weeks) which previously fell through to
@@ -199,13 +229,21 @@ export function generateCadenceDates(
     );
     intervalDays = 14;
   }
-  // Seed at the later of fromDate or start so we never emit before
-  // start_date. The previous version only gated on fromDate, which let
-  // pre-start dates slip into the output when fromDate < start.
-  const seed = fromDate > start ? fromDate : start;
-  let current = getFirstOccurrence(start, targetDow, seed);
+  // [phase-fix 2026-06-24] Anchor the interval grid on start_date, not on the
+  // generation window. We take the first targetDow occurrence on/after
+  // start_date, then step by intervalDays and fast-forward (in whole intervals)
+  // up to the window. This preserves the alternate-week PHASE for biweekly /
+  // every_3_weeks / every_4_weeks / custom — a biweekly customer stays on their
+  // real week regardless of when the cron happens to run. The previous version
+  // seeded `getFirstOccurrence` from max(fromDate, start), so the phase was
+  // re-derived from the run date and a biweekly schedule could silently flip to
+  // the wrong week each time generation ran on a different date. start_date is
+  // the source of truth for the cadence anchor; day_of_week sets the weekday.
+  let current = getFirstOccurrence(start, targetDow, start);
+  while (current < fromDate) current = addDays(current, intervalDays);
   while (current <= effectiveEnd) {
-    if (current >= fromDate && current >= start) dates.push(new Date(current));
+    // current is guaranteed >= fromDate (fast-forwarded) and >= start (anchored).
+    dates.push(new Date(current));
     current = addDays(current, intervalDays);
   }
   return dates;

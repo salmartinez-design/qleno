@@ -8,7 +8,9 @@ export const fmt$ = (n: number) => new Intl.NumberFormat("en-US", { style: "curr
 export const fmt$c = (n: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(n || 0);
 export const fmtPct = (n: number) => `${(n || 0).toFixed(1)}%`;
 export const fmtH = (n: number) => `${(n || 0).toFixed(1)}h`;
-export const fmtDate = (d: string | Date | null) => d ? new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
+// [date-tz-fix] Anchor bare "YYYY-MM-DD" values to local noon so a date-only
+// value never renders one day early in US Central. Full timestamps are untouched.
+export const fmtDate = (d: string | Date | null) => d ? new Date(typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T12:00:00" : d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—";
 export const fmtSvc = (s: string) => (s || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 export const clr = {
   base: "#F7F6F3", card: "#FFFFFF", border: "#E5E2DC",

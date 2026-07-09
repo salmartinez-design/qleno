@@ -6,25 +6,72 @@ interface Props {
 
 interface State {
   hasError: boolean;
+  isStaleChunk: boolean;
   errorId: string | null;
+}
+
+// [stale-chunk 2026-06-25] After a deploy, the bundle's code-split chunk
+// filenames change. A tab still running the OLD bundle that navigates to a
+// lazy-loaded route tries to fetch a chunk by its old (now-deleted) name, the
+// dynamic import rejects, and we'd otherwise show "Something went wrong". We
+// deploy frequently, so users hit this constantly when moving screen to screen.
+// Detect that specific failure and silently reload to pull the fresh bundle.
+export function isStaleChunkError(err: unknown): boolean {
+  const msg = err instanceof Error ? `${err.name}: ${err.message}` : String(err || "");
+  return /failed to fetch dynamically imported module|error loading dynamically imported module|importing a module script failed|unable to preload|ChunkLoadError|loading chunk \d|dynamically imported module/i.test(msg);
+}
+
+// Reload at most once per 20s so a genuinely-broken chunk can't loop forever.
+export function reloadForStaleChunk(): boolean {
+  try {
+    const KEY = "__qleno_chunk_reload_at__";
+    const last = Number(sessionStorage.getItem(KEY) || 0);
+    if (Date.now() - last < 20000) return false; // already reloaded recently → let the error show
+    sessionStorage.setItem(KEY, String(Date.now()));
+  } catch { /* sessionStorage unavailable — reload anyway */ }
+  window.location.reload();
+  return true;
 }
 
 export class ErrorBoundary extends Component<Props, State> {
   constructor(props: Props) {
     super(props);
-    this.state = { hasError: false, errorId: null };
+    this.state = { hasError: false, isStaleChunk: false, errorId: null };
   }
 
-  static getDerivedStateFromError(): State {
-    return { hasError: true, errorId: `err_${Date.now()}` };
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, isStaleChunk: isStaleChunkError(error), errorId: `err_${Date.now()}` };
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
+    if (isStaleChunkError(error)) {
+      // New bundle deployed under us — refresh to it instead of erroring.
+      reloadForStaleChunk();
+      return;
+    }
     console.error("[ErrorBoundary] Uncaught error:", error, info.componentStack);
   }
 
   render() {
     if (this.state.hasError) {
+      // Stale chunk: the page is reloading itself — show a quiet "updating"
+      // state, never the alarming error card.
+      if (this.state.isStaleChunk) {
+        return (
+          <div style={{
+            minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
+            backgroundColor: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif",
+            color: "#6B6860", fontSize: "14px", gap: "10px",
+          }}>
+            <span style={{
+              width: "16px", height: "16px", border: "2px solid #D9D5CC", borderTopColor: "#00C9A0",
+              borderRadius: "50%", display: "inline-block", animation: "qspin 0.7s linear infinite",
+            }} />
+            Updating to the latest version…
+            <style>{`@keyframes qspin{to{transform:rotate(360deg)}}`}</style>
+          </div>
+        );
+      }
       return (
         <div style={{
           minHeight: "100vh",
@@ -71,7 +118,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               onClick={() => window.location.reload()}
               style={{
-                backgroundColor: "#5B9BD5",
+                backgroundColor: "#00C9A0",
                 color: "#FFFFFF",
                 border: "none",
                 borderRadius: "8px",

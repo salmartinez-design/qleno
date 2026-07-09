@@ -34,6 +34,12 @@ export interface CommissionInputJob {
   account_id: number | null;
   base_fee: string | number | null;
   billed_amount: string | number | null;
+  // [commission-optin 2026-07-01] Commissionable base = base_fee (or hrs×rate)
+  // + only the add-ons/rate-mods flagged affects_commission. When present the
+  // pay engine uses THIS as the fee-split basis instead of billed_amount; NULL
+  // falls back to the legacy max(base_fee, billed_amount). Optional so existing
+  // callers compile.
+  commission_base?: string | number | null;
   allowed_hours: string | number | null;
   actual_hours: string | number | null;
   branch_id: number | null;
@@ -116,7 +122,10 @@ export function computeCommissionRows(input: {
     if (j.assigned_user_id == null) continue;
 
     const isCommercial = isCommercialJobRow(j.account_id, j.service_type, j.client_type ?? null);
-    const jobTotal = num(j.billed_amount) || num(j.base_fee);
+    // [commission-optin 2026-07-01] Prefer commission_base (base or hrs×rate +
+    // only flagged add-ons/mods) over the billed total. NULL → legacy waterfall.
+    const commissionBase = j.commission_base != null ? num(j.commission_base) : null;
+    const jobTotal = commissionBase ?? (num(j.billed_amount) || num(j.base_fee));
     const allowedHrs = num(j.allowed_hours);
     const workedHrs = num(j.actual_hours);
     const commercialHours =
@@ -125,6 +134,13 @@ export function computeCommissionRows(input: {
         : allowedHrs;
 
     const resPct = resolveResidentialPayPct(j.service_type, input.resRates);
+    // Commercial pay is strictly commercial_hourly_rate × hours (allowed, or
+    // actual under actual_hours mode) — NOT commission_base. commission_base
+    // holds the job's REVENUE (base_fee), so using it overpaid commercial to the
+    // full billed amount (Weiss-Kunz allowed 3 paid $160 not $60; the unclocked-
+    // job fallback path of the same bug fixed in commission-paytype.ts).
+    // Sal 2026-07-04. Residential fee-split still prefers commission_base as its
+    // gross base (opted-in add-ons) via jobTotal.
     const computed = isCommercial
       ? input.commercial.commercial_hourly_rate * commercialHours
       : jobTotal * resPct;

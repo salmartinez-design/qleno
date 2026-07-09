@@ -67,10 +67,33 @@ export const companiesTable = pgTable("companies", {
   default_commercial_pay_rate:  numeric("default_commercial_pay_rate",  { precision: 8, scale: 4 }).default("20.0000"),
   default_invoice_notes_residential: text("default_invoice_notes_residential"),
   default_invoice_notes_commercial: text("default_invoice_notes_commercial"),
+  // [invoice-branding 2026-06-23] Per-tenant invoice header/footer/terms content.
+  invoice_business_name: text("invoice_business_name"),
+  invoice_tagline: text("invoice_tagline"),
+  invoice_address: text("invoice_address"),
+  // [estimate-w9 2026-06-26] Tax info for the fillable IRS W-9.
+  w9_legal_name: text("w9_legal_name"),
+  w9_business_name: text("w9_business_name"),
+  w9_classification: text("w9_classification"),
+  w9_llc_class: text("w9_llc_class"),
+  w9_ein: text("w9_ein"),
+  w9_exempt_payee_code: text("w9_exempt_payee_code"),
+  w9_fatca_code: text("w9_fatca_code"),
+  invoice_footer_message: text("invoice_footer_message"),
+  invoice_payment_instructions: text("invoice_payment_instructions"),
+  invoice_guarantee: text("invoice_guarantee"),
+  invoice_terms: text("invoice_terms"),
   auto_send_invoices: boolean("auto_send_invoices").notNull().default(false),
   auto_charge_on_invoice: boolean("auto_charge_on_invoice").notNull().default(false),
   annual_revenue_goal: integer("annual_revenue_goal"),
   payment_terms_days: integer("payment_terms_days").notNull().default(0),
+  // [auto-issue 2026-07-08] Completion auto-ISSUES the per-visit invoice
+  // (numbered, in AR, QB-pushed) — no email, no charge (Sal: "we do not auto
+  // bill but when a job is completed the invoice needs to generate", HCP
+  // parity). Distinct from auto_send_invoices (emailing) and
+  // auto_charge_on_invoice (billing), both still unwired. Batch/account
+  // invoices keep their draft+pending merge flow regardless.
+  auto_issue_invoices: boolean("auto_issue_invoices").notNull().default(false),
   mileage_rate: numeric("mileage_rate", { precision: 6, scale: 4 }).notNull().default("0.7250"),
   phone: text("phone"),
   email: text("email"),
@@ -91,6 +114,12 @@ export const companiesTable = pgTable("companies", {
   qb_connected: boolean("qb_connected").notNull().default(false),
   qb_last_sync_at: timestamp("qb_last_sync_at"),
   qb_company_name: text("qb_company_name"),
+  // [qb-cutover] Cutover guard for tenants migrating from another system that
+  // already pushes to the same QB company (e.g. Oak Lawn from MaidCentral).
+  // When set, invoices created BEFORE this timestamp are never synced to QB —
+  // only invoices from the cutover forward — so we don't re-push history the
+  // prior system already sent. NULL = sync everything (clean-slate tenants).
+  qb_sync_start_date: timestamp("qb_sync_start_date", { withTimezone: true }),
   overhead_rate_pct: numeric("overhead_rate_pct", { precision: 5, scale: 2 }).default("10.00"),
   recurring_engine_enabled: boolean("recurring_engine_enabled").notNull().default(true),
   // Cancellation policy — per-tenant defaults. Both expressed as a
@@ -143,6 +172,14 @@ export const companiesTable = pgTable("companies", {
     "Hi {{first_name}}, thanks for choosing us! How was your cleaning today? Tap to rate: {{survey_link}}",
   ),
   survey_send_after_hours: integer("survey_send_after_hours").notNull().default(0),
+  // [90d-composite] Per-tenant weights for the rolling 90-day composite tech
+  // scorecard (lib/scorecard-composite.ts). Stored as whole-number weights;
+  // the engine re-normalizes across whichever sub-scores are present, so they
+  // need not sum to 100. Defaults: 60 satisfaction / 25 attendance / 15
+  // complaint-free.
+  score_weight_satisfaction: integer("score_weight_satisfaction").notNull().default(60),
+  score_weight_attendance: integer("score_weight_attendance").notNull().default(25),
+  score_weight_complaint_free: integer("score_weight_complaint_free").notNull().default(15),
   // Per-tenant Twilio connection (Settings → Integrations). twilio_from_number
   // already exists above. twilio_enabled is the go-live gate — surveys/SMS only
   // actually send when this is true AND creds are set AND COMMS_ENABLED=true.
@@ -165,6 +202,10 @@ export const companiesTable = pgTable("companies", {
   // route to an owner's personal inbox without landing in the public mailbox.
   lead_notify_email: text("lead_notify_email"),
   lead_notify_phone: text("lead_notify_phone"),
+  // [office-email-settings] Per-tenant toggles for office booking notification
+  // content. Both default ON — toggling off strips that section from the email.
+  office_email_show_zone: boolean("office_email_show_zone").notNull().default(true),
+  office_email_show_available_techs: boolean("office_email_show_available_techs").notNull().default(true),
   twilio_account_sid: text("twilio_account_sid"),
   twilio_auth_token: text("twilio_auth_token"),
   created_at: timestamp("created_at").notNull().defaultNow(),

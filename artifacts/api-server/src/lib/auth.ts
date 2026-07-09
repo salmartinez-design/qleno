@@ -34,8 +34,15 @@ if (!process.env.JWT_SECRET) {
   );
 }
 
+// [tech-session 2026-06-30] 30-day login lifetime so field techs who keep the
+// app pinned aren't silently logged out after a day (the "No jobs today" /
+// reinstall-to-fix complaint). The frontend slides this forward on every app
+// open (startTokenRefresh), so an active tech effectively never re-logs in; a
+// truly stale (30-day-idle) pass routes to the login screen, never a blank
+// screen. Trade-off: no server-side revocation yet — a lost/offboarded device
+// stays valid until expiry. Add a revocation list as the proper follow-up.
 export function signToken(payload: AuthPayload): string {
-  return jwt.sign(payload, JWT_SECRET, { expiresIn: "24h" });
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: "30d" });
 }
 
 export function verifyToken(token: string): AuthPayload {
@@ -73,7 +80,15 @@ export function requireRole(...roles: string[]) {
       res.status(401).json({ error: "Unauthorized", message: "Not authenticated" });
       return;
     }
-    if (!roles.includes(req.auth.role)) {
+    // [office-admin-parity 2026-06-26] The 'office' role is elevated to admin
+    // level: anywhere a route grants 'admin', 'office' is granted too. This lets
+    // every office employee reach and modify admin settings (pricing, discounts,
+    // fees, company settings) without hand-editing each endpoint guard. It does
+    // NOT cover owner-only routes (requireRole("owner") with no "admin") — those
+    // stay owner-restricted, e.g. payroll-policy config. Single choke point so
+    // no settings endpoint is missed and future admin routes inherit it.
+    const allowed = roles.includes("admin") ? [...roles, "office"] : roles;
+    if (!allowed.includes(req.auth.role)) {
       res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
       return;
     }

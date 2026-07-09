@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable } from "@workspace/db/schema";
-import { eq, and, desc, count, sum, sql, lt, isNull, or, ne, inArray } from "drizzle-orm";
+import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable, usersTable, paymentLinksTable, accountsTable } from "@workspace/db/schema";
+import crypto from "crypto";
+import { eq, and, desc, count, sum, sql, lt, isNull, isNotNull, or, ne, inArray, notInArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { syncInvoice, syncPayment, queueSync } from "../services/quickbooks-sync.js";
@@ -10,6 +11,7 @@ import { appBaseUrl } from "../lib/app-url.js";
 import { generateInvoiceNumber, getNextInvoiceNumber } from "../lib/invoice-number.js";
 import { chargeInvoice } from "../lib/charge-invoice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
+import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
 import { normalizeInvoiceLineItems } from "../lib/normalize-line-items.js";
 
 const router = Router();
@@ -24,16 +26,46 @@ function daysOverdue(dueDateStr: string | null): number {
 }
 
 function formatInvoice(inv: any) {
-  const overdue = inv.status === "sent" && inv.due_date && new Date(inv.due_date) < new Date();
+  // [auto-issue 2026-07-08] Aging starts when the invoice was actually
+  // COMMUNICATED (sent_at) — an auto-issued due-on-receipt invoice was
+  // reading OVERDUE the day after completion, before any customer ever saw
+  // it. "Due on receipt" can't start before receipt.
+  const overdue = inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date) < new Date();
   return {
     ...inv,
     subtotal: parseFloat(inv.subtotal || "0"),
     tips: parseFloat(inv.tips || "0"),
     total: parseFloat(inv.total || "0"),
+    refunded_amount: inv.refunded_amount != null ? parseFloat(inv.refunded_amount) : null,
     status: overdue ? "overdue" : inv.status,
     days_overdue: daysOverdue(inv.due_date),
     invoice_number: inv.invoice_number || generateInvoiceNumber(inv.id),
   };
+}
+
+// [invoice-pay-token 2026-06-22] Mint a one-per-invoice payment_links row
+// (purpose 'pay_invoice') so the emailed "View and Pay" button resolves on the
+// public /pay/:token page and charges the invoice total via Stripe. Reuses an
+// existing unused/unexpired link for the invoice so re-sends don't pile up.
+// Falls back to the legacy id-based URL if the insert fails (never blocks send).
+async function mintInvoicePayLink(
+  companyId: number, clientId: number | null, invoiceId: number,
+  amount: string | null, userId?: number,
+): Promise<string> {
+  if (clientId == null) return `${appBaseUrl()}/pay/${invoiceId}`;
+  try {
+    const token = crypto.randomBytes(20).toString("hex");
+    const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 30); // 30 days
+    await db.insert(paymentLinksTable).values({
+      company_id: companyId, client_id: clientId, token,
+      purpose: "pay_invoice", invoice_id: invoiceId, amount: amount ?? null,
+      expires_at: expiresAt, created_by: userId ?? null,
+    });
+    return `${appBaseUrl()}/pay/${token}`;
+  } catch (err) {
+    console.error("mintInvoicePayLink failed, falling back to id link:", err);
+    return `${appBaseUrl()}/pay/${invoiceId}`;
+  }
 }
 
 router.get("/", requireAuth, async (req, res) => {
@@ -50,9 +82,24 @@ router.get("/", requireAuth, async (req, res) => {
       conditions.push(lt(invoicesTable.due_date as any, today));
     } else if (status) {
       conditions.push(eq(invoicesTable.status, status as any));
+    } else {
+      // [hide-inert 2026-07-04] The default "All" view hides void + superseded
+      // invoices. They're kept as records (audit trail / invoice-number
+      // continuity) but shouldn't clutter the working list — voiding an invoice
+      // shouldn't leave a dead NET-30 row on screen. Still reachable via the
+      // explicit "Void" filter (status=void).
+      conditions.push(notInArray(invoicesTable.status, ["void", "superseded"]));
     }
     if (client_id) conditions.push(eq(invoicesTable.client_id, parseInt(client_id as string)));
-    if (branch_id && branch_id !== "all") conditions.push(eq(invoicesTable.branch_id, parseInt(branch_id as string)));
+    // [account-visibility 2026-07-02] Commercial/account invoices are
+    // branch-agnostic — an account (e.g. PPM) can span branches, and the office
+    // wants them visible "from one window" regardless of the branch switcher.
+    // Invoices also aren't stamped with a branch_id today, so a plain
+    // `branch_id = X` filter hid every account invoice. Show invoices whose
+    // branch matches OR that belong to an account.
+    if (branch_id && branch_id !== "all") {
+      conditions.push(or(eq(invoicesTable.branch_id, parseInt(branch_id as string)), isNotNull(invoicesTable.account_id)));
+    }
 
     // [invoice-date-range 2026-06-21] Filter by the invoice's EFFECTIVE service
     // date = the linked job's scheduled_date, falling back to created_at when the
@@ -93,7 +140,8 @@ router.get("/", requireAuth, async (req, res) => {
       const idMatch = digits ? sql` OR ${invoicesTable.id} = ${parseInt(digits, 10)}` : sql``;
       conditions.push(sql`(
         ${invoicesTable.invoice_number} ILIKE ${like}
-        OR concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name}) ILIKE ${like}${idMatch}
+        OR concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name}) ILIKE ${like}
+        OR (SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id}) ILIKE ${like}${idMatch}
       )`);
     }
 
@@ -101,7 +149,8 @@ router.get("/", requireAuth, async (req, res) => {
       .select({
         id: invoicesTable.id,
         client_id: invoicesTable.client_id,
-        client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
+        client_name: sql<string>`COALESCE(NULLIF(concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name}), ' '), (SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id}), 'Unknown')`,
+        account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
         client_email: clientsTable.email,
         job_id: invoicesTable.job_id,
         invoice_number: invoicesTable.invoice_number,
@@ -126,14 +175,25 @@ router.get("/", requireAuth, async (req, res) => {
         // moves jobs.scheduled_date WITHOUT touching the invoice — so a snapshot
         // would go stale (office saw "the 17th" for a job moved to the 19th).
         // Reading it live can never drift; null when the job is gone/unlinked.
-        service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
+        service_date: sql<string | null>`COALESCE(
+          ${invoicesTable.service_date},
+          (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
+          (SELECT MIN(j2.scheduled_date) FROM jobs j2 WHERE j2.id IN (
+            SELECT (li->>'job_id')::int FROM jsonb_array_elements(${invoicesTable.line_items}) li WHERE li->>'job_id' IS NOT NULL
+          ))
+        )`,
         // [charge-card 2026-06-21] Card-on-file info so the list/detail can show
-        // a "Charge Card on File" action only when a reusable Stripe PaymentMethod
-        // exists for the client (captured at online booking via SetupIntent).
-        card_last_four: clientsTable.card_last_four,
-        card_brand: clientsTable.card_brand,
+        // a "Charge Card on File" action when a reusable Stripe PaymentMethod exists
+        // OR the client has a Square customer ID with a card vaulted there.
+        card_last_four: sql<string | null>`COALESCE(${clientsTable.card_last_four}, ${clientsTable.square_card_last4})`,
+        card_brand: sql<string | null>`COALESCE(${clientsTable.card_brand}, ${clientsTable.square_card_brand})`,
         client_payment_source: clientsTable.payment_source,
-        has_card_on_file: sql<boolean>`(${clientsTable.stripe_payment_method_id} IS NOT NULL AND ${clientsTable.stripe_customer_id} IS NOT NULL)`,
+        has_card_on_file: sql<boolean>`(
+          (${clientsTable.stripe_payment_method_id} IS NOT NULL AND ${clientsTable.stripe_customer_id} IS NOT NULL)
+          OR ${clientsTable.square_customer_id} IS NOT NULL
+        )`,
+        refunded_amount: invoicesTable.refunded_amount,
+        refunded_at: invoicesTable.refunded_at,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
@@ -157,14 +217,22 @@ router.get("/", requireAuth, async (req, res) => {
       db.select({ total: sum(invoicesTable.total) })
         .from(invoicesTable)
         .where(and(compCond, eq(invoicesTable.status, "sent"), lt(invoicesTable.due_date as any, today))),
+      // [revenue-qleno-only 2026-07-04] Paid(30d) and YTD Revenue count ONLY
+      // Qleno-native revenue — invoices whose effective service date is on/after
+      // the cutover. The MaidCentral history import (paid invoices back-dated into
+      // 2026) otherwise dominated both figures (~95% of "YTD"), so the cards
+      // reported old MC money as Qleno revenue. Outstanding/Overdue are unchanged
+      // (they only contain live sent invoices, all post-cutover already).
       db.select({ total: sum(invoicesTable.total) })
         .from(invoicesTable)
         .where(and(compCond, eq(invoicesTable.status, "paid"),
-          sql`${invoicesTable.paid_at} >= now() - interval '30 days'`)),
+          sql`${invoicesTable.paid_at} >= now() - interval '30 days'`,
+          sql`${effDate} >= ${INVOICE_CUTOVER_DATE}`)),
       db.select({ total: sum(invoicesTable.total) })
         .from(invoicesTable)
         .where(and(compCond, eq(invoicesTable.status, "paid"),
-          sql`extract(year from ${invoicesTable.paid_at}) = extract(year from now())`)),
+          sql`extract(year from ${invoicesTable.paid_at}) = extract(year from now())`,
+          sql`${effDate} >= ${INVOICE_CUTOVER_DATE}`)),
     ]);
 
     return res.json({
@@ -196,14 +264,17 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     let finalClientId = client_id;
     let finalLineItems = rawLineItems;
     let jobRecord: any = null;
+    let finalAccountId: number | null = null;
 
     if (job_id && (!client_id || !rawLineItems)) {
       const [job] = await db
         .select({
           id: jobsTable.id,
           client_id: jobsTable.client_id,
+          account_id: jobsTable.account_id,
           service_type: jobsTable.service_type,
           base_fee: jobsTable.base_fee,
+          billed_amount: jobsTable.billed_amount,
         })
         .from(jobsTable)
         .where(and(eq(jobsTable.id, job_id), eq(jobsTable.company_id, req.auth!.companyId)))
@@ -212,37 +283,72 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       if (!job) return res.status(404).json({ error: "Not Found", message: "Job not found" });
       jobRecord = job;
       finalClientId = job.client_id;
-      finalLineItems = [{
-        description: (job.service_type || "").replace(/_/g, " "),
-        quantity: 1,
-        rate: parseFloat(job.base_fee || "0"),
-        total: parseFloat(job.base_fee || "0"),
-      }];
+      finalAccountId = job.account_id ?? null;
+
+      // [account-invoice 2026-07-02] Account (commercial/PPM) jobs have NO
+      // client_id — their identity is the account. Build line items from the
+      // shared canonical builder (same as the completion auto-draft in
+      // ensure-invoice) so a manual "create invoice" / batch produces a real
+      // invoice billed to the account, instead of 400-ing on the missing
+      // client_id (the bug that left completed PPM turnovers uninvoiced).
+      if (finalAccountId) {
+        const built = await buildJobLineItems(req.auth!.companyId as number, job_id);
+        const amt = job.billed_amount ? parseFloat(job.billed_amount as string) : parseFloat(job.base_fee || "0");
+        finalLineItems = (built && built.lineItems.length)
+          ? built.lineItems
+          : [{ description: (job.service_type || "cleaning").replace(/_/g, " "), quantity: 1, unit_price: amt, total: amt }];
+      } else {
+        finalLineItems = [{
+          description: (job.service_type || "").replace(/_/g, " "),
+          quantity: 1,
+          rate: parseFloat(job.base_fee || "0"),
+          total: parseFloat(job.base_fee || "0"),
+        }];
+      }
     }
 
-    if (!finalClientId) return res.status(400).json({ error: "Bad Request", message: "client_id required" });
+    if (!finalClientId && !finalAccountId) {
+      return res.status(400).json({ error: "Bad Request", message: "client_id or account_id required" });
+    }
 
     const subtotal = (finalLineItems || []).reduce((s: number, item: any) => s + (item.total || 0), 0);
     const total = subtotal + (tips || 0);
 
-    // Look up client to inherit payment terms, billing contact
-    const [clientRecord] = await db
-      .select({
-        payment_terms: clientsTable.payment_terms,
-        billing_contact_name: clientsTable.billing_contact_name,
-        billing_contact_email: clientsTable.billing_contact_email,
-        auto_charge: clientsTable.auto_charge,
-        stripe_customer_id: clientsTable.stripe_customer_id,
-        card_last_four: clientsTable.card_last_four,
-        first_name: clientsTable.first_name,
-        last_name: clientsTable.last_name,
-        email: clientsTable.email,
-      })
-      .from(clientsTable)
-      .where(eq(clientsTable.id, finalClientId));
+    // Look up the client (residential) to inherit terms/billing contact. Account
+    // (commercial) invoices have no client — pull the name + terms from the
+    // account instead so the invoice bills to the account correctly.
+    let clientRecord: any = null;
+    let accountName: string | null = null;
+    let acctTermsDays: number | null = null;
+    if (finalClientId) {
+      const [cr] = await db
+        .select({
+          payment_terms: clientsTable.payment_terms,
+          billing_contact_name: clientsTable.billing_contact_name,
+          billing_contact_email: clientsTable.billing_contact_email,
+          auto_charge: clientsTable.auto_charge,
+          stripe_customer_id: clientsTable.stripe_customer_id,
+          card_last_four: clientsTable.card_last_four,
+          first_name: clientsTable.first_name,
+          last_name: clientsTable.last_name,
+          email: clientsTable.email,
+        })
+        .from(clientsTable)
+        .where(eq(clientsTable.id, finalClientId));
+      clientRecord = cr;
+    } else if (finalAccountId) {
+      const [acct] = await db
+        .select({ account_name: accountsTable.account_name, payment_terms_days: accountsTable.payment_terms_days })
+        .from(accountsTable)
+        .where(eq(accountsTable.id, finalAccountId))
+        .limit(1);
+      accountName = acct?.account_name ?? null;
+      acctTermsDays = acct?.payment_terms_days ?? 30;
+    }
 
-    const effectiveTerms = reqPaymentTerms || clientRecord?.payment_terms || "due_on_receipt";
-    const daysToAdd = effectiveTerms === "net_30" ? 30 : effectiveTerms === "net_15" ? 15 : 0;
+    const acctTermsLabel = acctTermsDays === 30 ? "net_30" : acctTermsDays === 15 ? "net_15" : acctTermsDays === 7 ? "net_7" : acctTermsDays != null ? "due_on_receipt" : null;
+    const effectiveTerms = reqPaymentTerms || clientRecord?.payment_terms || acctTermsLabel || "due_on_receipt";
+    const daysToAdd = effectiveTerms === "net_30" ? 30 : effectiveTerms === "net_15" ? 15 : effectiveTerms === "net_7" ? 7 : 0;
     const dueDate = new Date();
     dueDate.setDate(dueDate.getDate() + daysToAdd);
     const dueDateStr = dueDate.toISOString().split("T")[0];
@@ -251,7 +357,8 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       .insert(invoicesTable)
       .values({
         company_id: req.auth!.companyId,
-        client_id: finalClientId,
+        client_id: finalClientId || null,
+        account_id: finalAccountId || null,
         job_id: job_id || null,
         line_items: finalLineItems || [],
         subtotal: subtotal.toString(),
@@ -259,6 +366,10 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
         total: total.toString(),
         due_date: dueDateStr,
         status: auto_send ? "sent" : "draft",
+        // Always stamp sent_at when the invoice is finalized 'sent' — whether
+        // by auto_send OR by an explicit status='sent' in the request body.
+        // Without this, BatchInvoiceDrawer-created invoices without auto_send
+        // ended up with status='sent' but sent_at=null, showing "Sent: —".
         sent_at: auto_send ? new Date() : null,
         created_by: req.auth!.userId,
         po_number: po_number || null,
@@ -346,7 +457,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     return res.status(201).json({
       ...newInvoice,
       invoice_number: invNumber,
-      client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim(),
+      client_name: finalClientId ? `${client?.first_name || ""} ${client?.last_name || ""}`.trim() : (accountName || ""),
       subtotal,
       tips: tips || 0,
       total,
@@ -381,14 +492,39 @@ router.get("/:id", requireAuth, async (req, res) => {
         payment_failed: invoicesTable.payment_failed,
         created_at: invoicesTable.created_at,
         paid_at: invoicesTable.paid_at,
+        // [invoice-redesign 2026-06-22] Billing address for the invoice document.
+        // Client address covers residential; account jobs fall back to account_name.
+        client_address: clientsTable.address,
+        client_city: clientsTable.city,
+        client_state: clientsTable.state,
+        client_zip: clientsTable.zip,
+        client_phone: clientsTable.phone,
+        account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
+        // [invoice-bill-to 2026-07-03] Manual Bill-to override (HOA name, etc.).
+        bill_to_name: invoicesTable.bill_to_name,
         // [invoice-service-date 2026-06-20] Live service date from the linked job
         // (see list select). Reschedule-proof; null when job gone/unlinked.
-        service_date: sql<string | null>`(SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id})`,
-        // [charge-card 2026-06-21] Card-on-file info (see list select).
-        card_last_four: clientsTable.card_last_four,
-        card_brand: clientsTable.card_brand,
+        service_date: sql<string | null>`COALESCE(
+          ${invoicesTable.service_date},
+          (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
+          (SELECT MIN(j2.scheduled_date) FROM jobs j2 WHERE j2.id IN (
+            SELECT (li->>'job_id')::int FROM jsonb_array_elements(${invoicesTable.line_items}) li WHERE li->>'job_id' IS NOT NULL
+          ))
+        )`,
+        // [charge-card 2026-06-21] Card-on-file info — Stripe OR Square.
+        card_last_four: sql<string | null>`COALESCE(${clientsTable.card_last_four}, ${clientsTable.square_card_last4})`,
+        card_brand: sql<string | null>`COALESCE(${clientsTable.card_brand}, ${clientsTable.square_card_brand})`,
         client_payment_source: clientsTable.payment_source,
-        has_card_on_file: sql<boolean>`(${clientsTable.stripe_payment_method_id} IS NOT NULL AND ${clientsTable.stripe_customer_id} IS NOT NULL)`,
+        has_card_on_file: sql<boolean>`(
+          (${clientsTable.stripe_payment_method_id} IS NOT NULL AND ${clientsTable.stripe_customer_id} IS NOT NULL)
+          OR ${clientsTable.square_customer_id} IS NOT NULL
+        )`,
+        // Needed for refund modal: routes Stripe API call vs offline-only notice.
+        stripe_payment_intent_id: invoicesTable.stripe_payment_intent_id,
+        payment_source: invoicesTable.payment_source,
+        refunded_amount: invoicesTable.refunded_amount,
+        refund_reason: invoicesTable.refund_reason,
+        refunded_at: invoicesTable.refunded_at,
       })
       .from(invoicesTable)
       .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
@@ -404,16 +540,166 @@ router.get("/:id", requireAuth, async (req, res) => {
   }
 });
 
+// ── Invoice PDF ──────────────────────────────────────────────────────────────
+// Branded, downloadable PDF of the invoice — same look as the estimate PDF.
+// Inline disposition so it opens in a browser tab.
+router.get("/:id/pdf", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const invoiceId = parseInt(req.params.id);
+    const [inv] = await db
+      .select({
+        invoice_number: invoicesTable.invoice_number,
+        status: invoicesTable.status,
+        line_items: invoicesTable.line_items,
+        subtotal: invoicesTable.subtotal,
+        tips: invoicesTable.tips,
+        total: invoicesTable.total,
+        due_date: invoicesTable.due_date,
+        created_at: invoicesTable.created_at,
+        paid_at: invoicesTable.paid_at,
+        first_name: clientsTable.first_name,
+        last_name: clientsTable.last_name,
+        email: clientsTable.email,
+        phone: clientsTable.phone,
+        address: clientsTable.address,
+        city: clientsTable.city,
+        state: clientsTable.state,
+        zip: clientsTable.zip,
+        account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
+        bill_to_name: invoicesTable.bill_to_name,
+        service_date: sql<string | null>`COALESCE(
+          ${invoicesTable.service_date},
+          (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
+          (SELECT MIN(j2.scheduled_date) FROM jobs j2 WHERE j2.id IN (
+            SELECT (li->>'job_id')::int FROM jsonb_array_elements(${invoicesTable.line_items}) li WHERE li->>'job_id' IS NOT NULL
+          ))
+        )`,
+      })
+      .from(invoicesTable)
+      .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
+      .limit(1);
+    if (!inv) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+
+    // [invoice-pdf-parity 2026-07-07] Pull the same per-tenant branding columns
+    // the web invoice reads (invoice-detail.tsx) so the PDF shows the identical
+    // masthead and footer block, with the same fallbacks.
+    const co = await db.execute(sql`SELECT name, logo_url, phone, email, address,
+        invoice_business_name, invoice_tagline, invoice_address, invoice_footer_message,
+        invoice_payment_instructions, invoice_guarantee, invoice_terms
+      FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const company: any = (co as any).rows[0] ?? {};
+    let logo: Buffer | null = null;
+    if (company.logo_url) {
+      try {
+        const abs = /^https?:\/\//i.test(company.logo_url) ? company.logo_url : `${appBaseUrl()}${company.logo_url}`;
+        const r = await fetch(abs);
+        if (r.ok && /image\/(png|jpe?g)/i.test(r.headers.get("content-type") || "")) logo = Buffer.from(await r.arrayBuffer());
+      } catch { logo = null; }
+    }
+
+    const rawItems = Array.isArray(inv.line_items) ? inv.line_items : [];
+    const items = rawItems.map((it: any) => ({
+      description: it.description ?? it.name ?? "Service",
+      quantity: it.quantity ?? 1,
+      unit_price: it.unit_price ?? it.unit_rate ?? it.total ?? 0,
+      total: it.total ?? it.amount ?? 0,
+    }));
+    const billName = inv.bill_to_name || [inv.first_name, inv.last_name].filter(Boolean).join(" ") || inv.account_name || "Customer";
+    const billAddr = [inv.address, [inv.city, inv.state].filter(Boolean).join(", "), inv.zip].filter(Boolean).join(", ");
+
+    const bizName = company.invoice_business_name || company.name || "Invoice";
+    const contactLine = [company.phone, company.email].filter(Boolean).join(" · ");
+    const { renderInvoicePdf } = await import("../lib/invoice-pdf.js");
+    const pdf = await renderInvoicePdf({
+      companyName: bizName,
+      logo,
+      tagline: company.invoice_tagline || null,
+      businessAddress: company.invoice_address || company.address || null,
+      contactLine: contactLine || null,
+      footerMessage: company.invoice_footer_message || `Thank you for choosing ${bizName}.`,
+      paymentInstructions: company.invoice_payment_instructions
+        || `Pay securely online using the link on this invoice.${contactLine ? ` Questions? Contact us at ${contactLine}.` : ""}`,
+      guaranteeText: company.invoice_guarantee || null,
+      termsText: company.invoice_terms || null,
+      invoiceNumber: inv.invoice_number || generateInvoiceNumber(invoiceId),
+      status: inv.status || "sent",
+      billToName: billName,
+      billToAddress: billAddr || null,
+      billToEmail: inv.email || null,
+      billToPhone: inv.phone || null,
+      serviceDate: inv.service_date ? String(inv.service_date) : null,
+      issuedDate: inv.created_at ? String(inv.created_at) : null,
+      dueDate: inv.due_date ? String(inv.due_date) : null,
+      items,
+      subtotal: inv.subtotal ?? inv.total ?? 0,
+      tips: inv.tips ?? 0,
+      total: inv.total ?? 0,
+      paid: !!inv.paid_at,
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${inv.invoice_number || `invoice-${invoiceId}`}.pdf"`);
+    return res.end(pdf);
+  } catch (err) {
+    console.error("Invoice PDF error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to render invoice PDF" });
+  }
+});
+
 router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
-    const { status, line_items, tips } = req.body;
+    const { status, line_items, tips, due_date, created_date, service_date, bill_to_name, payment_terms } = req.body;
+
+    // [invoice-terms 2026-07-03] Editable payment terms (fix invoices that
+    // inherited the wrong terms — e.g. PPM invoices created while PPM was a
+    // net-30 client that should be due-on-receipt now it's an account).
+    const TERMS = new Set(["due_on_receipt", "net_7", "net_15", "net_30"]);
+    const termsProvided = payment_terms !== undefined;
+    if (termsProvided && !TERMS.has(String(payment_terms))) {
+      return res.status(400).json({ error: "Bad Request", message: "payment_terms must be due_on_receipt | net_7 | net_15 | net_30" });
+    }
+
+    // [invoice-bill-to 2026-07-03] Manual "Bill to" name override. Empty/null
+    // clears it (→ falls back to client/account name). Trim + length-cap.
+    const billToProvided = bill_to_name !== undefined;
+    const billToValue = bill_to_name === null || String(bill_to_name).trim() === ""
+      ? null : String(bill_to_name).trim().slice(0, 200);
+
+    // [invoice-service-date 2026-07-03] Manual service-date override. YYYY-MM-DD
+    // sets it; empty/null clears it (→ API re-derives from job / line-item dates).
+    const svcProvided = service_date !== undefined;
+    const svcValue = service_date === null || service_date === "" ? null : String(service_date);
+    if (svcProvided && svcValue !== null && !/^\d{4}-\d{2}-\d{2}$/.test(svcValue)) {
+      return res.status(400).json({ error: "Bad Request", message: "service_date must be YYYY-MM-DD or empty" });
+    }
+
+    // [invoice-edit-dates 2026-07-03] Due date is editable on a draft/sent
+    // invoice (Maribel: "can't edit any of these"). Empty string / null clears
+    // it (→ due on receipt). Reject anything that isn't YYYY-MM-DD so a bad
+    // value can't reach the date column.
+    const dueProvided = due_date !== undefined;
+    const dueValue = due_date === null || due_date === "" ? null : String(due_date);
+    if (dueProvided && dueValue !== null && !/^\d{4}-\d{2}-\d{2}$/.test(dueValue)) {
+      return res.status(400).json({ error: "Bad Request", message: "due_date must be YYYY-MM-DD or empty" });
+    }
+
+    // [invoice-date 2026-07-03] The "Created" date IS the invoice date the office
+    // bills by (Maribel: "the issue is the creation date"). Editable on
+    // non-paid/void invoices. Stored at noon UTC so it renders as the same
+    // calendar day in US timezones (bare midnight would show the prior day).
+    // created_at is NOT NULL — an empty value is ignored, never cleared.
+    const createdProvided = created_date !== undefined && created_date !== null && created_date !== "";
+    if (createdProvided && !/^\d{4}-\d{2}-\d{2}$/.test(String(created_date))) {
+      return res.status(400).json({ error: "Bad Request", message: "created_date must be YYYY-MM-DD" });
+    }
 
     // Edit guard: a paid or void invoice is immutable. Editing happens on
     // draft / sent / overdue (overdue is a display-derivation of sent). Paid →
     // reverse via refund flow; void → already inert. Keeps the books honest.
     const [current] = await db
-      .select({ status: invoicesTable.status, subtotal: invoicesTable.subtotal, tips: invoicesTable.tips })
+      .select({ status: invoicesTable.status, subtotal: invoicesTable.subtotal, tips: invoicesTable.tips, line_items: invoicesTable.line_items })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .limit(1);
@@ -441,11 +727,30 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     const tipVal = tips !== undefined ? (Number(tips) || 0) : parseFloat(current.tips || "0");
     const total = Math.round((subtotal + tipVal) * 100) / 100;
 
+    // [manual-edit-detach 2026-07-06] A hand-edit to the document's amounts
+    // (line items or tip) detaches the invoice from job mirroring: mark-paid's
+    // pre-payment recalc and the job-edit draft re-sync both skip invoices
+    // with manually_edited_at set. Without this, the office edited an amount,
+    // clicked Mark Paid, and watched it snap back to the job-derived figure
+    // (Maribel: "as soon as we click paid, goes back to the old amount").
+    // Date/terms/bill-to edits don't touch amounts, so they don't detach —
+    // and a save that resends identical amounts doesn't either (the edit UI
+    // sends line_items on every save, changed or not).
+    const amountsEdited =
+      (normLineItems ? JSON.stringify(normLineItems) !== JSON.stringify(normalizeInvoiceLineItems(current.line_items as any) ?? current.line_items) : false)
+      || (tips !== undefined && tipVal !== parseFloat(current.tips || "0"));
+
     const [updated] = await db
       .update(invoicesTable)
       .set({
         ...(status && { status }),
         ...(normLineItems && { line_items: normLineItems }),
+        ...(amountsEdited && { manually_edited_at: new Date() }),
+        ...(dueProvided && { due_date: dueValue }),
+        ...(createdProvided && { created_at: new Date(String(created_date) + "T12:00:00Z") }),
+        ...(svcProvided && { service_date: svcValue }),
+        ...(billToProvided && { bill_to_name: billToValue }),
+        ...(termsProvided && { payment_terms: String(payment_terms) }),
         tips: tipVal.toFixed(2),
         subtotal: subtotal.toFixed(2),
         total: total.toFixed(2),
@@ -482,18 +787,121 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   }
 });
 
+// [invoice-send-truth 2026-07-07] Rebuilt around three lies Maribel hit ("I
+// tried to send one to myself and nothing happened"):
+//   1. The invoice was stamped status='sent' BEFORE the gated send fired, so
+//      a suppressed email still read as sent. Now the stamp happens only when
+//      a channel actually reached the provider.
+//   2. The recipient came from invoice.client_id only — a pure ACCOUNT
+//      invoice (client_id NULL) had nobody to send to and failed silently.
+//      Now: invoice.billing_contact_email → client email → the account's
+//      receives_invoices/billing contact.
+//   3. Nothing visible recorded the outcome. Now every attempt writes a
+//      communication_log row (client- or account-keyed, delivery_status
+//      sent/suppressed) and the response tells the office exactly what
+//      happened so the UI can say so.
 router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
 
     const [invoice] = await db
-      .select({ id: invoicesTable.id, client_id: invoicesTable.client_id, total: invoicesTable.total,
-                invoice_number: invoicesTable.invoice_number, due_date: invoicesTable.due_date })
+      .select({ id: invoicesTable.id, client_id: invoicesTable.client_id, account_id: invoicesTable.account_id,
+                job_id: invoicesTable.job_id, total: invoicesTable.total,
+                invoice_number: invoicesTable.invoice_number, due_date: invoicesTable.due_date,
+                billing_contact_name: invoicesTable.billing_contact_name,
+                billing_contact_email: invoicesTable.billing_contact_email })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .limit(1);
 
     if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+
+    const companyId = req.auth!.companyId;
+
+    const [client] = invoice.client_id ? await db
+      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name,
+                email: clientsTable.email, phone: clientsTable.phone,
+                address: clientsTable.address, city: clientsTable.city })
+      .from(clientsTable)
+      .where(eq(clientsTable.id, invoice.client_id))
+      .limit(1) : [];
+
+    // Recipient chain: invoice-level override → client → account contact.
+    let recipientEmail: string | null = invoice.billing_contact_email || client?.email || null;
+    let recipientName: string | null = invoice.billing_contact_name || client?.first_name || null;
+    if (!recipientEmail && invoice.account_id) {
+      const ac = await db.execute(sql`
+        SELECT name, email FROM account_contacts
+        WHERE account_id = ${invoice.account_id} AND company_id = ${companyId} AND email IS NOT NULL AND email <> ''
+        ORDER BY receives_invoices DESC, (role = 'billing') DESC, is_primary DESC, id ASC
+        LIMIT 1`);
+      const row = ac.rows[0] as any;
+      if (row?.email) { recipientEmail = row.email; recipientName = recipientName || row.name || null; }
+    }
+
+    if (!recipientEmail && !client?.phone) {
+      return res.status(400).json({
+        error: "Bad Request",
+        message: invoice.account_id
+          ? "No billing email on file — add an account contact with an email (mark it 'receives invoices') and try again."
+          : "This client has no email or phone on file — add one and try again.",
+      });
+    }
+
+    const invNum  = invoice.invoice_number || generateInvoiceNumber(invoiceId);
+    // Mint a Stripe pay-token so the email's "View and Pay" button charges the
+    // invoice total on the public /pay/:token page.
+    const invLink = await mintInvoicePayLink(companyId, invoice.client_id, invoiceId, invoice.total, req.auth!.userId);
+    const mergeVars = {
+      first_name:       recipientName || "",
+      invoice_number:   invNum,
+      invoice_amount:   parseFloat(invoice.total || "0").toFixed(2),
+      invoice_due_date: invoice.due_date ? new Date(invoice.due_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "upon receipt",
+      invoice_link:     invLink,
+      service_address:  [client?.address, client?.city].filter(Boolean).join(", "),
+    };
+    const emailSent = recipientEmail
+      ? await sendNotification("invoice_sent", "email", companyId, recipientEmail, null, mergeVars).catch(() => false)
+      : false;
+    const smsSent = client?.phone
+      ? await sendNotification("invoice_sent", "sms", companyId, null, client.phone, mergeVars).catch(() => false)
+      : false;
+    const delivered = emailSent || smsSent;
+
+    // Why didn't it go out? sendNotification just wrote the reason to
+    // notification_log — read the freshest row back so the office sees
+    // "suppressed — company_comms_disabled" instead of silence.
+    let failReason: string | null = null;
+    if (!delivered) {
+      try {
+        const nl = await db.execute(sql`
+          SELECT status, error_message FROM notification_log
+          WHERE company_id = ${companyId} AND trigger = 'invoice_sent'
+          ORDER BY id DESC LIMIT 1`);
+        const row = nl.rows[0] as any;
+        if (row) failReason = row.error_message || row.status || null;
+      } catch { /* reason stays null */ }
+    }
+
+    // Trace row for the client/account communications + activity feeds —
+    // written for suppressed attempts too, so "did the invoice go out?" has
+    // a visible answer either way.
+    try {
+      await db.execute(sql`
+        INSERT INTO communication_log (company_id, customer_id, account_id, job_id, direction, channel, summary, subject, recipient, delivery_status, source, logged_by)
+        VALUES (${companyId}, ${invoice.client_id ?? null}, ${invoice.account_id ?? null}, ${invoice.job_id ?? null}, 'outbound', 'email',
+                ${delivered ? `Invoice ${invNum} emailed` : `Invoice ${invNum} email NOT sent${failReason ? ` — ${failReason}` : ""}`},
+                ${`Invoice ${invNum}`}, ${recipientEmail ?? client?.phone ?? "unknown"},
+                ${delivered ? "sent" : "suppressed"}, 'system', ${req.auth!.userId})`);
+    } catch (e) { console.error("[invoice-send] comm-log trace non-fatal:", (e as any)?.message); }
+
+    if (!delivered) {
+      const human =
+        failReason === "company_comms_disabled" ? "communications are turned OFF for this company — the email was suppressed, not sent" :
+        failReason === "COMMS_ENABLED=false" ? "communications are globally disabled — the email was suppressed, not sent" :
+        failReason ? failReason.replace(/_/g, " ") : "the message could not be delivered";
+      return res.status(422).json({ error: "Not Sent", message: `Invoice was NOT sent: ${human}.`, reason: failReason });
+    }
 
     const [updated] = await db
       .update(invoicesTable)
@@ -501,36 +909,15 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .returning();
 
-    const [client] = await db
-      .select({ first_name: clientsTable.first_name, last_name: clientsTable.last_name,
-                email: clientsTable.email, phone: clientsTable.phone,
-                address: clientsTable.address, city: clientsTable.city })
-      .from(clientsTable)
-      .where(eq(clientsTable.id, invoice.client_id))
-      .limit(1);
-
-    const companyId = req.auth!.companyId;
-    const invNum  = invoice.invoice_number || generateInvoiceNumber(invoiceId);
-    // TODO(invoice-pay-token): the public /pay route resolves a payment_links
-    // token, not a bare invoice id. Wiring invoice-send to mint a payment_links
-    // row (Stripe setup-intent) is a separate task; for now this is on the
-    // correct domain (no more Replit) but still id-based.
-    const invLink = `${appBaseUrl()}/pay/${invoiceId}`;
-    const mergeVars = {
-      first_name:       client?.first_name || "",
-      invoice_number:   invNum,
-      invoice_amount:   parseFloat(invoice.total || "0").toFixed(2),
-      invoice_due_date: invoice.due_date ? new Date(invoice.due_date).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "upon receipt",
-      invoice_link:     invLink,
-      service_address:  [client?.address, client?.city].filter(Boolean).join(", "),
-    };
-    sendNotification("invoice_sent", "email", companyId, client?.email ?? null, null, mergeVars).catch(() => {});
-    sendNotification("invoice_sent", "sms",   companyId, null, client?.phone ?? null, mergeVars).catch(() => {});
+    // [no-auto-issue 2026-07-06] Completion invoices no longer push to QB at
+    // creation (they start as drafts), so finalizing here must push. One-way,
+    // fire-and-forget, no-op when QB isn't connected.
+    queueSync(() => syncInvoice(companyId, invoiceId));
 
     return res.json(formatInvoice({
       ...updated,
-      client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim(),
-      client_email: client?.email,
+      client_name: `${client?.first_name || ""} ${client?.last_name || ""}`.trim() || recipientName || "",
+      client_email: recipientEmail,
     }));
   } catch (err) {
     console.error("Send invoice error:", err);
@@ -565,16 +952,24 @@ router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"),
     const clientEmail = client?.email;
     const invNum = invoice.invoice_number || generateInvoiceNumber(invoiceId);
 
+    // [invoice-send-truth 2026-07-07] Track whether the email actually went
+    // out — the log row below used to claim status='sent' even when the
+    // comms gate suppressed the send.
+    let reminderSent = false;
+    let reminderSkipReason: string | null = clientEmail ? (process.env.RESEND_API_KEY ? null : "RESEND_API_KEY not configured") : "No recipient email";
+
     if (clientEmail && process.env.RESEND_API_KEY) {
       const { isEmailOptedOut, buildEmailUnsubData } = await import("../lib/opt-out.js");
       if (process.env.COMMS_ENABLED !== "true") {
+        reminderSkipReason = "COMMS_ENABLED=false";
         console.log("[COMMS BLOCKED] Invoice reminder email suppressed:", { to: clientEmail, invoiceId });
       } else if (await isEmailOptedOut(req.auth!.companyId!, clientEmail)) {
+        reminderSkipReason = "email_opt_out";
         console.log("[comms-opt-out] Invoice reminder email suppressed (opt-out):", { to: clientEmail, invoiceId });
       } else {
       const { Resend } = await import("resend");
       const resend = new Resend(process.env.RESEND_API_KEY);
-      const payLink = `${appBaseUrl()}/pay/${invoiceId}`;
+      const payLink = await mintInvoicePayLink(req.auth!.companyId!, invoice.client_id, invoiceId, invoice.total, req.auth!.userId);
       const unsub = await buildEmailUnsubData(req.auth!.companyId!, clientEmail);
       await resend.emails.send({
         from: "notifications@phes.io",
@@ -586,21 +981,33 @@ router.post("/:id/remind", requireAuth, requireRole("owner", "admin", "office"),
                <p>Thank you,<br>Phes</p>${unsub?.footerHtml ?? ""}`,
         ...(unsub?.headers ? { headers: unsub.headers } : {}),
       });
+      reminderSent = true;
       }
     }
 
-    await db.update(invoicesTable)
-      .set({ last_reminder_sent_at: new Date() })
-      .where(eq(invoicesTable.id, invoiceId));
+    if (reminderSent) {
+      await db.update(invoicesTable)
+        .set({ last_reminder_sent_at: new Date() })
+        .where(eq(invoicesTable.id, invoiceId));
+    }
 
     await db.insert(notificationLogTable).values({
       company_id: req.auth!.companyId,
       recipient: clientEmail || "system",
       channel: "email",
       trigger: "invoice_reminder",
-      status: "sent",
+      status: reminderSent ? "sent" : "suppressed",
+      error_message: reminderSent ? null : reminderSkipReason,
       metadata: { invoice_id: invoiceId, amount: parseFloat(invoice.total || "0") } as any,
     });
+
+    if (!reminderSent) {
+      const human =
+        reminderSkipReason === "COMMS_ENABLED=false" ? "communications are globally disabled" :
+        reminderSkipReason === "email_opt_out" ? "this recipient unsubscribed from emails" :
+        reminderSkipReason || "the message could not be delivered";
+      return res.status(422).json({ error: "Not Sent", message: `Reminder was NOT sent: ${human}.`, reason: reminderSkipReason });
+    }
 
     return res.json({ ok: true, sent_to: clientEmail || null });
   } catch (err) {
@@ -613,6 +1020,39 @@ router.post("/:id/mark-paid", requireAuth, requireRole("owner", "admin", "office
   try {
     const invoiceId = parseInt(req.params.id);
     const { method = "cash", amount, date: payDate, notes } = req.body;
+
+    // [mark-paid-recalc 2026-07-02] Never record a STALE amount. If this invoice
+    // is tied to a single job, re-derive its lines/total from the job's CURRENT
+    // price + add-ons + discounts before recording payment — the "invoice
+    // mirrors the job" rule, enforced at the one moment money is captured. This
+    // closes the gap where a job was edited (e.g. Shellie 4h→3h, $220→$165) but
+    // the sync was missed and Mark Paid would otherwise bank the old figure.
+    // Only single-job invoices (job_id set) and only when still unpaid; account/
+    // consolidated invoices (job_id NULL, jobs live in line_items) are untouched.
+    // [manual-edit-detach 2026-07-06] Also skipped when the office hand-edited
+    // the invoice (manually_edited_at set) — recording payment must bank the
+    // amount the office deliberately set, not clobber it back to the
+    // job-derived figure. Explicit "Recalc from job" re-attaches.
+    const [pre] = await db
+      .select({ job_id: invoicesTable.job_id, status: invoicesTable.status, tips: invoicesTable.tips, manually_edited_at: invoicesTable.manually_edited_at })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId as number)))
+      .limit(1);
+    const preJobId: number | null = pre?.job_id ?? null;
+    if (preJobId != null && !pre?.manually_edited_at && !["paid", "void", "superseded"].includes((pre?.status ?? "") as string)) {
+      try {
+        const built = await buildJobLineItems(req.auth!.companyId as number, preJobId);
+        if (built) {
+          const tipVal = parseFloat(pre.tips || "0");
+          const freshTotal = Math.round((built.subtotal + tipVal) * 100) / 100;
+          await db.update(invoicesTable)
+            .set({ line_items: built.lineItems, subtotal: built.subtotal.toFixed(2), total: freshTotal.toFixed(2) })
+            .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId as number)));
+        }
+      } catch (e) {
+        console.error("[mark-paid] pre-payment recalc non-fatal:", e);
+      }
+    }
 
     const [invoice] = await db
       .select({ id: invoicesTable.id, client_id: invoicesTable.client_id, total: invoicesTable.total })
@@ -809,15 +1249,28 @@ router.post("/:id/recalc", requireAuth, requireRole("owner", "admin", "office"),
       return res.status(400).json({ error: "Bad Request", message: "This invoice is not linked to a job — edit its line items directly" });
     }
 
+    // Refresh the job's billed_amount BEFORE rebuilding lines — recalc is the
+    // office's repair action, so it must pull CURRENT job pricing, not the
+    // stale stamp the invoice was originally built from (invoice #6387 kept
+    // reproducing a $150 total because billed_amount never re-folded a later
+    // fee adjustment).
+    try {
+      const { recomputeJobBilledAmount } = await import("./jobs.js");
+      await recomputeJobBilledAmount(inv.job_id, req.auth!.companyId!);
+    } catch (e) { console.error("[invoice-recalc] billed_amount refresh non-fatal:", e); }
+
     const built = await buildJobLineItems(req.auth!.companyId, inv.job_id);
     if (!built) return res.status(404).json({ error: "Not Found", message: "Linked job not found" });
 
     const tipVal = parseFloat(inv.tips || "0");
     const total = Math.round((built.subtotal + tipVal) * 100) / 100;
 
+    // [manual-edit-detach 2026-07-06] An explicit recalc-from-job deliberately
+    // re-attaches the invoice to its job — clear the manual-edit detach flag so
+    // mirroring (job-edit re-sync, mark-paid recalc) resumes.
     const [updated] = await db
       .update(invoicesTable)
-      .set({ line_items: built.lineItems, subtotal: built.subtotal.toFixed(2), total: total.toFixed(2) })
+      .set({ line_items: built.lineItems, subtotal: built.subtotal.toFixed(2), total: total.toFixed(2), manually_edited_at: null })
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .returning();
 
@@ -828,6 +1281,205 @@ router.post("/:id/recalc", requireAuth, requireRole("owner", "admin", "office"),
   } catch (err) {
     console.error("Recalc invoice error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to recalc invoice" });
+  }
+});
+
+// ── Refund (partial or full) ────────────────────────────────────────────────
+// Issues a refund against a paid invoice. For Stripe-charged invoices the
+// refund is initiated via the Stripe API before the DB is updated — so money
+// actually moves. For manual payments (check, ACH, Square) the refund is
+// recorded in the DB only; money is returned offline by the office.
+//
+// Guards:
+//   - Invoice must be 'paid' (not draft / sent / void / superseded)
+//   - amount must be > 0 and ≤ total (no double-refunding beyond face value)
+//   - Re-refunding is blocked when refunded_amount already equals total
+//
+// Status stays 'paid' — a refunded invoice is still a completed transaction;
+// the net owed is (total − refunded_amount). No new enum value needed.
+router.post("/:id/refund", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const invoiceId = parseInt(req.params.id);
+    if (isNaN(invoiceId)) return res.status(400).json({ error: "Bad Request", message: "Invalid invoice id" });
+
+    const { amount, reason } = req.body ?? {};
+    const refundAmount = parseFloat(amount);
+    if (!refundAmount || refundAmount <= 0) {
+      return res.status(400).json({ error: "Bad Request", message: "amount must be a positive number" });
+    }
+
+    const [invoice] = await db
+      .select({
+        id: invoicesTable.id,
+        status: invoicesTable.status,
+        total: invoicesTable.total,
+        refunded_amount: invoicesTable.refunded_amount,
+        stripe_payment_intent_id: invoicesTable.stripe_payment_intent_id,
+        payment_source: invoicesTable.payment_source,
+      })
+      .from(invoicesTable)
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .limit(1);
+
+    if (!invoice) return res.status(404).json({ error: "Not Found", message: "Invoice not found" });
+    if (invoice.status !== "paid") {
+      return res.status(409).json({ error: "Conflict", message: "Only paid invoices can be refunded" });
+    }
+
+    const invoiceTotal = parseFloat(invoice.total || "0");
+    const alreadyRefunded = parseFloat(invoice.refunded_amount || "0");
+    const maxRefundable = invoiceTotal - alreadyRefunded;
+
+    if (maxRefundable <= 0) {
+      return res.status(409).json({ error: "Conflict", message: "This invoice has already been fully refunded" });
+    }
+    if (refundAmount > maxRefundable + 0.005) {
+      return res.status(400).json({
+        error: "Bad Request",
+        message: `Refund amount $${refundAmount.toFixed(2)} exceeds the refundable balance of $${maxRefundable.toFixed(2)}`,
+      });
+    }
+
+    // For Stripe-charged invoices, initiate the refund via the API so money
+    // actually moves. Fire before the DB write so a Stripe failure aborts the
+    // request before any local state changes.
+    if (invoice.stripe_payment_intent_id && invoice.payment_source === "stripe") {
+      const stripeKey = process.env.STRIPE_SECRET_KEY;
+      if (!stripeKey || stripeKey === "payments disabled") {
+        return res.status(503).json({ error: "Service Unavailable", message: "Stripe is not configured" });
+      }
+      const Stripe = (await import("stripe")).default;
+      const stripe = new Stripe(stripeKey, { apiVersion: "2024-06-20" as any });
+      await stripe.refunds.create({
+        payment_intent: invoice.stripe_payment_intent_id,
+        amount: Math.round(refundAmount * 100), // cents
+      });
+    }
+
+    const newRefundedTotal = alreadyRefunded + refundAmount;
+    const [updated] = await db
+      .update(invoicesTable)
+      .set({
+        refunded_amount: newRefundedTotal.toFixed(2),
+        refund_reason: (reason as string | undefined) || null,
+        refunded_at: new Date(),
+      })
+      .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
+      .returning();
+
+    logAudit(req, "UPDATE", "invoice", invoiceId, { refunded_amount: alreadyRefunded }, {
+      refunded_amount: newRefundedTotal,
+      refund_reason: reason || null,
+      source: invoice.stripe_payment_intent_id ? "stripe" : "manual",
+    });
+
+    return res.json({
+      ...formatInvoice({ ...updated, client_name: null }),
+      refunded_amount: newRefundedTotal,
+      refund_reason: reason || null,
+      refunded_at: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    console.error("Refund invoice error:", err);
+    const msg = err?.message || "Failed to issue refund";
+    return res.status(500).json({ error: "Internal Server Error", message: msg });
+  }
+});
+
+// ── POST /api/invoices/merge ───────────────────────────────────────────────
+// [invoice-merge 2026-07-02] Bulk-fold a selected set of invoices into ONE.
+// The office filters (e.g. all of an account's June turnovers across buildings)
+// and picks invoices; this rolls them into a single draft parent that carries
+// every folded line + the summed total, and marks the sources 'superseded'
+// (parent_invoice_id set) so they drop out of AR and the customer sees/pays one
+// bill. Only the parent pushes to QuickBooks. Guards: all invoices same company,
+// same customer (one account_id OR one client_id), and unpaid (draft/sent/
+// overdue) — never paid/void/already-superseded.
+router.post("/merge", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const ids: number[] = Array.isArray(req.body?.invoice_ids)
+      ? req.body.invoice_ids.map((x: any) => parseInt(String(x), 10)).filter((n: number) => Number.isInteger(n) && n > 0)
+      : [];
+    if (ids.length < 2) return res.status(400).json({ error: "Bad Request", message: "Select at least 2 invoices to merge" });
+
+    const rows = await db.select().from(invoicesTable)
+      .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.id, ids)));
+    if (rows.length !== new Set(ids).size) {
+      return res.status(404).json({ error: "Not Found", message: "One or more invoices not found" });
+    }
+
+    const bad = rows.find((r) => !["draft", "sent", "overdue"].includes(r.status as string));
+    if (bad) {
+      return res.status(409).json({ error: "Conflict", message: `Invoice ${bad.invoice_number || bad.id} is '${bad.status}' — only unpaid invoices can be merged` });
+    }
+
+    // Same customer only — one account, or (if no account) one client.
+    const accountIds = new Set(rows.map((r) => r.account_id ?? null));
+    const clientIds = new Set(rows.map((r) => r.client_id ?? null));
+    const sameAccount = accountIds.size === 1 && [...accountIds][0] != null;
+    const sameClient = clientIds.size === 1 && [...clientIds][0] != null;
+    if (!sameAccount && !sameClient) {
+      return res.status(400).json({ error: "Bad Request", message: "All selected invoices must belong to the same customer" });
+    }
+
+    // Parent = every folded invoice's lines flattened + summed total.
+    const parentLines: any[] = [];
+    let parentTotal = 0;
+    for (const r of rows) {
+      parentTotal += parseFloat(String(r.total ?? "0"));
+      const childLines = Array.isArray(r.line_items) ? (r.line_items as any[]) : [];
+      if (childLines.length > 0) {
+        // [job-card-invoice-link 2026-07-06] Carry the child's job linkage onto
+        // the parent's lines. The folded child goes 'superseded' (hidden from
+        // the job card's invoice lookup), so without a job_id on the parent's
+        // line_items the job would show "No invoice yet" after a merge. Lines
+        // that already carry their own job_id (consolidated children) keep it.
+        for (const l of childLines) {
+          parentLines.push(r.job_id != null && l.job_id == null ? { ...l, job_id: r.job_id } : l);
+        }
+      } else {
+        const t = parseFloat(String(r.total ?? "0"));
+        parentLines.push({ description: `Invoice ${r.invoice_number || r.id}`, quantity: 1, unit_price: t, total: t, ...(r.job_id != null ? { job_id: r.job_id } : {}) });
+      }
+    }
+    parentTotal = Math.round(parentTotal * 100) / 100;
+    const first = rows[0];
+
+    const [parent] = await db.insert(invoicesTable).values({
+      company_id: companyId,
+      account_id: sameAccount ? first.account_id : null,
+      client_id: sameAccount ? null : first.client_id,
+      status: "draft",
+      line_items: parentLines,
+      subtotal: parentTotal.toFixed(2),
+      total: parentTotal.toFixed(2),
+      payment_terms: first.payment_terms,
+      due_date: first.due_date,
+      created_by: req.auth!.userId,
+    }).returning();
+
+    try {
+      const invNum = await getNextInvoiceNumber(companyId, parent.id);
+      await db.update(invoicesTable).set({ invoice_number: invNum }).where(eq(invoicesTable.id, parent.id));
+    } catch (numErr) {
+      console.error("[invoice-merge] number assignment non-fatal:", numErr);
+    }
+
+    // Fold the sources: superseded + parent link (drops them from AR).
+    await db.update(invoicesTable)
+      .set({ status: "superseded", parent_invoice_id: parent.id })
+      .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.id, ids)));
+
+    logAudit(req, "MERGE", "invoice", parent.id, null, { merged_invoice_ids: ids, count: ids.length, total: parentTotal });
+
+    // Only the parent goes to QuickBooks (one consolidated document).
+    queueSync(() => syncInvoice(companyId, parent.id));
+
+    return res.status(201).json({ ok: true, invoice: parent, merged_count: ids.length, total: parentTotal });
+  } catch (err) {
+    console.error("Invoice merge error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to merge invoices" });
   }
 });
 

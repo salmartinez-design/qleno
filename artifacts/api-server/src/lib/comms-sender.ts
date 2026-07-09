@@ -1,5 +1,6 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { getBranchByZip } from "./branchRouter";
 
 export interface ResolvedSender {
   enabled: boolean;               // company twilio_enabled gate (Twilio go-live)
@@ -33,10 +34,41 @@ export async function resolveSender(companyId: number, branchId?: number | null)
       branchComms = !!(br.rows[0] as any)?.comms_enabled;
     }
   }
-  const from_number = branchNumber || c.twilio_from_number || null;
-  const account_sid = c.twilio_account_sid ?? null;
-  const auth_token = c.twilio_auth_token ?? null;
-  const enabled = !!c.twilio_enabled;
+  let from_number = branchNumber || c.twilio_from_number || null;
+  // [sms-from-number-fallback 2026-06-25] Manual / company-scoped sends pass no
+  // branch context, and a tenant that keeps its Twilio numbers on the BRANCHES
+  // (not company-level, e.g. Phes co1) would otherwise resolve no_from_number.
+  // Fall back to the company's primary branch number: first active branch
+  // (comms_enabled first, then lowest id) that actually has a from-number.
+  // If NO branch has a number, it stays null → reason 'no_from_number' (we
+  // never invent a number).
+  if (!from_number) {
+    const fb = await db.execute(sql`
+      SELECT twilio_from_number FROM branches
+       WHERE company_id = ${companyId}
+         AND twilio_from_number IS NOT NULL AND twilio_from_number <> ''
+       ORDER BY comms_enabled DESC, id ASC
+       LIMIT 1`);
+    from_number = (fb.rows[0] as any)?.twilio_from_number ?? null;
+  }
+  // [env-var-creds-fallback 2026-06-29] Phes stores Twilio creds in Railway env
+  // vars, not per-company DB rows. Event-driven sends (job_started, job_completed,
+  // review_request, on_my_way) were silently blocked because account_sid/auth_token
+  // resolved null. Fall back to global env vars so these sends work without DB
+  // config. The cron path already does this via branchRouter; this makes the
+  // event path consistent.
+  const account_sid = c.twilio_account_sid ?? process.env.TWILIO_ACCOUNT_SID ?? null;
+  const auth_token = c.twilio_auth_token ?? process.env.TWILIO_AUTH_TOKEN ?? null;
+  // When env-var creds are present, treat twilio_enabled as on — env presence IS
+  // the go-live signal when the DB column hasn't been explicitly set.
+  const enabled = !!(c.twilio_enabled || (process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN));
+  // If from_number is still null and we have env-var creds, use the Oak Lawn
+  // primary number as the default sender. Event-driven sends don't carry zip
+  // context so we can't route per-branch here; callers that DO have zip should
+  // call getBranchByZip() upstream and pass the resolved branchId instead.
+  if (!from_number && account_sid) {
+    from_number = getBranchByZip("").twilioFrom; // empty string → Oak Lawn default
+  }
   const company_comms_enabled = !!c.comms_enabled;
   // Branch gate ONLY applies when the passed branchId actually maps to a branch
   // of THIS company. When no branch is specified — OR a branchId is passed that
@@ -59,16 +91,22 @@ export async function resolveSender(companyId: number, branchId?: number | null)
   return { enabled, company_comms_enabled, branch_comms_enabled, account_sid, auth_token, from_number, reason };
 }
 
-// Send an SMS via Twilio REST (no SDK). Returns the Twilio response (sid, status,
-// error_code). Throws on non-2xx with the Twilio error body.
-export async function sendSmsVia(sender: ResolvedSender, to: string, body: string): Promise<any> {
+// Send an SMS (or MMS when mediaUrls provided) via Twilio REST (no SDK).
+// Returns the Twilio response (sid, status, error_code). Throws on non-2xx.
+export async function sendSmsVia(sender: ResolvedSender, to: string, body: string, mediaUrls?: string[]): Promise<any> {
+  const params: Record<string, string> = { From: sender.from_number!, To: to, Body: body };
+  if (mediaUrls && mediaUrls.length > 0) {
+    // Twilio accepts one MediaUrl per API call; for multiple images, only the first
+    // is sent. The spec supports sending multiple messages if needed.
+    params.MediaUrl = mediaUrls[0];
+  }
   const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sender.account_sid}/Messages.json`, {
     method: "POST",
     headers: {
       "Authorization": "Basic " + Buffer.from(`${sender.account_sid}:${sender.auth_token}`).toString("base64"),
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({ From: sender.from_number!, To: to, Body: body }).toString(),
+    body: new URLSearchParams(params).toString(),
   });
   const data: any = await resp.json().catch(() => ({}));
   if (!resp.ok) throw new Error(`Twilio ${resp.status} code=${data?.code ?? "?"}: ${data?.message ?? JSON.stringify(data).slice(0, 200)}`);

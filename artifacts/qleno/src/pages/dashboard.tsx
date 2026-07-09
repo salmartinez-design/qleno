@@ -17,6 +17,24 @@ function apiFetch(path: string) {
   return fetch(`${API}${path}`, { headers: getAuthHeaders() });
 }
 
+// [dashboard-resilience 2026-07-08] A dashboard tab that's open across a deploy
+// hits the readiness gate (HTTP 503, "warming up") for ~30–60s. The one-shot
+// GETs used to give up on that first failure and leave the card blank/zero
+// until a manual reload (Sal: "shows zeros / long time to load again"). This
+// retries a read a few times with short backoff so the dashboard self-heals
+// within seconds of the server coming back — no reload needed. GET-only; never
+// used for writes.
+async function fetchJsonWithRetry(path: string, tries = 6, delayMs = 2500): Promise<any | null> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await apiFetch(path);
+      if (r.ok) return await r.json();
+    } catch { /* network/warmup — fall through to retry */ }
+    if (i < tries - 1) await new Promise((res) => setTimeout(res, delayMs));
+  }
+  return null;
+}
+
 function fmt$(n: number) {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
@@ -42,30 +60,188 @@ function useToday(branchId: number | "all") {
   const [data, setData] = useState<any>(null);
   useEffect(() => {
     setData(null);
+    let alive = true;
     const qs = branchId !== "all" ? `?branch_id=${branchId}` : "";
     const load = async () => {
-      try {
-        const r = await apiFetch(`/api/dashboard/today${qs}`);
-        if (r.ok) setData(await r.json());
-      } catch {}
+      const j = await fetchJsonWithRetry(`/api/dashboard/today${qs}`);
+      if (alive && j) setData(j);
     };
     load();
     const iv = setInterval(load, 60000);
-    return () => clearInterval(iv);
+    return () => { alive = false; clearInterval(iv); };
   }, [branchId]);
   return data;
+}
+
+// [office-reminders 2026-07-07] Internal reminders for the office (Maribel:
+// "Do we have the options to set reminders form Qleno?"). Plain company-wide
+// list — nothing here messages customers. Overdue reminders stay visible in
+// red until completed or deleted.
+// [dashboard-leads 2026-07-08] Sal: the dashboard never showed the leads
+// pipeline — how many came in online vs office, or that a lead closed to
+// booked. This card surfaces this-month intake (online/office/booked) + the
+// open pipeline, each tile clicking through to the filtered Leads board.
+function LeadsCard({ isMobile }: { isMobile: boolean }) {
+  const [, navigate] = useLocation();
+  const [data, setData] = useState<any>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchJsonWithRetry("/api/leads/summary").then((j) => { if (alive && j) setData(j); });
+    return () => { alive = false; };
+  }, []);
+  if (!data) return null;
+  // [today-view 2026-07-08] Sal wants today, not month — "as an owner I need to
+  // know what's going on today; month I check in a report." Card reads today's
+  // intake; the pipeline chips below stay all-time (that's the current backlog).
+  const m = data.today || {}; const p = data.pipeline || {};
+  const Tile = ({ label, value, sub, onClick, accent }: { label: string; value: number; sub?: string; onClick: () => void; accent?: string }) => (
+    <button onClick={onClick} style={{ flex: 1, minWidth: 0, textAlign: "left", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "12px 14px", cursor: "pointer", fontFamily: FF }}>
+      <div style={{ fontSize: 22, fontWeight: 700, color: accent || "#1A1917", lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginTop: 4 }}>{label}</div>
+      {sub && <div style={{ fontSize: 10, color: "#9E9B94", marginTop: 1 }}>{sub}</div>}
+    </button>
+  );
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", margin: "0 0 10px" }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, fontFamily: FF }}>Leads · Today</p>
+        <button onClick={() => navigate("/leads")} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>Open pipeline →</button>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 8 }}>
+        <Tile label="New leads" value={m.total ?? 0} sub={`${m.online ?? 0} online · ${m.office ?? 0} office`} onClick={() => navigate("/leads")} />
+        <Tile label="Online" value={m.online ?? 0} sub="from the web" onClick={() => navigate("/leads")} />
+        <Tile label="Office" value={m.office ?? 0} sub="phone / walk-in" onClick={() => navigate("/leads")} />
+        <Tile label="Booked" value={m.booked ?? 0} sub="closed today" accent="#0A6E5A" onClick={() => navigate("/leads")} />
+      </div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+        {[
+          { k: "Needs contact", v: p.needs_contact ?? 0, c: "#B91C1C" },
+          { k: "Contacted", v: p.contacted ?? 0, c: "#92400E" },
+          { k: "Quoted", v: p.quoted ?? 0, c: "#1D4ED8" },
+          { k: "Booked (open)", v: p.booked ?? 0, c: "#0A6E5A" },
+        ].map(chip => (
+          <button key={chip.k} onClick={() => navigate("/leads")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: chip.c }} />
+            <span style={{ fontSize: 12, color: "#6B6860" }}>{chip.k}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{chip.v}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function OfficeReminders({ isMobile }: { isMobile: boolean }) {
+  const [reminders, setReminders] = useState<any[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [title, setTitle] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await apiFetch("/api/office-reminders");
+      if (r.ok) { const d = await r.json(); setReminders(d.reminders || []); }
+    } catch {}
+    setLoaded(true);
+  };
+  useEffect(() => { load(); }, []);
+
+  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+
+  async function add() {
+    if (!title.trim() || !dueDate || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API}/api/office-reminders`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ title: title.trim(), due_date: dueDate }),
+      });
+      if (r.ok) { setTitle(""); setDueDate(""); setAddOpen(false); await load(); }
+    } catch {}
+    setBusy(false);
+  }
+  async function complete(id: number) {
+    setReminders(prev => prev.filter(x => x.id !== id));
+    try {
+      await fetch(`${API}/api/office-reminders/${id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ completed: true }),
+      });
+    } catch { load(); }
+  }
+  async function remove(id: number) {
+    setReminders(prev => prev.filter(x => x.id !== id));
+    try {
+      await fetch(`${API}/api/office-reminders/${id}`, { method: "DELETE", headers: getAuthHeaders() });
+    } catch { load(); }
+  }
+  const fmtDue = (d: string) => new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+
+  return (
+    <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "16px 20px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: reminders.length || addOpen ? 10 : 0 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", margin: 0, fontFamily: FF }}>
+          Office Reminders{reminders.length ? ` (${reminders.length})` : ""}
+        </p>
+        <button onClick={() => setAddOpen(o => !o)}
+          style={{ padding: "5px 12px", border: "1px solid #E5E2DC", borderRadius: 7, background: addOpen ? "#F7F6F3" : "#FFFFFF", color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+          {addOpen ? "Close" : "+ Reminder"}
+        </button>
+      </div>
+      {addOpen && (
+        <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: isMobile ? "wrap" : "nowrap" }}>
+          <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Call Daveco about payment"
+            onKeyDown={e => { if (e.key === "Enter") add(); }}
+            style={{ flex: "1 1 220px", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#FFFFFF" }} />
+          <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+            style={{ padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#FFFFFF" }} />
+          <button onClick={add} disabled={busy || !title.trim() || !dueDate}
+            style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: busy || !title.trim() || !dueDate ? "#D0CEC9" : "#00C9A0", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
+            Add
+          </button>
+        </div>
+      )}
+      {!loaded ? null : reminders.length === 0 ? (
+        !addOpen && <p style={{ fontSize: 12, color: "#9E9B94", margin: "8px 0 0", fontFamily: FF }}>No reminders. Use "+ Reminder" for office to-dos — "call Daveco Friday", "Lupe out until July 11".</p>
+      ) : (
+        <div>
+          {reminders.map((r, i) => {
+            const overdue = r.due_date < todayStr;
+            const isToday = r.due_date === todayStr;
+            return (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderTop: i === 0 ? "none" : "1px solid #F0EEE9" }}>
+                <button onClick={() => complete(r.id)} title="Mark done"
+                  style={{ width: 18, height: 18, flexShrink: 0, border: "1.5px solid #C9C6BF", borderRadius: 5, background: "#FFFFFF", cursor: "pointer", padding: 0 }} />
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <p style={{ margin: 0, fontSize: 13, color: "#1A1917", fontFamily: FF, wordBreak: "break-word" }}>{r.title}</p>
+                  <p style={{ margin: "1px 0 0", fontSize: 11, fontWeight: 600, fontFamily: FF, color: overdue ? "#B91C1C" : isToday ? "#0A6E5A" : "#9E9B94" }}>
+                    {overdue ? `Overdue — ${fmtDue(r.due_date)}` : isToday ? "Today" : fmtDue(r.due_date)}
+                    {r.created_by_name ? ` · ${r.created_by_name}` : ""}
+                  </p>
+                </div>
+                <button onClick={() => remove(r.id)} title="Delete"
+                  style={{ flexShrink: 0, border: "none", background: "none", color: "#C9C6BF", cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 4, fontFamily: FF }}>
+                  ×
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function useKpis() {
   const [data, setData] = useState<any>(null);
   useEffect(() => {
-    const load = async () => {
-      try {
-        const r = await apiFetch('/api/dashboard/kpis');
-        if (r.ok) setData(await r.json());
-      } catch {}
-    };
-    load();
+    let alive = true;
+    fetchJsonWithRetry('/api/dashboard/kpis').then((j) => { if (alive && j) setData(j); });
+    return () => { alive = false; };
   }, []);
   return data;
 }
@@ -73,16 +249,11 @@ function useKpis() {
 function useRevenueChart() {
   const [data, setData] = useState<{ data: { month: string; revenue: number; jobs: number }[]; prior_year: { month: string; revenue: number }[] }>({ data: [], prior_year: [] });
   useEffect(() => {
-    const load = async () => {
-      try {
-        const r = await apiFetch('/api/dashboard/revenue-chart');
-        if (r.ok) {
-          const json = await r.json();
-          setData({ data: json.data || [], prior_year: json.prior_year || [] });
-        }
-      } catch {}
-    };
-    load();
+    let alive = true;
+    fetchJsonWithRetry('/api/dashboard/revenue-chart').then((json) => {
+      if (alive && json) setData({ data: json.data || [], prior_year: json.prior_year || [] });
+    });
+    return () => { alive = false; };
   }, []);
   return data;
 }
@@ -521,19 +692,23 @@ export default function Dashboard() {
   const actions: any[] = kpis?.action_items || [];
 
   // Status chips — navigate to /dispatch?status=<key>
+  // [today-view 2026-07-08] Owner's at-a-glance for the day. "Scheduled Today"
+  // is the REAL total booked today (was showing only not-started, so it read
+  // wrong); "Remaining" is what's left; the always-0 "In Progress" tile is
+  // gone (Phes jobs go scheduled→complete via the clock, never stamped
+  // in_progress). Flagged lives in tickets.
   const STATUS_CARDS = [
-    { key: 'in_progress', label: 'In Progress', bg: '#E6F1FB', color: '#1E40AF', dispatchKey: 'in_progress', accent: undefined },
-    { key: 'scheduled',   label: 'Scheduled',   bg: '#F7F6F3', color: '#1A1917', dispatchKey: 'scheduled',   accent: undefined },
-    { key: 'complete',    label: 'Complete',     bg: '#EAF3DE', color: '#1D9E75', dispatchKey: 'complete',   accent: undefined },
-    { key: 'flagged',     label: 'Flagged',      bg: '#FAECE7', color: '#D85A30', dispatchKey: 'flagged',    accent: '#D85A30' },
-    { key: 'unassigned',  label: 'Unassigned',   bg: '#FCEBEB', color: '#E24B4A', dispatchKey: 'unassigned', accent: '#E24B4A' },
+    { key: 'scheduled_total', label: 'Scheduled Today', bg: '#F7F6F3', color: '#1A1917', dispatchKey: 'all',        accent: undefined },
+    { key: 'remaining',       label: 'Remaining',       bg: '#E6F1FB', color: '#1E40AF', dispatchKey: 'scheduled',  accent: undefined },
+    { key: 'complete',        label: 'Complete',        bg: '#EAF3DE', color: '#1D9E75', dispatchKey: 'complete',   accent: undefined },
+    { key: 'unassigned',      label: 'Unassigned',      bg: '#FCEBEB', color: '#E24B4A', dispatchKey: 'unassigned', accent: '#E24B4A' },
   ];
 
   // Intelligence strip — hide if all values are dashes
   const hcp = kpis?.hcp;
   const HCP_TILES = [
     { label: 'Daily Revenue',        value: hcp == null ? '—' : fmt$(hcp.rev_booked_today), sub: "today's scheduled jobs" },
-    { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_this_week), sub: 'this week' },
+    { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_today), sub: 'booked today' },
     { label: 'Quotes Given',         value: hcp == null ? '—' : String(hcp.quotes_given_today), sub: 'today' },
     { label: 'Booked Online',        value: hcp == null ? '—' : String(hcp.booked_online_month), sub: 'this month' },
   ];
@@ -593,11 +768,7 @@ export default function Dashboard() {
             <p style={{ fontSize: 13, color: '#6B6860', margin: '4px 0 0', fontFamily: FF }}>{todayDate}</p>
           </div>
           <div style={{ display: 'flex', flexDirection: 'row', gap: 20, alignItems: 'center' }}>
-            {canAdmin && (
-              <button onClick={() => setShowCloseDay(true)} style={{ alignSelf: 'center', marginLeft: 4, display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', backgroundColor: 'rgba(255,255,255,0.7)', color: '#1A1917', border: '1px solid rgba(0,0,0,0.12)', borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>
-                <Calendar size={14} /> Close Day
-              </button>
-            )}
+            {/* [header-cleanup 2026-07-08] Removed the Close Day button (Sal: "useless"). */}
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 120 }}>
               <span style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4, fontFamily: FF }}>Revenue this week</span>
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
@@ -617,7 +788,7 @@ export default function Dashboard() {
         {/* ── STATUS CHIPS ─────────────────────────────────────── */}
         <div>
           <p style={{ fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px', fontFamily: FF }}>Today's Status</p>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(3, 1fr)' : 'repeat(5, 1fr)', gap: isMobile ? 8 : 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : `repeat(${STATUS_CARDS.length}, 1fr)`, gap: isMobile ? 8 : 12 }}>
             {STATUS_CARDS.map(card => {
               const val = Number(counts[card.key] ?? 0);
               return (
@@ -635,6 +806,12 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* ── LEADS PIPELINE ───────────────────────────────────── */}
+        <LeadsCard isMobile={isMobile} />
+
+        {/* ── OFFICE REMINDERS ─────────────────────────────────── */}
+        {canAdmin && <OfficeReminders isMobile={isMobile} />}
+
         {/* ── HCP STRIP (above monthly revenue row) ── */}
         {hcp != null && (
           <div style={{
@@ -646,7 +823,7 @@ export default function Dashboard() {
           }}>
             {[
               { label: 'Daily Revenue',        value: hcp == null ? '—' : fmtWF(hcp.rev_booked_today), sub: "today's scheduled jobs" },
-              { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_this_week), sub: 'this week' },
+              { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_today), sub: 'booked today' },
             ].map((tile, i) => (
               <div key={i} style={{ ...CARD, padding: '20px 24px', minHeight: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
                 <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px', fontFamily: FF }}>{tile.label}</p>

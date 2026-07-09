@@ -81,7 +81,10 @@ async function api<T>(
 export default function LmsAdminSettingsPage() {
   const token = useAuthStore((s) => s.token);
   const auth = useMemo(() => readRoleFromToken(token), [token]);
-  const isOwner = auth?.role === "owner";
+  // [office-admin-parity 2026-06-26] LMS admin settings = owner + office (Sal:
+  // "me or the office"). Techs/team_leads stay fully excluded. Name kept as
+  // `isOwner` since it gates this page's edit access.
+  const isOwner = auth?.role === "owner" || auth?.role === "office" || auth?.role === "super_admin";
   const [, setLocation] = useLocation();
   const [settings, setSettings] = useState<LmsSettings | null>(null);
   const [busy, setBusy] = useState(false);

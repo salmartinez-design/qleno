@@ -1,14 +1,22 @@
 export * from "./companies";
 export * from "./branches";
 export * from "./users";
+export * from "./test_sends";
 export * from "./message_templates";
 export * from "./referral_partners";
+// [lead-pipeline-foundation 2026-06-25] Typed lead pipeline + cadence engine
+// (previously raw-SQL-migration-only tables, now first-class Drizzle models).
+export * from "./leads";
+export * from "./follow_up";
+// [engagement-tracking-phase4 2026-06-25] Native engagement timeline + tracked links.
+export * from "./engagement";
 export * from "./marketing_spend";
 export * from "./kpi_targets";
 export * from "./lead_report_settings";
 export * from "./clients";
 export * from "./jobs";
 export * from "./job_photos";
+export * from "./team_photo_notes";
 export * from "./timeclock";
 export * from "./invoices";
 export * from "./scorecards";
@@ -19,6 +27,7 @@ export * from "./additional_pay";
 export * from "./loyalty";
 export * from "./audit_log";
 export * from "./articles";
+export * from "./guides";
 export * from "./discounts";
 export * from "./job_discounts";
 export * from "./auto_promos";
@@ -28,12 +37,14 @@ export * from "./employee_notes";
 export * from "./client_ratings";
 export * from "./messages";
 export * from "./notification_templates";
+export * from "./customer_notification_preferences";
 export * from "./job_status_logs";
 export * from "./client_homes";
 export * from "./technician_preferences";
 export * from "./client_notifications";
 export * from "./client_communications";
 export * from "./sms_messages";
+export * from "./scheduled_sms";
 export * from "./client_agreements";
 export * from "./quotes";
 export * from "./payments";

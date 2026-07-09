@@ -173,6 +173,36 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   }
 });
 
+// PATCH /api/recurring/:id/monthly-charge — configure monthly-batch billing for
+// commercial accounts that bill one lump per month (e.g. Bill Azzarello
+// $761.25/mo). Body: { amount?: number|null, mode: 'manual'|'auto_first_visit' }.
+//   'manual'           — generated visits are $0; office adds the lump by hand.
+//   'auto_first_visit' — engine drops `amount` on the first visit of each month.
+// This is the toggle behind Option A (manual, default) ↔ Option B (automatic).
+router.patch("/:id/monthly-charge", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { amount, mode } = req.body as { amount?: number | string | null; mode?: string };
+    if (mode && mode !== "manual" && mode !== "auto_first_visit") {
+      return res.status(400).json({ error: "mode must be 'manual' or 'auto_first_visit'" });
+    }
+    const [row] = await db.update(recurringSchedulesTable)
+      // cast: @workspace/db dist types lag the source schema add of these two
+      // columns; runtime (tsx / Railway build) compiles the source fresh.
+      .set({
+        monthly_charge_amount: amount == null || amount === "" ? null : String(parseFloat(String(amount)).toFixed(2)),
+        ...(mode ? { monthly_charge_mode: mode } : {}),
+      } as any)
+      .where(and(eq(recurringSchedulesTable.id, id), eq(recurringSchedulesTable.company_id, req.auth!.companyId)))
+      .returning();
+    if (!row) return res.status(404).json({ error: "Not found" });
+    return res.json(row);
+  } catch (err) {
+    console.error("[recurring monthly-charge PATCH]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 // GET /api/recurring/:id/occurrence-counts?exclude_job_id=N — counts of past
 // vs future jobs in the series, used by the edit-job-modal cascade picker
 // to show "Affects this + 63 future + 4 past" previews on each option.

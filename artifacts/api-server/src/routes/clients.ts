@@ -6,10 +6,12 @@ import {
   clientNotificationsTable, clientCommunicationsTable, clientAgreementsTable,
   serviceZonesTable, quotesTable, contactTicketsTable, clientAttachmentsTable,
   recurringSchedulesTable, jobPhotosTable, qbCustomerMapTable, companiesTable,
+  accountPropertiesTable,
 } from "@workspace/db/schema";
 import { eq, and, ilike, or, count, sum, desc, sql, gte, inArray, ne } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { utcIso } from "../lib/time-serialize.js";
 import { syncCustomer, queueSync } from "../services/quickbooks-sync.js";
 import { resolveZoneForZip } from "./zones.js";
 import crypto from "crypto";
@@ -53,6 +55,14 @@ router.get("/", requireAuth, async (req, res) => {
         // Search by client ID (CL-XXXX format)
         conditions.push(eq(clientsTable.id, parseInt(clMatch[1])));
       } else {
+        // [search-fullname 2026-06-26] Match the term against the combined
+        // "first last" name too. Without this, "Sal Martinez" matched NOTHING —
+        // the per-field ILIKE checks each column alone, so a term spanning
+        // first+last never hit. trim() each part so trailing/leading spaces in
+        // the stored name (common from the MaidCentral import) don't break it,
+        // and collapse runs of whitespace in the term. This fixes full-name
+        // search for every client, not just this one.
+        const sNorm = s.trim().replace(/\s+/g, " ");
         conditions.push(
           or(
             ilike(clientsTable.first_name, `%${s}%`),
@@ -61,7 +71,8 @@ router.get("/", requireAuth, async (req, res) => {
             ilike(clientsTable.phone, `%${s}%`),
             ilike(clientsTable.address, `%${s}%`),
             ilike(clientsTable.city, `%${s}%`),
-            ilike(clientsTable.company_name, `%${s}%`)
+            ilike(clientsTable.company_name, `%${s}%`),
+            sql`(trim(coalesce(${clientsTable.first_name}, '')) || ' ' || trim(coalesce(${clientsTable.last_name}, ''))) ILIKE ${`%${sNorm}%`}`
           ) as any
         );
       }
@@ -440,6 +451,15 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       ...i,
       service_date: i.job_id ? (invJobDates.get(i.job_id) ?? null) : null,
     }));
+    // [invoice-order-fix] The base query orders by created_at, but the UI shows
+    // (and users reason about) the SERVICE date. When an invoice is entered out
+    // of sequence (late-billed or backfilled), created order and service-date
+    // order disagree and the list looks scrambled. Re-sort by the displayed date
+    // — service_date, falling back to created_at — newest first.
+    invoicesWithService.sort((a: any, b: any) => {
+      const key = (x: any) => String(x.service_date || x.created_at || "").slice(0, 10);
+      return key(b).localeCompare(key(a));
+    });
 
     return res.json({
       ...client,
@@ -595,6 +615,88 @@ router.get("/:id", requireAuth, async (req, res) => {
   }
 });
 
+// ─── CUSTOMER MESSAGE HISTORY ──────────────────────────────────────────────────
+// Every automated + manual message we've sent this customer, newest first —
+// unioned across notification_log (booking/reminder/completion/review sends),
+// sms_messages (two-way texting), and communication_log (logged emails/SMS).
+// Powers the "Messages" timeline on the customer profile. Office + up.
+router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const clientId = parseInt(req.params.id);
+    const [client] = await db.select({ email: clientsTable.email, phone: clientsTable.phone })
+      .from(clientsTable)
+      .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, companyId))).limit(1);
+    if (!client) return res.status(404).json({ error: "Not Found" });
+    const email = client.email || "";
+    const phone = client.phone || "";
+    // [comms-by-phone 2026-06-26] Match texts by PHONE, not just client_id.
+    // Two-way SMS often land on a duplicate client record (same number, second
+    // profile) or with a null client_id, so a client_id-only match silently
+    // drops real conversations. Normalize to the last 10 digits and match the
+    // number on any of the SMS phone fields. Only used when we have a full
+    // 10-digit number (else '' disables the phone match).
+    const phoneDigits = (() => { const d = phone.replace(/\D/g, ""); return d.length >= 10 ? d.slice(-10) : ""; })();
+
+    const result = await db.execute(sql`
+      SELECT * FROM (
+        SELECT nl.sent_at AS at, nl.channel::text AS channel, 'outbound'::text AS direction,
+               nl.trigger::text AS type, nl.recipient::text AS recipient, nl.status::text AS status,
+               (nl.metadata->>'subject')::text AS subject, (nl.metadata->>'body')::text AS body,
+               (nl.metadata->>'html')::text AS email_html, 'automated'::text AS source,
+               CASE WHEN nl.trigger = 'invoice_sent' THEN 'invoice' END::text AS doc_type,
+               CASE WHEN nl.trigger = 'invoice_sent'
+                    THEN (SELECT i.id FROM invoices i
+                           WHERE i.company_id = nl.company_id AND i.client_id = ${clientId}
+                             AND i.invoice_number = (nl.metadata->>'invoice_number') LIMIT 1)
+               END AS doc_id
+          FROM notification_log nl
+         WHERE nl.company_id = ${companyId}
+           AND (( ${email} <> '' AND nl.recipient = ${email}) OR ( ${phone} <> '' AND nl.recipient = ${phone}))
+        UNION ALL
+        SELECT created_at AS at, 'sms'::text AS channel, direction::text AS direction,
+               'sms'::text AS type, COALESCE(to_number, from_number)::text AS recipient,
+               status::text AS status, NULL::text AS subject, body::text AS body,
+               NULL::text AS email_html, 'two_way'::text AS source,
+               NULL::text AS doc_type, NULL::int AS doc_id
+          FROM sms_messages
+         WHERE company_id = ${companyId} AND (
+               client_id = ${clientId}
+            OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(contact_phone, ''), '[^0-9]', '', 'g'), 10) = ${phoneDigits})
+            OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(to_number, ''),    '[^0-9]', '', 'g'), 10) = ${phoneDigits})
+            OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(from_number, ''),   '[^0-9]', '', 'g'), 10) = ${phoneDigits}))
+        UNION ALL
+        SELECT logged_at AS at, channel::text AS channel, direction::text AS direction,
+               COALESCE(source, 'message')::text AS type, recipient::text AS recipient,
+               delivery_status::text AS status, subject::text AS subject, body::text AS body,
+               NULL::text AS email_html, 'logged'::text AS source,
+               NULL::text AS doc_type, NULL::int AS doc_id
+          FROM communication_log
+         WHERE company_id = ${companyId} AND customer_id = ${clientId}
+        UNION ALL
+        SELECT sent_at AS at, channel::text AS channel, 'outbound'::text AS direction,
+               COALESCE(sequence_name, 'message')::text AS type,
+               COALESCE(recipient_email, recipient_phone)::text AS recipient,
+               status::text AS status, subject::text AS subject, body::text AS body,
+               CASE WHEN channel = 'email' AND body ~ '<[a-zA-Z]' THEN body END AS email_html,
+               'cadence'::text AS source,
+               NULL::text AS doc_type, NULL::int AS doc_id
+          FROM message_log
+         WHERE company_id = ${companyId} AND (
+               client_id = ${clientId}
+            OR (${email} <> '' AND recipient_email = ${email})
+            OR (${phoneDigits} <> '' AND RIGHT(regexp_replace(COALESCE(recipient_phone, ''), '[^0-9]', '', 'g'), 10) = ${phoneDigits}))
+      ) t
+      ORDER BY at DESC NULLS LAST
+      LIMIT 200`);
+
+    return res.json({ data: result.rows });
+  } catch (err) {
+    console.error("Customer messages history error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── UPDATE CLIENT ─────────────────────────────────────────────────────────────
 router.put("/:id", requireAuth, async (req, res) => {
   try {
@@ -611,6 +713,7 @@ router.put("/:id", requireAuth, async (req, res) => {
       hourly_rate,               // [PR #60] Per-client hourly rate (Schedule Rate auto-calc)
       parking_fee_enabled, parking_fee_amount,
       cancel_fee_pct, lockout_fee_pct,  // Cancellation policy overrides (null = use tenant default)
+      cancellation_notify_via,          // 'sms' | 'email' | 'both' | 'none'
     } = req.body;
 
     // [AH] Snapshot the previous commercial_hourly_rate so we can write a
@@ -643,7 +746,12 @@ router.put("/:id", requireAuth, async (req, res) => {
       ...(home_access_notes !== undefined && { home_access_notes }),
       ...(alarm_code !== undefined && { alarm_code }),
       ...(pets !== undefined && { pets }),
-      ...(client_since !== undefined && { client_since }),
+      // [client-save-fix 2026-07-01] The edit drawer sends "" for an empty
+      // Client Since; `client_since` is a DATE column and Postgres rejects ''
+      // ("invalid input syntax for type date"), which failed the WHOLE update
+      // and surfaced as a generic "Failed to save profile" for every client
+      // with no Client Since. Coerce empty → null (the intended "unset").
+      ...(client_since !== undefined && { client_since: client_since === "" ? null : client_since }),
       ...(geo && { lat: geo.lat, lng: geo.lng }),
       ...(client_type !== undefined && { client_type }),
       ...(commercial_category !== undefined && { commercial_category }),
@@ -657,7 +765,7 @@ router.put("/:id", requireAuth, async (req, res) => {
       ...(card_last_four !== undefined && { card_last_four }),
       ...(card_brand !== undefined && { card_brand }),
       ...(card_expiry !== undefined && { card_expiry }),
-      ...(card_saved_at !== undefined && { card_saved_at }),
+      ...(card_saved_at !== undefined && { card_saved_at: card_saved_at === "" ? null : card_saved_at }),
       ...(payment_method !== undefined && { payment_method }),
       ...(net_terms !== undefined && { net_terms: Number(net_terms) || 0 }),
       ...(newZoneId !== undefined && { zone_id: newZoneId }),
@@ -692,6 +800,11 @@ router.put("/:id", requireAuth, async (req, res) => {
         lockout_fee_pct: lockout_fee_pct === null || lockout_fee_pct === ""
           ? null
           : String(Math.max(0, Math.min(100, Number(lockout_fee_pct)))),
+      }),
+      ...(cancellation_notify_via !== undefined && {
+        cancellation_notify_via: ["sms", "email", "both", "none"].includes(cancellation_notify_via)
+          ? cancellation_notify_via
+          : "sms",
       }),
     }).where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId))).returning();
     if (!updated[0]) return res.status(404).json({ error: "Not Found" });
@@ -1070,6 +1183,60 @@ router.delete("/:id/notifications/:notifId", requireAuth, async (req, res) => {
   }
 });
 
+// ─── CUSTOMER NOTIFICATION PREFERENCES ──────────────────────────────────────
+// Which automated customer messages this client receives, per channel. For
+// clients that belong to an account, prefs are controlled at the ACCOUNT level
+// (an account has many properties/jobs) — the GET reports that so the UI can
+// redirect the office to the account page instead of editing per-client.
+router.get("/:id/notification-preferences", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const [client] = await db.select({ id: clientsTable.id, company_id: clientsTable.company_id, account_id: clientsTable.account_id })
+      .from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
+    if (!assertClientAccess(client, companyId, res)) return;
+
+    const { PREFERENCE_CATALOG, getScopeOverrides } = await import("../lib/notification-preferences.js");
+    const managedByAccount = client.account_id != null;
+    const scopeType = managedByAccount ? "account" : "client";
+    const scopeId = managedByAccount ? Number(client.account_id) : clientId;
+    const overrides = await getScopeOverrides(companyId, scopeType as any, scopeId);
+    return res.json({
+      catalog: PREFERENCE_CATALOG,
+      overrides,
+      scope_type: scopeType,
+      managed_by_account: managedByAccount,
+      account_id: managedByAccount ? Number(client.account_id) : null,
+    });
+  } catch (err) {
+    console.error("[notif-prefs] GET client prefs error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.put("/:id/notification-preferences", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId!;
+    const [client] = await db.select({ id: clientsTable.id, company_id: clientsTable.company_id, account_id: clientsTable.account_id })
+      .from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
+    if (!assertClientAccess(client, companyId, res)) return;
+    // Account clients are managed at the account scope — reject per-client writes
+    // so the office can't set a pref that resolution would silently ignore.
+    if (client.account_id != null) {
+      return res.status(409).json({ error: "Managed by account", account_id: Number(client.account_id) });
+    }
+    const overrides = Array.isArray(req.body?.overrides) ? req.body.overrides : [];
+    const { setScopeOverrides } = await import("../lib/notification-preferences.js");
+    await setScopeOverrides(companyId, "client", clientId, overrides);
+    await logAudit(req, "client.notification_preferences.update", "client", clientId, null, { count: overrides.length });
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[notif-prefs] PUT client prefs error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ─── PORTAL INVITE ─────────────────────────────────────────────────────────────
 router.post("/:id/portal-invite", requireAuth, async (req, res) => {
   try {
@@ -1142,7 +1309,23 @@ router.post("/geocode-all", requireAuth, requireRole("owner", "admin"), async (r
     }
     await new Promise(r => setTimeout(r, 200));
   }
-  return res.json({ geocoded: updated, total: clients.length });
+  // [mileage-account-coords 2026-07-08] Also geocode ACCOUNT PROPERTIES.
+  // Commercial/account jobs (e.g. PPM turnovers) carry their address on the
+  // account property, not a client — and those were never geocoded, so every
+  // mileage leg touching an account job skipped for "no coords" and the tech's
+  // mileage came out $0 (Sal: on 7/6 Alejandra's PPM legs "nothing populated").
+  const props = await db.select().from(accountPropertiesTable)
+    .where(and(eq(accountPropertiesTable.company_id, req.auth!.companyId), sql`${accountPropertiesTable.address} IS NOT NULL`, sql`${accountPropertiesTable.lat} IS NULL`));
+  let propsUpdated = 0;
+  for (const p of props) {
+    const geo = await geocodeAddress(p.address!, p.city ?? undefined, p.state ?? undefined, p.zip ?? undefined);
+    if (geo) {
+      await db.update(accountPropertiesTable).set({ lat: geo.lat, lng: geo.lng }).where(eq(accountPropertiesTable.id, p.id));
+      propsUpdated++;
+    }
+    await new Promise(r => setTimeout(r, 200));
+  }
+  return res.json({ geocoded: updated, total: clients.length, properties_geocoded: propsUpdated, properties_total: props.length });
 });
 
 // ─── CLIENT ACTIVITY FEED ────────────────────────────────────────────────────
@@ -1158,17 +1341,25 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
   const companyId = req.auth!.companyId;
   const limit = Math.min(parseInt(String(req.query.limit ?? "200")) || 200, 500);
 
-  type Ev = { event_type: string; occurred_at: string; user_name: string | null; field_name: string | null; old_value: any; new_value: any; related_job_id: number | null; action: string | null };
+  type Ev = { event_type: string; occurred_at: string; user_name: string | null; field_name: string | null; old_value: any; new_value: any; related_job_id: number | null; related_job_date: string | null; action: string | null };
+  // Job's scheduled_date (YYYY-MM-DD) — lets the frontend deep-link the
+  // "Job #N" tag to the dispatch board (/dispatch?date=…&job=…), which loads
+  // by date. Null when the job is gone (deletes) or the event has no job.
+  const jobDate = (v: any): string | null => (v ? String(v).slice(0, 10) : null);
   const events: Ev[] = [];
+
+  // All five audit tables use zone-less timestamps stored in UTC → normalize to
+  // explicit-UTC ISO so the browser doesn't misparse them as local. Shared
+  // helper (utcIso) — see lib/time-serialize.ts.
 
   // 1. Per-field job edits (price changes, reschedule-by-edit, reassignments…)
   try {
     const r = await db.execute(sql`
-      SELECT jal.edited_at, jal.user_name, jal.field_name, jal.old_value, jal.new_value, jal.job_id, jal.cascade_scope
+      SELECT jal.edited_at, jal.user_name, jal.field_name, jal.old_value, jal.new_value, jal.job_id, jal.cascade_scope, j.scheduled_date
       FROM job_audit_log jal JOIN jobs j ON jal.job_id = j.id
       WHERE j.client_id = ${clientId} AND jal.company_id = ${companyId}
       ORDER BY jal.edited_at DESC LIMIT ${limit}`);
-    for (const x of r.rows as any[]) events.push({ event_type: "job_edit", occurred_at: x.edited_at, user_name: x.user_name, field_name: x.field_name, old_value: x.old_value, new_value: x.new_value, related_job_id: x.job_id != null ? Number(x.job_id) : null, action: x.cascade_scope ?? null });
+    for (const x of r.rows as any[]) events.push({ event_type: "job_edit", occurred_at: x.edited_at, user_name: x.user_name, field_name: x.field_name, old_value: x.old_value, new_value: x.new_value, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.cascade_scope ?? null });
   } catch (e) { console.error("[client-activity] job_audit_log:", (e as any)?.message); }
 
   // 2. Client field edits + job deletions (delete writes here via logClientActivity)
@@ -1178,35 +1369,46 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
       FROM client_audit_log
       WHERE client_id = ${clientId} AND company_id = ${companyId}
       ORDER BY edited_at DESC LIMIT ${limit}`);
-    for (const x of r.rows as any[]) events.push({ event_type: x.field_name === "job_deleted" ? "job_deleted" : "client_edit", occurred_at: x.edited_at, user_name: x.user_name, field_name: x.field_name, old_value: x.old_value, new_value: x.new_value, related_job_id: x.old_value?.job_id ?? null, action: null });
+    for (const x of r.rows as any[]) events.push({ event_type: x.field_name === "job_deleted" ? "job_deleted" : "client_edit", occurred_at: x.edited_at, user_name: x.user_name, field_name: x.field_name, old_value: x.old_value, new_value: x.new_value, related_job_id: x.old_value?.job_id ?? null, related_job_date: null, action: null });
   } catch (e) { console.error("[client-activity] client_audit_log:", (e as any)?.message); }
 
   // 3. Cancellations / reschedules / lockouts
   try {
     const r = await db.execute(sql`
-      SELECT cl.cancelled_at, cl.cancel_action, cl.cancel_reason, cl.customer_charge_amount, cl.notes, cl.job_id,
+      SELECT cl.cancelled_at, cl.cancel_action, cl.cancel_reason, cl.customer_charge_amount, cl.notes, cl.job_id, jb.scheduled_date,
              NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS user_name
-      FROM cancellation_log cl LEFT JOIN users u ON cl.cancelled_by = u.id
+      FROM cancellation_log cl LEFT JOIN users u ON cl.cancelled_by = u.id LEFT JOIN jobs jb ON cl.job_id = jb.id
       WHERE cl.customer_id = ${clientId} AND cl.company_id = ${companyId}
       ORDER BY cl.cancelled_at DESC LIMIT ${limit}`);
-    for (const x of r.rows as any[]) events.push({ event_type: (x.cancel_action === "move" || x.cancel_action === "bump") ? "job_rescheduled" : "job_cancelled", occurred_at: x.cancelled_at, user_name: x.user_name, field_name: x.cancel_action, old_value: null, new_value: { reason: x.cancel_reason, charge: x.customer_charge_amount, notes: x.notes }, related_job_id: x.job_id != null ? Number(x.job_id) : null, action: x.cancel_action });
+    // [service-ended-activity 2026-07-08] cancel_service ends the whole cadence
+    // (deactivates the recurring schedule + cancels every future visit). It used
+    // to render identically to a one-off "Cancelled — customer request", so the
+    // office had no distinct record that the SERVICE was ended (Sal: "she
+    // cancelled her cadence for good... under activity there is no mention").
+    // Emit a distinct 'service_ended' event so it reads as what it is.
+    for (const x of r.rows as any[]) {
+      const et = (x.cancel_action === "move" || x.cancel_action === "bump")
+        ? "job_rescheduled"
+        : (x.cancel_action === "cancel_service" ? "service_ended" : "job_cancelled");
+      events.push({ event_type: et, occurred_at: x.cancelled_at, user_name: x.user_name, field_name: x.cancel_action, old_value: null, new_value: { reason: x.cancel_reason, charge: x.customer_charge_amount, notes: x.notes }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.cancel_action });
+    }
   } catch (e) { console.error("[client-activity] cancellation_log:", (e as any)?.message); }
 
   // 4. Communications (SMS / email / calls / notes)
   try {
     const r = await db.execute(sql`
-      SELECT com.logged_at, com.channel, com.direction, com.summary, com.subject, com.job_id,
+      SELECT com.logged_at, com.channel, com.direction, com.summary, com.subject, com.job_id, jb.scheduled_date,
              NULLIF(TRIM(COALESCE(u.first_name,'') || ' ' || COALESCE(u.last_name,'')), '') AS user_name
-      FROM communication_log com LEFT JOIN users u ON com.logged_by = u.id
+      FROM communication_log com LEFT JOIN users u ON com.logged_by = u.id LEFT JOIN jobs jb ON com.job_id = jb.id
       WHERE com.customer_id = ${clientId} AND com.company_id = ${companyId}
       ORDER BY com.logged_at DESC LIMIT ${limit}`);
-    for (const x of r.rows as any[]) events.push({ event_type: "communication", occurred_at: x.logged_at, user_name: x.user_name, field_name: x.channel, old_value: null, new_value: { direction: x.direction, summary: x.summary, subject: x.subject }, related_job_id: x.job_id != null ? Number(x.job_id) : null, action: x.direction });
+    for (const x of r.rows as any[]) events.push({ event_type: "communication", occurred_at: x.logged_at, user_name: x.user_name, field_name: x.channel, old_value: null, new_value: { direction: x.direction, summary: x.summary, subject: x.subject }, related_job_id: x.job_id != null ? Number(x.job_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.direction });
   } catch (e) { console.error("[client-activity] communication_log:", (e as any)?.message); }
 
   // 5. Creations (job + client) from the global audit log
   try {
     const r = await db.execute(sql`
-      SELECT aal.performed_at, aal.action, aal.target_type, aal.target_id, aal.new_value,
+      SELECT aal.performed_at, aal.action, aal.target_type, aal.target_id, aal.new_value, jj.scheduled_date,
              NULLIF(TRIM(COALESCE(au.first_name,'') || ' ' || COALESCE(au.last_name,'')), '') AS user_name
       FROM app_audit_log aal
       LEFT JOIN users au ON aal.performed_by = au.id
@@ -1215,9 +1417,10 @@ router.get("/:id/activity", requireAuth, requireRole("owner", "admin", "office")
         AND ((aal.target_type = 'client' AND aal.target_id = ${String(clientId)})
           OR (aal.target_type = 'job' AND jj.client_id = ${clientId}))
       ORDER BY aal.performed_at DESC LIMIT ${limit}`);
-    for (const x of r.rows as any[]) events.push({ event_type: x.target_type === "job" ? "job_created" : "client_created", occurred_at: x.performed_at, user_name: x.user_name, field_name: null, old_value: null, new_value: x.new_value, related_job_id: x.target_type === "job" ? Number(x.target_id) : null, action: x.action });
+    for (const x of r.rows as any[]) events.push({ event_type: x.target_type === "job" ? "job_created" : "client_created", occurred_at: x.performed_at, user_name: x.user_name, field_name: null, old_value: null, new_value: x.new_value, related_job_id: x.target_type === "job" ? Number(x.target_id) : null, related_job_date: jobDate(x.scheduled_date), action: x.action });
   } catch (e) { console.error("[client-activity] app_audit_log:", (e as any)?.message); }
 
+  for (const e of events) e.occurred_at = utcIso(e.occurred_at);
   events.sort((a, b) => new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime());
   return res.json({ events: events.slice(0, limit) });
 });
@@ -1240,10 +1443,44 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
       ORDER BY job_date DESC
     `);
 
-    const records = rows.rows as Array<{
+    const histRecords = rows.rows as Array<{
       id: number; job_date: string; revenue: string;
       service_type: string | null; technician: string | null; notes: string | null;
     }>;
+
+    // [history-unify 2026-06-30] job_history is the frozen MaidCentral import; it
+    // stops at the cutover and never grows. After we switch off MC, completed work
+    // lives in `jobs`, so Job History / Total Visits / Lifetime Revenue would
+    // silently freeze. Append completed live jobs dated STRICTLY AFTER this
+    // client's last imported visit — that keeps every historical number identical
+    // (no double-count, no shift) while letting post-cutover work flow in. A
+    // client with no import history (born in Qleno) gets all their completed jobs.
+    const lastHistDate = histRecords.reduce<string | null>(
+      (mx, r) => (r.job_date && (!mx || r.job_date > mx) ? r.job_date : mx), null);
+    const liveRes = await db.execute(sql`
+      SELECT j.id, j.scheduled_date::text AS job_date, j.billed_amount,
+             j.service_type, (u.first_name || ' ' || u.last_name) AS technician
+      FROM jobs j
+      LEFT JOIN users u ON u.id = j.assigned_user_id
+      WHERE j.client_id = ${clientId} AND j.company_id = ${companyId}
+        AND j.status::text IN ('complete','invoiced')
+        ${lastHistDate ? sql`AND j.scheduled_date > ${lastHistDate}::date` : sql``}
+      ORDER BY j.scheduled_date DESC
+    `);
+    const liveRecords = (liveRes.rows as any[]).map(r => ({
+      // Negative id: live jobs and job_history share an id space, and the table
+      // uses id as its React key. Negating the (positive) job id guarantees a
+      // unique, collision-free key distinct from every positive job_history id.
+      id: -Number(r.id),
+      job_date: String(r.job_date),
+      revenue: String(r.billed_amount ?? 0),
+      service_type: r.service_type ?? null,
+      technician: (r.technician && String(r.technician).trim()) || null,
+      notes: null as string | null,
+    }));
+    // Live rows are strictly newer than every imported row, so plain concat keeps
+    // the overall newest-first order the response and stats rely on.
+    const records = [...liveRecords, ...histRecords];
 
     // [last-next-fix 2026-06-18] Last = most recent COMPLETED job on/before
     // today (records[0] could be a future or non-completed row → showed a
@@ -1272,21 +1509,27 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
     `);
     const is_recurring = recurrRes.rows.length > 0;
 
-    // Skips and bumps — cast status to text to avoid enum validation errors if values not yet in enum
+    // [stats-fix 2026-06-30] Skips and bumps. These USED to read jobs.status =
+    // 'skipped'/'bumped', but the job_status enum only has
+    // scheduled/in_progress/complete/cancelled — those values never exist, so
+    // the counters were permanently 0. Skip/bump/move are recorded as
+    // cancellation_log actions, so count them there. (move = customer-initiated
+    // reschedule, bump = office-initiated; both surface as "Bumps".)
     let skips = 0;
     let bumps = 0;
     try {
       const statusRes = await db.execute(sql`
         SELECT
-          COUNT(*) FILTER (WHERE status::text = 'skipped') AS skips,
-          COUNT(*) FILTER (WHERE status::text = 'bumped') AS bumps
-        FROM jobs
-        WHERE client_id = ${clientId} AND company_id = ${companyId}
+          COUNT(*) FILTER (WHERE cl.cancel_action = 'skip') AS skips,
+          COUNT(*) FILTER (WHERE cl.cancel_action IN ('bump','move')) AS bumps
+        FROM cancellation_log cl
+        JOIN jobs j ON j.id = cl.job_id
+        WHERE j.client_id = ${clientId} AND j.company_id = ${companyId}
       `);
       skips = parseInt(String((statusRes.rows[0] as any)?.skips ?? 0));
       bumps = parseInt(String((statusRes.rows[0] as any)?.bumps ?? 0));
     } catch (_err) {
-      // Status enum may not include these values yet — default to 0
+      // Defensive: if cancellation_log is unavailable, fall back to 0.
     }
 
     const now = new Date();
@@ -1301,6 +1544,11 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
       .reduce((s, r) => s + parseFloat(r.revenue), 0);
     const total_visits = records.length;
     const unique_techs = new Set(records.map(r => r.technician).filter(Boolean)).size;
+    // Earliest real visit — drives the "Since" date on the Lifetime Value card.
+    // Previously the card fell back to clients.created_at (the Qleno import date),
+    // which misreported a 2024 client as "Since Mar 2026".
+    const first_cleaning = records.reduce<string | null>(
+      (mn, r) => (r.job_date && (!mn || r.job_date < mn) ? r.job_date : mn), null);
 
     const last12 = records.filter(r => new Date(r.job_date) >= twelveMonthsAgo);
     const revenue_last_12mo = last12.reduce((s, r) => s + parseFloat(r.revenue), 0);
@@ -1345,6 +1593,7 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
         ytd_revenue,
         total_visits,
         unique_techs,
+        first_cleaning,
         revenue_last_12mo,
         avg_bill,
         revenue_trend_pct,
@@ -1897,6 +2146,9 @@ router.get("/:id/cancellation-history", requireAuth, async (req, res) => {
       cancelled_by_name: string | null;
     }>).map(r => {
       const action = r.cancel_action ?? "legacy";
+      // [cancel-timestamp-fix 2026-07-08] cancelled_at is a zone-less UTC
+      // timestamp; normalize to explicit-UTC ISO (shared utcIso, see
+      // lib/time-serialize.ts) so a 6:10 PM cancel doesn't render as 12:10 AM.
       const labels: Record<string, string> = {
         move: "Moved (customer)",
         bump: "Bumped (office)",
@@ -1916,7 +2168,7 @@ router.get("/:id/cancellation-history", requireAuth, async (req, res) => {
         customer_charge_amount: parseFloat(String(r.customer_charge_amount ?? 0)),
         affects_future_jobs: r.affects_future_jobs,
         notes: r.notes,
-        cancelled_at: r.cancelled_at,
+        cancelled_at: utcIso(r.cancelled_at),
         cancelled_by_name: r.cancelled_by_name?.trim() || null,
         job_id: r.job_id,
         original_date: r.original_date,
@@ -2230,11 +2482,14 @@ router.get("/:id/calendar-jobs", requireAuth, async (req, res) => {
         j.scheduled_time, j.address_street, j.address_city,
         u.first_name || ' ' || u.last_name AS technician_name,
         u.id AS technician_id,
-        -- Charged cancel/lockout keeps status='complete' so the calendar must
-        -- not show it as "Done" — surface the action so the chip reads
-        -- "Cancelled (fee)" / "Lockout" instead.
+        -- Latest cancellation_log action (any type). The calendar resolves the
+        -- chip off this: charged cancel/lockout keep status='complete' so they
+        -- must read "Cancel fee"/"Lockout" not "Done"; cancelled jobs that were
+        -- skipped/moved read "Skipped"/"Moved" not the generic "Cancelled". A
+        -- completed job is still shown Done by the client (see chipKeyFor) — a
+        -- stale historical move/skip never downgrades a finished visit.
         (SELECT cl.cancel_action FROM cancellation_log cl
-          WHERE cl.job_id = j.id AND cl.cancel_action IN ('cancel','lockout')
+          WHERE cl.job_id = j.id
           ORDER BY cl.cancelled_at DESC LIMIT 1) AS cancel_action
       FROM jobs j
       LEFT JOIN users u ON u.id = j.assigned_user_id
@@ -2242,6 +2497,25 @@ router.get("/:id/calendar-jobs", requireAuth, async (req, res) => {
         AND j.company_id = ${companyId}
         ${from ? sql`AND j.scheduled_date >= ${from}::date` : sql``}
         ${to   ? sql`AND j.scheduled_date <= ${to}::date`   : sql``}
+        -- [ghost-suppression 2026-06-30] The recurring engine double-generated
+        -- some schedules and CANCELLED (not deleted) the duplicate, leaving a
+        -- ghost "Cancelled" row stacked on the live job → every recurring date
+        -- painted both a Scheduled and a Cancelled chip. Hide a cancelled row
+        -- ONLY when it has no cancellation_log entry (so it's an engine artifact,
+        -- never a real office cancellation) AND a live job already occupies the
+        -- same date for this client. A standalone cancellation still shows.
+        AND NOT (
+          j.status::text = 'cancelled'
+          AND NOT EXISTS (SELECT 1 FROM cancellation_log clx WHERE clx.job_id = j.id)
+          AND EXISTS (
+            SELECT 1 FROM jobs s
+            WHERE s.company_id = j.company_id
+              AND s.client_id = j.client_id
+              AND s.scheduled_date = j.scheduled_date
+              AND s.id <> j.id
+              AND s.status::text IN ('scheduled','in_progress','complete','invoiced')
+          )
+        )
       ORDER BY j.scheduled_date ASC
     `);
     return res.json(rows.rows);
@@ -2431,6 +2705,75 @@ router.get("/:id/profitability", requireAuth, requireRole("owner", "office"), as
     if (companyAvgBill > 0 && avgBill < companyAvgBill) health -= 5;
     health = Math.max(0, Math.min(100, health));
 
+    // [account-health 2026-06-25] Bug #9: replace the money-only score with a
+    // simple 3-check model — Happy / Active / Making money. The old score
+    // ignored quality entirely, so an unhappy-but-profitable client read
+    // "Healthy" (Maribel's complaint). Each check links to real records for the
+    // click-through detail. Quality window 90d, real (past) cancellations 60d.
+    const recleanRows = (await db.execute(sql`
+      SELECT qc.id, qc.complaint_date::text AS date, qc.description, qc.job_id
+      FROM quality_complaints qc JOIN jobs j ON j.id = qc.job_id
+      WHERE j.client_id = ${clientId} AND qc.company_id = ${companyId}
+        AND (qc.re_clean_required OR qc.valid)
+        AND qc.complaint_date >= CURRENT_DATE - INTERVAL '90 days'
+      ORDER BY qc.complaint_date DESC`)).rows as any[];
+    const ticketRows = (await db.execute(sql`
+      SELECT t.id, t.ticket_type::text AS ticket_type, t.notes, t.job_id, t.created_at::text AS date
+      FROM contact_tickets t
+      WHERE t.client_id = ${clientId} AND t.company_id = ${companyId}
+        AND t.ticket_type IN ('complaint_poor_cleaning','complaint_attitude','breakage','incident')
+        AND t.created_at >= CURRENT_DATE - INTERVAL '90 days'
+      ORDER BY t.created_at DESC`)).rows as any[];
+    const refundRows = (await db.execute(sql`
+      SELECT p.id, p.amount, p.refunded_at::text AS date, p.refund_reason, p.job_id
+      FROM payments p JOIN jobs j ON j.id = p.job_id
+      WHERE j.client_id = ${clientId} AND p.refunded_at IS NOT NULL
+        AND p.refunded_at >= CURRENT_DATE - INTERVAL '90 days'
+      ORDER BY p.refunded_at DESC`)).rows as any[];
+    const cancelRows = (await db.execute(sql`
+      SELECT id, scheduled_date::text AS date FROM jobs
+      WHERE client_id = ${clientId} AND company_id = ${companyId} AND status = 'cancelled'
+        AND scheduled_date BETWEEN CURRENT_DATE - INTERVAL '60 days' AND CURRENT_DATE
+      ORDER BY scheduled_date DESC`)).rows as any[];
+
+    const happyPass = (recleanRows.length + ticketRows.length + refundRows.length) === 0;
+    const realCancels = cancelRows.length;
+    const activePass = realCancels < 3;                       // 3+ real cancellations = churn risk
+    // No billed revenue in the period = not enough data to judge margin, so
+    // treat Money as neutral (pass) rather than penalizing missing history —
+    // otherwise every client with no completed jobs reads as "low margin".
+    const hasRevenue = revenue > 0;
+    const moneyPass = !hasRevenue || (netPct >= 15 && laborPct <= 40);
+    const fails = [happyPass, activePass, moneyPass].filter(p => !p).length;
+    const healthStatus = fails === 0 ? "healthy" : fails === 1 ? "watch" : "at_risk";
+
+    const ticketLabel = (t: string) => ({ complaint_poor_cleaning: "Poor cleaning", complaint_attitude: "Attitude", breakage: "Breakage", incident: "Incident" } as Record<string,string>)[t] ?? t;
+    const happyParts: string[] = [];
+    if (recleanRows.length) happyParts.push(`${recleanRows.length} re-clean${recleanRows.length > 1 ? "s" : ""}`);
+    if (ticketRows.length) happyParts.push(`${ticketRows.length} complaint${ticketRows.length > 1 ? "s" : ""}`);
+    if (refundRows.length) happyParts.push(`${refundRows.length} refund${refundRows.length > 1 ? "s" : ""}`);
+    const healthChecks = {
+      happy: {
+        pass: happyPass,
+        summary: happyPass ? "No complaints or re-cleans" : happyParts.join(", "),
+        items: [
+          ...recleanRows.map(r => ({ kind: "reclean", label: r.description || "Re-clean", date: r.date, job_id: r.job_id, tag: "RE-CLEAN" })),
+          ...ticketRows.map(t => ({ kind: "complaint", label: t.notes || ticketLabel(t.ticket_type), date: String(t.date).split("T")[0], job_id: t.job_id, tag: ticketLabel(t.ticket_type).toUpperCase() })),
+          ...refundRows.map(r => ({ kind: "refund", label: `Refund $${Number(r.amount || 0).toFixed(0)}${r.refund_reason ? ` · ${r.refund_reason}` : ""}`, date: String(r.date).split("T")[0], job_id: r.job_id, tag: "REFUND" })),
+        ],
+      },
+      active: {
+        pass: activePass,
+        summary: activePass ? "Visits on track" : `Cancelled ${realCancels} visit${realCancels > 1 ? "s" : ""} recently`,
+        items: cancelRows.map(c => ({ kind: "cancel", label: "Cancelled visit", date: c.date, job_id: c.id, tag: "CANCELLED" })),
+      },
+      money: {
+        pass: moneyPass,
+        summary: !hasRevenue ? "No billed jobs in this period" : (moneyPass ? "Healthy margin" : (netPct < 15 ? `Low margin (${netPct.toFixed(0)}%)` : `Labor cost high (${laborPct.toFixed(0)}%)`)),
+        details: { revenue, net_pct: netPct, labor_pct: laborPct, avg_bill: avgBill, company_avg_bill: companyAvgBill },
+      },
+    };
+
     // Top services by revenue
     const svcsRes = await db.execute(sql`
       SELECT service_type,
@@ -2501,6 +2844,8 @@ router.get("/:id/profitability", requireAuth, requireRole("owner", "office"), as
       net_pct: netPct,
       month_multiplier: monthMultiplier,
       health_score: health,
+      health_status: healthStatus,
+      health_checks: healthChecks,
       last_job_date: lastJobDate,
       days_since_last_job: daysSinceLastJob,
       company_avg_bill: companyAvgBill,

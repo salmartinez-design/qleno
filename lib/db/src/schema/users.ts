@@ -43,6 +43,13 @@ export const usersTable = pgTable("users", {
   gender: text("gender"),
   hire_date: date("hire_date"),
   termination_date: date("termination_date"),
+  // [terminate 2026-07-01] HR separation detail captured by the Terminate flow.
+  // last_day_worked can differ from termination_date (payroll/PTO payout).
+  // termination_reason is a fixed-dropdown string (see the Terminate modal).
+  // rehire_eligible: true / false / null (unset).
+  last_day_worked: date("last_day_worked"),
+  termination_reason: text("termination_reason"),
+  rehire_eligible: boolean("rehire_eligible"),
   employment_type: employmentTypeEnum("employment_type"),
   pay_rate: numeric("pay_rate", { precision: 10, scale: 2 }),
   pay_type: payTypeEnum("pay_type"),
@@ -71,6 +78,18 @@ export const usersTable = pgTable("users", {
   // tracks which is currently shown.
   scorecard_pct_mc: numeric("scorecard_pct_mc", { precision: 5, scale: 2 }),
   scorecard_pct_source: text("scorecard_pct_source").default("mc"),
+  // [90d-composite] Rolling 90-day composite scorecard. The DISPLAYED headline
+  // (replaces scorecard_pct on every surface) is scorecard_composite_90d — a
+  // weighted blend of three trailing-90-day sub-scores: customer satisfaction,
+  // attendance, and complaint-free rate. scorecard_pct above stays as the
+  // satisfaction-only live value (the survey recompute still writes it). All
+  // five columns are written by lib/scorecard-composite.ts; null until the
+  // first compute. Weights live per-tenant on companies.score_weight_*.
+  score_satisfaction_90d: numeric("score_satisfaction_90d", { precision: 5, scale: 2 }),
+  score_attendance_90d: numeric("score_attendance_90d", { precision: 5, scale: 2 }),
+  score_complaint_free_90d: numeric("score_complaint_free_90d", { precision: 5, scale: 2 }),
+  scorecard_composite_90d: numeric("scorecard_composite_90d", { precision: 5, scale: 2 }),
+  score_computed_at: timestamp("score_computed_at", { withTimezone: true }),
   // [pay-matrix 2026-04-29] Per-employee 4-cell pay matrix. Replaces
   // the company-wide single-rate model. Type can be 'commission' (rate
   // is a fraction 0.00–1.00) or 'hourly' (rate is dollars/hour). The
@@ -125,6 +144,13 @@ export const usersTable = pgTable("users", {
    */
   last_login_at: timestamp("last_login_at"),
   crew_id: integer("crew_id"),
+  // [dispatch-visibility 2026-07-09] Per-employee opt-out from the dispatch /
+  // jobs board. Default true = every field tech shows. Turn OFF for placeholder
+  // or QA/test accounts (e.g. Trainee Placeholder, Test Auditor) the office
+  // doesn't want cluttering the daily technician timeline. Accountants (the
+  // external CPA role) are excluded from the board by role regardless of this
+  // flag. The dispatch SELECT filters on `show_on_dispatch IS NOT FALSE`.
+  show_on_dispatch: boolean("show_on_dispatch").notNull().default(true),
   home_branch_id: integer("home_branch_id").references(() => branchesTable.id),
   // ── Cutover 1A (data backbone) — additive columns for geofence /
   //    dispatch defaults. The existing address/city/state/zip cover the
@@ -137,6 +163,13 @@ export const usersTable = pgTable("users", {
   home_lng: numeric("home_lng", { precision: 10, scale: 7 }),
   default_team: text("default_team"),
   default_position: text("default_position"),
+  // [notification-test-sends 2026-06-30] Optional dedicated destinations for the
+  // "Send Test" feature so staff can verify customer message templates without
+  // bombing their personal email/phone. Null = fall back to the login email
+  // (test_email) / prompt each time (test_phone). Read by the test-send endpoint;
+  // an editable profile UI lands in a later pass.
+  test_email: text("test_email"),
+  test_phone: text("test_phone"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

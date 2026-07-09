@@ -19,7 +19,18 @@ import {
 // slides the window forward daily and the idempotent dedupe only adds the new
 // days that rolled into range, so a schedule never runs out — but it keeps ~75%
 // fewer future rows on disk at any moment.
-export const DAYS_AHEAD = 90;
+// [recurring-horizon-restore 2026-07-03] Back to 365. The 90-day cap meant the
+// office could only ever see ~3 months of a recurring schedule (commercial
+// accounts like KMA / National Able are year-long commitments; residential
+// recurring customers likewise), so the board "ran out" at end of September and
+// there was no way to plan further out. The disk pressure that forced the 6/19
+// trim was dominated by base64 job photos in Postgres — those moved to
+// Cloudflare R2 on 2026-06-24 (photos table 1.4 GB → 16 MB), so the ~1.4 GB that
+// hit 98% is reclaimed. Job/technician/add-on rows are small by comparison
+// (~2.2k future rows for the whole tenant). The nightly cron still slides the
+// window forward and the dedupe stays idempotent — the window is now a rolling
+// full year instead of a rolling quarter.
+export const DAYS_AHEAD = 365;
 
 function mapServiceType(raw: string | null): string {
   if (!raw) return "recurring";
@@ -70,7 +81,7 @@ export type ResolvedParkingAddon = {
 // to the older catalog table). Returns null when no active row found
 // (engine then logs once and skips parking stamping for the run).
 export async function resolveParkingAddon(
-  schedule: Pick<ScheduleInput, "company_id" | "customer_id" | "parking_fee_amount">,
+  schedule: Pick<ScheduleInput, "company_id" | "parking_fee_amount"> & { customer_id?: number | null },
   txOrDb: any = db,
 ): Promise<ResolvedParkingAddon | null> {
   const addonLookup = await txOrDb.execute(sql`
@@ -190,12 +201,26 @@ export async function insertJobFromSchedule(
   txOrDb: any = db,
   bookingLocation: string | null = null,
   clientZip: string | null = null,
-): Promise<number> {
+): Promise<number | null> {
+  // [account-recurrence 2026-06-29] Commercial/account schedules carry the
+  // account link + service address on the template; stamp them onto every
+  // generated occurrence so the children stay attached to the account (and
+  // the commission engine — which routes on !!jobs.account_id — treats them
+  // as commercial, not a residential 35% pool). Mirror the route's first
+  // visit: account jobs set account_id + account_property_id and leave
+  // client_id NULL (identity is the account). Residential is unchanged:
+  // no account_id → client_id = customer_id and only address_zip is set.
+  const _isAcct = (schedule as any).account_id != null;
   const [row] = await txOrDb
     .insert(jobsTable)
     .values({
       company_id: schedule.company_id,
-      client_id: schedule.customer_id,
+      client_id: _isAcct ? null : schedule.customer_id,
+      account_id: (schedule as any).account_id ?? null,
+      account_property_id: (schedule as any).account_property_id ?? null,
+      address_street: _isAcct ? ((schedule as any).service_address_street ?? null) : null,
+      address_city: _isAcct ? ((schedule as any).service_address_city ?? null) : null,
+      address_state: _isAcct ? ((schedule as any).service_address_state ?? null) : null,
       assigned_user_id: schedule.assigned_employee_id ?? null,
       service_type: mapServiceType(schedule.service_type) as any,
       status: "scheduled" as const,
@@ -217,10 +242,24 @@ export async function insertJobFromSchedule(
       notes: schedule.notes ?? null,
       recurring_schedule_id: schedule.id,
       booking_location: (bookingLocation ?? null) as any,
-      address_zip: (clientZip ?? null) as any,
+      address_zip: (_isAcct ? ((schedule as any).service_address_zip ?? clientZip ?? null) : (clientZip ?? null)) as any,
     })
+    // [recurring-insert-resilience 2026-07-03] ON CONFLICT DO NOTHING so a
+    // single occurrence that the compute-time dedup missed (e.g. a legacy job
+    // whose occurrence_date was NULL and whose stored scheduled_date the
+    // COALESCE didn't line up with the computed slot) is skipped at the DB
+    // level instead of throwing a unique violation. Before this, one such
+    // collision threw out of the per-occurrence loop in generateJobsFromSchedule
+    // and aborted the ENTIRE schedule — so every FUTURE occurrence (the whole
+    // far-window extension) was lost too. That's what stranded 22 schedules at
+    // the ~90-day mark when the horizon was raised to 365 on 2026-07-03. The DB
+    // unique constraint stays the backstop against real duplicates; this just
+    // stops one skip from poisoning the rest of the batch. Returns null when the
+    // row was skipped so the caller knows not to mirror techs / parking onto a
+    // non-existent id.
+    .onConflictDoNothing()
     .returning({ id: jobsTable.id });
-  return Number(row.id);
+  return row ? Number(row.id) : null;
 }
 
 // addDays + cadence math live in recurring-cadences.ts now. toDateStr
@@ -247,6 +286,7 @@ export function generateOccurrences(
     days_of_week?: number[] | null;
     days_of_month?: number[] | null;
     custom_frequency_weeks?: number | null;
+    week_of_month?: number | null;
     start_date: string | Date;
     end_date?: string | Date | null;
   },
@@ -259,7 +299,7 @@ export function generateOccurrences(
 type ScheduleInput = {
   id: number;
   company_id: number;
-  customer_id: number;
+  customer_id: number | null; // null for account recurrences (account is the billing entity)
   frequency: string;
   day_of_week: string | null;
   // [AI] Multi-day fields. days_of_week is the int array (0=Sun..6=Sat) for
@@ -271,6 +311,8 @@ type ScheduleInput = {
   // 0 = "last day of month" — engine resolves per-month.
   days_of_month?: number[] | null;
   custom_frequency_weeks?: number | null;
+  // [commercial-cadence] 1..4 = first..fourth, 5 = last (monthly_weekday).
+  week_of_month?: number | null;
   // string from a Drizzle typed select; Date from a raw pg `date` column.
   start_date: string | Date;
   end_date?: string | Date | null;
@@ -282,6 +324,21 @@ type ScheduleInput = {
   scheduled_time?: string | null;
   duration_minutes: number | null;
   base_fee: string | null;
+  // [monthly-batch-billing] Commercial accounts billed once a month. When
+  // monthly_charge_mode='auto_first_visit', the engine drops monthly_charge_amount
+  // on the first visit of each calendar month and $0 on the rest. 'manual'
+  // (default) leaves base_fee as the per-visit price.
+  monthly_charge_amount?: string | null;
+  monthly_charge_mode?: string | null;
+  // [commercial-site-schedule] Per-site targeting for multi-building commercial.
+  // When set, stamped onto every generated job so each site carries its account
+  // link + address. NULL = ordinary single-location schedule (client address).
+  account_id?: number | null;
+  account_property_id?: number | null;
+  service_address_street?: string | null;
+  service_address_city?: string | null;
+  service_address_state?: string | null;
+  service_address_zip?: string | null;
   // [legacy-pricing-pin 2026-06-20] When the schedule's agreed price is manually
   // pinned (grandfathered / unreproducible by the current catalog — e.g. the
   // MaidCentral import has no sqft, so the sqft-tier engine can't recompute it),
@@ -348,6 +405,27 @@ export async function computeOccurrencesForSchedule(
 
   const existingDates = new Set((existing.rows as any[]).map(r => String(r.occ)));
 
+  // [dup-guard 2026-07-08] Also treat an existing ACTIVE job for the SAME TARGET
+  // (this client, or this account+property) on a slot as filled — even when it
+  // isn't linked to THIS schedule. Legacy/imported jobs commonly have
+  // recurring_schedule_id NULL, so the schedule-scoped dedup above doesn't see
+  // them and the engine regenerates a DUPLICATE onto the same slot (Jennifer
+  // Joy: two jobs each on 7/15 & 7/22). Matching the billing target closes that.
+  // Cancelled jobs are excluded — a cancelled slot may legitimately be re-filled.
+  const _isAcctSchedule = (schedule as any).account_id != null;
+  const targetExisting = await db.execute(sql`
+    SELECT COALESCE(occurrence_date, scheduled_date)::text AS occ
+    FROM jobs
+    WHERE company_id = ${schedule.company_id}
+      AND status <> 'cancelled'
+      AND COALESCE(occurrence_date, scheduled_date) >= ${fromStr}
+      AND COALESCE(occurrence_date, scheduled_date) <= ${toStr}
+      AND ${_isAcctSchedule
+        ? sql`account_id = ${(schedule as any).account_id} AND account_property_id IS NOT DISTINCT FROM ${(schedule as any).account_property_id ?? null}`
+        : sql`client_id = ${(schedule as any).customer_id}`}
+  `);
+  for (const r of targetExisting.rows as any[]) existingDates.add(String(r.occ));
+
   // [recurring-delete-skip 2026-06-05] Occurrence dates the office deleted on
   // purpose. The generator must NOT regenerate them — otherwise a deleted
   // recurring occurrence "keeps coming back". Stored as YYYY-MM-DD on the
@@ -371,6 +449,25 @@ export async function computeOccurrencesForSchedule(
   const parkingEnabled = !!schedule.parking_fee_enabled;
   const parkingDays: number[] | null = schedule.parking_fee_days ?? null;
 
+  // [monthly-batch-billing] 'auto_first_visit' mode: drop the monthly lump on
+  // the first occurrence of each calendar month and $0 on the rest. 'manual'
+  // (default) leaves base_fee as the schedule's per-visit price. The first-of-
+  // month set is derived from ALL occurrences in the window (not just the
+  // not-yet-existing ones) so the lump lands on the true first visit. (Caveat:
+  // if a window starts mid-month after that month's first visit already exists,
+  // the existing visit already carries the decision — we don't re-stamp it.)
+  const autoMonthly =
+    schedule.monthly_charge_mode === "auto_first_visit" && schedule.monthly_charge_amount != null;
+  const firstOfMonth = new Set<string>();
+  if (autoMonthly) {
+    const seenMonths = new Set<string>();
+    for (const d of [...occurrences].sort((a, b) => a.getTime() - b.getTime())) {
+      const key = `${d.getFullYear()}-${d.getMonth()}`;
+      if (!seenMonths.has(key)) { seenMonths.add(key); firstOfMonth.add(toDateStr(d)); }
+    }
+  }
+  const monthlyLump = autoMonthly ? parseFloat(schedule.monthly_charge_amount!).toFixed(2) : "0.00";
+
   const rows = toInsert.map(d => {
     const dow = d.getDay(); // 0=Sun..6=Sat
     const parkingApplies = parkingEnabled && (parkingDays == null || parkingDays.includes(dow));
@@ -384,7 +481,9 @@ export async function computeOccurrencesForSchedule(
       occurrence_date: toDateStr(d),
       scheduled_time: (schedule.scheduled_time ?? null) as any,
       frequency: mapFrequency(schedule.frequency) as any,
-      base_fee: schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00",
+      base_fee: autoMonthly
+        ? (firstOfMonth.has(toDateStr(d)) ? monthlyLump : "0.00")
+        : (schedule.base_fee ? String(parseFloat(schedule.base_fee).toFixed(2)) : "0.00"),
       // [legacy-pricing-pin 2026-06-20] Carry the schedule's pin onto the job so
       // a pinned agreed price stays sticky on future occurrences.
       manual_rate_override: !!schedule.manual_rate_override,
@@ -392,7 +491,15 @@ export async function computeOccurrencesForSchedule(
       notes: schedule.notes ?? null,
       recurring_schedule_id: schedule.id,
       booking_location: (bookingLocation ?? null) as any,
-      address_zip: (clientZip ?? null) as any,
+      // [commercial-site-schedule] When the schedule targets a specific site,
+      // stamp its account link + address so each multi-building site's visits
+      // carry the right location. Otherwise leave the client-derived defaults.
+      account_id: (schedule.account_id ?? null) as any,
+      account_property_id: (schedule.account_property_id ?? null) as any,
+      address_street: (schedule.service_address_street ?? null) as any,
+      address_city: (schedule.service_address_city ?? null) as any,
+      address_state: (schedule.service_address_state ?? null) as any,
+      address_zip: (schedule.service_address_zip ?? clientZip ?? null) as any,
       // Sidecar — NOT a jobs column. Stripped in generateJobsFromSchedule
       // before the actual INSERT; passed through unchanged in dry-run.
       _parking_fee_applies: parkingApplies,
@@ -463,6 +570,7 @@ export async function generateJobsFromSchedule(
 
   let parkingStamped = 0;
   let created = 0;
+  let conflictSkipped = 0;
   for (const row of rows) {
     // Reconstruct the Date from the YYYY-MM-DD string stamped by
     // computeOccurrencesForSchedule. Use a midnight-local construction
@@ -476,6 +584,11 @@ export async function generateJobsFromSchedule(
       bookingLocation ?? null,
       clientZip ?? null,
     );
+    // [recurring-insert-resilience 2026-07-03] null = the occurrence already
+    // existed (ON CONFLICT DO NOTHING). Treat as a dedupe skip and move on —
+    // do NOT abort the loop, so the remaining far-window occurrences still
+    // generate. Nothing to mirror onto a row that wasn't inserted.
+    if (newId == null) { conflictSkipped++; continue; }
     created++;
     // [audit BUG #8] Mirror the schedule's tech roster onto
     // job_technicians. Idempotent via ON CONFLICT — safe even if a
@@ -496,7 +609,7 @@ export async function generateJobsFromSchedule(
     }
   }
 
-  return { created, skipped, parking_stamped: parkingStamped };
+  return { created, skipped: skipped + conflictSkipped, parking_stamped: parkingStamped };
 }
 
 type SkippedSchedule = {
@@ -626,15 +739,17 @@ export async function generateRecurringJobs(
 
   let clientZipMap: Record<number, string | null> = {};
   let clientNameMap: Record<number, string | null> = {};
+  let clientAccountIdMap: Record<number, number | null> = {};
   if (customerIds.length > 0) {
     const clientRows = await db
-      .select({ id: clientsTable.id, zip: clientsTable.zip, first_name: clientsTable.first_name, last_name: clientsTable.last_name })
+      .select({ id: clientsTable.id, zip: clientsTable.zip, first_name: clientsTable.first_name, last_name: clientsTable.last_name, account_id: clientsTable.account_id })
       .from(clientsTable)
       .where(inArray(clientsTable.id, customerIds));
     for (const row of clientRows) {
       clientZipMap[row.id] = row.zip || null;
       const parts = [row.first_name, row.last_name].filter((p): p is string => !!p);
       clientNameMap[row.id] = parts.length ? parts.join(" ") : null;
+      clientAccountIdMap[row.id] = (row as any).account_id ?? null;
     }
   }
 
@@ -699,7 +814,18 @@ export async function generateRecurringJobs(
       // [zero-fee-commercial 2026-06-08] $0 is legitimate for COMMERCIAL
       // schedules (split-billed / contract visits). Generate those; keep
       // skipping non-numeric fees and $0 on RESIDENTIAL schedules (phantom guard).
-      const isCommercialSchedule = COMMERCIAL_SERVICE_TYPES.has(String(schedule.service_type || "").toLowerCase());
+      // [zero-fee-account 2026-06-28] Also allow $0 for any client under an
+      // Account (account_id != null) — realtors, commercial accounts, etc.
+      // use the account as the billing entity so base_fee on the schedule is 0.
+      // Normalize to slug: "Commercial Cleaning" → "commercial_cleaning" so old
+      // records saved with the display name match the same as new slug-based ones.
+      const serviceSlug = String(schedule.service_type || "").toLowerCase().replace(/\s+/g, "_");
+      const isCommercialSchedule = COMMERCIAL_SERVICE_TYPES.has(serviceSlug)
+        || (clientId != null && clientAccountIdMap[clientId] != null)
+        // [account-recurrence 2026-06-29] Schedules created from an account job
+        // carry account_id directly (the borrowed billing contact may not have
+        // clients.account_id set), so trust the schedule's own link too.
+        || (schedule as any).account_id != null;
       if (!Number.isFinite(feeNum) || (feeNum === 0 && !isCommercialSchedule)) {
         console.warn(`[recurring-engine] SKIP schedule id=${schedule.id} client=${clientId} — base_fee is 0 (residential/unusable)`);
         skippedZeroFee++;
@@ -846,6 +972,29 @@ export async function runRecurringJobGeneration() {
     const today = now.toISOString().slice(0, 10);
     const future = in48h.toISOString().slice(0, 10);
 
+    // [unassigned-resolve 2026-07-02] Auto-clear stale alerts. Once a job gets
+    // a tech (jobs.assigned_user_id OR a job_technicians row) — or leaves the
+    // 'scheduled' state — mark its outstanding unread job_unassigned
+    // notifications read so they stop lingering in the feed after the office
+    // assigns it. Without this, the "Unassigned Job — Jim Schultz #713" alerts
+    // stayed unread for hours even after the job was assigned to Norma Puga,
+    // because #826 only stops NEW alerts and nothing resolved the old ones.
+    await db.execute(sql`
+      UPDATE notifications n
+         SET read = true
+       WHERE n.type = 'job_unassigned'
+         AND n.read = false
+         AND EXISTS (
+           SELECT 1 FROM jobs j
+            WHERE j.id = (n.meta->>'job_id')::int
+              AND j.company_id = n.company_id
+              AND (
+                j.assigned_user_id IS NOT NULL
+                OR EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = j.id)
+                OR j.status <> 'scheduled'
+              )
+         )`);
+
     const unassigned = await db.execute(
       sql`SELECT j.id, j.company_id, j.scheduled_date, c.first_name, c.last_name
           FROM jobs j
@@ -853,6 +1002,14 @@ export async function runRecurringJobGeneration() {
           WHERE j.scheduled_date BETWEEN ${today} AND ${future}
             AND j.status = 'scheduled'
             AND j.company_id IS NOT NULL
+            -- [unassigned-alert-fix 2026-07-02] Canonical "unassigned" = no
+            -- primary on jobs.assigned_user_id AND no job_technicians row.
+            -- Must check BOTH: drag-and-drop assignment (PUT /api/jobs/:id)
+            -- sets assigned_user_id WITHOUT writing job_technicians, so a
+            -- job_technicians-only test falsely alerted on drag-assigned
+            -- jobs (e.g. Jim Schultz #713 assigned to Norma Puga). Mirrors
+            -- the week-summary unassigned_count definition in dispatch.ts.
+            AND j.assigned_user_id IS NULL
             AND NOT EXISTS (
               SELECT 1 FROM job_technicians jt WHERE jt.job_id = j.id
             )

@@ -59,6 +59,12 @@ export const pricingAddonsTable = pgTable("pricing_addons", {
   show_online: boolean("show_online").notNull().default(true),
   show_portal: boolean("show_portal").notNull().default(true),
   is_active: boolean("is_active").notNull().default(true),
+  // [commercial-cleanup] Which client type this add-on is offered for. The
+  // create-job wizard filters by this so commercial jobs stop showing
+  // residential add-ons (Oven, Fridge, etc). Values: residential | commercial
+  // | both. Defaults residential — commercial work is rate-card priced, so the
+  // only commercial add-ons are Parking Fee + the adjustments.
+  applies_to: text("applies_to").notNull().default("residential"),
   sort_order: integer("sort_order").notNull().default(0),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });

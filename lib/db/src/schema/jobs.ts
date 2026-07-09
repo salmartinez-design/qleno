@@ -50,6 +50,13 @@ export const jobsTable = pgTable("jobs", {
   estimated_hours: numeric("estimated_hours", { precision: 5, scale: 2 }),
   billed_hours: numeric("billed_hours", { precision: 5, scale: 2 }),
   billed_amount: numeric("billed_amount", { precision: 10, scale: 2 }),
+  // [commission-optin 2026-07-01] The commissionable base = base_fee (or
+  // hrs×rate for commercial) + only the add-ons/rate-mods flagged
+  // affects_commission. The pay engine reads THIS instead of billed_amount so
+  // add-ons/adjustments count toward the fee split only when the office opts in.
+  // NULL falls back to the legacy max(base_fee, billed_amount) behavior.
+  // Recomputed alongside billed_amount in recomputeJobBilledAmount.
+  commission_base: numeric("commission_base", { precision: 10, scale: 2 }),
   charge_attempted_at: timestamp("charge_attempted_at"),
   charge_succeeded_at: timestamp("charge_succeeded_at"),
   charge_failed_at: timestamp("charge_failed_at"),
@@ -58,6 +65,12 @@ export const jobsTable = pgTable("jobs", {
   status: jobStatusEnum("status").notNull().default("scheduled"),
   scheduled_date: date("scheduled_date").notNull(),
   scheduled_time: text("scheduled_time"),
+  // [time-change-notice 2026-06-30] Raise the manual "notify the client of the
+  // new arrival time" note on the job card after a SAME-DAY time move. Columns
+  // are created at boot by ensureTimeChangeNoticeSetup(); declared here so the
+  // query builder can read them. time_change_from holds the prior "HH:MM".
+  time_change_pending: boolean("time_change_pending").notNull().default(false),
+  time_change_from: text("time_change_from"),
   frequency: frequencyEnum("frequency").notNull().default("on_demand"),
   base_fee: numeric("base_fee", { precision: 10, scale: 2 }).notNull(),
   fee_split_pct: numeric("fee_split_pct", { precision: 5, scale: 2 }),

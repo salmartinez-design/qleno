@@ -6,6 +6,7 @@ import multer from "multer";
 import path from "path";
 import { mkdirSync } from "fs";
 import { requireAuth } from "../lib/auth.js";
+import { renderW9 } from "../lib/w9-pdf.js";
 
 function getLogosDir(): string {
   const base = process.env.UPLOADS_DIR || path.resolve(process.cwd(), "uploads");
@@ -63,6 +64,67 @@ router.get("/me", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Get company error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to get company" });
+  }
+});
+
+// ─── Company W-9 / tax info (for the fillable IRS W-9) ────────────────────────
+const W9_S = (v: unknown): string | null => { const s = String(v ?? "").trim(); return s ? s.slice(0, 200) : null; };
+
+// Save the tenant's W-9 tax info.
+router.put("/w9", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (!companyId) return res.status(403).json({ error: "Forbidden" });
+    const b = req.body ?? {};
+    await db.execute(sql`
+      UPDATE companies SET
+        w9_legal_name = ${W9_S(b.w9_legal_name)},
+        w9_business_name = ${W9_S(b.w9_business_name)},
+        w9_classification = ${W9_S(b.w9_classification)},
+        w9_llc_class = ${W9_S(b.w9_llc_class)},
+        w9_ein = ${W9_S(b.w9_ein)},
+        w9_exempt_payee_code = ${W9_S(b.w9_exempt_payee_code)},
+        w9_fatca_code = ${W9_S(b.w9_fatca_code)}
+      WHERE id = ${companyId}
+    `);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Save W-9 error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Download the filled official IRS W-9 from saved tax info.
+router.get("/w9.pdf", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (!companyId) return res.status(403).json({ error: "Forbidden" });
+    const rows = await db.execute(sql`
+      SELECT name, address, city, state, zip, invoice_business_name,
+             w9_legal_name, w9_business_name, w9_classification, w9_llc_class, w9_ein, w9_exempt_payee_code, w9_fatca_code
+      FROM companies WHERE id = ${companyId} LIMIT 1
+    `);
+    const c: any = (rows as any).rows[0];
+    if (!c) return res.status(404).json({ error: "Not Found" });
+    if (!c.w9_ein) return res.status(422).json({ error: "Unprocessable", reason: "no_ein", message: "Add your EIN in Settings → Tax / W-9 first." });
+    const cityStateZip = [c.city, [c.state, c.zip].filter(Boolean).join(" ")].filter(Boolean).join(", ") || null;
+    const pdf = await renderW9({
+      legalName: c.w9_legal_name || c.invoice_business_name || c.name || "",
+      businessName: c.w9_business_name,
+      classification: (c.w9_classification || "other") as any,
+      llcClass: c.w9_llc_class,
+      ein: c.w9_ein,
+      address: c.address,
+      cityStateZip,
+      exemptPayeeCode: c.w9_exempt_payee_code,
+      fatcaCode: c.w9_fatca_code,
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="W-9-${String(c.w9_legal_name || c.name || "company").replace(/[^a-z0-9]+/gi, "-")}.pdf"`);
+    return res.end(pdf);
+  } catch (err) {
+    console.error("W-9 PDF error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
@@ -127,6 +189,20 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (sms_paused_enabled !== undefined) patch.sms_paused_enabled = sms_paused_enabled;
     if (sms_complete_enabled !== undefined) patch.sms_complete_enabled = sms_complete_enabled;
     if (twilio_from_number !== undefined) patch.twilio_from_number = twilio_from_number;
+    // [lead-alerts 2026-07-06] Office "new lead" alert recipients. The
+    // abandon-track office notification emails lead_notify_email (falling back
+    // to company_email when null) and, when a number is present, texts
+    // lead_notify_phone. Phone has NO fallback, so a null/blank phone = lead
+    // text alerts OFF. Both trim; blank → null.
+    {
+      const { lead_notify_email, lead_notify_phone } = req.body;
+      const cleanContact = (v: unknown) => {
+        const s = String(v ?? "").trim();
+        return s ? s.slice(0, 200) : null;
+      };
+      if (lead_notify_email !== undefined) patch.lead_notify_email = cleanContact(lead_notify_email);
+      if (lead_notify_phone !== undefined) patch.lead_notify_phone = cleanContact(lead_notify_phone);
+    }
     // [scorecard-survey 2026-06-12] Per-tenant post-job survey config (Customer
     // Comms) + Twilio connection (Integrations). twilio_enabled is the go-live
     // gate; auth token is write-only (only set when a non-empty value is sent).
@@ -171,6 +247,23 @@ router.patch("/me", requireAuth, async (req, res) => {
     if (default_invoice_notes_commercial !== undefined) patch.default_invoice_notes_commercial = default_invoice_notes_commercial;
     if (auto_send_invoices !== undefined) patch.auto_send_invoices = auto_send_invoices;
     if (auto_charge_on_invoice !== undefined) patch.auto_charge_on_invoice = auto_charge_on_invoice;
+    // [invoice-branding 2026-06-23] Per-tenant invoice header/footer/terms text.
+    // Empty string clears (falls back to the generic default in the template).
+    {
+      const cleanText = (v: unknown) =>
+        v === undefined ? undefined : (v === null || String(v).trim() === "" ? null : String(v).slice(0, 4000));
+      const fields = ["invoice_business_name", "invoice_tagline", "invoice_address",
+        "invoice_footer_message", "invoice_payment_instructions", "invoice_guarantee", "invoice_terms"];
+      for (const f of fields) {
+        const cv = cleanText(req.body[f]);
+        if (cv !== undefined) patch[f] = cv;
+      }
+    }
+    // [office-email-settings] Zone + available-techs toggles for office booking email.
+    const { office_email_show_zone, office_email_show_available_techs } = req.body;
+    if (office_email_show_zone !== undefined) patch.office_email_show_zone = !!office_email_show_zone;
+    if (office_email_show_available_techs !== undefined) patch.office_email_show_available_techs = !!office_email_show_available_techs;
+
     const { online_booking_lead_hours } = req.body;
     if (online_booking_lead_hours !== undefined) patch.online_booking_lead_hours = online_booking_lead_hours;
     const { dispatch_start_hour, dispatch_end_hour } = req.body;
@@ -193,6 +286,14 @@ router.patch("/me", requireAuth, async (req, res) => {
     const { overhead_rate_pct, payment_terms_days } = req.body;
     if (overhead_rate_pct !== undefined) patch.overhead_rate_pct = String(parseFloat(String(overhead_rate_pct)));
     if (payment_terms_days !== undefined) patch.payment_terms_days = Number(payment_terms_days);
+
+    // [arrival-window] Written via raw SQL (not the drizzle patch) so this new
+    // column doesn't require a schema/type regen. Clamped 5–240 min.
+    const { arrival_window_minutes } = req.body;
+    if (arrival_window_minutes !== undefined) {
+      const n = Math.max(5, Math.min(240, Number(arrival_window_minutes) || 45));
+      await db.execute(sql`UPDATE companies SET arrival_window_minutes = ${n} WHERE id = ${req.auth!.companyId}`);
+    }
 
     if (Object.keys(patch).length === 0) return res.json({ success: true });
 

@@ -11,13 +11,13 @@ interface CTData { from: string; to: string; data: TicketRow[]; counts: { compla
 
 const TYPE_COLORS: Record<string,string> = {
   breakage: "#EF4444", complaint_poor_cleaning: "#F97316", complaint_attitude: "#F97316",
-  compliment: "#10B981", incident: "#8B5CF6", note: "#6B7280",
+  compliment: "#10B981", incident: "#8B5CF6", note: "#6B7280", time_off_request: "#0EA5E9",
 };
 const TYPE_LABELS: Record<string,string> = {
   breakage: "Breakage", complaint_poor_cleaning: "Poor Cleaning", complaint_attitude: "Attitude",
-  compliment: "Compliment", incident: "Incident", note: "Note",
+  compliment: "Compliment", incident: "Incident", note: "Note", time_off_request: "Time-Off Request",
 };
-const TICKET_TYPES = ["all","breakage","complaint_poor_cleaning","complaint_attitude","compliment","incident","note"] as const;
+const TICKET_TYPES = ["all","breakage","complaint_poor_cleaning","complaint_attitude","compliment","incident","note","time_off_request"] as const;
 
 export default function ContactTicketsReportPage() {
   const [from, setFrom] = useState(daysAgo(30));

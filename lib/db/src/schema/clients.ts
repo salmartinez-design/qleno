@@ -50,6 +50,9 @@ export const clientsTable = pgTable("clients", {
   qbo_customer_id: text("qbo_customer_id"),
   stripe_customer_id: text("stripe_customer_id"),
   square_customer_id: text("square_customer_id"),
+  square_card_brand: text("square_card_brand"),
+  square_card_last4: text("square_card_last4"),
+  square_card_exp: text("square_card_exp"),
   loyalty_points: integer("loyalty_points").notNull().default(0),
   portal_access: boolean("portal_access").default(false),
   portal_invite_token: text("portal_invite_token"),
@@ -132,6 +135,10 @@ export const clientsTable = pgTable("clients", {
   // List-Unsubscribe header. Backfilled for existing clients on cold start and
   // generated for new clients; unique so a token resolves to exactly one client.
   email_unsub_token: text("email_unsub_token"),
+  // How to notify this client when a job is cancelled or skipped.
+  // The cancel modal "Notify client" checkbox uses this. 'sms' = text only;
+  // 'email' = email only; 'both' = both channels; 'none' = no notification.
+  cancellation_notify_via: text("cancellation_notify_via").default("sms"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

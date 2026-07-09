@@ -152,9 +152,17 @@ interface JobWizardProps {
    * to the client's primary type per Sal's spec.
    */
   isHybridClient?: boolean;
+  /**
+   * [account-calendar-booking 2026-07-07] Optional preselected commercial
+   * account (+ property). Used when opening the wizard from an account's
+   * Calendar tab "+ New job" — the wizard opens on the commercial branch
+   * with the account already picked, landing on the property step.
+   */
+  preselectedAccountId?: number | null;
+  preselectedPropertyId?: number | null;
 }
 
-export function JobWizard({ open, onClose, onCreated, preselectedClient, presetDate, isHybridClient }: JobWizardProps) {
+export function JobWizard({ open, onClose, onCreated, preselectedClient, presetDate, isHybridClient, preselectedAccountId, preselectedPropertyId }: JobWizardProps) {
   const { activeBranchId, branches } = useBranch();
   const [selectedBranchOverride, setSelectedBranchOverride] = useState<string | number>("all");
   const [step, setStep] = useState(0);
@@ -258,7 +266,17 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const [quoteError, setQuoteError] = useState("");
 
   // Step 2 — Commercial Service + Rate
-  const [commercialServiceType, setCommercialServiceType] = useState("standard_clean");
+  // No default slug: 'standard_clean' isn't in the commercial grid, so
+  // pre-selecting it fired a spurious "No rate configured for Standard Clean"
+  // before the operator picked anything. Start empty → forces an explicit
+  // pick (Next stays disabled until then) and kills the phantom warning.
+  const [commercialServiceType, setCommercialServiceType] = useState("");
+  // Account jobs aren't only buildings — some accounts are individuals (e.g.
+  // Meg) who need residential services (Standard, Deep Clean, Move In/Out).
+  // This toggle flips the account Service-step grid between the account's
+  // commercial types and the residential set. Commission/billing routing is
+  // unchanged (still keyed on account_id) — this only controls the picker.
+  const [acctServiceParent, setAcctServiceParent] = useState<"commercial" | "residential">("commercial");
   const [rateLookup, setRateLookup] = useState<any>(null);
   const [rateLookupLoading, setRateLookupLoading] = useState(false);
   const [rateLookupDone, setRateLookupDone] = useState(false);
@@ -274,6 +292,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const [commercialScheduledTime, setCommercialScheduledTime] = useState("09:00");
   const [commercialDuration, setCommercialDuration] = useState(120);
   const [commercialFrequency, setCommercialFrequency] = useState("on_demand");
+  // Selected weekdays for the "Custom days" cadence (0=Sun..6=Sat). Only used
+  // when commercialFrequency === "custom_days"; the server needs these to
+  // generate the recurring series (without them custom_days can't repeat).
+  const [commercialDaysOfWeek, setCommercialDaysOfWeek] = useState<number[]>([]);
   const [commercialNotes, setCommercialNotes] = useState("");
 
   // Step 3 — Assign
@@ -282,6 +304,11 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const toggleEmployee = (id: number) => setSelectedEmployees(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  // [notify-choice 2026-07-08] Whether/how the client hears about this booking
+  // (Francisco: office controls every client notification). Default Both —
+  // a real new booking should confirm; the office flips to No for internal
+  // re-books so the client isn't spammed.
+  const [notifyVia, setNotifyVia] = useState<"none" | "sms" | "email" | "both">("both");
 
   // Smart suggestions
   const [suggestions, setSuggestions] = useState<SuggestedTech[]>([]);
@@ -296,7 +323,12 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   // on first mount; subsequent opens with different presetDate
   // values would still show today's date.
   useEffect(() => {
-    if (open && presetDate) setScheduledDate(presetDate);
+    if (open && presetDate) {
+      setScheduledDate(presetDate);
+      // The commercial branch tracks its own date — seed it too so an
+      // account-calendar "+ New job" lands on the day that was clicked.
+      setCommercialScheduledDate(presetDate);
+    }
   }, [open, presetDate]);
 
   // Load company-wide active add-ons once when the wizard opens. Failure
@@ -366,11 +398,11 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       setServiceType("standard_clean"); setScheduledDate(todayStr()); setScheduledTime("09:00");
       setDuration(120); setPrice(120); setPriceOverridden(false); setFrequency("on_demand"); setNotes("");
       setShowQuote(false); setQuoteSending(false); setQuoteSent(false); setQuoteError("");
-      setCommercialServiceType("standard_clean"); setRateLookup(null); setRateLookupLoading(false);
+      setCommercialServiceType(""); setAcctServiceParent("commercial"); setRateLookup(null); setRateLookupLoading(false);
       setRateLookupDone(false); setRateOverride(false); setOverrideRate(""); setEstimatedHours("");
       setManualBillingMethod("hourly"); setManualRate("");
       setCommercialScheduledDate(todayStr()); setCommercialScheduledTime("09:00");
-      setCommercialDuration(120); setCommercialFrequency("on_demand"); setCommercialNotes("");
+      setCommercialDuration(120); setCommercialFrequency("on_demand"); setCommercialDaysOfWeek([]); setCommercialNotes("");
       setSelectedEmployees([]); setSubmitting(false); setError("");
       setSuggestions([]); setSuggestionsLoading(false); setSuggestionsDismissed(false);
       setSelectedAddons(new Map()); setAddonPriceOverrides(new Map());
@@ -407,9 +439,20 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           email: preselectedClient.email || "",
         });
         setStep(2); // jump straight to Details — client + address known
+      } else if (preselectedAccountId) {
+        // [account-calendar-booking 2026-07-07] Opened from an account's
+        // Calendar tab — flip to the commercial branch, fetch + select the
+        // account, and land on the property step so the operator only picks
+        // the building (or confirms the prefiltered one) and moves on.
+        setClientType("commercial");
+        setStep(1);
+        fetch(`${API}/api/accounts/${preselectedAccountId}`, { headers: getAuthHeaders() })
+          .then(r => (r.ok ? r.json() : null))
+          .then(d => { const a = d?.data || d; if (a?.id) setSelectedAccount(a); })
+          .catch(() => {});
       }
     }
-  }, [open, preselectedClient?.id]);
+  }, [open, preselectedClient?.id, preselectedAccountId]);
 
   // Residential client search
   useEffect(() => {
@@ -445,7 +488,15 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
     if (!selectedAccount) { setProperties([]); setSelectedProperty(null); return; }
     fetch(`${API}/api/accounts/${selectedAccount.id}/properties`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : { data: [] })
-      .then(d => setProperties(d.data || d || []))
+      .then(d => {
+        const rows = d.data || d || [];
+        setProperties(rows);
+        // Preselect the property the account calendar was filtered to.
+        if (preselectedPropertyId) {
+          const hit = rows.find((p: any) => p.id === preselectedPropertyId);
+          if (hit) setSelectedProperty(hit);
+        }
+      })
       .catch(() => {});
   }, [selectedAccount]);
 
@@ -648,12 +699,15 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   // Pricing settings page get pre-fill behavior for free.
   useEffect(() => {
     if (clientType !== "commercial") return;
-    const apiRow = apiServiceTypes.find(s => s.parent_slug === "commercial" && s.slug === commercialServiceType);
+    // Honor the account Service-Category toggle so a residential type's
+    // default allowed-hours pre-fills too; plain commercial clients stay pinned.
+    const gridParent = selectedAccount ? acctServiceParent : "commercial";
+    const apiRow = apiServiceTypes.find(s => s.parent_slug === gridParent && s.slug === commercialServiceType);
     const apiHours = apiRow?.default_allowed_hours ? parseFloat(apiRow.default_allowed_hours) : null;
     if (apiHours && Number.isFinite(apiHours) && !estimatedHours) {
       setEstimatedHours(String(apiHours));
     }
-  }, [commercialServiceType, apiServiceTypes, clientType]);
+  }, [commercialServiceType, apiServiceTypes, clientType, selectedAccount, acctServiceParent]);
 
   // ── Add-ons math + payload ────────────────────────────────────────────
   // The service base a %-priced add-on applies to. Residential = the entered
@@ -689,16 +743,26 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   }
 
   function renderAddOns() {
+    // [commercial-cleanup] Only show add-ons that apply to this client type.
+    // Commercial jobs are rate-card priced, so they should only see Parking Fee
+    // + the adjustments (applies_to commercial/both), never residential extras
+    // like Oven or Fridge. Rows missing the flag default to residential.
+    const visibleAddons = availableAddons.filter(a => {
+      const ap = (a.applies_to as string) || "residential";
+      return clientType === "commercial"
+        ? (ap === "commercial" || ap === "both")
+        : (ap === "residential" || ap === "both");
+    });
     return (
       <div>
         <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Add-ons</p>
         {addonsLoading ? (
           <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>Loading add-ons…</p>
-        ) : availableAddons.length === 0 ? (
+        ) : visibleAddons.length === 0 ? (
           <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>No add-ons configured.</p>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {availableAddons.map(a => {
+            {visibleAddons.map(a => {
               const checked = selectedAddons.has(a.id);
               const isPct = a.price_type === "percent" || a.price_type === "percentage";
               const catalogPrice = Number(a.price_value ?? a.price ?? 0);
@@ -756,6 +820,12 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   }
 
   async function submit() {
+    // "Custom days" can't repeat without at least one weekday — block before
+    // we create a one-off the operator thinks is a series.
+    if (clientType === "commercial" && commercialFrequency === "custom_days" && commercialDaysOfWeek.length === 0) {
+      setError("Pick at least one day for the Custom days schedule.");
+      return;
+    }
     setSubmitting(true); setError("");
     try {
       let body: any;
@@ -787,6 +857,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           base_fee: (baseFee + addOnsTotal) || undefined,
           add_ons: buildAddOnsPayload(),
           frequency: commercialFrequency,
+          // Only "Custom days" carries selected weekdays; every other cadence
+          // anchors on the scheduled date.
+          days_of_week: commercialFrequency === "custom_days" ? commercialDaysOfWeek : undefined,
           notes: commercialNotes || undefined,
           assigned_user_id: selectedEmployees[0] || undefined,
           status: "scheduled",
@@ -818,6 +891,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           assigned_user_id: selectedEmployees[0] || undefined,
           status: "scheduled",
           branch_id: selectedBranchOverride !== "all" ? selectedBranchOverride : undefined,
+          // [notify-choice 2026-07-08] Office's pick for the booking
+          // confirmation (none/sms/email/both).
+          notify_client_via: notifyVia,
         };
       }
       // [multi-tech-create 2026-06-04] Send the FULL team in the create call.
@@ -1595,22 +1671,54 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 );
               })()}
 
+              {/* Account jobs aren't only buildings — individual accounts
+                  (e.g. Meg) need residential services. This toggle flips the
+                  grid between the account's commercial types and the
+                  residential set. Only the account path gets it; a plain
+                  commercial client stays commercial-only. */}
+              {selectedAccount && (
+                <div>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Category</p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {(["commercial", "residential"] as const).map(p => (
+                      <button key={p} type="button"
+                        onClick={() => { setAcctServiceParent(p); setCommercialServiceType(""); setRateLookup(null); setRateLookupDone(false); setRateOverride(false); }}
+                        style={{
+                          flex: 1, padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center",
+                          border: `1.5px solid ${acctServiceParent === p ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                          background: acctServiceParent === p ? "rgba(0,201,160,0.08)" : "#FFFFFF",
+                          color: acctServiceParent === p ? "var(--brand, #00C9A0)" : "#1A1917",
+                          fontSize: 13, fontWeight: 700, fontFamily: "inherit",
+                        }}>
+                        {p === "commercial" ? "Commercial" : "Residential"}
+                      </button>
+                    ))}
+                  </div>
+                  <p style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>
+                    Switch to Residential for individual accounts (move in/out, deep clean, standard).
+                  </p>
+                </div>
+              )}
+
               <div>
                 <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>
-                {/* [commercial-workflow PR #3] Commercial children
-                    fetched from /api/service-types?parent=commercial.
-                    Tenant-managed (admins add new types in
-                    /settings/pricing) so no fallback to a hardcoded
-                    list — empty state surfaces a config gap. */}
+                {/* [commercial-workflow PR #3] Children fetched from
+                    /api/service-types (both parents). Tenant-managed
+                    (admins add new types in /settings/pricing) so no
+                    fallback to a hardcoded list — empty state surfaces a
+                    config gap. On the account path the Service Category
+                    toggle picks the parent; a plain commercial client is
+                    pinned to commercial. */}
                 {(() => {
+                  const gridParent = selectedAccount ? acctServiceParent : "commercial";
                   const children = apiServiceTypes
-                    .filter(s => s.parent_slug === "commercial" && s.is_active)
+                    .filter(s => s.parent_slug === gridParent && s.is_active)
                     .sort((a, b) => a.display_order - b.display_order);
                   if (serviceTypesLoading && children.length === 0) {
                     return <p style={{ fontSize: 12, color: "#9E9B94" }}>Loading service types…</p>;
                   }
                   if (children.length === 0) {
-                    return <p style={{ fontSize: 12, color: "#991B1B" }}>No active commercial service types configured.</p>;
+                    return <p style={{ fontSize: 12, color: "#991B1B" }}>No active {gridParent} service types configured.</p>;
                   }
                   return (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
@@ -1781,6 +1889,32 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       </button>
                     ))}
                   </div>
+                  {/* Day picker — only for "Custom days". Without at least one
+                      day selected the series can't be generated, so we surface
+                      a hint and the Schedule step blocks on it. 0=Sun..6=Sat. */}
+                  {commercialFrequency === "custom_days" && (
+                    <div style={{ marginTop: 10 }}>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Which days</p>
+                      <div style={{ display: "flex", gap: 4 }}>
+                        {["S", "M", "T", "W", "T", "F", "S"].map((lbl, idx) => {
+                          const on = commercialDaysOfWeek.includes(idx);
+                          return (
+                            <button key={idx} type="button"
+                              onClick={() => setCommercialDaysOfWeek(on ? commercialDaysOfWeek.filter(d => d !== idx) : [...commercialDaysOfWeek, idx].sort())}
+                              style={{ flex: 1, padding: "8px 0", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700,
+                                border: `1.5px solid ${on ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+                                background: on ? "var(--brand, #00C9A0)" : "#fff",
+                                color: on ? "#fff" : "#6B7280" }}>
+                              {lbl}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {commercialDaysOfWeek.length === 0 && (
+                        <p style={{ fontSize: 11, color: "#B45309", margin: "6px 0 0" }}>Pick at least one day for the visits to repeat on.</p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Notes (optional)</p>
@@ -2027,6 +2161,28 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
             </div>
           )}
         </div>
+
+        {/* [notify-choice 2026-07-08] Confirmation choice on the final step —
+            residential only (commercial account jobs never send a client
+            confirmation). Default Both = the booking confirmation a client
+            expects on a real new booking; No = silent internal re-book. */}
+        {step === maxStep && clientType !== "commercial" && (
+          <div style={{ padding: "10px 24px", borderTop: "1px solid #F3F4F6", background: "#FCFBF9", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12.5, fontWeight: 600, color: "#1A1917", flex: "1 1 200px" }}>
+              Send the client a booking confirmation?
+            </span>
+            <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+              {([["none", "No"], ["sms", "Text"], ["email", "Email"], ["both", "Both"]] as const).map(([val, label], i) => (
+                <button key={val} onClick={() => setNotifyVia(val)}
+                  style={{ padding: "7px 14px", border: "none", borderLeft: i === 0 ? "none" : "1px solid #E5E2DC", cursor: "pointer", fontSize: 12, fontWeight: 700, fontFamily: "inherit",
+                    background: notifyVia === val ? (val === "none" ? "#1A1917" : "var(--brand, #00C9A0)") : "#FFFFFF",
+                    color: notifyVia === val ? "#FFFFFF" : "#6B6860" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Footer */}
         <div style={{ padding: "16px 24px", borderTop: "1px solid #F3F4F6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>

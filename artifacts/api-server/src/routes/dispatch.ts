@@ -1,11 +1,14 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, serviceZonesTable, serviceZoneEmployeesTable, accountsTable, accountPropertiesTable, employeeAttendanceLogTable, employeeLeaveUsageTable, branchesTable, recurringSchedulesTable } from "@workspace/db/schema";
+import { jobsTable, usersTable, clientsTable, timeclockTable, jobPhotosTable, serviceZonesTable, serviceZoneEmployeesTable, accountsTable, accountPropertiesTable, employeeAttendanceLogTable, employeeLeaveUsageTable, leaveRequestsTable, leaveTypesTable, branchesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, count, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { parseResRatesRow, resolveResidentialPayPct } from "../lib/commission-rates.js";
+import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission-paytype.js";
+import { unionHoursByKey } from "../lib/timeclock-hours.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import { DAYS_AHEAD } from "../lib/recurring-jobs.js";
+import { resolveBucketDisplay, ABSENT_DISPLAY } from "../lib/leave-bucket-display.js";
 
 const router = Router();
 
@@ -43,7 +46,11 @@ async function buildDispatchPayload(
 
     // Only show field technicians on the dispatch board:
     // - role = technician or team_lead always included
-    // - role = admin/owner/office only if their tags array contains 'field' or 'technician'
+    // - role = admin/owner/office/accountant only if their tags array contains 'field' or 'technician'
+    // - the external CPA 'accountant' role (e.g. Tim Dillon) is office staff,
+    //   NOT a field tech — excluded by role so it never lands on the timeline.
+    // - any employee with show_on_dispatch=false (placeholder / QA-test accounts
+    //   like Trainee Placeholder or Test Auditor) is hidden regardless of role.
     const employees = await db
       .select({
         id: usersTable.id,
@@ -62,8 +69,11 @@ async function buildDispatchPayload(
       .where(and(
         eq(usersTable.company_id, companyId),
         eq(usersTable.is_active, true),
+        // Hidden accounts (placeholder / QA-test) never appear on the board.
+        // IS NOT FALSE keeps legacy rows (pre-migration NULL) visible.
+        sql`${usersTable.show_on_dispatch} IS NOT FALSE`,
         sql`(
-          ${usersTable.role} NOT IN ('admin', 'owner', 'office', 'super_admin')
+          ${usersTable.role} NOT IN ('admin', 'owner', 'office', 'super_admin', 'accountant')
           OR (COALESCE(${usersTable.tags}, '{}') && ARRAY['field','technician']::text[])
         )`
       ))
@@ -125,6 +135,8 @@ async function buildDispatchPayload(
         job_kind: jobsTable.job_kind,
         scheduled_date: jobsTable.scheduled_date,
         scheduled_time: jobsTable.scheduled_time,
+        time_change_pending: jobsTable.time_change_pending,
+        time_change_from: jobsTable.time_change_from,
         frequency: jobsTable.frequency,
         base_fee: jobsTable.base_fee,
         allowed_hours: jobsTable.allowed_hours,
@@ -205,6 +217,10 @@ async function buildDispatchPayload(
         actual_hours: jobsTable.actual_hours,
         billed_hours: jobsTable.billed_hours,
         billed_amount: jobsTable.billed_amount,
+        // [tc-pay-sync 2026-07-01] Commissionable base (opt-in add-ons/mods,
+        // #814) so the per-tech pay engine reproduces the time-clock/payroll
+        // figure exactly. NULL → engine falls back to max(base_fee, billed).
+        commission_base: jobsTable.commission_base,
         // [commercial-revenue 2026-06-04] Distinguishes an explicit flat
         // "Change price" / "Override rate" (true) from a normal commercial
         // job whose revenue is hourly_rate × allowed_hours (false). The
@@ -230,6 +246,10 @@ async function buildDispatchPayload(
         property_state: accountPropertiesTable.state,
         property_zip: accountPropertiesTable.zip,
         property_access_notes: accountPropertiesTable.access_notes,
+        // [building-notes 2026-07-07] Live building-level OFFICE note — shown
+        // on every job at this property. Replaces the removed copy-into-
+        // jobs.office_notes propagation (the cross-visit note bleed).
+        property_notes: accountPropertiesTable.notes,
         office_notes: jobsTable.office_notes,
         office_notes_updated_by: jobsTable.office_notes_updated_by,
         office_notes_updated_at: jobsTable.office_notes_updated_at,
@@ -245,6 +265,26 @@ async function buildDispatchPayload(
         // customer.
         no_show_marked_by_tech: jobsTable.no_show_marked_by_tech,
         no_show_marked_by_user_id: jobsTable.no_show_marked_by_user_id,
+        // [dispatch-invoice 2026-06-27] Live invoice for this job so the panel
+        // can show "View Invoice" + status without a second fetch. Uses the
+        // most-recent non-void, non-superseded invoice (idempotent engine
+        // ensures at most one, but guard order is safest). Null on pre-cutover
+        // or uncompleted jobs that have no invoice yet.
+        // [job-card-invoice-link 2026-07-06] Also matches invoices that carry
+        // the job INSIDE line_items (consolidated account invoices from
+        // POST /api/accounts/:id/generate-invoice, merge parents) — those have
+        // job_id NULL, so the direct-FK match alone left the job card showing
+        // "No invoice yet" even though the invoice existed (Maribel, Awaken
+        // Church common-areas). Direct job_id match wins over a line-item
+        // match; the @> containment predicate is the same one the account
+        // uninvoiced-jobs dedup guard uses. Third arm: historical merge
+        // parents created before lines carried job_id — follow the job's
+        // superseded child (which kept its job_id) up to its parent.
+        invoice_id: sql<number | null>`(SELECT iv.id FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        invoice_status: sql<string | null>`(SELECT iv.status FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        invoice_total: sql<string | null>`(SELECT iv.total FROM invoices iv WHERE iv.company_id = ${jobsTable.company_id} AND iv.status NOT IN ('void','superseded') AND (iv.job_id = ${jobsTable.id} OR iv.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id})) OR EXISTS (SELECT 1 FROM invoices ch WHERE ch.company_id = iv.company_id AND ch.parent_invoice_id = iv.id AND ch.job_id = ${jobsTable.id})) ORDER BY (iv.job_id = ${jobsTable.id}) DESC, iv.created_at DESC LIMIT 1)`,
+        // [commission-override 2026-06-27] Office-set pool rate override for demanding jobs.
+        commission_override_pct: sql<number | null>`(SELECT commission_override_pct FROM jobs WHERE id = ${jobsTable.id} LIMIT 1)`,
       })
       .from(jobsTable)
       .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
@@ -325,10 +365,21 @@ async function buildDispatchPayload(
     }
 
     // Time-off data for the board date
-    // PTO = leave_usage record exists for this date
+    // [time-block 2026-07-08] Manual entries now carry a DESIGNATION
+    // (leave_type_id on deductions) and an optional TIME BLOCK (start/end on
+    // both tables). The board used to guess: any office deduction rendered as
+    // full-day PTO (Hilda's 4h UNPAID 2-6 PM block), and a partial call-off
+    // tinted the whole row (Jose worked his morning job). Now the slug comes
+    // from the record and the tint covers only the designated window.
     const leaveUsage = await db
-      .select({ employee_id: employeeLeaveUsageTable.employee_id })
+      .select({
+        employee_id: employeeLeaveUsageTable.employee_id,
+        slug: leaveTypesTable.slug,
+        start_time: employeeLeaveUsageTable.start_time,
+        end_time: employeeLeaveUsageTable.end_time,
+      })
       .from(employeeLeaveUsageTable)
+      .leftJoin(leaveTypesTable, eq(employeeLeaveUsageTable.leave_type_id, leaveTypesTable.id))
       .where(and(
         eq(employeeLeaveUsageTable.company_id, companyId),
         eq(employeeLeaveUsageTable.date_used, date),
@@ -336,7 +387,12 @@ async function buildDispatchPayload(
 
     // Sick / absent from attendance log for this date
     const attendanceLogs = await db
-      .select({ employee_id: employeeAttendanceLogTable.employee_id, type: employeeAttendanceLogTable.type })
+      .select({
+        employee_id: employeeAttendanceLogTable.employee_id,
+        type: employeeAttendanceLogTable.type,
+        start_time: employeeAttendanceLogTable.start_time,
+        end_time: employeeAttendanceLogTable.end_time,
+      })
       .from(employeeAttendanceLogTable)
       .where(and(
         eq(employeeAttendanceLogTable.company_id, companyId),
@@ -344,16 +400,89 @@ async function buildDispatchPayload(
         sql`${employeeAttendanceLogTable.type} IN ('plawa_leave','protected_leave','absent','ncns')`,
       ));
 
-    const ptoSet = new Set(leaveUsage.map(r => r.employee_id));
-    // sick = plawa_leave / protected_leave; absent = absent / ncns
-    const sickSet = new Set(attendanceLogs.filter(r => r.type === 'plawa_leave' || r.type === 'protected_leave').map(r => r.employee_id));
-    const absentSet = new Set(attendanceLogs.filter(r => r.type === 'absent' || r.type === 'ncns').map(r => r.employee_id));
+    // Approved leave requests overlapping the board date → the FOUR distinct
+    // buckets + the day unit (full/AM/PM/custom). This is the authoritative
+    // source so PTO / PLAWA / Unpaid / Unexcused each show distinctly; a
+    // half-day keeps the tech available the worked half (we surface the unit;
+    // the board treats half-days as still-suggestable).
+    const approvedLeave = await db
+      .select({ user_id: leaveRequestsTable.user_id, slug: leaveTypesTable.slug, day_unit: leaveRequestsTable.day_unit, start_time: leaveRequestsTable.start_time, end_time: leaveRequestsTable.end_time })
+      .from(leaveRequestsTable)
+      .innerJoin(leaveTypesTable, eq(leaveRequestsTable.leave_type_id, leaveTypesTable.id))
+      .where(and(
+        eq(leaveRequestsTable.company_id, companyId),
+        eq(leaveRequestsTable.status, 'approved'),
+        sql`${leaveRequestsTable.start_date} <= ${date} AND ${leaveRequestsTable.end_date} >= ${date}`,
+      ));
+    // [Phase 3] Tenant-dynamic bucket display: resolve each bucket's row tint +
+    // label from the tenant's own leave_types.display_config (no hardcoded
+    // SLUG_TO_BUCKET / TIME_OFF_BG). time_off is now the SLUG; the board renders
+    // the returned time_off_color / time_off_label directly.
+    const tenantBuckets = await db
+      .select({ slug: leaveTypesTable.slug, display_name: leaveTypesTable.display_name, display_config: leaveTypesTable.display_config })
+      .from(leaveTypesTable)
+      .where(eq(leaveTypesTable.company_id, companyId));
+    const bucketDisplayBySlug = new Map(
+      tenantBuckets.map((b) => [String(b.slug), resolveBucketDisplay(b as any)]),
+    );
+    type TimeOffRec = { slug: string; unit: 'full_day' | 'morning' | 'afternoon' | 'custom'; start: string | null; end: string | null };
+    const hhmm = (t: any): string | null => (t ? String(t).slice(0, 5) : null);
+    const blockUnit = (start: any, end: any): 'full_day' | 'custom' => (start && end ? 'custom' : 'full_day');
+    // Priority: approved leave request (authoritative) → attendance log →
+    // manual leave-usage deduction. First writer per employee wins within
+    // each tier; a request always beats manual rows.
+    const timeOffByEmp = new Map<number, TimeOffRec>();
+    for (const r of [...attendanceLogs.map(a => ({
+      employee_id: a.employee_id,
+      // The board's designation for an office-recorded absence/ncns is the
+      // tenant's UNEXCUSED bucket (its color/label were picked by the
+      // office); plawa/protected map to the PLAWA bucket. 'absent' pseudo-
+      // bucket stays the fallback when the tenant has no unexcused bucket.
+      slug: (a.type === 'plawa_leave' || a.type === 'protected_leave')
+        ? 'plawa'
+        : (bucketDisplayBySlug.has('unexcused') ? 'unexcused' : 'absent'),
+      start_time: a.start_time, end_time: a.end_time,
+    })), ...leaveUsage.map(u => ({
+      employee_id: u.employee_id,
+      // Designation from the deduction's recorded bucket; legacy rows
+      // without one keep the old PTO assumption.
+      slug: u.slug ? String(u.slug) : 'pto_phes',
+      start_time: u.start_time, end_time: u.end_time,
+    }))]) {
+      if (!timeOffByEmp.has(r.employee_id)) {
+        timeOffByEmp.set(r.employee_id, { slug: r.slug, unit: blockUnit(r.start_time, r.end_time), start: hhmm(r.start_time), end: hhmm(r.end_time) });
+      }
+    }
+    for (const r of approvedLeave) {
+      timeOffByEmp.set(r.user_id, {
+        slug: String(r.slug),
+        unit: String(r.day_unit) as TimeOffRec['unit'],
+        start: hhmm((r as any).start_time),
+        end: hhmm((r as any).end_time),
+      });
+    }
 
-    function getTimeOff(empId: number): 'pto' | 'sick' | 'absent' | null {
-      if (ptoSet.has(empId)) return 'pto';
-      if (sickSet.has(empId)) return 'sick';
-      if (absentSet.has(empId)) return 'absent';
-      return null;
+    function getTimeOff(empId: number): string | null {
+      return timeOffByEmp.get(empId)?.slug ?? null;
+    }
+    function getTimeOffUnit(empId: number): TimeOffRec['unit'] | null {
+      return timeOffByEmp.get(empId)?.unit ?? null;
+    }
+    function getTimeOffBlock(empId: number): { start: string | null; end: string | null } {
+      const rec = timeOffByEmp.get(empId);
+      return { start: rec?.start ?? null, end: rec?.end ?? null };
+    }
+    function getTimeOffColor(empId: number): string | null {
+      const slug = getTimeOff(empId);
+      if (!slug) return null;
+      if (slug === 'absent') return ABSENT_DISPLAY.tint;
+      return bucketDisplayBySlug.get(slug)?.tint ?? null;
+    }
+    function getTimeOffLabel(empId: number): string | null {
+      const slug = getTimeOff(empId);
+      if (!slug) return null;
+      if (slug === 'absent') return ABSENT_DISPLAY.board_label;
+      return bucketDisplayBySlug.get(slug)?.board_label ?? null;
     }
 
     if (jobs.length === 0) {
@@ -365,6 +494,11 @@ async function buildDispatchPayload(
           jobs: [],
           zone: empZoneMap[e.id] ?? null,
           time_off: getTimeOff(e.id),
+          time_off_unit: getTimeOffUnit(e.id),
+          time_off_color: getTimeOffColor(e.id),
+          time_off_label: getTimeOffLabel(e.id),
+          time_off_start: getTimeOffBlock(e.id).start,
+          time_off_end: getTimeOffBlock(e.id).end,
           commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         })),
         unassigned_jobs: [],
@@ -449,6 +583,8 @@ async function buildDispatchPayload(
     // (residential|commercial) × (commission|hourly) combo.
     const techRows = await db.execute(sql`
       SELECT jt.job_id, jt.user_id, jt.is_primary, jt.pay_override, jt.final_pay,
+             jt.pay_type, jt.hourly_rate, jt.commission_pct,
+             jt.pay_deduction_pct, jt.pay_deduction_flat,
              u.first_name, u.last_name,
              u.residential_pay_type, u.residential_pay_rate,
              u.commercial_pay_type,  u.commercial_pay_rate
@@ -508,6 +644,14 @@ async function buildDispatchPayload(
       residential_pay_rate: number;
       commercial_pay_type: "commission" | "hourly";
       commercial_pay_rate: number;
+      // [tc-pay-sync 2026-07-01] Per-JOB pay override the office sets on the
+      // time clock (job_technicians). When present it drives actual pay via the
+      // shared engine, overriding the employee-matrix estimate below.
+      pay_type: string | null;
+      hourly_rate: string | null;
+      commission_pct: string | null;
+      pay_deduction_pct: string | null;
+      pay_deduction_flat: string | null;
     };
     const techByJob = new Map<number, TechRow[]>();
     for (const r of techRows.rows as any[]) {
@@ -522,8 +666,80 @@ async function buildDispatchPayload(
         residential_pay_rate: r.residential_pay_rate != null ? parseFloat(String(r.residential_pay_rate)) : 0.35,
         commercial_pay_type:  (r.commercial_pay_type  === "commission" ? "commission" : "hourly")  as "commission" | "hourly",
         commercial_pay_rate:  r.commercial_pay_rate  != null ? parseFloat(String(r.commercial_pay_rate))  : 20,
+        pay_type: r.pay_type ?? null,
+        hourly_rate: r.hourly_rate != null ? String(r.hourly_rate) : null,
+        commission_pct: r.commission_pct != null ? String(r.commission_pct) : null,
+        pay_deduction_pct: r.pay_deduction_pct != null ? String(r.pay_deduction_pct) : null,
+        pay_deduction_flat: r.pay_deduction_flat != null ? String(r.pay_deduction_flat) : null,
       });
     }
+
+    // [tc-pay-sync 2026-07-01] Reconcile the dispatch Commission tile with the
+    // TIME CLOCK / payroll. Historically dispatch computed each tech's pay from
+    // the employee pay-matrix (users.residential/commercial_pay_type+rate) — a
+    // SEPARATE model from what actually pays people (computePerTechCommissionRows,
+    // driven by the per-JOB override on job_technicians + actual clocked hours).
+    // So when the office set Jose=Fee Split 32% / Hilda=Hourly on the time clock,
+    // the dispatch card kept showing the stale matrix estimate ($60+$60=$120)
+    // instead of the real split ($76.80 + $60.01). We now run the SAME engine
+    // here and use its dollars for any job the office has actually touched —
+    // one that has real punches OR a per-tech pay-type override. Untouched jobs
+    // keep the existing matrix estimate, so this is a targeted correction with
+    // no blast radius on jobs nobody has configured yet.
+    const enginePayByKey = new Map<string, number>();   // "job_id:user_id" → $
+    const engineJobIds = new Set<number>();
+    try {
+      // Jobs with a per-tech pay-type override set on the time clock.
+      for (const r of techRows.rows as any[]) {
+        if (r.pay_type != null) engineJobIds.add(Number(r.job_id));
+      }
+      // Jobs with at least one REAL (punched) closed clock pair.
+      const punched = clockEntries.filter((e: any) => e.source === "punched" && e.clock_in_at && e.clock_out_at);
+      for (const e of punched) engineJobIds.add(Number(e.job_id));
+
+      if (engineJobIds.size > 0) {
+        const techHoursByKey = unionHoursByKey(punched as any);
+        // Per-service fee-split % (mirrors the time-clock/payroll path).
+        const serviceTypePctBySlug = new Map<string, number>();
+        try {
+          const svc = await db.execute(sql`SELECT slug, commission_pct FROM service_types WHERE company_id = ${companyId} AND commission_pct IS NOT NULL`);
+          for (const s of svc.rows as any[]) { const p = parseFloat(String(s.commission_pct)); if (Number.isFinite(p)) serviceTypePctBySlug.set(String(s.slug).toLowerCase(), p); }
+        } catch { /* per-service column absent */ }
+        let commercialCompMode: "allowed_hours" | "actual_hours" = "allowed_hours";
+        try {
+          const cm = await db.execute(sql`SELECT commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+          if ((cm.rows[0] as any)?.commercial_comp_mode === "actual_hours") commercialCompMode = "actual_hours";
+        } catch { /* column absent — keep allowed_hours */ }
+        const commercial = { commercial_hourly_rate: commercialHourlyRate, commercial_comp_mode: commercialCompMode };
+
+        const jobsForCalc = jobs
+          .filter((j: any) => engineJobIds.has(Number(j.id)))
+          .map((j: any) => ({
+            id: Number(j.id),
+            assigned_user_id: j.assigned_user_id != null ? Number(j.assigned_user_id) : null,
+            service_type: j.service_type ?? null,
+            account_id: j.account_id ?? null,
+            base_fee: j.base_fee ?? null,
+            billed_amount: j.billed_amount ?? null,
+            commission_base: j.commission_base ?? null,
+            allowed_hours: j.allowed_hours ?? null,
+            actual_hours: null,
+            branch_id: j.branch_id ?? null,
+            scheduled_date: j.scheduled_date ?? date,
+            client_type: (j as any).client_type ?? null,
+          }));
+        const jobTechsForCalc: JobTechRow[] = (techRows.rows as any[])
+          .filter((t: any) => engineJobIds.has(Number(t.job_id)))
+          .map((t: any) => ({
+            job_id: Number(t.job_id), user_id: Number(t.user_id), is_primary: t.is_primary === true,
+            pay_type: t.pay_type ?? null, hourly_rate: t.hourly_rate ?? null, commission_pct: t.commission_pct ?? null,
+            pay_deduction_pct: t.pay_deduction_pct ?? null, pay_deduction_flat: t.pay_deduction_flat ?? null,
+          }));
+        for (const r of computePerTechCommissionRows({ jobs: jobsForCalc, jobTechs: jobTechsForCalc, techHoursByKey, serviceTypePctBySlug, resRates, commercial })) {
+          enginePayByKey.set(`${r.job_id}:${r.user_id}`, r.amount);
+        }
+      }
+    } catch (e) { console.error("[dispatch] tc-pay-sync engine error:", e); /* fall back to matrix estimate */ }
 
     // [job-card-redesign] Add-ons per job — drives the "+N" pill on the
     // dispatch chip and the full add-on list in the hover popover. Names
@@ -534,13 +750,17 @@ async function buildDispatchPayload(
     // into a delta without re-multiplying.
     const addOnRows = await db.execute(sql`
       SELECT jao.job_id, jao.quantity, jao.unit_price, jao.subtotal,
+             jao.pricing_addon_id, jao.add_on_id,
              COALESCE(pa.name, ao.name) AS name
         FROM job_add_ons jao
         LEFT JOIN add_ons ao ON ao.id = jao.add_on_id
         LEFT JOIN pricing_addons pa ON pa.id = jao.pricing_addon_id
        WHERE jao.job_id = ANY(ARRAY[${sql.raw(idList)}]::int[])
     `);
-    const addOnsByJob = new Map<number, Array<{ name: string; quantity: number; unit_price: number; subtotal: number }>>();
+    // [job-card-redesign 2026-06-25] Carry pricing_addon_id + add_on_id so the
+    // card's inline pricing editor can persist edits/removals via the same
+    // PATCH /api/jobs/:id { base_fee, add_ons } the edit-modal uses.
+    const addOnsByJob = new Map<number, Array<{ name: string; quantity: number; unit_price: number; subtotal: number; pricing_addon_id: number | null; add_on_id: number | null }>>();
     for (const r of addOnRows.rows as any[]) {
       if (!addOnsByJob.has(r.job_id)) addOnsByJob.set(r.job_id, []);
       addOnsByJob.get(r.job_id)!.push({
@@ -548,6 +768,8 @@ async function buildDispatchPayload(
         quantity: r.quantity != null ? parseFloat(String(r.quantity)) : 1,
         unit_price: r.unit_price != null ? parseFloat(String(r.unit_price)) : 0,
         subtotal: r.subtotal != null ? parseFloat(String(r.subtotal)) : 0,
+        pricing_addon_id: r.pricing_addon_id != null ? Number(r.pricing_addon_id) : null,
+        add_on_id: r.add_on_id != null ? Number(r.add_on_id) : null,
       });
     }
 
@@ -577,6 +799,22 @@ async function buildDispatchPayload(
       for (const r of modRows.rows as any[]) {
         rateModSumByJob.set(Number(r.job_id), parseFloat(String(r.total ?? "0")));
         flatModSumByJob.set(Number(r.job_id), parseFloat(String(r.flat_total ?? "0")));
+      }
+    }
+
+    // [discount-net 2026-07-02] Per-job discount total (job_discounts.amount).
+    // The invoice subtracts these; the dispatch card total must too, so the card
+    // MIRRORS the invoice. Loaded once (same pattern as the rate-mod sum above).
+    const discountSumByJob = new Map<number, number>();
+    if (idList.length > 0) {
+      const discRows = await db.execute(sql`
+        SELECT job_id, COALESCE(SUM(amount), 0)::numeric AS total
+          FROM job_discounts
+         WHERE job_id = ANY(ARRAY[${sql.raw(idList)}]::int[])
+         GROUP BY job_id
+      `);
+      for (const r of discRows.rows as any[]) {
+        discountSumByJob.set(Number(r.job_id), parseFloat(String(r.total ?? "0")));
       }
     }
 
@@ -678,13 +916,42 @@ async function buildDispatchPayload(
       // Commercial routing is unchanged.
       const tierResPct = resolveResidentialPayPct(j.service_type as any, resRates);
       const tierApplies = !isCommercialPay && tierResPct !== resRates.res_tech_pay_pct;
+      // [tc-pay-sync 2026-07-01] When the office has touched this job (real
+      // punches or a per-tech pay-type override), its dollars come from the
+      // shared engine above so the card matches the time clock / payroll to the
+      // penny. We still surface pay_type/pay_rate for the "Fee Split 32%" /
+      // "Hourly $20/hr" sub-label — resolved from the per-job override, then the
+      // job default (commercial → hourly $/hr; residential → the scope %).
+      const useEngine = engineJobIds.has(j.id);
       const technicians = jobTechs.map(t => {
-        const payType = isCommercialPay ? t.commercial_pay_type : t.residential_pay_type;
+        const matrixPayType = isCommercialPay ? t.commercial_pay_type : t.residential_pay_type;
         const matrixRate = isCommercialPay ? t.commercial_pay_rate : t.residential_pay_rate;
-        const payRate = (tierApplies && payType === "commission") ? tierResPct : matrixRate;
-        const calcPay = payType === "hourly"
-          ? Math.round(estHoursPerTech * payRate * 100) / 100
-          : Math.round(revenueSharePerTech * payRate * 100) / 100;
+        const matrixPayRate = (tierApplies && matrixPayType === "commission") ? tierResPct : matrixRate;
+        const matrixCalc = matrixPayType === "hourly"
+          ? Math.round(estHoursPerTech * matrixPayRate * 100) / 100
+          : Math.round(revenueSharePerTech * matrixPayRate * 100) / 100;
+
+        // Effective per-tech pay type/rate for the label + calc source.
+        let payType: "commission" | "hourly" = matrixPayType;
+        let payRate = matrixPayRate;
+        let calcPay = matrixCalc;
+        if (useEngine) {
+          // Engine dollars (actual, honors overrides + clocked hours).
+          calcPay = Math.round((enginePayByKey.get(`${j.id}:${t.user_id}`) ?? 0) * 100) / 100;
+          const ov = t.pay_type;   // per-job override, or null → job default
+          if (ov === "fee_split") {
+            payType = "commission";
+            payRate = t.commission_pct != null ? parseFloat(t.commission_pct) : tierResPct;
+          } else if (ov === "hourly" || ov === "allowed_hours") {
+            payType = "hourly";
+            payRate = t.hourly_rate != null ? parseFloat(t.hourly_rate)
+              : (isCommercialPay ? commercialHourlyRate : matrixPayRate);
+          } else {
+            // No explicit override — the job default the engine applied.
+            payType = isCommercialPay ? "hourly" : "commission";
+            payRate = isCommercialPay ? commercialHourlyRate : tierResPct;
+          }
+        }
         return {
           user_id: t.user_id,
           name: t.name,
@@ -693,9 +960,9 @@ async function buildDispatchPayload(
           calc_pay: calcPay,
           final_pay: t.final_pay != null ? t.final_pay : (t.pay_override != null ? t.pay_override : calcPay),
           pay_override: t.pay_override,
-          // Surface the matrix cell that drove this tech's calc so
-          // the JobPanel can render "Hourly $20/hr × 6h" vs
-          // "Commission 35% of $160 share" without re-deriving.
+          // Surface the cell that drove this tech's calc so the JobPanel can
+          // render "Hourly $20/hr × 6h" vs "Commission 35% of $160 share"
+          // without re-deriving.
           pay_type: payType,
           pay_rate: payRate,
         };
@@ -776,6 +1043,8 @@ async function buildDispatchPayload(
         job_kind: (j as any).job_kind ?? "cleaning",
         scheduled_date: j.scheduled_date,
         scheduled_time: j.scheduled_time,
+        time_change_pending: (j as any).time_change_pending ?? false,
+        time_change_from: (j as any).time_change_from ?? null,
         frequency: j.frequency,
         // [BUG-6 follow-up / 2026-06-02] Compute amount LIVE from the three
         // sources of truth: base_fee + SUM(rate_mods) + SUM(add_on subtotals).
@@ -791,6 +1060,13 @@ async function buildDispatchPayload(
         // dispatch had explicitly persisted — but dispatch is a
         // read-only view, so persisted preview was never the intent.
         amount: (() => {
+          // [discount-net 2026-07-02] Compute the GROSS total (unchanged logic
+          // below), then subtract job_discounts so the displayed total mirrors
+          // the invoice. Commission is computed separately off gross
+          // billed_amount, so the office still absorbs the discount by default —
+          // only this customer-facing number nets it.
+          const discount = discountSumByJob.get(j.id) ?? 0;
+          const gross = (() => {
           const mods = rateModSumByJob.get(j.id) ?? 0;
           const addOns = (addOnsByJob.get(j.id) ?? []).reduce((s, a) => s + (a.subtotal ?? 0), 0);
           const override = (j as any).manual_rate_override === true;
@@ -841,6 +1117,9 @@ async function buildDispatchPayload(
           if (billed != null && billed > 0) return billed;
           const base = j.base_fee ? parseFloat(j.base_fee) : 0;
           return base + mods;
+          })();
+          const net = Math.round((gross - discount) * 100) / 100;
+          return net > 0 ? net : 0;
         })(),
         duration_minutes: durationMinutes,
         notes: j.notes,
@@ -885,6 +1164,7 @@ async function buildDispatchPayload(
         charge_succeeded_at: j.charge_succeeded_at ?? null,
         property_address: displayAddress,
         property_access_notes: j.property_access_notes ?? null,
+        property_notes: (j as any).property_notes ?? null,
         office_notes: j.office_notes ?? null,
         office_notes_updated_at: (j as any).office_notes_updated_at ?? null,
         office_notes_updated_by_name: (j as any).office_notes_updated_by != null ? (userNameById.get((j as any).office_notes_updated_by) || null) : null,
@@ -918,7 +1198,12 @@ async function buildDispatchPayload(
         // [tiered-residential] Returns the rate that applies to THIS job
         // (32% for deep clean / move in-out, else 35%). Frontend renders
         // "Pool rate: X% of job total" — was always 35% before tiering.
-        company_res_pct: tierResPct,
+        company_res_pct: (j as any).commission_override_pct != null
+          ? parseFloat(String((j as any).commission_override_pct))
+          : tierResPct,
+        commission_override_pct: (j as any).commission_override_pct != null
+          ? parseFloat(String((j as any).commission_override_pct))
+          : null,
         // [pay-matrix 2026-04-29] commission_basis now reflects the
         // primary tech's matrix cell, not a hardcoded company-wide
         // value. Surfaces that need richer per-tech data should read
@@ -935,6 +1220,14 @@ async function buildDispatchPayload(
         is_new_client: !isCommercialPay && j.client_id != null
           ? !clientsWithPriorComplete.has(j.client_id)
           : false,
+        // [job-card-invoice-link 2026-07-07] The SELECT has computed these
+        // since 2026-06-27, but this shaper never carried them through — so
+        // job.invoice_id was ALWAYS undefined on the board and every
+        // completed job showed "No invoice yet" regardless of reality
+        // (Maribel: "jobs with invoices still say 'no invoice yet'").
+        invoice_id: (j as any).invoice_id != null ? Number((j as any).invoice_id) : null,
+        invoice_status: (j as any).invoice_status ?? null,
+        invoice_total: (j as any).invoice_total != null ? parseFloat(String((j as any).invoice_total)) : null,
       };
     });
 
@@ -1050,6 +1343,11 @@ async function buildDispatchPayload(
         jobs: jobsByEmployee.get(e.id) || [],
         zone: empZoneMap[e.id] ?? null,
         time_off: getTimeOff(e.id),
+        time_off_unit: getTimeOffUnit(e.id),
+        time_off_color: getTimeOffColor(e.id),
+        time_off_label: getTimeOffLabel(e.id),
+        time_off_start: getTimeOffBlock(e.id).start,
+        time_off_end: getTimeOffBlock(e.id).end,
         commission_rate: e.commission_rate ? parseFloat(e.commission_rate) : null,
         avatar_url: e.avatar_url ?? null,
       })),
@@ -1066,6 +1364,37 @@ router.get("/", requireAuth, dispatchOfficeGate, async (req, res) => {
   } catch (err) {
     console.error("Dispatch error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to load dispatch" });
+  }
+});
+
+// [job-card-redesign 2026-06-25] GET /api/dispatch/jobs/:id — one job in the
+// FULL dispatch shape (technicians, commission_basis, zone_color, allowed_hours,
+// add-ons, …) so the same editable JobPanel the dispatch board uses can be
+// rendered from the customer profile. Reuses buildDispatchPayload for the job's
+// own date and plucks the job out — no query duplication, identical shape.
+router.get("/jobs/:id", requireAuth, dispatchOfficeGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const jobId = parseInt(req.params.id, 10);
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: "Invalid job id" });
+    const row = (await db.execute(sql`
+      SELECT to_char(scheduled_date, 'YYYY-MM-DD') AS d
+      FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
+    `)).rows[0] as { d: string } | undefined;
+    if (!row?.d) return res.status(404).json({ error: "Job not found" });
+    const payload = await buildDispatchPayload(companyId, row.d, undefined);
+    let job: any = (payload.unassigned_jobs || []).find((j: any) => j.id === jobId);
+    if (!job) {
+      for (const e of (payload.employees || [])) {
+        const f = (e.jobs || []).find((j: any) => j.id === jobId);
+        if (f) { job = f; break; }
+      }
+    }
+    if (!job) return res.status(404).json({ error: "Job not visible on the dispatch board (e.g. a charged cancellation)" });
+    return res.json({ data: job });
+  } catch (err) {
+    console.error("Dispatch single-job error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to load job" });
   }
 });
 

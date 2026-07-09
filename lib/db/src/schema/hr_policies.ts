@@ -86,6 +86,17 @@ export const companyAttendancePolicyTable = pgTable("company_attendance_policy",
   // { threshold_hours, window_days, discipline_type, label, notify }.
   // Empty array = ladder disabled.
   unexcused_hours_steps: jsonb("unexcused_hours_steps").$type<any[]>().default([]),
+  // ── Occurrence-based disciplinary ladders (PHES, Sal 2026-06-24) ──
+  // The PHES handbook/LMS ladder is OCCURRENCE-based per Benefit Year (work
+  // anniversary), NOT cumulative hours: count INCIDENTS. Two independent
+  // counters — one for unexcused absences, one for tardies. Each step is
+  // { occurrence, discipline_type, label, notify }. When configured, the
+  // ladder writer drives discipline off these (per benefit year) instead of
+  // unexcused_hours_steps. Empty array = occurrence ladder disabled (falls
+  // back to the legacy hours ladder). PHES: 3rd → written, 4th → final,
+  // 5th → termination, for both counters.
+  unexcused_occurrence_steps: jsonb("unexcused_occurrence_steps").$type<any[]>().default([]),
+  tardy_occurrence_steps: jsonb("tardy_occurrence_steps").$type<any[]>().default([]),
 
   ncns_policy_enabled: boolean("ncns_policy_enabled").default(false),
   ncns_may_terminate_immediately: boolean("ncns_may_terminate_immediately").default(false),

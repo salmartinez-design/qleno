@@ -1,13 +1,15 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
+import { formatInvoiceNumber } from "@/lib/invoice-number";
 import { useBranch } from "@/contexts/branch-context";
 import { Plus, Search, Send, Download, Layers, X, Check, CheckSquare, Square, AlertCircle, Calendar, ChevronDown, DollarSign, RotateCcw, ChevronUp } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { CloseDayModal } from "@/components/close-day-modal";
+import { CalendarPopover } from "@/components/calendar-popover";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -32,6 +34,25 @@ const STATUS_STYLES: Record<string, React.CSSProperties> = {
 
 const LABEL_STYLE: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6, fontFamily: FF };
 const INPUT_STYLE: React.CSSProperties = { width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: FF, color: "#1A1917" };
+
+// [invoice-row-links 2026-07-07] Block-level anchor filling a table cell so the
+// BROWSER treats the whole cell as a link: right-click anywhere on the row →
+// "Open Link in New Tab" (Maribel: "right click and open it in another tab…
+// this way is too slow"). #886 made only the invoice-number cell a real <a>;
+// now every data cell is one (checkbox + action-button cells stay plain).
+// Plain click still does fast client-side nav; cmd/ctrl/shift-click falls
+// through to the browser's native new-tab/new-window behavior.
+function InvoiceCellLink({ invId, navigate, style, children }: {
+  invId: number; navigate: (p: string) => void; style?: React.CSSProperties; children: React.ReactNode;
+}) {
+  return (
+    <a href={`/invoices/${invId}`}
+      onClick={e => { e.stopPropagation(); if (e.metaKey || e.ctrlKey || e.shiftKey) return; e.preventDefault(); navigate(`/invoices/${invId}`); }}
+      style={{ display: "block", padding: "13px 18px", color: "inherit", textDecoration: "none", ...style }}>
+      {children}
+    </a>
+  );
+}
 
 function NewInvoiceModal({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { toast } = useToast();
@@ -202,15 +223,267 @@ function NewInvoiceModal({ onClose, onDone }: { onClose: () => void; onDone: () 
   );
 }
 
+// [pay-method 2026-06-26] One-tap "Mark Paid" with the payment method, for the
+// list view — so office records check / ACH / Zelle / cash without opening each
+// invoice. Posts { method } to /mark-paid (amount + date default server-side).
+const PAY_METHODS: { value: string; label: string }[] = [
+  { value: "square", label: "Square (card on file)" },
+  { value: "stripe", label: "Stripe (online card)" },
+  { value: "check", label: "Check" },
+  { value: "ach", label: "ACH / Bank transfer" },
+  { value: "zelle", label: "Zelle" },
+  { value: "cash", label: "Cash" },
+  { value: "venmo", label: "Venmo" },
+  { value: "other", label: "Other" },
+];
+function MarkPaidMethodModal({ invoice, busy, onPick, onClose }: { invoice: any; busy: boolean; onPick: (method: string) => void; onClose: () => void }) {
+  return (
+    <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ backgroundColor: "#FFFFFF", borderRadius: 16, boxShadow: "0 8px 40px rgba(0,0,0,0.12)", width: "100%", maxWidth: 360, padding: 24, fontFamily: FF }}>
+        <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Mark paid — how did they pay?</h3>
+        <p style={{ margin: "0 0 16px", fontSize: 12, color: "#6B7280" }}>
+          {invoice.invoice_number ? `#${invoice.invoice_number} · ` : ""}${parseFloat(invoice.total || "0").toFixed(2)}{invoice.client_name ? ` · ${invoice.client_name}` : ""}
+        </p>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+          {PAY_METHODS.map(m => (
+            <button key={m.value} disabled={busy} onClick={() => onPick(m.value)}
+              style={{ padding: "12px 10px", border: "1px solid #E5E2DC", borderRadius: 10, backgroundColor: "#FFFFFF", color: "#1A1917", fontSize: 13, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        <button onClick={onClose} style={{ width: "100%", marginTop: 14, background: "none", border: "none", color: "#9E9B94", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+      </div>
+    </div>
+  );
+}
+
+// [weekly-cadence 2026-06-26] On-demand consolidated invoicing. Lists
+// batch_invoice clients' pending per-visit drafts for a billing window (weekly
+// Sun–Sat or monthly), keyed on SERVICE DATE, and folds a client's window into
+// one invoice via POST /api/batch-invoicing/:clientId/consolidate. Office stays
+// in control — nothing generates automatically.
+function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [cadence, setCadence] = useState<"weekly" | "monthly">("weekly");
+  // Anchor any date inside the target window; default = today.
+  const [anchor, setAnchor] = useState(() => new Date().toISOString().slice(0, 10));
+  const [expanded, setExpanded] = useState<Set<number>>(new Set());
+  const [excluded, setExcluded] = useState<Set<number>>(new Set()); // invoice ids to leave out
+  const [busyClient, setBusyClient] = useState<number | null>(null);
+  // Preview step: the client being previewed before consolidation fires
+  const [previewClient, setPreviewClient] = useState<any | null>(null);
+
+  const { data, isLoading, refetch } = useQuery({
+    queryKey: ["weekly-invoicing", cadence, anchor],
+    queryFn: () => apiFetch(`/api/batch-invoicing?cadence=${cadence}&date=${anchor}`),
+  });
+  const clients: any[] = data?.clients || [];
+
+  function shiftWindow(deltaDays: number) {
+    const d = new Date(`${anchor}T00:00:00.000Z`);
+    d.setUTCDate(d.getUTCDate() + deltaDays);
+    setAnchor(d.toISOString().slice(0, 10));
+  }
+  const fmtRange = (a?: string, b?: string) => {
+    if (!a || !b) return "";
+    const f = (s: string) => new Date(`${s}T00:00:00.000Z`).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+    return `${f(a)} – ${f(b)}`;
+  };
+
+  async function consolidate(clientId: number) {
+    setBusyClient(clientId);
+    try {
+      const excludeForClient = (clients.find(c => c.client_id === clientId)?.visits || [])
+        .filter((v: any) => excluded.has(v.invoice_id)).map((v: any) => v.invoice_id);
+      const r = await apiFetch(`/api/batch-invoicing/${clientId}/consolidate`, {
+        method: "POST",
+        body: JSON.stringify({ cadence, date: anchor, exclude_invoice_ids: excludeForClient }),
+      });
+      toast({ title: "Weekly invoice created", description: `${r.visit_count} visit${r.visit_count !== 1 ? "s" : ""} · $${(r.parent_total || 0).toFixed(2)} · #${r.parent_invoice_id}` });
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      refetch();
+      onDone();
+    } catch (err: any) {
+      let msg = err?.message || "Failed";
+      try { msg = JSON.parse(msg).message || msg; } catch {}
+      toast({ title: "Could not consolidate", description: msg, variant: "destructive" });
+    } finally {
+      setBusyClient(null);
+    }
+  }
+
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 1000 }} onClick={onClose} />
+      <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "100%", maxWidth: 560, backgroundColor: "#FFFFFF", zIndex: 1001, display: "flex", flexDirection: "column", boxShadow: "-4px 0 24px rgba(0,0,0,0.12)", fontFamily: FF }}>
+        <div style={{ padding: "20px 24px", borderBottom: "1px solid #EEECE7", flexShrink: 0 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>Weekly Invoicing</h2>
+              <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B7280" }}>Combine a client's visits into one invoice</p>
+            </div>
+            <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={20} /></button>
+          </div>
+          {/* cadence + window nav */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 14 }}>
+            <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
+              {(["weekly", "monthly"] as const).map(c => (
+                <button key={c} onClick={() => setCadence(c)}
+                  style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", fontFamily: FF, textTransform: "capitalize", backgroundColor: cadence === c ? "var(--brand)" : "#FFFFFF", color: cadence === c ? "#FFFFFF" : "#6B7280" }}>{c}</button>
+              ))}
+            </div>
+            <div style={{ flex: 1 }} />
+            <button onClick={() => shiftWindow(cadence === "weekly" ? -7 : -31)} style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontFamily: FF }}>‹</button>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", minWidth: 120, textAlign: "center" }}>{fmtRange(data?.period_start, data?.period_end)}</span>
+            <button onClick={() => shiftWindow(cadence === "weekly" ? 7 : 31)} style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontFamily: FF }}>›</button>
+          </div>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "8px 0" }}>
+          {isLoading ? (
+            <div style={{ textAlign: "center", color: "#9E9B94", padding: 40 }}>Loading…</div>
+          ) : clients.length === 0 ? (
+            <div style={{ textAlign: "center", padding: 48 }}>
+              <AlertCircle size={36} style={{ color: "#C4C0BB", marginBottom: 12 }} />
+              <p style={{ fontSize: 14, fontWeight: 600, color: "#6B7280", margin: "0 0 4px" }}>No visits to invoice this {cadence === "weekly" ? "week" : "month"}</p>
+              <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>Only consolidated-billing clients with pending visits appear here.</p>
+            </div>
+          ) : (
+            clients.map((c: any) => {
+              const isOpen = expanded.has(c.client_id);
+              const incl = (c.visits || []).filter((v: any) => !excluded.has(v.invoice_id));
+              const inclTotal = incl.reduce((s: number, v: any) => s + (v.total || 0), 0);
+              return (
+                <div key={c.client_id} style={{ borderBottom: "1px solid #F0EDE8", padding: "14px 24px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <button onClick={() => setExpanded(p => { const n = new Set(p); n.has(c.client_id) ? n.delete(c.client_id) : n.add(c.client_id); return n; })}
+                      style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
+                      {isOpen ? <ChevronUp size={16} color="#9E9B94" /> : <ChevronDown size={16} color="#9E9B94" />}
+                    </button>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.client_name || `Client #${c.client_id}`}</p>
+                      <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>{incl.length} visit{incl.length !== 1 ? "s" : ""}{excluded.size ? ` · ${(c.visits || []).length - incl.length} excluded` : ""}</p>
+                    </div>
+                    <span style={{ fontSize: 15, fontWeight: 800, color: "#1A1917" }}>${inclTotal.toFixed(2)}</span>
+                    <button onClick={() => incl.length > 0 && setPreviewClient({ ...c, inclVisits: incl, inclTotal })}
+                      disabled={busyClient === c.client_id || incl.length === 0}
+                      style={{ backgroundColor: incl.length === 0 ? "#C4C0BB" : "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: incl.length === 0 ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                      {busyClient === c.client_id ? "Working…" : "Preview invoice"}
+                    </button>
+                  </div>
+                  {isOpen && (
+                    <div style={{ marginTop: 10, marginLeft: 28, borderLeft: "2px solid #F0EDE8", paddingLeft: 14 }}>
+                      {(c.visits || []).map((v: any) => {
+                        const isExcl = excluded.has(v.invoice_id);
+                        return (
+                          <div key={v.invoice_id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 0", opacity: isExcl ? 0.45 : 1 }}>
+                            <button onClick={() => setExcluded(p => { const n = new Set(p); n.has(v.invoice_id) ? n.delete(v.invoice_id) : n.add(v.invoice_id); return n; })}
+                              title={isExcl ? "Include this visit" : "Exclude this visit"}
+                              style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: isExcl ? "#C4C0BB" : "var(--brand)", display: "flex" }}>
+                              {isExcl ? <Square size={15} /> : <CheckSquare size={15} />}
+                            </button>
+                            <span style={{ flex: 1, fontSize: 12, color: "#6B7280" }}>{v.service_label || v.service_date}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", textDecoration: isExcl ? "line-through" : "none" }}>${(v.total || 0).toFixed(2)}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div style={{ padding: "14px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, backgroundColor: "#FAFAF9" }}>
+          <p style={{ margin: 0, fontSize: 11, color: "#9E9B94" }}>One invoice per client, one line per visit (service date), due on receipt. Pushes a single document to QuickBooks.</p>
+        </div>
+
+        {/* Preview slide — full-height panel that covers the list when a client is selected */}
+        {previewClient && (() => {
+          const pc = previewClient;
+          const periodLabel = fmtRange(data?.period_start, data?.period_end);
+          return (
+            <div style={{ position: "absolute", inset: 0, backgroundColor: "#FFFFFF", display: "flex", flexDirection: "column", zIndex: 10 }}>
+              {/* Header */}
+              <div style={{ padding: "20px 24px", borderBottom: "1px solid #EEECE7", flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
+                <button onClick={() => setPreviewClient(null)}
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7280", padding: 0, display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontFamily: FF }}>
+                  ‹ Back
+                </button>
+                <div style={{ flex: 1 }}>
+                  <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1917" }}>Invoice Preview</h2>
+                  <p style={{ margin: "2px 0 0", fontSize: 12, color: "#9E9B94" }}>Review before creating</p>
+                </div>
+                <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={20} /></button>
+              </div>
+
+              {/* Invoice mock */}
+              <div style={{ flex: 1, overflowY: "auto", padding: 24 }}>
+                {/* Client + period */}
+                <div style={{ marginBottom: 20 }}>
+                  <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>{pc.client_name || `Client #${pc.client_id}`}</p>
+                  {periodLabel && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6B7280" }}>Period: {periodLabel}</p>}
+                  <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9E9B94" }}>Due on receipt · {cadence === "weekly" ? "Weekly" : "Monthly"} invoice</p>
+                </div>
+
+                {/* Line items */}
+                <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", marginBottom: 20 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 0, backgroundColor: "#F7F6F3", padding: "10px 16px", borderBottom: "1px solid #E5E2DC" }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em" }}>Description</span>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right" }}>Amount</span>
+                  </div>
+                  {(pc.inclVisits || []).map((v: any, i: number) => (
+                    <div key={v.invoice_id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 0, padding: "12px 16px", borderBottom: i < pc.inclVisits.length - 1 ? "1px solid #F0EDE8" : "none" }}>
+                      <div>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{v.service_label || v.service_date}</p>
+                        {v.service_type && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#9E9B94" }}>{(v.service_type || "").replace(/_/g, " ")}</p>}
+                      </div>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", alignSelf: "center" }}>${(v.total || 0).toFixed(2)}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr auto", padding: "12px 16px", backgroundColor: "#F7F6F3", borderTop: "2px solid #E5E2DC" }}>
+                    <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>Total</span>
+                    <span style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>${(pc.inclTotal || 0).toFixed(2)}</span>
+                  </div>
+                </div>
+
+                <p style={{ fontSize: 12, color: "#9E9B94", margin: 0, lineHeight: 1.5 }}>
+                  This will create one consolidated invoice. Individual visit records will be marked superseded.
+                  You can then send or charge from the invoice detail page.
+                </p>
+              </div>
+
+              {/* Footer actions */}
+              <div style={{ padding: "16px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
+                <button
+                  onClick={async () => { await consolidate(pc.client_id); setPreviewClient(null); }}
+                  disabled={busyClient === pc.client_id}
+                  style={{ width: "100%", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "13px", fontSize: 14, fontWeight: 800, cursor: "pointer", fontFamily: FF }}>
+                  {busyClient === pc.client_id ? "Creating…" : `Create Invoice · $${(pc.inclTotal || 0).toFixed(2)}`}
+                </button>
+                <button onClick={() => setPreviewClient(null)}
+                  style={{ width: "100%", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#9E9B94", padding: "6px 0", fontFamily: FF }}>
+                  Go back and adjust
+                </button>
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+    </>
+  );
+}
+
 function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: () => void }) {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [autoSend, setAutoSend] = useState(false);
-  const [autoCharge, setAutoCharge] = useState(false);
   const [search, setSearch] = useState("");
   const [progress, setProgress] = useState<{ done: number; total: number; current: string; errors: number } | null>(null);
-  const [summary, setSummary] = useState<{ created: number; sent: number; charged: number; errors: number } | null>(null);
+  const [summary, setSummary] = useState<{ created: number; errors: number; invoices: { id: number; clientName: string; amount: number }[] } | null>(null);
 
   const { data: rawJobs = [], isLoading } = useQuery({
     queryKey: ["uninvoiced-jobs"],
@@ -244,36 +517,28 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
   async function handleGenerate() {
     const ids = Array.from(selected);
     if (ids.length === 0) return;
-    let created = 0; let sent = 0; let charged = 0; let errors = 0;
+    let created = 0; let errors = 0;
+    const invoices: { id: number; clientName: string; amount: number }[] = [];
     setProgress({ done: 0, total: ids.length, current: "", errors: 0 });
 
     for (const jobId of ids) {
       const job = allJobs.find((j: any) => j.id === jobId);
       setProgress(p => p ? { ...p, current: job?.client_name || `Job #${jobId}` } : null);
       try {
-        await apiFetch("/api/invoices", {
+        // Always create as draft so the office can review each invoice before sending.
+        const inv = await apiFetch("/api/invoices", {
           method: "POST",
-          body: JSON.stringify({ job_id: jobId, auto_send: autoSend, auto_charge: autoCharge }),
+          body: JSON.stringify({ job_id: jobId, auto_send: false, auto_charge: false }),
         });
+        invoices.push({ id: inv.id, clientName: job?.client_name || `Job #${jobId}`, amount: parseFloat(job?.base_fee || "0") });
         created++;
-        if (autoSend) sent++;
-        if (autoCharge) charged++;
       } catch { errors++; }
       setProgress(p => p ? { ...p, done: created + errors, errors } : null);
     }
-    setSummary({ created, sent, charged, errors });
+    setSummary({ created, errors, invoices });
     qc.invalidateQueries({ queryKey: ["invoices"] });
     qc.invalidateQueries({ queryKey: ["uninvoiced-jobs"] });
-    if (errors === 0) toast({ title: `${created} invoice${created !== 1 ? "s" : ""} created successfully` });
   }
-
-  const TOGGLE_ROW: React.CSSProperties = {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: "12px 0",
-    borderBottom: "1px solid #F0EDE8",
-  };
 
   return (
     <>
@@ -297,29 +562,40 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
 
         <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
           {summary ? (
-            <div style={{ padding: 32, display: "flex", flexDirection: "column", alignItems: "center", gap: 20, flex: 1 }}>
-              <div style={{ width: 64, height: 64, backgroundColor: "#D1FAE5", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Check size={30} style={{ color: "#16A34A" }} />
+            <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: 20, flex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                <div style={{ width: 48, height: 48, backgroundColor: "#D1FAE5", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <Check size={24} style={{ color: "#16A34A" }} />
+                </div>
+                <div>
+                  <h3 style={{ margin: "0 0 2px", fontSize: 17, fontWeight: 800, color: "#1A1917" }}>
+                    {summary.created} draft invoice{summary.created !== 1 ? "s" : ""} created
+                  </h3>
+                  <p style={{ margin: 0, fontSize: 12, color: "#6B7280" }}>
+                    Review each one, then send or charge from the invoice page.
+                    {summary.errors > 0 && <span style={{ color: "#DC2626" }}> {summary.errors} failed.</span>}
+                  </p>
+                </div>
               </div>
-              <div style={{ textAlign: "center" }}>
-                <h3 style={{ margin: "0 0 4px", fontSize: 20, fontWeight: 800, color: "#1A1917" }}>Batch Complete</h3>
-                <p style={{ margin: 0, fontSize: 13, color: "#6B7280" }}>All invoices have been processed</p>
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, width: "100%" }}>
-                {[
-                  { label: "Invoices Created", value: summary.created, color: "#1A1917", bg: "#F0F7FF" },
-                  ...(autoSend ? [{ label: "Emails Sent", value: summary.sent, color: "#1D4ED8", bg: "#DBEAFE" }] : []),
-                  ...(autoCharge ? [{ label: "Payments Collected", value: summary.charged, color: "#16A34A", bg: "#DCFCE7" }] : []),
-                  ...(summary.errors > 0 ? [{ label: "Failed / Skipped", value: summary.errors, color: "#DC2626", bg: "#FEE2E2" }] : []),
-                ].map(s => (
-                  <div key={s.label} style={{ backgroundColor: s.bg, borderRadius: 10, padding: "18px 16px", textAlign: "center" }}>
-                    <div style={{ fontSize: 32, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: s.color, opacity: 0.7, textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 6 }}>{s.label}</div>
+
+              {/* Invoice list with View links */}
+              <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", flex: 1, overflowY: "auto" }}>
+                {summary.invoices.map((inv, i) => (
+                  <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderBottom: i < summary.invoices.length - 1 ? "1px solid #F0EDE8" : "none" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.clientName}</p>
+                      <p style={{ margin: "2px 0 0", fontSize: 11, color: "#9E9B94" }}>Draft · ${inv.amount.toFixed(2)}</p>
+                    </div>
+                    <a href={`/invoices/${inv.id}`}
+                      style={{ fontSize: 12, fontWeight: 700, color: "var(--brand)", textDecoration: "none", whiteSpace: "nowrap", padding: "5px 10px", border: "1px solid #D1FAE5", borderRadius: 6, backgroundColor: "#ECFDF5" }}>
+                      Review →
+                    </a>
                   </div>
                 ))}
               </div>
+
               <button onClick={() => { onDone(); onClose(); }}
-                style={{ width: "100%", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: "auto" }}>
+                style={{ width: "100%", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 700, cursor: "pointer", flexShrink: 0 }}>
                 Done
               </button>
             </div>
@@ -403,35 +679,7 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
 
         {!progress && !summary && (
           <div style={{ padding: "16px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, backgroundColor: "#FAFAF9" }}>
-            <div style={TOGGLE_ROW}>
-              <div>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>Auto-Send</p>
-                <p style={{ margin: "2px 0 0", fontSize: 11, color: autoSend ? "#1D4ED8" : "#9E9B94" }}>
-                  {autoSend ? "Invoice will be sent via email using your Resend account" : "Email invoice to client automatically"}
-                </p>
-              </div>
-              <label style={{ position: "relative", display: "inline-flex", alignItems: "center", cursor: "pointer" }}>
-                <input type="checkbox" checked={autoSend} onChange={e => setAutoSend(e.target.checked)} style={{ display: "none" }} />
-                <div style={{ width: 42, height: 24, backgroundColor: autoSend ? "var(--brand)" : "#E5E2DC", borderRadius: 12, position: "relative", transition: "background 0.2s" }}>
-                  <div style={{ position: "absolute", top: 3, left: autoSend ? 21 : 3, width: 18, height: 18, backgroundColor: "#FFFFFF", borderRadius: 9, boxShadow: "0 1px 4px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
-                </div>
-              </label>
-            </div>
-            <div style={TOGGLE_ROW}>
-              <div>
-                <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>Auto-Charge</p>
-                <p style={{ margin: "2px 0 0", fontSize: 11, color: autoCharge ? "#D97706" : "#9E9B94" }}>
-                  {autoCharge ? "Client must have a saved payment method. Failed charges will be skipped and flagged." : "Charge card on file automatically"}
-                </p>
-              </div>
-              <label style={{ position: "relative", display: "inline-flex", alignItems: "center", cursor: "pointer" }}>
-                <input type="checkbox" checked={autoCharge} onChange={e => setAutoCharge(e.target.checked)} style={{ display: "none" }} />
-                <div style={{ width: 42, height: 24, backgroundColor: autoCharge ? "#D97706" : "#E5E2DC", borderRadius: 12, position: "relative", transition: "background 0.2s" }}>
-                  <div style={{ position: "absolute", top: 3, left: autoCharge ? 21 : 3, width: 18, height: 18, backgroundColor: "#FFFFFF", borderRadius: 9, boxShadow: "0 1px 4px rgba(0,0,0,0.2)", transition: "left 0.2s" }} />
-                </div>
-              </label>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <span style={{ fontSize: 13, color: "#6B7280", fontWeight: 600 }}>
                 {selected.size} job{selected.size !== 1 ? "s" : ""} selected
               </span>
@@ -439,11 +687,14 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
                 Total: ${selectedTotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             </div>
+            <p style={{ margin: "0 0 10px", fontSize: 11, color: "#9E9B94" }}>
+              Invoices are created as drafts. Review and send each one individually from the invoice page.
+            </p>
             <button
               onClick={handleGenerate}
               disabled={selected.size === 0}
               style={{ width: "100%", backgroundColor: selected.size === 0 ? "#C4C0BB" : "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, padding: "12px", fontSize: 13, fontWeight: 700, cursor: selected.size === 0 ? "default" : "pointer", marginBottom: 8 }}>
-              Generate Invoice{selected.size !== 1 ? "s" : ""} {selected.size > 0 ? `(${selected.size})` : ""}
+              Create Draft{selected.size !== 1 ? "s" : ""} {selected.size > 0 ? `(${selected.size})` : ""}
             </button>
             <button onClick={onClose} style={{ width: "100%", background: "none", border: "none", cursor: "pointer", fontSize: 13, color: "#9E9B94", padding: "6px 0" }}>
               Cancel
@@ -464,11 +715,34 @@ export default function InvoicesPage() {
   const isMobile = useIsMobile();
   const [activeTab, setActiveTab] = useState<TabId>("all");
   const [search, setSearch] = useState("");
+  // [kpi-click 2026-07-04] The top KPI cards were already clickable (#892) but
+  // only set the tab — with a lingering day-range date filter the list showed
+  // "No invoices found" far below the fold, so it read as "nothing happened."
+  // focusTab also CLEARS the date range (the KPIs are portfolio-wide totals) and
+  // scrolls the list into view, so a click always lands on visible results.
+  const listRef = useRef<HTMLDivElement>(null);
+  const focusTab = (tab: TabId) => {
+    setActiveTab(tab);
+    setDateFrom("");
+    setDateTo("");
+    setTimeout(() => listRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  };
   // [invoice-date-range 2026-06-21] Office date-range filter (by service date).
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  // [invoices-load-more 2026-07-02] The list endpoint pages at limit=50 and the
+  // page never asked past page 1 — so only the 50 newest invoices were ever
+  // reachable ("can't view all invoices"). Grow the limit 50 at a time via a
+  // Load-more button; reset whenever the filters change so a new view starts small.
+  const [pageLimit, setPageLimit] = useState(50);
   const [showBatch, setShowBatch] = useState(false);
+  const [showWeekly, setShowWeekly] = useState(false);
   const [showCloseDay, setShowCloseDay] = useState(false);
+  // [invoice-merge 2026-07-02] Bulk-select unpaid invoices → fold into one
+  // (POST /api/invoices/merge). The office's "filter June → select all → one
+  // invoice" flow for PPM/accounts.
+  const [mergeSel, setMergeSel] = useState<Set<number>>(new Set());
+  const [merging, setMerging] = useState(false);
   const [showNewInvoice, setShowNewInvoice] = useState(false);
   useEffect(() => {
     if (window.location.search.includes('new=1')) {
@@ -485,8 +759,15 @@ export default function InvoicesPage() {
 
   const [readyExpanded, setReadyExpanded] = useState(true);
   const [failedExpanded, setFailedExpanded] = useState(true);
+  // [uninvoiced-cap 2026-07-02] The "Not yet invoiced" list (added #841) renders
+  // every uninvoiced job unbounded; at 100+ rows it buries the invoices toolbar
+  // (tabs, search, date filter) far below the fold. Cap the visible rows so the
+  // filter stays reachable; header count/total keeps the reconciliation signal.
+  const [showAllUninv, setShowAllUninv] = useState(false);
+  const UNINV_CAP = 6;
   const [chargingJobId, setChargingJobId] = useState<number | null>(null);
   const [payingInvoiceId, setPayingInvoiceId] = useState<number | null>(null);
+  const [markPaidInv, setMarkPaidInv] = useState<any | null>(null);
 
   const { data: readyData, refetch: refetchReady } = useQuery({
     queryKey: ["ready-to-charge"],
@@ -523,12 +804,14 @@ export default function InvoicesPage() {
     }
   }
 
-  // [invoice-lifecycle 2026-06-21] One-click Mark Paid / Unmark from the list.
-  async function markInvoicePaid(invId: number) {
+  // [invoice-lifecycle 2026-06-21; pay-method 2026-06-26] Mark Paid from the list,
+  // recording HOW the client paid (check / ACH / Zelle / cash …) so non-processor
+  // payments are captured. Opens the quick method picker (setMarkPaidInv).
+  async function markInvoicePaid(invId: number, method = "cash") {
     setPayingInvoiceId(invId);
     try {
-      await apiFetch(`/api/invoices/${invId}/mark-paid`, { method: "POST", body: JSON.stringify({}) });
-      toast({ title: "Marked paid" });
+      await apiFetch(`/api/invoices/${invId}/mark-paid`, { method: "POST", body: JSON.stringify({ method }) });
+      toast({ title: `Marked paid${method && method !== "cash" ? ` · ${method}` : ""}` });
       refetch();
     } catch (err: any) {
       toast({ title: "Failed to mark paid", description: err?.message || "", variant: "destructive" });
@@ -572,14 +855,45 @@ export default function InvoicesPage() {
     if (search.trim()) params.set("search", search.trim());
     if (dateFrom) params.set("date_from", dateFrom);
     if (dateTo) params.set("date_to", dateTo);
+    params.set("limit", String(pageLimit));
     const qs = params.toString();
     return `/api/invoices${qs ? `?${qs}` : ""}`;
   };
 
+  // Start each filter/tab/search view back at the first 50 rows.
+  useEffect(() => { setPageLimit(50); }, [activeTab, activeBranchId, search, dateFrom, dateTo]);
+
+  // [invoice-date-presets 2026-07-03] One-click billing-period jumps so the office
+  // can land on a day/week/month (Maribel's "go to the date") without picking two
+  // dates, then select the drafts in view and Merge.
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  function applyDatePreset(kind: "today" | "week" | "month") {
+    const now = new Date();
+    if (kind === "today") { const t = ymd(now); setDateFrom(t); setDateTo(t); return; }
+    if (kind === "week") {
+      const s = new Date(now); s.setDate(now.getDate() - now.getDay()); // Sunday
+      const e = new Date(s); e.setDate(s.getDate() + 6);
+      setDateFrom(ymd(s)); setDateTo(ymd(e)); return;
+    }
+    const s = new Date(now.getFullYear(), now.getMonth(), 1);
+    const e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    setDateFrom(ymd(s)); setDateTo(ymd(e));
+  }
+  const presetActive = (kind: "today" | "week" | "month") => {
+    if (!dateFrom || !dateTo) return false;
+    const now = new Date();
+    if (kind === "today") return dateFrom === ymd(now) && dateTo === ymd(now);
+    if (kind === "week") { const s = new Date(now); s.setDate(now.getDate() - now.getDay()); const e = new Date(s); e.setDate(s.getDate() + 6); return dateFrom === ymd(s) && dateTo === ymd(e); }
+    const s = new Date(now.getFullYear(), now.getMonth(), 1); const e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    return dateFrom === ymd(s) && dateTo === ymd(e);
+  };
+
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ["invoices", activeTab, activeBranchId, search.trim(), dateFrom, dateTo],
+    queryKey: ["invoices", activeTab, activeBranchId, search.trim(), dateFrom, dateTo, pageLimit],
     queryFn: () => apiFetch(buildInvoicesUrl()),
   });
+  const totalCount: number = data?.total ?? 0;
+  const hasMore = totalCount > (data?.data?.length ?? 0);
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "all", label: "All" },
@@ -595,6 +909,57 @@ export default function InvoicesPage() {
   );
 
   const stats = data?.stats || {};
+
+  // [invoices-uninvoiced 2026-07-02] Surface residential per-job completed work
+  // that hasn't been invoiced yet — a standing "still needs billing" to-do so
+  // finished jobs don't silently slip through un-billed. Same endpoint the Batch
+  // modal uses.
+  const { data: rawUninv } = useQuery({
+    queryKey: ["invoices-uninvoiced-jobs"],
+    queryFn: () => apiFetch("/api/jobs?status=complete&uninvoiced=true&limit=200"),
+  });
+  const uninvoicedJobs: any[] = (Array.isArray(rawUninv) ? rawUninv : (rawUninv?.data || []))
+    .filter((j: any) => {
+      // [account-jobs-under-accounts 2026-07-02] Commercial/account jobs (PPM,
+      // KMA, National Able) are invoiced under their Account (per-turnover or
+      // consolidated), NOT on this residential screen. Showing them here rendered
+      // nameless rows and double-listed them — exclude them so this section is
+      // only residential per-job work. account_id comes from /api/jobs.
+      if (j.account_id != null) return false;
+      // [uninvoiced-stable 2026-07-04] Show the FULL residential backlog,
+      // independent of the invoice-list date range and search box. This panel is
+      // a fixed-height to-do reminder, not a slice of the list below it — keeping
+      // it decoupled means clicking Today/Week/Month/Drafts/Sent no longer makes
+      // the panel blink in/out and shove the toolbar + list (it sits above them).
+      // Only actually invoicing a job changes what's here.
+      return true;
+    });
+  const uninvTotal = uninvoicedJobs.reduce((sum: number, j: any) => sum + Number(j.billed_amount ?? j.amount ?? j.base_fee ?? 0), 0);
+
+  // [invoice-merge 2026-07-02] Only unpaid invoices are selectable to merge.
+  const isMergeable = (inv: any) => {
+    const st = (inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
+    return ["draft", "sent", "overdue"].includes(st);
+  };
+  const mergeTotal = invoices.filter((i: any) => mergeSel.has(i.id)).reduce((s: number, i: any) => s + (i.total || 0), 0);
+  function toggleMerge(id: number, on: boolean) {
+    setMergeSel(prev => { const n = new Set(prev); if (on) n.add(id); else n.delete(id); return n; });
+  }
+  async function doMerge() {
+    if (mergeSel.size < 2) return;
+    setMerging(true);
+    try {
+      const r = await apiFetch(`/api/invoices/merge`, { method: "POST", body: JSON.stringify({ invoice_ids: [...mergeSel] }) });
+      toast({ title: `Merged ${mergeSel.size} invoices into one`, description: r?.invoice?.invoice_number ? `New invoice ${r.invoice.invoice_number}` : undefined });
+      setMergeSel(new Set());
+      refetch();
+    } catch (e: any) {
+      let msg = e?.message || "";
+      try { msg = JSON.parse(msg).message || msg; } catch {}
+      toast({ title: "Could not merge", description: msg, variant: "destructive" });
+    }
+    setMerging(false);
+  }
 
   const TH: React.CSSProperties = {
     padding: "11px 18px", textAlign: "left",
@@ -614,18 +979,32 @@ export default function InvoicesPage() {
     <>
       <DashboardLayout>
         <div style={{ display: "flex", flexDirection: "column", gap: 20, fontFamily: FF }}>
+          {/* [kpi-cards-clickable 2026-07-04] Each card drills into the matching list
+              filter (Outstanding→Sent, Overdue→Overdue, Paid & YTD→Paid) so the office
+              can see what makes up a number instead of staring at a dead tile. */}
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 12 }}>
             {[
-              { label: "Outstanding", value: `$${Math.round(stats.total_outstanding || 0).toLocaleString()}` },
-              { label: "Overdue",     value: `$${Math.round(stats.total_overdue || 0).toLocaleString()}`, color: (stats.total_overdue || 0) > 0 ? "#DC2626" : undefined },
-              { label: "Paid (30d)",  value: `$${Math.round(stats.total_paid || 0).toLocaleString()}`,   color: "#16A34A" },
-              { label: "YTD Revenue", value: `$${Math.round(stats.total_revenue || 0).toLocaleString()}`, accent: true },
-            ].map(c => (
-              <div key={c.label} style={{ ...CARD, border: c.accent ? "1px solid rgba(91,155,213,0.4)" : "1px solid #E5E2DC" }}>
+              { label: "Outstanding", value: `$${Math.round(stats.total_outstanding || 0).toLocaleString()}`, tab: "sent" as TabId },
+              { label: "Overdue",     value: `$${Math.round(stats.total_overdue || 0).toLocaleString()}`, color: (stats.total_overdue || 0) > 0 ? "#DC2626" : undefined, tab: "overdue" as TabId },
+              { label: "Paid (30d)",  value: `$${Math.round(stats.total_paid || 0).toLocaleString()}`,   color: "#16A34A", tab: "paid" as TabId },
+              { label: "YTD Revenue", value: `$${Math.round(stats.total_revenue || 0).toLocaleString()}`, accent: true, tab: "paid" as TabId },
+            ].map(c => {
+              const selected = activeTab === c.tab;
+              return (
+              <div key={c.label} role="button" tabIndex={0}
+                onClick={() => focusTab(c.tab)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); focusTab(c.tab); } }}
+                title={`Show ${c.label.toLowerCase()} invoices`}
+                onMouseEnter={(e) => { if (!selected) { e.currentTarget.style.boxShadow = "0 1px 6px rgba(0,0,0,0.06)"; e.currentTarget.style.borderColor = "var(--brand)"; } }}
+                onMouseLeave={(e) => { if (!selected) { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = c.accent ? "rgba(91,155,213,0.4)" : "#E5E2DC"; } }}
+                style={{ ...CARD, cursor: "pointer", transition: "border-color 0.15s, box-shadow 0.15s",
+                  border: selected ? "1px solid var(--brand)" : c.accent ? "1px solid rgba(91,155,213,0.4)" : "1px solid #E5E2DC",
+                  boxShadow: selected ? "0 0 0 1px var(--brand)" : "none" }}>
                 <p style={{ fontSize: 11, fontWeight: 600, color: c.accent ? "var(--brand)" : "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 10px" }}>{c.label}</p>
                 <p style={{ fontSize: 24, fontWeight: 800, color: c.color || (c.accent ? "var(--brand)" : "#1A1917"), margin: 0 }}>{c.value}</p>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* ── Ready to Charge ──────────────────────────────────────────────── */}
@@ -708,7 +1087,69 @@ export default function InvoicesPage() {
             </div>
           )}
 
-          <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
+          {uninvoicedJobs.length > 0 && (
+            <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
+              <div style={{ padding: "12px 16px", borderBottom: "1px solid #EEECE7", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                <div>
+                  <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>Not yet invoiced</span>
+                  <span style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginLeft: 8 }}>
+                    {uninvoicedJobs.length} completed {uninvoicedJobs.length === 1 ? "job" : "jobs"} · ${uninvTotal.toFixed(2)}
+                  </span>
+                </div>
+                {uninvoicedJobs.length > UNINV_CAP && (
+                  <button onClick={() => setShowAllUninv(v => !v)}
+                    style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brand)", fontSize: 12, fontWeight: 700, fontFamily: FF, whiteSpace: "nowrap", padding: 0 }}>
+                    {showAllUninv ? "Show less" : `Show all ${uninvoicedJobs.length}`}
+                  </button>
+                )}
+              </div>
+              {(showAllUninv ? uninvoicedJobs : uninvoicedJobs.slice(0, UNINV_CAP)).map((j: any) => {
+                const name = j.account_name || j.client_name || "—";
+                const amt = Number(j.billed_amount ?? j.amount ?? j.base_fee ?? 0);
+                const isAccount = j.account_id != null;
+                return (
+                  <div key={`uninv-${j.id}`} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderBottom: "1px solid #F0EEE9" }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
+                        {name}
+                        {isAccount && <span style={{ fontSize: 10, fontWeight: 700, color: "#6B7280", background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 4, padding: "1px 6px" }}>ACCOUNT</span>}
+                      </div>
+                      <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>
+                        {(j.service_type || "").replace(/_/g, " ")}
+                        {j.scheduled_date ? ` · ${new Date(String(j.scheduled_date).slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: amt > 0 ? "#1A1917" : "#DC2626", fontFamily: FF, whiteSpace: "nowrap" }}>
+                      {amt > 0 ? `$${amt.toFixed(2)}` : "$0 · no rate"}
+                    </div>
+                    <button
+                      onClick={() => isAccount ? navigate(`/accounts/${j.account_id}`) : setShowBatch(true)}
+                      style={{ padding: "6px 12px", border: "1px solid var(--brand)", borderRadius: 7, backgroundColor: "#F7F6F3", color: "var(--brand)", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                      {isAccount ? "Bill account" : "Batch invoice"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {mergeSel.size > 0 && (
+            <div style={{ backgroundColor: "#0A0E1A", borderRadius: 10, padding: "12px 16px", marginBottom: 12, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+              <span style={{ color: "#FFFFFF", fontSize: 14, fontWeight: 700, fontFamily: FF }}>
+                {mergeSel.size} selected · ${mergeTotal.toFixed(2)}
+              </span>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={() => setMergeSel(new Set())}
+                  style={{ padding: "8px 14px", borderRadius: 8, border: "1px solid #3A3E4A", backgroundColor: "transparent", color: "#C9C5BD", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Clear</button>
+                <button onClick={doMerge} disabled={merging || mergeSel.size < 2}
+                  style={{ padding: "8px 16px", borderRadius: 8, border: "none", backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: mergeSel.size < 2 ? "not-allowed" : "pointer", opacity: mergeSel.size < 2 ? 0.6 : 1, fontFamily: FF }}>
+                  {merging ? "Merging…" : "Merge into one invoice"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div ref={listRef} style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", scrollMarginTop: 16 }}>
             <div style={{ padding: "12px 16px", borderBottom: "1px solid #EEECE7", display: "flex", flexDirection: isMobile ? "column" : "row", justifyContent: "space-between", alignItems: isMobile ? "stretch" : "center", gap: 10 }}>
               <div style={{ display: "flex", gap: 4, backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: 4, overflowX: "auto" }}>
                 {tabs.map(tab => {
@@ -727,12 +1168,18 @@ export default function InvoicesPage() {
                   <input placeholder="Search invoices..." value={search} onChange={e => setSearch(e.target.value)}
                     style={{ paddingLeft: 32, paddingRight: 10, height: 36, width: isMobile ? "100%" : 200, backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, outline: "none", fontFamily: FF }} />
                 </div>
+                {/* [invoice-date-presets 2026-07-03] One-click billing-period jumps. */}
+                {([["Today", "today"], ["Week", "week"], ["Month", "month"]] as const).map(([label, kind]) => (
+                  <button key={kind} onClick={() => applyDatePreset(kind)} title={`This ${kind === "today" ? "day" : kind}`}
+                    style={{ height: 36, padding: "0 11px", backgroundColor: presetActive(kind) ? "var(--brand)" : "#F7F6F3", color: presetActive(kind) ? "#FFFFFF" : "#6B7280", border: `1px solid ${presetActive(kind) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>{label}</button>
+                ))}
                 {/* [invoice-date-range 2026-06-21] Filter by service date. */}
-                <input type="date" value={dateFrom} max={dateTo || undefined} onChange={e => setDateFrom(e.target.value)} aria-label="From date"
-                  style={{ height: 36, padding: "0 8px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, outline: "none", fontFamily: FF }} />
+                {/* [styled-picker 2026-07-02] Use the shared CalendarPopover (mint-accent
+                    month grid) instead of the OS-native <input type="date"> picker so the
+                    filter matches the rest of the app on desktop + mobile. */}
+                <CalendarPopover value={dateFrom} ariaLabel="From date" onChange={setDateFrom} />
                 <span style={{ color: "#9E9B94", fontSize: 13 }}>–</span>
-                <input type="date" value={dateTo} min={dateFrom || undefined} onChange={e => setDateTo(e.target.value)} aria-label="To date"
-                  style={{ height: 36, padding: "0 8px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, outline: "none", fontFamily: FF }} />
+                <CalendarPopover value={dateTo} ariaLabel="To date" onChange={setDateTo} />
                 {(dateFrom || dateTo) && (
                   <button onClick={() => { setDateFrom(""); setDateTo(""); }} title="Clear dates"
                     style={{ height: 36, padding: "0 10px", backgroundColor: "transparent", color: "#6B7280", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Clear</button>
@@ -746,6 +1193,10 @@ export default function InvoicesPage() {
                     <button onClick={() => setShowBatch(true)}
                       style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", backgroundColor: "#F7F6F3", color: "var(--brand)", border: "1px solid var(--brand)", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                       <Layers size={14} strokeWidth={2} /> {isMobile ? "Batch" : "Batch Invoice"}
+                    </button>
+                    <button onClick={() => setShowWeekly(true)}
+                      style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 13px", backgroundColor: "#F7F6F3", color: "var(--brand)", border: "1px solid var(--brand)", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                      <Calendar size={14} strokeWidth={2} /> {isMobile ? "Weekly" : "Weekly Invoicing"}
                     </button>
                   </>
                 )}
@@ -772,7 +1223,10 @@ export default function InvoicesPage() {
                     <p style={{ color: "#6B7280", fontSize: 13, margin: 0, fontFamily: FF }}>No invoices found.</p>
                   </div>
                 ) : invoices.map((inv: any) => {
-                  const effectiveStatus = (inv.status === "sent" && inv.due_date && new Date(inv.due_date) < new Date()) ? "overdue" : inv.status;
+                  const effectiveStatus = (inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
+                  // [auto-issue 2026-07-08] "sent" with no sent_at was auto-ISSUED
+                  // at completion, never emailed — label it honestly.
+                  const statusLabel = effectiveStatus === "sent" && !inv.sent_at ? "issued" : effectiveStatus;
                   const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
                   return (
                     <div key={inv.id}
@@ -782,11 +1236,11 @@ export default function InvoicesPage() {
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
                           <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{inv.client_name}</span>
                           <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "2px 7px", borderRadius: 4, fontSize: 10, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase" as const, fontFamily: FF }}>
-                            {effectiveStatus}
+                            {statusLabel}
                           </span>
                         </div>
                         <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
-                          {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
+                          {formatInvoiceNumber(inv)}
                           {inv.service_date
                             ? ` · ${new Date(inv.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
                             : inv.created_at ? ` · ${new Date(inv.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
@@ -806,6 +1260,11 @@ export default function InvoicesPage() {
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr>
+                  <th style={{ ...TH, width: 34 }}>
+                    <input type="checkbox" aria-label="Select all mergeable"
+                      checked={invoices.filter(isMergeable).length > 0 && invoices.filter(isMergeable).every((i: any) => mergeSel.has(i.id))}
+                      onChange={e => setMergeSel(e.target.checked ? new Set(invoices.filter(isMergeable).map((i: any) => i.id)) : new Set())} />
+                  </th>
                   {["Invoice #", "Client", "PO #", "Terms", "Amount", "Service Date", "Days Overdue", "Status", ""].map(h => (
                     <th key={h} style={{ ...TH, textAlign: h === "" ? "right" as const : "left" as const }}>{h}</th>
                   ))}
@@ -813,54 +1272,95 @@ export default function InvoicesPage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={9} style={{ padding: 32, textAlign: "center", color: "#6B7280", fontSize: 13 }}>Loading invoices...</td></tr>
+                  <tr><td colSpan={10} style={{ padding: 32, textAlign: "center", color: "#6B7280", fontSize: 13 }}>Loading invoices...</td></tr>
                 ) : invoices.length === 0 ? (
                   <tr>
-                    <td colSpan={9} style={{ padding: 48, textAlign: "center" }}>
+                    <td colSpan={10} style={{ padding: 48, textAlign: "center" }}>
                       <AlertCircle size={28} style={{ color: "#C4C0BB", marginBottom: 10 }} />
                       <p style={{ color: "#6B7280", fontSize: 13, margin: 0 }}>No invoices found.</p>
                     </td>
                   </tr>
                 ) : invoices.map((inv: any) => {
-                  const effectiveStatus = (inv.status === "sent" && inv.due_date && new Date(inv.due_date) < new Date()) ? "overdue" : inv.status;
+                  const effectiveStatus = (inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
+                  // [auto-issue 2026-07-08] "sent" with no sent_at was auto-ISSUED
+                  // at completion, never emailed — label it honestly.
+                  const statusLabel = effectiveStatus === "sent" && !inv.sent_at ? "issued" : effectiveStatus;
                   const s = STATUS_STYLES[effectiveStatus] || STATUS_STYLES.draft;
                   return (
+                    /* [invoice-open-new-tab 2026-07-03] cmd/ctrl+click or middle-click
+                       opens the invoice in a NEW tab (office keeps the list open and
+                       opens several invoices side by side); plain click still does fast
+                       client-side nav. [invoice-row-links 2026-07-07] Every data cell
+                       is a real <a> (InvoiceCellLink) so right-click → "Open Link in
+                       New Tab" works ANYWHERE on the row, not just the invoice #.
+                       The tr handlers below remain as a fallback for the row's edges. */
                     <tr key={inv.id}
-                      onClick={() => navigate(`/invoices/${inv.id}`)}
+                      onClick={e => { if (e.metaKey || e.ctrlKey) { window.open(`/invoices/${inv.id}`, "_blank"); return; } navigate(`/invoices/${inv.id}`); }}
+                      onAuxClick={e => { if (e.button === 1) { e.preventDefault(); window.open(`/invoices/${inv.id}`, "_blank"); } }}
                       style={{ borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}
                       onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#F7F6F3")}
                       onMouseLeave={e => (e.currentTarget.style.backgroundColor = "transparent")}>
-                      <td style={{ padding: "13px 18px", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
-                        {inv.invoice_number || `INV-${String(inv.id).padStart(4, "0")}`}
+                      <td style={{ padding: "13px 18px" }} onClick={e => e.stopPropagation()}>
+                        <input type="checkbox"
+                          aria-label={`Select invoice ${inv.invoice_number || inv.id}`}
+                          disabled={!isMergeable(inv)}
+                          checked={mergeSel.has(inv.id)}
+                          onChange={e => toggleMerge(inv.id, e.target.checked)} />
                       </td>
-                      <td style={{ padding: "13px 18px", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{inv.client_name}</td>
-                      <td style={{ padding: "13px 18px", fontSize: 12, color: "#6B7280", fontFamily: FF }}>
-                        {inv.po_number || "—"}
+                      {/* [invoice-row-links 2026-07-07] Every data cell is a real
+                          block-level <a> so right-click ANYWHERE on the row offers
+                          "Open Link in New Tab". Cell padding moves onto the anchor
+                          so the whole cell area is the link target. */}
+                      <td style={{ padding: 0, fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>
+                          {formatInvoiceNumber(inv)}
+                        </InvoiceCellLink>
                       </td>
-                      <td style={{ padding: "13px 18px" }}>
-                        {inv.payment_terms && inv.payment_terms !== "due_on_receipt" ? (
-                          <span style={{ background: "#EFF6FF", color: "#1D4ED8", border: "1px solid #BFDBFE", display: "inline-block", padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
-                            {inv.payment_terms === "net_30" ? "NET 30" : inv.payment_terms === "net_15" ? "NET 15" : inv.payment_terms.toUpperCase()}
+                      <td style={{ padding: 0, fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>{inv.client_name}</InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0, fontSize: 12, color: "#6B7280", fontFamily: FF }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>{inv.po_number || "—"}</InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0 }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>
+                          {inv.payment_terms && inv.payment_terms !== "due_on_receipt" ? (
+                            <span style={{ background: "#EFF6FF", color: "#1D4ED8", border: "1px solid #BFDBFE", display: "inline-block", padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
+                              {inv.payment_terms === "net_30" ? "NET 30" : inv.payment_terms === "net_15" ? "NET 15" : inv.payment_terms.toUpperCase()}
+                            </span>
+                          ) : <span style={{ color: "#9E9B94", fontSize: 12, fontFamily: FF }}>—</span>}
+                        </InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0, fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>${(inv.total || 0).toFixed(2)}</InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0, fontSize: 12, color: "#6B7280", fontFamily: FF }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>
+                          {inv.service_date
+                            ? new Date(inv.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                            : inv.created_at ? new Date(inv.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
+                        </InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0 }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>
+                          {effectiveStatus === "overdue" && (inv.days_overdue || 0) > 0 ? (
+                            <span style={{ background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA", display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
+                              {inv.days_overdue}d overdue
+                            </span>
+                          ) : "—"}
+                        </InvoiceCellLink>
+                      </td>
+                      <td style={{ padding: 0 }}>
+                        <InvoiceCellLink invId={inv.id} navigate={navigate}>
+                          <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF }}>
+                            {statusLabel}
                           </span>
-                        ) : <span style={{ color: "#9E9B94", fontSize: 12, fontFamily: FF }}>—</span>}
-                      </td>
-                      <td style={{ padding: "13px 18px", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${(inv.total || 0).toFixed(2)}</td>
-                      <td style={{ padding: "13px 18px", fontSize: 12, color: "#6B7280", fontFamily: FF }}>
-                        {inv.service_date
-                          ? new Date(inv.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
-                          : inv.created_at ? new Date(inv.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
-                      </td>
-                      <td style={{ padding: "13px 18px" }}>
-                        {effectiveStatus === "overdue" && (inv.days_overdue || 0) > 0 ? (
-                          <span style={{ background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA", display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
-                            {inv.days_overdue}d overdue
-                          </span>
-                        ) : "—"}
-                      </td>
-                      <td style={{ padding: "13px 18px" }}>
-                        <span style={{ ...s, display: "inline-flex", alignItems: "center", padding: "3px 9px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF }}>
-                          {effectiveStatus}
-                        </span>
+                          {inv.refunded_amount != null && Number(inv.refunded_amount) > 0 && (
+                            <span style={{ marginLeft: 4, display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF, backgroundColor: "#EDE9FE", color: "#6D28D9", border: "1px solid #DDD6FE" }}>
+                              {Number(inv.refunded_amount) >= Number(inv.total) ? "REFUNDED" : `REFUNDED $${Number(inv.refunded_amount).toFixed(2)}`}
+                            </span>
+                          )}
+                        </InvoiceCellLink>
                       </td>
                       <td style={{ padding: "13px 18px", textAlign: "right", whiteSpace: "nowrap" }} onClick={e => e.stopPropagation()}>
                         {(effectiveStatus === "sent" || effectiveStatus === "overdue") && inv.has_card_on_file && (
@@ -871,8 +1371,8 @@ export default function InvoicesPage() {
                           </button>
                         )}
                         {(effectiveStatus === "sent" || effectiveStatus === "overdue") && (
-                          <button onClick={() => markInvoicePaid(inv.id)} disabled={payingInvoiceId === inv.id}
-                            title="Mark paid (today)"
+                          <button onClick={() => setMarkPaidInv(inv)} disabled={payingInvoiceId === inv.id}
+                            title="Mark paid — choose method (check / ACH / Zelle …)"
                             style={{ marginRight: 8, padding: "5px 10px", border: "none", backgroundColor: "#16A34A", color: "#FFFFFF", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
                             {payingInvoiceId === inv.id ? "…" : "Mark Paid"}
                           </button>
@@ -894,11 +1394,35 @@ export default function InvoicesPage() {
               </tbody>
             </table>
             )}
+            {/* [invoices-load-more 2026-07-02] Reach every invoice, not just the
+                50 newest. Grows the fetch 50 at a time; count shows progress. */}
+            {!isLoading && invoices.length > 0 && (
+              <div style={{ padding: "14px 16px", borderTop: "1px solid #EEECE7", display: "flex", alignItems: "center", justifyContent: "center", gap: 14, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>
+                  Showing {invoices.length} of {totalCount} invoice{totalCount === 1 ? "" : "s"}
+                </span>
+                {hasMore && (
+                  <button onClick={() => setPageLimit(l => l + 50)}
+                    style={{ padding: "8px 18px", border: "1px solid var(--brand)", borderRadius: 8, backgroundColor: "#F7F6F3", color: "var(--brand)", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                    Load more
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </DashboardLayout>
 
       {showBatch && <BatchInvoiceDrawer onClose={() => setShowBatch(false)} onDone={() => refetch()} />}
+      {showWeekly && <WeeklyInvoicingDrawer onClose={() => setShowWeekly(false)} onDone={() => refetch()} />}
+      {markPaidInv && (
+        <MarkPaidMethodModal
+          invoice={markPaidInv}
+          busy={payingInvoiceId === markPaidInv.id}
+          onPick={async (method) => { const id = markPaidInv.id; setMarkPaidInv(null); await markInvoicePaid(id, method); }}
+          onClose={() => setMarkPaidInv(null)}
+        />
+      )}
       {showCloseDay && <CloseDayModal onClose={() => setShowCloseDay(false)} onOpenBatchInvoice={() => setShowBatch(true)} />}
       {showNewInvoice && <NewInvoiceModal onClose={() => setShowNewInvoice(false)} onDone={() => refetch()} />}
     </>

@@ -5,6 +5,9 @@ import { getBranchByZip } from "../lib/branchRouter";
 import { buildReminderEmail } from "../lib/emailTemplates";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
 import { isSmsOptedOut, isEmailOptedOut, buildEmailUnsubData, buildUnsubDataFromToken } from "../lib/opt-out.js";
+import { renderCustomerTemplate } from "../lib/customer-messages.js";
+import { buildAppointmentVars } from "../lib/appointment-vars.js";
+import { emailLogoUrl } from "../lib/app-url.js";
 import { Resend } from "resend";
 
 // ── Email brand constants ────────────────────────────────────────────────────
@@ -19,12 +22,26 @@ const BRAND = {
 };
 
 // ── Merge tag substitution ────────────────────────────────────────────────────
-function applyMerge(template: string, vars: Record<string, string>): string {
+// Exported for template consumers outside the customer-comms pipeline (e.g. the
+// staff-facing time-off emails in lib/leave-notifications.ts, which render the
+// same editable notification_templates rows).
+export function applyMerge(template: string, vars: Record<string, string>): string {
   return template.replace(/\{\{([^}]+)\}\}/g, (_, key) => vars[key.trim()] ?? "");
 }
 
 // ── Email HTML wrapper ───────────────────────────────────────────────────────
-function wrapEmailHtml(contentHtml: string): string {
+// `brand` carries the tenant's logo + name so the header shows the real logo
+// image (absolute URL — relative paths don't load in email clients) with a text
+// fallback. Omitting it keeps the legacy "Phes" text header for any caller that
+// hasn't been updated.
+export function wrapEmailHtml(contentHtml: string, brand?: { logoUrl?: string | null; companyName?: string | null }): string {
+  const name = brand?.companyName || "Phes";
+  const header = brand?.logoUrl
+    ? `<img src="${brand.logoUrl}" alt="${name}" height="72" style="height:72px;width:auto;max-width:320px;display:block;border:0;background:#ffffff;border-radius:6px;" />`
+    : `<span style="color:#ffffff;font-size:20px;font-weight:bold;font-family:${BRAND.font};">${name}</span>`;
+  // A logo image needs a light backdrop to read on any artwork; keep the text
+  // fallback on the accent color.
+  const headerBg = brand?.logoUrl ? "#ffffff" : BRAND.accent;
   return `<!DOCTYPE html>
 <html lang="en">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Notification</title></head>
@@ -32,8 +49,8 @@ function wrapEmailHtml(contentHtml: string): string {
 <table width="100%" cellpadding="0" cellspacing="0" style="background:${BRAND.bg};padding:32px 16px;">
 <tr><td align="center">
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:${BRAND.card};border-radius:8px;overflow:hidden;border:1px solid ${BRAND.border};">
-<tr><td style="background:${BRAND.accent};padding:20px 32px;">
-  <span style="color:#ffffff;font-size:20px;font-weight:bold;font-family:${BRAND.font};">Phes</span>
+<tr><td style="background:${headerBg};padding:24px 32px;border-bottom:1px solid ${BRAND.border};">
+  ${header}
 </td></tr>
 <tr><td style="padding:32px;color:${BRAND.textMain};font-size:15px;line-height:1.6;font-family:${BRAND.font};">
 ${contentHtml}
@@ -54,13 +71,14 @@ ${contentHtml}
 // path (process.env.TWILIO_FROM_NUMBER = the Oak Lawn / MaidCentral number
 // +17737869902) is GONE — Qleno must never send from a shared global number
 // again. Honors the full gate ladder (global + company + twilio + creds + from).
-async function sendTenantSms(companyId: number, to: string, body: string): Promise<void> {
+async function sendTenantSms(companyId: number, to: string, body: string): Promise<string | null> {
   const sender = await resolveSender(companyId, null);
   if (sender.reason) {
     console.log(`[COMMS BLOCKED] SMS suppressed (${sender.reason}) company=${companyId} to=${to}`);
-    return;
+    return sender.reason;
   }
   await sendSmsVia(sender, to, body);
+  return null;
 }
 
 // ── Core send function ───────────────────────────────────────────────────────
@@ -82,10 +100,28 @@ export async function sendNotification(
   // other transactional emails are byte-for-byte unchanged. Gating + logging are
   // untouched. Used solely by the job_scheduled confirmation email.
   renderEmail?: (mergedBodyHtml: string, vars: Record<string, string>) => string,
-): Promise<void> {
+  // [notif-prefs] ADDITIVE, opt-in: the client this send is for. When provided
+  // (and the send isn't transactional), the per-client/per-account message+
+  // channel preference gate runs. Omitting it preserves the exact prior
+  // behavior — no gate. Callers for the six customer messages pass it; every
+  // other caller (transactional, invoice, payment, welcome) leaves it undefined.
+  prefClientId?: number | null,
+  // Returns true only when the message was actually handed to the provider —
+  // false for every skip/suppress/failure. Lets callers (e.g. satisfaction/send
+  // and the one-completion-email rule) know whether this channel really
+  // reached the customer.
+): Promise<boolean> {
   let status = "sent";
   let errorMsg: string | null = null;
   let providerId: string | null = null;
+  // [comm-log-body 2026-06-29] Capture the actual rendered text that goes to the
+  // customer so the Communication Log can show "what the client received".
+  let sentBody = "";
+  let sentSubject: string | null = null;
+  // [comm-log-view-email 2026-07-07] Also capture the EXACT html handed to
+  // Resend (wrapper + merge + unsub footer) so the Communication Log can open
+  // the email as the customer saw it.
+  let sentHtml: string | null = null;
 
   try {
     // Fetch template
@@ -102,18 +138,35 @@ export async function sendNotification(
 
     if (!tpl) {
       await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "skipped", "Template not found or inactive", {});
-      return;
+      return false;
     }
 
     // Per-tenant comms gate + per-tenant send-from address. Raw SQL to avoid
     // coupling to the regenerated drizzle column types.
-    const commsRow = await db.execute(sql`SELECT comms_enabled, email_from_address FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const commsRow = await db.execute(sql`SELECT comms_enabled, email_from_address, logo_url, name FROM companies WHERE id = ${companyId} LIMIT 1`);
     const fromAddr = (commsRow.rows[0] as any)?.email_from_address || "info@phes.io";
+    // [email-logo] Tenant logo for the wrapper header (absolutized for email).
+    const emailBrand = { logoUrl: emailLogoUrl((commsRow.rows[0] as any)?.logo_url), companyName: (commsRow.rows[0] as any)?.name };
     // Marketing/notification sends require the tenant's comms gate. Transactional
     // sends (reset/invite) skip it — they must always reach the user.
     if (!transactional && !(commsRow.rows[0] as any)?.comms_enabled) {
       await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "suppressed", "company_comms_disabled", {});
-      return;
+      return false;
+    }
+
+    // [notif-prefs] Per-client/account message + channel preference gate. EXTRA
+    // filter on top of the tenant + opt-out gates, never a replacement. Safe
+    // default: isMessageEnabledForJob returns true on any missing input or error,
+    // so only an explicit OFF override suppresses — a wrong gate here can't
+    // silence a client who didn't opt out. Skipped for transactional sends and
+    // when no client is supplied.
+    if (!transactional && prefClientId != null) {
+      const { isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
+      const enabled = await isMessageEnabledForJob({ companyId, clientId: prefClientId }, templateKey, channel);
+      if (!enabled) {
+        await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "suppressed", "client_pref_off", {});
+        return false;
+      }
     }
 
     // Fetch company info for merge vars
@@ -133,17 +186,17 @@ export async function sendNotification(
     if (channel === "email") {
       if (!recipientEmail) {
         await logNotification(companyId, "no-email", channel, templateKey, "skipped", "No recipient email", fullVars);
-        return;
+        return false;
       }
       if (!process.env.RESEND_API_KEY) {
         await logNotification(companyId, recipientEmail, channel, templateKey, "skipped", "RESEND_API_KEY not configured", fullVars);
-        return;
+        return false;
       }
       // [comms-opt-out] Honor email opt-out. Transactional sends (reset/invite,
       // to users not clients) bypass — they must always reach the recipient.
       if (!transactional && await isEmailOptedOut(companyId, recipientEmail)) {
         await logNotification(companyId, recipientEmail, channel, templateKey, "suppressed", "email_opt_out", fullVars);
-        return;
+        return false;
       }
 
       const bodyHtml = tpl.body_html || tpl.body || "";
@@ -163,7 +216,7 @@ export async function sendNotification(
       // for this send only; all other emails keep wrapEmailHtml unchanged.
       let wrapped  = renderEmail
         ? applyMerge(renderEmail(rawHtml, fullVars), fullVars)
-        : applyMerge(wrapEmailHtml(rawHtml), fullVars);
+        : applyMerge(wrapEmailHtml(rawHtml, emailBrand), fullVars);
 
       // [comms-opt-out] Tokenized unsubscribe: append the footer link + set the
       // List-Unsubscribe (+ one-click) headers for transactional-marketing
@@ -181,7 +234,7 @@ export async function sendNotification(
       if (!transactional && process.env.COMMS_ENABLED !== "true") {
         console.log("[COMMS BLOCKED] Email suppressed:", { to: recipientEmail, subject });
         await logNotification(companyId, recipientEmail, channel, templateKey, "suppressed", "COMMS_ENABLED=false", fullVars);
-        return;
+        return false;
       }
       const resend = new Resend(process.env.RESEND_API_KEY);
       const sendRes: any = await resend.emails.send({
@@ -196,22 +249,30 @@ export async function sendNotification(
       // rejected send isn't logged as success.
       if (sendRes?.error) throw new Error(`Resend error: ${sendRes.error?.message ?? JSON.stringify(sendRes.error)}`);
       providerId = sendRes?.data?.id ?? null;
+      sentSubject = subject;
+      sentBody = applyMerge(tpl.body_text || tpl.body || "", fullVars);
+      sentHtml = wrapped;
 
     } else if (channel === "sms") {
       if (!recipientPhone) {
         await logNotification(companyId, "no-phone", channel, templateKey, "skipped", "No recipient phone", fullVars);
-        return;
+        return false;
       }
       // [comms-opt-out] Honor SMS STOP. Transactional bypasses (to users).
       if (!transactional && await isSmsOptedOut(companyId, recipientPhone)) {
         await logNotification(companyId, recipientPhone, channel, templateKey, "suppressed", "sms_opt_out", fullVars);
-        return;
+        return false;
       }
 
       const bodyText = applyMerge(tpl.body_text || tpl.body || "", fullVars);
       // Per-tenant send only — resolveSender(companyId) picks THIS company's
       // creds + from-number. Never the global env number.
-      await sendTenantSms(companyId, recipientPhone, bodyText);
+      const suppressReason = await sendTenantSms(companyId, recipientPhone, bodyText);
+      if (suppressReason) {
+        await logNotification(companyId, recipientPhone, channel, templateKey, "suppressed", suppressReason, fullVars);
+        return false;
+      }
+      sentBody = bodyText;
     }
 
   } catch (err: any) {
@@ -227,9 +288,17 @@ export async function sendNotification(
     templateKey,
     status,
     errorMsg,
-    // Stamp the Resend provider id into metadata for delivery traceability.
-    { ...mergeVars, ...(providerId ? { _provider_id: providerId } : {}) },
+    // Stamp the Resend provider id + the rendered body/subject into metadata so
+    // the Communication Log can show what the customer actually received.
+    {
+      ...mergeVars,
+      ...(providerId ? { _provider_id: providerId } : {}),
+      ...(sentBody ? { body: sentBody } : {}),
+      ...(sentSubject ? { subject: sentSubject } : {}),
+      ...(sentHtml ? { html: sentHtml } : {}),
+    },
   );
+  return status === "sent";
 }
 
 async function logNotification(
@@ -273,30 +342,56 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
     const target = new Date();
     target.setDate(target.getDate() + daysAhead);
     const targetStr = target.toISOString().slice(0, 10);
+    // [reminder-catchup 2026-06-26] The in-process scheduler fires this cron in
+    // a single daily window (9 AM / 4 PM CT). A server restart during that hour
+    // used to silently skip the whole day with no retry (reminder_72h_sent was 0
+    // across all jobs, ever). Fix: match a DATE RANGE, not a single day, so a
+    // missed window is recovered on the next run. The per-job reminder_*_sent
+    // flag still guards every send, so this never double-sends or blasts the
+    // back-catalog. The 72h reminder gets a 1-day grace (today+2..today+3); the
+    // 24h reminder stays exact (today+1) — a "your cleaning is tomorrow" message
+    // can't sensibly fire once the job is already same-day. Lower bound never
+    // reaches into the past.
+    const fromDays = daysAhead === 3 ? daysAhead - 1 : daysAhead;
+    const fromDate = new Date();
+    fromDate.setDate(fromDate.getDate() + fromDays);
+    const fromStr = fromDate.toISOString().slice(0, 10);
     const { sql: drizzleSql } = await import("drizzle-orm");
 
     const rows = await db.execute(
       hoursAhead === 72
         ? drizzleSql`
-            SELECT j.id, j.scheduled_date, j.service_type, j.arrival_window,
+            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
+                   j.scheduled_date, j.scheduled_time, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
                    c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
               FROM jobs j
               JOIN clients c ON c.id = j.client_id
-             WHERE j.scheduled_date = ${targetStr}
-               AND j.status NOT IN ('cancelled', 'void', 'done', 'complete')
+              JOIN companies co ON co.id = j.company_id
+              LEFT JOIN accounts a ON a.id = c.account_id
+             WHERE j.scheduled_date >= ${fromStr}
+               AND j.scheduled_date <= ${targetStr}
+               AND j.status NOT IN ('cancelled', 'complete')
+               AND co.comms_enabled = true
+               AND (a.id IS NULL OR a.comms_enabled = true)
                AND j.reminder_72h_sent = false
           `
         : drizzleSql`
-            SELECT j.id, j.scheduled_date, j.service_type, j.arrival_window,
+            SELECT j.id, j.company_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
+                   j.scheduled_date, j.scheduled_time, j.service_type, j.arrival_window,
                    j.address_street, j.address_city, j.address_state, j.address_zip,
                    c.first_name, c.last_name, c.email, c.phone, c.zip,
                    c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
               FROM jobs j
               JOIN clients c ON c.id = j.client_id
-             WHERE j.scheduled_date = ${targetStr}
-               AND j.status NOT IN ('cancelled', 'void', 'done', 'complete')
+              JOIN companies co ON co.id = j.company_id
+              LEFT JOIN accounts a ON a.id = c.account_id
+             WHERE j.scheduled_date >= ${fromStr}
+               AND j.scheduled_date <= ${targetStr}
+               AND j.status NOT IN ('cancelled', 'complete')
+               AND co.comms_enabled = true
+               AND (a.id IS NULL OR a.comms_enabled = true)
                AND j.reminder_24h_sent = false
           `
     );
@@ -314,50 +409,82 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
       // address is shown.
       const stateZip = [job.address_state, job.address_zip].filter(Boolean).join(" ");
       const serviceAddress = [job.address_street, job.address_city, stateZip].filter(Boolean).join(", ") || "On file";
-      const arrivalWindowLabel = job.arrival_window === "morning"
-        ? "9:00 AM – 12:00 PM"
-        : job.arrival_window === "afternoon"
-        ? "12:00 PM – 2:00 PM"
-        : "scheduled window";
+      const arrivalWindowLabel = computeArrivalWindow(job.scheduled_time, job.arrival_window, Number(job.arrival_window_minutes) || ARRIVAL_WINDOW_MINUTES);
       const scheduledDate = formatDate(job.scheduled_date);
       const serviceType = labelServiceType(job.service_type);
 
       let emailSent = false;
       let smsSent = false;
 
+      // [customer-messages] The reminder copy now comes from the office-editable
+      // notification_templates rows (reminder_3day / reminder_1day), so edits in
+      // the Customer Messages panel actually take effect. A null template (no
+      // row) falls back to the built-in copy so a missing row never silences a
+      // reminder; a PAUSED template (is_active=false) honors the office's "off".
+      const reminderTrigger = hoursAhead === 72 ? "reminder_3day" : "reminder_1day";
+      const mergeVars: Record<string, string> = {
+        first_name: job.first_name || "there",
+        client_name: [job.first_name, job.last_name].filter(Boolean).join(" ") || "there",
+        company_name: job.company_name || "Phes",
+        company_phone: branchConfig.clientPhone,
+        company_email: branchConfig.officeEmail,
+        service_type: serviceType,
+        // [appointment-vars] Emit date/appointment_date, time/appointment_time,
+        // arrival_window/appointment_window so both naming conventions resolve.
+        ...buildAppointmentVars({ scheduledDate: job.scheduled_date, scheduledTime: job.scheduled_time, arrivalWindow: arrivalWindowLabel }),
+        service_address: serviceAddress,
+      };
+      const logMeta = { job_id: String(job.id) };
+
       // Email reminder — skip if the client opted out of email.
       if (resendKey && job.email && !job.email_opt_out_at) {
-        try {
-          const { subject, html } = buildReminderEmail({
-            firstName: job.first_name || "",
-            email: job.email,
-            serviceType,
-            scheduledDate,
-            arrivalWindow: arrivalWindowLabel,
-            serviceAddress,
-            branchConfig,
-            hoursAhead: hoursAhead as 72 | 24,
-          });
-          // [comms-opt-out] List-Unsubscribe header + footer link.
-          let emailHtml = html;
-          const headers: Record<string, string> = {};
-          if (job.email_unsub_token) {
-            const u = buildUnsubDataFromToken(job.email_unsub_token);
-            Object.assign(headers, u.headers);
-            emailHtml = emailHtml.includes("</body>") ? emailHtml.replace(/<\/body>/i, `${u.footerHtml}</body>`) : emailHtml + u.footerHtml;
+        const emailTpl = await renderCustomerTemplate(job.company_id, reminderTrigger, "email", mergeVars);
+        if (emailTpl && !emailTpl.is_active) {
+          console.log(`[reminder-${label}] email paused by template job=${job.id}`);
+          await logNotification(job.company_id, job.email, "email", reminderTrigger, "suppressed", "template_paused", logMeta);
+        } else {
+          try {
+            let subject: string;
+            let html: string;
+            if (emailTpl) {
+              subject = emailTpl.subject || `Reminder: your cleaning on ${scheduledDate}`;
+              const htmlBody = /<[a-z][\s\S]*>/i.test(emailTpl.body) ? emailTpl.body : emailTpl.body.replace(/\n/g, "<br>");
+              html = wrapEmailHtml(htmlBody, { logoUrl: emailLogoUrl(job.company_logo), companyName: job.company_name });
+            } else {
+              ({ subject, html } = buildReminderEmail({
+                firstName: job.first_name || "",
+                email: job.email,
+                serviceType,
+                scheduledDate,
+                arrivalWindow: arrivalWindowLabel,
+                serviceAddress,
+                branchConfig,
+                hoursAhead: hoursAhead as 72 | 24,
+              }));
+            }
+            // [comms-opt-out] List-Unsubscribe header + footer link.
+            let emailHtml = html;
+            const headers: Record<string, string> = {};
+            if (job.email_unsub_token) {
+              const u = buildUnsubDataFromToken(job.email_unsub_token);
+              Object.assign(headers, u.headers);
+              emailHtml = emailHtml.includes("</body>") ? emailHtml.replace(/<\/body>/i, `${u.footerHtml}</body>`) : emailHtml + u.footerHtml;
+            }
+            const resend = new Resend(resendKey);
+            await resend.emails.send({
+              from: `Phes <${branchConfig.officeEmail}>`,
+              replyTo: branchConfig.officeEmail,
+              to: [job.email],
+              subject,
+              html: emailHtml,
+              ...(Object.keys(headers).length ? { headers } : {}),
+            });
+            emailSent = true;
+            await logNotification(job.company_id, job.email, "email", reminderTrigger, "sent", null, { ...logMeta, html: emailHtml });
+          } catch (emailErr) {
+            console.error(`[reminder-${label}] Email failed for job ${job.id}:`, emailErr);
+            await logNotification(job.company_id, job.email, "email", reminderTrigger, "failed", String(emailErr), logMeta);
           }
-          const resend = new Resend(resendKey);
-          await resend.emails.send({
-            from: `Phes <${branchConfig.officeEmail}>`,
-            replyTo: branchConfig.officeEmail,
-            to: [job.email],
-            subject,
-            html: emailHtml,
-            ...(Object.keys(headers).length ? { headers } : {}),
-          });
-          emailSent = true;
-        } catch (emailErr) {
-          console.error(`[reminder-${label}] Email failed for job ${job.id}:`, emailErr);
         }
       } else if (job.email_opt_out_at) {
         console.log(`[reminder-${label}] email suppressed (opt-out) job=${job.id}`);
@@ -365,25 +492,40 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
 
       // SMS reminder — skip if the client opted out of SMS.
       if (accountSid && authToken && job.phone && !job.sms_opt_out_at) {
-        try {
-          const smsBody = hoursAhead === 72
-            ? `Hi ${job.first_name || "there"}, this is Phes confirming your cleaning appointment on ${scheduledDate} with a ${arrivalWindowLabel} arrival window at ${serviceAddress}. Questions? Call us at ${branchConfig.clientPhone}. Reply STOP to unsubscribe.`
-            : `Hi ${job.first_name || "there"}, your Phes cleaning is tomorrow with a ${arrivalWindowLabel} arrival window at ${serviceAddress}. Please ensure access to your home is available. Questions? Call ${branchConfig.clientPhone}. Reply STOP to unsubscribe.`;
-          const smsRes = await fetch(
-            `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-              body: new URLSearchParams({ To: job.phone, From: branchConfig.twilioFrom, Body: smsBody }).toString(),
+        const smsTpl = await renderCustomerTemplate(job.company_id, reminderTrigger, "sms", mergeVars);
+        if (smsTpl && !smsTpl.is_active) {
+          console.log(`[reminder-${label}] SMS paused by template job=${job.id}`);
+          await logNotification(job.company_id, job.phone, "sms", reminderTrigger, "suppressed", "template_paused", logMeta);
+        } else {
+          try {
+            const smsBody = smsTpl
+              ? smsTpl.body
+              : hoursAhead === 72
+              ? `Hi ${job.first_name || "there"}, this is Phes confirming your cleaning appointment on ${scheduledDate} with a ${arrivalWindowLabel} arrival window at ${serviceAddress}. Questions? Call us at ${branchConfig.clientPhone}. Reply STOP to unsubscribe.`
+              : `Hi ${job.first_name || "there"}, your Phes cleaning is tomorrow with a ${arrivalWindowLabel} arrival window at ${serviceAddress}. Please ensure access to your home is available. Questions? Call ${branchConfig.clientPhone}. Reply STOP to unsubscribe.`;
+            const smsRes = await fetch(
+              `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString("base64")}`,
+                  "Content-Type": "application/x-www-form-urlencoded",
+                },
+                body: new URLSearchParams({ To: job.phone, From: branchConfig.twilioFrom, Body: smsBody }).toString(),
+              }
+            );
+            if (smsRes.ok) {
+              smsSent = true;
+              await logNotification(job.company_id, job.phone, "sms", reminderTrigger, "sent", null, logMeta);
+            } else {
+              const errText = await smsRes.text();
+              console.error(`[reminder-${label}] Twilio failed for job ${job.id}:`, errText);
+              await logNotification(job.company_id, job.phone, "sms", reminderTrigger, "failed", errText.slice(0, 200), logMeta);
             }
-          );
-          if (smsRes.ok) smsSent = true;
-          else console.error(`[reminder-${label}] Twilio failed for job ${job.id}:`, await smsRes.text());
-        } catch (smsErr) {
-          console.error(`[reminder-${label}] SMS error for job ${job.id}:`, smsErr);
+          } catch (smsErr) {
+            console.error(`[reminder-${label}] SMS error for job ${job.id}:`, smsErr);
+            await logNotification(job.company_id, job.phone, "sms", reminderTrigger, "failed", String(smsErr), logMeta);
+          }
         }
       } else if (job.sms_opt_out_at) {
         console.log(`[reminder-${label}] SMS suppressed (opt-out) job=${job.id}`);
@@ -409,6 +551,287 @@ export async function runReminderCron(daysAhead: number): Promise<void> {
   }
 }
 
+// ── Scheduled customer-message engine (configurable cadence) ──────────────────
+// Generalizes the old fixed 72h/24h reminders into a per-tenant, office-editable
+// set of offset-based messages (before/after the appointment), PLUS any custom
+// messages the office adds. Drives off customer_message_schedules (timing) +
+// notification_templates (copy) and is made idempotent by the job_message_sends
+// ledger — a message fires AT MOST once per (job, key, channel), so restarts,
+// catch-up runs, and overlapping ticks can never double-send. This REPLACES the
+// hardcoded runReminderCron calls in index.ts; runReminderCron is retained only
+// as the copy fallback's historical reference and is no longer scheduled.
+export async function runScheduledJobMessages(): Promise<void> {
+  if (process.env.COMMS_ENABLED !== "true") {
+    console.log("[COMMS BLOCKED] scheduled-messages cron suppressed — COMMS_ENABLED!=true");
+    return;
+  }
+  const { sql: drizzleSql } = await import("drizzle-orm");
+  const { renderCustomerTemplate } = await import("../lib/customer-messages.js");
+
+  // CT "now" (DST-aware), matching the offset math used elsewhere.
+  const now = new Date();
+  const jan = new Date(now.getFullYear(), 0, 1);
+  const jul = new Date(now.getFullYear(), 6, 1);
+  const stdOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+  const isDST = now.getTimezoneOffset() < stdOffset;
+  const ctOffset = isDST ? -5 : -6;
+  const ctNow = new Date(now.getTime() + ctOffset * 3600000 + now.getTimezoneOffset() * 60000);
+  const ctHour = ctNow.getUTCHours();
+  const todayStr = ctNow.toISOString().slice(0, 10);
+
+  const resendKey = process.env.RESEND_API_KEY;
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+
+  let schedules: any[] = [];
+  try {
+    const r = await db.execute(drizzleSql`
+      SELECT s.company_id, s.key, s.label, s.anchor, s.offset_days, s.send_hour, s.channels
+        FROM customer_message_schedules s
+        JOIN companies co ON co.id = s.company_id
+       WHERE s.is_active = true
+         AND s.anchor IN ('before_appointment', 'after_appointment')
+         AND co.comms_enabled = true
+         AND s.offset_days IS NOT NULL`);
+    schedules = (r as any).rows ?? [];
+  } catch (err) {
+    console.error("[scheduled-messages] failed to load schedules:", err);
+    return;
+  }
+
+  // [reminder-diag 2026-06-29] Flow logging so a zero-send run is no longer a
+  // mystery: how many active offset schedules matched, and (below) per schedule
+  // how many candidate jobs were found and how many were skipped as already-sent
+  // by the idempotency ledger. Without this a job bailing BEFORE the per-message
+  // code (no schedules / no jobs / all ledger-skipped) produced no trace at all.
+  console.log(`[scheduled-messages] tick ctHour=${ctHour} today=${todayStr} activeSchedules=${schedules.length} keys=[${schedules.map((s: any) => `${s.key}@co${s.company_id}/h${s.send_hour}`).join(", ")}]`);
+
+  for (const sched of schedules) {
+    try {
+      const offset = Number(sched.offset_days);
+      const sendHour = sched.send_hour == null ? 0 : Number(sched.send_hour);
+      const channels: string[] = Array.isArray(sched.channels) ? sched.channels : [];
+      if (!channels.length || !Number.isFinite(offset)) continue;
+      const isBefore = sched.anchor === "before_appointment";
+      // 1-day catch-up grace for offset >= 2 (a date-based message can fire a day
+      // late). offset 1 ("tomorrow"/"day after") gets NO grace — you can't sensibly
+      // say "tomorrow" once the day has arrived. This mirrors the deployed
+      // reminder behavior (72h fired [today+2,today+3], 24h fired exactly today+1)
+      // and stops a same-day job from collecting both the 3-day and 1-day copy.
+      const lowerOffset = offset >= 2 ? offset - 1 : offset;
+
+      // Candidate jobs in the catch-up window. before: [today+lowerOffset,
+      // today+offset], not yet started; after: [today-offset-1, today-offset],
+      // completed.
+      const rows = await db.execute(
+        isBefore
+          ? drizzleSql`
+              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
+                     j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
+                     j.address_street, j.address_city, j.address_state, j.address_zip,
+                     c.first_name, c.last_name, c.email, c.phone, c.zip,
+                     c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
+                FROM jobs j
+                JOIN clients c ON c.id = j.client_id
+                JOIN companies co ON co.id = j.company_id
+                LEFT JOIN accounts a ON a.id = c.account_id
+               WHERE j.company_id = ${sched.company_id}
+                 AND j.scheduled_date >= (${todayStr}::date + ${lowerOffset}::int)
+                 AND j.scheduled_date <= (${todayStr}::date + ${offset}::int)
+                 AND j.status NOT IN ('cancelled', 'complete')
+                 AND (a.id IS NULL OR a.comms_enabled = true)`
+          : drizzleSql`
+              SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
+                     j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
+                     j.address_street, j.address_city, j.address_state, j.address_zip,
+                     c.first_name, c.last_name, c.email, c.phone, c.zip,
+                     c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
+                FROM jobs j
+                JOIN clients c ON c.id = j.client_id
+                JOIN companies co ON co.id = j.company_id
+                LEFT JOIN accounts a ON a.id = c.account_id
+               WHERE j.company_id = ${sched.company_id}
+                 AND j.scheduled_date <= (${todayStr}::date - ${offset}::int)
+                 AND j.scheduled_date >= (${todayStr}::date - ${offset}::int - 1)
+                 AND j.status = 'complete'
+                 AND (a.id IS NULL OR a.comms_enabled = true)
+                 -- [stale-alert-fix 2026-07-07] A charged cancellation/lockout
+                 -- is stored as status='complete' (fee billed) but NO visit
+                 -- happened — sending the post-visit thank-you/review message
+                 -- for it told cancelled clients they were "still booked".
+                 -- Real completions have no cancel/lockout row in the log.
+                 AND NOT EXISTS (
+                   SELECT 1 FROM cancellation_log cl
+                    WHERE cl.job_id = j.id AND cl.cancel_action IN ('cancel', 'lockout')
+                 )`
+      );
+      const jobs: any[] = (rows as any).rows ?? [];
+      // [reminder-diag 2026-06-29] Per-schedule candidate count + skip tally.
+      let _ledgerSkipped = 0, _hourGated = 0;
+      console.log(`[scheduled-messages] sched=${sched.key} co=${sched.company_id} offset=${offset} sendHour=${sendHour} candidateJobs=${jobs.length}`);
+
+      for (const job of jobs) {
+        // Hour gate ONLY on the exact target day — earlier (a missed prior day,
+        // now caught up) sends immediately so a skipped window self-recovers.
+        const sdate = String(job.sdate).slice(0, 10);
+        const targetStr = isBefore
+          ? new Date(Date.parse(`${todayStr}T00:00:00Z`) + offset * 86400000).toISOString().slice(0, 10)
+          : new Date(Date.parse(`${todayStr}T00:00:00Z`) - offset * 86400000).toISOString().slice(0, 10);
+        if (sdate === targetStr && ctHour < sendHour) { _hourGated++; continue; }
+
+        const jobZip = job.address_zip || job.zip || "";
+        const branchConfig = getBranchByZip(jobZip);
+        const stateZip = [job.address_state, job.address_zip].filter(Boolean).join(" ");
+        const serviceAddress = [job.address_street, job.address_city, stateZip].filter(Boolean).join(", ") || "On file";
+        const arrivalWindowLabel = computeArrivalWindow(job.scheduled_time, job.arrival_window, Number(job.arrival_window_minutes) || ARRIVAL_WINDOW_MINUTES);
+        const vars: Record<string, string> = {
+          first_name: job.first_name || "there",
+          client_name: [job.first_name, job.last_name].filter(Boolean).join(" ") || "there",
+          company_name: job.company_name || "Phes",
+          company_phone: branchConfig.clientPhone,
+          company_email: branchConfig.officeEmail,
+          service_type: labelServiceType(job.service_type),
+          // [appointment-vars 2026-06-29] Emit BOTH naming conventions
+          // (date/appointment_date, time/appointment_time, arrival_window/
+          // appointment_window). The deployed Phes reminder templates use the
+          // appointment_* names; previously this object only set `date` +
+          // `arrival_window` (and no time), so reminders rendered blank dates.
+          // `sdate` is the query's normalized scheduled_date string.
+          ...buildAppointmentVars({ scheduledDate: sdate, scheduledTime: job.scheduled_time, arrivalWindow: arrivalWindowLabel }),
+          service_address: serviceAddress,
+        };
+
+        // [notif-prefs] Resolve this job's preference scope (account vs client)
+        // ONCE per job; the per-channel gate below reuses it. Never throws.
+        const { resolveScopeForClient, isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
+        const prefScope = await resolveScopeForClient(job.client_id);
+
+        for (const channel of channels) {
+          if (channel !== "email" && channel !== "sms") continue;
+          // Ledger guard — the hard idempotency gate. One row = already fired.
+          const led = await db.execute(drizzleSql`
+            SELECT 1 FROM job_message_sends
+             WHERE job_id = ${job.id} AND schedule_key = ${sched.key} AND channel = ${channel} LIMIT 1`);
+          if (((led as any).rows ?? []).length) { _ledgerSkipped++; continue; }
+
+          // [notif-prefs] Per-client/account preference gate — EXTRA filter on
+          // top of the template-active + opt-out checks. Safe default ON; only
+          // an explicit OFF suppresses. Logged as client_pref_off. No ledger row
+          // is written, so flipping the pref back on lets a future run send.
+          const prefOn = await isMessageEnabledForJob({ companyId: job.company_id, scope: prefScope }, sched.key, channel);
+          if (!prefOn) {
+            await logNotification(job.company_id, (channel === "email" ? job.email : job.phone) || "unknown", channel, sched.key, "suppressed", "client_pref_off", { job_id: String(job.id) });
+            continue;
+          }
+
+          const tpl = await renderCustomerTemplate(job.company_id, sched.key, channel as "email" | "sms", vars);
+          if (tpl && !tpl.is_active) continue; // channel paused by office
+          if (!tpl) continue; // no copy row — skip (built-ins always have one)
+
+          if (channel === "email") {
+            // [reminder-send-fix 2026-06-29] Log every skip with its reason. The
+            // old code `continue`d silently, so a missing key or opted-out client
+            // produced ZERO log rows — indistinguishable from "cron never ran".
+            const emailSkip = !resendKey ? "no_resend_key"
+              : !job.email ? "no_recipient_email"
+              : job.email_opt_out_at ? "email_opted_out" : null;
+            if (emailSkip) {
+              await logNotification(job.company_id, job.email || "", "email", sched.key, "suppressed", emailSkip, { job_id: String(job.id) });
+              continue;
+            }
+            try {
+              const htmlBody = /<[a-z][\s\S]*>/i.test(tpl.body) ? tpl.body : tpl.body.replace(/\n/g, "<br>");
+              let emailHtml = wrapEmailHtml(htmlBody, { logoUrl: emailLogoUrl(job.company_logo), companyName: job.company_name });
+              const headers: Record<string, string> = {};
+              if (job.email_unsub_token) {
+                const u = buildUnsubDataFromToken(job.email_unsub_token);
+                Object.assign(headers, u.headers);
+                emailHtml = emailHtml.includes("</body>") ? emailHtml.replace(/<\/body>/i, `${u.footerHtml}</body>`) : emailHtml + u.footerHtml;
+              }
+              await new Resend(resendKey).emails.send({
+                from: `Phes <${branchConfig.officeEmail}>`,
+                replyTo: branchConfig.officeEmail,
+                to: [job.email],
+                subject: tpl.subject || sched.label,
+                html: emailHtml,
+                ...(Object.keys(headers).length ? { headers } : {}),
+              });
+              await recordJobMessageSend(job, sched.key, "email", "sent", job.email);
+              await logNotification(job.company_id, job.email, "email", sched.key, "sent", null, { job_id: String(job.id), subject: tpl.subject || sched.label, body: tpl.body, html: emailHtml });
+            } catch (e) {
+              console.error(`[scheduled-messages] email failed key=${sched.key} job=${job.id}:`, e);
+            }
+          } else {
+            // [reminder-send-fix 2026-06-29] Resolve Twilio creds the SAME way
+            // booking confirmations do — resolveSender (DB creds with env-var
+            // fallback) — instead of reading process.env directly. If the creds
+            // live in the DB but not the process env, the old code hit !accountSid
+            // and skipped SILENTLY: that is why booking confirmations sent while
+            // reminders produced zero with no log trace. Keep the per-branch From
+            // (getBranchByZip) and fall back to the resolved number. Every skip and
+            // every Twilio failure is now logged with a reason.
+            const sender = await resolveSender(job.company_id, null);
+            const smsSkip = sender.reason ? sender.reason
+              : !job.phone ? "no_recipient_phone"
+              : job.sms_opt_out_at ? "sms_opted_out" : null;
+            if (smsSkip) {
+              await logNotification(job.company_id, job.phone || "", "sms", sched.key, "suppressed", smsSkip, { job_id: String(job.id) });
+              continue;
+            }
+            const fromNumber = branchConfig.twilioFrom || sender.from_number!;
+            try {
+              const smsRes = await fetch(
+                `https://api.twilio.com/2010-04-01/Accounts/${sender.account_sid}/Messages.json`,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Basic ${Buffer.from(`${sender.account_sid}:${sender.auth_token}`).toString("base64")}`,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                  },
+                  body: new URLSearchParams({ To: job.phone, From: fromNumber, Body: tpl.body }).toString(),
+                }
+              );
+              if (smsRes.ok) {
+                await recordJobMessageSend(job, sched.key, "sms", "sent", job.phone);
+                await logNotification(job.company_id, job.phone, "sms", sched.key, "sent", null, { job_id: String(job.id), body: tpl.body });
+              } else {
+                const errText = (await smsRes.text()).slice(0, 200);
+                console.error(`[scheduled-messages] twilio failed key=${sched.key} job=${job.id}:`, errText);
+                await logNotification(job.company_id, job.phone, "sms", sched.key, "failed", errText, { job_id: String(job.id) });
+              }
+            } catch (e) {
+              console.error(`[scheduled-messages] sms error key=${sched.key} job=${job.id}:`, e);
+              await logNotification(job.company_id, job.phone, "sms", sched.key, "failed", String((e as any)?.message ?? e).slice(0, 200), { job_id: String(job.id) });
+            }
+          }
+        }
+      }
+      console.log(`[scheduled-messages] sched=${sched.key} co=${sched.company_id} done — ledgerSkipped=${_ledgerSkipped} hourGated=${_hourGated}`);
+    } catch (err) {
+      console.error(`[scheduled-messages] schedule ${sched.key} (co ${sched.company_id}) error:`, err);
+    }
+  }
+}
+
+// Ledger writer — the row that both prevents a re-send and feeds the customer
+// audit trail. ON CONFLICT keeps it idempotent under concurrent ticks.
+async function recordJobMessageSend(
+  job: { id: number; company_id: number; client_id: number | null },
+  scheduleKey: string,
+  channel: string,
+  status: string,
+  recipient: string,
+): Promise<void> {
+  try {
+    await db.execute(sql`
+      INSERT INTO job_message_sends (company_id, job_id, client_id, schedule_key, channel, status, recipient, sent_at)
+      VALUES (${job.company_id}, ${job.id}, ${job.client_id ?? null}, ${scheduleKey}, ${channel}, ${status}, ${recipient}, NOW())
+      ON CONFLICT (job_id, schedule_key, channel) DO NOTHING`);
+  } catch (err) {
+    console.error(`[scheduled-messages] ledger write failed job=${job.id} key=${scheduleKey}:`, err);
+  }
+}
+
 // ── Review request cron ──────────────────────────────────────────────────────
 export async function runReviewRequestCron(): Promise<void> {
   if (process.env.COMMS_ENABLED !== "true") {
@@ -416,23 +839,24 @@ export async function runReviewRequestCron(): Promise<void> {
     return;
   }
   try {
-    const cutoffMs  = 24 * 60 * 60 * 1000;
-    const now       = new Date();
-    const from      = new Date(now.getTime() - cutoffMs - 30 * 60 * 1000); // 24h30m ago
-    const to        = new Date(now.getTime() - cutoffMs + 30 * 60 * 1000); // 23h30m ago
-    const fromStr   = from.toISOString().slice(0, 10);
-
+    // Match jobs SERVICED yesterday (scheduled_date = yesterday). Using
+    // scheduled_date rather than created_at so recurring jobs (booked weeks
+    // in advance) still trigger the review request the morning after service.
+    // The 30-day survey_last_sent throttle prevents double-sends per client.
     const rows = await db.execute(
       (await import("drizzle-orm")).sql`
-        SELECT j.id, j.company_id, j.client_id, j.created_at, j.scheduled_date, j.service_type,
+        SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.service_type,
                c.first_name, c.last_name, c.email, c.phone,
                c.address, c.city, c.state, c.survey_last_sent,
                co.review_link
           FROM jobs j
           JOIN clients c ON c.id = j.client_id
           JOIN companies co ON co.id = j.company_id
+          LEFT JOIN accounts a ON a.id = c.account_id
          WHERE j.status = 'complete'
-           AND DATE(j.created_at) = ${fromStr}
+           AND j.scheduled_date = (CURRENT_DATE - INTERVAL '1 day')::date
+           AND co.comms_enabled = true
+           AND (a.id IS NULL OR a.comms_enabled = true)
            AND (c.survey_last_sent IS NULL OR c.survey_last_sent < NOW() - INTERVAL '30 days')
       `
     );
@@ -442,9 +866,13 @@ export async function runReviewRequestCron(): Promise<void> {
         first_name:  job.first_name || "",
         review_link: job.review_link || "https://g.page/r/phes/review",
         scope:       labelServiceType(job.service_type),
+        service_type: labelServiceType(job.service_type),
+        // [appointment-vars] So a review template referencing the visit date
+        // ({{date}} / {{appointment_date}}) resolves instead of rendering blank.
+        ...buildAppointmentVars({ scheduledDate: job.scheduled_date }),
       };
-      await sendNotification("review_request", "email", job.company_id, job.email, null, mergeVars);
-      await sendNotification("review_request", "sms",   job.company_id, null, job.phone, mergeVars);
+      await sendNotification("review_request", "email", job.company_id, job.email, null, mergeVars, false, undefined, job.client_id);
+      await sendNotification("review_request", "sms",   job.company_id, null, job.phone, mergeVars, false, undefined, job.client_id);
       // Update survey_last_sent
       await db.execute(
         (await import("drizzle-orm")).sql`UPDATE clients SET survey_last_sent = NOW() WHERE id = ${job.client_id}`
@@ -457,8 +885,16 @@ export async function runReviewRequestCron(): Promise<void> {
 }
 
 // ── Helper formatters ─────────────────────────────────────────────────────────
-function formatDate(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
+function formatDate(dateStr: string | Date | null | undefined): string {
+  // [reminder-crash-fix 2026-06-29] Defense in depth: never throw on a null,
+  // undefined, or Date value. A bad date should degrade the label, not crash the
+  // whole reminder run for the tenant.
+  if (!dateStr) return "";
+  const s = dateStr instanceof Date
+    ? `${dateStr.getFullYear()}-${String(dateStr.getMonth() + 1).padStart(2, "0")}-${String(dateStr.getDate()).padStart(2, "0")}`
+    : String(dateStr).slice(0, 10);
+  const [y, m, d] = s.split("-").map(Number);
+  if (!y || !m || !d) return "";
   const dt = new Date(y, m - 1, d);
   return dt.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }
@@ -481,4 +917,45 @@ function formatTimeOffset(timeStr: string, hoursOffset: number): string {
 export function labelServiceType(raw: string | null): string {
   if (!raw) return "Cleaning Service";
   return raw.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+}
+
+// Default arrival window width (start time → start time + N minutes) when a
+// tenant hasn't set companies.arrival_window_minutes. Send paths pass the
+// per-tenant value; this is only the fallback.
+const ARRIVAL_WINDOW_MINUTES = 45;
+
+/**
+ * Compute a human-readable arrival window from a scheduled time.
+ * e.g. "9:00 AM" → "9:00 AM – 9:45 AM" (with ARRIVAL_WINDOW_MINUTES = 45)
+ * Falls back to the legacy morning/afternoon labels if no scheduled_time is set.
+ */
+export function computeArrivalWindow(
+  scheduledTime: string | null | undefined,
+  arrivalWindowStr: string | null | undefined,
+  windowMins: number = ARRIVAL_WINDOW_MINUTES,
+): string {
+  if (scheduledTime) {
+    const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?(?:\s*(AM|PM))?/i.exec(scheduledTime.trim());
+    if (m) {
+      let hh = parseInt(m[1], 10);
+      const mm = parseInt(m[2], 10);
+      const ampm = m[4]?.toUpperCase();
+      if (ampm === "PM" && hh < 12) hh += 12;
+      if (ampm === "AM" && hh === 12) hh = 0;
+      const startMins = hh * 60 + mm;
+      const endMins = startMins + windowMins;
+      const fmtTime = (totalMins: number) => {
+        const h = Math.floor(totalMins / 60) % 24;
+        const m2 = totalMins % 60;
+        const ap = h < 12 ? "AM" : "PM";
+        const h12 = h % 12 || 12;
+        return `${h12}:${String(m2).padStart(2, "0")} ${ap}`;
+      };
+      return `${fmtTime(startMins)} – ${fmtTime(endMins)}`;
+    }
+  }
+  // Legacy fallback when no scheduled_time is stored on the job
+  if (arrivalWindowStr === "morning") return "9:00 AM – 12:00 PM";
+  if (arrivalWindowStr === "afternoon") return "12:00 PM – 2:00 PM";
+  return "scheduled window";
 }

@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, Link } from "wouter";
 import {
   Building2, ChevronLeft, ChevronDown, Plus, Pencil, Trash2, DollarSign,
   MapPin, Users, Phone, Mail, Star, Bell, BellOff, Briefcase,
   TrendingUp, AlertCircle, CheckCircle2, Clock, FileText,
-  CreditCard, Home, Hash,
+  CreditCard, Home, Key, CalendarDays,
 } from "lucide-react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,13 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthHeaders } from "@/lib/auth";
+import { formatInvoiceNumber } from "@/lib/invoice-number";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
+import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { AccountJobsCalendar } from "@/components/account-jobs-calendar";
+import { ActivityFeed } from "@/components/activity-feed";
+import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOffSet, type PrefData } from "@/components/notification-preference-grid";
+import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -80,7 +86,7 @@ const CONTACT_ROLES = [
   { value: "other", label: "Other" },
 ];
 
-type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs";
+type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs" | "invoices" | "activity";
 
 function fmt(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -105,6 +111,80 @@ function statusLabel(s: string) {
   return map[s] ?? s;
 }
 
+// [notif-prefs] Per-account control over which automated customer messages fire,
+// per channel. Applies to every customer/job under the account — the granular
+// companion to the master comms pause above it. When the master switch is OFF,
+// nothing goes out regardless, so the grid is shown disabled with a note.
+function AccountNotificationPreferences({ accountId, commsPaused }: { accountId: string; commsPaused: boolean }) {
+  const { toast } = useToast();
+  const [data, setData] = useState<PrefData | null>(null);
+  const [offs, setOffs] = useState<Set<string>>(new Set());
+  const [baseline, setBaseline] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    try {
+      const r = await fetch(`${API}/api/accounts/${accountId}/notification-preferences`, { headers: getAuthHeaders() });
+      if (!r.ok) return;
+      const d: PrefData = await r.json();
+      setData(d);
+      const initial = offsFromOverrides(d.overrides || {});
+      setOffs(initial);
+      setBaseline(JSON.stringify([...initial].sort()));
+    } catch {}
+  }
+  useEffect(() => { load(); }, [accountId]);
+
+  if (!data) return null;
+  const dirty = JSON.stringify([...offs].sort()) !== baseline;
+  const toggle = (key: string) => setOffs((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+
+  async function save() {
+    if (!data) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/accounts/${accountId}/notification-preferences`, {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
+        body: JSON.stringify({ overrides: buildPrefPayload(data.catalog, offs) }),
+      });
+      if (!r.ok) throw new Error();
+      setBaseline(JSON.stringify([...offs].sort()));
+      toast({ title: "Notification preferences saved for this account" });
+    } catch {
+      toast({ title: "Failed to save notification preferences", variant: "destructive" });
+    }
+    setSaving(false);
+  }
+
+  return (
+    <div className="space-y-3 pt-3 border-t border-gray-100">
+      <div className="flex items-end justify-between flex-wrap gap-2">
+        <div>
+          <p className="text-sm font-medium text-[#0A0E1A]">Per-message preferences</p>
+          <p className="text-xs text-gray-500 mt-0.5 max-w-md">Fine-tune which messages this account receives. Everything is on by default.</p>
+        </div>
+        {!commsPaused && (
+          <div className="flex gap-2">
+            <button onClick={() => setOffs(allOffSet(data.catalog))} className="px-3 py-1.5 text-xs font-semibold text-gray-500 border border-gray-200 rounded-md">Turn all off</button>
+            <button onClick={() => setOffs(new Set())} className="px-3 py-1.5 text-xs font-semibold text-gray-500 border border-gray-200 rounded-md">Reset to all on</button>
+          </div>
+        )}
+      </div>
+      {commsPaused && (
+        <p className="text-xs text-amber-600">All communications are paused above, so nothing goes out regardless of these settings. Resume to use per-message control.</p>
+      )}
+      <NotificationPreferenceGrid catalog={data.catalog} offs={offs} disabled={commsPaused} onToggle={toggle} />
+      {!commsPaused && dirty && (
+        <div className="flex justify-end gap-2">
+          <button onClick={() => setOffs(offsFromOverrides(data.overrides || {}))} className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-md">Cancel</button>
+          <button onClick={save} disabled={saving} className="px-4 py-2 text-sm font-semibold text-white bg-[#00C9A0] rounded-md">{saving ? "Saving…" : "Save preferences"}</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AccountDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
@@ -116,7 +196,50 @@ export default function AccountDetailPage() {
   // Expandable property cards — click to drop down details + last service.
   const [expandedProp, setExpandedProp] = useState<number | null>(null);
   const [propRecent, setPropRecent] = useState<Record<number, any>>({});
-  const [tab, setTab] = useState<Tab>("overview");
+  // [tab-deeplink 2026-07-08] Honor ?tab= (e.g. the job card's "View
+  // schedule" lands on the Calendar tab, not Overview).
+  const [tab, setTab] = useState<Tab>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    const valid: Tab[] = ["overview", "properties", "rate_cards", "contacts", "calendar", "jobs", "invoices", "activity"];
+    return t && (valid as string[]).includes(t) ? (t as Tab) : "overview";
+  });
+  // [account-calendar 2026-07-07] Property preselected on the Calendar tab —
+  // the "View calendar" button on a building's detail card jumps here with
+  // that building filtered, so each property gets its own calendar.
+  const [calendarPropId, setCalendarPropId] = useState<number | null>(null);
+  // [commercial-console] Properties grouped by zone + searchable so big
+  // portfolios (PPM has 45 buildings) read as a few neighborhoods, not an
+  // endless scroll. First slice of the master-detail console.
+  const [propSearch, setPropSearch] = useState("");
+  const [collapsedZones, setCollapsedZones] = useState<Set<string>>(new Set());
+  // [commercial-console slice 3] Pivot the building list by zone / service / tech,
+  // and a one-tap filter to the buildings with an unassigned upcoming visit.
+  const [pivot, setPivot] = useState<"zone" | "service" | "tech">("zone");
+  const [onlyUnassigned, setOnlyUnassigned] = useState(false);
+
+  // [building-notes 2026-07-01] Per-building permanent Office + Cleaner notes,
+  // edited inline on the property detail. Office Notes → property.notes,
+  // Cleaner Notes → property.access_notes (both office-editable via the property
+  // PATCH). The backend pre-fills every job's note boxes for the building and
+  // pushes edits to future jobs, so the office stops copy-pasting.
+  const [bnEditProp, setBnEditProp] = useState<number | null>(null);
+  const [bnOffice, setBnOffice] = useState("");
+  const [bnCleaner, setBnCleaner] = useState("");
+  const [bnSaving, setBnSaving] = useState(false);
+  async function saveBuildingNotes(propId: number) {
+    setBnSaving(true);
+    try {
+      const r = await fetch(`${API}/api/accounts/${id}/properties/${propId}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
+        body: JSON.stringify({ notes: bnOffice.trim() ? bnOffice : null, access_notes: bnCleaner.trim() ? bnCleaner : null }),
+      });
+      if (!r.ok) throw new Error("Failed to save notes");
+      setBnEditProp(null);
+      await load();
+    } catch { /* keep editor open on failure */ }
+    finally { setBnSaving(false); }
+  }
 
   // Rate card
   const [showRateCard, setShowRateCard] = useState(false);
@@ -128,6 +251,16 @@ export default function AccountDetailPage() {
   const [showProperty, setShowProperty] = useState(false);
   const [editProp, setEditProp] = useState<any>(null);
   const [propForm, setPropForm] = useState({ property_name: "", address: "", city: "", state: "IL", zip: "", unit_count: "", property_type: "apartment_building", default_service_type: "", access_notes: "", notes: "" });
+  const propAddrRef = useRef<HTMLInputElement>(null);
+  useAddressAutocomplete(propAddrRef, showProperty, (p) =>
+    setPropForm((f) => ({
+      ...f,
+      address: p.street || f.address,
+      city: p.city || f.city,
+      state: p.state || f.state,
+      zip: p.zip || f.zip,
+    })),
+  );
   const [propSaving, setPropSaving] = useState(false);
 
   // Contact
@@ -141,17 +274,107 @@ export default function AccountDetailPage() {
   });
   const [contactSaving, setContactSaving] = useState(false);
 
+  // [account-billing-edit 2026-07-03] Edit the account's billing settings
+  // (payment method / invoice frequency / payment terms / auto-charge) from the
+  // Overview. Maribel: "we should be able to edit too." Backend PATCH already
+  // accepts these; this is the missing UI.
+  const [showBilling, setShowBilling] = useState(false);
+  const [billingSaving, setBillingSaving] = useState(false);
+  const [billingForm, setBillingForm] = useState<any>({
+    payment_method: "invoice_only", invoice_frequency: "monthly",
+    payment_terms_days: 0, auto_charge_on_completion: false,
+  });
+  function openBilling() {
+    setBillingForm({
+      payment_method: account.payment_method ?? "invoice_only",
+      invoice_frequency: account.invoice_frequency ?? "monthly",
+      payment_terms_days: account.payment_terms_days ?? 0,
+      auto_charge_on_completion: !!account.auto_charge_on_completion,
+    });
+    setShowBilling(true);
+  }
+  async function saveBilling() {
+    setBillingSaving(true);
+    try {
+      const r = await fetch(`${API}/api/accounts/${id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
+        body: JSON.stringify({
+          payment_method: billingForm.payment_method,
+          invoice_frequency: billingForm.invoice_frequency,
+          payment_terms_days: Number(billingForm.payment_terms_days) || 0,
+          auto_charge_on_completion: !!billingForm.auto_charge_on_completion,
+        }),
+      });
+      if (!r.ok) throw new Error();
+      const updated = await r.json();
+      setAccount((prev: any) => ({ ...prev, ...updated }));
+      toast({ title: "Billing settings updated" });
+      setShowBilling(false);
+    } catch {
+      toast({ title: "Failed to update billing settings", variant: "destructive" });
+    }
+    setBillingSaving(false);
+  }
+
   // Invoice generation
   const [generatingInvoice, setGeneratingInvoice] = useState(false);
+  // [account-batch 2026-07-02] Selectable consolidation — pick which visits
+  // (Mon/Tue/…) roll into one invoice. Empty selection = all uninvoiced
+  // (legacy behavior). includeScheduled surfaces upcoming visits to pre-bill.
+  const [selectedJobIds, setSelectedJobIds] = useState<Set<number>>(new Set());
+  const [includeScheduled, setIncludeScheduled] = useState(false);
+  // [pre-bill-month 2026-07-03] When pre-bill is on the recurring horizon dumps
+  // every future visit (KMA = 47 rows to December). Scope the Uninvoiced Jobs
+  // list to one service month so the office bills "July's visits" cleanly.
+  // Only applied while pre-bill is on (completed-only list is short and must
+  // never hide billable work by month). Defaults to the current month.
+  const [jobsMonth, setJobsMonth] = useState(() => new Date().toISOString().slice(0, 7)); // YYYY-MM
+  function shiftJobsMonth(delta: number) {
+    const [y, m] = jobsMonth.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setJobsMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    setSelectedJobIds(new Set()); // avoid carrying a selection across a hidden month
+  }
+  const jobsMonthLabel = (() => {
+    const [y, m] = jobsMonth.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  })();
+  // [account-invoices-month 2026-07-02] Month-filterable invoice list PPM asked for.
+  const [invMonth, setInvMonth] = useState(() => new Date().toISOString().slice(0, 7)); // YYYY-MM
+  const [acctInvoices, setAcctInvoices] = useState<any[]>([]);
+  const [acctInvTotal, setAcctInvTotal] = useState("0.00");
+  const [invLoading, setInvLoading] = useState(false);
+  useEffect(() => {
+    if (tab !== "invoices" || !id) return;
+    setInvLoading(true);
+    fetch(`${API}/api/accounts/${id}/invoices?month=${invMonth}`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : { data: [], total: "0.00" })
+      .then(d => { setAcctInvoices(d.data || []); setAcctInvTotal(d.total || "0.00"); })
+      .catch(() => { setAcctInvoices([]); setAcctInvTotal("0.00"); })
+      .finally(() => setInvLoading(false));
+  }, [tab, id, invMonth]);
+  function shiftMonth(delta: number) {
+    const [y, m] = invMonth.split("-").map(Number);
+    const d = new Date(y, m - 1 + delta, 1);
+    setInvMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  }
+  const monthLabel = (() => {
+    const [y, m] = invMonth.split("-").map(Number);
+    return new Date(y, m - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  })();
 
   async function load() {
     try {
       const ymd = (d: Date) => d.toISOString().slice(0, 10);
       const today = new Date();
       const to = new Date(today.getTime() + 30 * 86400000);
+      // [pre-bill-month 2026-07-03] Only constrain by month while pre-billing —
+      // the completed-only list must never hide billable work by month.
+      const monthParam = includeScheduled ? `&month=${jobsMonth}` : "";
       const [accR, jobsR, upR] = await Promise.all([
         fetch(`${API}/api/accounts/${id}`, { headers: getAuthHeaders() }),
-        fetch(`${API}/api/accounts/${id}/uninvoiced-jobs`, { headers: getAuthHeaders() }),
+        fetch(`${API}/api/accounts/${id}/uninvoiced-jobs?include_scheduled=${includeScheduled}${monthParam}`, { headers: getAuthHeaders() }),
         fetch(`${API}/api/accounts/${id}/jobs-calendar?from=${ymd(today)}&to=${ymd(to)}`, { headers: getAuthHeaders() }),
       ]);
       if (accR.ok) setAccount(await accR.json());
@@ -168,7 +391,44 @@ export default function AccountDetailPage() {
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => { load(); }, [id, includeScheduled, jobsMonth]);
+
+  // [account-comms-toggle] Pause/resume ALL automated SMS+email for this account's
+  // customers (reminders, on-my-way, completion, receipts, review requests).
+  // Optimistic; reverts on failure. Manual invoice sends are unaffected.
+  async function toggleComms(next: boolean) {
+    if (!account) return;
+    const prev = account.comms_enabled;
+    setAccount({ ...account, comms_enabled: next });
+    try {
+      const r = await fetch(`${API}/api/accounts/${id}`, {
+        method: "PATCH",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
+        body: JSON.stringify({ comms_enabled: next }),
+      });
+      if (!r.ok) throw new Error();
+      toast({ title: next ? "Communications resumed for this account" : "Communications paused — no automated texts/emails to this account's customers" });
+    } catch {
+      setAccount({ ...account, comms_enabled: prev });
+      toast({ title: "Failed to update communications setting", variant: "destructive" });
+    }
+  }
+
+  // [commercial-console slice 2] On desktop, auto-select the first building so the
+  // detail pane is populated on arrival. On mobile we leave it on the list (the
+  // detail is a drill-in there).
+  useEffect(() => {
+    if (
+      tab === "properties" &&
+      expandedProp === null &&
+      (account?.properties?.length ?? 0) > 0 &&
+      typeof window !== "undefined" &&
+      window.innerWidth >= 768
+    ) {
+      selectProp(account.properties[0].id);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, account]);
 
   // ─── Rate Cards ──────────────────────────────────────────────────────────
   function openNewRateCard() {
@@ -270,8 +530,13 @@ export default function AccountDetailPage() {
   // Tap a property card to drop down its full details + last service. The
   // last-service lookup is lazy and cached so we only hit the API the first
   // time a card is opened.
-  function toggleProp(propId: number) {
-    setExpandedProp((cur) => (cur === propId ? null : propId));
+  // [commercial-console slice 2] Master-detail select — always selects (never
+  // toggles off) so the right detail pane swaps as you click down the list.
+  function selectProp(propId: number) {
+    setExpandedProp(propId);
+    loadRecent(propId);
+  }
+  function loadRecent(propId: number) {
     if (propRecent[propId] === undefined) {
       setPropRecent((m) => ({ ...m, [propId]: "loading" }));
       fetch(`${API}/api/accounts/${id}/properties/${propId}/recent-job`, { headers: getAuthHeaders() })
@@ -330,17 +595,30 @@ export default function AccountDetailPage() {
   }
 
   // ─── Invoice ─────────────────────────────────────────────────────────────
-  async function generateInvoice() {
+  // [per-job-invoices 2026-07-02] separate=true bills each job as its OWN invoice
+  // (turnovers); default folds the selection into one consolidated bill (common
+  // areas / monthly). Both are billed to the account.
+  async function generateInvoice(separate = false) {
     setGeneratingInvoice(true);
     try {
       const r = await fetch(`${API}/api/accounts/${id}/generate-invoice`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        // Send the picked visits; empty selection = all uninvoiced (legacy).
+        body: JSON.stringify({
+          ...(selectedJobIds.size > 0 ? { job_ids: [...selectedJobIds] } : {}),
+          ...(separate ? { separate: true } : {}),
+        }),
       });
       const data = await r.json();
       if (r.ok) {
-        if (data.invoice) {
+        if (data.separate && data.invoices_created) {
+          toast({ title: `${data.invoices_created} invoice${data.invoices_created === 1 ? "" : "s"} created — one per job` });
+          setSelectedJobIds(new Set());
+          load();
+        } else if (data.invoice) {
           toast({ title: `Invoice created — ${data.jobs_consolidated} job(s) consolidated` });
+          setSelectedJobIds(new Set());
           load();
         } else {
           toast({ title: data.message ?? "No uninvoiced jobs found" });
@@ -381,11 +659,13 @@ export default function AccountDetailPage() {
     { key: "contacts", label: "Contacts", count: account.contacts?.length },
     { key: "calendar", label: "Calendar" },
     { key: "jobs", label: "Uninvoiced Jobs", count: jobs.length },
+    { key: "invoices", label: "Invoices" },
+    { key: "activity", label: "Activity" },
   ];
 
   return (
     <DashboardLayout>
-      <div className="p-6 max-w-5xl mx-auto space-y-5">
+      <div className="space-y-5">
         {/* Header */}
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-3">
@@ -467,7 +747,13 @@ export default function AccountDetailPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Billing Settings */}
             <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Billing</p>
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Billing</p>
+                <button onClick={openBilling}
+                  className="text-xs font-medium text-[#00A886] hover:text-[#00806a]">
+                  Edit
+                </button>
+              </div>
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-500">Payment Method</span>
@@ -494,6 +780,24 @@ export default function AccountDetailPage() {
                   </span>
                 </div>
               </div>
+            </div>
+
+            {/* Communications — pause all automated SMS/email for this account */}
+            <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3 sm:col-span-2">
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Communications</p>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-sm font-medium text-[#0A0E1A]">Automated customer messages</p>
+                  <p className="text-xs text-gray-500 mt-0.5 max-w-md">
+                    Reminders, on-my-way texts, completion &amp; receipt notices, review requests for every customer under this account.
+                    {account.comms_enabled === false
+                      ? " Currently PAUSED — nothing automated goes out. (Manual invoices still send.)"
+                      : " Turn off for property managers (PPM, KMA, …) who don't want the messaging."}
+                  </p>
+                </div>
+                <Switch checked={account.comms_enabled !== false} onCheckedChange={toggleComms} />
+              </div>
+              <AccountNotificationPreferences accountId={String(id)} commsPaused={account.comms_enabled === false} />
             </div>
 
             {/* Activity Summary */}
@@ -549,141 +853,296 @@ export default function AccountDetailPage() {
               )}
             </div>
 
-            {/* Notes */}
+            {/* Account-level notes intentionally removed — permanent notes live
+                per-building now (see the property detail's Office/Tech notes). */}
             {account.notes && (
               <div className="bg-white border border-gray-100 rounded-xl p-4 sm:col-span-2">
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Notes</p>
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Account notes</p>
                 <p className="text-sm text-gray-700 whitespace-pre-wrap">{account.notes}</p>
               </div>
             )}
           </div>
         )}
 
-        {/* ─── PROPERTIES TAB ─────────────────────────────────────────────── */}
-        {tab === "properties" && (
-          <div className="space-y-3">
-            <div className="flex justify-end">
-              <Button onClick={openNewProperty} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2" size="sm">
-                <Plus size={14} /> Add Property
-              </Button>
-            </div>
-            {!account.properties?.length ? (
-              <div className="flex flex-col items-center py-16 text-gray-400 gap-2">
-                <MapPin size={32} strokeWidth={1.5} />
-                <p className="text-sm">No properties yet</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {account.properties.map((p: any) => {
-                  const open = expandedProp === p.id;
-                  const recent = propRecent[p.id];
-                  return (
-                  <div key={p.id} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                    <div
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => toggleProp(p.id)}
-                      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleProp(p.id); } }}
-                      className="flex items-start justify-between p-4 cursor-pointer hover:bg-gray-50/60 transition-colors"
-                    >
-                      <div className="flex items-start gap-3">
-                        <div className="w-8 h-8 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0 mt-0.5">
-                          <Home size={14} className="text-purple-600" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-[#0A0E1A] text-sm">{p.property_name || p.address}</p>
-                          <p className="text-xs text-gray-500 mt-0.5">
-                            {p.address}
-                            {(p.city || p.state || p.zip) && `, ${[p.city, p.state, p.zip].filter(Boolean).join(", ")}`}
-                          </p>
-                          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                            {p.unit_count && (
-                              <span className="text-xs text-gray-500 flex items-center gap-1">
-                                <Hash size={11} /> {p.unit_count} units
-                              </span>
-                            )}
-                            {p.default_service_type && (
-                              <span className="text-xs text-gray-500">
-                                Default: {SERVICE_TYPES.find((s) => s.value === p.default_service_type)?.label ?? p.default_service_type}
-                              </span>
-                            )}
-                          </div>
-                          {p.access_notes && (
-                            <p className="text-xs text-amber-700 bg-amber-50 rounded px-2 py-1 mt-2 max-w-md">
-                              {p.access_notes}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); openEditProperty(p); }}>
-                          <Pencil size={13} className="text-gray-400" />
-                        </Button>
-                        <Button variant="ghost" size="icon" className="h-7 w-7" onClick={(e) => { e.stopPropagation(); deleteProperty(p.id); }}>
-                          <Trash2 size={13} className="text-red-400" />
-                        </Button>
-                        <ChevronDown size={16} className={`text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
-                      </div>
-                    </div>
-
-                    {open && (
-                      <div className="border-t border-gray-100 bg-gray-50/40 px-4 py-3 space-y-3">
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
-                          <Detail label="Property type" value={p.property_type ? (PROPERTY_TYPES.find((t) => t.value === p.property_type)?.label ?? p.property_type) : "—"} />
-                          <Detail label="Units" value={p.unit_count ? `${p.unit_count}` : "—"} />
-                          <Detail
-                            label="Default service"
-                            value={p.default_service_type ? (SERVICE_TYPES.find((s) => s.value === p.default_service_type)?.label ?? p.default_service_type) : "—"}
-                          />
-                          <Detail label="Zone" value={p.zone_name ?? (p.zone_id ? `Zone ${p.zone_id}` : "—")} />
-                          {(p.lat != null && p.lng != null) && (
-                            <Detail label="Map location" value={`${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}`} />
-                          )}
-                        </div>
-
-                        {p.notes && (
-                          <div>
-                            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Notes</p>
-                            <p className="text-xs text-gray-700 whitespace-pre-wrap">{p.notes}</p>
-                          </div>
-                        )}
-
-                        <div>
-                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Last service</p>
-                          {recent === undefined || recent === "loading" ? (
-                            <p className="text-xs text-gray-400">Loading…</p>
-                          ) : recent && recent !== "none" ? (
-                            <div className="flex items-center justify-between bg-white border border-gray-100 rounded-lg px-3 py-2">
-                              <div>
-                                <p className="text-xs font-medium text-[#0A0E1A]">
-                                  {SERVICE_TYPES.find((s) => s.value === recent.service_type)?.label ?? recent.service_type}
-                                </p>
-                                <p className="text-[11px] text-gray-500 mt-0.5">
-                                  {recent.scheduled_date ? new Date(recent.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
-                                  {recent.frequency && recent.frequency !== "one_time" ? ` · ${recent.frequency}` : ""}
-                                </p>
-                              </div>
-                              <span className="text-xs font-semibold text-[#00C9A0]">
-                                {recent.billing_method === "hourly" && recent.hourly_rate
-                                  ? `${fmtDecimal(parseFloat(recent.hourly_rate))}/hr`
-                                  : recent.base_fee != null
-                                  ? fmtDecimal(parseFloat(recent.base_fee))
-                                  : "—"}
-                              </span>
-                            </div>
-                          ) : (
-                            <p className="text-xs text-gray-400">No service history yet</p>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  );
-                })}
-              </div>
-            )}
+        {/* [team-photo-notes] Sticky pictures + notes for the whole account —
+            surface on every job for this account so the team always has the
+            context (gate codes, parking, contacts). */}
+        {tab === "overview" && (
+          <div className="bg-white border border-gray-100 rounded-xl p-4">
+            <TeamPhotoNotes accountId={Number(id)} title="Team Photos & Notes (shown on every job for this account)" />
           </div>
         )}
+
+        {/* ─── PROPERTIES TAB ─────────────────────────────────────────────── */}
+        {tab === "properties" && (() => {
+          const allProps = account.properties || [];
+          // [slice 3] Per-building next visit + tech from the upcoming-jobs calendar
+          // (already sorted, so the first hit per property is the soonest visit).
+          const nextByProp: Record<number, any> = {};
+          for (const j of upcoming) { const pid = j.account_property_id; if (pid && !nextByProp[pid]) nextByProp[pid] = j; }
+          const unassignedCount = upcoming.filter((j: any) => !j.tech_first_name).length;
+          const techOf = (pp: any) => { const nj = nextByProp[pp.id]; return nj?.tech_first_name ? `${nj.tech_first_name} ${nj.tech_last_name || ""}`.trim() : null; };
+          const groupKey = (pp: any) => {
+            if (pivot === "service") { const s = nextByProp[pp.id]?.service_type || pp.default_service_type; return s ? (SERVICE_TYPES.find((x) => x.value === s)?.label ?? s) : "No service set"; }
+            if (pivot === "tech") return techOf(pp) || "Unassigned";
+            return pp.zone_name || "Unzoned";
+          };
+          const q = propSearch.trim().toLowerCase();
+          let filtered = allProps.filter((pp: any) => !q || `${pp.property_name || ""} ${pp.address || ""} ${pp.city || ""} ${pp.zip || ""} ${pp.zone_name || ""}`.toLowerCase().includes(q));
+          if (onlyUnassigned) filtered = filtered.filter((pp: any) => { const nj = nextByProp[pp.id]; return nj && !nj.tech_first_name; });
+          const groups: Record<string, any[]> = {};
+          for (const pp of filtered) { const k = groupKey(pp); (groups[k] = groups[k] || []).push(pp); }
+          const items: any[] = [];
+          for (const z of Object.keys(groups).sort()) { items.push({ __zone: z, __count: groups[z].length }); if (!collapsedZones.has(z)) items.push(...groups[z]); }
+          const selected = allProps.find((pp: any) => pp.id === expandedProp) || null;
+          return (
+            <div className="space-y-3">
+              {/* [slice 3] exceptions strip — what needs you first */}
+              {(unassignedCount > 0 || jobs.length > 0) && (
+                <div className="flex flex-wrap gap-2">
+                  {unassignedCount > 0 && (
+                    <button onClick={() => setOnlyUnassigned((v) => !v)}
+                      className={`text-xs font-medium px-3 py-1.5 rounded-full transition-colors ${onlyUnassigned ? "bg-red-600 text-white" : "bg-red-50 text-red-700 hover:bg-red-100"}`}>
+                      {unassignedCount} unassigned{onlyUnassigned ? " · clear" : ""}
+                    </button>
+                  )}
+                  {jobs.length > 0 && (
+                    <button onClick={() => setTab("jobs")}
+                      className="text-xs font-medium px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 hover:bg-amber-100">
+                      {jobs.length} uninvoiced
+                    </button>
+                  )}
+                </div>
+              )}
+              {/* [slice 2] Master-detail: building list left, inline detail right —
+                  pick a building, it loads on the right, never navigate away. */}
+              <div className="md:grid md:grid-cols-[300px_minmax(0,1fr)] md:gap-4 md:items-start">
+              {/* LEFT — building list */}
+              <div className={selected ? "hidden md:block" : "block"}>
+                <div className="flex items-center gap-2 mb-2">
+                  <input
+                    value={propSearch}
+                    onChange={(e) => setPropSearch(e.target.value)}
+                    placeholder={`Search ${allProps.length} buildings…`}
+                    className="flex-1 h-9 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-[#00C9A0]"
+                  />
+                  <Button onClick={openNewProperty} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-1.5 flex-shrink-0" size="sm">
+                    <Plus size={14} /> Add
+                  </Button>
+                </div>
+                {/* [slice 3] pivot the list by zone / service / cleaner */}
+                <div className="flex gap-0.5 mb-2 bg-gray-100 rounded-lg p-0.5">
+                  {([["zone", "Zone"], ["service", "Service"], ["tech", "Cleaner"]] as const).map(([k, lbl]) => (
+                    <button key={k} onClick={() => { setPivot(k); setCollapsedZones(new Set()); }}
+                      className={`flex-1 text-[11px] font-medium py-1 rounded-md transition-colors ${pivot === k ? "bg-white text-[#0A0E1A] shadow-sm" : "text-gray-500 hover:text-gray-700"}`}>
+                      {lbl}
+                    </button>
+                  ))}
+                </div>
+                {!allProps.length ? (
+                  <div className="flex flex-col items-center py-16 text-gray-400 gap-2">
+                    <MapPin size={32} strokeWidth={1.5} />
+                    <p className="text-sm">No properties yet</p>
+                  </div>
+                ) : !filtered.length ? (
+                  <div className="py-10 text-center text-sm text-gray-400">No buildings match.</div>
+                ) : (
+                  <div className="bg-white border border-gray-100 rounded-xl overflow-hidden md:max-h-[72vh] md:overflow-auto">
+                    {items.map((p: any) => {
+                      if (p.__zone) {
+                        const collapsed = collapsedZones.has(p.__zone);
+                        return (
+                          <div key={`z-${p.__zone}`} role="button" tabIndex={0}
+                            onClick={() => setCollapsedZones((prev) => { const n = new Set(prev); if (n.has(p.__zone)) n.delete(p.__zone); else n.add(p.__zone); return n; })}
+                            className="flex items-center gap-2 px-3 pt-3 pb-1.5 cursor-pointer select-none bg-gray-50/40">
+                            <ChevronDown size={13} className={`text-gray-400 transition-transform ${collapsed ? "-rotate-90" : ""}`} />
+                            <span className="text-xs font-semibold text-gray-600">{p.__zone}</span>
+                            <span className="text-[10px] text-gray-400 bg-gray-100 rounded-full px-2 py-0.5">{p.__count}</span>
+                          </div>
+                        );
+                      }
+                      const sel = expandedProp === p.id;
+                      return (
+                        <div key={p.id} role="button" tabIndex={0}
+                          onClick={() => selectProp(p.id)}
+                          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectProp(p.id); } }}
+                          className={`flex items-center gap-2.5 px-3 py-2.5 cursor-pointer transition-colors border-l-2 ${sel ? "bg-[#F1FBF8] border-[#00C9A0]" : "border-transparent hover:bg-gray-50"}`}>
+                          <div className="w-7 h-7 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+                            <Home size={13} className="text-purple-600" />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-sm text-[#0A0E1A] truncate">{p.property_name || p.address}</p>
+                            <p className="text-xs text-gray-500 truncate">{[p.address, p.city].filter(Boolean).join(", ")}</p>
+                          </div>
+                          {p.unit_count ? <span className="text-[11px] text-gray-400 flex-shrink-0">{p.unit_count}u</span> : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* RIGHT — selected building detail */}
+              <div className={selected ? "block mt-3 md:mt-0" : "hidden md:block"}>
+                {!selected ? (
+                  <div className="hidden md:flex flex-col items-center justify-center py-24 text-gray-300 gap-2 border border-dashed border-gray-200 rounded-xl">
+                    <Building2 size={28} strokeWidth={1.5} />
+                    <p className="text-sm text-gray-400">Select a building to see its details</p>
+                  </div>
+                ) : (() => {
+                  const p = selected;
+                  const recent = propRecent[p.id];
+                  return (
+                    <div className="bg-white border border-gray-100 rounded-xl p-4 md:p-5">
+                      <button onClick={() => setExpandedProp(null)} className="md:hidden flex items-center gap-1 text-xs text-gray-500 mb-3">
+                        <ChevronLeft size={14} /> All buildings
+                      </button>
+                      <div className="flex items-start justify-between mb-4">
+                        <div className="flex items-start gap-3 min-w-0">
+                          <div className="w-9 h-9 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
+                            <Home size={16} className="text-purple-600" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-[#0A0E1A]">{p.property_name || p.address}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                              {p.address}{(p.city || p.state || p.zip) && `, ${[p.city, p.state, p.zip].filter(Boolean).join(", ")}`}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {/* [account-calendar 2026-07-07] This building's own
+                              calendar — jumps to the Calendar tab pre-filtered
+                              to this property. */}
+                          <Button variant="ghost" size="sm" className="h-7 gap-1 px-2 text-xs text-gray-500"
+                            onClick={() => { setCalendarPropId(p.id); setTab("calendar"); }}>
+                            <CalendarDays size={13} /> Calendar
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => openEditProperty(p)}>
+                            <Pencil size={13} className="text-gray-400" />
+                          </Button>
+                          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => deleteProperty(p.id)}>
+                            <Trash2 size={13} className="text-red-400" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* [slice 3/4] next visit + assigned cleaner, from the calendar */}
+                      {(() => {
+                        const nj = nextByProp[p.id];
+                        return (
+                          <div className="flex gap-2 mb-4">
+                            <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2">
+                              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Next visit</p>
+                              <p className="text-sm font-semibold text-[#0A0E1A] mt-0.5">
+                                {nj?.scheduled_date
+                                  ? new Date(nj.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
+                                  : "—"}
+                                {nj?.scheduled_time ? <span className="text-xs font-normal text-gray-500"> · {String(nj.scheduled_time).slice(0, 5)}</span> : null}
+                              </p>
+                            </div>
+                            <div className="flex-1 bg-gray-50 rounded-lg px-3 py-2">
+                              <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Cleaner</p>
+                              {nj && !nj.tech_first_name ? (
+                                <p className="text-sm font-semibold text-red-600 mt-0.5">Unassigned</p>
+                              ) : (
+                                <p className="text-sm font-semibold text-[#0A0E1A] mt-0.5">{techOf(p) || "—"}</p>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      <div className="grid grid-cols-2 lg:grid-cols-4 gap-x-4 gap-y-2.5 mb-4">
+                        <Detail label="Property type" value={p.property_type ? (PROPERTY_TYPES.find((t) => t.value === p.property_type)?.label ?? p.property_type) : "—"} />
+                        <Detail label="Units" value={p.unit_count ? `${p.unit_count}` : "—"} />
+                        <Detail label="Default service" value={p.default_service_type ? (SERVICE_TYPES.find((s) => s.value === p.default_service_type)?.label ?? p.default_service_type) : "—"} />
+                        <Detail label="Zone" value={p.zone_name ?? (p.zone_id ? `Zone ${p.zone_id}` : "—")} />
+                        {(p.lat != null && p.lng != null) && (
+                          <Detail label="Map location" value={`${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}`} />
+                        )}
+                      </div>
+
+                      {/* [building-notes 2026-07-01] Permanent per-building notes.
+                          Office → job Office Notes; Cleaner → job Cleaner Notes.
+                          Auto-filled onto every job for this building by the API. */}
+                      <div className="mb-4 bg-gray-50/60 border border-gray-100 rounded-xl p-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Permanent building notes</p>
+                          {bnEditProp !== p.id && (
+                            <button onClick={() => { setBnOffice(p.notes || ""); setBnCleaner(p.access_notes || ""); setBnEditProp(p.id); }}
+                              className="text-xs font-semibold text-[#00C9A0] hover:underline">
+                              {(p.notes || p.access_notes) ? "Edit" : "+ Add notes"}
+                            </button>
+                          )}
+                        </div>
+                        <p className="text-[11px] text-gray-400 mb-2">Auto-fills every job's note boxes for this building — no more copy-paste.</p>
+                        {bnEditProp === p.id ? (
+                          <div className="space-y-2">
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-500 mb-1">OFFICE NOTES <span className="font-normal text-gray-400">· office only</span></p>
+                              <textarea rows={2} value={bnOffice} onChange={(e) => setBnOffice(e.target.value)} placeholder="e.g. NET 30, bill monthly, main contact Hugo" className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-none focus:border-[#00C9A0] resize-y" />
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-500 mb-1">CLEANER NOTES <span className="font-normal text-gray-400">· the cleaner sees this</span></p>
+                              <textarea rows={2} value={bnCleaner} onChange={(e) => setBnCleaner(e.target.value)} placeholder="e.g. lockbox 4417, park in rear, gate code 2247" className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-none focus:border-[#00C9A0] resize-y" />
+                            </div>
+                            <div className="flex gap-2">
+                              <button onClick={() => saveBuildingNotes(p.id)} disabled={bnSaving} className="px-3 py-1.5 rounded-lg bg-[#00C9A0] text-white text-xs font-semibold disabled:opacity-60">{bnSaving ? "Saving…" : "Save & apply to jobs"}</button>
+                              <button onClick={() => setBnEditProp(null)} disabled={bnSaving} className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold">Cancel</button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-500 mb-0.5">Office</p>
+                              {p.notes ? <p className="text-xs text-gray-700 whitespace-pre-wrap">{p.notes}</p> : <p className="text-xs text-gray-400 italic">None</p>}
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-semibold text-gray-500 mb-0.5">Cleaner</p>
+                              {p.access_notes ? <p className="text-xs text-amber-800 bg-amber-50 rounded px-2 py-1 flex items-start gap-1.5"><Key size={12} className="mt-0.5 flex-shrink-0" />{p.access_notes}</p> : <p className="text-xs text-gray-400 italic">None</p>}
+                            </div>
+                          </div>
+                        )}
+                        <div className="mt-3 pt-3 border-t border-gray-100">
+                          <TeamPhotoNotes accountId={Number(id)} accountPropertyId={p.id} title="Building photos & notes (shown on every job here)" />
+                        </div>
+                      </div>
+
+                      <div>
+                        <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Last service</p>
+                        {recent === undefined || recent === "loading" ? (
+                          <p className="text-xs text-gray-400">Loading…</p>
+                        ) : recent && recent !== "none" ? (
+                          <div className="flex items-center justify-between bg-gray-50/60 border border-gray-100 rounded-lg px-3 py-2">
+                            <div>
+                              <p className="text-xs font-medium text-[#0A0E1A]">
+                                {SERVICE_TYPES.find((s) => s.value === recent.service_type)?.label ?? recent.service_type}
+                              </p>
+                              <p className="text-[11px] text-gray-500 mt-0.5">
+                                {recent.scheduled_date ? new Date(recent.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                                {recent.frequency && recent.frequency !== "one_time" ? ` · ${recent.frequency}` : ""}
+                              </p>
+                            </div>
+                            <span className="text-xs font-semibold text-[#00C9A0]">
+                              {recent.billing_method === "hourly" && recent.hourly_rate
+                                ? `${fmtDecimal(parseFloat(recent.hourly_rate))}/hr`
+                                : recent.base_fee != null
+                                ? fmtDecimal(parseFloat(recent.base_fee))
+                                : "—"}
+                            </span>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-400">No service history yet</p>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+            </div>
+          );
+        })()}
 
         {/* ─── RATE CARDS TAB ─────────────────────────────────────────────── */}
         {tab === "rate_cards" && (
@@ -816,36 +1275,77 @@ export default function AccountDetailPage() {
 
         {/* ─── CALENDAR TAB ────────────────────────────────────────────────── */}
         {tab === "calendar" && id && (
-          <AccountJobsCalendar accountId={id} />
+          <AccountJobsCalendar accountId={id} initialPropertyId={calendarPropId} />
         )}
 
         {/* ─── JOBS TAB ────────────────────────────────────────────────────── */}
         {tab === "jobs" && (
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-gray-500">{jobs.length} uninvoiced completed {jobs.length === 1 ? "job" : "jobs"}</p>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-3 flex-wrap">
+                <p className="text-sm text-gray-500">{jobs.length} {includeScheduled ? "billable" : "uninvoiced completed"} {jobs.length === 1 ? "job" : "jobs"}</p>
+                <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer select-none">
+                  <input type="checkbox" checked={includeScheduled} onChange={e => { setIncludeScheduled(e.target.checked); setSelectedJobIds(new Set()); }} />
+                  Include upcoming (pre-bill)
+                </label>
+                {/* [pre-bill-month 2026-07-03] Month scope for the pre-bill list —
+                    only shown while pre-billing (completed-only list needs no window). */}
+                {includeScheduled && (
+                  <div className="flex items-center gap-1.5">
+                    <button onClick={() => shiftJobsMonth(-1)} aria-label="Previous month" className="w-7 h-7 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">‹</button>
+                    <span className="text-xs font-semibold text-[#0A0E1A] min-w-[120px] text-center">{jobsMonthLabel}</span>
+                    <button onClick={() => shiftJobsMonth(1)} aria-label="Next month" className="w-7 h-7 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">›</button>
+                  </div>
+                )}
+              </div>
               {jobs.length > 0 && (
-                <Button
-                  className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2"
-                  size="sm"
-                  onClick={generateInvoice}
-                  disabled={generatingInvoice}
-                >
-                  <FileText size={14} />
-                  {generatingInvoice ? "Generating..." : "Generate Invoice"}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2 border-[#00C9A0] text-[#00A886] hover:bg-[#00C9A0]/5"
+                    onClick={() => generateInvoice(true)}
+                    disabled={generatingInvoice}
+                    title="Create one invoice per job — bill each turnover separately"
+                  >
+                    <FileText size={14} />
+                    {generatingInvoice ? "Working..." : `Invoice each separately (${selectedJobIds.size > 0 ? selectedJobIds.size : jobs.length})`}
+                  </Button>
+                  <Button
+                    className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2"
+                    size="sm"
+                    onClick={() => generateInvoice(false)}
+                    disabled={generatingInvoice}
+                    title="Fold the selection into one consolidated invoice — for monthly common-areas billing"
+                  >
+                    <FileText size={14} />
+                    {generatingInvoice
+                      ? "Generating..."
+                      : selectedJobIds.size > 0
+                        ? `Consolidate ${selectedJobIds.size}`
+                        : "Consolidate all"}
+                  </Button>
+                </div>
               )}
             </div>
             {!jobs.length ? (
               <div className="flex flex-col items-center py-16 text-gray-400 gap-2">
                 <CheckCircle2 size={32} strokeWidth={1.5} className="text-[#00C9A0]" />
-                <p className="text-sm">All jobs are invoiced</p>
+                <p className="text-sm">{includeScheduled ? `No billable visits in ${jobsMonthLabel}` : "All jobs are invoiced"}</p>
               </div>
             ) : (
               <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-gray-100 bg-gray-50">
+                      <th className="px-4 py-2.5 w-8">
+                        <input
+                          type="checkbox"
+                          aria-label="Select all visits"
+                          checked={jobs.length > 0 && selectedJobIds.size === jobs.length}
+                          onChange={e => setSelectedJobIds(e.target.checked ? new Set(jobs.map((j: any) => j.id)) : new Set())}
+                        />
+                      </th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Date</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Service</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Billing</th>
@@ -857,6 +1357,18 @@ export default function AccountDetailPage() {
                       const amount = j.billed_amount ? parseFloat(j.billed_amount) : parseFloat(j.base_fee ?? "0");
                       return (
                         <tr key={j.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3">
+                            <input
+                              type="checkbox"
+                              aria-label={`Select visit ${j.scheduled_date}`}
+                              checked={selectedJobIds.has(j.id)}
+                              onChange={e => setSelectedJobIds(prev => {
+                                const next = new Set(prev);
+                                if (e.target.checked) next.add(j.id); else next.delete(j.id);
+                                return next;
+                              })}
+                            />
+                          </td>
                           <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{j.scheduled_date}</td>
                           <td className="px-4 py-3 font-medium text-[#0A0E1A]">
                             {SERVICE_TYPES.find((s) => s.value === j.service_type)?.label ?? j.service_type?.replace(/_/g, " ")}
@@ -878,15 +1390,97 @@ export default function AccountDetailPage() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t border-gray-100 bg-gray-50">
-                      <td colSpan={3} className="px-4 py-2.5 text-sm font-semibold text-gray-500">Total</td>
+                      <td colSpan={4} className="px-4 py-2.5 text-sm font-semibold text-gray-500">
+                        {selectedJobIds.size > 0 ? `Total (${selectedJobIds.size} selected)` : "Total"}
+                      </td>
                       <td className="px-4 py-2.5 text-right text-sm font-bold text-[#00C9A0]">
-                        {fmtDecimal(jobs.reduce((s: number, j: any) => s + (j.billed_amount ? parseFloat(j.billed_amount) : parseFloat(j.base_fee ?? "0")), 0))}
+                        {fmtDecimal((selectedJobIds.size > 0 ? jobs.filter((j: any) => selectedJobIds.has(j.id)) : jobs)
+                          .reduce((s: number, j: any) => s + (j.billed_amount ? parseFloat(j.billed_amount) : parseFloat(j.base_fee ?? "0")), 0))}
                       </td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ─── INVOICES TAB (month-filterable) ──────────────────────────────── */}
+        {tab === "invoices" && (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <button onClick={() => shiftMonth(-1)} aria-label="Previous month" className="w-8 h-8 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">‹</button>
+                <span className="text-sm font-semibold text-[#0A0E1A] min-w-[150px] text-center">{monthLabel}</span>
+                <button onClick={() => shiftMonth(1)} aria-label="Next month" className="w-8 h-8 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">›</button>
+              </div>
+              <p className="text-sm text-gray-500">
+                {acctInvoices.length} invoice{acctInvoices.length === 1 ? "" : "s"} · <span className="font-semibold text-[#00C9A0]">{fmtDecimal(parseFloat(acctInvTotal))}</span>
+              </p>
+            </div>
+            {invLoading ? (
+              <div className="py-16 text-center text-gray-400 text-sm">Loading…</div>
+            ) : !acctInvoices.length ? (
+              <div className="flex flex-col items-center py-16 text-gray-400 gap-2">
+                <FileText size={32} strokeWidth={1.5} />
+                <p className="text-sm">No invoices in {monthLabel}</p>
+              </div>
+            ) : (
+              <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-100 bg-gray-50">
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Date</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Invoice</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Description</th>
+                      <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+                      <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Amount</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-50">
+                    {acctInvoices.map((inv: any) => {
+                      const desc = Array.isArray(inv.line_items) && inv.line_items[0]?.description ? inv.line_items[0].description : "—";
+                      const st = String(inv.status || "");
+                      // [auto-issue 2026-07-08] sent-with-no-sent_at = auto-issued
+                      // at completion, never emailed — never label it "sent".
+                      const stLabel = st === "sent" && !inv.sent_at ? "issued" : st;
+                      const stCls = st === "paid" ? "bg-green-50 text-green-700" : st === "sent" ? "bg-blue-50 text-blue-700" : st === "overdue" ? "bg-red-50 text-red-700" : "bg-gray-100 text-gray-500";
+                      return (
+                        <tr key={inv.id} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{inv.service_date}</td>
+                          <td className="px-4 py-3 font-medium whitespace-nowrap">
+                            <Link href={`/invoices/${inv.id}`} className="text-[#00A886] hover:underline">{formatInvoiceNumber(inv)}</Link>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500 truncate max-w-[280px] hidden sm:table-cell">{desc}</td>
+                          <td className="px-4 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded uppercase ${stCls}`}>{stLabel}</span></td>
+                          <td className="px-4 py-3 text-right font-semibold text-[#00C9A0]">{fmtDecimal(parseFloat(inv.total || "0"))}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-gray-100 bg-gray-50">
+                      <td colSpan={4} className="px-4 py-2.5 text-sm font-semibold text-gray-500">Total — {monthLabel}</td>
+                      <td className="px-4 py-2.5 text-right text-sm font-bold text-[#00C9A0]">{fmtDecimal(parseFloat(acctInvTotal))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* [account-activity 2026-07-07] Same audit feed the client profile
+            has — jobs, reschedules, cancellations, messages, and the invoice
+            created/sent trail, so the office can verify invoices actually
+            went out (or see exactly why one was suppressed). */}
+        {tab === "activity" && id && (
+          <div className="bg-white border border-gray-100 rounded-xl p-5">
+            <ActivityFeed
+              endpoint={`/api/accounts/${id}/activity?limit=200`}
+              queryKey={["account-activity", id]}
+              introText="Every recorded action on this account — jobs, reschedules, cancellations, messages, and invoices (created / sent / suppressed) — with who and when."
+            />
           </div>
         )}
       </div>
@@ -958,6 +1552,60 @@ export default function AccountDetailPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ─── Billing Settings Dialog ────────────────────────────────────────── */}
+      <Dialog open={showBilling} onOpenChange={setShowBilling}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Edit Billing Settings</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <Label>Payment Method</Label>
+              <Select value={billingForm.payment_method} onValueChange={(v) => setBillingForm({ ...billingForm, payment_method: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {PAYMENT_METHODS.map((m) => <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <Label>Invoice Frequency</Label>
+                <Select value={billingForm.invoice_frequency} onValueChange={(v) => setBillingForm({ ...billingForm, invoice_frequency: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {INVOICE_FREQ.map((f) => <SelectItem key={f.value} value={f.value}>{f.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label>Payment Terms</Label>
+                <Select value={String(billingForm.payment_terms_days)} onValueChange={(v) => setBillingForm({ ...billingForm, payment_terms_days: Number(v) })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">Due on receipt</SelectItem>
+                    <SelectItem value="7">NET 7</SelectItem>
+                    <SelectItem value="15">NET 15</SelectItem>
+                    <SelectItem value="30">NET 30</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none pt-1">
+              <input type="checkbox" checked={billingForm.auto_charge_on_completion}
+                onChange={(e) => setBillingForm({ ...billingForm, auto_charge_on_completion: e.target.checked })} />
+              Auto-charge card on completion
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBilling(false)}>Cancel</Button>
+            <Button className="bg-[#00C9A0] hover:bg-[#00b38f] text-white" onClick={saveBilling} disabled={billingSaving}>
+              {billingSaving ? "Saving..." : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* ─── Property Dialog ────────────────────────────────────────────────── */}
       <Dialog open={showProperty} onOpenChange={setShowProperty}>
         <DialogContent className="sm:max-w-lg">
@@ -972,7 +1620,7 @@ export default function AccountDetailPage() {
               </div>
               <div className="space-y-1.5 col-span-2">
                 <Label>Street Address *</Label>
-                <Input placeholder="4801 W 95th St" value={propForm.address} onChange={(e) => setPropForm({ ...propForm, address: e.target.value })} />
+                <Input ref={propAddrRef} placeholder="4801 W 95th St" value={propForm.address} onChange={(e) => setPropForm({ ...propForm, address: e.target.value })} />
               </div>
               <div className="space-y-1.5">
                 <Label>City</Label>

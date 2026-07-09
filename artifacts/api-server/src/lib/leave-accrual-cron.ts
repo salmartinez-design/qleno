@@ -17,6 +17,7 @@ import { db } from "@workspace/db";
 import { companyLeavePolicyTable } from "@workspace/db/schema";
 import { eq } from "drizzle-orm";
 import { reconcileCompanyLeaveBalances } from "./leave-reconcile.js";
+import { notifyResetsApplied, notifyUpcomingResets } from "./leave-reset-notify.js";
 
 export const LEAVE_ACCRUAL_ENABLED =
   process.env.LEAVE_ACCRUAL_ENABLED === "true";
@@ -30,6 +31,8 @@ export type LeaveAccrualRunSummary = {
 
 export async function runLeaveAccrualCron(
   asOf: string,
+  // Provenance label for the audit trail ('cron' | 'boot'). [leave-log]
+  source: string = "cron",
 ): Promise<LeaveAccrualRunSummary[]> {
   if (!LEAVE_ACCRUAL_ENABLED) {
     console.log(
@@ -47,6 +50,7 @@ export async function runLeaveAccrualCron(
     try {
       const plan = await reconcileCompanyLeaveBalances(t.company_id, asOf, {
         dryRun: false,
+        source,
       });
       const row: LeaveAccrualRunSummary = {
         company_id: t.company_id,
@@ -58,6 +62,19 @@ export async function runLeaveAccrualCron(
       console.log(
         `[cron] leave_accrual co${row.company_id}: ${row.initial_grant} granted, ${row.annual_reset} reset, ${row.tier_topup} tier-topup`,
       );
+      // Office alerts (in-app/bell). Best-effort — a notify failure must not
+      // roll back the balances the reconcile already persisted.
+      try {
+        const applied = await notifyResetsApplied(t.company_id, plan);
+        const upcoming = await notifyUpcomingResets(t.company_id, asOf);
+        if (applied || upcoming) {
+          console.log(
+            `[cron] leave_accrual co${t.company_id} notify: ${applied} reset-applied, ${upcoming} upcoming-heads-up`,
+          );
+        }
+      } catch (e) {
+        console.error(`[cron] leave_accrual co${t.company_id} notify error:`, e);
+      }
     } catch (e) {
       console.error(`[cron] leave_accrual co${t.company_id} error:`, e);
     }

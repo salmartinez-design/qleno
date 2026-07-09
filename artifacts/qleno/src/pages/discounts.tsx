@@ -97,7 +97,16 @@ export default function DiscountsPage() {
         scope: form.scope,
       };
       if (form.max_uses) body.max_uses = parseInt(form.max_uses);
-      if (form.expires_at) body.expires_at = new Date(form.expires_at).toISOString();
+      // [date-tz-fix] expires_at is a date-only "YYYY-MM-DD" from the picker.
+      // new Date(d) parses it as UTC midnight, which is the evening BEFORE in
+      // US Central, so the discount expired a day early. Anchor to end of the
+      // chosen day in local time so it stays valid through that whole day.
+      if (form.expires_at) {
+        const v = form.expires_at;
+        body.expires_at = /^\d{4}-\d{2}-\d{2}$/.test(v)
+          ? new Date(v + "T23:59:59").toISOString()
+          : new Date(v).toISOString();
+      }
 
       const res = await fetch('/api/discounts', {
         method: 'POST',
@@ -161,7 +170,7 @@ export default function DiscountsPage() {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
-            <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '42px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Discounts</h1>
+            <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Discounts</h1>
             <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', marginTop: '6px' }}>Create and manage promo codes and discount rules.</p>
           </div>
           <button

@@ -5,6 +5,7 @@ import { useAuthStore } from "@/lib/auth";
 import { useLocation, Link } from "wouter";
 import { useGetMe } from "@workspace/api-client-react";
 import { getAuthHeaders } from "@/lib/auth";
+import { NotificationBell } from "@/components/notification-bell";
 import { useTenantBrand } from "@/lib/tenant-brand";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { VoiceAssistant } from "@/components/voice-assistant";
@@ -21,7 +22,7 @@ import {
   ChevronDown, Eye, LogOut, CircleHelp, KeyRound, Bell,
   CalendarX2, UserMinus, AlertTriangle, Plus, Receipt, Briefcase, UserPlus,
   GraduationCap,
-  Building2,
+  Building2, CalendarClock, LifeBuoy,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 
@@ -78,19 +79,18 @@ const BOTTOM_TABS_MANAGER = [
 ];
 
 const BOTTOM_TABS_TECH = [
-  { href: '/dashboard', icon: LayoutDashboard, label: 'Today' },
-  { href: '/my-jobs',   icon: ClipboardList,   label: 'My Jobs' },
-  { href: '/customers', icon: Users,            label: 'Customers' },
+  { href: '/my-jobs',   icon: ClipboardList,   label: 'My Jobs'  },
+  { href: '/my-day',    icon: CalendarDays,    label: 'My Day'   },
+  { href: '/leave',     icon: CalendarClock,   label: 'Time Off' },
 ];
 
 function getBottomTabs(role?: string) {
-  return role === 'technician' ? BOTTOM_TABS_TECH : BOTTOM_TABS_MANAGER;
+  return (role === 'technician' || role === 'team_lead') ? BOTTOM_TABS_TECH : BOTTOM_TABS_MANAGER;
 }
 
 const MORE_CARDS = [
   // Sales / pipeline (were unreachable on mobile)
   { title: 'Leads',          href: '/leads',              icon: UserPlus    },
-  { title: 'Quotes',         href: '/quotes',             icon: Receipt     },
   { title: 'Estimates',      href: '/estimates',          icon: ClipboardList },
   { title: 'Accounts',       href: '/accounts',           icon: Building2   },
   // Team / time
@@ -104,12 +104,18 @@ const MORE_CARDS = [
   { title: 'Core KPIs',      href: '/reports/insights',  icon: TrendingUp  },
   // Other
   { title: 'Loyalty',        href: '/loyalty',            icon: Star        },
-  { title: 'Cleancyclopedia', href: '/cleancyclopedia',  icon: BookOpen    },
-  { title: 'Training',       href: '/training',           icon: GraduationCap },
+  { title: 'Help & Guides',  href: '/help',               icon: LifeBuoy,    tech: true },
+  { title: 'Cleancyclopedia', href: '/cleancyclopedia',  icon: BookOpen,    tech: true },
+  { title: 'Training',       href: '/training',           icon: GraduationCap, tech: true },
   { title: 'Company',        href: '/company',            icon: Settings    },
 ];
 
-function MoreSheet({ open, onClose, navigate, onChangePw }: { open: boolean; onClose: () => void; navigate: (path: string) => void; onChangePw?: () => void }) {
+function MoreSheet({ open, onClose, navigate, onChangePw, isTech }: { open: boolean; onClose: () => void; navigate: (path: string) => void; onChangePw?: () => void; isTech?: boolean }) {
+  // [tech-confinement 2026-06-26] Techs see ONLY the tech-safe cards (Help,
+  // Cleancyclopedia, Training) — never the office pages (Payroll, Employees,
+  // Company/Settings, …). Without this filter the More sheet leaked the whole
+  // office menu to technicians.
+  const cards = MORE_CARDS.filter((c) => !isTech || (c as any).tech);
   const logout = useAuthStore(state => state.logout);
 
   useEffect(() => {
@@ -151,7 +157,7 @@ function MoreSheet({ open, onClose, navigate, onChangePw }: { open: boolean; onC
         </div>
         <div style={{ overflowY: 'auto', padding: '0 16px 0', flex: 1 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            {MORE_CARDS.map(card => {
+            {cards.map(card => {
               const Icon = card.icon;
               return (
                 <button
@@ -502,6 +508,46 @@ const CommsPausedBanner = () => {
   ) : null;
 };
 
+// [auto-update 2026-07-08] A deploy ships a new JS bundle, but an already-open
+// tab keeps running the OLD one in memory until a full reload — so the office
+// kept seeing pre-fix numbers after a release (Sal, repeatedly). This polls
+// /api/version and, when the deployed SHA changes from the one this tab booted
+// with, shows a slim reload bar. Non-disruptive: it never auto-reloads (that
+// would nuke a half-typed form) — one click when they're ready.
+function UpdateBanner() {
+  const [stale, setStale] = useState(false);
+  const bootVersion = useRef<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      try {
+        const r = await fetch(`${API}/api/version`, { cache: "no-store" });
+        if (!r.ok || !alive) return;
+        const v = (await r.json())?.version;
+        if (!v || v === "unknown") return;
+        if (bootVersion.current == null) { bootVersion.current = v; return; }
+        if (v !== bootVersion.current) setStale(true);
+      } catch { /* offline / transient — ignore */ }
+    };
+    check();
+    const iv = setInterval(check, 120000); // every 2 min
+    const onFocus = () => check();
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onFocus);
+    return () => { alive = false; clearInterval(iv); window.removeEventListener("focus", onFocus); document.removeEventListener("visibilitychange", onFocus); };
+  }, []);
+  if (!stale) return null;
+  return (
+    <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "#0A0E1A", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "8px 14px", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
+      <span>A new version of Qleno is available.</span>
+      <button onClick={() => { try { window.location.reload(); } catch { /* noop */ } }}
+        style={{ background: "#00C9A0", color: "#04241d", border: "none", borderRadius: 6, padding: "5px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+        Reload
+      </button>
+    </div>
+  );
+}
+
 export function DashboardLayout({ children, title, fullBleed, onNewJob }: DashboardLayoutProps) {
   const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
@@ -516,10 +562,8 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   const [moreOpen, setMoreOpen] = useState(false);
   const [userDropOpen, setUserDropOpen] = useState(false);
   const [changePwOpen, setChangePwOpen] = useState(false);
-  const [notifOpen, setNotifOpen] = useState(false);
   const [quickCreateOpen, setQuickCreateOpen] = useState(false);
   const userDropRef = useRef<HTMLDivElement>(null);
-  const notifRef = useRef<HTMLDivElement>(null);
   const quickCreateRef = useRef<HTMLDivElement>(null);
   const queryClient = useQueryClient();
 
@@ -532,14 +576,6 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
     return () => document.removeEventListener('mousedown', handler);
   }, [userDropOpen]);
 
-  useEffect(() => {
-    if (!notifOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (notifRef.current && !notifRef.current.contains(e.target as Node)) setNotifOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, [notifOpen]);
 
   useEffect(() => {
     if (!quickCreateOpen) return;
@@ -572,6 +608,11 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   });
 
   const isManager = user?.role === 'owner' || user?.role === 'office';
+  // [tech-confinement 2026-06-26] Technicians/team_leads are locked to the
+  // confined field view on EVERY screen size — never the office shell/sidebar.
+  // A tech on desktop must see only the technician view (Sal). Drives the layout
+  // branch below plus the office-only affordances (Quick Create, More sheet).
+  const isTech = user?.role === 'technician' || user?.role === 'team_lead';
   // [tech-experience 2026-06-17] Keyboard shortcuts + the shortcuts overlay /
   // help button are office-tier only — every shortcut targets an office page
   // (Quotes, Dispatch, Payroll, Employees…). Techs (technician/team_lead) see
@@ -592,24 +633,46 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
     staleTime: 20_000,
   });
 
-  const notifItems: any[] = notifData?.data || [];
+  // [time-off-ticket 2026-06-22] Separate STAFF notifications bell — pending
+  // time-off requests (and, later, equipment/supply requests). Office tier only.
+  const isOfficeTier = !!user?.role && ['owner', 'admin', 'office', 'super_admin'].includes(user.role);
+  const { data: empReqData } = useQuery({
+    queryKey: ['employee-pending-count', token],
+    queryFn: async () => {
+      const r = await fetch(`${API}/api/leave/requests/pending-count`, { headers: getAuthHeaders() as any });
+      if (!r.ok) return { pending: 0 };
+      return r.json();
+    },
+    enabled: !!token && isOfficeTier,
+    refetchInterval: 30_000,
+    staleTime: 20_000,
+  });
+  const empPending: number = empReqData?.pending || 0;
+
+  // [employee-bell fix 2026-06-23] Clicking the staff bell focuses the requests
+  // section. Gate on the section element's PRESENCE in the DOM, not on
+  // `location === '/employees'` — that string compare didn't hold on prod, so the
+  // handler fell to a no-op navigate and the scroll stayed at the top.
+  // Element present → already on the page: scroll directly. The real scroll parent
+  //   is <main> (overflow:auto), NOT window; Element.scrollIntoView bubbles to the
+  //   nearest scrollable ancestor, so this drives <main> even though window never
+  //   scrolls. Fire the event too — but only to flash the highlight.
+  // Element absent  → navigate in; the section reads a one-shot flag on mount and
+  //   scrolls itself once laid out.
+  const goToEmployeeRequests = () => {
+    const el = document.getElementById('timeoff-requests-section');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      window.dispatchEvent(new CustomEvent('qleno:focus-timeoff'));
+    } else {
+      try { sessionStorage.setItem('qlenoFocusTimeOff', '1'); } catch { /* private mode */ }
+      setLocation('/employees');
+    }
+  };
+
   const notifUnread: number = notifData?.unread_count || 0;
 
-  const markNotifRead = async (id: string, link?: string) => {
-    try {
-      await fetch(`${API}/api/notifications/inbox/${id}/read`, { method: 'PATCH', headers: getAuthHeaders() as any });
-      queryClient.invalidateQueries({ queryKey: ['notifications-inbox'] });
-    } catch (_) {}
-    if (link) setLocation(link);
-    setNotifOpen(false);
-  };
 
-  const markAllNotifRead = async () => {
-    try {
-      await fetch(`${API}/api/notifications/inbox/read-all`, { method: 'PATCH', headers: getAuthHeaders() as any });
-      queryClient.invalidateQueries({ queryKey: ['notifications-inbox'] });
-    } catch (_) {}
-  };
 
   useTenantBrand();
   const unreadCount = useUnreadCount(user?.id);
@@ -666,16 +729,17 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   const pageTitle = title || ROUTE_TITLES[location] || 'Qleno';
   const initials = user ? `${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase() : '';
 
-  if (isMobile) {
+  if (isMobile || isTech) {
     const bottomTabs = getBottomTabs(user?.role);
     const isMoreActive = !bottomTabs.some(t => t.href === '/dashboard' ? location === t.href : location.startsWith(t.href));
     return (
       <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", backgroundColor: '#F7F6F3', minHeight: '100dvh', color: '#1A1917', position: 'relative' }}>
+        <UpdateBanner />
         {searchOpen && <GlobalSearch onClose={() => setSearchOpen(false)} />}
         {chatOpen && <ChatPanel onClose={() => setChatOpen(false)} userId={user?.id || 0} />}
         {shortcutsOpen && canUseShortcuts && <KeyboardShortcutsOverlay onClose={() => setShortcutsOpen(false)} />}
         <ChangePasswordModal open={changePwOpen} onClose={() => setChangePwOpen(false)} />
-        <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} navigate={setLocation} onChangePw={() => { setMoreOpen(false); setChangePwOpen(true); }} />
+        <MoreSheet open={moreOpen} onClose={() => setMoreOpen(false)} navigate={setLocation} onChangePw={() => { setMoreOpen(false); setChangePwOpen(true); }} isTech={isTech} />
 
         {/* Top header */}
         <header style={{
@@ -694,10 +758,20 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
             <button onClick={() => setSearchOpen(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', display: 'flex', alignItems: 'center' }}>
               <Search size={19} />
             </button>
-            <button onClick={() => setChatOpen(p => !p)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
-              <MessageSquare size={19} />
-              {unreadCount > 0 && <span style={{ position: 'absolute', top: 2, right: 2, width: 8, height: 8, borderRadius: 4, background: '#EF4444', border: '1px solid #fff' }} />}
-            </button>
+            {/* [header-cleanup 2026-07-08] Removed the team-chat icon next to
+                Search (Sal: "useless"). Staff messaging still reachable elsewhere. */}
+
+            {/* Employee notifications bell (office tier) → Employees page */}
+            {isOfficeTier && (
+              <button onClick={goToEmployeeRequests} title="Employee notifications — time off & requests" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
+                <CalendarClock size={19} />
+                {empPending > 0 && (
+                  <span style={{ position: 'absolute', top: 0, right: 0, minWidth: 14, height: 14, borderRadius: 7, background: 'var(--brand)', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#04241d', fontWeight: 800, padding: '0 2px' }}>
+                    {empPending > 9 ? '9+' : empPending}
+                  </span>
+                )}
+              </button>
+            )}
 
             {/* Notifications bell → full notifications page (all roles) */}
             <button onClick={() => setLocation('/notifications')} title="Notifications" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -709,7 +783,8 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               )}
             </button>
 
-            {/* ── Mobile Quick Create ─────────────────────────────────────── */}
+            {/* ── Quick Create (office tier only — techs never create jobs/quotes/clients) ── */}
+            {!isTech && (
             <div ref={quickCreateRef} style={{ position: 'relative' }}>
               <button
                 onClick={() => setQuickCreateOpen(p => !p)}
@@ -758,6 +833,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                 </div>
               )}
             </div>
+            )}
           </div>
         </header>
 
@@ -849,6 +925,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   // Desktop layout
   return (
     <div style={{ display: 'flex', height: '100vh', width: '100%', backgroundColor: '#F7F6F3', overflow: 'hidden' }}>
+      <UpdateBanner />
       {/* Sidebar slot — 56px wide; sidebar overlays via absolute positioning */}
       <div style={{ position: 'relative', width: 56, flexShrink: 0 }}>
         <AppSidebar />
@@ -877,15 +954,6 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               {canUseShortcuts && <kbd style={{ fontSize: 10, border: '1px solid #E5E2DC', borderRadius: 3, padding: '1px 5px', color: '#C0BDB8' }}>⇧/</kbd>}
             </button>
 
-            <button onClick={() => setChatOpen(p => !p)} title="Team Chat"
-              style={{ background: chatOpen ? 'var(--brand-dim)' : 'none', border: 'none', cursor: 'pointer', color: chatOpen ? 'var(--brand)' : '#6B7280', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center', position: 'relative' } as any}>
-              <MessageSquare size={20} />
-              {unreadCount > 0 && (
-                <span style={{ position: 'absolute', top: 2, right: 2, width: 9, height: 9, borderRadius: 5, background: '#EF4444', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff', fontWeight: 700 }}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </span>
-              )}
-            </button>
 
             {/* ── Quick Create "New" dropdown ─────────────────────────────── */}
             <div ref={quickCreateRef} style={{ position: 'relative' }}>
@@ -952,83 +1020,23 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
               </button>
             )}
 
-            {user && (
-              <div ref={notifRef} style={{ position: 'relative' }}>
-                <button
-                  onClick={() => setNotifOpen(p => !p)}
-                  title="Notifications"
-                  style={{ background: notifOpen ? 'var(--brand-dim)' : 'none', border: 'none', cursor: 'pointer', color: notifOpen ? 'var(--brand)' : '#6B7280', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center', position: 'relative' } as any}
-                >
-                  <Bell size={20} />
-                  {notifUnread > 0 && (
-                    <span style={{ position: 'absolute', top: 2, right: 2, minWidth: 9, height: 9, borderRadius: 5, background: '#EF4444', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff', fontWeight: 700, padding: '0 2px' }}>
-                      {notifUnread > 9 ? '9+' : notifUnread}
-                    </span>
-                  )}
-                </button>
-
-                {notifOpen && (
-                  <div style={{
-                    position: 'absolute', top: '100%', right: 0, marginTop: 6,
-                    background: '#fff', borderRadius: 12, border: '1px solid #E5E2DC',
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.12)', width: 380, zIndex: 200,
-                    display: 'flex', flexDirection: 'column', overflow: 'hidden',
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 16px 10px', borderBottom: '1px solid #F0EDEA' }}>
-                      <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                        Notifications {notifUnread > 0 && <span style={{ fontSize: 11, color: '#EF4444', marginLeft: 4 }}>({notifUnread} unread)</span>}
-                      </span>
-                      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                        {notifUnread > 0 && (
-                          <button onClick={markAllNotifRead} style={{ fontSize: 11, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600 }}>
-                            Mark all read
-                          </button>
-                        )}
-                        <button onClick={() => { setNotifOpen(false); setLocation('/notifications'); }} style={{ fontSize: 11, color: '#9E9B94', background: 'none', border: 'none', cursor: 'pointer', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                          View all
-                        </button>
-                      </div>
-                    </div>
-                    <div style={{ maxHeight: 420, overflowY: 'auto' }}>
-                      {notifItems.length === 0 ? (
-                        <div style={{ padding: '32px 16px', textAlign: 'center', color: '#9E9B94', fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                          No notifications yet
-                        </div>
-                      ) : notifItems.map((n: any) => {
-                        const icon = n.type === 'new_message' ? <MessageSquare size={14} style={{ color: '#00C9A0' }} />
-                          : n.type === 'job_assigned' ? <Briefcase size={14} style={{ color: '#2563EB' }} />
-                          : n.type === 'job_changed' ? <CalendarDays size={14} style={{ color: '#F59E0B' }} />
-                          : n.type === 'new_booking' ? <Bell size={14} style={{ color: '#2563EB' }} />
-                          : n.type === 'late_clockin' ? <AlertTriangle size={14} style={{ color: '#F59E0B' }} />
-                          : <Bell size={14} style={{ color: '#6B7280' }} />;
-                        return (
-                          <button
-                            key={n.id}
-                            onClick={() => markNotifRead(n.id, n.link)}
-                            style={{
-                              display: 'flex', alignItems: 'flex-start', gap: 10, padding: '11px 16px',
-                              background: n.read ? '#fff' : '#F0F4FF',
-                              border: 'none', borderBottom: '1px solid #F7F6F3', cursor: 'pointer', width: '100%', textAlign: 'left',
-                            }}
-                          >
-                            <span style={{ marginTop: 2, flexShrink: 0, width: 28, height: 28, borderRadius: 7, background: n.read ? '#F3F4F6' : 'var(--brand-dim)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                              {icon}
-                            </span>
-                            <span style={{ flex: 1, minWidth: 0 }}>
-                              <span style={{ display: 'block', fontSize: 12, fontWeight: n.read ? 500 : 700, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif", lineHeight: 1.3 }}>{n.title}</span>
-                              {n.body && <span style={{ display: 'block', fontSize: 11, color: '#6B7280', marginTop: 2, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{n.body}</span>}
-                              <span style={{ display: 'block', fontSize: 10, color: '#C0BDB8', marginTop: 3 }}>
-                                {new Date(n.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                              </span>
-                            </span>
-                            {!n.read && <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#2563EB', flexShrink: 0, marginTop: 4 }} />}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
+            {isOfficeTier && (
+              <button
+                onClick={goToEmployeeRequests}
+                title="Employee notifications — time off & requests"
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center', position: 'relative' } as any}
+              >
+                <CalendarClock size={20} />
+                {empPending > 0 && (
+                  <span style={{ position: 'absolute', top: 2, right: 2, minWidth: 9, height: 9, borderRadius: 5, background: 'var(--brand)', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#04241d', fontWeight: 700, padding: '0 2px' }}>
+                    {empPending > 9 ? '9+' : empPending}
+                  </span>
                 )}
-              </div>
+              </button>
+            )}
+
+            {user && (
+              <NotificationBell />
             )}
 
             {user && (
@@ -1128,7 +1136,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
         ) : (
           <main style={{ flex: 1, overflowY: 'auto', scrollbarGutter: 'stable', backgroundColor: '#F7F6F3', display: 'flex', flexDirection: 'column' }}>
             <CommsPausedBanner />
-            <div style={{ padding: '28px 28px', maxWidth: 1400, margin: '0 auto', width: '100%' }}>{children}</div>
+            <div style={{ padding: '28px 28px', maxWidth: 1600, margin: '0 auto', width: '100%' }}>{children}</div>
           </main>
         )}
       </div>

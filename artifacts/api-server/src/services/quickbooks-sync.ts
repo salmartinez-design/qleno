@@ -4,10 +4,13 @@ import {
   companiesTable,
   clientsTable,
   invoicesTable,
+  jobsTable,
   paymentsTable,
   qbSyncQueueTable,
   qbCustomerMapTable,
   notificationLogTable,
+  accountsTable,
+  accountContactsTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, max } from "drizzle-orm";
 
@@ -180,7 +183,14 @@ async function qbGet(token: string, realmId: string, path: string): Promise<any>
 
 async function qbPost(token: string, realmId: string, path: string, body: object): Promise<any> {
   const base = getQbBaseUrl();
-  const url = `${base}/v3/company/${realmId}${path}?${QB_MV}`;
+  // [qb-post-querysep 2026-07-03] Use '&' when the path already carries a query
+  // string (e.g. "/invoice?operation=delete" / "?operation=void"), else '?'.
+  // The old unconditional '?' produced "/invoice?operation=delete?minorversion=X"
+  // — QB parsed operation as "delete?minorversion=X" and ignored it, so delete
+  // AND void POSTs silently no-op'd (0 rows changed). This is why the first
+  // dedupe apply deleted nothing.
+  const sep = path.includes("?") ? "&" : "?";
+  const url = `${base}/v3/company/${realmId}${path}${sep}${QB_MV}`;
   const resp = await fetch(url, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json", "Content-Type": "application/json" },
@@ -227,6 +237,34 @@ async function findExistingQbCustomer(
     console.warn(`[QB] findExistingQbCustomer failed (non-fatal):`, e.message);
   }
   return null;
+}
+
+// ── Invoice dedup lookup ───────────────────────────────────────────────────
+// Returns the QB Invoice Id already carrying this DocNumber (oldest wins), else
+// null. QB's /invoice endpoint has NO client-side dedup — a create fired twice
+// for the same invoice (concurrent/rapid re-push, or a retry after the row's
+// qbo_invoice_id failed to persist) makes a SECOND QB invoice with the same
+// DocNumber. syncInvoice calls this before creating so it adopts + updates the
+// existing one instead. Mirrors findExistingQbCustomer.
+async function findExistingQbInvoiceByDoc(
+  token: string,
+  realmId: string,
+  docNumber: string,
+): Promise<string | null> {
+  const qbQuote = (s: string) => s.replace(/'/g, "\\'");
+  try {
+    const q = await qbGet(
+      token,
+      realmId,
+      `/query?query=${encodeURIComponent(
+        `SELECT Id, DocNumber FROM Invoice WHERE DocNumber = '${qbQuote(docNumber)}' ORDERBY Id MAXRESULTS 1`,
+      )}&`,
+    );
+    return q.QueryResponse?.Invoice?.[0]?.Id ?? null;
+  } catch (e: any) {
+    console.warn(`[QB] findExistingQbInvoiceByDoc failed (non-fatal):`, e.message);
+    return null;
+  }
 }
 
 // ── Service item resolution ────────────────────────────────────────────────
@@ -388,11 +426,26 @@ export async function syncCustomer(companyId: number, customerId: number): Promi
         qbCustomerId = createData.Customer?.Id;
       }
 
-      await db.insert(qbCustomerMapTable).values({
-        company_id: companyId,
-        qleno_customer_id: customerId,
-        qb_customer_id: qbCustomerId,
-      });
+      // [qb-cutover] Concurrency guard. Two near-simultaneous syncs for the
+      // same client can both miss the map lookup above and each reach here.
+      // The unique index (company_id, qleno_customer_id) lets the loser's
+      // insert no-op; we then re-read the winner's qb_customer_id so both the
+      // queue row and any invoice CustomerRef point at the single mapped QB
+      // customer instead of a split-brain.
+      const inserted = await db
+        .insert(qbCustomerMapTable)
+        .values({ company_id: companyId, qleno_customer_id: customerId, qb_customer_id: qbCustomerId })
+        .onConflictDoNothing({ target: [qbCustomerMapTable.company_id, qbCustomerMapTable.qleno_customer_id] })
+        .returning({ id: qbCustomerMapTable.id });
+
+      if (inserted.length === 0) {
+        const [winner] = await db
+          .select({ qb_customer_id: qbCustomerMapTable.qb_customer_id })
+          .from(qbCustomerMapTable)
+          .where(and(eq(qbCustomerMapTable.company_id, companyId), eq(qbCustomerMapTable.qleno_customer_id, customerId)))
+          .limit(1);
+        if (winner?.qb_customer_id) qbCustomerId = winner.qb_customer_id;
+      }
     }
 
     await upsertQueue(companyId, "customer", customerId, "synced", qbCustomerId);
@@ -413,6 +466,38 @@ export async function syncCustomer(companyId: number, customerId: number): Promi
 }
 
 // ── SYNC INVOICE ──────────────────────────────────────────────────────────
+// [qb-account-customer 2026-07-03] Account invoices have client_id=NULL — the
+// account is the billing entity. QB still needs a Customer, so resolve/create
+// one from the account (DisplayName = account name; email/phone from the primary
+// contact). Find-or-create by name/email each time — idempotent via QB's own
+// dedup, so no local account→QB map table is needed. Without this, every account
+// invoice failed with "No QB customer mapping for client null" (all the newly
+// converted commercial accounts: PPM, KMA, National Able, etc.).
+async function resolveAccountQbCustomer(
+  token: string, realmId: string, companyId: number, accountId: number,
+): Promise<string | null> {
+  const [acct] = await db
+    .select({ name: accountsTable.account_name })
+    .from(accountsTable)
+    .where(and(eq(accountsTable.id, accountId), eq(accountsTable.company_id, companyId)))
+    .limit(1);
+  if (!acct?.name) return null;
+  const [contact] = await db
+    .select({ email: accountContactsTable.email, phone: accountContactsTable.phone })
+    .from(accountContactsTable)
+    .where(and(eq(accountContactsTable.account_id, accountId), eq(accountContactsTable.company_id, companyId)))
+    .orderBy(sql`is_primary DESC, id ASC`)
+    .limit(1);
+  const displayName = acct.name;
+  const existing = await findExistingQbCustomer(token, realmId, contact?.email ?? null, displayName);
+  if (existing) return existing;
+  const payload: any = { DisplayName: displayName, CompanyName: displayName };
+  if (contact?.email) payload.PrimaryEmailAddr = { Address: contact.email };
+  if (contact?.phone) payload.PrimaryPhone = { FreeFormNumber: contact.phone };
+  const created = await qbPost(token, realmId, "/customer", payload);
+  return created.Customer?.Id ?? null;
+}
+
 export async function syncInvoice(companyId: number, invoiceId: number): Promise<void> {
   try {
     const auth = await getValidToken(companyId);
@@ -424,6 +509,35 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
       .limit(1);
     if (!invoice) return;
+
+    // [qb-cutover] Cutover guard. Tenants migrating from another system that
+    // already feeds the SAME QuickBooks company (e.g. Oak Lawn ← MaidCentral)
+    // set companies.qb_sync_start_date. Any invoice created before the cutover
+    // is never pushed — only invoices from the cutover forward — so we never
+    // re-push the history the prior system already sent. NULL = sync all
+    // (clean-slate tenants like Schaumburg are unaffected).
+    const [cutoverCo] = await db
+      .select({ cutover: companiesTable.qb_sync_start_date })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, companyId))
+      .limit(1);
+    // Gate on the SERVICE date, not the invoice's created date. A per-visit
+    // invoice carries job_id, so a July-1-forward job that happened to be
+    // invoiced before the cutover (e.g. during the MC→Qleno reconciliation)
+    // still pushes. Batch/no-job invoices fall back to created_at.
+    let effectiveDate: Date | null = invoice.created_at ? new Date(invoice.created_at) : null;
+    if (invoice.job_id) {
+      const [jb] = await db
+        .select({ d: jobsTable.scheduled_date })
+        .from(jobsTable)
+        .where(eq(jobsTable.id, invoice.job_id))
+        .limit(1);
+      if (jb?.d) effectiveDate = new Date(jb.d as any);
+    }
+    if (cutoverCo?.cutover && effectiveDate && effectiveDate < new Date(cutoverCo.cutover)) {
+      await upsertQueue(companyId, "invoice", invoiceId, "skipped", undefined, "before qb_sync_start_date cutover");
+      return;
+    }
 
     const { token, realmId } = auth;
 
@@ -443,8 +557,13 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       qbCustomerId = map?.qb_customer_id ?? null;
     }
 
+    // Account invoice (client_id NULL): resolve the QB customer from the account.
+    if (!qbCustomerId && invoice.account_id) {
+      qbCustomerId = await resolveAccountQbCustomer(token, realmId, companyId, invoice.account_id);
+    }
+
     if (!qbCustomerId) {
-      throw new Error(`No QB customer mapping for client ${invoice.client_id}`);
+      throw new Error(`No QB customer mapping for invoice ${invoiceId} (client ${invoice.client_id}, account ${invoice.account_id})`);
     }
 
     const serviceItemId = await getOrCreateServiceItem(token, realmId, companyId);
@@ -455,15 +574,20 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
 
     if (rawLines.length > 0) {
       for (const line of rawLines) {
-        const amount = parseFloat(line.amount || line.total || line.unit_price || "0");
-        if (amount > 0) {
-          lineItems.push({
-            DetailType: "SalesItemLineDetail",
-            Amount: amount,
-            Description: line.description || line.name || "Cleaning Service",
-            SalesItemLineDetail: { ItemRef: { value: serviceItemId } },
-          });
-        }
+        const amount = parseFloat(line.amount ?? line.total ?? line.unit_price ?? "0");
+        // Skip only true zero/NaN lines. Discounts (auto-promo or manual) are
+        // stored as NEGATIVE-total lines; QBO accepts a negative-Amount
+        // SalesItemLine, so pushing them keeps the QB invoice total equal to
+        // Qleno's net total. Previously the `amount > 0` guard DROPPED every
+        // discount line, so QB overstated each discounted invoice by the
+        // discount amount (e.g. Qleno $367.20 vs QB $432.00).
+        if (Number.isNaN(amount) || amount === 0) continue;
+        lineItems.push({
+          DetailType: "SalesItemLineDetail",
+          Amount: amount,
+          Description: line.description || line.name || (amount < 0 ? "Discount" : "Cleaning Service"),
+          SalesItemLineDetail: { ItemRef: { value: serviceItemId } },
+        });
       }
     }
 
@@ -493,7 +617,11 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
 
     const qbInvoicePayload: any = {
       CustomerRef: { value: qbCustomerId },
-      DocNumber: invoice.invoice_number || String(invoiceId),
+      // [qb-docnumber 2026-07-03] QB's DocNumber max is 21 chars; account
+      // per-job numbers (ACC-{id}-{jobid}-{ts}) exceed it and QB rejects the
+      // invoice ("String length is too long"). Truncate to the last 21 chars
+      // (keeps the most-unique tail).
+      DocNumber: (invoice.invoice_number || String(invoiceId)).slice(-21),
       TxnDate: invoice.created_at ? new Date(invoice.created_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
       DueDate: invoice.due_date || undefined,
       Line: lineItems,
@@ -513,15 +641,65 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       });
       qbInvoiceId = updateData.Invoice?.Id || invoice.qbo_invoice_id;
     } else {
-      // Create new
-      const createData = await qbPost(token, realmId, "/invoice", qbInvoicePayload);
-      qbInvoiceId = createData.Invoice?.Id;
+      // ── Create path — the ONLY place a duplicate can form ─────────────────
+      // Two guards, layered:
+      //
+      // [qb-invoice-idempotency 2026-07-03] (a) find-by-DocNumber: before
+      // creating, check QB for an invoice already carrying this DocNumber. QB's
+      // /invoice has no server-side dedup, so a sequential retry (or a sync after
+      // qbo_invoice_id failed to persist / a crash between create and save) would
+      // otherwise create a second copy. Adopt + update the existing one instead.
+      //
+      // [qb-invoice-lock 2026-07-03] (b) per-invoice advisory lock: serialize
+      // concurrent syncs of THIS invoice so two SIMULTANEOUS first-time creates
+      // can't both run the DocNumber check, both find nothing, and both create.
+      // pg_advisory_xact_lock is transaction-scoped (auto-releases on commit —
+      // no pooled-connection release mismatch like the session-scoped form) and
+      // DB-level (so it holds ACROSS Railway instances, not just in-process).
+      // Keyed on (namespace, invoiceId): different invoices never block or wait
+      // on each other, so throughput is unaffected — only a genuine same-invoice
+      // race waits (~one QB round-trip). Re-read qbo_invoice_id inside the lock
+      // in case a racing sync just created + stored it while we waited. The lock
+      // engages ONLY on first-time sync; every later re-sync takes the lock-free
+      // update path above. Tradeoff: the QB round-trip runs inside the tx, so a
+      // first-time sync briefly holds one pool connection — bounded per-invoice
+      // and acceptable; revisit with a claim-column if first-sync bursts ever
+      // pressure the pool.
+      const QB_INV_LOCK_NS = 4243;
+      qbInvoiceId = await db.transaction(async (tx) => {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(${QB_INV_LOCK_NS}, ${invoiceId})`);
 
-      // Save qbo_invoice_id to invoice record
-      await db
-        .update(invoicesTable)
-        .set({ qbo_invoice_id: qbInvoiceId })
-        .where(eq(invoicesTable.id, invoiceId));
+        const [fresh] = await tx
+          .select({ qbo: invoicesTable.qbo_invoice_id })
+          .from(invoicesTable)
+          .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
+          .limit(1);
+
+        const docNumber = (invoice.invoice_number || String(invoiceId)).slice(-21);
+        const targetId = (fresh?.qbo ?? null)
+          ?? (await findExistingQbInvoiceByDoc(token, realmId, docNumber));
+
+        let resolvedId: string;
+        if (targetId) {
+          const existing = await qbGet(token, realmId, `/invoice/${targetId}?`);
+          const updateData = await qbPost(token, realmId, "/invoice", {
+            ...qbInvoicePayload,
+            Id: targetId,
+            SyncToken: existing.Invoice?.SyncToken,
+            sparse: false,
+          });
+          resolvedId = updateData.Invoice?.Id || targetId;
+        } else {
+          const createData = await qbPost(token, realmId, "/invoice", qbInvoicePayload);
+          resolvedId = createData.Invoice?.Id;
+        }
+
+        await tx
+          .update(invoicesTable)
+          .set({ qbo_invoice_id: resolvedId })
+          .where(eq(invoicesTable.id, invoiceId));
+        return resolvedId;
+      });
     }
 
     await upsertQueue(companyId, "invoice", invoiceId, "synced", qbInvoiceId);
@@ -588,14 +766,24 @@ export async function syncPayment(companyId: number, invoiceId: number): Promise
       if (!refreshed?.qbo_invoice_id) throw new Error("Invoice not synced to QB, cannot create payment");
     }
 
-    // Get QB customer ID
-    const [map] = await db
-      .select({ qb_customer_id: qbCustomerMapTable.qb_customer_id })
-      .from(qbCustomerMapTable)
-      .where(and(eq(qbCustomerMapTable.company_id, companyId), eq(qbCustomerMapTable.qleno_customer_id, invoice.client_id!)))
-      .limit(1);
-
-    if (!map?.qb_customer_id) throw new Error("No QB customer mapping for payment");
+    // Get QB customer ID. [qb-account-payment 2026-07-03] Mirror syncInvoice
+    // (#874): a payment on an account/commercial invoice has client_id=NULL, so
+    // the client→QB map returns nothing — resolve the QB customer FROM the
+    // account instead. Without this, marking a KMA/PPM/Cucci invoice paid failed
+    // with "No QB customer mapping for payment" and the payment never cascaded.
+    let qbCustomerId: string | null = null;
+    if (invoice.client_id) {
+      const [map] = await db
+        .select({ qb_customer_id: qbCustomerMapTable.qb_customer_id })
+        .from(qbCustomerMapTable)
+        .where(and(eq(qbCustomerMapTable.company_id, companyId), eq(qbCustomerMapTable.qleno_customer_id, invoice.client_id)))
+        .limit(1);
+      qbCustomerId = map?.qb_customer_id ?? null;
+    }
+    if (!qbCustomerId && invoice.account_id) {
+      qbCustomerId = await resolveAccountQbCustomer(token, realmId, companyId, invoice.account_id);
+    }
+    if (!qbCustomerId) throw new Error("No QB customer mapping for payment");
 
     // Get payment record for method
     const [payment] = await db
@@ -619,7 +807,7 @@ export async function syncPayment(companyId: number, invoiceId: number): Promise
     const qboInvId = re_invoice[0]?.qbo_invoice_id;
 
     const paymentResp = await qbPost(token, realmId, "/payment", {
-      CustomerRef: { value: map.qb_customer_id },
+      CustomerRef: { value: qbCustomerId },
       TotalAmt: parseFloat(invoice.total || "0"),
       TxnDate: invoice.paid_at ? new Date(invoice.paid_at).toISOString().split("T")[0] : new Date().toISOString().split("T")[0],
       PaymentMethodRef: { name: paymentMethod },
@@ -666,6 +854,88 @@ export async function voidQbInvoice(companyId: number, invoiceId: number): Promi
   }
 }
 
+// ── DEDUPE INVOICES ────────────────────────────────────────────────────────
+// [qb-invoice-idempotency 2026-07-03] One-time cleanup for duplicate QB invoices
+// created before the idempotency guard landed (concurrent/rapid re-pushes each
+// CREATED a fresh QB invoice with the same DocNumber). For every DocNumber that
+// this company's synced invoices reference, query ALL matching QB invoices; if
+// more than one exists, keep the CANONICAL copy (the Id stored on the Qleno row,
+// else the oldest) and delete the rest. Dry-run (default) only reports. Deleting
+// (not voiding) removes the phantom rows entirely so the P&L stops double/triple
+// counting — these copies never should have existed and carry no payments (the
+// real one, kept, retains its ledger). Owner-triggered via POST /dedupe.
+export async function dedupeQbInvoices(
+  companyId: number,
+  dryRun: boolean = true,
+): Promise<{
+  dry_run: boolean;
+  connected: boolean;
+  duplicate_groups: Array<{ doc_number: string; total: string | number; copies: number; keep: string; deleted: string[] }>;
+  invoices_deleted: number;
+}> {
+  const auth = await getValidToken(companyId);
+  if (!auth) return { dry_run: dryRun, connected: false, duplicate_groups: [], invoices_deleted: 0 };
+  const { token, realmId } = auth;
+  const qbQuote = (s: string) => s.replace(/'/g, "\\'");
+
+  const qleno = await db
+    .select({ id: invoicesTable.id, invoice_number: invoicesTable.invoice_number, qbo: invoicesTable.qbo_invoice_id })
+    .from(invoicesTable)
+    .where(and(eq(invoicesTable.company_id, companyId), sql`${invoicesTable.qbo_invoice_id} IS NOT NULL`));
+
+  const groups: Array<{ doc_number: string; total: string | number; copies: number; keep: string; deleted: string[] }> = [];
+  let deleted = 0;
+  const seen = new Set<string>();
+
+  for (const inv of qleno) {
+    const docNumber = (inv.invoice_number || String(inv.id)).slice(-21);
+    if (seen.has(docNumber)) continue;
+    seen.add(docNumber);
+    let hits: any[] = [];
+    try {
+      const q = await qbGet(
+        token,
+        realmId,
+        `/query?query=${encodeURIComponent(
+          `SELECT Id, SyncToken, DocNumber, TotalAmt FROM Invoice WHERE DocNumber = '${qbQuote(docNumber)}'`,
+        )}&`,
+      );
+      hits = q.QueryResponse?.Invoice ?? [];
+    } catch (e: any) {
+      console.warn(`[QB] dedupe query failed for DocNumber ${docNumber} (skipping):`, e.message);
+      continue;
+    }
+    if (hits.length <= 1) continue;
+
+    // Keep the canonical copy: the Id the Qleno row points to, else the oldest
+    // (lowest numeric Id). Delete every other copy.
+    const canonicalId = String(inv.qbo);
+    const keep = hits.find((h) => String(h.Id) === canonicalId)
+      ?? [...hits].sort((a, b) => Number(a.Id) - Number(b.Id))[0];
+    const toDelete = hits.filter((h) => String(h.Id) !== String(keep.Id));
+    groups.push({ doc_number: docNumber, total: hits[0].TotalAmt, copies: hits.length, keep: String(keep.Id), deleted: toDelete.map((h) => String(h.Id)) });
+
+    if (!dryRun) {
+      // If the surviving copy isn't the one Qleno referenced, re-point Qleno.
+      if (String(keep.Id) !== canonicalId) {
+        await db.update(invoicesTable).set({ qbo_invoice_id: String(keep.Id) }).where(eq(invoicesTable.id, inv.id));
+      }
+      for (const h of toDelete) {
+        try {
+          await qbPost(token, realmId, `/invoice?operation=delete`, { Id: h.Id, SyncToken: h.SyncToken });
+          deleted++;
+        } catch (e: any) {
+          console.error(`[QB] dedupe delete failed for QB invoice ${h.Id} (DocNumber ${docNumber}):`, e.message);
+        }
+      }
+    } else {
+      deleted += toDelete.length;
+    }
+  }
+
+  return { dry_run: dryRun, connected: true, duplicate_groups: groups, invoices_deleted: deleted };
+}
+
 // ── SYNC ALL (batch retry) ─────────────────────────────────────────────────
 export async function syncAll(companyId: number): Promise<{ synced: number; failed: number; skipped: number }> {
   let synced = 0, failed = 0, skipped = 0;
@@ -703,6 +973,45 @@ export async function syncAll(companyId: number): Promise<{ synced: number; fail
   }
 
   return { synced, failed, skipped };
+}
+
+// ── BACKFILL (qb-cutover) ──────────────────────────────────────────────────
+// Run when QB is (re)connected. The live push path no-ops while QB is
+// disconnected and never queues, so any invoice/payment issued during a
+// disconnected window would be stranded (syncAll only replays the queue). This
+// re-queues every issued, not-yet-synced invoice whose SERVICE date is on/after
+// qb_sync_start_date (+ a payment row for paid ones), then drains the queue.
+// Idempotent: invoices already in QB (qbo_invoice_id set) and drafts are skipped.
+export async function backfillFromCutover(
+  companyId: number,
+): Promise<{ queued: number; result: { synced: number; failed: number; skipped: number } }> {
+  const empty = { synced: 0, failed: 0, skipped: 0 };
+  const [co] = await db
+    .select({ cutover: companiesTable.qb_sync_start_date, connected: companiesTable.qb_connected })
+    .from(companiesTable)
+    .where(eq(companiesTable.id, companyId))
+    .limit(1);
+  if (!co?.connected || !co.cutover) return { queued: 0, result: empty };
+  const cutoverStr = new Date(co.cutover).toISOString().slice(0, 10);
+
+  const rows: any = await db.execute(sql`
+    SELECT i.id, i.status
+    FROM invoices i
+    LEFT JOIN jobs j ON j.id = i.job_id
+    WHERE i.company_id = ${companyId}
+      AND i.qbo_invoice_id IS NULL
+      AND i.status NOT IN ('draft', 'void', 'superseded')
+      AND COALESCE(j.scheduled_date, i.created_at::date) >= ${cutoverStr}::date
+  `);
+  const list = rows.rows ?? rows;
+  let queued = 0;
+  for (const r of list) {
+    await upsertQueue(companyId, "invoice", Number(r.id), "pending");
+    if (r.status === "paid") await upsertQueue(companyId, "payment", Number(r.id), "pending");
+    queued++;
+  }
+  const result = await syncAll(companyId);
+  return { queued, result };
 }
 
 // ── Fire-and-forget wrapper ────────────────────────────────────────────────

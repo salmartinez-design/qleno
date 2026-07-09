@@ -165,7 +165,7 @@ interface CalcResult {
   hourly_rate: number; base_price: number; minimum_applied: boolean;
   minimum_bill: number; addons_total: number;
   addon_breakdown: Array<{ id: number; name: string; amount: number; price_type?: string }>;
-  bundle_discount: number; bundle_breakdown: Array<{ name: string; discount: number }>;
+  bundle_discount: number; bundle_breakdown: Array<{ id: number; name: string; discount: number; applied: boolean }>;
   subtotal: number; discount_amount: number; discount_valid?: boolean; final_total: number;
 }
 
@@ -181,6 +181,9 @@ interface SelectedScopeState {
   adjPlusReason: string;
   adjMinus: number;
   adjMinusReason: string;
+  // [combo-optional] Bundle ids the office toggled OFF for this scope. Passed
+  // to the pricing engine so their discount isn't applied to the total.
+  disabledBundleIds: number[];
   frequencies: PricingFrequency[];
   addons: PricingAddon[];
   calc: CalcResult | null;
@@ -208,6 +211,7 @@ export default function QuoteBuilderPage() {
   const [, navigate] = useLocation();
   const qc = useQueryClient();
   const isEdit = Boolean(id && id !== "new");
+  const fromClientId = parseInt(new URLSearchParams(window.location.search).get("client_id") || "") || null;
   const token = useAuthStore(s => s.token);
 
   const userRole = (() => { try { return JSON.parse(atob((token || "").split(".")[1])).role || "office"; } catch { return "office"; } })();
@@ -305,7 +309,12 @@ export default function QuoteBuilderPage() {
 
   // ── Tech suggestions ─────────────────────────────────────────────────────
   const [suggestedTechs, setSuggestedTechs] = useState<SuggestedTech[]>([]);
-  const [selectedTechId, setSelectedTechId] = useState<number | null>(null);
+  // Multi-tech assignment: the office can assign more than one cleaner to a
+  // job at quote time. First selected = primary (mirrored onto
+  // jobs.assigned_user_id); the rest become job_technicians rows on convert.
+  const [selectedTechIds, setSelectedTechIds] = useState<number[]>([]);
+  const toggleTech = (id: number) =>
+    setSelectedTechIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   const [techAvailability, setTechAvailability] = useState<Record<number, number>>({});
   const [techAvailLoading, setTechAvailLoading] = useState(false);
 
@@ -638,6 +647,9 @@ export default function QuoteBuilderPage() {
           if (currentSqft > 0) body.sqft = currentSqft;
         }
         if (discountCodeRef.current) body.discount_code = discountCodeRef.current;
+        // [combo-optional] Tell the engine which bundles the office toggled off
+        // so their discount isn't applied (they're still returned for the UI).
+        if (state.disabledBundleIds && state.disabledBundleIds.length > 0) body.disabled_bundle_ids = state.disabledBundleIds;
         const result = await apiFetch("/api/pricing/calculate", { method: "POST", body });
         setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, calc: result, calcLoading: false } : s));
       } catch {
@@ -684,6 +696,7 @@ export default function QuoteBuilderPage() {
         adjPlusReason: "",
         adjMinus: 0,
         adjMinusReason: "",
+        disabledBundleIds: [],
         frequencies: freqs as PricingFrequency[],
         addons: addons as PricingAddon[],
         calc: null,
@@ -697,6 +710,7 @@ export default function QuoteBuilderPage() {
         scope_id: scope.id, frequency: initialState?.frequency ?? "", hours: initialState?.hours ?? 0,
         hoursOverrideSet: false, addon_ids: initialState?.addon_ids ?? [],
         addonQtys: {}, addonRecurring: {}, adjPlus: 0, adjPlusReason: "", adjMinus: 0, adjMinusReason: "",
+        disabledBundleIds: [],
         frequencies: [], addons: [],
         calc: null, calcLoading: false, expanded: true,
       }]);
@@ -746,6 +760,17 @@ export default function QuoteBuilderPage() {
     setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, [field]: val } : s));
   }
 
+  // [combo-optional] Toggle a bundle (e.g. "Appliance Combo") on/off for a
+  // scope, then recalc so the total reflects whether its discount applies.
+  function toggleBundle(scopeId: number, bundleId: number) {
+    setSelectedScopes(prev => prev.map(s => {
+      if (s.scope_id !== scopeId) return s;
+      const off = s.disabledBundleIds.includes(bundleId);
+      return { ...s, disabledBundleIds: off ? s.disabledBundleIds.filter(id => id !== bundleId) : [...s.disabledBundleIds, bundleId] };
+    }));
+    recalcScopeById(scopeId, 0);
+  }
+
   function updateScopeAddon(scopeId: number, addonId: number, checked: boolean) {
     setSelectedScopes(prev => prev.map(s => {
       if (s.scope_id !== scopeId) return s;
@@ -766,9 +791,32 @@ export default function QuoteBuilderPage() {
 
   // ── Build payload & save ─────────────────────────────────────────────────
   function buildPayload(status: string) {
-    const primaryScopeId = finalScopeId ?? (selectedScopes.length === 1 ? selectedScopes[0].scope_id : null);
+    // [draft-persist 2026-07-09] A draft saved BEFORE the Review step (where the
+    // office picks finalScopeId) used to null out scope/base/total/add-ons when
+    // 2+ scopes were selected, because primaryScopeId resolved to null and every
+    // pricing field derives from it. That produced the $0.00 reopened draft.
+    // Fall back to the first selected scope so a draft always persists real
+    // pricing; the remaining scopes still ride along as alternate_options below.
+    const primaryScopeId = finalScopeId ?? (selectedScopes.length >= 1 ? selectedScopes[0].scope_id : null);
     const primaryScopeState = selectedScopes.find(s => s.scope_id === primaryScopeId);
     const cr = primaryScopeState?.calc ?? null;
+    // [draft-addons 2026-07-09] Persist the FULL add-on selection, not just the
+    // priced breakdown. Time-based add-ons (Oven, Cabinets, Basement…) are
+    // price_type='time_only'; the pricing engine omits them from addon_breakdown
+    // (their cost folds into hours), so they were dropped on save and lost on
+    // reopen even for a single hourly scope. Carry them as zero-amount rows keyed
+    // by id so reopen restores the selection and convert keeps them as job
+    // add-ons. No double-count: amount=0 and the time already lives in
+    // estimated_hours.
+    const pricedAddons = cr?.addon_breakdown ?? [];
+    const pricedAddonIds = new Set(pricedAddons.map(a => a.id));
+    const extraSelectedAddons = (primaryScopeState?.addon_ids ?? [])
+      .filter(id => !pricedAddonIds.has(id))
+      .map(id => {
+        const meta = primaryScopeState?.addons.find(a => a.id === id);
+        return { id, name: meta?.name ?? "", amount: 0, price_type: meta?.price_type ?? "time_only" };
+      });
+    const addonsPersist = [...pricedAddons, ...extraSelectedAddons];
     const client = clientLoaded;
     const alternateOptions = selectedScopes
       .filter(s => s.scope_id !== primaryScopeId)
@@ -777,7 +825,9 @@ export default function QuoteBuilderPage() {
         scope_name: scopes.find(sc => sc.id === s.scope_id)?.name ?? "",
         frequency: s.frequency,
         addon_ids: s.addon_ids,
-        total: s.calc?.final_total ?? null,
+        // Include this scope's manual price adjustments so the saved total
+        // matches the preview (the engine's final_total excludes them).
+        total: s.calc?.final_total != null ? s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0) : null,
       }));
     return {
       client_id: selectedClientId || null,
@@ -791,12 +841,12 @@ export default function QuoteBuilderPage() {
       bedrooms, bathrooms,
       half_baths: halfBaths,
       pets, dirt_level: dirtLevel,
-      addons: cr?.addon_breakdown ?? [],
+      addons: addonsPersist,
       discount_code: discountCode || null,
       base_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.base_price) : null),
       addons_total: cr ? String(cr.addons_total) : "0",
       discount_amount: cr ? String(cr.discount_amount) : "0",
-      total_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.final_total) : null),
+      total_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.final_total + (primaryScopeState?.adjPlus || 0) - (primaryScopeState?.adjMinus || 0)) : null),
       // [addon-hours 2026-06-04] Persist TOTAL hours (base + add-on time-adds)
       // so Hourly/Time-Add add-ons (Oven, Cabinets, Basement, etc.) flow into
       // the booked job's allowed hours. Was base_hours, which silently dropped
@@ -892,7 +942,11 @@ export default function QuoteBuilderPage() {
           body: {
             scheduled_date: selectedDate || undefined,
             scheduled_time: selectedTime || undefined,
-            assigned_user_id: selectedTechId || undefined,
+            // Primary = first selected (mirrored onto jobs.assigned_user_id);
+            // team_user_ids carries the full crew so the convert writes a
+            // job_technicians row per cleaner.
+            assigned_user_id: selectedTechIds[0] || undefined,
+            team_user_ids: selectedTechIds,
           },
         });
         toast.success("Quote converted to job.");
@@ -1069,7 +1123,7 @@ export default function QuoteBuilderPage() {
       await toggleScope(matchedScope, { frequency: service.frequency ?? undefined });
       setFinalScopeId(matchedScope.id);
     }
-    if (preferredTech) setSelectedTechId(preferredTech.id);
+    if (preferredTech) setSelectedTechIds([preferredTech.id]);
     setQuickBookPrice(service.last_price);
     setQuickBookBanner({ scope: service.scope, date: service.last_date });
     setActiveSection(4);
@@ -1468,8 +1522,8 @@ export default function QuoteBuilderPage() {
 
       {/* Header */}
       <div style={{ borderBottom: "1px solid #E5E2DC", background: "#FFF", padding: "14px 24px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 0, zIndex: 50 }}>
-        <Button variant="ghost" size="sm" onClick={() => navigate("/quotes")} className="gap-1.5 text-[#6B7280]">
-          <ArrowLeft className="w-4 h-4" /> Back to Quotes
+        <Button variant="ghost" size="sm" onClick={() => navigate(fromClientId ? `/customers/${fromClientId}` : "/quotes")} className="gap-1.5 text-[#6B7280]">
+          <ArrowLeft className="w-4 h-4" /> {fromClientId ? "Back to Client" : "Back to Quotes"}
         </Button>
         <div className="h-5 w-px bg-[#E5E2DC]" />
         <h1 style={{ fontSize: 18, fontWeight: 600, color: "#1A1917" }}>{isEdit ? "Edit Quote" : "New Quote"}</h1>
@@ -1491,6 +1545,45 @@ export default function QuoteBuilderPage() {
 
         {/* ── LEFT: Wizard ──────────────────────────────────────────────── */}
         <div style={{ minWidth: 0 }}>
+
+          {/* Sticky client context bar — shows on steps 1-4 so the team
+              always knows who they're quoting without going back to step 1 */}
+          {activeSection > 0 && (leadFirstName || clientLoaded) && (
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 14px", marginBottom: 14, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "6px 20px" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>
+                {clientLoaded
+                  ? `${clientLoaded.first_name ?? ""} ${clientLoaded.last_name ?? ""}`.trim() || clientLoaded.name
+                  : `${leadFirstName} ${leadLastName}`.trim()}
+              </span>
+              {(leadPhone || clientLoaded?.phone) && (
+                <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                  {leadPhone || clientLoaded?.phone}
+                </span>
+              )}
+              {(leadEmail || clientLoaded?.email) && (
+                <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                  {leadEmail || clientLoaded?.email}
+                </span>
+              )}
+              {address && (
+                <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                  {address}{zipCode ? `, ${zipCode}` : ""}
+                </span>
+              )}
+              {zipZone && zipZone !== "uncovered" && (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, fontFamily: FF, color: (zipZone as any).color }}>
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: (zipZone as any).color, flexShrink: 0 }} />
+                  {(zipZone as any).name}
+                </span>
+              )}
+              <button
+                onClick={() => setActiveSection(0)}
+                style={{ marginLeft: "auto", fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600, fontFamily: FF, whiteSpace: "nowrap" }}
+              >
+                Edit
+              </button>
+            </div>
+          )}
 
           {/* Step tabs */}
           <div style={{ display: "flex", gap: 6, marginBottom: 16, flexWrap: "wrap" }}>
@@ -1728,9 +1821,9 @@ export default function QuoteBuilderPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                     <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Zone techs:</span>
                     {suggestedTechs.map(tech => {
-                      const isSel = selectedTechId === tech.id;
+                      const isSel = selectedTechIds.includes(tech.id);
                       return (
-                        <button key={tech.id} onClick={() => setSelectedTechId(isSel ? null : tech.id)}
+                        <button key={tech.id} onClick={() => toggleTech(tech.id)}
                           style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 14, fontSize: 12, fontWeight: isSel ? 600 : 400, border: isSel ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}>
                           <span style={{ width: 18, height: 18, borderRadius: "50%", background: isSel ? "var(--brand)" : "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", color: isSel ? "#FFF" : "#6B6860", fontSize: 9, fontWeight: 700 }}>{tech.name.charAt(0)}</span>
                           {tech.name}
@@ -1774,12 +1867,12 @@ export default function QuoteBuilderPage() {
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Preferred:</span>
                     <button
-                      onClick={() => setSelectedTechId(selectedTechId === preferredTech.id ? null : preferredTech.id)}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 14, fontSize: 12, fontWeight: selectedTechId === preferredTech.id ? 600 : 400, border: selectedTechId === preferredTech.id ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: selectedTechId === preferredTech.id ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
+                      onClick={() => toggleTech(preferredTech.id)}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 14, fontSize: 12, fontWeight: selectedTechIds.includes(preferredTech.id) ? 600 : 400, border: selectedTechIds.includes(preferredTech.id) ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: selectedTechIds.includes(preferredTech.id) ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
                     >
-                      <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechId === preferredTech.id ? "var(--brand)" : "#5B9BD5", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
+                      <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechIds.includes(preferredTech.id) ? "var(--brand)" : "#5B9BD5", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
                       {preferredTech.full_name}
-                      {selectedTechId === preferredTech.id && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
+                      {selectedTechIds.includes(preferredTech.id) && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
                     </button>
                   </div>
                 )}
@@ -2045,9 +2138,9 @@ export default function QuoteBuilderPage() {
                     {[...suggestedTechs].sort((a, b) => (techAvailability[a.id] ?? 0) - (techAvailability[b.id] ?? 0)).map(tech => {
                       const count = techAvailability[tech.id];
                       const avail = count !== undefined ? techAvailDot(count) : null;
-                      const isSel = selectedTechId === tech.id;
+                      const isSel = selectedTechIds.includes(tech.id);
                       return (
-                        <div key={tech.id} onClick={() => setSelectedTechId(isSel ? null : tech.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", border: isSel ? "2px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "rgba(0,201,160,0.05)" : "#FFF", opacity: avail?.muted ? 0.55 : 1 }}>
+                        <div key={tech.id} onClick={() => toggleTech(tech.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", border: isSel ? "2px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "rgba(0,201,160,0.05)" : "#FFF", opacity: avail?.muted ? 0.55 : 1 }}>
                           <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 11, fontWeight: 700 }}>{tech.name.charAt(0).toUpperCase()}</div>
                           <div style={{ flex: 1, fontSize: 13, fontWeight: isSel ? 700 : 500, color: "#1A1917" }}>{tech.name}</div>
                           {avail && (
@@ -2506,12 +2599,12 @@ export default function QuoteBuilderPage() {
                       {/* Preferred tech shortcut */}
                       {preferredTech && (
                         <button
-                          onClick={() => setSelectedTechId(selectedTechId === preferredTech.id ? null : preferredTech.id)}
-                          style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: selectedTechId === preferredTech.id ? 600 : 400, border: selectedTechId === preferredTech.id ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: selectedTechId === preferredTech.id ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
+                          onClick={() => toggleTech(preferredTech.id)}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: selectedTechIds.includes(preferredTech.id) ? 600 : 400, border: selectedTechIds.includes(preferredTech.id) ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: selectedTechIds.includes(preferredTech.id) ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
                         >
-                          <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechId === preferredTech.id ? "var(--brand)" : "#5B9BD5", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
+                          <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechIds.includes(preferredTech.id) ? "var(--brand)" : "#5B9BD5", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
                           {preferredTech.full_name}
-                          {selectedTechId === preferredTech.id && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
+                          {selectedTechIds.includes(preferredTech.id) && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
                         </button>
                       )}
                       {/* Tech chips. Prefer the zone-matched techs; if the
@@ -2524,9 +2617,9 @@ export default function QuoteBuilderPage() {
                         return (
                           <>
                             {chips.map(tech => {
-                              const isSel = selectedTechId === tech.id;
+                              const isSel = selectedTechIds.includes(tech.id);
                               return (
-                                <button key={tech.id} onClick={() => setSelectedTechId(isSel ? null : tech.id)}
+                                <button key={tech.id} onClick={() => toggleTech(tech.id)}
                                   style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: isSel ? 600 : 400, border: isSel ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
                                 >
                                   <span style={{ width: 18, height: 18, borderRadius: "50%", background: isSel ? "var(--brand)" : "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", color: isSel ? "#FFF" : "#6B6860", fontSize: 9, fontWeight: 700 }}>{tech.name.charAt(0)}</span>
@@ -2652,9 +2745,24 @@ export default function QuoteBuilderPage() {
                           items summed to MORE than the Total and it looked like broken
                           addition (Maribel's "the issue is the addition" — a hidden $35).
                           Render each matched bundle so Base + add-ons − bundle = Total. */}
+                      {/* [combo-optional] Each matched bundle is a toggle. Applied
+                          bundles subtract; toggling off keeps the line (greyed,
+                          struck) with an "Add" affordance so the office controls
+                          whether the combo discount applies. */}
                       {(s.calc.bundle_breakdown ?? []).map((b, i) => (
-                        <div key={`bundle-${i}`} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#16A34A" }}>
-                          <span>{b.name || "Bundle discount"}</span><span>-${b.discount.toFixed(2)}</span>
+                        <div key={`bundle-${b.id ?? i}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: b.applied ? "#16A34A" : "#9E9B94" }}>
+                          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={() => toggleBundle(s.scope_id, b.id)}
+                              title={b.applied ? "Remove this combo discount" : "Apply this combo discount"}
+                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, borderRadius: 4, border: "1px solid #E5E2DC", background: b.applied ? "#16A34A" : "#FFF", color: b.applied ? "#FFF" : "#9E9B94", fontSize: 11, lineHeight: 1, cursor: "pointer", padding: 0, fontFamily: FF }}
+                            >
+                              {b.applied ? "×" : "+"}
+                            </button>
+                            <span style={{ textDecoration: b.applied ? "none" : "line-through" }}>{b.name || "Bundle discount"}</span>
+                          </span>
+                          <span style={{ textDecoration: b.applied ? "none" : "line-through" }}>-${b.discount.toFixed(2)}</span>
                         </div>
                       ))}
                       {s.calc.discount_amount > 0 && (
@@ -2691,7 +2799,7 @@ export default function QuoteBuilderPage() {
                         // hours reflect add-on time (e.g. Oven +45 min) just like the
                         // Est. hours line above.
                         const estHrs = s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0;
-                        const techCount = selectedTechId ? 1 : 0;
+                        const techCount = selectedTechIds.length;
                         const cs = calculateCommissionSplit(total, estHrs, techCount, undefined, "residential", scope?.name);
                         const ratePct = Math.round((cs.commissionRate ?? 0.35) * 100);
                         return (
@@ -2732,7 +2840,7 @@ export default function QuoteBuilderPage() {
               // into the multi-scope grand total (was summing base_hours and dropping
               // Oven/Refrigerator/etc. minutes).
               const totalHours = selectedScopes.reduce((sum, s) => sum + (s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0), 0);
-              const techCount = selectedTechId ? 1 : 0;
+              const techCount = selectedTechIds.length;
               // [tiered-residential] Per-scope commission so a quote
               // with mixed Standard + Deep Clean shows the right total
               // (35% × standard + 32% × deep), not a flat 35%.

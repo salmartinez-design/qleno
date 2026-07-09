@@ -1,5 +1,383 @@
 # Known Bugs
 
+## RESOLVED — "Allowed Hours" row paid $0 (blank) when the job had no budget (2026-07-01)
+
+**Severity:** High (go-live payroll) — Maribel: "Jennifer Joy is not populating
+the pay" (Sal: "That's Diana"). A time-clock row on the **Allowed Hours** pay
+type showed a blank "—" instead of a dollar amount.
+
+**Symptom:** Diana's office-cleaning job (5605) was on Allowed Hours @ $20/hr but
+had **no allowed-hours budget set** (allowed_hours = null). Allowed Hours pays
+*budget × rate*, so 0 × $20 = **$0** → the row rendered a blank, silently unpaid.
+
+**Root cause:** `computeTechPay` (`lib/commission-paytype.ts`) always paid
+`allowedHours × rate` for the allowed_hours type. When the job carried no budget
+(common on commercial/office jobs not yet given one), that's $0 — there's no
+budget to cap against, yet the tech worked real clocked time.
+
+**Fix:** when `allowedHours <= 0` on an Allowed Hours row, fall back to **actual
+clocked hours × rate** (same as Hourly) so time worked is always paid. Jobs WITH
+a budget are unchanged — the efficiency hard-cap still applies. Regression test
+added (`no budget (allowed 0) → actual hours × rate, not $0`).
+
+---
+
+## RESOLVED — Dispatch Commission didn't reflect pay types set on the time clock (2026-07-01)
+
+**Severity:** High (go-live payroll) — Maribel: after changing a tech's pay type
+on the time clock, "this should update as well." The dispatch job card kept
+showing the old number.
+
+**Symptom:** Jennifer Campos deep clean (job 10085, base $480). Office set
+**Hilda = Hourly** and **Jose = Fee Split 32%** on the time clock. The time clock
+paid correctly — Hilda **$60.01** (1.8h × $33.34), Jose **$76.80** (32% of $480 ×
+his 50% hour-share). But the dispatch card's **Commission** tile still showed
+**$120** (both techs as Hourly $20 × 3h = $60 each).
+
+**Root cause — two separate pay models.** Dispatch computed each tech's pay from
+the **employee pay-matrix** (`users.residential/commercial_pay_type + rate`),
+while the time clock and payroll compute from the **per-JOB override**
+(`job_technicians.pay_type / hourly_rate / commission_pct`) + actual clocked
+hours, through `computePerTechCommissionRows`. Setting pay types on the time
+clock writes `job_technicians` — which dispatch never read. So the two surfaces
+drifted.
+
+**Fix (`routes/dispatch.ts`):** dispatch now runs the SAME engine as the time
+clock. For any job the office has actually touched — one with real punches OR a
+per-tech pay-type override — the per-tech dollars come from
+`computePerTechCommissionRows` (honoring the override type/rate, `commission_base`
+from #814, and the union of actual clocked hours), so the card matches the time
+clock and payroll to the penny. Jobs nobody has configured yet keep the existing
+matrix estimate (zero blast radius). Added `commission_base` +
+`jt.pay_type/hourly_rate/commission_pct` to the dispatch SELECTs to feed the
+engine. The Commission tile for job 10085 now reads **$136.81** ($60.01 + $76.80).
+
+---
+
+## FEATURE — Permanent per-building notes that auto-fill every job (2026-07-01)
+
+Maribel: she was copy-pasting access/parking/office notes onto **every** job for a
+building. Now each building carries permanent **Office Notes** + **Cleaner Notes**
+(+ photos) that flow onto every job's note boxes automatically. Supersedes the
+account-level notes box from the previous pass (removed per Sal — notes live
+per-building).
+
+**Added:**
+- `pages/account-detail.tsx` — on each property detail: inline **Office Notes**
+  (→ property.notes) + **Cleaner Notes** (→ property.access_notes) editors
+  (office-editable), plus a per-building **Team Photos & Notes** block (photos
+  shown on every job for the building). Removed the account-level notes box.
+- `routes/accounts.ts` — the property PATCH now **propagates** the building's
+  notes onto every FUTURE scheduled job for that building: Office → `office_notes`,
+  Cleaner → `notes`. **Non-destructive** — only syncs a job's box when it's empty
+  or still holds the *previous* building note, so a per-job custom note survives.
+  Removed the now-unused account-level `PATCH /:id/notes`.
+
+Follow-up: stamp the building notes at recurring-job **generation** time so brand-new
+far-future visits carry them without a re-save (today they're covered on the next
+building-note edit).
+
+---
+
+## RESOLVED — Quote "Call Notes" vanished on convert (didn't reach the job) (2026-07-01)
+
+**Severity:** Medium — Maribel: "These notes should go to office notes, idk
+where they go to now, can't find them." The quote builder's **Call Notes** field
+saved onto the quote, but converting the quote to a job never copied them
+anywhere — the job's `notes` came only from `internal_memo`, and the job's
+`office_notes` was left NULL. So the call notes were stranded on the quote.
+
+**Fix (`routes/quotes.ts` convert):** the quote's `call_notes` (plus any quote
+`office_notes`) now populate the created job's **office notes** — for both the
+one-time job insert and every generated recurring visit. The office finds them
+right on the job's Office Notes after convert.
+
+---
+
+## RESOLVED — Couldn't edit pricing on rate-driven commercial jobs (2026-07-01)
+
+**Severity:** Medium — Maribel: "Still can't edit Pricing on this scope. This
+should be available for all scopes and types of jobs." On a commercial job
+priced as $/hr × hours (e.g. PPM), the dispatch pricing editor showed no Edit
+button at all.
+
+**Root cause:** `InlinePricingEditor` gated `editable = canEdit && !isLocked &&
+!rateDriven`, and `rateDriven` is true for any commercial job billed as
+hourly_rate × allowed_hours. So those jobs were read-only with no way to change
+the price.
+
+**Fix (`pages/jobs.tsx`):** pricing is editable on every scope/type now
+(`editable = canEdit && !isLocked`). Saving a commercial (rate-driven) job pins
+the typed total as a flat price via `manual_rate_override: true` (the PATCH route
+already supports it) so it doesn't snap back to $/hr × hours; residential base_fee
+is already the flat price so no override is sent. A hint in the editor explains
+the pin. Only truly locked/cancelled jobs stay read-only.
+
+---
+
+## FEATURE — Per-item commission opt-in for add-ons & adjustments (2026-07-01)
+
+Requested by Maribel/Sal (urgent for payroll): when adding an add-on or a fee
+adjustment, the office must be able to choose whether it counts toward the
+tech's fee split / commission. Default OFF (opt-in); on commercial it adds on
+top of hours × rate.
+
+**How it worked before:** add-ons/adjustments were folded into `billed_amount`,
+and commission read that total — so add-ons always raised residential commission
+and there was no per-item control (and commercial commission, being hours×rate,
+ignored them entirely).
+
+**What changed:**
+- Schema/migration: `affects_commission` flag (default false, opt-in) on
+  `job_add_ons` and `job_rate_mods`; new computed `jobs.commission_base`.
+- `recomputeJobBilledAmount` now also sets `commission_base = base_fee (or
+  allowed_hours × tenant commission rate) + ONLY the flagged add-ons/mods`.
+- The pay engine (`commission-paytype.ts`, `commission-compute.ts`) reads
+  `commission_base` as the fee-split basis instead of the billed total (NULL →
+  legacy `max(base_fee, billed_amount)` fallback). Wired through the time clock
+  and payroll period-lock.
+- `POST /jobs/:id/rate-mods` accepts `affects_commission`; the Time & Fee
+  Adjustment panel has a "counts toward commission" checkbox.
+- **Grandfather:** existing jobs' `commission_base` is backfilled to their
+  current value, so no live paycheck moves; only new items follow the opt-in.
+
+Follow-ups (not in this PR): the "counts toward commission" toggle on the
+add-on/quote UI (backend flag + default already in place), and mirroring
+`commission_base` in the dispatch commission-panel display. Covered by new
+`commission-paytype.test.ts` cases.
+
+---
+
+## RESOLVED — Couldn't add permanent notes to an account (2026-07-01)
+
+**Severity:** Medium — Maribel (Office): "very important. Can't add permanent
+notes to accounts." Accounts have a `notes` column, but the account Overview only
+*displayed* it read-only (and only when present), with no editor — and the full
+`PATCH /accounts/:id` is owner/admin-only, so Office couldn't save it anyway.
+
+**Fix:**
+- `routes/accounts.ts` — new **`PATCH /:id/notes`** (owner/admin/**office**),
+  notes-only, so Office can save account notes without opening the billing PATCH.
+- `pages/account-detail.tsx` — the Overview Notes card is now an inline editor
+  (Add/Edit → textarea → Save), always shown so notes can be added when empty.
+
+Property/building notes were already editable — the property Edit modal has
+Access Notes + Internal Notes (office-editable) and both render in the property
+detail. No change needed there.
+
+---
+
+## RESOLVED — Overlapping punches double-counted the fee split (read-side) (2026-07-01)
+
+**Severity:** High — wrong tech pay. The write-side guard (block a manual office
+punch overlapping an existing one) only covers office-created duplicates. But
+the Time Clocks grid collapses every entry for a (job, tech) into ONE row, so a
+duplicate from ANY source (a field-app double-tap) is invisible to the office
+and still double-counts: pay is split by clocked minutes summed per (job, tech),
+so two overlapping punches over-weight that cleaner (Juliana ⅔ / Norma ⅓ instead
+of 50/50). Maribel: "it only shows one row… we only edit the clock, we don't add
+clocks" — i.e. they couldn't even see or fix the duplicate.
+
+**Fix:** new `lib/timeclock-hours.ts` `unionHoursByKey` sums the UNION of each
+tech's punch intervals per job instead of the raw durations — overlapping punches
+collapse to one span, a real split shift (disjoint punches) still adds up. Wired
+into both places that drive pay: the Time Clocks `/day` grid and the payroll
+period-lock (`routes/pay.ts`, was a SQL `SUM`). Correct regardless of how the
+duplicate was created; complements the write-side guard. Covered by
+`timeclock-hours.test.ts`.
+
+---
+
+## RESOLVED — Duplicate punch double-counted the fee split (2026-07-01)
+
+**Severity:** High — wrong tech pay on live payroll. On job 5397 (Claudia
+Mosier, shared by Juliana + Norma) the fee split paid Juliana $41.99 and Norma
+$21.01 instead of $31.50 each. Reported by Maribel on go-live day.
+
+**Root cause:** Juliana had TWO overlapping punches on the same job (a completed
+field-app punch + a manual office punch Francisco stacked on top, 18s apart).
+The commission split weights by clocked minutes summed per (job, tech), so her
+doubled minutes gave her ⅔ of the $63 pool and Norma ⅓. The office clock-in's
+existing de-dup only caught *open* entries, so a punch stacked on an already-
+*closed* one slipped through.
+
+**Fix:**
+- Data: deleted the duplicate punch (entry 642) — split corrected to $31.50 each.
+  A 4-day scan (51 jobs) found this was the only duplicate.
+- `routes/timeclock.ts` `POST /office/clock-in` — now also rejects a punch whose
+  start falls INSIDE an existing CLOSED entry's span for the same tech+job (409
+  "edit the existing entry instead"). A clock-in strictly after a prior clock-out
+  (e.g. a lunch break) is still allowed.
+
+---
+
+## RESOLVED — Job notes (office + cleaner) lost on quick close / stale until refresh (2026-07-01)
+
+**Severity:** Medium — office/cleaner notes on the dispatch job panel "need a
+refresh to save or to see what we edited" (Maribel).
+
+**Root cause:** both notes fields auto-save on a 2-second debounce
+(`jobs.tsx` JobPanel). Two flaws: (1) the debounce timer is cleared on unmount,
+so closing the card within 2s of typing dropped the edit; (2) after a save the
+grid's cached job wasn't refreshed, so reopening the card showed the OLD note
+until a full page reload.
+
+**Fix (`pages/jobs.tsx`):** track latest + last-saved note values in refs and add
+a close (unmount) handler that FLUSHES any not-yet-saved edit and REFETCHES the
+grid once when a note changed — so nothing is lost on a fast close and a reopened
+card shows the current note without a page refresh. The debounce still handles
+in-session saves; no extra refetch per keystroke.
+
+---
+
+## Cancellation fee policy + per-job exceptions (2026-07-01)
+
+**Policy (Sal, 2026-07-01):** an inside-48hr cancellation charges the customer
+the **full job amount (100%)** and pays the assigned tech the **flat $60**. This
+holds for BOTH `cancel` and `lockout`. The 48-hour window is operator judgment
+(pick "Cancel" to charge vs "Skip" for free) — there is no automatic
+business-hours gate. **Exceptions** for unexpected circumstances: **waive** the
+fee, charge a **% of the job**, or charge a **custom $**.
+
+**What was wrong:** every charging cancellation auto-paid the tech AND left a
+phantom "CANCELLATION FEE" line on the Time Clocks grid, with no way to waive or
+adjust it per-job. (ZZ E2E TEST rows made this loud — Norma/Alma/Diana carried
+cancellation lines for jobs that never happened.)
+
+**Fix:**
+- `lib/cancellation-tech-pay.ts` — new `payTech` override. Default: a charged
+  cancellation **pays the $60** (both cancel + lockout, per policy). The office
+  waives it per-job via `payTech=false`.
+- `routes/cancellation.ts` — introduces `isChargedOutcome = charges_customer &&
+  finalCharge > 0`. A fully-waived fee ($0) becomes a **free cancel** (job goes
+  `cancelled`, not a $0 `complete` artifact) and pays no tech — so it leaves no
+  footprint on revenue or the clock. Threads the modal's `pay_tech` flag.
+- `routes/timeclock.ts` `/day` — hides zero-impact `cancel` jobs (no punch, no
+  granted pay) from the per-tech grid; a $60 charged cancel still shows (tech is
+  owed it), lockouts still show.
+- `pages/jobs.tsx` — cancel modal fee section: **Full charge / % of job /
+  Custom $ / Waive**, plus a "Pay the assigned tech the $60 fee" checkbox
+  (defaults on when charging; forced off + locked on waive).
+- Customer-side default (100%) already lived in `default_cancel_fee_pct = 100`
+  and `cancellation-policy.ts` — unchanged.
+- Existing ZZ E2E TEST rows are cleaned by `scripts/purge_e2e_test_jobs.sql`.
+
+Covered by updated `cancellation-tech-pay.test.ts` (cancel+lockout pay by
+default; `payTech=false` waives; free actions never pay).
+
+---
+
+## RESOLVED — "Failed to save profile" on client edit when Client Since is empty (2026-07-01)
+
+**Severity:** High — editing a client profile (e.g. adding a phone/email) failed
+with a generic "Failed to save profile" for any client that had no Client Since
+date. Reported by Maribel/Sal on Shannon Cohen (customer 1457).
+
+**Root cause:** `clients.client_since` is a **`date`** column. The Edit Client
+Profile drawer initializes `client_since: ""` when the client has none
+(`customer-profile.tsx`), and `PUT /api/clients/:id` passed that `""` straight
+into the column. Postgres rejects `''` for a date (`invalid input syntax for
+type date`), which threw and failed the ENTIRE update — so nothing saved (not
+the phone, email, notes, nothing). The handler only surfaced a generic 500, so
+the real cause was invisible in the UI.
+
+**Fix (`routes/clients.ts`):** coerce empty-string → `null` for the date/timestamp
+columns in the update — `client_since` (the culprit) and, defensively,
+`card_saved_at` (same class). Text columns like `card_expiry` accept `""` and are
+unaffected. Empty now correctly means "unset."
+
+---
+
+## RESOLVED — Archived employees could not be reactivated from the UI (2026-07-01)
+
+**Severity:** Medium — an archived tech was stranded off the roster with no way
+back. Reported by Sal about Norma Puga: her `is_active` was `true` but she still
+showed as inactive, and the "Account Active" toggle did nothing.
+
+**Root cause:** two independent flags gate an employee. `users.is_active`
+(the toggle) AND `users.archived_at`. The roster/dispatch/timeclock queries
+filter `archived_at IS NULL`, so an archived user is hidden regardless of
+`is_active`. The archive action (`POST /users/:id/lms-archive`) shipped without
+its documented `lms-restore` counterpart, and `PUT /users/:id` doesn't accept
+`archived_at` — so once archived, a user could only be restored by editing the
+DB column directly. Norma was archived 2026-05-15.
+
+**Fix:**
+- `routes/users.ts` — new **`POST /:id/lms-restore`** (owner-only, tenant-scoped,
+  idempotent) clears `archived_at` and audit-logs the restore. Mirrors
+  `lms-archive`.
+- `pages/employee-profile.tsx` — an **ARCHIVED** badge in the header when
+  `archived_at` is set, and a **Reactivate** button (owner-only) that calls the
+  restore endpoint and refetches. Fills the missing restore UI.
+
+Applies to every archived tech (e.g. also Ana Valdez, Tatiana Merchan, Katie Fry).
+
+---
+
+## FEATURE — Terminate flow (offboarding) with reasons + dates (2026-07-01)
+
+The Reactivate companion. Previously the only "Termination Date" control was a
+bare date field in the edit form that `PUT /users/:id` silently dropped — so
+terminations weren't recorded and there was no reason/offboarding flow.
+
+**Added:**
+- New columns (idempotent `ADD COLUMN IF NOT EXISTS` in `phes-data-migration.ts`
+  + Drizzle schema): `users.last_day_worked` (date), `users.termination_reason`
+  (text), `users.rehire_eligible` (bool). `termination_date` already existed.
+- `routes/users.ts` — **`POST /:id/terminate`** (owner-only, tenant-scoped;
+  can't terminate an owner or yourself). Validates a `termination_date` and a
+  reason from a fixed set (resigned / job_abandonment / performance / misconduct
+  / laid_off / end_of_season / other), then sets the separation fields,
+  `is_active=false`, and `archived_at=NOW()` so they drop off dispatch, the time
+  clock, payroll, and pickers. Audit-logged.
+- `lms-restore` (Reactivate) now also clears the termination fields and flips
+  `is_active` back on — one button fully reverses archive AND terminate.
+- `pages/employee-profile.tsx` — a red **Terminate** button (opens a modal with
+  Reason, Termination date, Last day worked, Eligible-for-rehire) for active
+  employees; a **TERMINATED** header badge (reason/date/rehire in the tooltip);
+  the dead edit-form date field is now a read-only status.
+
+---
+
+## RESOLVED — Time Clocks fee split paid the primary 100% pre-clock (multi-cleaner) (2026-06-30)
+
+**Severity:** High — wrong per-cleaner commission shown on the Time Clocks grid
+(and written at period-lock) whenever 2+ cleaners were assigned but nobody had
+clocked yet. Reported by Francisco: "the fee split in Time Clocks does not match
+the assigned splits."
+
+**Symptom:** A job with two (or more) assigned cleaners and NO clock entries yet
+showed the whole job commission on the primary's row and `—` ($0) on every other
+cleaner. CLAUDE.md's commission spec says the opposite: "pre-clock-in: equal
+split among assigned techs."
+
+**Root cause:** `computePerTechCommissionRows` (`lib/commission-paytype.ts`) guards
+the time-weighted split with `if (totalTechHours <= 0)` and fell back to the
+legacy single-basis `computeCommissionRows`, which emits ONE row for
+`jobs.assigned_user_id` only (multi-tech splitting is deferred to the route
+layer). So with no clocked hours, only the primary was paid.
+
+**Fix:** The `totalTechHours <= 0` branch now splits by headcount when 2+ cleaners
+are assigned:
+- Single assigned tech → legacy fallback unchanged (byte-identical, no regression).
+- Multiple cleaners → split the whole-job commission pool EVENLY, penny-exact via
+  `splitPoolEvenly` (integer-cent largest-remainder, so the shares always
+  reconcile to the job total — no $0.01 drift). Residential pool = `base × scope%`,
+  commercial = `allowed_hours × $/hr`.
+- An HOURLY timesheet stays $0 pre-clock (hourly pays clocked time only) and still
+  holds a slot in the denominator, so a fee-split cleaner sharing the job with an
+  hourly one gets their 1/N slice — matching how hours will weight it post-clock.
+- A hand-set `final_pay` override is still honored verbatim.
+- Once any punch is entered, the existing proportional-by-minutes path takes over
+  (unchanged).
+
+Affects both the Time Clocks `/day` grid and the period-lock commission writer
+(same engine). Covered by new tests in `commission-paytype.test.ts`
+("PRE-CLOCK: …"). The previous GUARD test that asserted primary-only was updated
+to the single-tech case.
+
+---
+
 ## RESOLVED — Bug E: "(current) standard_clean" raw enum showing in commercial dropdown (2026-04-27, AI.3)
 
 **Status:** Resolved structurally by AI.3's tenant-managed commercial service

@@ -315,6 +315,3 @@ export type LmsEnrollment = typeof lmsEnrollmentsTable.$inferSelect;
 export type LmsModuleProgress = typeof lmsModuleProgressTable.$inferSelect;
 export type LmsQuizState = typeof lmsQuizStateTable.$inferSelect;
 export type LmsQuizAttempt = typeof lmsQuizAttemptsTable.$inferSelect;
-
-// Re-export zod for downstream callers that want to compose schemas
-export { z };

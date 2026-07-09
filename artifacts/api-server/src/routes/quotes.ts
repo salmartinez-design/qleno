@@ -186,7 +186,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       base_price, total_price, discount_amount, discount_code, addons,
       bedrooms, bathrooms, half_baths, sqft, dirt_level, pets,
       special_instructions, internal_memo, client_notes, notes, status,
-      unit_suite, referral_source, office_notes, manual_adjustments,
+      unit_suite, referral_source, office_notes, call_notes, manual_adjustments,
     } = req.body;
 
     const scope = scope_id ? await db.select().from(pricingScopesTable).where(eq(pricingScopesTable.id, scope_id)).limit(1) : null;
@@ -219,6 +219,12 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       pets: pets || 0,
       special_instructions, internal_memo, client_notes, notes,
       office_notes: office_notes || null,
+      // [call-notes-fix 2026-07-08] POST dropped call_notes entirely, so a
+      // freshly-created quote's Call Notes never reached the column — and thus
+      // never carried to the job's office_notes on convert (Maribel: "these
+      // notes should go to office notes and be visible from the job card").
+      // Only PATCH saved it, so it worked only after an edit. Mirror office_notes.
+      call_notes: call_notes || null,
       manual_adjustments: manual_adjustments || [],
       unit_suite: unit_suite || null,
       referral_source: referral_source || null,
@@ -286,6 +292,80 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
   } catch (err) {
     console.error("Update quote error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Quote PDF ────────────────────────────────────────────────────────────────
+// Branded, downloadable PDF of the quote — reuses the estimate PDF renderer so
+// quotes and estimates look identical to the customer. Inline disposition.
+router.get("/:id/pdf", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const id = parseInt(req.params.id);
+    const [q] = await db
+      .select({
+        client_id: quotesTable.client_id,
+        lead_name: quotesTable.lead_name,
+        address: quotesTable.address,
+        service_type: quotesTable.service_type,
+        frequency: quotesTable.frequency,
+        base_price: quotesTable.base_price,
+        total_price: quotesTable.total_price,
+        discount_amount: quotesTable.discount_amount,
+        status: quotesTable.status,
+        notes: quotesTable.notes,
+        created_at: quotesTable.created_at,
+        client_first: clientsTable.first_name,
+        client_last: clientsTable.last_name,
+      })
+      .from(quotesTable)
+      .leftJoin(clientsTable, eq(quotesTable.client_id, clientsTable.id))
+      .where(and(eq(quotesTable.id, id), eq(quotesTable.company_id, companyId)))
+      .limit(1);
+    if (!q) return res.status(404).json({ error: "Not Found" });
+
+    const co = await db.execute(sql`SELECT name, logo_url FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const company: any = (co as any).rows[0] ?? {};
+    let logo: Buffer | null = null;
+    if (company.logo_url && /^https?:\/\//i.test(company.logo_url)) {
+      try {
+        const r = await fetch(company.logo_url);
+        if (r.ok && /image\/(png|jpe?g)/i.test(r.headers.get("content-type") || "")) logo = Buffer.from(await r.arrayBuffer());
+      } catch { logo = null; }
+    }
+
+    const total = Number(q.total_price ?? q.base_price ?? 0);
+    const discount = Number(q.discount_amount ?? 0);
+    const contactName = [q.client_first, q.client_last].filter(Boolean).join(" ") || q.lead_name || null;
+    const svcLabel = (q.service_type || "Cleaning Service").replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+
+    const { renderEstimatePdf } = await import("../lib/estimate-pdf.js");
+    const pdf = await renderEstimatePdf({
+      companyName: company.name || "Quote",
+      logo,
+      estimateNumber: `Q-${id}`,
+      status: q.status || "draft",
+      title: svcLabel,
+      introNote: null,
+      contactName,
+      propertyName: null,
+      serviceAddress: q.address || null,
+      billingMode: "flat",
+      flatPriceUnit: q.frequency && q.frequency !== "one_time" ? "visit" : "total",
+      scopeNote: q.notes || null,
+      items: [{ name: svcLabel, pricing_type: "flat", frequency: q.frequency || null, quantity: 1, unit_rate: total, amount: total }],
+      subtotal: total + discount,
+      discount,
+      total,
+      terms: null,
+      validUntil: null,
+    });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="quote-${id}.pdf"`);
+    return res.end(pdf);
+  } catch (err) {
+    console.error("Quote PDF error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to render quote PDF" });
   }
 });
 
@@ -370,7 +450,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
   try {
     const id = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
-    const { scheduled_date, scheduled_time, assigned_user_id } = req.body || {};
+    const { scheduled_date, scheduled_time, assigned_user_id, team_user_ids } = req.body || {};
 
     // Mark quote as booked
     const [q] = await db.update(quotesTable)
@@ -486,6 +566,27 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       if (clientId) { try { await db.execute(sql`UPDATE quotes SET client_id = ${clientId} WHERE id = ${id} AND company_id = ${companyId}`); } catch { /* noop */ } }
     }
 
+    // [service-address-cascade 2026-07-08] A newly-converted client had their
+    // address on the clients row but NO client_homes row — so the profile's
+    // Property tab showed an empty "Add Another Home" even though we knew
+    // exactly where the job is (Sal: "her being a new client it only makes
+    // sense it defaults to the first service address"). Seed a PRIMARY home
+    // from the client's address + the quote's property details, only when the
+    // client has none yet (NOT EXISTS guard never clobbers an existing home).
+    // Placed here so it covers BOTH the recurring and single-job convert paths.
+    if (clientId) {
+      try {
+        await db.execute(sql`
+          INSERT INTO client_homes (company_id, client_id, address, city, state, zip, sq_footage, bedrooms, bathrooms, is_primary)
+          SELECT ${companyId}, c.id, COALESCE(NULLIF(c.address,''), ${(q as any).address ?? null}), c.city, c.state, c.zip,
+                 ${(q as any).sqft ?? null}, ${(q as any).bedrooms ?? null}, ${(q as any).bathrooms ?? null}, true
+            FROM clients c
+           WHERE c.id = ${clientId} AND c.company_id = ${companyId}
+             AND COALESCE(NULLIF(c.address,''), ${(q as any).address ?? null}) IS NOT NULL
+             AND NOT EXISTS (SELECT 1 FROM client_homes h WHERE h.client_id = ${clientId})`);
+      } catch (e) { console.error("[convert] seed client_home non-fatal:", (e as any)?.message); }
+    }
+
     const isRecurring = jobFreq !== "on_demand";
     if (isRecurring && clientId) {
       // [rebook-preserve 2026-06-20] Re-booking an existing recurring client must
@@ -524,14 +625,17 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       let sched: any;
       let allInBase = 0;
       if (prior) {
-        // Reuse the existing schedule. Agreed base + visit length stay exactly
-        // as-is; the only money change is folding any new add-ons into the
-        // all-in base going forward.
+        // Reuse the existing schedule (don't spawn a duplicate). Agreed base +
+        // visit length stay as-is; new add-ons fold into the all-in base. But a
+        // re-book at a DIFFERENT cadence is a deliberate change, so update the
+        // frequency to the quoted one — previously the DB row kept its old
+        // cadence even though the office picked a new one on the quote.
         const agreedBase = prior.base_fee != null ? parseFloat(prior.base_fee) : (recurringFee ?? 0);
         allInBase = Math.round((agreedBase + newAddonSubtotal) * 100) / 100;
         await db.execute(sql`
           UPDATE recurring_schedules
              SET base_fee = ${String(allInBase)},
+                 frequency = ${jobFreq},
                  scheduled_time = COALESCE(${scheduled_time || null}, scheduled_time),
                  assigned_employee_id = COALESCE(${assigned_user_id ? parseInt(String(assigned_user_id)) : null}, assigned_employee_id)
            WHERE id = ${prior.id} AND company_id = ${companyId}
@@ -585,6 +689,20 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         console.warn("[quote convert] recurring generation failed:", genErr?.message ?? genErr);
       }
 
+      // [quote-notes-convert 2026-07-01] Carry the quote's Call Notes into the
+      // office notes of every generated recurring visit, so the office can find
+      // them after convert (same as the one-time path below).
+      try {
+        const recurringOfficeNotes = [(q as any).call_notes, (q as any).office_notes]
+          .filter((x: any) => x && String(x).trim()).join("\n\n");
+        if (recurringOfficeNotes) {
+          await db.execute(sql`
+            UPDATE jobs SET office_notes = ${recurringOfficeNotes}
+             WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId}
+               AND (office_notes IS NULL OR office_notes = '')`);
+        }
+      } catch (e) { console.warn("[quote convert] office-notes stamp failed:", e); }
+
       if (reusedSchedule) {
         // Reused schedule: move every UPCOMING visit to the agreed all-in price
         // and give it the new add-on line items. Past/completed visits are left
@@ -630,10 +748,14 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       import("../services/followUpService.js").then(({ stopEnrollmentsForQuote }) => {
         stopEnrollmentsForQuote(id, "booked").catch(() => {});
       });
-      // Quote→lead: advance to Booked (non-blocking).
+      // Quote→lead: advance to Booked + link first generated job (non-blocking).
       import("../lib/lead-sync.js").then(async ({ upsertLeadForQuote, advanceLeadStage }) => {
         const leadId = await upsertLeadForQuote(companyId, { ...(q as any), id });
-        if (leadId) await advanceLeadStage(companyId, leadId, "booked", { userId: req.auth!.userId });
+        if (leadId) {
+          const firstJobRow = await db.execute(sql`SELECT id FROM jobs WHERE recurring_schedule_id = ${sched.id} AND company_id = ${companyId} ORDER BY scheduled_date ASC, id ASC LIMIT 1`);
+          const firstJobId = (firstJobRow.rows[0] as any)?.id ?? null;
+          await advanceLeadStage(companyId, leadId, "booked", { jobId: firstJobId ?? undefined, clientId: clientId ?? undefined, userId: req.auth!.userId });
+        }
       }).catch(() => {});
       return res.json({
         success: true, quote: q, recurring_schedule_id: sched.id, jobs_generated: generated.created,
@@ -648,11 +770,18 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // estimated_hours. Previously the convert wrote neither, so every
     // quote-booked job landed with NULL allowed_hours — the dispatch Gantt
     // rendered a flat default block and the add-on time never showed up.
+    // [quote-notes-convert 2026-07-01] Carry the quote's Call Notes into the
+    // job's OFFICE NOTES so the office can find them after convert (Maribel:
+    // "these notes should go to office notes, can't find them"). Combine with
+    // the quote's own office_notes if both are present.
+    const jobOfficeNotes = [(q as any).call_notes, (q as any).office_notes]
+      .filter((x: any) => x && String(x).trim())
+      .join("\n\n") || null;
     const jobResult = await db.execute(sql`
       INSERT INTO jobs (
         company_id, client_id, scheduled_date, scheduled_time,
         service_type, base_fee, status, assigned_user_id,
-        frequency, notes, allowed_hours, estimated_hours, address_street, created_at
+        frequency, notes, office_notes, allowed_hours, estimated_hours, address_street, created_at
       ) VALUES (
         ${companyId},
         ${clientId},
@@ -664,6 +793,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${assigned_user_id || null},
         ${sql.raw(`'${jobFreq}'::frequency`)},
         ${q.internal_memo || null},
+        ${jobOfficeNotes},
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${(q as any).address || null},
@@ -711,20 +841,38 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // invariant, every code path that assigns a tech MUST write both. Promote
     // the chosen tech to primary (is_primary=true) so the dispatch grid and the
     // per-tech fan-out recognize the assignment.
-    const assignedTechId = assigned_user_id ? parseInt(String(assigned_user_id)) : NaN;
-    if (jobId && !isNaN(assignedTechId)) {
-      await db.execute(sql`
-        INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
-        VALUES (${jobId}, ${assignedTechId}, ${companyId}, true)
-        ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
-      `);
-      // [notifications A.2] Alert the assigned tech of the new booking (in-app).
-      import("../lib/notify.js").then(({ notifyUser }) => notifyUser({
-        companyId, userId: assignedTechId, type: "job_assigned",
-        title: "New job assigned",
-        body: `${String(serviceType).replace(/_/g, " ")} on ${jobDate}`,
-        link: "/my-jobs", meta: { job_id: jobId },
-      })).catch(() => {});
+    // Multi-tech assignment. team_user_ids carries the full crew chosen on the
+    // Review step; assigned_user_id is the primary (already mirrored onto
+    // jobs.assigned_user_id by the INSERT above). Write a job_technicians row
+    // per cleaner, flagging ONLY the primary, so the dispatch grid and the
+    // per-tech fan-out recognize every assigned tech and the labor splits.
+    const primaryTechId = assigned_user_id ? parseInt(String(assigned_user_id)) : NaN;
+    const teamIds: number[] = (Array.isArray(team_user_ids) ? team_user_ids : [])
+      .map((t: any) => parseInt(String(t)))
+      .filter((n: number) => !isNaN(n));
+    // Primary first, then the remaining crew (deduped). Falls back to the lone
+    // primary when no team array is sent (older clients / single assignment).
+    const orderedTechIds = [
+      ...(!isNaN(primaryTechId) ? [primaryTechId] : []),
+      ...teamIds.filter(t => t !== primaryTechId),
+    ];
+    if (jobId && orderedTechIds.length) {
+      for (let i = 0; i < orderedTechIds.length; i++) {
+        const techId = orderedTechIds[i];
+        const isPrimary = !isNaN(primaryTechId) ? techId === primaryTechId : i === 0;
+        await db.execute(sql`
+          INSERT INTO job_technicians (job_id, user_id, company_id, is_primary)
+          VALUES (${jobId}, ${techId}, ${companyId}, ${isPrimary})
+          ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
+        `);
+        // [notifications A.2] Alert each assigned tech of the new booking (in-app).
+        import("../lib/notify.js").then(({ notifyUser }) => notifyUser({
+          companyId, userId: techId, type: "job_assigned",
+          title: "New job assigned",
+          body: `${String(serviceType).replace(/_/g, " ")} on ${jobDate}`,
+          link: "/my-jobs", meta: { job_id: jobId },
+        })).catch(() => {});
+      }
     }
 
     logAudit(req, "CONVERTED", "quote", id, null, { status: "booked", total_price: q.total_price, job_id: jobId });
@@ -746,7 +894,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // Quote→lead: advance to Booked + link the job (non-blocking).
     import("../lib/lead-sync.js").then(async ({ upsertLeadForQuote, advanceLeadStage }) => {
       const leadId = await upsertLeadForQuote(companyId, { ...(q as any), id });
-      if (leadId) await advanceLeadStage(companyId, leadId, "booked", { jobId, userId: req.auth!.userId });
+      if (leadId) await advanceLeadStage(companyId, leadId, "booked", { jobId, clientId: clientId ?? undefined, userId: req.auth!.userId });
     }).catch(() => {});
 
     return res.json({ success: true, quote: q, job_id: jobId, message: "Quote converted and job created." });

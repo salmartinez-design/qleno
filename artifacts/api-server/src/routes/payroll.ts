@@ -756,6 +756,42 @@ router.get("/detail", requireAuth, async (req, res) => {
       for (const r of mRows.rows as any[]) mileageByUser.set(Number(r.user_id), parseFloat(String(r.total || 0)));
     } catch { /* mileage_legs absent — skip */ }
 
+    // [mileage-visibility 2026-07-08] The per-leg detail so the payroll By-Employee
+    // view can SHOW each drive (date + from→to + miles + $) per day, not just a
+    // hidden weekly total. Sal kept seeing "$0 / nothing populated" on Monday
+    // because this screen never displayed the legs even though they exist.
+    const legsByUser = new Map<number, any[]>();
+    try {
+      const lRows = await db.execute(sql`
+        SELECT ml.user_id, ml.leg_date::text AS leg_date, ml.miles, ml.amount, ml.status,
+               COALESCE(NULLIF(TRIM(fc.first_name||' '||COALESCE(fc.last_name,'')),''), fa.account_name, 'Job '||ml.from_job_id) AS from_label,
+               COALESCE(NULLIF(TRIM(tc.first_name||' '||COALESCE(tc.last_name,'')),''), ta.account_name, 'Job '||ml.to_job_id) AS to_label
+        FROM mileage_legs ml
+        LEFT JOIN jobs fj ON fj.id = ml.from_job_id
+        LEFT JOIN clients fc ON fc.id = fj.client_id
+        LEFT JOIN accounts fa ON fa.id = fj.account_id
+        LEFT JOIN jobs tj ON tj.id = ml.to_job_id
+        LEFT JOIN clients tc ON tc.id = tj.client_id
+        LEFT JOIN accounts ta ON ta.id = tj.account_id
+        WHERE ml.company_id = ${companyId} AND ml.status <> 'discarded'
+          AND ml.leg_date >= ${String(pay_period_start)} AND ml.leg_date <= ${String(pay_period_end)}
+          ${filterUserId ? sql`AND ml.user_id = ${filterUserId}` : sql``}
+        ORDER BY ml.user_id, ml.leg_date
+      `);
+      for (const r of lRows.rows as any[]) {
+        const uid = Number(r.user_id);
+        if (!legsByUser.has(uid)) legsByUser.set(uid, []);
+        legsByUser.get(uid)!.push({
+          leg_date: String(r.leg_date),
+          miles: parseFloat(String(r.miles || 0)),
+          amount: parseFloat(String(r.amount || 0)),
+          status: r.status,
+          from: r.from_label,
+          to: r.to_label,
+        });
+      }
+    } catch { /* mileage_legs absent — skip */ }
+
     // ── [payroll-P0] per-tech-CLOCKED attribution via the pay-type engine ────
     // A tech earns from every job they personally clocked (helpers included).
     // Pay type is per-tech (job_technicians): fee_split / allowed_hours / hourly,
@@ -985,6 +1021,7 @@ router.get("/detail", requireAuth, async (req, res) => {
         // commission come from" sub-table the UI renders inside each
         // employee's expanded panel.
         commission_by_branch: branchRollup,
+        mileage_legs: legsByUser.get(uid) || [],
         totals: {
           job_count: jobRows.length,
           job_total: Math.round(totalJobTotal * 100) / 100,
@@ -995,6 +1032,53 @@ router.get("/detail", requireAuth, async (req, res) => {
           effective_rate: totalHrsWorked > 0 ? Math.round((totalCommission / totalHrsWorked) * 100) / 100 : null,
           quality_avg: qualityAvg,
           quality_count: scoredJobs.length,
+          grand_total: Math.round(grandTotal * 100) / 100,
+        },
+      });
+    }
+
+    // [mileage-read-fix 2026-07-08] Emit a record for techs who have MILEAGE or
+    // additional-pay/adjustments in this window but NO clocked completed-job pay
+    // line — otherwise the loop above skips them and their mileage silently
+    // drops. This is what made the tech My-Pay "YTD" mileage read $0 even though
+    // a leg existed: a window with mileage but no completed+clocked job produced
+    // no employee object, so the frontend's data[0] was undefined → $0.
+    const emitted = new Set<number>(linesByUser.keys());
+    const extraUids = new Set<number>();
+    for (const uid of mileageByUser.keys()) extraUids.add(uid);
+    for (const uid of adjByUser.keys()) extraUids.add(uid);
+    for (const p of addlPay) extraUids.add(p.user_id);
+    for (const uid of extraUids) {
+      if (emitted.has(uid)) continue;
+      if (sandboxUserIds.has(uid)) continue;
+      if (filterUserId && uid !== filterUserId) continue;
+      const user = userMap.get(uid) || { first_name: "Unknown", last_name: "" };
+      const addlByType: Record<string, number> = {};
+      for (const p of addlPay.filter(p => p.user_id === uid)) {
+        addlByType[p.type] = (addlByType[p.type] || 0) + parseFloat(String(p.amount || 0));
+      }
+      for (const [adjType, amt] of Object.entries(adjByUser.get(uid) || {})) {
+        addlByType[adjType] = (addlByType[adjType] || 0) + amt;
+      }
+      const mileage = Math.round((mileageByUser.get(uid) || 0) * 100) / 100;
+      const grandTotal = Object.values(addlByType).reduce((s, v) => s + v, 0);
+      result.push({
+        user_id: uid,
+        name: `${user.first_name} ${user.last_name}`.trim(),
+        jobs: [],
+        additional_pay: addlByType,
+        commission_by_branch: [],
+        mileage_legs: legsByUser.get(uid) || [],
+        totals: {
+          job_count: 0,
+          job_total: 0,
+          commission: 0,
+          hrs_scheduled: 0,
+          hrs_worked: 0,
+          mileage,
+          effective_rate: null,
+          quality_avg: null,
+          quality_count: 0,
           grand_total: Math.round(grandTotal * 100) / 100,
         },
       });
@@ -1423,12 +1507,17 @@ router.delete("/templates/:id", requireAuth, requireRole("owner", "admin"), asyn
 
 router.post("/bulk-pay", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
-    const { employee_ids, type, amount, notes } = req.body;
+    const { employee_ids, type, amount, notes, date } = req.body;
     if (!Array.isArray(employee_ids) || !employee_ids.length || !type || !amount) {
       return res.status(400).json({ error: "employee_ids (array), type, amount required" });
     }
     const companyId = req.auth!.companyId;
     const parsedAmount = parseFloat(amount);
+    // Stamp created_at to the effective date (noon UTC) so the entries land in
+    // the intended pay period — same mechanism as the single additional-pay
+    // route. Without this, bulk holiday/tip pay always buckets into "now",
+    // landing in the wrong week for a past-dated adjustment (e.g. 4th of July).
+    const createdAt = date ? new Date(`${date}T12:00:00Z`) : new Date();
 
     // Verify all employees belong to this company
     const emps = await db
@@ -1447,6 +1536,7 @@ router.post("/bulk-pay", requireAuth, requireRole("owner", "admin", "office"), a
       amount: parsedAmount.toFixed(2),
       notes: notes || null,
       status: "pending" as const,
+      created_at: createdAt,
     }));
 
     await db.insert(additionalPayTable).values(inserts);

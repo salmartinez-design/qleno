@@ -61,9 +61,19 @@ export async function runCutoverDataMigration(): Promise<void> {
   }
   try {
     await seedPhesLeavePolicy3A();
+    await seedPhesOccurrenceLadders();
+    await seedPhesBucketDisplay();
   } catch (err) {
     console.error(
       "[cutover-migration] Phes 3A leave policy seed failed (non-fatal):",
+      err,
+    );
+  }
+  try {
+    await migrateLeaveRequestUnitAttachment();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] leave_requests unit/attachment migrate failed (non-fatal):",
       err,
     );
   }
@@ -123,6 +133,105 @@ export async function runCutoverDataMigration(): Promise<void> {
       err,
     );
   }
+  try {
+    await ensureClockSequenceMileageFallback();
+    await ensureScheduledMileageFallback();
+  } catch (err) {
+    console.error(
+      "[cutover-migration] clock_sequence mileage fallback schema failed (non-fatal):",
+      err,
+    );
+  }
+}
+
+/**
+ * Clock-sequence mileage fallback — adds the schema pieces that let
+ * the mileage engine derive legs from consecutive clock-in/out pairs
+ * when a tech didn't tap "On My Way".
+ *
+ * Three idempotent changes:
+ *   1. Create `mileage_leg_source` enum ('on_my_way' | 'clock_sequence').
+ *   2. Add `leg_source` column to mileage_legs (default 'on_my_way' so
+ *      all existing rows are unchanged).
+ *   3. Drop NOT NULL on source_on_my_way_event_id so clock_sequence
+ *      rows can leave it NULL.
+ *   4. Create partial unique index for clock_sequence legs
+ *      (company_id, user_id, from_job_id, to_job_id) — prevents
+ *      duplicate synthetic legs on recompute without touching the
+ *      existing OMW unique index.
+ */
+async function ensureClockSequenceMileageFallback(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      -- 1. Enum type
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'mileage_leg_source') THEN
+        CREATE TYPE mileage_leg_source AS ENUM ('on_my_way', 'clock_sequence');
+      END IF;
+
+      -- 2. leg_source column
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'mileage_legs' AND column_name = 'leg_source'
+      ) THEN
+        ALTER TABLE mileage_legs
+          ADD COLUMN leg_source mileage_leg_source NOT NULL DEFAULT 'on_my_way';
+      END IF;
+
+      -- 3. Drop NOT NULL on source_on_my_way_event_id (idempotent)
+      IF EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'mileage_legs'
+          AND column_name = 'source_on_my_way_event_id'
+          AND is_nullable = 'NO'
+      ) THEN
+        ALTER TABLE mileage_legs
+          ALTER COLUMN source_on_my_way_event_id DROP NOT NULL;
+      END IF;
+
+      -- 4. Partial unique index for clock_sequence deduplication
+      IF NOT EXISTS (
+        SELECT 1 FROM pg_indexes WHERE indexname = 'mileage_legs_clock_seq_uq'
+      ) THEN
+        CREATE UNIQUE INDEX mileage_legs_clock_seq_uq
+          ON mileage_legs (company_id, user_id, from_job_id, to_job_id)
+          WHERE leg_source = 'clock_sequence';
+      END IF;
+
+      RAISE NOTICE 'cutover-migration: clock_sequence mileage fallback installed';
+    END
+    $$;
+    `),
+  );
+}
+
+/**
+ * [mileage-schedule-failsafe 2026-07-08] Third mileage source: 'scheduled'.
+ *
+ * When a tech neither taps "On My Way" NOR clocks in/out on a past day but a
+ * completed job says they were there, the schedule-failsafe builder estimates
+ * the drive from that day's scheduled stops (in start-time order) so mileage
+ * still surfaces for the office to review — Sal's confirmed failsafe. Legs land
+ * status='computed' + measurement_is_estimated=true; nothing becomes pay until
+ * the 2B review gate.
+ *
+ * ALTER TYPE ... ADD VALUE cannot run inside a transaction/DO block, so it runs
+ * as its own autocommit statement (same pattern as commercial service_type
+ * slugs). The dedup index references the new value in a SEPARATE statement so
+ * it's already committed. Both IF NOT EXISTS — safe on every boot.
+ */
+async function ensureScheduledMileageFallback(): Promise<void> {
+  await db.execute(
+    sql.raw(`ALTER TYPE mileage_leg_source ADD VALUE IF NOT EXISTS 'scheduled'`),
+  );
+  await db.execute(
+    sql.raw(`
+      CREATE UNIQUE INDEX IF NOT EXISTS mileage_legs_scheduled_uq
+        ON mileage_legs (company_id, user_id, from_job_id, to_job_id)
+        WHERE leg_source = 'scheduled'
+    `),
+  );
 }
 
 /**
@@ -605,7 +714,8 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
       )
       ON CONFLICT DO NOTHING;
 
-      -- Phes-specific buckets. Only seeded for company_id=1.
+      -- Phes-specific buckets. Seeded for BOTH Phes companies — Oak Lawn (1)
+      -- and Schaumburg (4) — so both branches get the same catalog.
       INSERT INTO leave_types (
         company_id, slug, display_name, is_paid, annual_cap_hours,
         accrual_mode, accrual_rate, waiting_period_days,
@@ -630,6 +740,18 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
          false, false, true, false),
         (1, 'unexcused', 'Unexcused', false, 40,
          'office_recorded', 0, 0,
+         false, false, false, false),
+        (4, 'plawa', 'PLAWA', true, 40,
+         'flat_grant', 0, 90,
+         false, false, true, true),
+        (4, 'pto_phes', 'PTO', true, 40,
+         'flat_grant', 0, 365,
+         true, false, true, false),
+        (4, 'unpaid_leave', 'Unpaid Leave', false, 40,
+         'flat_grant', 0, 0,
+         false, false, true, false),
+        (4, 'unexcused', 'Unexcused', false, 40,
+         'office_recorded', 0, 0,
          false, false, false, false)
       ON CONFLICT DO NOTHING;
 
@@ -641,7 +763,7 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
       SET accrual_mode = 'flat_grant',
           accrual_rate = 0,
           carryover_allowed = false
-      WHERE company_id = 1
+      WHERE company_id IN (1, 4)
         AND slug = 'plawa';
 
       -- The default-seeded "pto" row for company_id=1 collides with
@@ -651,7 +773,7 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
       -- so the Phes-specific row is the only one shown.
       UPDATE leave_types
       SET active = false
-      WHERE company_id = 1
+      WHERE company_id IN (1, 4)
         AND slug = 'pto';
 
       -- Likewise deactivate the generic default 'sick' bucket for Phes —
@@ -659,10 +781,42 @@ async function seedLeaveTypesPerTenant(): Promise<void> {
       -- buckets (generic 'sick' + 'plawa') is a seeding leftover.
       UPDATE leave_types
       SET active = false
-      WHERE company_id = 1
+      WHERE company_id IN (1, 4)
         AND slug = 'sick';
 
       RAISE NOTICE 'cutover-migration: seeded leave_types per tenant';
+    END
+    $$;
+  `),
+  );
+}
+
+/**
+ * Time-off "ticket" flow (2026-06-22) — add the day_unit (full/AM/PM) + the
+ * required-attachment columns to leave_requests. Idempotent: creates the enum
+ * type if missing and ADD COLUMN IF NOT EXISTS. Existing rows default to
+ * full_day; attachment columns are nullable (older rows predate the requirement).
+ */
+async function migrateLeaveRequestUnitAttachment(): Promise<void> {
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'leave_requests'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: leave_requests not present yet, skipping unit/attachment';
+        RETURN;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'leave_day_unit') THEN
+        CREATE TYPE leave_day_unit AS ENUM ('full_day', 'morning', 'afternoon');
+      END IF;
+      ALTER TABLE leave_requests
+        ADD COLUMN IF NOT EXISTS day_unit leave_day_unit NOT NULL DEFAULT 'full_day';
+      ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS attachment_url text;
+      ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS attachment_name text;
+      RAISE NOTICE 'cutover-migration: leave_requests day_unit + attachment columns ensured';
     END
     $$;
   `),
@@ -693,12 +847,137 @@ async function seedPhesLeavePolicy3A(): Promise<void> {
         company_id, leave_reset_basis,
         use_it_or_lose_it_alert_lead_days, balance_ceiling_hours
       )
-      VALUES (1, 'work_anniversary', 60, 80)
+      VALUES (1, 'work_anniversary', 60, 80), (4, 'work_anniversary', 60, 80)
       ON CONFLICT (company_id) DO UPDATE SET
         leave_reset_basis = COALESCE(EXCLUDED.leave_reset_basis, company_leave_policy.leave_reset_basis),
         use_it_or_lose_it_alert_lead_days = COALESCE(EXCLUDED.use_it_or_lose_it_alert_lead_days, company_leave_policy.use_it_or_lose_it_alert_lead_days),
         balance_ceiling_hours = COALESCE(EXCLUDED.balance_ceiling_hours, company_leave_policy.balance_ceiling_hours);
       RAISE NOTICE 'cutover-migration: ensured Phes 3A leave policy (work-anniversary reset)';
+    END
+    $$;
+  `),
+  );
+}
+
+/**
+ * PHES occurrence-based disciplinary ladders (Sal 2026-06-24, confirmed against
+ * the LMS "Phes Policies" module). Adds the two occurrence-step columns and
+ * seeds the ladder for co1 + co4: 3rd occurrence → written warning, 4th → final
+ * warning, 5th → termination — independently for unexcused absences and tardies,
+ * counted per Benefit Year. Seeds only when the column is empty so later office
+ * edits are never clobbered. (Tardy step 3 uses tardy_warning, unexcused step 3
+ * uses absence_warning; both render the label "Written warning".)
+ */
+async function seedPhesOccurrenceLadders(): Promise<void> {
+  const UNEXCUSED = JSON.stringify([
+    { occurrence: 3, discipline_type: "absence_warning", label: "Written warning", notify: true },
+    { occurrence: 4, discipline_type: "final_warning", label: "Final warning", notify: true },
+    { occurrence: 5, discipline_type: "termination", label: "Termination", notify: true },
+  ]);
+  const TARDY = JSON.stringify([
+    { occurrence: 3, discipline_type: "tardy_warning", label: "Written warning", notify: true },
+    { occurrence: 4, discipline_type: "final_warning", label: "Final warning", notify: true },
+    { occurrence: 5, discipline_type: "termination", label: "Termination", notify: true },
+  ]);
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'company_attendance_policy'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: company_attendance_policy not present yet, skipping occurrence ladder';
+        RETURN;
+      END IF;
+
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='company_attendance_policy' AND column_name='unexcused_occurrence_steps'
+      ) THEN
+        ALTER TABLE company_attendance_policy ADD COLUMN unexcused_occurrence_steps jsonb DEFAULT '[]'::jsonb;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='company_attendance_policy' AND column_name='tardy_occurrence_steps'
+      ) THEN
+        ALTER TABLE company_attendance_policy ADD COLUMN tardy_occurrence_steps jsonb DEFAULT '[]'::jsonb;
+      END IF;
+      -- [schema-drift fix 2026-06-25] The Drizzle schema (hr_policies.ts) defines
+      -- unexcused_hours_steps but the column was never added to the DB. The
+      -- attendance writer (recordUnexcusedEntryAndDriveLadder) SELECTs it on every
+      -- record, so without the column the office "Record unexcused/tardy" form AND
+      -- the attendance-overlay confirm path threw 500 after inserting the row.
+      -- co1/co4 use the occurrence ladder, so this stays '[]' (legacy hours ladder
+      -- dormant) — adding it just stops the SELECT from erroring.
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='company_attendance_policy' AND column_name='unexcused_hours_steps'
+      ) THEN
+        ALTER TABLE company_attendance_policy ADD COLUMN unexcused_hours_steps jsonb DEFAULT '[]'::jsonb;
+      END IF;
+
+      -- Ensure a policy row exists for co1 + co4 (no unique-constraint assumption).
+      INSERT INTO company_attendance_policy (company_id)
+        SELECT v FROM (VALUES (1),(4)) AS t(v)
+        WHERE NOT EXISTS (SELECT 1 FROM company_attendance_policy p WHERE p.company_id = t.v);
+
+      -- Seed the PHES ladders only where not already configured (never clobber edits).
+      UPDATE company_attendance_policy
+        SET unexcused_occurrence_steps = '${UNEXCUSED}'::jsonb
+        WHERE company_id IN (1,4)
+          AND (unexcused_occurrence_steps IS NULL OR unexcused_occurrence_steps = '[]'::jsonb);
+      UPDATE company_attendance_policy
+        SET tardy_occurrence_steps = '${TARDY}'::jsonb
+        WHERE company_id IN (1,4)
+          AND (tardy_occurrence_steps IS NULL OR tardy_occurrence_steps = '[]'::jsonb);
+      RAISE NOTICE 'cutover-migration: ensured PHES occurrence disciplinary ladders (3/4/5 → written/final/termination)';
+    END
+    $$;
+  `),
+  );
+}
+
+/**
+ * Phase 3 — tenant-dynamic bucket display. Adds leave_types.display_config and
+ * seeds PHES (co1 + co4) with the EXACT colors/labels pulled from the four
+ * legacy hardcoded maps, so the dispatch board / review / profile render
+ * byte-identical. Seeds only where display_config IS NULL (never clobbers).
+ */
+async function seedPhesBucketDisplay(): Promise<void> {
+  const J = (o: Record<string, string>) => JSON.stringify(o);
+  const SEED: Record<string, Record<string, string>> = {
+    pto_phes:     { tint: "#E9FBF5", accent: "#1D9E75", on_tint: "#00876B", board_label: "PTO",       chip_label: "PTO" },
+    plawa:        { tint: "#FEF3C7", accent: "#378ADD", on_tint: "#92400E", board_label: "PLAWA",     chip_label: "Sick" },
+    unpaid_leave: { tint: "#EEF2F7", accent: "#BA7517", on_tint: "#334155", board_label: "Unpaid",    chip_label: "Unpaid" },
+    unexcused:    { tint: "#FCE7E7", accent: "#E24B4A", on_tint: "#991B1B", board_label: "Unexcused", chip_label: "Unexcused" },
+  };
+  const updates = Object.entries(SEED)
+    .map(
+      ([slug, cfg]) =>
+        `UPDATE leave_types SET display_config = '${J(cfg)}'::jsonb
+           WHERE company_id IN (1,4) AND slug = '${slug}' AND display_config IS NULL;`,
+    )
+    .join("\n");
+  await db.execute(
+    sql.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = 'leave_types'
+      ) THEN
+        RAISE NOTICE 'cutover-migration: leave_types not present yet, skipping bucket display';
+        RETURN;
+      END IF;
+      IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns
+        WHERE table_schema='public' AND table_name='leave_types' AND column_name='display_config'
+      ) THEN
+        ALTER TABLE leave_types ADD COLUMN display_config jsonb;
+      END IF;
+      ${updates}
+      RAISE NOTICE 'cutover-migration: ensured PHES bucket display_config (byte-identical legacy colors)';
     END
     $$;
   `),

@@ -7,6 +7,7 @@ import {
 } from "@workspace/db/schema";
 import { eq, and, gte, lte, desc, count, avg, sum, sql, lt, inArray, isNull, ne } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { computePeriodPayLines } from "../lib/period-pay.js";
 
 const router = Router();
 const ROLE = requireRole("owner", "admin", "office");
@@ -296,7 +297,7 @@ router.get("/receivables", requireAuth, ROLE, async (req, res) => {
 
     const rows = await db.execute(sql`
       SELECT
-        i.id, i.status, i.total, i.created_at, i.paid_at,
+        i.id, i.invoice_number, i.status, i.total, i.created_at, i.paid_at,
         c.first_name, c.last_name, c.email,
         (i.created_at + interval '30 days') AS due_date,
         GREATEST(0, EXTRACT(EPOCH FROM (NOW() - (i.created_at + interval '30 days'))) / 86400)::int AS days_overdue
@@ -309,7 +310,7 @@ router.get("/receivables", requireAuth, ROLE, async (req, res) => {
     `);
 
     const data = (rows.rows as any[]).map(r => ({
-      id: r.id, status: r.status, total: parseF(r.total),
+      id: r.id, invoice_number: r.invoice_number, status: r.status, total: parseF(r.total),
       client_name: `${r.first_name} ${r.last_name}`, client_email: r.email,
       invoice_date: r.created_at, due_date: r.due_date,
       days_overdue: Math.max(0, r.days_overdue),
@@ -351,21 +352,20 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
     const fromStr = (req.query.from as string) || dateStr(new Date(now.getFullYear(), now.getMonth(), 1));
     const toStr   = (req.query.to   as string) || dateStr(now);
 
+    // [pay-model-parity 2026-07-04] Labor cost per job = SUM of the paycheck
+    // engine's per-tech amounts on that job (computePeriodPayLines), NOT the old
+    // per-EMPLOYEE pay_type CASE (no allowed_hours branch, primary tech only).
+    const { lines: costLines } = await computePeriodPayLines(companyId, fromStr, toStr);
+    const laborByJob = new Map<number, number>();
+    for (const l of costLines) laborByJob.set(l.job_id, (laborByJob.get(l.job_id) ?? 0) + (l.amount || 0));
+
     const rows = await db.execute(sql`
       SELECT
         j.id, j.scheduled_date, j.service_type, j.base_fee,
         j.allowed_hours, j.actual_hours,
         c.first_name AS client_first, c.last_name AS client_last,
         u.first_name AS emp_first, u.last_name AS emp_last,
-        u.pay_rate, u.pay_type,
-        COALESCE(
-          CASE u.pay_type
-            WHEN 'hourly' THEN u.pay_rate::numeric * COALESCE(j.actual_hours, j.allowed_hours, 0)::numeric
-            WHEN 'per_job' THEN u.pay_rate::numeric
-            WHEN 'fee_split' THEN j.base_fee::numeric * COALESCE(u.fee_split_pct, j.fee_split_pct, 0)::numeric / 100
-            ELSE 0
-          END, 0
-        ) AS labor_cost
+        u.pay_rate, u.pay_type
       FROM jobs j
       JOIN clients c ON c.id = j.client_id
       LEFT JOIN users u ON u.id = j.assigned_user_id
@@ -379,7 +379,7 @@ router.get("/job-costing", requireAuth, ROLE, async (req, res) => {
 
     const data = (rows.rows as any[]).map(r => {
       const revenue = parseF(r.base_fee);
-      const labor   = parseF(r.labor_cost);
+      const labor   = Math.round((laborByJob.get(Number(r.id)) ?? 0) * 100) / 100;
       const profit  = revenue - labor;
       const margin  = revenue > 0 ? (profit / revenue) * 100 : 0;
       return {
@@ -437,26 +437,30 @@ router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
       weeks.push({ start: dateStr(weekStart), end: dateStr(weekEnd) });
     }
 
+    // [pay-model-parity 2026-07-04] Payroll comes from the paycheck engine
+    // (computePeriodPayLines) over the whole 12-week span, bucketed per week by
+    // the job's scheduled_date — NOT the old per-EMPLOYEE pay_type CASE (no
+    // allowed_hours branch, primary tech only). One engine pass; filter lines by
+    // the requested branch so a per-branch labor % still ties out.
+    const p2rBranchRaw = req.query.branch_id as string | undefined;
+    const p2rBranch = p2rBranchRaw && p2rBranchRaw !== "all" && Number.isFinite(parseInt(p2rBranchRaw, 10)) ? parseInt(p2rBranchRaw, 10) : null;
+    const spanStart = weeks[0].start;
+    const spanEnd = weeks[weeks.length - 1].end;
+    const { lines: p2rLines } = await computePeriodPayLines(companyId, spanStart, spanEnd);
+    const payrollByWeek = new Map<string, number>();
+    for (const l of p2rLines) {
+      if (p2rBranch != null && l.branch_id !== p2rBranch) continue;
+      const d = String(l.scheduled_date).slice(0, 10);
+      const w = weeks.find(w => d >= w.start && d <= w.end);
+      if (w) payrollByWeek.set(w.start, (payrollByWeek.get(w.start) ?? 0) + (l.amount || 0));
+    }
+
     const weekData = await Promise.all(weeks.map(async w => {
       const revRow = await db.execute(sql`
         SELECT coalesce(sum(base_fee), 0) AS revenue, count(*) AS jobs
         FROM jobs WHERE company_id=${companyId} AND status='complete'
           ${branchFilter(req)}
           AND scheduled_date BETWEEN ${w.start} AND ${w.end}
-      `);
-      const payRow = await db.execute(sql`
-        SELECT coalesce(sum(
-          CASE u.pay_type
-            WHEN 'hourly' THEN u.pay_rate::numeric * COALESCE(j.actual_hours, j.allowed_hours, 0)::numeric
-            WHEN 'per_job' THEN u.pay_rate::numeric
-            WHEN 'fee_split' THEN j.base_fee::numeric * COALESCE(u.fee_split_pct, j.fee_split_pct, 0)::numeric / 100
-            ELSE 0
-          END
-        ), 0) AS payroll
-        FROM jobs j JOIN users u ON u.id = j.assigned_user_id
-        WHERE j.company_id=${companyId} AND j.status='complete'
-          ${branchFilter(req, "j.branch_id")}
-          AND j.scheduled_date BETWEEN ${w.start} AND ${w.end}
       `);
       // additional_pay has no branch_id today (per Step 4 punch list). It's
       // tied to user_id + date, and adding a branch column would need its own
@@ -468,7 +472,7 @@ router.get("/payroll-to-revenue", requireAuth, ROLE, async (req, res) => {
       `);
 
       const revenue = parseF((revRow.rows[0] as any)?.revenue);
-      const payroll = parseF((payRow.rows[0] as any)?.payroll) + parseF((addPayRow.rows[0] as any)?.add_pay);
+      const payroll = (payrollByWeek.get(w.start) ?? 0) + parseF((addPayRow.rows[0] as any)?.add_pay);
       const pct     = revenue > 0 ? (payroll / revenue) * 100 : 0;
       return { week: w.start, revenue, payroll, pct, jobs: parseN((revRow.rows[0] as any)?.jobs) };
     }));
@@ -502,21 +506,26 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
     const employees = await db.select({ id: usersTable.id, first_name: usersTable.first_name, last_name: usersTable.last_name, pay_rate: usersTable.pay_rate, pay_type: usersTable.pay_type, fee_split_pct: usersTable.fee_split_pct })
       .from(usersTable).where(and(eq(usersTable.company_id, companyId), eq(usersTable.is_active, true), ne(usersTable.role, "owner"), branchCond(req, usersTable.home_branch_id)));
 
-    const rows = await Promise.all(employees.map(async emp => {
-      const jobsRes = await db.execute(sql`
-        SELECT j.id, j.base_fee, j.allowed_hours, j.actual_hours, j.fee_split_pct, j.scheduled_date, j.service_type,
-          COALESCE(
-            CASE ${sql.raw(`'${emp.pay_type}'`)}
-              WHEN 'hourly' THEN ${emp.pay_rate || 0}::numeric * COALESCE(j.actual_hours, j.allowed_hours, 0)::numeric
-              WHEN 'per_job' THEN ${emp.pay_rate || 0}::numeric
-              WHEN 'fee_split' THEN j.base_fee::numeric * COALESCE(${emp.fee_split_pct || 0}::numeric, j.fee_split_pct::numeric, 0) / 100
-              ELSE 0
-            END, 0) AS base_pay
-        FROM jobs j WHERE j.company_id=${companyId} AND j.assigned_user_id=${emp.id}
-          ${branchFilter(req, "j.branch_id")}
-          AND j.status='complete' AND j.scheduled_date BETWEEN ${fromStr} AND ${toStr}
-      `);
+    // [pay-model-parity 2026-07-04] Pay comes from the SAME engine that cuts the
+    // paychecks (routes/payroll.ts /detail), via computePeriodPayLines — NOT the
+    // old per-EMPLOYEE pay_type CASE, which had no allowed_hours branch and only
+    // credited the primary tech, so commercial/PPM jobs and helper splits scored
+    // $0 (Hilda 7/1–3: report $0 vs actual $430). Sum engine `amount` per user;
+    // filter lines by the requested branch so a per-branch view still ties out.
+    const branchRaw = req.query.branch_id as string | undefined;
+    const branchNum = branchRaw && branchRaw !== "all" && Number.isFinite(parseInt(branchRaw, 10)) ? parseInt(branchRaw, 10) : null;
+    const { lines: payLines, jobs: payJobs } = await computePeriodPayLines(companyId, fromStr, toStr);
+    const allowedHoursByJob = new Map<number, number>(payJobs.map(j => [j.id, parseF(j.allowed_hours ?? j.actual_hours ?? 0)]));
+    const basePayByUser = new Map<number, number>();
+    const jobIdsByUser = new Map<number, Set<number>>();
+    for (const l of payLines) {
+      if (branchNum != null && l.branch_id !== branchNum) continue;
+      basePayByUser.set(l.user_id, (basePayByUser.get(l.user_id) ?? 0) + (l.amount || 0));
+      if (!jobIdsByUser.has(l.user_id)) jobIdsByUser.set(l.user_id, new Set());
+      jobIdsByUser.get(l.user_id)!.add(l.job_id);
+    }
 
+    const rows = await Promise.all(employees.map(async emp => {
       const clockRes = await db.execute(sql`
         SELECT COALESCE(SUM(EXTRACT(EPOCH FROM (clock_out_at - clock_in_at))/3600), 0) AS clock_hours,
           COUNT(*) FILTER (WHERE clock_out_at IS NULL) AS missing_outs,
@@ -534,13 +543,15 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
         GROUP BY type
       `);
 
-      const jobs = jobsRes.rows as any[];
       const clk  = clockRes.rows[0] as any;
       const addPay = addPayRes.rows as any[];
-      const base_pay = jobs.reduce((s, j) => s + parseF(j.base_pay), 0);
+      // Pay + job attribution now come from the engine (per-tech clocked split),
+      // not a primary-only assigned_user_id join.
+      const myJobIds = jobIdsByUser.get(emp.id) ?? new Set<number>();
+      const base_pay = Math.round((basePayByUser.get(emp.id) ?? 0) * 100) / 100;
       const tips     = addPay.filter(p => p.type === "tips").reduce((s, p) => s + parseF(p.total), 0);
       const add_pay  = addPay.filter(p => p.type !== "tips").reduce((s, p) => s + parseF(p.total), 0);
-      const job_hrs  = jobs.reduce((s, j) => s + parseF(j.allowed_hours || j.actual_hours || 0), 0);
+      const job_hrs  = [...myJobIds].reduce((s, id) => s + (allowedHoursByJob.get(id) ?? 0), 0);
       const clk_hrs  = parseF(clk?.clock_hours);
       const overtime = Math.max(0, clk_hrs - 40) * parseF(emp.pay_rate || 0) * 0.5;
 
@@ -548,7 +559,7 @@ router.get("/payroll", requireAuth, ROLE, async (req, res) => {
         id: emp.id, name: `${emp.first_name} ${emp.last_name}`, pay_type: emp.pay_type,
         days_worked: parseN(clk?.days_worked), job_hours: job_hrs, clock_hours: clk_hrs,
         base_pay, tips, additional_pay: add_pay, overtime, deductions: 0, gross_pay: base_pay + tips + add_pay + overtime,
-        missing_clk_outs: parseN(clk?.missing_outs), jobs_count: jobs.length,
+        missing_clk_outs: parseN(clk?.missing_outs), jobs_count: myJobIds.size,
       };
     }));
 

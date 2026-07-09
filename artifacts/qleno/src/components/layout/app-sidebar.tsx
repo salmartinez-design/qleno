@@ -3,7 +3,7 @@ import {
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, FileText as FileTextIcon,
   BookOpen, Settings, AlertTriangle, HeartPulse, Building2,
-  UserPlus, GraduationCap, Clock, Calculator, MessageSquare, Layers,
+  UserPlus, GraduationCap, Clock, Calculator, MessageSquare, LifeBuoy,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -71,8 +71,7 @@ const NAV_SECTIONS = [
   {
     label: "Sales",
     items: [
-      { title: "Leads",  url: "/leads",  icon: UserPlus,   roles: ["owner", "admin", "office", "super_admin"], badge: "needs_contacted" },
-      { title: "Quotes", url: "/quotes", icon: FileTextIcon, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Leads", url: "/leads", icon: UserPlus, roles: ["owner", "admin", "office", "super_admin"], badge: "needs_contacted" },
       { title: "Estimates", url: "/estimates", icon: Calculator, roles: ["owner", "admin", "office", "super_admin"] },
     ],
   },
@@ -88,7 +87,6 @@ const NAV_SECTIONS = [
     label: "Money",
     items: [
       { title: "Invoices", url: "/invoices", icon: FileText, roles: ["owner", "admin", "office", "super_admin", "accountant"] },
-      { title: "Batch Invoicing", url: "/admin/batch-invoicing", icon: Layers, roles: ["owner", "admin", "office", "super_admin"] },
     ],
   },
   {
@@ -111,6 +109,7 @@ const NAV_SECTIONS = [
       // team_lead. Without these the tech sidebar was just Training and
       // Cleancyclopedia, with no quick path back to their schedule.
       { title: "My Jobs",   url: "/my-jobs",   icon: Briefcase,    roles: ["technician", "team_lead"] },
+      { title: "My Pay",    url: "/my-pay",    icon: DollarSign,   roles: ["technician", "team_lead"] },
       { title: "Time Off",  url: "/leave",     icon: FileText,     roles: ["technician", "team_lead"] },
     ],
   },
@@ -119,6 +118,10 @@ const NAV_SECTIONS = [
     items: [
       // Cleancyclopedia + Training are reference / training surfaces —
       // techs DO get these. No roles array → visible to everyone.
+      // [help-guides 2026-06-21] Help & Guides. No roles array → visible to
+      // everyone; the guide LIST is audience-filtered server-side (techs see
+      // tech guides, office sees office guides).
+      { title: "Help & Guides",   url: "/help",            icon: LifeBuoy },
       { title: "Cleancyclopedia", url: "/cleancyclopedia", icon: BookOpen },
       { title: "Training",        url: "/training",        icon: GraduationCap },
       { title: "Training Admin",  url: "/lms/admin",       icon: GraduationCap, roles: ["owner", "admin", "super_admin", "office"] },
@@ -296,8 +299,16 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
           // (e.g. a tech viewing an office-only "Operations" / "Sales"
           // / "Insights" / etc. section) skip the section entirely so
           // we don't render an orphan label with nothing under it.
+          // [office-admin-parity 2026-06-26] 'office' is elevated to admin
+          // level (see requireRole in api-server/src/lib/auth.ts): anywhere a
+          // nav item grants 'admin', office sees it too — including Settings.
+          // Owner-only items (no 'admin' in roles) stay hidden from office.
           const visibleItems = section.items.filter(
-            (item: any) => !item.roles || (userInfo && item.roles.includes(userInfo.role)),
+            (item: any) =>
+              !item.roles ||
+              (userInfo &&
+                (item.roles.includes(userInfo.role) ||
+                  (userInfo.role === 'office' && item.roles.includes('admin')))),
           );
           if (visibleItems.length === 0) return null;
           return (

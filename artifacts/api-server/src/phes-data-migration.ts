@@ -70,8 +70,122 @@ async function runBookingSchemaGuard(): Promise<void> {
     ` },
     // ── jobs extra columns ──────────────────────────────────────────────────
     { label: "jobs.home_condition_rating", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS home_condition_rating INTEGER" },
+    // [auto-issue 2026-07-08] Completion auto-issues per-visit invoices for
+    // Phes (both branches) — see ensure-invoice.ts. Off by default for any
+    // future tenant.
+    { label: "companies.auto_issue_invoices", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS auto_issue_invoices BOOLEAN NOT NULL DEFAULT false" },
+    { label: "enable auto-issue for Phes", stmt: "UPDATE companies SET auto_issue_invoices = true WHERE id IN (1, 4) AND auto_issue_invoices = false" },
+    // One-time backlog flip: drafts that piled up under the no-auto-issue
+    // window (7/6-7/8) become issued so the office doesn't hand-finalize
+    // them. Frozen by created_at so an invoice deliberately re-drafted later
+    // is never re-flipped by a reboot. Batch/account pending drafts untouched.
+    { label: "issue the 7/6-7/8 completion-draft backlog", stmt: `
+      UPDATE invoices i SET status = 'sent'
+       WHERE i.company_id IN (1, 4) AND i.status = 'draft' AND i.batch_status IS NULL
+         AND i.job_id IS NOT NULL AND i.created_at < '2026-07-09'
+         AND EXISTS (SELECT 1 FROM jobs j WHERE j.id = i.job_id AND j.status = 'complete')
+    ` },
+    // [account-comms 2026-07-07] Comm-log entries for commercial ACCOUNTS
+    // (invoice emails etc.) — communication_log was client-keyed only, so
+    // account sends had nowhere to land and the account console couldn't show
+    // whether invoices actually went out (Maribel).
+    { label: "communication_log.account_id", stmt: "ALTER TABLE communication_log ADD COLUMN IF NOT EXISTS account_id INTEGER" },
+    { label: "communication_log.customer_id nullable", stmt: "ALTER TABLE communication_log ALTER COLUMN customer_id DROP NOT NULL" },
+    // [building-notes-unfanout 2026-07-07] The property PATCH used to copy
+    // building notes into every future job's per-visit note columns (see
+    // accounts.ts). Clear the stale copies on FUTURE scheduled jobs — a job
+    // note that is byte-identical to its building's current note is a fanned
+    // copy, not a per-visit instruction. Building notes render live now.
+    // Idempotent: once nulled, the predicate no longer matches.
+    { label: "un-fanout building cleaner notes from future jobs", stmt: `
+      UPDATE jobs j SET notes = NULL
+        FROM account_properties p
+       WHERE j.account_property_id = p.id AND j.company_id = p.company_id
+         AND j.status = 'scheduled' AND j.scheduled_date >= CURRENT_DATE
+         AND p.access_notes IS NOT NULL AND p.access_notes <> ''
+         AND j.notes = p.access_notes
+    ` },
+    { label: "un-fanout building office notes from future jobs", stmt: `
+      UPDATE jobs j SET office_notes = NULL
+        FROM account_properties p
+       WHERE j.account_property_id = p.id AND j.company_id = p.company_id
+         AND j.status = 'scheduled' AND j.scheduled_date >= CURRENT_DATE
+         AND p.notes IS NOT NULL AND p.notes <> ''
+         AND j.office_notes = p.notes
+    ` },
+    // [time-block 2026-07-08] Manual time-off records gain a TYPE + TIME BLOCK
+    // so the dispatch board stops guessing "full-day PTO" for every office
+    // entry: Jose called off 2-6 PM but his whole row tinted absent; Hilda's
+    // 4h UNPAID deduction rendered as full-day PTO.
+    { label: "attendance_log.start_time", stmt: "ALTER TABLE employee_attendance_log ADD COLUMN IF NOT EXISTS start_time TIME" },
+    { label: "attendance_log.end_time", stmt: "ALTER TABLE employee_attendance_log ADD COLUMN IF NOT EXISTS end_time TIME" },
+    { label: "leave_usage.leave_type_id", stmt: "ALTER TABLE employee_leave_usage ADD COLUMN IF NOT EXISTS leave_type_id INTEGER" },
+    { label: "leave_usage.start_time", stmt: "ALTER TABLE employee_leave_usage ADD COLUMN IF NOT EXISTS start_time TIME" },
+    { label: "leave_usage.end_time", stmt: "ALTER TABLE employee_leave_usage ADD COLUMN IF NOT EXISTS end_time TIME" },
+    // Backfill leave_type_id from the notes tag the deduction flow has always
+    // written ("… usage/<bucket>"). Idempotent: only NULL rows.
+    { label: "leave_usage backfill type from notes tag", stmt: `
+      UPDATE employee_leave_usage elu SET leave_type_id = lt.id
+        FROM leave_types lt
+       WHERE elu.leave_type_id IS NULL AND lt.company_id = elu.company_id AND lt.active = true
+         AND elu.notes LIKE '%usage/%'
+         AND lower(split_part(elu.notes, 'usage/', 2)) IN (lower(lt.slug), lower(replace(lt.display_name, ' ', '_')), lower(split_part(lt.slug, '_', 1)))
+    ` },
+    // Sal's corrections for 2026-07-07 (idempotent via natural keys + NULL guards):
+    // Jose Ardila (44) worked his morning job and called off 2-6 PM — the
+    // occurrence stays full for discipline; the board shows just the block.
+    { label: "jose 7/7 absence time block", stmt: `
+      UPDATE employee_attendance_log SET start_time = '14:00', end_time = '18:00'
+       WHERE company_id = 1 AND employee_id = 44 AND log_date = '2026-07-07'
+         AND type = 'absent' AND start_time IS NULL
+    ` },
+    // Hilda Gallegos (516): 4h office deduction 2-6 PM was UNPAID LEAVE, not
+    // PTO and not a full day.
+    { label: "hilda 7/7 unpaid-leave block", stmt: `
+      UPDATE employee_leave_usage SET
+             leave_type_id = (SELECT id FROM leave_types WHERE company_id = 1 AND slug = 'unpaid_leave' LIMIT 1),
+             start_time = '14:00', end_time = '18:00'
+       WHERE company_id = 1 AND employee_id = 516 AND date_used = '2026-07-07' AND start_time IS NULL
+    ` },
+    // [photo-stickiness 2026-07-07] Pin every recurring job to its cadence
+    // slot. Legacy rows (pre-occurrence_date / MC cutover) have
+    // occurrence_date NULL, so the engine's slot dedup falls back to the
+    // MUTABLE scheduled_date — rescheduling such a job freed its original
+    // slot and the nightly engine regenerated a fresh EMPTY job there, while
+    // the photographed/clocked work sat on the moved row ("before and after
+    // pics are not sticky to the exact job"). Stamping the current
+    // scheduled_date freezes the slot; future generation stamps it at insert.
+    // Idempotent: only touches NULL rows.
+    { label: "backfill jobs.occurrence_date on recurring rows", stmt: `
+      UPDATE jobs SET occurrence_date = scheduled_date
+       WHERE recurring_schedule_id IS NOT NULL AND occurrence_date IS NULL
+    ` },
+    // [office-reminders 2026-07-07] Internal office reminders/events (Maribel).
+    // Not customer comms — never sends anything. Surfaced on the dashboard.
+    { label: "office_reminders table", stmt: `
+      CREATE TABLE IF NOT EXISTS office_reminders (
+        id SERIAL PRIMARY KEY,
+        company_id INTEGER NOT NULL,
+        title TEXT NOT NULL,
+        notes TEXT,
+        due_date DATE NOT NULL,
+        due_time TIME,
+        created_by INTEGER,
+        completed_at TIMESTAMP,
+        completed_by INTEGER,
+        created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      )
+    ` },
     // [ghl-estimate-bridge 2026-06-10] GoHighLevel inbound-webhook URLs for
     // the estimate drip. Opt-in: bridge fires only when a URL is set.
+    // [estimate-w9 2026-06-26] Company tax info for the fillable W-9. Additive.
+    { label: "companies.w9_legal_name", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_legal_name TEXT" },
+    { label: "companies.w9_business_name", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_business_name TEXT" },
+    { label: "companies.w9_classification", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_classification TEXT" },
+    { label: "companies.w9_llc_class", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_llc_class TEXT" },
+    { label: "companies.w9_ein", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_ein TEXT" },
+    { label: "companies.w9_exempt_payee_code", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_exempt_payee_code TEXT" },
+    { label: "companies.w9_fatca_code", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS w9_fatca_code TEXT" },
     { label: "companies.ghl_estimate_sent_webhook", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS ghl_estimate_sent_webhook TEXT" },
     { label: "companies.ghl_estimate_outcome_webhook", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS ghl_estimate_outcome_webhook TEXT" },
     // [recurring-delete-skip 2026-06-05] Deleted-occurrence tombstones so a
@@ -171,10 +285,57 @@ async function runBookingSchemaGuard(): Promise<void> {
     // /api/auth/login on success. Distinct from lms_enrollments.
     // last_activity_at (quiz-submit ticks only).
     { label: "users.last_login_at", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS last_login_at TIMESTAMPTZ" },
+    // [notification-test-sends 2026-06-30] Backend for the "Send Test" feature.
+    // Optional dedicated test destinations on users + an isolated ledger table.
+    // test_sends is intentionally separate from notification_log so test sends
+    // never pollute "Recent Sends" and never touch a real customer record.
+    { label: "users.test_email", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS test_email TEXT" },
+    { label: "users.test_phone", stmt: "ALTER TABLE users ADD COLUMN IF NOT EXISTS test_phone TEXT" },
+    { label: "test_sends table", stmt: `
+      CREATE TABLE IF NOT EXISTS test_sends (
+        id                  SERIAL PRIMARY KEY,
+        company_id          INTEGER NOT NULL,
+        branch_id           INTEGER,
+        user_id             INTEGER,
+        template_key        TEXT NOT NULL,
+        channel             TEXT NOT NULL,
+        recipient           TEXT,
+        subject             TEXT,
+        body                TEXT,
+        merge_data_json     JSONB,
+        fixture_source      TEXT,
+        status              TEXT NOT NULL,
+        provider_message_id TEXT,
+        error               TEXT,
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )` },
+    { label: "test_sends company index", stmt: "CREATE INDEX IF NOT EXISTS idx_test_sends_company ON test_sends(company_id)" },
+    { label: "test_sends rate-limit index", stmt: "CREATE INDEX IF NOT EXISTS idx_test_sends_user_created ON test_sends(user_id, created_at)" },
     { label: "companies.default_residential_pay_type", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_type TEXT DEFAULT 'commission'" },
     { label: "companies.default_residential_pay_rate", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_residential_pay_rate NUMERIC(8,4) DEFAULT 0.35" },
     { label: "companies.default_commercial_pay_type",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_type  TEXT DEFAULT 'hourly'" },
     { label: "companies.default_commercial_pay_rate",  stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS default_commercial_pay_rate  NUMERIC(8,4) DEFAULT 20.0000" },
+    // [qb-cutover 2026-06-23] Guardrails for tenants migrating onto QuickBooks
+    // from a system that already feeds the same QB company (Oak Lawn ←
+    // MaidCentral, July 1). qb_sync_start_date: when set, Qleno pushes only
+    // invoices created on/after this date — never re-pushing prior history.
+    { label: "companies.qb_sync_start_date", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS qb_sync_start_date TIMESTAMPTZ" },
+    // Dedupe any pre-existing duplicate customer maps (keep lowest id) BEFORE
+    // adding the unique index, then add it so the syncCustomer concurrency race
+    // can no longer create a split-brain (two QB customers for one client).
+    { label: "qb_customer_map dedupe", stmt: "DELETE FROM qb_customer_map a USING qb_customer_map b WHERE a.id > b.id AND a.company_id = b.company_id AND a.qleno_customer_id = b.qleno_customer_id" },
+    { label: "qb_customer_map_company_customer_uq", stmt: "CREATE UNIQUE INDEX IF NOT EXISTS qb_customer_map_company_customer_uq ON qb_customer_map (company_id, qleno_customer_id)" },
+    // [commercial-cleanup 2026-06-23] Add-ons are residential by default; the
+    // create-job wizard filters by applies_to so commercial jobs no longer show
+    // Oven/Fridge/etc. Seed Phes's commercial-relevant ones (only while still at
+    // the default, so a later deliberate tenant change isn't clobbered).
+    { label: "pricing_addons.applies_to", stmt: "ALTER TABLE pricing_addons ADD COLUMN IF NOT EXISTS applies_to TEXT NOT NULL DEFAULT 'residential'" },
+    // [commercial-cadence 2026-06-23] Nth-weekday recurring ("3rd Wednesday",
+    // "last Friday"): frequency='monthly_weekday' + week_of_month (1..4, 5=last).
+    { label: "recurring_frequency += monthly_weekday", stmt: "ALTER TYPE recurring_frequency ADD VALUE IF NOT EXISTS 'monthly_weekday'" },
+    { label: "recurring_schedules.week_of_month", stmt: "ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS week_of_month INTEGER" },
+    { label: "addons.parking+manual → both", stmt: "UPDATE pricing_addons SET applies_to='both' WHERE company_id=1 AND applies_to='residential' AND (name ILIKE 'Parking Fee' OR name ILIKE 'Manual Adjustment')" },
+    { label: "addons.commercial adjustment → commercial", stmt: "UPDATE pricing_addons SET applies_to='commercial' WHERE company_id=1 AND applies_to='residential' AND name ILIKE 'Commercial Adjustment'" },
     { label: "jobs.property_vacant",       stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS property_vacant BOOLEAN DEFAULT false" },
     { label: "jobs.arrival_window",        stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS arrival_window TEXT" },
     { label: "jobs.first_recurring_discounted", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS first_recurring_discounted BOOLEAN DEFAULT false" },
@@ -348,6 +509,97 @@ async function runBookingSchemaGuard(): Promise<void> {
         created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     ` },
+    // [estimate-templates-phase2 2026-06-25] Optional vertical on templates so
+    // the builder can offer a one-click picker (common_areas|office|retail|
+    // medical|null). Additive + idempotent.
+    { label: "estimate_templates.category", stmt: `ALTER TABLE estimate_templates ADD COLUMN IF NOT EXISTS category TEXT` },
+    // [account-comms-toggle 2026-06-25] Per-account "pause all communications"
+    // master switch (default true). When false, no automated SMS/email reaches
+    // any customer record linked to the account. Additive + idempotent.
+    { label: "accounts.comms_enabled", stmt: `ALTER TABLE accounts ADD COLUMN IF NOT EXISTS comms_enabled boolean NOT NULL DEFAULT true` },
+    // [multi-recipient-estimates 2026-06-25] Additional CC recipient emails on an
+    // estimate (comma-separated). Additive + idempotent.
+    { label: "estimates.cc_emails", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS cc_emails TEXT` },
+    // [estimate-flat-mode 2026-06-26] Flat-price estimates: one price for the
+    // whole job + scope-only line items. Additive + idempotent.
+    { label: "estimates.billing_mode", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS billing_mode TEXT NOT NULL DEFAULT 'itemized'` },
+    { label: "estimates.flat_price", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS flat_price NUMERIC(12,2) NOT NULL DEFAULT 0` },
+    // [estimate-packages 2026-06-26] Flat-price packages = flat templates.
+    // Additive + idempotent.
+    { label: "estimate_templates.billing_mode", stmt: `ALTER TABLE estimate_templates ADD COLUMN IF NOT EXISTS billing_mode TEXT NOT NULL DEFAULT 'itemized'` },
+    { label: "estimate_templates.flat_price", stmt: `ALTER TABLE estimate_templates ADD COLUMN IF NOT EXISTS flat_price NUMERIC(12,2) NOT NULL DEFAULT 0` },
+    // [estimate-flat-clarity 2026-06-26] Price unit ("$150 / visit") + optional
+    // free-text scope paragraph. Additive + idempotent.
+    { label: "estimates.flat_price_unit", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS flat_price_unit TEXT NOT NULL DEFAULT 'visit'` },
+    { label: "estimates.scope_note", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS scope_note TEXT` },
+    // [estimate-recipient-tracking 2026-06-26] Which recipient a tracked link /
+    // open-pixel belongs to, so opens/clicks attribute to a person. Additive.
+    { label: "tracked_links.recipient", stmt: `ALTER TABLE tracked_links ADD COLUMN IF NOT EXISTS recipient TEXT` },
+    // [estimate-industry 2026-06-26] Facility type for win-rate-by-industry. Additive.
+    { label: "estimates.facility_type", stmt: `ALTER TABLE estimates ADD COLUMN IF NOT EXISTS facility_type TEXT` },
+    // [lead-drip 2026-06-28] Capture origin: web_quote (booking widget), phone_in (office on call), manual.
+    { label: "leads.lead_source", stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_source TEXT NOT NULL DEFAULT 'manual'` },
+    // [lead-drip] follow_up_enrollments.paused_at for per-lead drip pause.
+    { label: "follow_up_enrollments.paused_at", stmt: `ALTER TABLE follow_up_enrollments ADD COLUMN IF NOT EXISTS paused_at TIMESTAMPTZ` },
+    // [agreement-esign 2026-06-26] DocuSign-grade audit trail for client agreements.
+    { label: "client_agreements.signer_email", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS signer_email TEXT` },
+    { label: "client_agreements.user_agent", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS user_agent TEXT` },
+    { label: "client_agreements.consent_at", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ` },
+    { label: "client_agreements.viewed_at", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ` },
+    { label: "client_agreements.token", stmt: `ALTER TABLE client_agreements ADD COLUMN IF NOT EXISTS token TEXT` },
+    { label: "CREATE agreement_events", stmt: `
+      CREATE TABLE IF NOT EXISTS agreement_events (
+        id          SERIAL PRIMARY KEY,
+        company_id  INTEGER NOT NULL,
+        agreement_id INTEGER NOT NULL,
+        event_type  TEXT NOT NULL,
+        actor_email TEXT,
+        ip_address  TEXT,
+        user_agent  TEXT,
+        meta        JSONB,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+      )` },
+    { label: "idx agreement_events", stmt: `CREATE INDEX IF NOT EXISTS idx_agreement_events_agreement ON agreement_events(agreement_id, created_at)` },
+    // [agreement-esign] Audit columns on the live form_submissions sign flow.
+    { label: "form_submissions.viewed_at", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS viewed_at TIMESTAMPTZ` },
+    { label: "form_submissions.user_agent", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS user_agent TEXT` },
+    { label: "form_submissions.consent_at", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS consent_at TIMESTAMPTZ` },
+    // [agreement-review] Per-send editable agreement text + link to the estimate.
+    { label: "form_submissions.terms_body_override", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS terms_body_override TEXT` },
+    { label: "form_submissions.estimate_id", stmt: `ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS estimate_id INTEGER` },
+    { label: "idx form_submissions estimate", stmt: `CREATE INDEX IF NOT EXISTS idx_form_submissions_estimate ON form_submissions(estimate_id)` },
+    // [engagement-tracking-phase4 2026-06-25] Unified engagement timeline +
+    // native click-redirect / open-pixel tokens. Additive + idempotent.
+    { label: "CREATE engagement_events", stmt: `
+      CREATE TABLE IF NOT EXISTS engagement_events (
+        id            SERIAL PRIMARY KEY,
+        company_id    INTEGER NOT NULL,
+        estimate_id   INTEGER,
+        enrollment_id INTEGER,
+        event_type    TEXT NOT NULL,
+        channel       TEXT,
+        recipient     TEXT,
+        meta          JSONB,
+        occurred_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
+    { label: "idx_engagement_events_estimate",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_engagement_events_estimate ON engagement_events(company_id, estimate_id, occurred_at)` },
+    { label: "idx_engagement_events_company_time",
+      stmt: `CREATE INDEX IF NOT EXISTS idx_engagement_events_company_time ON engagement_events(company_id, occurred_at)` },
+    { label: "CREATE tracked_links", stmt: `
+      CREATE TABLE IF NOT EXISTS tracked_links (
+        id            SERIAL PRIMARY KEY,
+        token         TEXT NOT NULL UNIQUE,
+        company_id    INTEGER NOT NULL,
+        estimate_id   INTEGER,
+        enrollment_id INTEGER,
+        kind          TEXT NOT NULL DEFAULT 'click',
+        target_url    TEXT,
+        created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    ` },
     // ── follow_up_sequences table ────────────────────────────────────────────
     { label: "CREATE follow_up_sequences", stmt: `
       CREATE TABLE IF NOT EXISTS follow_up_sequences (
@@ -489,6 +741,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "leads.completion_date",   stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS completion_date TEXT` },
     { label: "leads.lead_type",         stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_type TEXT DEFAULT 'standard'` },
     { label: "leads.notes",             stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS notes TEXT` },
+    // Un-answered inbound reply marker: stamped by handleInboundReply, cleared
+    // when the office opens the lead or logs a call. Drives the board's
+    // REPLIED badge + top-of-column sort.
+    { label: "leads.replied_at",        stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS replied_at TIMESTAMPTZ` },
 
     // ── Commission Engine columns (2026-04-08) ───────────────────────────────
     { label: "jobs.job_type",                stmt: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS job_type TEXT DEFAULT 'residential'` },
@@ -895,6 +1151,38 @@ async function runBookingSchemaGuard(): Promise<void> {
     // certificates, signatures, and attempt history for legal.
     { label: "users.archived_at",
       stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS archived_at TIMESTAMPTZ` },
+
+    // [terminate 2026-07-01] HR separation detail for the Terminate flow.
+    { label: "users.last_day_worked",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS last_day_worked DATE` },
+    { label: "users.termination_reason",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS termination_reason TEXT` },
+    { label: "users.rehire_eligible",
+      stmt: `ALTER TABLE users ADD COLUMN IF NOT EXISTS rehire_eligible BOOLEAN` },
+
+    // [commission-optin 2026-07-01] Per-item control over whether an add-on or
+    // rate-mod counts toward the tech's fee split. `jobs.commission_base` is the
+    // computed commissionable base the pay engine reads; add-ons/rate-mods each
+    // carry an `affects_commission` flag (default false = opt-in).
+    { label: "jobs.commission_base",
+      stmt: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS commission_base NUMERIC(10,2)` },
+    // GRANDFATHER: freeze every EXISTING job's commissionable base at its current
+    // value so no live paycheck moves when this ships. Idempotent — only fills
+    // NULLs; new/edited jobs get commission_base recomputed from the flags.
+    { label: "jobs.commission_base backfill",
+      stmt: `UPDATE jobs SET commission_base = GREATEST(COALESCE(base_fee,0), COALESCE(billed_amount, base_fee, 0)) WHERE commission_base IS NULL` },
+    // Add-ons: existing rows grandfathered to TRUE (they're commissionable
+    // today); the SET DEFAULT FALSE afterward makes NEW add-ons opt-in.
+    { label: "job_add_ons.affects_commission add",
+      stmt: `ALTER TABLE job_add_ons ADD COLUMN IF NOT EXISTS affects_commission BOOLEAN NOT NULL DEFAULT TRUE` },
+    { label: "job_add_ons.affects_commission default",
+      stmt: `ALTER TABLE job_add_ons ALTER COLUMN affects_commission SET DEFAULT FALSE` },
+    // Rate-mods (Time & Fee Adjustments): default FALSE = opt-in. Existing jobs'
+    // pay is already preserved by the commission_base backfill above, so a
+    // discount never retroactively docks a tech; a positive surcharge only stops
+    // counting if that old job is later edited (re-check it to keep it in).
+    { label: "job_rate_mods.affects_commission",
+      stmt: `ALTER TABLE job_rate_mods ADD COLUMN IF NOT EXISTS affects_commission BOOLEAN NOT NULL DEFAULT FALSE` },
 
     // Items 8 + 9 (P1 sprint, 2026-05-14): per-tenant LMS settings.
     // Single row per company. First inhabitant: admin_bypass_allowed
@@ -1408,6 +1696,43 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "leads.closed_reason", stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS closed_reason TEXT` },
     { label: "leads.job_id",        stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS job_id INTEGER` },
     { label: "leads.contacted_by",  stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS contacted_by INTEGER` },
+    // [lead-booked-wiring 2026-07-08] The lead panel went blind the moment a
+    // lead converted: the quote knew its client + job, but the lead only
+    // learned job_id, never the client — so "View client" resolved to
+    // /customers/undefined and Messages/Activity couldn't reach the
+    // customer's records (Sal: "It all needs to be wired together when they
+    // go from lead to booked"). Stamp the client onto the lead too.
+    { label: "leads.client_id",     stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS client_id INTEGER` },
+    // [service-address-cascade 2026-07-08] Seed a PRIMARY client_home for every
+    // client that converted from a quote but has no home row (their address
+    // sat on the clients row, so the profile Property tab read empty). Scoped
+    // to quote-converted clients so it can't churn MaidCentral imports.
+    // Idempotent via NOT EXISTS.
+    { label: "seed primary home for booked-from-quote clients", stmt: `
+      INSERT INTO client_homes (company_id, client_id, address, city, state, zip, is_primary)
+      SELECT c.company_id, c.id, c.address, c.city, c.state, c.zip, true
+        FROM clients c
+       WHERE c.address IS NOT NULL AND c.address <> ''
+         AND EXISTS (SELECT 1 FROM quotes q WHERE q.client_id = c.id AND q.company_id = c.company_id AND (q.status = 'booked' OR q.booked_job_id IS NOT NULL))
+         AND NOT EXISTS (SELECT 1 FROM client_homes h WHERE h.client_id = c.id)
+    ` },
+    // Backfill both links from every converted quote (quote is the source of
+    // truth for lead↔client↔job). Idempotent — only fills NULLs.
+    { label: "backfill leads.client_id + job_id from converted quotes", stmt: `
+      UPDATE leads l SET
+             client_id = COALESCE(l.client_id, q.client_id),
+             job_id    = COALESCE(l.job_id, q.booked_job_id)
+        FROM quotes q
+       WHERE q.lead_id = l.id AND q.company_id = l.company_id
+         AND (q.client_id IS NOT NULL OR q.booked_job_id IS NOT NULL)
+         AND (l.client_id IS NULL OR l.job_id IS NULL)
+    ` },
+    // [lead-pipeline-foundation 2026-06-25] routes/leads.ts PATCH references
+    // agreement_signed UNCONDITIONALLY (agreement_signed = COALESCE(...)), but
+    // the column was never migrated and is absent in prod — so every
+    // PATCH /api/leads/:id 500s ("column agreement_signed does not exist").
+    // Additive + idempotent: closes the landmine without touching existing data.
+    { label: "leads.agreement_signed", stmt: `ALTER TABLE leads ADD COLUMN IF NOT EXISTS agreement_signed BOOLEAN` },
     { label: "leads.status default → needs_contacted",
       stmt: `ALTER TABLE leads ALTER COLUMN status SET DEFAULT 'needs_contacted'` },
     { label: "leads.status normalize legacy 'new'",
@@ -1470,6 +1795,10 @@ async function runBookingSchemaGuard(): Promise<void> {
       stmt: `ALTER TABLE follow_up_steps ADD COLUMN IF NOT EXISTS template_id INTEGER` },
     { label: "follow_up_enrollments.lead_id",
       stmt: `ALTER TABLE follow_up_enrollments ADD COLUMN IF NOT EXISTS lead_id INTEGER` },
+    // [estimate-drip-phase3 2026-06-25] Estimate-keyed enrollments for the
+    // commercial estimate follow-up sequence. Additive + idempotent.
+    { label: "follow_up_enrollments.estimate_id",
+      stmt: `ALTER TABLE follow_up_enrollments ADD COLUMN IF NOT EXISTS estimate_id INTEGER` },
 
     // ── Phes per-branch from-numbers (public business numbers, not secrets).
     //    The Twilio account SID + auth token are entered via Settings →
@@ -2804,6 +3133,217 @@ async function runMaryuryColmenaresAccessRepair(): Promise<void> {
 }
 
 /**
+ * Guadalupe ("Lupe") Mejia access repair (2026-06-19, ad-hoc).
+ *
+ * Same pattern as the Diana / Juliana / Alejandra / Maryury repairs.
+ * Sal asked: "Does Lupe have access to qleno with the chicago23
+ * password" — the answer was "probably Chicago23 with a capital C
+ * from the original May 12 bulk reset, but I can't be sure." This
+ * function makes the answer deterministic: every cold start (scoped
+ * to company_id=1) hard-wires her credentials to the canonical
+ * lowercase `chicago23`.
+ *
+ * Sal provided her email directly from MaidCentral
+ * (Beltran1986gm@gmail.com, ID#32094, DOB 12/8/1986, hire 6/11/2025),
+ * so this follows Diana's pattern (overwrite the stored email to the
+ * asserted value) — not Juliana's (only-normalize). Lookup is broad:
+ * name OR email match, so a name-case quirk can't make the function
+ * silently miss her row.
+ *
+ * On every cold start, idempotent, scoped to company_id=1:
+ *   1. Resolve Guadalupe Mejia by name OR by email (LOWER(BTRIM)).
+ *   2. Set email = 'beltran1986gm@gmail.com' (lowercased; the login
+ *      route compares against LOWER(input), so the stored value must
+ *      also be lowercase to match).
+ *   3. Ensure password_hash = bcrypt('chicago23').
+ *   4. Ensure is_active = true and archived_at = NULL.
+ *   5. Stamp password_reset_to_chicago23_at = NOW().
+ *
+ * Once Lupe's stored hash matches and email is lowercased, every
+ * subsequent boot is one SELECT + one bcrypt.compare and then return.
+ */
+async function runGuadalupeMejiaAccessRepair(): Promise<void> {
+  const PHES = 1;
+  const FIRST = "Guadalupe";
+  const LAST = "Mejia";
+  const TARGET_EMAIL = "beltran1986gm@gmail.com";
+  const TARGET_PASSWORD = "chicago23";
+
+  const rows = await db.execute<{
+    id: number;
+    email: string;
+    password_hash: string;
+    is_active: boolean;
+    archived_at: Date | null;
+  }>(sql`
+    SELECT id, email, password_hash, is_active, archived_at
+    FROM users
+    WHERE company_id = ${PHES}
+      AND (
+        (LOWER(first_name) = LOWER(${FIRST}) AND LOWER(last_name) = LOWER(${LAST}))
+        OR LOWER(BTRIM(email)) = LOWER(${TARGET_EMAIL})
+      )
+      AND role != 'owner'
+    ORDER BY id ASC
+    LIMIT 1
+  `);
+  const row = ((rows as any).rows ?? rows)[0] as
+    | {
+        id: number;
+        email: string;
+        password_hash: string;
+        is_active: boolean;
+        archived_at: Date | null;
+      }
+    | undefined;
+
+  if (!row) {
+    console.log(
+      `[guadalupe-mejia-access-repair] no Guadalupe Mejia row in company_id=${PHES}; skipping`,
+    );
+    return;
+  }
+
+  const hashMatches = await bcrypt
+    .compare(TARGET_PASSWORD, row.password_hash)
+    .catch(() => false);
+  const emailMatches = row.email === TARGET_EMAIL;
+  const activeOk = row.is_active === true;
+  const unarchivedOk = row.archived_at === null;
+
+  if (hashMatches && emailMatches && activeOk && unarchivedOk) {
+    console.log(
+      `[guadalupe-mejia-access-repair] user_id=${row.id} already in target state; no-op`,
+    );
+    return;
+  }
+
+  const newHash = hashMatches
+    ? row.password_hash
+    : await bcrypt.hash(TARGET_PASSWORD, 10);
+
+  await db.execute(sql`
+    UPDATE users
+    SET
+      email = ${TARGET_EMAIL},
+      password_hash = ${newHash},
+      is_active = true,
+      archived_at = NULL,
+      password_reset_to_chicago23_at = NOW()
+    WHERE id = ${row.id}
+  `);
+
+  console.log(
+    `[guadalupe-mejia-access-repair] user_id=${row.id} updated: ` +
+      `email_changed=${!emailMatches} hash_rewritten=${!hashMatches} ` +
+      `reactivated=${!activeOk} unarchived=${!unarchivedOk}`,
+  );
+}
+
+/**
+ * Hilda Gallegos access repair (2026-06-22, ad-hoc).
+ *
+ * Sal: "can you check hilda. She cannot get into lms". Hilda was added
+ * via the LMS Admin Add Employee flow (the same flow that surfaced the
+ * #205 500 bug) — her temp password should be the documented chicago23
+ * default, but if she ever changed it or the original generator drifted
+ * she's locked out. No per-user repair existed for her until now.
+ *
+ * Sal hasn't shared her canonical email this round, and the LMS Admin
+ * screenshot from her original creation showed
+ * `hildagallegos15@iclcuod.com` — which looks like an iCloud typo
+ * (iclcuod ≠ icloud). I don't want to assume which spelling is real,
+ * so this follows JULIANA'S pattern (not Diana's): lookup by NAME ONLY,
+ * normalize whatever email is stored to lowercase (so the auth route's
+ * LOWER(input) lookup matches), but DO NOT overwrite the email itself.
+ * The boot log line prints her actual stored email so the office can
+ * read the canonical address and send it to her verbatim.
+ *
+ * On every cold start, idempotent, scoped to company_id=1:
+ *   1. Resolve Hilda Gallegos by name.
+ *   2. Lowercase the stored email if it isn't already.
+ *   3. Ensure password_hash = bcrypt('chicago23').
+ *   4. Ensure is_active = true and archived_at = NULL.
+ *   5. Stamp password_reset_to_chicago23_at = NOW().
+ */
+async function runHildaGallegosAccessRepair(): Promise<void> {
+  const PHES = 1;
+  const FIRST = "Hilda";
+  const LAST = "Gallegos";
+  const TARGET_PASSWORD = "chicago23";
+
+  const rows = await db.execute<{
+    id: number;
+    email: string;
+    password_hash: string;
+    is_active: boolean;
+    archived_at: Date | null;
+  }>(sql`
+    SELECT id, email, password_hash, is_active, archived_at
+    FROM users
+    WHERE company_id = ${PHES}
+      AND LOWER(first_name) = LOWER(${FIRST})
+      AND LOWER(last_name) = LOWER(${LAST})
+      AND role != 'owner'
+    ORDER BY id ASC
+    LIMIT 1
+  `);
+  const row = ((rows as any).rows ?? rows)[0] as
+    | {
+        id: number;
+        email: string;
+        password_hash: string;
+        is_active: boolean;
+        archived_at: Date | null;
+      }
+    | undefined;
+
+  if (!row) {
+    console.log(
+      `[hilda-gallegos-access-repair] no Hilda Gallegos row in company_id=${PHES}; skipping`,
+    );
+    return;
+  }
+
+  const lowercasedEmail = row.email.trim().toLowerCase();
+  const emailNeedsNormalize = lowercasedEmail !== row.email;
+
+  const hashMatches = await bcrypt
+    .compare(TARGET_PASSWORD, row.password_hash)
+    .catch(() => false);
+  const activeOk = row.is_active === true;
+  const unarchivedOk = row.archived_at === null;
+
+  if (hashMatches && !emailNeedsNormalize && activeOk && unarchivedOk) {
+    console.log(
+      `[hilda-gallegos-access-repair] user_id=${row.id} email=${lowercasedEmail} already in target state; no-op`,
+    );
+    return;
+  }
+
+  const newHash = hashMatches
+    ? row.password_hash
+    : await bcrypt.hash(TARGET_PASSWORD, 10);
+
+  await db.execute(sql`
+    UPDATE users
+    SET
+      email = ${lowercasedEmail},
+      password_hash = ${newHash},
+      is_active = true,
+      archived_at = NULL,
+      password_reset_to_chicago23_at = NOW()
+    WHERE id = ${row.id}
+  `);
+
+  console.log(
+    `[hilda-gallegos-access-repair] user_id=${row.id} email=${lowercasedEmail} updated: ` +
+      `email_normalized=${emailNeedsNormalize} hash_rewritten=${!hashMatches} ` +
+      `reactivated=${!activeOk} unarchived=${!unarchivedOk}`,
+  );
+}
+
+/**
  * QA sandbox account repurpose (2026-05-15 sprint, pre-sprint task).
  *
  * Dispatch created an audit fixture user during Phase 6 — repurpose it
@@ -3564,6 +4104,18 @@ export async function runPhesDataMigration(): Promise<void> {
   }
 
   try {
+    await runGuadalupeMejiaAccessRepair();
+  } catch (err: any) {
+    console.warn("[phes-migration] guadalupe-mejia-access-repair — non-fatal:", err?.message ?? err);
+  }
+
+  try {
+    await runHildaGallegosAccessRepair();
+  } catch (err: any) {
+    console.warn("[phes-migration] hilda-gallegos-access-repair — non-fatal:", err?.message ?? err);
+  }
+
+  try {
     await runSandboxAccountRepurpose();
   } catch (err: any) {
     console.warn("[phes-migration] sandbox-repurpose — non-fatal:", err?.message ?? err);
@@ -3617,11 +4169,13 @@ export async function runPhesDataMigration(): Promise<void> {
     console.warn("[phes-migration] jobs-dedupe — non-fatal:", err?.message ?? err);
   }
 
-  try {
-    await runScheduleHorizonBackfill();
-  } catch (err: any) {
-    console.warn("[phes-migration] schedule-horizon-backfill — non-fatal:", err?.message ?? err);
-  }
+  // [boot-perf 2026-07-03] runScheduleHorizonBackfill() is REMOVED from the boot
+  // chain. It was a one-shot 60→90-day horizon migration that's long complete, but
+  // it ran the FULL recurring engine on every cold-start — scanning every schedule
+  // and computing 90 days of occurrences to insert nothing (dedup no-op). That
+  // saturated the DB pool for minutes after each deploy, so real endpoints 500'd
+  // during warm-up. Ongoing generation is owned by the 2 AM cron; the boot pass was
+  // pure overhead. Function kept below (unreferenced) for history — do not re-wire.
 
   try {
     await runAcquisitionSourcesSeed();
@@ -4808,6 +5362,326 @@ export async function runPhesDataMigration(): Promise<void> {
 
   // Seed MC discounts + remove placeholder discount add-ons
   await runDiscountMigration();
+
+  // [estimate-templates-phase2 2026-06-25] Seed the 4 commercial estimate
+  // templates (Common Areas / Office / Retail / Medical) for the one-click
+  // builder picker. Idempotent per (company_id, category).
+  await runEstimateTemplateSeed();
+
+  // [estimate-drip-phase3 2026-06-25] Seed the 8-touch commercial estimate
+  // follow-up sequence — INACTIVE by default so the drip is inert until the
+  // office turns it on. Idempotent (skips if estimate_followup already exists).
+  await runEstimateSequenceSeed();
+  await runAgreementTemplateSeed();
+
+  // [lead-drip 2026-06-28] Seed the two lead-capture drip sequences.
+  // is_active=FALSE by default — inert until office turns them on.
+  await runLeadDripSequenceSeed();
+}
+
+// ── Lead Drip Sequence Seed (all companies, INACTIVE by default) ──────────────
+// Two separate sequences: web_quote (online form) and phone_in (called in).
+// Tone/content differ — web leads need to establish trust; phone leads just
+// need a follow-through nudge. Both seeded is_active=FALSE so nothing fires
+// until the office enables them. Standard COMMS_ENABLED gate still applies.
+async function runLeadDripSequenceSeed(): Promise<void> {
+  try {
+    const companies = await db.execute(sql`SELECT id FROM companies`);
+    for (const co of (companies.rows as any[])) {
+      const cid = co.id;
+
+      // ── Web Quote drip (7 touches) ──────────────────────────────────────────
+      const existsWeb = await db.execute(sql`
+        SELECT id FROM follow_up_sequences
+        WHERE company_id = ${cid} AND sequence_type = 'lead_drip_web' LIMIT 1
+      `);
+      if (!existsWeb.rows.length) {
+        const seqWeb = await db.execute(sql`
+          INSERT INTO follow_up_sequences (company_id, sequence_type, name, is_active)
+          VALUES (${cid}, 'lead_drip_web', 'Web Lead Drip', false)
+          RETURNING id
+        `);
+        const webId = (seqWeb.rows[0] as any).id;
+        const webSteps = [
+          { n: 1, h: 0,   ch: 'sms',   s: null,
+            t: 'Hi {{first_name}}! We saw your online quote — we’d love to help you get on the schedule. Any questions? Just text back. — {{company_name}}' },
+          { n: 2, h: 2,   ch: 'email', s: 'Your quote from {{company_name}} is saved',
+            t: 'Hi {{first_name}},\n\nThank you for starting a quote with us! Your estimate is saved and ready whenever you are.\n\nWe’re known for arriving on time, being thorough, and treating every home like our own. Most clients tell us they noticed the difference in the first visit.\n\nHave questions or want to get scheduled? Just reply here or call us at {{company_phone}}.\n\n— {{company_name}}' },
+          { n: 3, h: 24,  ch: 'sms',   s: null,
+            t: '{{first_name}}, still thinking it over? We have openings this week — one text gets you on the schedule.' },
+          { n: 4, h: 48,  ch: 'email', s: 'Why our clients choose {{company_name}}',
+            t: 'Hi {{first_name}},\n\nWe wanted to share why hundreds of families in the area trust us with their homes:\n\n• Background-checked, insured, and trained professionals\n• Consistent team so you’re not meeting someone new every visit\n• Eco-friendly products available on request\n• Satisfaction guarantee on every clean\n\nIf you’re ready to get started, just reply here and we’ll find a time that works.\n\n— {{company_name}}' },
+          { n: 5, h: 72,  ch: 'sms',   s: null,
+            t: 'Last check-in for now — if you’re ready, just reply “book” and we’ll take it from there. — {{company_name}}' },
+          { n: 6, h: 120, ch: 'email', s: 'A few spots left this week',
+            t: 'Hi {{first_name}},\n\nWe have a few openings left this week if you’d like to get on the schedule. It’s quick — just reply here with a preferred day and morning or afternoon, and we’ll confirm.\n\n— {{company_name}}' },
+          { n: 7, h: 168, ch: 'sms',   s: null,
+            t: 'We’ll pause our follow-ups here, {{first_name}}. Whenever you’re ready, just reach out. — {{company_name}}' },
+        ];
+        for (const st of webSteps) {
+          await db.execute(sql`
+            INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template)
+            VALUES (${webId}, ${st.n}, ${st.h}, ${st.ch}, ${st.s ?? null}, ${st.t})
+          `);
+        }
+      }
+
+      // ── Phone-In drip (6 touches) ───────────────────────────────────────────
+      const existsPhone = await db.execute(sql`
+        SELECT id FROM follow_up_sequences
+        WHERE company_id = ${cid} AND sequence_type = 'lead_drip_phone' LIMIT 1
+      `);
+      if (!existsPhone.rows.length) {
+        const seqPhone = await db.execute(sql`
+          INSERT INTO follow_up_sequences (company_id, sequence_type, name, is_active)
+          VALUES (${cid}, 'lead_drip_phone', 'Phone Lead Drip', false)
+          RETURNING id
+        `);
+        const phoneId = (seqPhone.rows[0] as any).id;
+        const phoneSteps = [
+          { n: 1, h: 0,   ch: 'sms',   s: null,
+            t: 'Hi {{first_name}}, great talking with you! Here’s your quote recap from {{company_name}}. Questions? Just reply here.' },
+          { n: 2, h: 24,  ch: 'sms',   s: null,
+            t: '{{first_name}}, following up from {{company_name}}. Ready to get on the schedule? Just say the word.' },
+          { n: 3, h: 48,  ch: 'email', s: 'Your quote from our call',
+            t: 'Hi {{first_name}},\n\nIt was great speaking with you! Per our conversation, here is a quick recap of what we discussed.\n\nWhen you’re ready to get scheduled, just reply here and I’ll take care of it.\n\n— {{company_name}}' },
+          { n: 4, h: 72,  ch: 'sms',   s: null,
+            t: '{{first_name}}, we’d love to get your home sparkling. Want me to find you a morning or afternoon slot this week?' },
+          { n: 5, h: 120, ch: 'email', s: 'Still here whenever you’re ready',
+            t: 'Hi {{first_name}},\n\nJust checking in one more time. We’d love to earn your business and make your home shine.\n\nReply here or call {{company_phone}} anytime.\n\n— {{company_name}}' },
+          { n: 6, h: 168, ch: 'sms',   s: null,
+            t: 'We’ll wrap up here for now, {{first_name}}. Reach out anytime — {{company_name}}' },
+        ];
+        for (const st of phoneSteps) {
+          await db.execute(sql`
+            INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template)
+            VALUES (${phoneId}, ${st.n}, ${st.h}, ${st.ch}, ${st.s ?? null}, ${st.t})
+          `);
+        }
+      }
+    }
+    console.log("[lead-drip-seed] Lead drip sequences seeded for all companies.");
+  } catch (err) {
+    console.error("[lead-drip-seed] Seed error (non-fatal):", err);
+  }
+}
+
+// ── Estimate Follow-Up Sequence Seed (PHES, INACTIVE by default) ────────────
+// The native commercial-estimate drip. Seeded with is_active=FALSE so NO estimate
+// enrolls and NOTHING sends until the office explicitly activates it (and the
+// usual COMMS_ENABLED + company/branch comms gates also apply at send time). This
+// is the load-bearing safety: the drip is fully inert on deploy.
+// Cadence: Day0 email + SMS, Day2 email, Day4 SMS, Day7 email, Day10 SMS,
+// Day13 email, Day16 email. delay_hours are gaps from the previous touch.
+export const ESTIMATE_SEQUENCE_STEPS: ReadonlyArray<{
+  step_number: number; delay_hours: number; channel: "email" | "sms";
+  subject: string | null; message_template: string;
+}> = [
+  { step_number: 1, delay_hours: 0, channel: "email",
+    subject: "Your cleaning estimate for {{property}}",
+    message_template: "Hi {{first_name}}, thank you for the opportunity to quote cleaning for {{property}}. Your estimate is ready to review here: {{estimate_link}}. It comes to ${{monthly}} for the service outlined. Reply to this email or call {{company_phone}} with any questions. We would love to earn your business." },
+  { step_number: 2, delay_hours: 2, channel: "sms",
+    subject: null,
+    message_template: "Hi {{first_name}}, it is {{company_name}}. We just sent your cleaning estimate for {{property}}. View it here: {{estimate_link}}. Happy to answer any questions!" },
+  { step_number: 3, delay_hours: 48, channel: "email",
+    subject: "Did you get your estimate?",
+    message_template: "Hi {{first_name}}, just making sure you received the cleaning estimate for {{property}}. Here it is again: {{estimate_link}}. Any questions about the scope or scheduling? Reply here or call {{company_phone}}." },
+  { step_number: 4, delay_hours: 48, channel: "sms",
+    subject: null,
+    message_template: "Hi {{first_name}}, {{company_name}} checking in on your estimate for {{property}}: {{estimate_link}}. Want us to walk you through it? Just reply." },
+  { step_number: 5, delay_hours: 72, channel: "email",
+    subject: "Why property managers choose {{company_name}}",
+    message_template: "Hi {{first_name}}, a quick note on what you get with {{company_name}}: reliable insured crews, consistent quality, and responsive service when something comes up. Your estimate for {{property}} is still ready: {{estimate_link}}. We would love to get you on the schedule." },
+  { step_number: 6, delay_hours: 72, channel: "sms",
+    subject: null,
+    message_template: "Hi {{first_name}}, ready to move forward on {{property}}? We can usually start within a week. Approve your estimate here: {{estimate_link}} or call {{company_phone}}." },
+  { step_number: 7, delay_hours: 72, channel: "email",
+    subject: "Let's get {{property}} on the schedule",
+    message_template: "Hi {{first_name}}, we have openings coming up and would love to hold a spot for {{property}}. Approve your estimate whenever you are ready: {{estimate_link}}. Questions? Call {{company_phone}}." },
+  { step_number: 8, delay_hours: 72, channel: "email",
+    subject: "Closing the loop on your estimate",
+    message_template: "Hi {{first_name}}, I do not want to crowd your inbox, so this is my last note for now. Your estimate for {{property}} stays valid and ready whenever you are: {{estimate_link}}. Thank you for considering {{company_name}}. Call {{company_phone}} anytime." },
+];
+
+async function runEstimateSequenceSeed(): Promise<void> {
+  const PHES = 1;
+  try {
+    const existing = await db.execute(sql`
+      SELECT id FROM follow_up_sequences
+      WHERE company_id = ${PHES} AND sequence_type = 'estimate_followup' LIMIT 1
+    `);
+    if ((existing as any).rows.length) {
+      console.log("[estimate-sequence-seed] estimate_followup already present — skipping.");
+      return;
+    }
+    const seq = await db.execute(sql`
+      INSERT INTO follow_up_sequences (company_id, sequence_type, name, is_active)
+      VALUES (${PHES}, 'estimate_followup', 'Estimate Follow-Up', false)
+      RETURNING id
+    `);
+    const seqId = (seq as any).rows[0].id;
+    for (const st of ESTIMATE_SEQUENCE_STEPS) {
+      await db.execute(sql`
+        INSERT INTO follow_up_steps (sequence_id, step_number, delay_hours, channel, subject, message_template)
+        VALUES (${seqId}, ${st.step_number}, ${st.delay_hours}, ${st.channel}, ${st.subject ?? null}, ${st.message_template})
+      `);
+    }
+    console.log(`[estimate-sequence-seed] estimate_followup seeded INACTIVE for PHES (${ESTIMATE_SEQUENCE_STEPS.length} steps).`);
+  } catch (err) {
+    console.error("[estimate-sequence-seed] Seed error (non-fatal):", err);
+  }
+}
+
+// ── Commercial Cleaning Service Agreement template (PHES) ───────────────────
+// A ready-to-send, e-signable agreement (form_templates + requires_sign). Generic
+// terms that incorporate the per-client estimate by reference, so no merge fields
+// are needed. Idempotent: skips if a template of this name already exists.
+const COMMERCIAL_AGREEMENT_BODY = `COMMERCIAL CLEANING SERVICE AGREEMENT
+
+1. PARTIES
+This Commercial Cleaning Service Agreement ("Agreement") is entered into between Phes LLC, an Illinois company (the "Service Provider"), and the Client identified in the estimate provided to the Client (the "Client").
+
+2. SERVICES
+The Service Provider will perform the commercial cleaning services, at the frequency and pricing, set out in the estimate provided to the Client, which is incorporated into this Agreement by reference. The Service Provider will furnish all cleaning supplies and equipment necessary to perform these services unless otherwise agreed in writing.
+
+3. PAYMENT TERMS
+Pricing and billing follow the estimate provided to the Client. Unless otherwise stated, payment is due upon each visit and the card on file will be charged for each completed service. Work is strictly limited to the services listed in the estimate; additional tasks require prior written approval and will be billed separately.
+
+4. SCHEDULING & ACCESS
+Service dates and times are determined by the Service Provider and may be adjusted for holidays, weather, building access, or operational needs, with reasonable notice to the Client. The Service Provider will provide forty-eight (48) hours notice of the scheduled time. If the Service Provider is ready and able to perform on-site but access is denied, the Client will be charged 100% of the service cost. The Service Provider will provide a prorated credit for any scheduled service it fails to provide.
+
+5. TERM & TERMINATION
+This Agreement continues until terminated. Either party may terminate with thirty (30) days written notice. The Client remains responsible for all amounts due for services provided or scheduled during the term and any notice period.
+
+6. LIABILITY & GOVERNING LAW
+The Service Provider will maintain general liability insurance for the duration of this Agreement. This Agreement is governed by the laws of the State of Illinois, and any disputes will be resolved in Cook County, Illinois.
+
+7. ENTIRE AGREEMENT
+This Agreement constitutes the entire understanding between the parties. Any amendments must be in writing and signed by both parties. By signing, the Client acknowledges they have read and agree to this Agreement, and the individual signing represents they have authority to bind the Client.`;
+
+async function runAgreementTemplateSeed(): Promise<void> {
+  const PHES = 1;
+  const NAME = "Commercial Cleaning Service Agreement";
+  try {
+    const ex = await db.execute(sql`SELECT id FROM form_templates WHERE company_id = ${PHES} AND name = ${NAME} LIMIT 1`);
+    if ((ex as any).rows.length) { console.log("[agreement-template-seed] already present — skipping."); return; }
+    await db.execute(sql`
+      INSERT INTO form_templates (company_id, name, type, category, terms_body, requires_sign, is_active)
+      VALUES (${PHES}, ${NAME}, 'agreement', 'commercial', ${COMMERCIAL_AGREEMENT_BODY}, true, true)
+    `);
+    console.log("[agreement-template-seed] Commercial Cleaning Service Agreement seeded for PHES.");
+  } catch (err) {
+    console.error("[agreement-template-seed] Seed error (non-fatal):", err);
+  }
+}
+
+// ── Estimate Template Seed (PHES) ───────────────────────────────────────────
+// Seeds 4 vertical commercial estimate templates as reusable starting points
+// for the estimate builder's one-click picker. Pricing reflects PHES commercial
+// rates (Common Areas $45/hr, Office $50/hr, Retail $48/hr, Medical $60/hr).
+// Idempotent: each vertical is inserted only if no template with that category
+// already exists for the company, so re-runs and operator edits are preserved.
+type SeedTemplateItem = {
+  name: string; pricing_type: "flat" | "hourly" | "one_time";
+  frequency: string; quantity: number; unit_rate: number;
+};
+type SeedTemplate = {
+  category: string; name: string; title: string; intro_note: string;
+  terms: string; items: SeedTemplateItem[];
+};
+export const ESTIMATE_TEMPLATE_SEED: ReadonlyArray<SeedTemplate> = [
+  {
+    category: "common_areas",
+    name: "Common Areas — Condo / HOA",
+    title: "Common Area Cleaning — Recurring Service",
+    intro_note: "Thank you for the opportunity to quote recurring cleaning for your building's common areas. The scope below covers the shared spaces your residents use every day — lobby, hallways, elevators, and restrooms — kept consistently clean on the schedule that fits your property.",
+    terms: "Pricing reflects recurring service at the frequency shown. First service billed on completion; net-15 thereafter. Estimate valid 30 days. Supplies included.",
+    items: [
+      { name: "Lobby & entrance", pricing_type: "hourly", frequency: "2x/week", quantity: 1.0, unit_rate: 45 },
+      { name: "Common hallways & stairwells", pricing_type: "hourly", frequency: "2x/week", quantity: 1.0, unit_rate: 45 },
+      { name: "Elevators — cab, tracks & glass", pricing_type: "hourly", frequency: "2x/week", quantity: 0.5, unit_rate: 45 },
+      { name: "Common restrooms — clean & restock", pricing_type: "hourly", frequency: "2x/week", quantity: 0.75, unit_rate: 45 },
+      { name: "Entry glass & interior windows", pricing_type: "flat", frequency: "Weekly", quantity: 1, unit_rate: 40 },
+      { name: "Trash removal & liner replacement", pricing_type: "flat", frequency: "2x/week", quantity: 1, unit_rate: 35 },
+    ],
+  },
+  {
+    category: "office",
+    name: "Office Cleaning",
+    title: "Office Cleaning — Recurring Janitorial",
+    intro_note: "Thank you for considering Phes for your office cleaning. The scope below keeps your workspace healthy and presentable — workstations, kitchen, restrooms, and floors — on a recurring schedule that works around your team.",
+    terms: "Pricing reflects recurring service at the frequency shown. First service billed on completion; net-15 thereafter. Estimate valid 30 days. Supplies included.",
+    items: [
+      { name: "Workstations & desks — dust & sanitize", pricing_type: "hourly", frequency: "3x/week", quantity: 1.0, unit_rate: 50 },
+      { name: "Kitchen / break room", pricing_type: "hourly", frequency: "3x/week", quantity: 0.75, unit_rate: 50 },
+      { name: "Restrooms — clean & restock", pricing_type: "hourly", frequency: "3x/week", quantity: 1.0, unit_rate: 50 },
+      { name: "Floors — vacuum & mop", pricing_type: "hourly", frequency: "3x/week", quantity: 1.0, unit_rate: 50 },
+      { name: "Trash & recycling removal", pricing_type: "flat", frequency: "3x/week", quantity: 1, unit_rate: 30 },
+    ],
+  },
+  {
+    category: "retail",
+    name: "Retail Store",
+    title: "Retail Store Cleaning — Nightly Service",
+    intro_note: "Thank you for the opportunity to quote nightly cleaning for your store. The scope below keeps your sales floor, fitting rooms, and entrance spotless and customer-ready every morning when you open.",
+    terms: "Pricing reflects nightly service. First service billed on completion; net-15 thereafter. Estimate valid 30 days. Supplies included.",
+    items: [
+      { name: "Sales floor — vacuum, mop & dust", pricing_type: "hourly", frequency: "Daily", quantity: 1.0, unit_rate: 48 },
+      { name: "Fitting rooms & mirrors", pricing_type: "hourly", frequency: "Daily", quantity: 0.5, unit_rate: 48 },
+      { name: "Entrance glass & display windows", pricing_type: "flat", frequency: "Daily", quantity: 1, unit_rate: 25 },
+      { name: "Restrooms — clean & restock", pricing_type: "hourly", frequency: "Daily", quantity: 0.5, unit_rate: 48 },
+      { name: "Trash removal & liner replacement", pricing_type: "flat", frequency: "Daily", quantity: 1, unit_rate: 25 },
+    ],
+  },
+  {
+    category: "medical",
+    name: "Medical Facility",
+    title: "Medical Facility Cleaning — Disinfection Service",
+    intro_note: "Thank you for considering Phes for your facility. The scope below follows CDC/OSHA cleaning and disinfection protocols for medical settings — exam rooms, high-touch surfaces, and regulated-waste handling — to keep your patients and staff safe.",
+    terms: "Service follows CDC/OSHA disinfection protocols with EPA List-N products. First service billed on completion; net-15 thereafter. Estimate valid 30 days. Supplies & PPE included.",
+    items: [
+      { name: "Exam rooms — clean & EPA disinfect", pricing_type: "hourly", frequency: "Daily", quantity: 1.5, unit_rate: 60 },
+      { name: "High-touch disinfection (CDC/OSHA protocol)", pricing_type: "hourly", frequency: "Daily", quantity: 0.75, unit_rate: 60 },
+      { name: "Waiting room & reception", pricing_type: "hourly", frequency: "Daily", quantity: 0.5, unit_rate: 60 },
+      { name: "Restrooms — clean & restock", pricing_type: "hourly", frequency: "Daily", quantity: 0.5, unit_rate: 60 },
+      { name: "Floors — disinfect mop", pricing_type: "hourly", frequency: "Daily", quantity: 1.0, unit_rate: 60 },
+      { name: "Biohazard / regulated-waste handling", pricing_type: "flat", frequency: "Daily", quantity: 1, unit_rate: 40 },
+    ],
+  },
+];
+
+async function runEstimateTemplateSeed(): Promise<void> {
+  const PHES = 1;
+  try {
+    for (const tpl of ESTIMATE_TEMPLATE_SEED) {
+      const existing = await db.execute(sql`
+        SELECT 1 FROM estimate_templates
+        WHERE company_id = ${PHES} AND category = ${tpl.category} LIMIT 1
+      `);
+      if ((existing as any).rows.length) continue; // already seeded — preserve operator edits
+
+      const inserted = await db.execute(sql`
+        INSERT INTO estimate_templates (company_id, name, category, title, intro_note, terms, created_by)
+        VALUES (${PHES}, ${tpl.name}, ${tpl.category}, ${tpl.title}, ${tpl.intro_note}, ${tpl.terms}, NULL)
+        RETURNING id
+      `);
+      const templateId = (inserted as any).rows[0].id;
+      let sort = 0;
+      for (const it of tpl.items) {
+        const amount = Math.round(it.quantity * it.unit_rate * 100) / 100;
+        await db.execute(sql`
+          INSERT INTO estimate_template_items
+            (template_id, company_id, sort_order, name, description, pricing_type, frequency, quantity, unit_rate, amount)
+          VALUES
+            (${templateId}, ${PHES}, ${sort}, ${it.name}, NULL, ${it.pricing_type}, ${it.frequency}, ${it.quantity}, ${it.unit_rate}, ${amount})
+        `);
+        sort++;
+      }
+    }
+    console.log("[estimate-template-seed] Commercial templates ensured for PHES.");
+  } catch (err) {
+    console.error("[estimate-template-seed] Seed error (non-fatal):", err);
+  }
 }
 
 // ── MaidCentral Discount Migration (2026-04-16) ─────────────────────────────
@@ -5394,7 +6268,11 @@ async function runAleCuervoMigration() {
       UPDATE users SET
         mc_employee_id           = '42877',
         dob                      = '1992-01-16',
-        hire_date                = '2023-05-11',
+        -- 2025-08-01 is her REHIRE date (MC Snapshot + Sal 2026-07-07); the
+        -- benefit year / occurrence ladder anchor to it. 2023-05-11 was a
+        -- copy-paste of Norma Puga's hire date and silently shrank her
+        -- discipline window on every boot.
+        hire_date                = '2025-08-01',
         email                    = 'acuervo68@yahoo.com',
         phone                    = '773-812-2419',
         drivers_license_number   = 'C61501592616',
@@ -5716,6 +6594,20 @@ async function runNotificationTemplateSeed() {
       ["users.reset_token_expires_at",              sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMP`],
       ["jobs.supply_cost",                          sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS supply_cost NUMERIC(8,2) DEFAULT 0.00`],
       ["companies.overhead_rate_pct",               sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS overhead_rate_pct NUMERIC(5,2) DEFAULT 10.00`],
+      // [invoice-branding 2026-06-23] Per-tenant invoice content so every company
+      // controls their own header/footer/terms from Settings (no code). Invoice
+      // template reads these with generic fallbacks; blank = use the fallback.
+      ["companies.invoice_business_name",           sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_business_name TEXT`],
+      ["companies.invoice_tagline",                 sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_tagline TEXT`],
+      ["companies.invoice_address",                 sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_address TEXT`],
+      ["companies.invoice_footer_message",          sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_footer_message TEXT`],
+      ["companies.invoice_payment_instructions",    sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_payment_instructions TEXT`],
+      ["companies.invoice_guarantee",               sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_guarantee TEXT`],
+      ["companies.invoice_terms",                   sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS invoice_terms TEXT`],
+      // [review-once 2026-07-07] Stamped when a happy survey rater taps "Leave a
+      // Google review" — the survey thank-you page only shows the ask to clients
+      // who have never tapped it before.
+      ["clients.google_review_clicked_at",          sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS google_review_clicked_at TIMESTAMP`],
       ["notifications.create_table",                sql`CREATE TABLE IF NOT EXISTS notifications (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), company_id integer NOT NULL, type varchar(50) NOT NULL, title varchar(255) NOT NULL, body text, link varchar(500), meta jsonb, read boolean DEFAULT false, created_at timestamptz DEFAULT now())`],
       ["notifications.idx_company_unread",          sql`CREATE INDEX IF NOT EXISTS idx_notifications_company_unread ON notifications(company_id, read, created_at DESC)`],
     ];
@@ -6052,6 +6944,75 @@ async function runNotificationTemplateSeed() {
 </div>
 <p style="margin:0 0 20px;color:#6B6860;font-size:14px">This link expires in {{reset_expiry}}. If you did not request this, ignore this email \u2014 your password will not change.</p>
 <p style="margin:0;color:#6B6860;font-size:14px">Trouble accessing your account? Contact your administrator or email <strong>{{company_email}}</strong>.</p>`,
+        body_text: null,
+      },
+
+      // ── 11. TIME OFF (staff-facing) ──────────────────────────────────────
+      // [leave-templates 2026-07-07] Editable templates for the employee
+      // time-off flow (rendered by lib/leave-notifications.ts; missing rows
+      // fall back to built-in copy). Merge tags: {{first_name}},
+      // {{employee_name}}, {{bucket_name}}, {{dates}}, {{hours}},
+      // {{time_window}}, {{note}}, {{decision_note}}, {{review_link}},
+      // {{my_time_off_link}}, {{company_name}}, {{company_phone}},
+      // {{company_email}}.
+      {
+        trigger: "leave_request_office", channel: "email",
+        subject: "ACTION REQUIRED: {{employee_name}} requested time off ({{dates}})",
+        body_html: `<p style="margin:0 0 20px"><strong>{{employee_name}}</strong> submitted a time-off request.</p>
+<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E2DC;border-radius:6px;background:#FFFFFF;margin:0 0 24px">
+<tr><td style="padding:20px">
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Type</p>
+  <p style="margin:0 0 16px;font-size:15px;color:#1A1917;font-weight:600">{{bucket_name}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Dates</p>
+  <p style="margin:0 0 16px;font-size:15px;color:#1A1917;font-weight:600">{{dates}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Hours</p>
+  <p style="margin:0 0 16px;font-size:15px;color:#1A1917;font-weight:600">{{hours}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Employee Note</p>
+  <p style="margin:0;font-size:15px;color:#1A1917">{{note}}</p>
+</td></tr>
+</table>
+<div style="text-align:center;margin:0 0 8px">
+  <a href="{{review_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Review &amp; Approve or Deny</a>
+</div>`,
+        body_text: null,
+      },
+      {
+        trigger: "leave_request_pending", channel: "email",
+        subject: "Your Time-Off Request is Pending ({{dates}})",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) is pending office approval. You'll get a message when it's decided.</p>
+<div style="text-align:center;margin:0 0 8px">
+  <a href="{{my_time_off_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
+</div>`,
+        body_text: null,
+      },
+      {
+        trigger: "leave_request_emergency", channel: "email",
+        subject: "ATTN: You've submitted an Emergency Request ({{dates}})",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">We received your <strong>emergency</strong> time-off request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h). The office will follow up shortly.</p>
+<div style="text-align:center;margin:0 0 8px">
+  <a href="{{my_time_off_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
+</div>`,
+        body_text: null,
+      },
+      {
+        trigger: "leave_request_approved", channel: "email",
+        subject: "Congrats! Your Time-Off Request has been Approved ({{dates}})",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) has been <strong>approved</strong>. Enjoy your time off.</p>
+<div style="text-align:center;margin:0 0 8px">
+  <a href="{{my_time_off_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">View My Time Off</a>
+</div>`,
+        body_text: null,
+      },
+      {
+        trigger: "leave_request_denied", channel: "email",
+        subject: "Your Time-Off Request has been Denied ({{dates}})",
+        body_html: `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) was <strong>denied</strong>.</p>
+<p style="margin:0 0 20px;color:#6B6860">{{decision_note}}</p>
+<p style="margin:0">Please reach out to the office with any questions.</p>`,
         body_text: null,
       },
     ];

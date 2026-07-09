@@ -7,12 +7,13 @@ const router = Router();
 
 const OPT_OUT = new Set(["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"]);
 
-// POST /api/comms/inbound — Twilio inbound-SMS webhook (PUBLIC, no auth).
-// Twilio posts form-encoded { From, To, Body, MessageSid }. The `To` number maps
-// to a tenant (company number first — unique — then branch). We:
-//   1) persist the inbound message in the unified sms_messages store (matched to
+// POST /api/comms/inbound — Twilio inbound-SMS/MMS webhook (PUBLIC, no auth).
+// Twilio posts form-encoded { From, To, Body, MessageSid, NumMedia, MediaUrl0... }.
+// The `To` number maps to a tenant. We:
+//   1) download any MMS media from Twilio, upload to R2, store keys in media_urls,
+//   2) persist the inbound message in the unified sms_messages store (matched to
 //      a CLIENT or LEAD by the sender's last-10 digits),
-//   2) stop the active follow-up cadence for the matching lead AND client
+//   3) stop the active follow-up cadence for the matching lead AND client
 //      (stop-on-reply), flagging opt-out on STOP-words.
 // Always responds 200 with empty TwiML.
 router.post("/inbound", async (req, res) => {
@@ -26,18 +27,59 @@ router.post("/inbound", async (req, res) => {
     const companyId = await resolveTenantByNumber(to);
     if (companyId == null) return res.type("text/xml").send("<Response/>");
 
+    // MMS: Twilio sends NumMedia + MediaUrl0..N + MediaContentType0..N
+    const numMedia = parseInt(String(req.body?.NumMedia ?? "0"), 10) || 0;
+    const mediaUrls: string[] = [];
+    if (numMedia > 0) {
+      try {
+        const { r2Configured, r2Upload } = await import("../lib/r2.js");
+        // Need Twilio creds to download the media
+        const { db } = await import("@workspace/db");
+        const { sql } = await import("drizzle-orm");
+        const cr = await db.execute(sql`SELECT twilio_account_sid, twilio_auth_token FROM companies WHERE id = ${companyId} LIMIT 1`);
+        const creds: any = cr.rows[0] ?? {};
+        const basicAuth = (creds.twilio_account_sid && creds.twilio_auth_token)
+          ? "Basic " + Buffer.from(`${creds.twilio_account_sid}:${creds.twilio_auth_token}`).toString("base64")
+          : null;
+        for (let i = 0; i < numMedia; i++) {
+          const mediaUrl = String(req.body?.[`MediaUrl${i}`] ?? "");
+          const contentType = String(req.body?.[`MediaContentType${i}`] ?? "image/jpeg");
+          if (!mediaUrl) continue;
+          try {
+            const fetchHeaders: Record<string, string> = {};
+            if (basicAuth) fetchHeaders["Authorization"] = basicAuth;
+            const mediaResp = await fetch(mediaUrl, { headers: fetchHeaders });
+            if (!mediaResp.ok) { console.warn(`[comms/inbound] MMS media fetch failed: ${mediaResp.status}`); continue; }
+            const buf = Buffer.from(await mediaResp.arrayBuffer());
+            const ext = (contentType.split("/")[1] || "jpg").replace(/[^a-z0-9]/gi, "").toLowerCase() || "jpg";
+            const { randomBytes } = await import("node:crypto");
+            const rand = randomBytes(12).toString("hex");
+            const key = `sms-media/${companyId}/${rand}.${ext}`;
+            if (r2Configured()) {
+              await r2Upload(key, buf, contentType);
+              mediaUrls.push(key);
+            }
+          } catch (e) { console.warn(`[comms/inbound] MMS media[${i}] error:`, e); }
+        }
+      } catch (e) { console.warn("[comms/inbound] MMS media import error:", e); }
+    }
+
     // 1) Persist + match (client or lead).
-    const { match } = await recordInboundSms({ companyId, fromRaw: from, toRaw: to, body, providerId: sid });
+    const { match } = await recordInboundSms({ companyId, fromRaw: from, toRaw: to, body, providerId: sid, mediaUrls: mediaUrls.length > 0 ? mediaUrls : null });
 
     // Alert office staff (in-app). Internal staff notification — never customer-facing.
     try {
       const { notifyOfficeUsers } = await import("../lib/notify.js");
       const d = from.replace(/\D/g, "").slice(-10);
       const who = match.name || (d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : from);
+      const notifyBody = mediaUrls.length > 0 && !body
+        ? `[${mediaUrls.length} image${mediaUrls.length > 1 ? "s" : ""}]`
+        : mediaUrls.length > 0 ? `${body.slice(0, 120)} [+${mediaUrls.length} image${mediaUrls.length > 1 ? "s" : ""}]`
+        : body.slice(0, 160);
       await notifyOfficeUsers(companyId, {
         type: "new_message",
         title: `New text from ${who}`,
-        body: body.slice(0, 160),
+        body: notifyBody,
         link: "/messages",
         meta: { phone: d, client_id: match.client_id, lead_id: match.lead_id },
       });
@@ -53,6 +95,12 @@ router.post("/inbound", async (req, res) => {
         await stopEnrollmentsForClient(match.client_id, optOut ? "opted_out" : "replied");
       } catch (e) { console.warn("[comms/inbound] client cadence stop failed:", e); }
     }
+    // [estimate-drip-phase3] Stop estimate drips when the property manager texts
+    // back (matched on the estimate's contact_phone), independent of client match.
+    try {
+      const { stopEstimateEnrollmentsByPhone } = await import("../services/followUpService.js");
+      await stopEstimateEnrollmentsByPhone(companyId, from, optOut ? "opted_out" : "replied");
+    } catch (e) { console.warn("[comms/inbound] estimate cadence stop failed:", e); }
 
     // [comms-opt-out 2026-06-21] Record the SMS opt-out flag on the client(s)
     // (matched by phone, last-10) so EVERY send path honors it — not just the

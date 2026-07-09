@@ -20,7 +20,7 @@ import {
   companyLeavePolicyTable,
   usersTable,
 } from "@workspace/db/schema";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { round2 } from "./leave-balance.js";
 import {
   planLeaveGrant,
@@ -46,7 +46,14 @@ export type ReconcilePlanRow = {
 export async function reconcileCompanyLeaveBalances(
   companyId: number,
   asOf: string,
-  opts: { dryRun: boolean },
+  // preserveUsed → passed to planLeaveGrant: the office migration apply keeps
+  // MC-imported used_hours on first-touch grants; the cron omits it (default
+  // false) so anniversary resets still zero used. [mc-migration 2026-07-07]
+  // source → provenance label written to app_audit_log with every persisted
+  // change ('boot' | 'cron' | 'office_apply'). The engine used to write
+  // silently — a boot-time run re-granted balances the office had just zeroed
+  // and nothing recorded why. [leave-log 2026-07-07]
+  opts: { dryRun: boolean; preserveUsed?: boolean; source?: string },
 ): Promise<ReconcilePlanRow[]> {
   const [policy] = await db
     .select({ ceiling: companyLeavePolicyTable.balance_ceiling_hours })
@@ -72,6 +79,8 @@ export async function reconcileCompanyLeaveBalances(
       first_name: usersTable.first_name,
       last_name: usersTable.last_name,
       hire_date: usersTable.hire_date,
+      employment_type: usersTable.employment_type,
+      w2_1099: usersTable.w2_1099,
     })
     .from(usersTable)
     .where(
@@ -80,6 +89,14 @@ export async function reconcileCompanyLeaveBalances(
 
   const out: ReconcilePlanRow[] = [];
   for (const u of users) {
+    // [1099-exclusion 2026-07-07] Independent contractors get NO leave grants
+    // — PLAWA/PTO are employee benefits (IL PLAWA doesn't cover contractors).
+    // Without this skip, the engine's tier-topup/annual-reset would resurrect
+    // balances the office deliberately zeroed on 1099s (Rosa, Alma). Existing
+    // balance rows are left untouched (the office manages them manually).
+    if (u.employment_type === "contractor" || String(u.w2_1099 ?? "").includes("1099")) {
+      continue;
+    }
     const hireDate = u.hire_date ? String(u.hire_date) : null;
     for (const b of buckets) {
       const balRow = await db
@@ -114,10 +131,12 @@ export async function reconcileCompanyLeaveBalances(
         hireDate,
         asOf,
         ceiling,
+        { preserveUsed: opts.preserveUsed === true },
       );
 
       if (plan.action !== "none" && !opts.dryRun) {
         const resetAt = new Date(`${asOf}T12:00:00Z`);
+        let balId = bal?.id ?? null;
         if (bal) {
           await db
             .update(employeeLeaveBalancesTable)
@@ -129,14 +148,44 @@ export async function reconcileCompanyLeaveBalances(
             })
             .where(eq(employeeLeaveBalancesTable.id, bal.id));
         } else {
-          await db.insert(employeeLeaveBalancesTable).values({
+          const ins = await db.insert(employeeLeaveBalancesTable).values({
             company_id: companyId,
             user_id: u.id,
             leave_type_id: b.id,
             granted_hours: plan.new_granted.toFixed(2),
             used_hours: plan.new_used.toFixed(2),
             last_reset_at: resetAt,
+          }).returning({ id: employeeLeaveBalancesTable.id });
+          balId = ins[0]?.id ?? null;
+        }
+        // [leave-log 2026-07-07] Provenance row for every engine write, same
+        // target_type as the office's manual leave_balance_set so one query
+        // returns the full change history of a balance. performed_by NULL =
+        // the system; new_value.source says which trigger (boot/cron/apply).
+        try {
+          const oldVal = balance
+            ? JSON.stringify({ granted_hours: balance.granted_hours, used_hours: balance.used_hours })
+            : null;
+          const newVal = JSON.stringify({
+            user_id: u.id,
+            leave_type_id: b.id,
+            slug: b.slug,
+            granted_hours: plan.new_granted,
+            used_hours: plan.new_used,
+            engine_action: plan.action,
+            source: opts.source ?? "engine",
           });
+          await db.execute(sql`
+            INSERT INTO app_audit_log
+              (company_id, performed_by, action, target_type, target_id,
+               old_value, new_value, performed_at)
+            VALUES
+              (${companyId}, ${null}, ${"leave_grant_engine"}, ${"employee_leave_balance"},
+               ${String(balId ?? `${u.id}:${b.id}`)},
+               ${oldVal}::jsonb, ${newVal}::jsonb, now())
+          `);
+        } catch (err) {
+          console.error("[leave-reconcile] audit write failed (non-fatal):", err);
         }
       }
 

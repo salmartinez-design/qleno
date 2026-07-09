@@ -87,11 +87,21 @@ async function sendUserWebPush(userId: number, a: NotifyArgs): Promise<void> {
     const { webPushConfigured, sendWebPush } = await import("./webpush.js");
     if (!webPushConfigured()) return;
     const subs = await db.execute(sql`SELECT endpoint, p256dh, auth FROM push_subscriptions WHERE user_id = ${userId}`);
-    if (!subs.rows.length) return;
+    if (!subs.rows.length) {
+      console.log(`[push] user ${userId} type=${a.type}: no subscriptions — nothing sent`);
+      return;
+    }
     const payload = { title: a.title, body: a.body ?? "", link: a.link ?? "/", tag: a.type, data: a.meta ?? {} };
     for (const s of subs.rows as any[]) {
       const r = await sendWebPush({ endpoint: s.endpoint, p256dh: s.p256dh, auth: s.auth }, payload);
-      if (r.dead) await db.execute(sql`DELETE FROM push_subscriptions WHERE endpoint = ${s.endpoint}`).catch(() => {});
+      if (r.dead) {
+        await db.execute(sql`DELETE FROM push_subscriptions WHERE endpoint = ${s.endpoint}`).catch(() => {});
+        console.warn(`[push] user ${userId} type=${a.type}: subscription gone (${r.status}) — pruned`);
+      } else if (!r.ok) {
+        // Non-410 failure (e.g. VAPID/payload rejected by the push service).
+        // Log it so delivery problems aren't silent; do NOT prune (sub is valid).
+        console.warn(`[push] user ${userId} type=${a.type}: send failed status=${r.status ?? "?"} reason=${(r as any).reason ?? ""}`);
+      }
     }
   } catch (e) {
     console.error("[notify] web push failed:", e);

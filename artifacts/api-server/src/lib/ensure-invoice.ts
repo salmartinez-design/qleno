@@ -4,11 +4,14 @@
 // clock-out paths (timeclock last-tech clock-out, tech-clock field clock_out).
 //
 // Scope 1 (per-visit) + Scope 2 (batch tagging):
-//   - billing_terms drives behavior, resolved from the client:
-//       per_visit (default)  → invoice created and SENT immediately.
-//       batch_invoice        → invoice created as DRAFT, batch_status='pending',
-//                              NOT sent, NOT charged — the month-end consolidate
-//                              step folds it into the month's first invoice.
+//   - [no-auto-issue 2026-07-06] EVERY auto-invoice is created as a DRAFT —
+//     never 'sent'. The office finalizes explicitly from the invoice detail
+//     ("Mark as invoiced" = no email, or "Send + email"). billing_terms still
+//     routes the batch workflow:
+//       per_visit (default)  → plain draft, office finalizes per invoice.
+//       batch_invoice        → draft with batch_status='pending' — the
+//                              month-end consolidate step folds it into the
+//                              month's first invoice.
 //   - payment_source stamped from the client at creation (derive rule: a Stripe
 //     payment method on file → 'stripe', else 'square'); an explicit check/ach
 //     stamp on the client is preserved.
@@ -37,11 +40,15 @@ import { getNextInvoiceNumber } from "./invoice-number.js";
 import { derivePaymentSource } from "./payment-source.js";
 import { buildJobLineItems } from "./invoice-line-items.js";
 
-// [cutover-guard 2026-06-17] Qleno go-live date. Jobs scheduled before this are
-// billed in MaidCentral; the completion engine never auto-invoices them. Single
-// hardcoded constant for Phes go-live; move to tenant_settings when multi-tenant
-// cutovers arrive (mirrors the LATE_THRESHOLD_MINUTES pattern in job-status.ts).
-const INVOICE_CUTOVER_DATE = "2026-07-01";
+// [cutover-guard 2026-06-17; billing-cutover 2026-07-02] Phes billing cutover.
+// Everything scheduled BEFORE this date was invoiced + PAID in MaidCentral, so
+// Qleno must never bill it: the completion engine never auto-invoices these, AND
+// the "Not yet invoiced" queues (main Invoices screen + each account's Uninvoiced
+// Jobs tab) hide them so pre-cutover work doesn't clutter the billing queue.
+// Set to 2026-07-01 (Sal confirmed the switch-over; was 06-27, which risked
+// double-billing June 27–30). Single hardcoded constant for Phes; move to
+// tenant_settings when multi-tenant cutovers arrive (mirrors LATE_THRESHOLD_MINUTES).
+export const INVOICE_CUTOVER_DATE = "2026-07-01";
 
 export type EnsureInvoiceResult = {
   created: boolean;
@@ -108,34 +115,41 @@ export async function ensureInvoiceForCompletedJob(
     if (job.charge_succeeded_at) return NO_OP;
 
     // Resolve terms + billing_terms + payment_source.
-    let skipAutoInvoice = false;
+    let accountDraft = false;
     let termsDays = 0;
     let billingTerms: string = "per_visit";
     let paymentSource: string | null = null;
+    // [auto-issue 2026-07-08] Per-company: completion ISSUES the per-visit
+    // invoice instead of parking a draft. Only read on the non-account branch
+    // — account/batch invoices always stay draft+pending for the merge flow.
+    let autoIssue = false;
 
     if (job.account_id) {
-      // Commercial account path — unchanged legacy behavior (per_job only).
+      // [per-job-drafts 2026-07-02] Every commercial-account job now gets its
+      // OWN invoice — always as a DRAFT (nothing auto-sends). The office then
+      // sends it individually OR bulk-merges a period into one bill (POST
+      // /api/invoices/merge). Replaces the old behavior where non-'per_job'
+      // accounts made NO invoice and jobs piled up uninvoiced. accountDraft
+      // routes through isBatch below → status='draft' / batch_status='pending'.
       const [acct] = await db
         .select({ invoice_frequency: accountsTable.invoice_frequency, payment_terms_days: accountsTable.payment_terms_days })
         .from(accountsTable)
         .where(eq(accountsTable.id, job.account_id))
         .limit(1);
-      if (acct) {
-        termsDays = acct.payment_terms_days ?? 30;
-        if (acct.invoice_frequency !== "per_job") {
-          skipAutoInvoice = true;
-        }
-      }
+      if (acct) termsDays = acct.payment_terms_days ?? 30;
+      accountDraft = true;
     } else {
       const [co] = await db
-        .select({ payment_terms_days: companiesTable.payment_terms_days })
+        .select({ payment_terms_days: companiesTable.payment_terms_days, auto_issue_invoices: companiesTable.auto_issue_invoices })
         .from(companiesTable)
         .where(eq(companiesTable.id, companyId))
         .limit(1);
       termsDays = co?.payment_terms_days ?? 0;
+      autoIssue = co?.auto_issue_invoices === true;
     }
 
     // Client-driven billing_terms + payment_source (residential / per-client).
+    let clientType: string | null = null;
     if (job.client_id) {
       const [cli] = await db
         .select({
@@ -143,11 +157,13 @@ export async function ensureInvoiceForCompletedJob(
           payment_source: clientsTable.payment_source,
           stripe_payment_method_id: clientsTable.stripe_payment_method_id,
           payment_terms: clientsTable.payment_terms,
+          client_type: clientsTable.client_type,
         })
         .from(clientsTable)
         .where(eq(clientsTable.id, job.client_id))
         .limit(1);
       if (cli) {
+        clientType = cli.client_type ?? null;
         billingTerms = cli.billing_terms || "per_visit";
         // Stamp the processor: prefer an explicit client.payment_source (covers
         // office-set check/ach), else derive from card-on-file state.
@@ -162,9 +178,10 @@ export async function ensureInvoiceForCompletedJob(
       }
     }
 
-    if (skipAutoInvoice) return NO_OP;
-
-    const isBatch = billingTerms === "batch_invoice";
+    // [per-job-drafts 2026-07-02] Account jobs are held as drafts (accountDraft)
+    // alongside the residential batch_invoice path — both land status='draft',
+    // batch_status='pending', awaiting an explicit send or a bulk merge.
+    const isBatch = billingTerms === "batch_invoice" || accountDraft;
 
     const today = new Date();
     const due = new Date(today);
@@ -182,12 +199,14 @@ export async function ensureInvoiceForCompletedJob(
     const lineItems = built?.lineItems ?? [];
     const netAmount = built?.subtotal ?? 0;
 
-    // [invoice-zero-guard 2026-06-20] Never auto-create a $0 invoice. A cancelled/
-    // credited occurrence or a $0-priced job (e.g. a split-billed sibling) would
-    // otherwise spawn a $0 draft that clutters AR and confuses the office
-    // ("are we invoicing $0 jobs??"). The office can still invoice manually if a
-    // genuine $0 document is ever needed.
-    if (netAmount <= 0) return NO_OP;
+    // [invoice-zero-guard 2026-06-20; commercial-exception 2026-07-03] Skip $0
+    // auto-invoices for RESIDENTIAL jobs — a cancelled/credited occurrence would
+    // otherwise spawn a $0 draft that clutters AR. But COMMERCIAL jobs (account
+    // like KMA/PPM, or a commercial client) MUST get an invoice even at $0: the
+    // office reconciles the day one-invoice-per-job, and a $0 draft is the signal
+    // that a rate still needs setting on that common-areas/turnover visit.
+    const isCommercialJob = !!job.account_id || clientType === "commercial";
+    if (netAmount <= 0 && !isCommercialJob) return NO_OP;
 
     const [newInv] = await db
       .insert(invoicesTable)
@@ -196,17 +215,25 @@ export async function ensureInvoiceForCompletedJob(
         job_id: jobId,
         client_id: job.client_id ?? null,
         account_id: job.account_id ?? null,
-        // [invoice-lifecycle 2026-06-21] per_visit completions are FINALIZED
-        // immediately as 'sent' = issued / awaiting payment, so the Invoices
-        // "Outstanding" KPI (status IN ('sent','overdue')) picks them up the
-        // moment a job is completed. NOTE: 'sent' here means FINALIZED, NOT
-        // "notification emailed" — this path never calls sendNotification, so
-        // finalizing a completed job never messages the customer (decoupled by
-        // design; the only customer send is the explicit POST /:id/send route).
-        // batch_invoice clients stay a pending draft for month-end consolidation.
-        status: isBatch ? "draft" : "sent",
+        // [auto-issue 2026-07-08] Third iteration of this lifecycle, keep the
+        // history straight:
+        //   1. [invoice-lifecycle 2026-06-21] completion finalized as 'sent'
+        //      — but the UI showed "Sent: <completion time>", which read as
+        //      "the customer was emailed" when nothing was ever emailed.
+        //   2. [no-auto-issue 2026-07-06] everything became a DRAFT to kill
+        //      that lie — but then drafts piled up and the office had to
+        //      hand-finalize every completed job (Sal: "we should not have
+        //      to manually create all these invoices", HCP parity).
+        //   3. Now: when companies.auto_issue_invoices is ON, a per-visit
+        //      completion invoice is ISSUED (status 'sent', enters AR, QB
+        //      push below) with sent_at NULL — and every surface labels
+        //      sent-with-no-sent_at as "ISSUED", never "SENT", so both
+        //      complaints stay fixed. Emailing/charging remains a human
+        //      action. batch_invoice clients + account jobs keep the
+        //      draft+pending tag for month-end consolidation/merge.
+        status: !isBatch && autoIssue ? "sent" : "draft",
         batch_status: isBatch ? "pending" : null,
-        sent_at: isBatch ? null : today,
+        sent_at: null,
         payment_source: paymentSource,
         line_items: lineItems,
         subtotal: netAmount.toFixed(2),
@@ -225,18 +252,14 @@ export async function ensureInvoiceForCompletedJob(
       console.error("[ensure-invoice] invoice-number assignment non-fatal:", numErr);
     }
 
-    // Fire-and-forget QB push — ONLY for issued (per-visit) invoices. Batch
-    // 'pending' drafts never push; their consolidated parent pushes later. No-op
-    // for non-connected tenants. Accounting, not comms — ignores COMMS_ENABLED.
-    if (!isBatch) {
-      try {
-        const { syncInvoice } = await import("../services/quickbooks-sync.js");
-        syncInvoice(companyId, newInv.id).catch(qbErr => {
-          console.error("[invoicing] QB invoice push error (non-fatal):", qbErr);
-        });
-      } catch (qbImportErr) {
-        console.error("[invoicing] QB sync module load error (non-fatal):", qbImportErr);
-      }
+    // [auto-issue 2026-07-08] An ISSUED invoice enters the books immediately,
+    // so push it to QuickBooks now (idempotent — syncInvoice finds-by-
+    // DocNumber before create, #881). Drafts still never push; their push
+    // happens when the office finalizes (Mark as invoiced / Send / mark-paid).
+    if (!isBatch && autoIssue) {
+      import("../services/quickbooks-sync.js").then(({ syncInvoice }) => {
+        syncInvoice(companyId, newInv.id).catch((e: any) => console.error("[ensure-invoice] QB push non-fatal:", e));
+      }).catch((e) => console.error("[ensure-invoice] QB module load non-fatal:", e));
     }
 
     return { created: true, skipped: false, invoiceId: newInv.id, status: newInv.status, total: newInv.total, error: false };

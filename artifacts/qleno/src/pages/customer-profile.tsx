@@ -1,11 +1,13 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, lazy, Suspense } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useRoute, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
+import { formatInvoiceNumber } from "@/lib/invoice-number";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { NotificationPreferenceGrid, buildPrefPayload, offsFromOverrides, allOffSet, type PrefData } from "@/components/notification-preference-grid";
 import {
   ArrowLeft, Home, CreditCard, FileText, Bell, Star, UserX, StickyNote, Globe,
   Plus, Trash2, Edit2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check, X, Eye, EyeOff,
@@ -15,6 +17,12 @@ import {
 } from "lucide-react";
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from "./customer-profile-tabs2";
 import { JobWizard } from "@/components/job-wizard";
+import { TeamPhotoNotes } from "@/components/team-photo-notes";
+import { ActivityFeed } from "@/components/activity-feed";
+// [job-card-redesign 2026-06-25] The SAME editable dispatch card, opened from the
+// client calendar (Maribel: "edit everything there, not just void/cancel"). Lazy
+// so jobs.tsx stays out of the profile's main chunk — loaded when a card opens.
+const DispatchJobPanel = lazy(() => import("@/pages/jobs").then(m => ({ default: m.JobPanel })));
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -30,7 +38,11 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
 
 function fmtDate(d?: string | null) {
   if (!d) return "Never";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  // [date-tz-fix] A bare "YYYY-MM-DD" is parsed as UTC midnight and renders one
+  // day early in US Central. Anchor date-only values to local noon so the day
+  // never shifts. Full timestamps (with a time) are left untouched.
+  const s = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T12:00:00" : d;
+  return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function fmtCurrency(v?: number | string | null) {
@@ -83,7 +95,7 @@ const TABS = [
   { id: "attachments", label: "Attachments", icon: Paperclip },
   { id: "quickbooks", label: "QuickBooks", icon: BookOpen },
   { id: "contacts", label: "Contacts & Notifications", icon: Bell },
-  { id: "scorecards", label: "Scorecards", icon: Star },
+  { id: "scorecards", label: "Performance Score", icon: Star },
   { id: "tech", label: "Tech Preferences", icon: UserX },
   { id: "notes", label: "Notes", icon: StickyNote },
   { id: "portal", label: "Portal Account", icon: Globe },
@@ -453,6 +465,7 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
     // null before sending.
     cancel_fee_pct: client.cancel_fee_pct != null ? String(client.cancel_fee_pct) : "",
     lockout_fee_pct: client.lockout_fee_pct != null ? String(client.lockout_fee_pct) : "",
+    cancellation_notify_via: (client as any).cancellation_notify_via ?? "sms",
   });
   const [saving, setSaving] = useState(false);
 
@@ -784,6 +797,24 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
             </div>
             <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 12 }}>
               Leave blank to use the tenant default. Set 0–100 % to override for this client only.
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 4 }}>
+                Notify client via
+              </label>
+              <select
+                value={form.cancellation_notify_via ?? "sms"}
+                onChange={upd("cancellation_notify_via")}
+                style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: "inherit" }}
+              >
+                <option value="sms">Text message (SMS)</option>
+                <option value="email">Email</option>
+                <option value="both">Both (SMS + Email)</option>
+                <option value="none">None — do not notify</option>
+              </select>
+              <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>
+                How to contact this client when a visit is cancelled or skipped.
+              </div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
@@ -1366,16 +1397,19 @@ function BillingTab({ invoices }: { invoices: any[] }) {
             ) : invoices.map(inv => (
               <tr key={inv.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
                 <td style={{ padding: "12px 16px", fontSize: "13px", color: "#6B7280" }}>{inv.service_date ? fmtDate(inv.service_date + "T12:00:00") : fmtDate(inv.created_at)}</td>
-                <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>INV-{String(inv.id).padStart(5, "0")}</td>
+                <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{formatInvoiceNumber(inv)}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{fmtCurrency(inv.total)}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", color: inv.paid_at ? "#9E9B94" : "#1A1917" }}>{inv.paid_at ? "$0.00" : fmtCurrency(inv.total)}</td>
                 <td style={{ padding: "12px 16px" }}>
+                  {/* [auto-issue 2026-07-08] sent-with-no-sent_at = auto-issued
+                      at completion, never emailed — label ISSUED, not SENT. */}
                   <span style={{ ...statusStyle[inv.status] || statusStyle.draft, padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" }}>
-                    {inv.status}
+                    {inv.status === "sent" && !inv.sent_at ? "issued" : inv.status}
                   </span>
                 </td>
-                <td style={{ padding: "12px 16px" }}>
+                <td style={{ padding: "12px 16px", whiteSpace: "nowrap" }}>
                   <button onClick={() => navigate(`/invoices/${inv.id}`)} style={{ fontSize: "12px", color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>View</button>
+                  <button onClick={() => openAuthedPdf(`/api/invoices/${inv.id}/pdf`)} style={{ fontSize: "12px", color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginLeft: 12 }}>PDF</button>
                 </td>
               </tr>
             ))}
@@ -1532,6 +1566,88 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
 const TRIGGERS = ["3_days_before","1_day_before","day_of","on_the_way","job_started","job_complete","scorecard_request","invoice_sent"];
 const TRIGGER_LABELS: Record<string,string> = { "3_days_before":"3 Days Before","1_day_before":"1 Day Before","day_of":"Day Of","on_the_way":"On the Way","job_started":"Job Started","job_complete":"Job Complete","scorecard_request":"Scorecard Request","invoice_sent":"Invoice Sent" };
 
+// ─── Notification Preferences ──────────────────────────────────────────────
+// Per-client (or per-account) control over WHICH automated customer messages
+// fire and on WHICH channel. A toggle is ON by default (inherit tenant); the
+// office turns specific ones off. Stored as sparse overrides server-side. The
+// grid + helpers live in a shared component so the account-detail page reuses
+// the exact same UI.
+function NotificationPreferencesCard({ clientId }: { clientId: number }) {
+  const qc = useQueryClient();
+  const { data, isLoading } = useQuery<PrefData>({
+    queryKey: ["notif-prefs", clientId],
+    queryFn: () => apiFetch(`/api/clients/${clientId}/notification-preferences`),
+  });
+  const [offs, setOffs] = useState<Set<string>>(new Set());
+  const [baseline, setBaseline] = useState<string>("");
+
+  useEffect(() => {
+    if (!data) return;
+    const initial = offsFromOverrides(data.overrides || {});
+    setOffs(initial);
+    setBaseline(JSON.stringify([...initial].sort()));
+  }, [data]);
+
+  const managed = !!data?.managed_by_account;
+  const dirty = JSON.stringify([...offs].sort()) !== baseline;
+
+  const saveMut = useMutation({
+    mutationFn: () => apiFetch(`/api/clients/${clientId}/notification-preferences`, {
+      method: "PUT",
+      body: JSON.stringify({ overrides: buildPrefPayload(data!.catalog, offs) }),
+    }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["notif-prefs", clientId] }); },
+  });
+
+  if (isLoading || !data) {
+    return <div style={{ padding: 24, color: "#9E9B94", fontSize: 13 }}>Loading notification preferences…</div>;
+  }
+
+  const toggle = (key: string) => setOffs((s) => { const n = new Set(s); n.has(key) ? n.delete(key) : n.add(key); return n; });
+  const allOff = () => setOffs(allOffSet(data.catalog));
+  const allOn = () => setOffs(new Set());
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Notification Preferences</h3>
+          <p style={{ margin: "4px 0 0", fontSize: 12, color: "#6B6860", maxWidth: 520 }}>
+            Choose which automated messages this customer receives. Everything is on by default — turn off what they don't want.
+          </p>
+        </div>
+        {!managed && (
+          <div style={{ display: "flex", gap: 6 }}>
+            <button onClick={allOff} style={{ padding: "7px 12px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Turn all off</button>
+            <button onClick={allOn} style={{ padding: "7px 12px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Reset to all on</button>
+          </div>
+        )}
+      </div>
+
+      {managed && (
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 8, padding: "12px 14px", background: "var(--brand-dim)", border: "1px solid #E5E2DC", borderRadius: 8 }}>
+          <Bell size={14} style={{ color: "var(--brand)", marginTop: 1, flexShrink: 0 }} />
+          <span style={{ fontSize: 12, color: "#1A1917" }}>
+            This customer belongs to a commercial account, so notifications are managed at the account level and apply to all of its properties.{" "}
+            {data.account_id != null && <a href={`/accounts/${data.account_id}`} style={{ color: "var(--brand)", fontWeight: 600, textDecoration: "none" }}>Open account settings →</a>}
+          </span>
+        </div>
+      )}
+
+      <NotificationPreferenceGrid catalog={data.catalog} offs={offs} disabled={managed} onToggle={toggle} />
+
+      {!managed && (
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+          {dirty && <button onClick={() => setOffs(offsFromOverrides(data.overrides || {}))} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer" }}>Cancel</button>}
+          <button onClick={() => saveMut.mutate()} disabled={!dirty || saveMut.isPending} style={{ padding: "8px 18px", background: dirty ? "var(--brand)" : "#D4D1CB", border: "none", borderRadius: 7, color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: dirty ? "pointer" : "default" }}>
+            {saveMut.isPending ? "Saving…" : "Save preferences"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ContactsTab({ clientId, notifications, refetch }: { clientId: number; notifications: any[]; refetch: () => void }) {
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ contact_value: "", contact_type: "email", triggers: [] as string[] });
@@ -1669,20 +1785,23 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ user_id: "", preference: "preferred", notes: "" });
 
-  const { data: employees } = useQuery<any[]>({
+  const { data: employeesRaw } = useQuery({
     queryKey: ["employees"],
-    queryFn: () => apiFetch("/api/users"),
+    queryFn: () => apiFetch("/api/users?limit=200"),
     staleTime: 60000,
   });
+  const employees: any[] = Array.isArray(employeesRaw) ? employeesRaw : (employeesRaw?.data || []);
 
   const createMut = useMutation({
     mutationFn: (data: any) => apiFetch(`/api/clients/${clientId}/tech-preferences`, { method: "POST", body: JSON.stringify({ ...data, user_id: parseInt(data.user_id) }) }),
-    onSuccess: () => { refetch(); setShowForm(false); },
+    onSuccess: () => { refetch(); setShowForm(false); setForm({ user_id: "", preference: "preferred", notes: "" }); },
+    onError: (err: any) => alert(err?.message || "Failed to save preference"),
   });
 
   const deleteMut = useMutation({
     mutationFn: (id: number) => apiFetch(`/api/clients/${clientId}/tech-preferences/${id}`, { method: "DELETE" }),
     onSuccess: () => refetch(),
+    onError: () => alert("Failed to remove preference"),
   });
 
   const prefStyle: Record<string, React.CSSProperties> = {
@@ -1907,6 +2026,27 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
   const [sending, setSending] = useState<"email" | "sms" | null>(null);
   const [sent, setSent] = useState<"email" | "sms" | null>(null);
   const [togglingAutoCharge, setTogglingAutoCharge] = useState(false);
+  // Charge-on-command, right where the card lives (same flow as the Payments tab).
+  const [chargeOpen, setChargeOpen] = useState(false);
+  const [chargeAmt, setChargeAmt] = useState("");
+  const [chargeMemo, setChargeMemo] = useState("");
+  const [chargeBusy, setChargeBusy] = useState(false);
+  async function chargeCard() {
+    const amt = parseFloat(chargeAmt);
+    if (!amt || amt <= 0) { alert("Enter an amount to charge."); return; }
+    if (!confirm(`Charge $${amt.toFixed(2)} to ${client.first_name}'s ${client.card_brand || "card"} ending ${client.card_last_four}?`)) return;
+    setChargeBusy(true);
+    try {
+      const r = await fetch(`${API}/api/payments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: JSON.stringify({ client_id: client.id, amount: amt, method: "card", memo: chargeMemo || undefined, last_4: client.card_last_four, card_brand: client.card_brand }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || "Charge failed"); }
+      else { setChargeOpen(false); setChargeAmt(""); setChargeMemo(""); alert(`Charged $${amt.toFixed(2)} successfully.`); refetch(); }
+    } catch { alert("Network error — please try again."); }
+    finally { setChargeBusy(false); }
+  }
 
   // [AH] Inline edit for commercial_hourly_rate on the Billing Settings card.
   const [editingRate, setEditingRate] = useState(false);
@@ -2050,6 +2190,32 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
               <button onClick={removeCard} style={{ fontSize: 12, color: "#DC2626", background: "none", border: "none", cursor: "pointer", fontFamily: FF, textDecoration: "underline" }}>
                 Remove
               </button>
+            </div>
+
+            {/* Charge on command — charge the card on file for any amount, with a confirm */}
+            <div style={{ marginBottom: 16 }}>
+              {!chargeOpen ? (
+                <button onClick={() => setChargeOpen(true)}
+                  style={{ width: "100%", padding: "11px 0", background: "#ECFDF5", border: "1px solid #6EE7B7", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#065F46", cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <CreditCard size={14} /> Charge this card
+                </button>
+              ) : (
+                <div style={{ padding: "14px 16px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 10, fontFamily: FF }}>Charge {brandIcon} •••• {client.card_last_four}</div>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
+                    <input type="number" step="0.01" placeholder="Amount" value={chargeAmt} onChange={e => setChargeAmt(e.target.value)}
+                      style={{ flex: 1, padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: "border-box" }} />
+                    <input placeholder="Memo (optional)" value={chargeMemo} onChange={e => setChargeMemo(e.target.value)}
+                      style={{ flex: 2, padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: "border-box" }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                    <button onClick={() => { setChargeOpen(false); setChargeAmt(""); setChargeMemo(""); }}
+                      style={{ padding: "8px 14px", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                    <button onClick={chargeCard} disabled={chargeBusy}
+                      style={{ padding: "8px 16px", background: "#059669", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>{chargeBusy ? "Charging…" : "Charge now"}</button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Auto-charge toggle */}
@@ -2743,6 +2909,73 @@ function RevenueTrendTab({ clientId, jobs }: { clientId: number; jobs: any[] }) 
 
 
 // ─── Profitability Tab ───────────────────────────────────────────────────────
+// [account-health 2026-06-25] Bug #9: the simple 3-check health card — Happy /
+// Active / Making money → Healthy / Watch / At risk. Each failing check expands
+// to show the real records behind it (re-cleans, complaints, refunds,
+// cancellations, margin). Replaces the old money-only 0-100 gauge.
+function AccountHealthCard({ status, checks }: { status?: string; checks?: any }) {
+  const [open, setOpen] = useState<string | null>(null);
+  if (!checks) return null;
+  const st = status === "healthy" ? { label: "Healthy", color: "#06715C", bg: "#EAF9F4", dot: "#00C9A0" }
+    : status === "watch" ? { label: "Watch", color: "#9A7B12", bg: "#FBF1E0", dot: "#E0A93B" }
+    : { label: "At risk", color: "#B91C1C", bg: "#FDECEC", dot: "#E25555" };
+  const CHECKS = [
+    { key: "happy", title: "Happy", c: checks.happy },
+    { key: "active", title: "Active", c: checks.active },
+    { key: "money", title: "Making money", c: checks.money },
+  ];
+  const tagStyle = (kind: string) => kind === "complaint"
+    ? { background: "#FBF1E0", color: "#946200" }
+    : kind === "cancel" ? { background: "#F1EFEA", color: "#6B6860" }
+    : { background: "#FDECEC", color: "#B91C1C" };
+  return (
+    <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em" }}>Account Health</div>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 12, fontWeight: 800, padding: "5px 12px", borderRadius: 20, background: st.bg, color: st.color }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", background: st.dot }} /> {st.label}
+        </span>
+      </div>
+      {CHECKS.map(({ key, title, c }) => {
+        if (!c) return null;
+        const hasDetail = (c.items && c.items.length > 0) || key === "money";
+        const isOpen = open === key;
+        return (
+          <div key={key} style={{ borderTop: "1px solid #F1EFEA" }}>
+            <div onClick={() => hasDetail && setOpen(isOpen ? null : key)} style={{ display: "flex", alignItems: "center", gap: 11, padding: "11px 0", cursor: hasDetail ? "pointer" : "default" }}>
+              <span style={{ width: 22, height: 22, borderRadius: "50%", background: c.pass ? "#00B894" : "#E25555", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                {c.pass ? <Check size={13} color="#fff" /> : <X size={13} color="#fff" />}
+              </span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{title}</div>
+                <div style={{ fontSize: 11.5, color: c.pass ? "#9E9B94" : "#B91C1C" }}>{c.summary}</div>
+              </div>
+              {hasDetail && (isOpen ? <ChevronUp size={15} color="#C9C5BD" /> : <ChevronDown size={15} color="#C9C5BD" />)}
+            </div>
+            {isOpen && (
+              <div style={{ paddingBottom: 10 }}>
+                {key === "money" && c.details && (
+                  <div style={{ fontSize: 12.5, color: "#4B4A47", paddingLeft: 33, display: "flex", flexDirection: "column", gap: 6 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#9E9B94" }}>Revenue</span><b>${Math.round(c.details.revenue || 0).toLocaleString()}</b></div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#9E9B94" }}>Profit margin</span><b style={{ color: (c.details.net_pct ?? 0) >= 15 ? "#06715C" : "#B91C1C" }}>{Number(c.details.net_pct || 0).toFixed(0)}%</b></div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#9E9B94" }}>Avg bill</span><b>${Math.round(c.details.avg_bill || 0)}<span style={{ fontWeight: 400, color: "#9E9B94", fontSize: 11 }}> vs ${Math.round(c.details.company_avg_bill || 0)} avg</span></b></div>
+                  </div>
+                )}
+                {c.items && c.items.map((it: any, i: number) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, paddingLeft: 33, paddingTop: 6, fontSize: 12.5 }}>
+                    <div style={{ minWidth: 0 }}><div style={{ color: "#1A1917" }}>{it.label}</div><div style={{ color: "#9E9B94", fontSize: 11 }}>{it.date}{it.job_id ? ` · job #${it.job_id}` : ""}</div></div>
+                    {it.tag && <span style={{ fontSize: 9.5, fontWeight: 800, padding: "2px 7px", borderRadius: 5, whiteSpace: "nowrap" as const, ...tagStyle(it.kind) }}>{it.tag}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProfitabilityTab({ clientId }: { clientId: number }) {
   const [period, setPeriod] = useState<"monthly" | "quarterly" | "annually">("monthly");
 
@@ -2767,6 +3000,7 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
     labor_pct: laborPct, supply_pct: supplyPct, overhead_pct_of_rev: overheadPctOfRev,
     net_pct: netPct, month_multiplier: mm,
     health_score: healthScore, top_services: topServices, trend_data: trendData,
+    health_status: healthStatus, health_checks: healthChecks,
   } = data;
 
   const fmtDollar = (v: number) => `$${Math.max(0, v).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
@@ -2881,28 +3115,34 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
           ))}
         </div>
 
-        {/* Account Health Gauge */}
-        <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 16px", textAlign: "center" as const }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 12 }}>Account Health</div>
-          <svg width="110" height="110" style={{ display: "block", margin: "0 auto" }}>
-            <circle cx="55" cy="55" r={r} fill="none" stroke="#F0EEE9" strokeWidth="11" />
-            <circle
-              cx="55" cy="55" r={r} fill="none"
-              stroke={healthColor} strokeWidth="11"
-              strokeDasharray={`${circ}`}
-              strokeDashoffset={`${dashOffset}`}
-              strokeLinecap="round"
-              transform="rotate(-90 55 55)"
-              style={{ transition: "stroke-dashoffset 0.6s ease" }}
-            />
-            <text x="55" y="51" textAnchor="middle" fontSize="22" fontWeight="800" fill="#1A1917" fontFamily="'Plus Jakarta Sans', sans-serif">{healthScore}</text>
-            <text x="55" y="68" textAnchor="middle" fontSize="11" fill="#9E9B94" fontFamily="'Plus Jakarta Sans', sans-serif">/100</text>
-          </svg>
-          <div style={{ marginTop: 8, fontSize: 11, color: "#6B7280" }}>Score</div>
-          <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: healthColor, background: `${healthColor}20`, borderRadius: 20, padding: "3px 10px", display: "inline-block" }}>
-            {healthScore >= 75 ? "Healthy" : healthScore >= 50 ? "Watch" : "At Risk"}
+        {/* [account-health 2026-06-25] Bug #9: 3-check health card with
+            click-through detail. Falls back to the old gauge if the backend
+            hasn't redeployed the new fields yet. */}
+        {healthChecks
+          ? <AccountHealthCard status={healthStatus} checks={healthChecks} />
+          : (
+          <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 16px", textAlign: "center" as const }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 12 }}>Account Health</div>
+            <svg width="110" height="110" style={{ display: "block", margin: "0 auto" }}>
+              <circle cx="55" cy="55" r={r} fill="none" stroke="#F0EEE9" strokeWidth="11" />
+              <circle
+                cx="55" cy="55" r={r} fill="none"
+                stroke={healthColor} strokeWidth="11"
+                strokeDasharray={`${circ}`}
+                strokeDashoffset={`${dashOffset}`}
+                strokeLinecap="round"
+                transform="rotate(-90 55 55)"
+                style={{ transition: "stroke-dashoffset 0.6s ease" }}
+              />
+              <text x="55" y="51" textAnchor="middle" fontSize="22" fontWeight="800" fill="#1A1917" fontFamily="'Plus Jakarta Sans', sans-serif">{healthScore}</text>
+              <text x="55" y="68" textAnchor="middle" fontSize="11" fill="#9E9B94" fontFamily="'Plus Jakarta Sans', sans-serif">/100</text>
+            </svg>
+            <div style={{ marginTop: 8, fontSize: 11, color: "#6B7280" }}>Score</div>
+            <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: healthColor, background: `${healthColor}20`, borderRadius: 20, padding: "3px 10px", display: "inline-block" }}>
+              {healthScore >= 75 ? "Healthy" : healthScore >= 50 ? "Watch" : "At Risk"}
+            </div>
           </div>
-        </div>
+          )}
       </div>
 
       {/* Top Services */}
@@ -3034,7 +3274,7 @@ const NAV_PILLS = [
   { id: "sec-billing",     label: "Billing & Payments" },
   { id: "sec-quotes",      label: "Quotes" },
   { id: "sec-agreements",  label: "Agreements" },
-  { id: "sec-scorecards",  label: "Scorecards" },
+  { id: "sec-scorecards",  label: "Performance Score" },
   { id: "sec-contacts",    label: "Contacts & Notifications" },
   { id: "sec-portal",      label: "Client Portal" },
   { id: "sec-tech",        label: "Technician Preferences" },
@@ -3366,7 +3606,7 @@ function JobDetailSlideOver({ row, profile, onClose }: { row: any; profile?: any
           {/* Linked scorecard */}
           {scorecard && (
             <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "12px 14px", borderLeft: "3px solid var(--brand)" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Scorecard</div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Performance Score</div>
               <div style={{ fontSize: 20, fontWeight: 900, color: scorecard.score >= 4 ? "#16A34A" : scorecard.score >= 3 ? "#D97706" : "#DC2626" }}>{scorecard.score} / 5</div>
               {scorecard.comments && <div style={{ fontSize: 12, color: "#374151", marginTop: 4 }}>{scorecard.comments}</div>}
             </div>
@@ -3578,7 +3818,7 @@ function ClientIntelligencePanel({ jhStats, profile, noCard }: { jhStats: any; p
       </div>
       {profile?.stats?.scorecard_avg && (
         <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 14 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Avg Scorecard</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Avg Performance Score</div>
           <div style={{ fontSize: 20, fontWeight: 800, color: profile.stats.scorecard_avg >= 4 ? "#16A34A" : profile.stats.scorecard_avg >= 3 ? "#D97706" : "#DC2626" }}>
             {profile.stats.scorecard_avg.toFixed(1)} / 5
           </div>
@@ -4280,15 +4520,6 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
         </div>
       )}
 
-      {/* Rate History */}
-      <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 8 }}>Rate History</div>
-        <div style={{ fontSize: 13, color: "#9E9B94" }}>
-          {client.rate_increase_last_date
-            ? `Last increase: ${fmtDate(client.rate_increase_last_date)}${client.rate_increase_last_pct ? ` · ${client.rate_increase_last_pct}%` : ""}`
-            : "No rate changes recorded"}
-        </div>
-      </div>
     </div>
   );
 }
@@ -4451,7 +4682,16 @@ function InspectionsSection() {
 
 // ─── Attachments Section ──────────────────────────────────────────────────────
 function AttachmentsSection({ clientId }: { clientId: number }) {
-  return <AttachmentsTab clientId={clientId} />;
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
+      <AttachmentsTab clientId={clientId} />
+      {/* [team-photo-notes] Sticky pictures + notes pinned to this client —
+          surface on every job so the team always has the context. */}
+      <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 20 }}>
+        <TeamPhotoNotes clientId={clientId} title="Team Photos & Notes (shown on every job for this customer)" />
+      </div>
+    </div>
+  );
 }
 
 // ─── Home Images Section ──────────────────────────────────────────────────────
@@ -4468,13 +4708,20 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
     return acc;
   }, {});
 
+  // [photo-stickiness 2026-07-07] Label each group by the date the photos were
+  // TAKEN (photo_timestamp), not the job's current scheduled_date — a
+  // rescheduled job drags its scheduled_date to the new day, which made old
+  // before/after pics render under a visit date they weren't shot on ("pics
+  // are not sticky to the exact job"). jobDate (the job's live date) is kept
+  // only for the dispatch deep-link, which loads the board by current date.
   const jobGroups = Object.entries(byJob).map(([jobId, rows]: [string, any[]]) => ({
     jobId: parseInt(jobId),
     jobDate: rows[0]?.job_date,
+    takenDate: (rows.find((r: any) => r.photo_timestamp)?.photo_timestamp || rows[0]?.job_date || "").slice(0, 10),
     serviceType: rows[0]?.service_type,
     techName: rows[0]?.tech_first ? `${rows[0].tech_first} ${rows[0].tech_last || ""}`.trim() : null,
     photos: rows,
-  })).sort((a, b) => (b.jobDate || "").localeCompare(a.jobDate || ""));
+  })).sort((a, b) => (b.takenDate || "").localeCompare(a.takenDate || ""));
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
@@ -4492,10 +4739,10 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
           <div key={group.jobId} style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
             <div style={{ background: "#F7F6F3", padding: "10px 16px", display: "flex", alignItems: "center", gap: 14, borderBottom: "1px solid #E5E2DC" }}>
               <div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{fmtDate(group.jobDate)}{group.serviceType ? ` · ${group.serviceType}` : ""}</div>
+                <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{fmtDate(group.takenDate)}{group.serviceType ? ` · ${group.serviceType}` : ""}{group.jobDate && group.takenDate && String(group.jobDate).slice(0, 10) !== group.takenDate ? ` · visit now on ${fmtDate(group.jobDate)}` : ""}</div>
                 {group.techName && <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>{group.techName}</div>}
               </div>
-              <a href={`/jobs/${group.jobId}`} style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "var(--brand)", textDecoration: "none" }}>Job #{group.jobId}</a>
+              <a href={`/dispatch?date=${(group.jobDate || "").slice(0, 10)}&job=${group.jobId}`} style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "var(--brand)", textDecoration: "none" }}>Job #{group.jobId}</a>
             </div>
             <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
               {group.photos.map((p: any) => (
@@ -4855,12 +5102,23 @@ const STATUS_CHIP: Record<string, { bg: string; border: string; text: string; la
   // from cancel_action so the calendar reads the truth, not "Done".
   cancelled_fee: { bg: "#FEF3C7", border: "#F59E0B", text: "#B45309", label: "Cancel fee", tooltip: "Cancelled — fee charged (not a completed visit)" },
 };
-// A charged cancel/lockout is stored status='complete'; resolve it to the right
-// chip key off cancel_action so the day doesn't read "Done".
+// Resolve a job to its chip key. cancel_action (latest cancellation_log row)
+// adds nuance the bare status can't carry:
+//   • charged cancel/lockout are stored status='complete' for revenue — surface
+//     them as "Cancel fee"/"Lockout" instead of "Done".
+//   • a cancelled job that was skipped/moved reads "Skipped"/"Moved".
+// A finished visit always wins: a completed/invoiced job stays "Done" even if it
+// carries a stale historical move/skip action, so the calendar never downgrades
+// real work that got done.
 function chipKeyFor(j: any): string {
-  if (j?.cancel_action === "lockout") return "lockout";
-  if (j?.cancel_action === "cancel") return "cancelled_fee";
-  return String(j?.status);
+  const status = String(j?.status);
+  const action = j?.cancel_action;
+  if (action === "lockout") return "lockout";
+  if (action === "cancel") return "cancelled_fee";
+  if (status === "complete" || status === "completed" || status === "invoiced") return status;
+  if (action === "skip") return "skipped";
+  if (action === "bump" || action === "move") return "bumped";
+  return status;
 }
 const RESCHEDULE_REASONS = [
   "Client Request", "Tech Unavailable", "Weather", "Holiday / Observed Holiday",
@@ -4890,10 +5148,16 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
   const [dragJobId, setDragJobId] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<string | null>(null);
   const [modal, setModal] = useState<{ job: any; targetDate?: string } | null>(null);
+  // [job-card-redesign 2026-06-25] Full editable dispatch card opened from a
+  // calendar click (fetched in the rich dispatch shape).
+  const [panelJob, setPanelJob] = useState<any | null>(null);
+  const [panelLoading, setPanelLoading] = useState(false);
   const [form, setForm] = useState({ new_date: "", reason: "", notes: "" });
   const [saving, setSaving] = useState(false);
   const [saveErr, setSaveErr] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
+  // Hover preview card for a calendar job (MaidCentral-style quick look).
+  const [hoverCard, setHoverCard] = useState<{ job: any; x: number; y: number } | null>(null);
 
   const months: Date[] = [anchor, addMonths(anchor, 1), addMonths(anchor, 2)];
   const from = toLocalDateStr(startOfMonth(months[0]));
@@ -4922,6 +5186,22 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
     setForm({ new_date: targetDate || String(job.scheduled_date).split("T")[0], reason: "", notes: "" });
     setSaveErr(null);
     setModal({ job, targetDate });
+  }
+
+  // Clicking a job opens the full editable dispatch card. We fetch the job in
+  // the rich dispatch shape the JobPanel needs; if that's unavailable (e.g. a
+  // charged cancellation isn't on the board) we fall back to the old modal.
+  async function openJobCard(job: any) {
+    setPanelLoading(true);
+    try {
+      const r = await apiFetch(`/api/dispatch/jobs/${job.id}`);
+      if (r?.data) { setPanelJob(r.data); return; }
+      openReschedule(job);
+    } catch {
+      openReschedule(job);
+    } finally {
+      setPanelLoading(false);
+    }
   }
 
   async function handleReschedule() {
@@ -5007,30 +5287,38 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
       // handler (unchanged). Past empty days stay no-op so an
       // accidental click on a historical day doesn't open a wizard
       // for a date that can't be booked.
-      const isEmptyFuture = jobs.length === 0 && !isPast;
-      const handleEmptyClick = () => {
-        if (isEmptyFuture && onScheduleOnDate) onScheduleOnDate(ds);
-      };
+      // [click-to-add 2026-07-01] ANY non-past day is a create-a-job target, not
+      // just empty ones — recurring clients have a chip on nearly every day, so
+      // "empty days only" made this unreachable. Clicking a chip opens that job
+      // (the chip stops propagation); clicking the day's blank space opens the
+      // New Job wizard pre-filled with the date. A faint "+" appears on hover.
+      const canAddJob = !isPast && !!onScheduleOnDate;
+      const handleAddClick = () => { if (canAddJob) onScheduleOnDate!(ds); };
       cells.push(
         <div
           key={ds}
           onDragOver={e => onDragOver(e, ds)}
           onDragLeave={() => setDragOver(null)}
           onDrop={e => onDrop(e, ds)}
-          onClick={isEmptyFuture ? handleEmptyClick : undefined}
-          title={isEmptyFuture ? `Schedule a job on ${ds}` : undefined}
+          onClick={canAddJob ? handleAddClick : undefined}
+          title={canAddJob ? `Add a job on ${ds}` : undefined}
           style={{
-            minHeight: 56, padding: "2px 3px", borderRadius: 5,
-            border: isHover ? "2px dashed #3B82F6" : isToday ? "1.5px solid #3B82F6" : "1.5px solid transparent",
-            background: isHover ? "#EFF6FF" : "transparent",
+            position: "relative" as const,
+            minHeight: 60, padding: "2px 3px", borderRadius: 6,
+            border: isHover ? "2px dashed #00C9A0" : isToday ? "1.5px solid #00C9A0" : "1px solid #EDEAE4",
+            background: isHover ? "#ECFBF6" : isPast ? "#FBFAF8" : "#FFFFFF",
+            boxShadow: isToday ? "0 0 0 1px #00C9A0" : "none",
             transition: "border 0.1s, background 0.1s",
-            cursor: isEmptyFuture ? "pointer" : "default",
+            cursor: canAddJob ? "pointer" : "default",
           }}
-          onMouseOver={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "#F8FAFC"; }}
-          onMouseOut={e => { if (isEmptyFuture && !isHover) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+          onMouseOver={e => { if (canAddJob && !isHover) { const el = e.currentTarget as HTMLDivElement; el.style.background = "#F4FBF9"; const p = el.querySelector<HTMLElement>(".qleno-day-add"); if (p) p.style.opacity = "1"; } }}
+          onMouseOut={e => { if (canAddJob && !isHover) { const el = e.currentTarget as HTMLDivElement; el.style.background = isPast ? "#FBFAF8" : "#FFFFFF"; const p = el.querySelector<HTMLElement>(".qleno-day-add"); if (p) p.style.opacity = "0"; } }}
         >
+          {canAddJob && (
+            <span className="qleno-day-add" style={{ position: "absolute" as const, top: 3, left: 5, fontSize: 13, fontWeight: 800, color: "#00C9A0", opacity: 0, transition: "opacity 0.1s", pointerEvents: "none" as const, lineHeight: 1 }}>+</span>
+          )}
           <div style={{
-            fontSize: 11, fontWeight: isToday ? 700 : 400, color: isToday ? "#1D4ED8" : isPast ? "#9E9B94" : "#1A1917",
+            fontSize: 11, fontWeight: isToday ? 800 : 600, color: isToday ? "#00876d" : isPast ? "#B7B3AB" : "#1A1917",
             textAlign: "right", marginBottom: 1, lineHeight: "16px",
           }}>{d}</div>
           {jobs.map(j => {
@@ -5040,14 +5328,18 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
               <div
                 key={j.id}
                 draggable={!ro}
-                onDragStart={e => onDragStart(e, j)}
-                onClick={() => openReschedule(j)}
-                title={`${chip.tooltip}${j.scheduled_time ? " | " + String(j.scheduled_time).slice(0,5).replace(/^(\d+):(\d+)$/, (_, h, m) => `${parseInt(h) % 12 || 12}:${m} ${parseInt(h) < 12 ? "AM" : "PM"}`) : ""}${j.technician_name ? " · " + j.technician_name : ""}`}
+                onDragStart={e => { onDragStart(e, j); setHoverCard(null); }}
+                onClick={e => { e.stopPropagation(); openJobCard(j); }}
+                onMouseEnter={e => {
+                  const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                  setHoverCard({ job: j, x: r.right, y: r.top });
+                }}
+                onMouseLeave={() => setHoverCard(null)}
                 style={{
-                  background: chip.bg, border: `1px solid ${chip.border}`, color: chip.text,
-                  borderRadius: 3, fontSize: 10, fontWeight: 600, padding: "1px 4px",
+                  background: chip.bg, borderLeft: `3px solid ${chip.border}`, color: chip.text,
+                  borderRadius: "0 4px 4px 0", fontSize: 10, fontWeight: 700, padding: "2px 5px",
                   marginBottom: 2, cursor: ro ? "default" : "grab", whiteSpace: "nowrap",
-                  overflow: "hidden", textOverflow: "ellipsis", lineHeight: "16px",
+                  overflow: "hidden", textOverflow: "ellipsis", lineHeight: "15px",
                   userSelect: "none",
                 }}
               >
@@ -5082,6 +5374,52 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
 
   return (
     <div style={{ fontFamily: FF, overflow: "hidden" }}>
+      {/* Hover quick-look card — MaidCentral-style, Qleno data. position:fixed so
+          it escapes the calendar's overflow:hidden; pointerEvents none so it never
+          steals the hover. */}
+      {hoverCard && (() => {
+        const j = hoverCard.job;
+        const ch = STATUS_CHIP[chipKeyFor(j)] || STATUS_CHIP.scheduled;
+        const fmtT = (s: any) => s ? String(s).slice(0,5).replace(/^(\d+):(\d+)$/, (_, h, m) => `${parseInt(h) % 12 || 12}:${m} ${parseInt(h) < 12 ? "AM" : "PM"}`) : null;
+        const svc = String(j.service_type || "").replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase());
+        const amt = j.billed_amount ?? j.base_fee;
+        const hrs = j.estimated_hours ?? j.actual_hours;
+        const addr = [j.address_street, j.address_city].filter(Boolean).join(", ");
+        const W = 256;
+        const left = Math.min(hoverCard.x + 8, (typeof window !== "undefined" ? window.innerWidth : 1200) - W - 10);
+        const top = Math.max(8, hoverCard.y - 6);
+        const Row = ({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) => (
+          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#374151", padding: "3px 0" }}>
+            <span style={{ color: "#9E9B94", display: "flex", width: 14, flexShrink: 0 }}>{icon}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children}</span>
+          </div>
+        );
+        return (
+          <div style={{ position: "fixed", left, top, width: W, zIndex: 9999, pointerEvents: "none",
+            background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, boxShadow: "0 8px 28px rgba(10,14,26,0.16)", padding: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 13, fontWeight: 800, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{svc || "Job"}</span>
+              <span style={{ flexShrink: 0, background: ch.bg, borderLeft: `3px solid ${ch.border}`, color: ch.text, borderRadius: "0 4px 4px 0", fontSize: 10, fontWeight: 700, padding: "2px 7px" }}>{ch.label}</span>
+            </div>
+            <Row icon={<Clock size={13} />}>
+              {new Date(String(j.scheduled_date).split("T")[0] + "T12:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })}
+              {fmtT(j.scheduled_time) ? ` · ${fmtT(j.scheduled_time)}` : ""}
+            </Row>
+            <Row icon={<Wrench size={13} />}>{j.technician_name || "Unassigned"}</Row>
+            {addr && <Row icon={<MapPin size={13} />}>{addr}</Row>}
+            <div style={{ display: "flex", gap: 8, marginTop: 8, paddingTop: 8, borderTop: "1px solid #F0EEE9" }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const }}>Amount</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#0A0E1A" }}>{amt != null ? `$${Number(amt).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}</div>
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const }}>Hours</div>
+                <div style={{ fontSize: 14, fontWeight: 800, color: "#0A0E1A" }}>{hrs != null ? `${Number(hrs)}h` : "—"}</div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "13px 16px", borderBottom: "1px solid #E5E2DC", gap: 8 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.08em", flexShrink: 0 }}>
@@ -5117,6 +5455,24 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
       <div style={{ padding: "12px 16px", display: "flex", flexDirection: calIsMobile ? "column" : "row", gap: 16 }}>
         {months.map(m => renderMonth(m))}
       </div>
+
+      {panelLoading && !panelJob && (
+        <div style={{ position: "fixed", top: 16, right: 16, zIndex: 60, background: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#6B6860", boxShadow: "0 4px 16px rgba(0,0,0,0.1)" }}>Loading job…</div>
+      )}
+
+      {/* [job-card-redesign 2026-06-25] Full editable dispatch card, opened from
+          a calendar click. Same component the dispatch board uses. */}
+      {panelJob && (
+        <Suspense fallback={null}>
+          <DispatchJobPanel
+            job={panelJob}
+            employees={[]}
+            mobile={false}
+            onClose={() => setPanelJob(null)}
+            onUpdate={() => { qc.invalidateQueries({ queryKey: ["client-calendar-jobs", clientId] }); refetch(); }}
+          />
+        </Suspense>
+      )}
 
       {/* Reschedule / Detail Modal */}
       {modal && (
@@ -5251,119 +5607,81 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
 // every recorded action (job created/edited/rescheduled/cancelled/deleted,
 // price changes, tech reassignments, client edits, messages) with who + when.
 // Reads the aggregated GET /api/clients/:id/activity endpoint.
+// [account-activity 2026-07-07] Rendering extracted to the shared
+// components/activity-feed.tsx so the account console shows the same feed.
 function ActivityTab({ clientId }: { clientId: number }) {
-  const { data, isLoading } = useQuery<any>({
-    queryKey: ["client-activity", clientId],
-    queryFn: () => apiFetch(`/api/clients/${clientId}/activity?limit=200`),
-  });
-  const events: any[] = data?.events || [];
-  const FF2 = "'Plus Jakarta Sans', sans-serif";
-  const fmtWhen = (s: string) => (s ? new Date(s).toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
-  const META: Record<string, { label: string; color: string; bg: string }> = {
-    job_created:     { label: "Job created",    color: "#0A6E5A", bg: "#E6F8F2" },
-    job_edit:        { label: "Job edited",     color: "#1D4ED8", bg: "#EAF0FE" },
-    job_rescheduled: { label: "Rescheduled",    color: "#92400E", bg: "#FEF3C7" },
-    job_cancelled:   { label: "Cancelled",      color: "#B91C1C", bg: "#FEECEC" },
-    job_deleted:     { label: "Deleted",        color: "#7C2D12", bg: "#FBE8E0" },
-    client_edit:     { label: "Client edited",  color: "#5B21B6", bg: "#F1ECFD" },
-    client_created:  { label: "Client created", color: "#0A6E5A", bg: "#E6F8F2" },
-    communication:   { label: "Message",        color: "#374151", bg: "#F3F4F6" },
-  };
-  const label = (f: string | null) => (f ? f.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "");
-  // [audit-plain-english 2026-06-18] The activity feed read like code (raw JSON
-  // dumps, "[unknown — see X history]", field names). These helpers turn each
-  // entry into one plain sentence the office can read at a glance.
-  const isNum = (v: any) => v != null && v !== "" && Number.isFinite(Number(v));
-  const money = (v: any) => `$${Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  const truthy = (v: any) => v === true || v === "true";
-  const time12 = (t: any) => {
-    const m = String(t).match(/^(\d{1,2}):(\d{2})/);
-    if (!m) return String(t);
-    const h = parseInt(m[1], 10); const ap = h < 12 ? "AM" : "PM";
-    return `${((h + 11) % 12) + 1}:${m[2]} ${ap}`;
-  };
-  // A readable scalar; objects/arrays/empties we can't summarize → null (caller
-  // falls back to a generic phrase rather than printing JSON).
-  const valText = (v: any): string | null => {
-    if (v == null || v === "") return null;
-    if (typeof v === "object") return Array.isArray(v) ? (v.length ? null : null) : null;
-    if (typeof v === "boolean") return v ? "yes" : "no";
-    if (typeof v === "string" && /unknown — see/i.test(v)) return null;
-    return String(v);
-  };
-  const describeEdit = (e: any): string => {
-    const nv = e.new_value ?? {}, ov = e.old_value ?? {};
-    const f = e.field_name as string;
-    const n = (nv && typeof nv === "object" && "value" in nv) ? (nv as any).value : nv;
-    const o = (ov && typeof ov === "object" && "value" in ov) ? (ov as any).value : ov;
-    switch (f) {
-      case "cascade_summary": {
-        const upd = Number(nv?.future_jobs_updated ?? 0), ins = Number(nv?.future_jobs_inserted ?? 0), del = Number(nv?.future_jobs_deleted ?? 0);
-        const parts: string[] = [];
-        if (upd) parts.push(`${upd} future visit${upd === 1 ? "" : "s"} updated`);
-        if (ins) parts.push(`${ins} added`);
-        if (del) parts.push(`${del} removed`);
-        return parts.length ? `Recurring schedule changed — ${parts.join(", ")}` : "Recurring schedule changed";
-      }
-      case "base_fee":      return `Price changed${isNum(o) ? ` from ${money(o)}` : ""} to ${money(n)}`;
-      case "billed_amount": return `Billed amount changed${isNum(o) ? ` from ${money(o)}` : ""} to ${money(n)}`;
-      case "hourly_rate":   return `Hourly rate set to ${money(n)}/hr`;
-      case "allowed_hours": return `Allowed hours set to ${n}`;
-      case "scheduled_time": return `Start time changed to ${time12(n)}`;
-      case "scheduled_date": return `Date changed to ${n}`;
-      case "manual_rate_override": return `Manual price override turned ${truthy(n) ? "on" : "off"}`;
-      case "team_user_ids": return "Team reassigned";
-      case "add_ons":       return "Add-ons updated";
-      case "service_type":  return `Service changed to ${label(String(n))}`;
-      case "notes": case "office_notes": return "Notes updated";
-      default: {
-        const nt = valText(n), ot = valText(o);
-        if (nt) return `${label(f)} changed${ot ? ` from ${ot}` : ""} to ${nt}`;
-        return `${label(f)} updated`;
-      }
-    }
-  };
-  const describe = (e: any): string => {
-    const nv = e.new_value || {}, ov = e.old_value || {};
-    switch (e.event_type) {
-      case "job_edit":        return describeEdit(e);
-      case "job_rescheduled": return `Rescheduled${nv.reason ? ` — ${nv.reason}` : ""}`;
-      case "job_cancelled":   return `Cancelled${nv.reason ? ` — ${String(nv.reason).replace(/_/g, " ")}` : ""}${nv.charge != null ? ` · fee ${money(nv.charge)}` : ""}`;
-      case "job_deleted":     return `Job deleted${ov.service_type ? ` · ${label(ov.service_type)}` : ""}${ov.scheduled_date ? ` · ${ov.scheduled_date}` : ""}`;
-      case "communication":   return `${nv.direction === "inbound" ? "Received" : "Sent"} ${e.field_name || "message"}${nv.summary ? ` — ${nv.summary}` : nv.subject ? ` — ${nv.subject}` : ""}`;
-      case "client_edit":     { const nt = valText(nv?.value ?? nv); return nt ? `${label(e.field_name)} changed to ${nt}` : `${label(e.field_name)} updated`; }
-      case "job_created":     return "Job created";
-      case "client_created":  return "Client created";
-      default:                return label(e.field_name) || "Updated";
-    }
-  };
   return (
-    <div>
-      <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 14, fontFamily: FF2 }}>
-        Every recorded action on this client — jobs, reschedules, cancellations, price changes, messages — with who and when.
-      </div>
-      {isLoading ? (
-        <div style={{ padding: 30, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>Loading…</div>
-      ) : events.length === 0 ? (
-        <div style={{ padding: 30, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>No recorded activity yet.</div>
-      ) : (
-        <div>
-          {events.map((e, i) => {
-            const m = META[e.event_type] || { label: e.event_type, color: "#374151", bg: "#F3F4F6" };
-            return (
-              <div key={i} style={{ display: "flex", gap: 12, padding: "12px 2px", borderTop: i === 0 ? "none" : "1px solid #F0EEE9" }}>
-                <span style={{ flexShrink: 0, alignSelf: "flex-start", fontSize: 11, fontWeight: 700, color: m.color, background: m.bg, borderRadius: 6, padding: "3px 9px", fontFamily: FF2, whiteSpace: "nowrap" }}>{m.label}</span>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13, color: "#1A1917", fontFamily: FF2, wordBreak: "break-word" }}>{describe(e)}</div>
-                  <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF2 }}>
-                    {fmtWhen(e.occurred_at)}{e.user_name ? ` · ${e.user_name}` : ""}{e.related_job_id ? ` · Job #${e.related_job_id}` : ""}
-                  </div>
-                </div>
-              </div>
-            );
-          })}
+    <ActivityFeed
+      endpoint={`/api/clients/${clientId}/activity?limit=200`}
+      queryKey={["client-activity", clientId]}
+      introText="Every recorded action on this client — jobs, reschedules, cancellations, price changes, messages — with who and when."
+    />
+  );
+}
+
+// Open an auth-gated PDF (invoice/quote) in a new tab. window.open can't send
+// the Bearer header, so fetch with auth → blob URL → open.
+async function openAuthedPdf(path: string) {
+  try {
+    const r = await fetch(`${API}${path}`, { headers: getAuthHeaders() });
+    if (!r.ok) { alert("Could not open the PDF."); return; }
+    const url = URL.createObjectURL(await r.blob());
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch { alert("Could not open the PDF."); }
+}
+
+// Per-customer message timeline — every automated + manual text/email we've
+// sent this customer, newest first (GET /api/clients/:id/messages).
+function CustomerMessagesTab({ clientId }: { clientId: number }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let on = true;
+    fetch(`${API}/api/clients/${clientId}/messages`, { headers: getAuthHeaders() })
+      .then(r => r.json()).then(d => { if (on) setRows(d.data || []); })
+      .catch(() => {}).finally(() => { if (on) setLoading(false); });
+    return () => { on = false; };
+  }, [clientId]);
+
+  const TYPE_LABELS: Record<string, string> = {
+    job_scheduled: "Booking confirmation", reminder_3day: "3-day reminder", reminder_1day: "Next-day reminder",
+    on_my_way: "On-my-way text", job_completed: "Thank-you", review_request: "Review request", sms: "Text message",
+  };
+  const fmtType = (t: string) => TYPE_LABELS[t] || (t || "message").replace(/_/g, " ");
+  const statusColor = (s: string) =>
+    s === "sent" || s === "delivered" || s === "received" ? "#16A34A"
+    : s === "failed" || s === "undelivered" ? "#DC2626"
+    : (s || "").startsWith("suppress") || s === "skipped" ? "#B45309" : "#6B7280";
+
+  if (loading) return <div style={{ padding: 24, textAlign: "center", color: "#9E9B94", fontFamily: FF, fontSize: 13 }}>Loading…</div>;
+  if (rows.length === 0) return <div style={{ padding: 24, textAlign: "center", color: "#9E9B94", fontFamily: FF, fontSize: 13 }}>No messages sent to this customer yet.</div>;
+
+  return (
+    <div style={{ fontFamily: FF, display: "flex", flexDirection: "column", gap: 8 }}>
+      {rows.map((m, i) => (
+        <div key={i} style={{ display: "flex", gap: 12, padding: "10px 12px", background: "#F7F6F3", borderRadius: 8, alignItems: "flex-start" }}>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: m.channel === "email" ? "#1D4ED8" : "#047857", background: m.channel === "email" ? "#EFF6FF" : "#ECFDF5", padding: "3px 7px", borderRadius: 4, marginTop: 1, flexShrink: 0 }}>{m.channel === "email" ? "EMAIL" : "TEXT"}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{fmtType(m.type)}{m.direction === "inbound" && <span style={{ fontSize: 10, color: "#7C3AED", marginLeft: 6 }}>FROM CUSTOMER</span>}</span>
+              <span style={{ fontSize: 11, color: "#9E9B94", flexShrink: 0 }}>{m.at ? new Date(m.at).toLocaleString() : ""}</span>
+            </div>
+            {(m.subject || m.body) && (
+              <p style={{ fontSize: 12, color: "#6B6860", margin: "3px 0 2px", lineHeight: 1.5, whiteSpace: "pre-wrap", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical" }}>
+                {m.subject ? <strong>{m.subject} — </strong> : ""}{m.body}
+              </p>
+            )}
+            <span style={{ fontSize: 11, fontWeight: 600, color: statusColor(m.status) }}>{m.status || ""}</span>
+            {m.doc_type && m.doc_id && (
+              <button onClick={() => openAuthedPdf(`/api/${m.doc_type === "quote" ? "quotes" : "invoices"}/${m.doc_id}/pdf`)}
+                style={{ marginLeft: 10, fontSize: 11, fontWeight: 600, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                View PDF
+              </button>
+            )}
+          </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }
@@ -5372,6 +5690,11 @@ const PROFILE_TABS = [
   { id: "client",        label: "Client"        },
   { id: "property",      label: "Property"      },
   { id: "jobs",          label: "Jobs"          },
+  // [comm-log-dedupe 2026-06-29] The "Messages" tab duplicated the Communication
+  // Log card (CommLog2) on the Client tab — same sends, two places. Removed the
+  // tab; the Communication Log card (with the channel dropdown + Detail/List) is
+  // the single source. The activeTab === "messages" render branches below are now
+  // unreachable and harmless.
   { id: "admin",         label: "Admin"         },
   { id: "activity",      label: "Activity"      },
   { id: "profitability", label: "Profitability" },
@@ -5432,10 +5755,15 @@ export default function CustomerProfilePage() {
 
   const isMobile = useIsMobile();
   const [toast, setToast] = useState<{ message: string; type: "success" | "error" } | null>(null);
-  const [showMessageDrawer, setShowMessageDrawer] = useState(false);
   const [showEditProfileDrawer, setShowEditProfileDrawer] = useState(false);
   const [showAlarmCode, setShowAlarmCode] = useState(false);
-  const [activeTab, setActiveTab] = useState<ProfileTab>("client");
+  // [tab-deeplink 2026-07-08] Honor ?tab= so links can land on a specific
+  // tab — the job card's "View schedule" was dumping the office on the
+  // default Client tab instead of the Jobs calendar (Sal).
+  const [activeTab, setActiveTab] = useState<ProfileTab>(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    return t && PROFILE_TABS.some(pt => pt.id === t) ? (t as ProfileTab) : "client";
+  });
   const showToast = useCallback((message: string, type: "success" | "error" = "success") => setToast({ message, type }), []);
 
   const goBack = () => navigate("/customers");
@@ -5577,7 +5905,7 @@ export default function CustomerProfilePage() {
         <div style={{ display: "flex", gap: 7, flexWrap: "wrap", flexShrink: 0 }}>
           <button onClick={() => setShowJobWizard(true)} style={{ padding: "7px 13px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Schedule Job</button>
           <button onClick={() => navigate(`/quotes/new?client_id=${clientId}`)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Quote</button>
-          <button onClick={() => setShowMessageDrawer(true)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Message</button>
+          <button onClick={() => profile.phone && navigate(`/messages?phone=${encodeURIComponent(profile.phone)}&clientId=${clientId}`)} disabled={!profile.phone} title={!profile.phone ? "No phone on file" : undefined} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: profile.phone ? "#1A1917" : "#9E9B94", fontSize: 13, fontWeight: 500, cursor: profile.phone ? "pointer" : "not-allowed", fontFamily: FF }}>Message</button>
           <button onClick={() => setShowEditProfileDrawer(true)} style={{ padding: "7px 13px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>Edit</button>
         </div>
       </div>
@@ -5648,7 +5976,7 @@ export default function CustomerProfilePage() {
         </>)}
         {profile?.stats?.scorecard_avg && (
           <SR2
-            label="Avg Scorecard"
+            label="Avg Performance Score"
             value={`${profile.stats.scorecard_avg.toFixed(1)} / 5`}
             color={profile.stats.scorecard_avg >= 4 ? "#16A34A" : profile.stats.scorecard_avg >= 3 ? "#D97706" : "#DC2626"}
           />
@@ -5734,19 +6062,9 @@ export default function CustomerProfilePage() {
 
           {/* Right column */}
           <div>
-            {/* Technician Preferences — surfaced on the main Client tab so the
-                office can capture who the client prefers (or doesn't want)
-                without digging into the Admin tab. Same component + API as the
-                Admin copy; edits sync via refetch. */}
-            <div style={CS}>
-              <SectionHead title="Technician Preferences" />
-              {(profile.tech_preferences || []).some((p: any) => p.preference === "do_not_schedule") && (
-                <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#92400E", marginBottom: 10 }}>
-                  Do Not Schedule preferences are enforced on the dispatch board. A warning will appear before assigning a flagged technician to this client.
-                </div>
-              )}
-              <TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} />
-            </div>
+            {/* [comm-log-first 2026-07-08] Communication Log leads the column —
+                the office reaches for it far more than Invoices (Sal). */}
+            <CommLog2 clientId={clientId} />
 
             {/* Invoices */}
             <div style={CS}>
@@ -5759,9 +6077,6 @@ export default function CustomerProfilePage() {
               <SectionHead title="QuickBooks" />
               <QuickBooksTab clientId={clientId} client={profile} refetch={refetchProfile} />
             </div>
-
-            {/* Communication Log */}
-            <CommLog2 clientId={clientId} />
           </div>
         </div>
       )}
@@ -5822,9 +6137,15 @@ export default function CustomerProfilePage() {
               </button>
             </div>
 
-            {/* Client Notes */}
+            {/* Internal Notes — office + techs. The standing memo (clients.notes)
+                sits on top; photo-capable notes below distinguish every-visit
+                (blue) from single-job (yellow) via TeamPhotoNotes. */}
             <div style={CS}>
-              <SectionHead title="Client Notes" />
+              <SectionHead title="Internal Notes" />
+              <div style={{ fontSize: 12, color: "#9E9B94", margin: "-2px 0 10px" }}>
+                For the office and techs — never shown to the client.
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", marginBottom: 4 }}>Standing note</div>
               <textarea
                 defaultValue={profile.notes || ""}
                 onBlur={async (e) => {
@@ -5833,10 +6154,12 @@ export default function CustomerProfilePage() {
                     catch { showToast("Failed to save notes", "error"); }
                   }
                 }}
-                placeholder="Internal notes about this client (auto-saves on blur)..."
-                rows={5}
+                placeholder="A standing internal note about this client (auto-saves on blur)..."
+                rows={4}
                 style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#374151", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, lineHeight: 1.5, background: "#FAFAF8" }}
               />
+              <div style={{ borderTop: "1px solid #F0EEE9", margin: "16px 0 12px" }} />
+              <TeamPhotoNotes clientId={clientId} title="Notes & photos" />
             </div>
           </div>
 
@@ -5846,12 +6169,6 @@ export default function CustomerProfilePage() {
             <div style={CS}>
               <SectionHead title="Recurring Schedule" />
               <ServiceDetailsSection client={profile} onUpdate={updateMut.mutateAsync} refetch={refetchProfile} recurringSchedule={recurringSchedule} onToast={showToast} />
-            </div>
-
-            {/* Rate History */}
-            <div style={CS}>
-              <SectionHead title="Rate History" />
-              <div style={{ fontSize: 12, color: "#9E9B94", textAlign: "center" as const, padding: "24px 0" }}>No rate changes recorded</div>
             </div>
 
             {/* Rate Locks */}
@@ -5891,7 +6208,7 @@ export default function CustomerProfilePage() {
 
           {/* Scorecards */}
           <div style={CS}>
-            <SectionHead title="Scorecards" action={<span style={{ fontSize: 11, color: "#9E9B94" }}>{(profile.scorecards || []).length} total</span>} />
+            <SectionHead title="Performance Score" action={<span style={{ fontSize: 11, color: "#9E9B94" }}>{(profile.scorecards || []).length} total</span>} />
             <ScorecardsTab scorecards={profile.scorecards || []} />
           </div>
 
@@ -5914,6 +6231,13 @@ export default function CustomerProfilePage() {
         </div>
       )}
 
+      {activeTab === "messages" && (
+        <div style={CS}>
+          <SectionHead title="Message History" action={<span style={{ fontSize: 11, color: "#9E9B94" }}>Texts &amp; emails sent to this customer</span>} />
+          <CustomerMessagesTab clientId={clientId} />
+        </div>
+      )}
+
       {/* ══════════════════════════════════════════════
           TAB 4: ADMIN — operational, not daily dispatch
           2-column grid top + full-width collapsibles below
@@ -5930,9 +6254,20 @@ export default function CustomerProfilePage() {
                 <PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} />
               </div>
 
-              {/* Contacts & Notifications */}
+              {/* [notifications-merge 2026-07-08] One Notifications card, not
+                  two redundant ones (Sal). Top = which automated messages THIS
+                  customer gets. Bottom = additional people to CC on specific
+                  events (a spouse, property manager). Same concept, one place. */}
               <div style={CS}>
-                <SectionHead title="Contacts & Notifications" action={<span style={{ fontSize: 11, color: "#9E9B94" }}>{(profile.notification_settings || []).length} configured</span>} />
+                <NotificationPreferencesCard clientId={clientId} />
+                <div style={{ borderTop: "1px solid #EEECE7", margin: "18px 0 14px" }} />
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                  <h3 style={{ margin: 0, fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Additional recipients</h3>
+                  <span style={{ fontSize: 11, color: "#9E9B94" }}>{(profile.notification_settings || []).length} configured</span>
+                </div>
+                <p style={{ margin: "0 0 12px", fontSize: 12, color: "#6B6860", maxWidth: 520 }}>
+                  Extra people to notify on specific events — e.g. a spouse or property manager. The preferences above control what the customer themselves receives.
+                </p>
                 <ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} />
               </div>
 
@@ -6009,7 +6344,6 @@ export default function CustomerProfilePage() {
     return (
       <DashboardLayout fullBleed>
         {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
-        {showMessageDrawer && <SendMessageDrawer client={profile} onClose={() => setShowMessageDrawer(false)} onToast={showToast} />}
         {showEditProfileDrawer && <EditProfileDrawer client={profile} onClose={() => setShowEditProfileDrawer(false)} onSave={updateMut.mutateAsync} onToast={showToast} />}
         <JobWizard
           open={showJobWizard}
@@ -6067,7 +6401,7 @@ export default function CustomerProfilePage() {
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, marginBottom: 12 }}>
               <button onClick={() => setShowJobWizard(true)} style={{ padding: "9px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Schedule Job</button>
               <button onClick={() => navigate(`/quotes/new?client_id=${clientId}`)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Quote</button>
-              <button onClick={() => setShowMessageDrawer(true)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Message</button>
+              <button onClick={() => profile.phone && navigate(`/messages?phone=${encodeURIComponent(profile.phone)}&clientId=${clientId}`)} disabled={!profile.phone} title={!profile.phone ? "No phone on file" : undefined} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: profile.phone ? "#1A1917" : "#9E9B94", fontSize: 12, fontWeight: 600, cursor: profile.phone ? "pointer" : "not-allowed", fontFamily: FF, minHeight: 40 }}>Message</button>
               <button onClick={() => setShowEditProfileDrawer(true)} style={{ padding: "9px", background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, minHeight: 40 }}>Edit</button>
             </div>
             {/* Mobile tab bar */}
@@ -6097,14 +6431,20 @@ export default function CustomerProfilePage() {
                 <div style={CTitle}>Billing & Payments</div>
                 <CardOnFileTab client={profile} refetch={refetchProfile} />
               </div>
-              <CollapsibleSection title="Invoices" count={invoices.length || undefined}>
-                <BillingTab invoices={invoices} />
-              </CollapsibleSection>
-              {/* Communications log / message history — was desktop-only; now on mobile too. */}
+              {/* [comm-log-first 2026-07-08] Comms above invoices on mobile too. */}
               <CollapsibleSection title="Communications">
                 <CommLog2 clientId={clientId} />
               </CollapsibleSection>
+              <CollapsibleSection title="Invoices" count={invoices.length || undefined}>
+                <BillingTab invoices={invoices} />
+              </CollapsibleSection>
             </>)}
+            {activeTab === "messages" && (
+              <div style={CS}>
+                <div style={CTitle}>Message History</div>
+                <CustomerMessagesTab clientId={clientId} />
+              </div>
+            )}
             {activeTab === "property" && (<>
               <div style={CS}>
                 <div style={CTitle}>Service Addresses</div>
@@ -6153,7 +6493,14 @@ export default function CustomerProfilePage() {
               <CollapsibleSection title="Quotes"><QuotesTab clientId={clientId} client={profile} /></CollapsibleSection>
               <CollapsibleSection title="Agreements" count={(profile.agreements || []).length || undefined}><AgreementsTab clientId={clientId} agreements={profile.agreements || []} refetch={refetchProfile} /></CollapsibleSection>
               <CollapsibleSection title="Scorecards" count={(profile.scorecards || []).length || undefined}><ScorecardsTab scorecards={profile.scorecards || []} /></CollapsibleSection>
-              <CollapsibleSection title="Contacts" count={(profile.notification_settings || []).length || undefined}><ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} /></CollapsibleSection>
+              {/* [notifications-merge 2026-07-08] One Notifications section. */}
+              <CollapsibleSection title="Notifications" count={(profile.notification_settings || []).length || undefined}>
+                <NotificationPreferencesCard clientId={clientId} />
+                <div style={{ borderTop: "1px solid #EEECE7", margin: "18px 0 14px" }} />
+                <h3 style={{ margin: "0 0 4px", fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Additional recipients</h3>
+                <p style={{ margin: "0 0 12px", fontSize: 12, color: "#6B6860" }}>Extra people to notify on specific events. The preferences above control what the customer receives.</p>
+                <ContactsTab clientId={clientId} notifications={profile.notification_settings || []} refetch={refetchProfile} />
+              </CollapsibleSection>
               <CollapsibleSection title="Portal"><PortalTab clientId={clientId} client={profile} onPortalInvite={() => apiFetch(`/api/clients/${clientId}/portal-invite`, { method: "POST" })} refetch={refetchProfile} /></CollapsibleSection>
               <CollapsibleSection title="Tech Preferences"><TechPrefsTab clientId={clientId} prefs={profile.tech_preferences || []} refetch={refetchProfile} /></CollapsibleSection>
             </>)}
@@ -6173,7 +6520,6 @@ export default function CustomerProfilePage() {
   return (
     <DashboardLayout fullBleed>
       {toast && <Toast message={toast.message} type={toast.type} onDone={() => setToast(null)} />}
-      {showMessageDrawer && <SendMessageDrawer client={profile} onClose={() => setShowMessageDrawer(false)} onToast={showToast} />}
       {showEditProfileDrawer && <EditProfileDrawer client={profile} onClose={() => setShowEditProfileDrawer(false)} onSave={updateMut.mutateAsync} onToast={showToast} />}
       <JobWizard
         open={showJobWizard}

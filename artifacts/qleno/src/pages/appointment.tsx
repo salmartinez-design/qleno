@@ -92,7 +92,15 @@ export default function AppointmentPage() {
       try {
         const r = await fetch(`${API}/api/appointment/${encodeURIComponent(token)}`);
         if (!r.ok) { setError(r.status === 404 ? "We couldn't find this appointment." : "Something went wrong."); return; }
-        setAppt(await r.json());
+        const data = await r.json();
+        setAppt(data);
+        // Set og:image so SMS/iMessage link preview shows the company logo
+        if (data?.company_logo) {
+          const logoUrl = data.company_logo.startsWith("http") ? data.company_logo : `${window.location.origin}${data.company_logo}`;
+          let ogImg = document.querySelector<HTMLMetaElement>('meta[property="og:image"]');
+          if (!ogImg) { ogImg = document.createElement("meta"); ogImg.setAttribute("property", "og:image"); document.head.appendChild(ogImg); }
+          ogImg.setAttribute("content", logoUrl);
+        }
       } catch {
         setError("Something went wrong.");
       } finally {
@@ -151,7 +159,7 @@ export default function AppointmentPage() {
       <div style={card}>
         {/* Navy masthead — logo + wordmark + subline */}
         <div style={{ background: NAVY, padding: "20px 28px", display: "flex", alignItems: "center", gap: 13 }}>
-          <img src={logoSrc} alt={appt.company_name} style={{ height: 38, width: "auto", borderRadius: 8, background: "#fff", objectFit: "contain" }} />
+          <img src={logoSrc} alt={appt.company_name} style={{ height: 44, maxWidth: 140, width: "auto", objectFit: "contain" }} />
           <div>
             <p style={{ fontSize: 18, fontWeight: 700, color: "#FFFFFF", margin: 0, letterSpacing: "-0.01em" }}>{appt.company_name}</p>
             <p style={{ fontSize: 12, color: SUBLINE, margin: "2px 0 0" }}>Residential &amp; Commercial Cleaning</p>

@@ -193,7 +193,9 @@ export function HRAttendanceTab({ employeeId }: { employeeId: number }) {
 // (which the 3A approval flow populates). The legacy single-bucket readout
 // and the manual "Log Leave Usage" write (it decremented the deprecated
 // users.leave_balance_hours) are removed — leave usage now flows through the
-// leave-request → approval path. All buckets reset on the calendar year.
+// leave-request → approval path. Buckets reset on each employee's hire
+// anniversary (their own benefit year — see lib/leave-grant-reset.ts),
+// NOT Jan 1.
 export function LeaveBalanceTab({ employeeId }: { employeeId: number }) {
   const { toast } = useToast();
   const [buckets, setBuckets] = useState<any[] | null>(null);
@@ -223,7 +225,7 @@ export function LeaveBalanceTab({ employeeId }: { employeeId: number }) {
   return (
     <div>
       <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginBottom: 16 }}>
-        Balances reset each calendar year (Jan 1). Sick (PLAWA) front-loads 40 hrs after 90 days; PTO grants 40 hrs after 1 year, topping up to 80 hrs at 2 years.
+        Balances reset each benefit year on the employee's hire anniversary. Sick (PLAWA) front-loads 40 hrs after 90 days; PTO grants 40 hrs after 1 year, topping up to 80 hrs at 2 years.
       </div>
 
       {!buckets.length && (
@@ -276,8 +278,10 @@ export function LeaveBalanceTab({ employeeId }: { employeeId: number }) {
 
 export function DisciplineTab({ employeeId }: { employeeId: number }) {
   const role = getTokenRole();
-  const isOwner = role === "owner";
-  const canCreate = role === "owner" || role === "admin";
+  // [office-admin-parity 2026-06-26] Office tier has full discipline access:
+  // create records + confirm/dismiss pending ones (Sal granted full HR access).
+  const isOwner = role === "owner" || role === "admin" || role === "office" || role === "super_admin";
+  const canCreate = role === "owner" || role === "admin" || role === "office";
   const { toast } = useToast();
   const [records, setRecords] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);

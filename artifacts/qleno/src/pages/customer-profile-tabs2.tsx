@@ -20,13 +20,28 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
   return r.json();
 }
 
+// Open an auth-gated PDF (invoice/quote) in a new tab — window.open can't carry
+// the Bearer header, so fetch with auth → blob URL → open.
+async function openAuthedPdf(path: string) {
+  try {
+    const r = await fetch(`${API}${path}`, { headers: getAuthHeaders() });
+    if (!r.ok) { alert("Could not open the PDF."); return; }
+    const url = URL.createObjectURL(await r.blob());
+    window.open(url, "_blank");
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch { alert("Could not open the PDF."); }
+}
+
 async function apiFetchJSON(path: string, opts: RequestInit = {}) {
   return apiFetch(path, { ...opts, headers: { "Content-Type": "application/json", ...opts.headers } });
 }
 
 function fmtDate(d?: string | null) {
   if (!d) return "—";
-  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  // [date-tz-fix] Anchor date-only "YYYY-MM-DD" to local noon so it does not
+  // render one day early in US Central. Full timestamps untouched.
+  const s = /^\d{4}-\d{2}-\d{2}$/.test(d) ? d + "T12:00:00" : d;
+  return new Date(s).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 function fmtCurrency(v?: number | string | null) {
@@ -193,6 +208,9 @@ export function QuotesTab({ clientId, client }: { clientId: number; client: any 
                   <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B7280" }}>{q.sent_at ? fmtDate(q.sent_at) : "—"}</td>
                   <td style={{ padding: "12px 14px" }}>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
+                      <button onClick={() => openAuthedPdf(`/api/quotes/${q.id}/pdf`)} style={{ backgroundColor: "#F3F4F6", color: "#374151", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
+                        PDF
+                      </button>
                       {q.status === "draft" && (
                         <button onClick={() => sendMut.mutate(q.id)} disabled={sendMut.isPending} style={{ backgroundColor: "#EFF6FF", color: "#1D4ED8", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}>
                           <Send size={10} /> Send
@@ -688,6 +706,26 @@ function channelLabel(ch: string) {
   return m[ch?.toLowerCase()] || ch || "Message";
 }
 
+// [comm-log-email-body 2026-07-07] Automated emails log their full HTML in the
+// body; show the readable text in the log, not the raw markup source.
+function plainBody(s: string): string {
+  if (!s || !/<[a-z][\s\S]*>/i.test(s)) return s;
+  return s
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|li|h[1-6])>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&ndash;/g, "–")
+    .replace(/&mdash;/g, "—")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\s*\n\s*/g, "\n")
+    .trim();
+}
+
 function ChannelIcon({ ch, size = 13 }: { ch: string; size?: number }) {
   const c = (ch || "").toLowerCase();
   if (c === "email") return <Mail size={size} />;
@@ -739,11 +777,54 @@ function EventTrail({ logId }: { logId: number }) {
   );
 }
 
+// [comm-log-view-email 2026-07-07] The email document to open for an entry:
+// prefer the exact sent html (metadata.html, stamped by notificationService
+// going forward); fall back to the logged body when it's html (older automated
+// emails logged the merged template html). Null = plain-text email.
+function emailDoc(entry: any): string | null {
+  if ((entry.channel || "").toLowerCase() !== "email") return null;
+  if (entry.email_html) return entry.email_html;
+  const b = entry.body || "";
+  return /<[a-z][\s\S]*>/i.test(b) ? b : null;
+}
+
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+// [comm-log-email-page 2026-07-07] Per Sal: the log shows just the subject +
+// a link; the email itself opens on its OWN page (new tab), MaidCentral-style
+// but without bloating the log. The html is our own sent template (scripts
+// stripped defensively before rendering); plain-text emails get a simple shell.
+function openEmailPage(entry: any) {
+  const doc = emailDoc(entry);
+  const inner = doc
+    ? doc.replace(/<script[\s\S]*?<\/script>/gi, "")
+    : `<div style="max-width:640px;margin:0 auto;padding:24px;font-family:sans-serif;font-size:14px;line-height:1.6;white-space:pre-wrap">${escapeHtml(entry.body || entry.summary || "(no content recorded)")}</div>`;
+  const meta = `To: ${escapeHtml(entry.recipient || "—")} · ${escapeHtml(fmtTs(entry.logged_at || entry.created_at))}`;
+  const shell = `<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(entry.subject || "Email")}</title></head>
+<body style="margin:0;background:#F7F6F3">
+<div style="background:#FFFFFF;border-bottom:1px solid #E5E2DC;padding:12px 24px;font-family:sans-serif">
+  <div style="font-size:15px;font-weight:700;color:#1A1917">${escapeHtml(entry.subject || "(no subject)")}</div>
+  <div style="font-size:12px;color:#6B6860;margin-top:2px">${meta}</div>
+</div>
+<div style="padding:16px 0">${inner}</div>
+</body></html>`;
+  const url = URL.createObjectURL(new Blob([shell], { type: "text/html" }));
+  window.open(url, "_blank", "noopener");
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
 function CommLogDetailCard({ entry }: { entry: any }) {
   const [expanded, setExpanded] = useState(false);
   const [trailOpen, setTrailOpen] = useState(false);
-  const body = entry.body || entry.summary || "";
-  const hasMore = body.length > 180;
+  const isEmail = (entry.channel || "").toLowerCase() === "email";
+  // Emails stay COMPACT in the log — subject + a one-line snippet; the full
+  // email opens on its own page via openEmailPage. Other channels keep the
+  // expandable body.
+  const body = isEmail
+    ? plainBody(entry.body || entry.summary || "").slice(0, 120)
+    : plainBody(entry.body || entry.summary || "");
+  const hasMore = !isEmail && body.length > 180;
   const showTrail = (entry.channel === "sms" || entry.channel === "text" || entry.channel === "email") &&
     (entry.twilio_message_sid || entry.resend_email_id || entry.source === "system");
 
@@ -771,12 +852,19 @@ function CommLogDetailCard({ entry }: { entry: any }) {
         </div>
       </div>
 
-      {/* Subject (email) */}
-      {entry.subject && <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 4 }}>{entry.subject}</div>}
+      {/* Subject (email) — the click target that opens the email on its own page */}
+      {entry.subject && (isEmail ? (
+        <button onClick={() => openEmailPage(entry)} title="Open the email as sent in a new tab"
+          style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FF2, fontSize: 12, fontWeight: 700, color: "var(--brand)", marginBottom: 4, textAlign: "left" }}>
+          {entry.subject} <ExternalLink size={11} style={{ flexShrink: 0 }} />
+        </button>
+      ) : (
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 4 }}>{entry.subject}</div>
+      ))}
 
-      {/* Body */}
+      {/* Body — one-line snippet for emails, expandable text for everything else */}
       {body && (
-        <div style={{ fontSize: 12, color: "#374151", lineHeight: 1.5, whiteSpace: "pre-wrap", marginBottom: 8 }}>
+        <div style={{ fontSize: 12, color: isEmail ? "#6B6860" : "#374151", lineHeight: 1.5, whiteSpace: isEmail ? "nowrap" : "pre-wrap", marginBottom: 8, ...(isEmail ? { overflow: "hidden", textOverflow: "ellipsis" } : {}) }}>
           {!expanded && hasMore ? body.substring(0, 180) + "…" : body}
           {hasMore && (
             <button onClick={() => setExpanded(e => !e)} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: "0 4px", fontFamily: FF2 }}>
@@ -793,6 +881,12 @@ function CommLogDetailCard({ entry }: { entry: any }) {
           {fmtTs(entry.logged_at || entry.created_at)}
         </span>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {isEmail && (
+            <button onClick={() => openEmailPage(entry)}
+              style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3, fontFamily: FF2 }}>
+              <ExternalLink size={11} /> View email
+            </button>
+          )}
           {(entry.source === "system" || entry.delivery_status) && <DeliveryBadge status={entry.delivery_status} />}
           {showTrail && (
             <button onClick={() => setTrailOpen(o => !o)} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3, fontFamily: FF2 }}>
@@ -835,9 +929,48 @@ export function CommLog2({ clientId }: { clientId: number }) {
   const [perPage, setPerPage] = useState(10);
 
   const qk = ["comm-log", clientId, filter];
+  // [comms-unify 2026-06-26] This panel now reads the SAME complete history as
+  // the Messages tab (/api/clients/:id/messages) — every text + email sent to
+  // AND received from the customer, matched by phone so duplicate-profile texts
+  // still show. The old /api/comms source only held manual logs, which is why
+  // the box looked empty even when conversations existed. Manual "+ Log
+  // Communication" entries still post to /api/comms (communication_log) and come
+  // back through this union, so nothing is lost. Filter is applied client-side.
   const { data: logs = [], isLoading, refetch } = useQuery<any[]>({
     queryKey: qk,
-    queryFn: () => apiFetch(`/api/comms?customer_id=${clientId}${filter ? `&filter=${filter}` : ""}&limit=200`),
+    queryFn: async () => {
+      const d = await apiFetch(`/api/clients/${clientId}/messages`);
+      const rows = (d.data || []).map((m: any, i: number) => ({
+        id: `${m.source || "msg"}-${m.at}-${i}`,
+        channel: m.channel,
+        direction: m.direction,
+        source: m.source || "staff",
+        body: m.body,
+        subject: m.subject,
+        recipient: m.recipient,
+        logged_at: m.at,
+        delivery_status: m.status,
+        sent_by: null,
+        email_html: m.email_html || null,
+      }));
+      if (filter) {
+        // The filter dropdown mixes three dimensions — route each correctly:
+        // channel (sms/email/phone/in_person), direction (inbound/outbound),
+        // and source (system = automated/cadence, staff = manual/two-way).
+        const f = filter.toLowerCase();
+        const CHANNELS = ["sms", "email", "phone", "in_person"];
+        const DIRECTIONS = ["inbound", "outbound"];
+        return rows.filter((r: any) => {
+          if (CHANNELS.includes(f)) return (r.channel || "").toLowerCase() === f;
+          if (DIRECTIONS.includes(f)) return (r.direction || "").toLowerCase() === f;
+          const src = (r.source || "").toLowerCase();
+          if (f === "system") return src === "automated" || src === "cadence";
+          if (f === "staff") return src === "two_way" || src === "logged" || src === "staff";
+          return true;
+        });
+      }
+      return rows;
+    },
     staleTime: 30000,
   });
 
@@ -994,9 +1127,19 @@ export function CommLog2({ clientId }: { clientId: number }) {
                     <td style={{ padding: "6px 10px", fontWeight: 600, color: "#1A1917", textTransform: "capitalize" }}>{entry.source || "staff"}</td>
                     <td style={{ padding: "6px 10px", color: "#6B6860" }}>{channelLabel(entry.channel)}</td>
                     <td style={{ padding: "6px 10px", color: "#374151", maxWidth: 200 }}>
-                      <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {(entry.body || entry.summary || "").substring(0, 50)}
-                      </span>
+                      {(entry.channel || "").toLowerCase() === "email" ? (
+                        <button onClick={() => openEmailPage(entry)} title="Open the email as sent in a new tab"
+                          style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--brand)", fontFamily: FF2, fontSize: 12, maxWidth: "100%" }}>
+                          <ExternalLink size={11} style={{ flexShrink: 0 }} />
+                          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                            {entry.subject || plainBody(entry.body || "").substring(0, 50) || "View email"}
+                          </span>
+                        </button>
+                      ) : (
+                        <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {plainBody(entry.body || entry.summary || "").substring(0, 50)}
+                        </span>
+                      )}
                     </td>
                     <td style={{ padding: "6px 10px", color: "#6B6860", fontSize: 11 }}>{entry.recipient || "—"}</td>
                     <td style={{ padding: "6px 10px", color: "#6B6860" }}>{entry.sent_by || entry.logged_by_name || "SYSTEM"}</td>

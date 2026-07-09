@@ -4,7 +4,7 @@ import {
   TrendingUp, DollarSign, Banknote, Activity, UserCheck, Star,
   ReceiptText, Clipboard, Calendar, LayoutList, ClipboardList,
   AlertTriangle, FileText, Home, Users, ArrowRight, RefreshCw,
-  Briefcase, Percent,
+  Briefcase, Percent, History,
 } from "lucide-react";
 
 const REPORT_GROUPS = [
@@ -18,6 +18,7 @@ const REPORT_GROUPS = [
       { title: "Payroll % Revenue",    desc: "Payroll-to-revenue ratio tracked week over week.",       url: "/reports/payroll-to-revenue",icon: Activity },
       { title: "Discounts",            desc: "Every discount applied to a job — code, amount, and who applied it.", url: "/reports/discounts", icon: Percent },
       { title: "Fees Collected",       desc: "Cancellation and lockout fees billed in a period — labeled subset of revenue.", url: "/reports/fees", icon: Banknote },
+      { title: "Revenue History (MaidCentral)", desc: "Pre-Qleno monthly revenue from MaidCentral, preserved for reporting. Separate from live Qleno numbers.", url: "/reports/revenue-history", icon: History },
     ],
   },
   {
@@ -39,8 +40,9 @@ const REPORT_GROUPS = [
       { title: "Performance Insights", desc: "Top performers, at-risk clients, and team alerts.",      url: "/reports/insights",         icon: TrendingUp },
       { title: "Employee Stats",       desc: "Individual attendance, efficiency, and revenue stats.",  url: "/reports/employee-stats",   icon: UserCheck },
       { title: "Tips Report",          desc: "Tips earned by employee across a date range.",           url: "/reports/tips",             icon: Star },
-      { title: "Scorecard Results",    desc: "Client ratings distribution and employee averages.",     url: "/reports/scorecards",       icon: ClipboardList },
-      { title: "Quality & Efficiency", desc: "Scorecard % + efficiency by package — company or per-tech, time-bucketed.", url: "/reports/quality-efficiency", icon: ClipboardList },
+      { title: "Scorecard Results",    desc: "Post-job survey responses — sent, returned, score, and trend per customer.", url: "/reports/satisfaction", icon: Star },
+      { title: "Performance Score Results",    desc: "Client ratings distribution and employee averages.",     url: "/reports/scorecards",       icon: ClipboardList },
+      { title: "Quality & Efficiency", desc: "Performance Score + efficiency by package — company or per-tech, time-bucketed.", url: "/reports/quality-efficiency", icon: ClipboardList },
       { title: "Cancellations",        desc: "Clients with cancelled jobs, tenure, and revenue lost.", url: "/reports/cancellations",    icon: AlertTriangle },
       { title: "Contact Tickets",      desc: "Complaints, breakages, compliments, and incidents.",     url: "/reports/contact-tickets",  icon: FileText },
     ],
@@ -61,7 +63,7 @@ export default function ReportsIndexPage() {
       <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1A1917' }}>Reports</h1>
-          <p style={{ margin: '6px 0 0', fontSize: 14, color: '#6B7280' }}>19 reports covering financials, operations, client quality, and growth.</p>
+          <p style={{ margin: '6px 0 0', fontSize: 14, color: '#6B7280' }}>20 reports covering financials, operations, client quality, and growth.</p>
         </div>
 
         {REPORT_GROUPS.map(group => (

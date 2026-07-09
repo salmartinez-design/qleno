@@ -37,9 +37,11 @@ import { requireAuth } from "../lib/auth.js";
 import { validateClockGpsPayload } from "../lib/clock-integrity.js";
 import { haversineMeters, companyGeofenceMeters } from "../lib/distance.js";
 import { estimateEtaMinutes } from "../lib/eta.js";
-import { sendOnMyWaySms } from "../lib/comms.js";
+import { sendOnMyWaySms, type OnMyWaySmsResult } from "../lib/comms.js";
 import { geocodeAddress } from "../lib/geocode.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
+import { sendNotification, labelServiceType } from "../services/notificationService.js";
+import { isClientAccountCommsPaused } from "../lib/account-comms.js";
 
 const router = Router();
 
@@ -57,6 +59,7 @@ async function loadOwnedJob(
   company_id: number;
   assigned_user_id: number | null;
   client_id: number | null;
+  branch_id: number | null;
   scheduled_date: string;
   scheduled_time: string | null;
   status: string;
@@ -67,6 +70,7 @@ async function loadOwnedJob(
       company_id: jobsTable.company_id,
       assigned_user_id: jobsTable.assigned_user_id,
       client_id: jobsTable.client_id,
+      branch_id: jobsTable.branch_id,
       scheduled_date: jobsTable.scheduled_date,
       scheduled_time: jobsTable.scheduled_time,
       status: jobsTable.status,
@@ -269,9 +273,9 @@ router.post("/:jobId/on-my-way", requireAuth, async (req, res) => {
 async function sendOnMyWayForJob(
   companyId: number,
   userId: number,
-  job: { id: number; client_id: number | null },
+  job: { id: number; client_id: number | null; branch_id: number | null },
   promisedArrivalAt: Date | null,
-) {
+): Promise<OnMyWaySmsResult> {
   // Load tenant SMS flag, tenant from-number, client phone + opt-in,
   // tech first/last. Everything we need to compose the SMS.
   const [tenantRows, clientRows, techRows] = await Promise.all([
@@ -341,9 +345,41 @@ async function sendOnMyWayForJob(
   // [comms-opt-out] A recorded SMS STOP overrides the per-client preference.
   const { isSmsOptedOut } = await import("../lib/opt-out.js");
   const smsOptedOut = await isSmsOptedOut(companyId, client?.phone ?? null);
+  // [account-comms-toggle] A paused account silences on-my-way for its clients.
+  const { isClientAccountCommsPaused } = await import("../lib/account-comms.js");
+  const accountPaused = await isClientAccountCommsPaused(job.client_id ?? null);
+  // [notif-prefs] Per-client/account on_my_way SMS preference gate. Safe default
+  // ON — only an explicit OFF override suppresses. This SMS path bypasses
+  // sendNotification, so the gate is enforced here directly.
+  const { isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
+  const omwPrefOn = await isMessageEnabledForJob({ companyId, clientId: job.client_id ?? null }, "on_my_way", "sms");
+  // [on-my-way-from-number 2026-06-26] Resolve the SMS from-number the SAME way
+  // the reminder/confirmation senders do — branch number → company number →
+  // company's primary branch number. Tenants like Phes co1 keep their Twilio
+  // numbers on the BRANCH (company twilio_from_number is NULL), so reading the
+  // company column directly sent nothing (0 clients notified). resolveSender
+  // walks the job's branch first, then falls back; never invents a number.
+  const { resolveSender } = await import("../lib/comms-sender.js");
+  const sender = await resolveSender(companyId, job.branch_id ?? null);
+  const fromPhone = tenant?.twilio_from_number ?? sender.from_number;
+  // [customer-messages] Pull the office-editable on_my_way SMS copy. A null
+  // template falls back to the built-in message inside sendOnMyWaySms; an
+  // explicitly paused (is_active=false) template honors the office's "off".
+  const { renderCustomerTemplate } = await import("../lib/customer-messages.js");
+  const omwTpl = await renderCustomerTemplate(companyId, "on_my_way", "sms", {
+    first_name: client?.first_name ?? "",
+    client_name: client?.first_name ?? "",
+    company_name: tenant?.name ?? "",
+    tech_name: tech?.first_name ?? "",
+    arrival_window: promisedLabel,
+    service_address: serviceAddress,
+  });
+  if (omwTpl && !omwTpl.is_active) {
+    return { status: "suppressed_tenant_disabled" };
+  }
   return sendOnMyWaySms({
     toPhone: client?.phone ?? null,
-    fromPhone: tenant?.twilio_from_number ?? null,
+    fromPhone,
     companyName: tenant?.name ?? "",
     // First name only — never the tech's full name to the customer.
     techName: tech?.first_name ?? "",
@@ -351,7 +387,8 @@ async function sendOnMyWayForJob(
     serviceAddress,
     promisedArrivalLabel: promisedLabel,
     tenantSmsEnabled: !!tenant?.sms_on_my_way_enabled,
-    clientOptedIn: client?.wants_on_my_way_notifications !== false && !smsOptedOut,
+    clientOptedIn: client?.wants_on_my_way_notifications !== false && !smsOptedOut && !accountPaused && omwPrefOn,
+    bodyOverride: omwTpl?.body,
   });
 }
 
@@ -498,6 +535,39 @@ async function handleClockEvent(
         .where(
           and(eq(jobsTable.company_id, companyId), eq(jobsTable.id, job.id)),
         );
+      // ── job_started notification (non-blocking) ───────────────────────
+      // Fires once: gated on the status transition above so only the FIRST
+      // tech to clock in notifies the client (multi-tech job = one message).
+      if (job.client_id) {
+        Promise.resolve().then(async () => {
+          try {
+            if (await isClientAccountCommsPaused(job.client_id!)) return;
+            const [cl] = await db.select({
+              email: clientsTable.email, phone: clientsTable.phone,
+              first_name: clientsTable.first_name,
+              address: clientsTable.address, city: clientsTable.city, state: clientsTable.state,
+            }).from(clientsTable).where(eq(clientsTable.id, job.client_id!)).limit(1);
+            if (!cl) return;
+            const [jobRow] = await db.select({ service_type: jobsTable.service_type })
+              .from(jobsTable).where(eq(jobsTable.id, job.id)).limit(1);
+            const [tech] = await db.select({ first_name: usersTable.first_name, last_name: usersTable.last_name })
+              .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+            const mv = {
+              first_name: cl.first_name || "",
+              tech_name: [tech?.first_name, tech?.last_name].filter(Boolean).join(" ") || "Your cleaner",
+              service_type: labelServiceType((jobRow as any)?.service_type),
+              service_address: [cl.address, cl.city, cl.state].filter(Boolean).join(", "),
+            };
+            // Pass the client id so sendNotification's per-client channel
+            // preference gate applies — without it an explicit email/SMS OFF
+            // override on the client is silently ignored on this path.
+            sendNotification("job_started", "sms", companyId, null, cl.phone, mv, false, undefined, job.client_id!).catch(() => {});
+            sendNotification("job_started", "email", companyId, cl.email, null, mv, false, undefined, job.client_id!).catch(() => {});
+          } catch (e) {
+            console.error("[tech-clock] job_started notify non-fatal:", (e as Error).message);
+          }
+        }).catch(() => {});
+      }
     } else if (eventType === "clock_out" && job.status !== "complete") {
       await db
         .update(jobsTable)
@@ -511,6 +581,46 @@ async function handleClockEvent(
       // is internally non-fatal and skips if an invoice already exists).
       ensureInvoiceForCompletedJob(companyId, job.id, userId)
         .catch((e: Error) => console.error("[tech-clock invoice] non-fatal:", e));
+      // ── job_completed notification + satisfaction survey (non-blocking) ─
+      if (job.client_id) {
+        // [one-completion-email] Survey first (same trigger as the office path,
+        // jobs.ts PATCH); its response says whether the survey EMAIL reached the
+        // inbox. The thank-you email only goes when it didn't, so the customer
+        // gets exactly ONE email per visit. SMS unaffected.
+        const surveyPromise: Promise<any> = fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": req.headers.authorization || "" },
+          body: JSON.stringify({ job_id: job.id, customer_id: job.client_id }),
+        }).then(r => r.json()).catch((e: Error) => { console.error("[tech-clock] satisfaction survey trigger non-fatal:", e.message); return null; });
+        Promise.resolve().then(async () => {
+          try {
+            if (await isClientAccountCommsPaused(job.client_id!)) return;
+            const [cl] = await db.select({
+              email: clientsTable.email, phone: clientsTable.phone,
+              first_name: clientsTable.first_name,
+              address: clientsTable.address, city: clientsTable.city, state: clientsTable.state,
+            }).from(clientsTable).where(eq(clientsTable.id, job.client_id!)).limit(1);
+            if (!cl) return;
+            const [jobRow] = await db.select({ service_type: jobsTable.service_type })
+              .from(jobsTable).where(eq(jobsTable.id, job.id)).limit(1);
+            const addr = [cl.address, cl.city, cl.state].filter(Boolean).join(", ");
+            const mv = {
+              first_name: cl.first_name || "",
+              appointment_date: job.scheduled_date,
+              scope: labelServiceType((jobRow as any)?.service_type),
+              service_address: addr,
+            };
+            // Same preference-gate wiring as job_started above.
+            const survey = await surveyPromise;
+            if (!survey?.survey_email_sent) {
+              sendNotification("job_completed", "email", companyId, cl.email, null, mv, false, undefined, job.client_id!).catch(() => {});
+            }
+            sendNotification("job_completed", "sms", companyId, null, cl.phone, mv, false, undefined, job.client_id!).catch(() => {});
+          } catch (e) {
+            console.error("[tech-clock] job_completed notify non-fatal:", (e as Error).message);
+          }
+        }).catch(() => {});
+      }
     }
 
     return res.json({

@@ -3,10 +3,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
+import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { useToast } from "@/hooks/use-toast";
 import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { ChangePasswordModal } from "@/components/change-password-modal";
+import { NotificationBell } from "@/components/notification-bell";
+import { PushNudge } from "@/components/push-nudge";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
@@ -334,13 +337,81 @@ export type Job = {
   branch_name: string | null;
 };
 
+// [clock-tz 2026-07-07] timeclock.clock_in_at is stored as Chicago WALL-CLOCK
+// (every write in api routes/timeclock.ts goes through centralWallClock — the
+// office time-clock convention), but the API serializes it with a "Z" suffix.
+// Parsing that as UTC made "Time on job" run ahead by the UTC−Chicago offset —
+// Maribel: "that clock is always marking like 5 hours more" (CDT = UTC−5).
+// clockInstant() resolves the wall digits back to the real instant via the tz
+// database, so the elapsed math is correct year-round (CST/CDT included).
+const CLOCK_TZ = "America/Chicago";
+function wallDigitsAsUtcMs(instant: Date, tz: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(instant);
+  const g = (t: string) => parts.find(p => p.type === t)?.value ?? "00";
+  let hh = g("hour"); if (hh === "24") hh = "00";
+  return Date.parse(`${g("year")}-${g("month")}-${g("day")}T${hh}:${g("minute")}:${g("second")}Z`);
+}
+function clockInstant(ts: string): Date {
+  const wallAsUtc = new Date(ts).getTime(); // the stored wall digits, read as UTC
+  // Find the instant whose Chicago wall digits equal the stored digits. Two
+  // passes converge across DST transitions.
+  let inst = wallAsUtc;
+  for (let i = 0; i < 2; i++) inst = wallAsUtc - (wallDigitsAsUtcMs(new Date(inst), CLOCK_TZ) - inst);
+  return new Date(inst);
+}
+// The stored digits ARE the local time the tech tapped — show them verbatim.
+function wallTimeLabel(ts: string): string {
+  const m = /T(\d{2}):(\d{2})/.exec(ts);
+  if (!m) return "";
+  let h = parseInt(m[1], 10);
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${m[2]} ${ampm}`;
+}
+
 function ElapsedTimer({ clockInAt }: { clockInAt: string }) {
-  const [elapsed, setElapsed] = useState(Date.now() - new Date(clockInAt).getTime());
+  const [elapsed, setElapsed] = useState(Date.now() - clockInstant(clockInAt).getTime());
   useEffect(() => {
-    const id = setInterval(() => setElapsed(Date.now() - new Date(clockInAt).getTime()), 1000);
+    const id = setInterval(() => setElapsed(Date.now() - clockInstant(clockInAt).getTime()), 1000);
     return () => clearInterval(id);
   }, [clockInAt]);
-  return <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatDuration(elapsed)}</span>;
+  return <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatDuration(Math.max(0, elapsed))}</span>;
+}
+
+// [tech-clock-detail 2026-07-07] Francisco: cleaners should see the exact time
+// they clocked in AND the time remaining against the scheduled duration.
+// Budget = allowed_hours (the load-bearing budget), falling back to the
+// estimated_hours creation stamp. Green while under budget, amber once over.
+function ClockInfoRow({ clockInAt, budgetHours }: { clockInAt: string; budgetHours: number | null }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  const elapsedMs = Math.max(0, now - clockInstant(clockInAt).getTime());
+  const fmtHM = (ms: number) => {
+    const totalMin = Math.floor(ms / 60000);
+    const h = Math.floor(totalMin / 60), m = totalMin % 60;
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
+  let budgetPart: React.ReactNode = null;
+  if (budgetHours != null && budgetHours > 0) {
+    const remainingMs = budgetHours * 3600000 - elapsedMs;
+    const budgetLabel = `${Math.round(budgetHours * 10) / 10}h`;
+    budgetPart = remainingMs >= 0 ? (
+      <span style={{ color: "#166534", fontWeight: 600 }}>{fmtHM(remainingMs)} left of {budgetLabel}</span>
+    ) : (
+      <span style={{ color: "#B45309", fontWeight: 600 }}>{fmtHM(-remainingMs)} over the {budgetLabel} budget</span>
+    );
+  }
+  return (
+    <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 12px" }}>
+      Clocked in {wallTimeLabel(clockInAt)}{budgetPart ? <> · {budgetPart}</> : null}
+    </p>
+  );
 }
 
 function PhotoGrid({ jobId, type, photos, onUploaded }: {
@@ -363,10 +434,18 @@ function PhotoGrid({ jobId, type, photos, onUploaded }: {
       for (const file of files) {
         if (file.size > 10 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) { skipped++; continue; }
         try {
-          const data_url = await fileToBase64(file);
-          const res = await apiFetch(`/jobs/${jobId}/photos`, {
+          // [photos-r2 2026-06-24] Send the raw file as multipart (not base64
+          // JSON). The server streams it to R2. Using a direct fetch because
+          // apiFetch forces Content-Type: application/json — for FormData the
+          // browser must set its own multipart boundary.
+          const fd = new FormData();
+          fd.append("photo", file);
+          fd.append("photo_type", type);
+          const token = useAuthStore.getState().token;
+          const res = await fetch(`${BASE}/api/jobs/${jobId}/photos`, {
             method: "POST",
-            body: JSON.stringify({ photo_type: type, data_url }),
+            headers: { Authorization: `Bearer ${token}` },
+            body: fd,
           });
           if (!res.ok) { skipped++; continue; }
           ok++;
@@ -605,7 +684,10 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
   useEffect(() => { loadPhotos(); }, [loadPhotos]);
 
   const clockInMutation = useMutation({
-    mutationFn: async ({ lat, lng, accuracy, override_token }: { lat: number; lng: number; accuracy?: number; override_token?: string }) => {
+    // [clock-gps 2026-07-09] lat/lng optional — a punch may be recorded without
+    // GPS (weak signal / timeout) rather than blocking the tech. Backend accepts
+    // null coords and flags it "no GPS" for office review.
+    mutationFn: async ({ lat, lng, accuracy, override_token }: { lat?: number; lng?: number; accuracy?: number; override_token?: string }) => {
       const ts = new Date().toISOString();
       try {
         const res = await apiFetch("/timeclock/clock-in", {
@@ -659,7 +741,8 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
   });
 
   const clockOutMutation = useMutation({
-    mutationFn: async ({ lat, lng }: { lat: number; lng: number }) => {
+    // [clock-gps 2026-07-09] lat/lng optional — see clockInMutation.
+    mutationFn: async ({ lat, lng }: { lat?: number; lng?: number }) => {
       const ts = new Date().toISOString();
       try {
         const res = await apiFetch(`/timeclock/${entry!.id}/clock-out`, {
@@ -765,18 +848,44 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
     );
   };
 
-  const getLocation = (cb: (lat: number, lng: number, accuracy?: number) => void) => {
+  // [clock-gps 2026-07-09] Location must NEVER fully block a tech from punching.
+  // Previously ANY geolocation failure (permission denied, timeout, weak signal)
+  // showed "Please enable location in your browser settings" and refused to clock
+  // in/out — so a tech whose GPS merely timed out (indoors, low-power mode, older
+  // phone) was locked out and the office had to key her hours by hand. Now:
+  //   • only a real PERMISSION_DENIED (or a browser with no geolocation) shows the
+  //     "allow location" message and stops — the user must grant access;
+  //   • a timeout / position-unavailable proceeds WITHOUT coords. The backend
+  //     records a null-coord "no GPS" punch (flagged on the board + reconcile
+  //     screen for office review) — the same state the office already produces
+  //     when it clocks a tech in on their behalf.
+  // Options loosened too: accept a recent cached fix (maximumAge) so a punch
+  // doesn't force a fresh high-accuracy lock every time.
+  const getLocation = (cb: (lat?: number, lng?: number, accuracy?: number) => void) => {
+    if (!navigator.geolocation) {
+      // Browser can't share location at all — don't block; record without GPS.
+      toast({ title: "Clocking in without GPS", description: "This device can't share location. Your punch is recorded and flagged for the office." });
+      cb();
+      return;
+    }
     setGeoLoading(true);
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setGeoLoading(false);
         cb(pos.coords.latitude, pos.coords.longitude, pos.coords.accuracy);
       },
-      () => {
+      (err) => {
         setGeoLoading(false);
-        toast({ variant: "destructive", title: "Location access required", description: "Please enable location in your browser settings." });
+        if (err && err.code === err.PERMISSION_DENIED) {
+          // Genuine permission problem — the one case where the tech must act.
+          toast({ variant: "destructive", title: "Location access required", description: "Allow location for this site in your browser settings, then tap again." });
+          return;
+        }
+        // Timeout / position-unavailable — don't lock her out; punch without GPS.
+        toast({ title: "Couldn't get GPS — punching without location", description: "Recorded and flagged for the office. Step near a window to include GPS next time." });
+        cb();
       },
-      { enableHighAccuracy: true, timeout: 15000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
     );
   };
 
@@ -1040,6 +1149,16 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       <PhotoGrid jobId={job.id} type="before" photos={photosBefore} onUploaded={loadPhotos} />
       <PhotoGrid jobId={job.id} type="after" photos={photosAfter} onUploaded={loadPhotos} />
 
+      {/* [team-photo-notes] Pictures + notes for the team. Tech can attach to
+          this job, or tick sticky to pin to the customer for every visit. */}
+      <div style={{ marginTop: 12 }}>
+        <TeamPhotoNotes
+          jobId={job.id}
+          jobAccountId={job.account_id ?? null}
+          jobAccountPropertyId={job.account_property_id ?? null}
+        />
+      </div>
+
       {isClockedIn && photoGate && (
         <div style={{ backgroundColor: "#FEF3C7", borderLeft: "3px solid #F59E0B", borderRadius: "0 6px 6px 0", padding: "10px 12px", marginTop: 12 }}>
           <p style={{ fontSize: 12, color: "#92400E", margin: 0 }}>After photos required before clock-out</p>
@@ -1097,7 +1216,18 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
             <div style={{ fontSize: 36, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>
               <ElapsedTimer clockInAt={entry!.clock_in_at} />
             </div>
-            <p style={{ fontSize: 11, color: "#9E9B94", margin: "0 0 12px" }}>Time on job</p>
+            <p style={{ fontSize: 11, color: "#9E9B94", margin: "0 0 4px" }}>Time on job</p>
+            {/* Budget follows the card's labor-split convention: allowed_hours
+                is the TEAM-aggregated budget, so each tech's clock budget is
+                their share of it (a 6h job with 2 techs = 3h on the clock). */}
+            <ClockInfoRow
+              clockInAt={entry!.clock_in_at}
+              budgetHours={(() => {
+                const teamCount = job.team_count && job.team_count > 1 ? job.team_count : 1;
+                const raw = job.allowed_hours ?? job.estimated_hours;
+                return raw != null ? raw / teamCount : null;
+              })()}
+            />
             <button
               onClick={() => smsMutation.mutate(paused ? "resumed" : "paused")}
               disabled={smsMutation.isPending}
@@ -1400,9 +1530,9 @@ export default function MyJobsPage() {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
             {/* Tapping the logo/title returns the tech to today's main screen. */}
-            <button type="button" onClick={() => setSelectedDate(todayYmd)} aria-label="Back to today"
+            <button type="button" onClick={() => { setSelectedDate(todayYmd); setShowPay(false); }} aria-label="Back to today"
               style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", minWidth: 0 }}>
-              <QlenoMark size={24} />
+              <QlenoMark size={32} />
               <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", letterSpacing: "-0.01em" }}>My Jobs</span>
             </button>
             <WeatherChip lat={wxLat} lng={wxLng} />
@@ -1417,6 +1547,9 @@ export default function MyJobsPage() {
             <Link href="/training" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: '#FFFFFF', color: '#1A1917', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', textDecoration: 'none' }}>
               <GraduationCap size={13}/> Training
             </Link>
+            {/* [tech notifications 2026-06-25] Shared bell + inbox — same
+                component as the office shell, fed by the per-user inbox. */}
+            <NotificationBell />
             {/* Account menu — tap the avatar */}
             <div ref={acctRef} style={{ position: "relative" }}>
               <button onClick={() => setAcctOpen(o => !o)} aria-label="Account menu"
@@ -1501,6 +1634,10 @@ export default function MyJobsPage() {
             ›
           </button>
         </div>
+
+        {/* [push-nudge 2026-06-25] One-time CTA to enable lock-screen job
+            alerts; self-hides when already subscribed / dismissed. */}
+        <PushNudge />
 
         {/* [day-banner 2026-06-11] Qleno-Night day summary: Efficiency + Quality
             for the selected day, with a job-completion progress bar. */}
@@ -1595,7 +1732,7 @@ export default function MyJobsPage() {
                   style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 10, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#1A1917", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>
                   Check the next day ›
                 </button>
-                <button type="button" onClick={() => setShowPay(true)}
+                <button type="button" onClick={() => { setShowPay(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                   style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: "var(--brand, #00C9A0)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>
                   <DollarSign size={15} aria-hidden="true" /> View my pay
                 </button>

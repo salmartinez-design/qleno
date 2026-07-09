@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
@@ -6,7 +6,7 @@ import { EmployeeAvatar } from "@/components/employee-avatar";
 import { useListUsers } from "@workspace/api-client-react";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
-import { Plus, Search, Mail, ExternalLink, Check, Eye } from "lucide-react";
+import { Plus, Search, Mail, ExternalLink, Check, Eye, Copy } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -18,6 +18,7 @@ const ROLE_BADGES: Record<string, React.CSSProperties> = {
   office:      { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
   team_lead:   { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
   super_admin: { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
+  accountant:  { background: '#F0FAF7', color: '#0A5A48', border: '1px solid #B8EBDF' },
 };
 
 function ProductivityRing({ pct }: { pct: number }) {
@@ -47,21 +48,26 @@ export default function EmployeesPage() {
   const [search, setSearch] = useState('');
   const [inviteModal, setInviteModal] = useState(false);
   const isOwner = getTokenRole() === 'owner';
-  // [office-perms 2026-06-17] Who can act on (view-as / manage) a given row.
-  // Mirrors the backend guards: owner → any non-owner; admin → non-admins;
-  // office → technicians/team_leads only (never a peer or the owner).
+  // [office-admin-parity 2026-06-26] Who can act on (view-as / manage) a given
+  // row. Mirrors the backend guards: owner → any non-owner; office is elevated
+  // to the same → any non-owner; admin → non-admins. The owner row is never
+  // actionable by anyone but the owner.
   const myRole = getTokenRole() || '';
   const canActOn = (u: any) => {
     if (u.role === 'owner') return false;
     if (myRole === 'owner') return true;
+    if (myRole === 'office') return true;
     if (myRole === 'admin') return u.role !== 'admin';
-    if (myRole === 'office') return u.role === 'technician' || u.role === 'team_lead';
     return false;
   };
   const { activateView } = useEmployeeView();
   const [sendingInvite, setSendingInvite] = useState<number | null>(null);
   const [inviteSent, setInviteSent] = useState<number | null>(null);
   const [inviteToast, setInviteToast] = useState('');
+  // After "Send Invite", surface the copyable accept-invite link so the owner
+  // can hand it over even if the email doesn't arrive.
+  const [inviteLink, setInviteLink] = useState<{ url: string; email: string; emailed: boolean } | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
   const [addModal, setAddModal] = useState(false);
   const [newEmp, setNewEmp] = useState({ first_name: '', last_name: '', email: '', role: 'technician', pay_type: 'hourly', pay_rate: '' });
   const [creating, setCreating] = useState(false);
@@ -108,7 +114,9 @@ export default function EmployeesPage() {
       const d = await r.json();
       if (d.success) {
         setInviteSent(userId);
-        showToast(`Invitation sent to ${d.invite_sent_to}`);
+        setLinkCopied(false);
+        // Always show the copyable link; note whether the email also went out.
+        setInviteLink({ url: d.invite_url, email: d.invite_sent_to, emailed: !!d.email_sent });
       } else {
         showToast('Failed to send invite');
       }
@@ -116,13 +124,26 @@ export default function EmployeesPage() {
     setSendingInvite(null);
   }
 
+  async function copyInviteLink() {
+    if (!inviteLink) return;
+    try {
+      await navigator.clipboard.writeText(inviteLink.url);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch { /* clipboard blocked — the link stays visible for manual copy */ }
+  }
+
   async function createEmployee() {
     setCreating(true);
     try {
+      // Omit pay for a view-only accountant — not a paid employee.
+      const payload = newEmp.role === 'accountant'
+        ? { first_name: newEmp.first_name, last_name: newEmp.last_name, email: newEmp.email, role: newEmp.role }
+        : newEmp;
       const r = await fetch(`${API}/api/users`, {
         method: 'POST',
         headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
-        body: JSON.stringify(newEmp),
+        body: JSON.stringify(payload),
       });
       if (r.ok) {
         setAddModal(false);
@@ -275,8 +296,10 @@ export default function EmployeesPage() {
                       </div>
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'center' }}>
-                      {(user as any).scorecard_pct != null ? (
-                        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--brand)' }}>{Math.round(parseFloat((user as any).scorecard_pct))}%</span>
+                      {/* [90d-composite] Show the rolling composite headline; fall
+                          back to the satisfaction-only % until the composite computes. */}
+                      {((user as any).scorecard_composite_90d ?? (user as any).scorecard_pct) != null ? (
+                        <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--brand)' }}>{Math.round(parseFloat((user as any).scorecard_composite_90d ?? (user as any).scorecard_pct))}%</span>
                       ) : (
                         <span style={{ fontSize: '13px', color: '#9E9B94' }}>—</span>
                       )}
@@ -326,6 +349,9 @@ export default function EmployeesPage() {
           </table>
         </div>
         )}{/* end desktop table ternary */}
+
+        {/* Time off & leave requests — pending requests the office acts on */}
+        <TimeOffRequestsSection />
       </div>
 
       {/* Add Team Member Modal */}
@@ -357,6 +383,7 @@ export default function EmployeesPage() {
                   <option value="technician">Technician</option>
                   <option value="office">Office</option>
                   <option value="admin">Admin</option>
+                  <option value="accountant">Accountant (View-only)</option>
                 </select>
               </div>
               <div>
@@ -386,6 +413,34 @@ export default function EmployeesPage() {
         </div>
       )}
 
+      {/* Invite link — copyable accept-invite URL surfaced after Send Invite */}
+      {inviteLink && (
+        <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:2500 }} onClick={() => setInviteLink(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:520,maxWidth:'92vw',boxShadow:'0 20px 60px rgba(0,0,0,0.25)' }}>
+            <h3 style={{ margin:'0 0 6px 0',fontSize:16,fontWeight:700,color:'#1A1917' }}>Invite ready for {inviteLink.email}</h3>
+            <p style={{ margin:'0 0 16px 0',fontSize:13,color:'#6B6860',lineHeight:1.5 }}>
+              {inviteLink.emailed
+                ? 'We emailed the accept link. You can also copy it below to share directly.'
+                : 'Email could not be sent — copy this link and share it directly. It lets them set a password and sign in.'}
+            </p>
+            <div style={{ display:'flex',gap:8,alignItems:'stretch' }}>
+              <input readOnly value={inviteLink.url}
+                onFocus={e => e.currentTarget.select()}
+                style={{ flex:1,minWidth:0,height:40,padding:'0 12px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12.5,color:'#1A1917',background:'#FAFAF8',fontFamily:'monospace' }}/>
+              <button onClick={copyInviteLink}
+                style={{ display:'flex',alignItems:'center',gap:6,padding:'0 16px',background:linkCopied?'#0A5A48':'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap' }}>
+                {linkCopied ? <><Check size={14}/> Copied</> : <><Copy size={14}/> Copy link</>}
+              </button>
+            </div>
+            <p style={{ margin:'14px 0 0 0',fontSize:11.5,color:'#9E9B94' }}>This link expires in 7 days.</p>
+            <div style={{ display:'flex',justifyContent:'flex-end',marginTop:20 }}>
+              <button onClick={() => setInviteLink(null)}
+                style={{ padding:'8px 18px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit',color:'#6B7280' }}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast */}
       {inviteToast && (
         <div style={{ position:'fixed',bottom:24,right:24,background:'#1A1917',color:'#FFFFFF',padding:'12px 20px',borderRadius:10,fontSize:13,fontWeight:600,zIndex:2000,boxShadow:'0 8px 24px rgba(0,0,0,0.2)' }}>
@@ -393,5 +448,113 @@ export default function EmployeesPage() {
         </div>
       )}
     </DashboardLayout>
+  );
+}
+
+// [time-off-ticket 2026-06-22] Office "Time off & leave requests" section at the
+// bottom of the Employees page. Lists pending requests; the office approves or
+// declines inline. Profile-photo avatars (EmployeeAvatar falls back to initials).
+// [Phase 3] Bucket chip colors are tenant-dynamic: the /leave/requests API
+// returns bucket_tint + bucket_on_tint (resolved from leave_types.display_config).
+function unitLabel(u: string) {
+  return u === 'morning' ? 'Morning' : u === 'afternoon' ? 'Afternoon' : 'Full day';
+}
+function dateLabel(r: any) {
+  const range = r.start_date === r.end_date ? r.start_date : `${r.start_date} – ${r.end_date}`;
+  return `${range} · ${unitLabel(r.day_unit)}`;
+}
+
+function TimeOffRequestsSection() {
+  const role = getTokenRole();
+  const canAct = role === 'owner' || role === 'admin' || role === 'office';
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const [flash, setFlash] = useState(false);
+
+  // [employee-bell fix 2026-06-23] The top-bar staff bell focuses this section.
+  // Two entry paths:
+  //   navigate-in → one-shot sessionStorage flag, read on mount; this effect
+  //     scrolls the section in (the scroll parent is <main>, overflow:auto, NOT
+  //     window — scrollIntoView bubbles to it correctly).
+  //   already-on-page → the bell scrolled the section directly via its id, then
+  //     fired 'qleno:focus-timeoff'; here we only flash the highlight.
+  useEffect(() => {
+    const flash = () => { setFlash(true); window.setTimeout(() => setFlash(false), 1600); };
+    let t: number | undefined;
+    try {
+      if (sessionStorage.getItem('qlenoFocusTimeOff')) {
+        sessionStorage.removeItem('qlenoFocusTimeOff');
+        // 350ms lets layout settle after the route change before we scroll.
+        t = window.setTimeout(() => {
+          sectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          flash();
+        }, 350);
+      }
+    } catch { /* private mode */ }
+    const onEvt = () => flash();
+    window.addEventListener('qleno:focus-timeoff', onEvt);
+    return () => { window.removeEventListener('qleno:focus-timeoff', onEvt); if (t) window.clearTimeout(t); };
+  }, []);
+
+  async function load() {
+    try {
+      const r = await fetch(`${API}/api/leave/requests?status=pending`, { headers: getAuthHeaders() as any });
+      const d = await r.json();
+      setRows(d?.data ?? []);
+    } catch { /* leave the list empty on error */ }
+    finally { setLoading(false); }
+  }
+  useEffect(() => { if (canAct) load(); else setLoading(false); }, []);
+
+  async function act(id: number, action: 'approve' | 'deny') {
+    setBusyId(id);
+    try {
+      await fetch(`${API}/api/leave/requests/${id}/${action}`, { method: 'POST', headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' } as any, body: '{}' });
+      setRows(prev => prev.filter(x => x.id !== id));
+    } catch { /* keep row on failure */ }
+    finally { setBusyId(null); }
+  }
+
+  if (!canAct) return null;
+
+  return (
+    <div ref={sectionRef} id="timeoff-requests-section" style={{ marginTop: 28, scrollMarginTop: 80, borderRadius: 12, transition: 'box-shadow 0.4s ease', boxShadow: flash ? '0 0 0 3px rgba(0,201,160,0.65)' : 'none' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#1A1917' }}>Time off &amp; leave requests</h2>
+        {rows.length > 0 && (
+          <span style={{ fontSize: 11, fontWeight: 800, color: '#FFFFFF', background: '#0A0E1A', borderRadius: 999, padding: '2px 9px' }}>{rows.length} pending</span>
+        )}
+      </div>
+      <div style={{ background: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: 10, overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ padding: 24, color: '#9E9B94', fontSize: 13 }}>Loading…</div>
+        ) : rows.length === 0 ? (
+          <div style={{ padding: 24, color: '#9E9B94', fontSize: 13 }}>No pending time-off requests.</div>
+        ) : rows.map((r, i) => {
+          const c = { bg: r.bucket_tint || '#F4F3F0', fg: r.bucket_on_tint || '#6B6860' };
+          return (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+              <EmployeeAvatar name={`${r.first_name ?? ''} ${r.last_name ?? ''}`} avatarUrl={r.avatar_url} size={36} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1917' }}>{r.first_name} {r.last_name}</div>
+                <div style={{ fontSize: 12, color: '#6B6860' }}>{dateLabel(r)}</div>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', borderRadius: 999, padding: '3px 9px', background: c.bg, color: c.fg, whiteSpace: 'nowrap' }}>{r.bucket_name}</span>
+              {r.attachment_url ? (
+                <a href={r.attachment_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 600, color: '#00876B', textDecoration: 'none', whiteSpace: 'nowrap' }}>Dr. note</a>
+              ) : (
+                <span style={{ fontSize: 11, color: '#C9C6BF', whiteSpace: 'nowrap' }}>no file</span>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button disabled={busyId === r.id} onClick={() => act(r.id, 'approve')} style={{ fontSize: 12, fontWeight: 700, color: '#04241d', background: '#00C9A0', border: '1px solid #00C9A0', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1 }}>Approve</button>
+                <button disabled={busyId === r.id} onClick={() => act(r.id, 'deny')} style={{ fontSize: 12, fontWeight: 700, color: '#6B6860', background: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1 }}>Decline</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }

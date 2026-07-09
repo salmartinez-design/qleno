@@ -11,10 +11,12 @@ import {
   ArrowLeft, Camera, Plus, X, ChevronLeft, ChevronRight,
   Star, Save, Trash2, Edit2, Check, AlertCircle, Mail, Phone, Eye,
   Ban, ChevronDown, ChevronUp, DollarSign, Clock, TrendingUp, Download, Users,
+  RotateCcw,
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { HRAttendanceTab, LeaveBalanceTab, DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
+import { parseLeaveNote, leaveBucketLabel, KIND_TONE_STYLE } from "@/lib/leave-note-format";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -38,6 +40,7 @@ const ROLE_BADGES: Record<string, React.CSSProperties> = {
   office:     { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
   team_lead:  { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
   super_admin:{ background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
+  accountant: { background: '#F0FAF7', color: '#0A5A48', border: '1px solid #B8EBDF' },
 };
 
 const PAY_TYPE_COLORS: Record<string, { bg: string; color: string }> = {
@@ -58,6 +61,7 @@ const TICKET_TYPE_STYLES: Record<string, { bg: string; color: string; label: str
   compliment:             { bg: '#DCFCE7', color: '#166534', label: 'Compliment' },
   incident:               { bg: '#FEE2E2', color: '#991B1B', label: 'Incident' },
   note:                   { bg: '#F3F4F6', color: '#6B7280', label: 'Note' },
+  time_off_request:       { bg: '#E0F2FE', color: '#075985', label: 'Time-Off Request' },
 };
 
 const SCORE_LABELS = ['', 'Poor', 'Fair', 'Good', 'Excellent'];
@@ -68,11 +72,69 @@ const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6 };
 const TABS = [
   'Information','Pay','Earnings','Attendance','Availability',
-  'User Account','Contacts','Scorecards','Pay Configuration','Additional Pay',
+  'User Account','Contacts','Performance Score','Pay Configuration','Additional Pay',
   'Payroll History',
   'Contact Tickets','Jobs','Notes','Incentives',
   'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
 ];
+
+// [Phase 1] Leave bucket display helpers. NOTE: this slug→color map is
+// intentionally local + temporary — Phase 3 centralizes bucket config so it's
+// tenant-dynamic (driven off leave_types), retiring this and the other
+// hardcoded bucket maps. The tag mirrors the "/<bucket>" usage-note convention.
+function leaveBucketTag(slug: string): string {
+  const s = (slug || '').toLowerCase();
+  if (s.includes('plawa') || s.includes('sick')) return '/plawa';
+  if (s.includes('pto')) return '/pto';
+  if (s.includes('unpaid')) return '/unpaid';
+  if (s.includes('unexcused')) return '/unexcused';
+  return '/' + s;
+}
+// Dispatch-board-consistent accent palette. White card + colored left bar /
+// dot / label / number in this accent. (Phase 3 will source these per-tenant.)
+// [Phase 3] Bucket accent/label are tenant-dynamic — resolved server-side from
+// leave_types.display_config and delivered on each balance row (b.accent,
+// b.chip_label). The chips look these up via a slug→display map built from the
+// balances response (see bucketDisplayMap). Unknown slugs get a neutral accent.
+type BucketDisp = { accent: string; label: string };
+const NEUTRAL_ACCENT = '#374151';
+const LEAVE_LOW = '#BA7517';  // amber — running low
+const LEAVE_OUT = '#E24B4A';  // red — exhausted / step crossed
+// Days until a YYYY-MM-DD date (UTC), and a "Mon DD" label.
+function daysUntilYmd(ymd: string): number {
+  const t = new Date(`${ymd}T00:00:00Z`).getTime();
+  const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime();
+  return Math.round((t - today) / 86400000);
+}
+function shortDate(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
+}
+
+// [Phase 4] Render a leave/attendance note as clean chips: a colored bucket
+// chip + a status/kind chip + the human remainder. Presentation-only — parses
+// both [MC import] and app-approved formats; falls back to plain text.
+function NoteChips({ note, bucketMap }: { note: string | null | undefined; bucketMap?: Record<string, BucketDisp> }) {
+  const p = parseLeaveNote(note);
+  if (!p.bucketSlug && !p.kind && !p.clean) {
+    return <span style={{ fontSize: 12, color: '#9E9B94' }}>—</span>;
+  }
+  const toneStyle = KIND_TONE_STYLE[p.kindTone];
+  const disp = p.bucketSlug ? bucketMap?.[p.bucketSlug] : undefined;
+  const chipAccent = disp?.accent || NEUTRAL_ACCENT;
+  const chipLabel = disp?.label || leaveBucketLabel(p.bucketSlug);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+      {p.bucketSlug && (
+        <span style={{ fontSize: 10.5, fontWeight: 700, color: chipAccent, background: '#FFFFFF', border: `1px solid ${chipAccent}`, borderRadius: 99, padding: '1px 7px', whiteSpace: 'nowrap' }}>{chipLabel}</span>
+      )}
+      {p.kind && (
+        <span style={{ fontSize: 10.5, fontWeight: 600, color: toneStyle.fg, background: toneStyle.bg, borderRadius: 99, padding: '1px 7px', whiteSpace: 'nowrap' }}>{p.kind}</span>
+      )}
+      {p.clean && <span style={{ fontSize: 12, color: '#6B6860' }}>{p.clean}</span>}
+    </div>
+  );
+}
 
 const PAY_GROUPS: { label: string; types: string[] }[] = [
   { label: 'Earnings',    types: ['bonus', 'tips', 'mileage'] },
@@ -244,6 +306,46 @@ function AttendanceCalendar({ userId }: { userId: number }) {
     queryKey: ['timeclock', userId, from, to],
     queryFn: () => apiFetch(`/timeclock?user_id=${userId}&date_from=${from}&date_to=${to}`),
   });
+  // [calendar 2026-07-07] The legend promised PTO / Time Off / Unexcused but
+  // only Worked days were painted (timeclock was the sole source). Pull the
+  // month's attendance-log rows (unexcused absences) + the usage ledger
+  // (PTO / PLAWA / unpaid, bucket in the note tag) so every category renders.
+  const { data: attLogData } = useQuery({
+    queryKey: ['att-log', userId, from, to],
+    queryFn: () => apiFetch(`/leave/attendance-log?userId=${userId}&from=${from}&to=${to}`),
+  });
+  const { data: calUsageData } = useQuery({
+    queryKey: ['leave-usage', userId],
+    queryFn: () => apiFetch(`/leave/usage?userId=${userId}`),
+  });
+  // [bucket-colors 2026-07-07] The calendar's day colors and legend now come
+  // from the TENANT'S bucket display config — the same accents the bucket
+  // cards wear (Sal: "the buckets need to match in color and cascade over to
+  // the calendar"). Shares the tab's query key, so no extra fetch.
+  const { data: calBalancesResp } = useQuery({
+    queryKey: ['leave-balances', userId],
+    queryFn: () => apiFetch(`/leave/balances?userId=${userId}`),
+  });
+  const calBuckets: any[] = calBalancesResp?.data || [];
+  // Derive the day tint from the bucket's ACCENT (the color its card wears),
+  // not display_config.tint — the legacy tints don't all match their accents
+  // (PLAWA: blue accent, amber chip tint), which is the very mismatch Sal
+  // flagged. accent + '22' = ~13% alpha wash of the same hue.
+  const bucketStyle = (slugPart: string) => {
+    const b = calBuckets.find((x: any) => String(x.slug || '').toLowerCase().includes(slugPart));
+    if (!b) return null;
+    const accent = b.accent || '#374151';
+    // display_name first — the legend must read like the bucket cards
+    // (chip_label "Sick" vs card "PLAWA" was a naming mismatch Sal flagged).
+    return { bg: `${accent}2E`, ink: accent, label: b.display_name || b.chip_label };
+  };
+  const styles = {
+    unexcused: bucketStyle('unexcused') ?? { bg:'#FEE2E2', ink:'#991B1B', label:'Unexcused' },
+    pto: bucketStyle('pto') ?? { bg:'#DBEAFE', ink:'#1E40AF', label:'PTO' },
+    plawa: bucketStyle('plawa') ?? { bg:'#FEF3C7', ink:'#92400E', label:'PLAWA' },
+    unpaid: bucketStyle('unpaid') ?? { bg:'#FEF3C7', ink:'#92400E', label:'Unpaid' },
+    worked: { bg:'#DCFCE7', ink:'#166534', label:'Worked' },
+  };
 
   const clockMap: Record<string, { in: string; out: string }> = {};
   for (const entry of (clockData?.data || [])) {
@@ -253,6 +355,23 @@ function AttendanceCalendar({ userId }: { userId: number }) {
       const tout = entry.clocked_out_at ? new Date(entry.clocked_out_at).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' }) : '';
       clockMap[d] = { in: tin, out: tout };
     }
+  }
+  // Day → bucket. Priority when a day carries several signals:
+  // unexcused > PTO > PLAWA > unpaid; Worked is the base.
+  const unexDays = new Set<string>();
+  for (const r of (attLogData?.data || [])) {
+    if (r.type === 'absent' && !r.is_protected) unexDays.add(String(r.log_date).slice(0, 10));
+  }
+  const ptoDays = new Set<string>();
+  const plawaDays = new Set<string>();
+  const unpaidDays = new Set<string>();
+  for (const u of (calUsageData?.data || [])) {
+    const d = String(u.date_used).slice(0, 10);
+    if (d < from || d > to) continue;
+    const note = String(u.notes || '').toLowerCase();
+    if (note.includes('/pto')) ptoDays.add(d);
+    else if (note.includes('/plawa')) plawaDays.add(d);
+    else if (note.includes('/unpaid')) unpaidDays.add(d);
   }
 
   const firstDow = new Date(year, month, 1).getDay();
@@ -278,16 +397,14 @@ function AttendanceCalendar({ userId }: { userId: number }) {
         </button>
       </div>
 
-      <div style={{ display:'flex', gap:8, flexWrap:'wrap', marginBottom:12 }}>
-        {[
-          { label:'Worked', bg:'#DCFCE7', color:'#166534' },
-          { label:'PTO', bg:'#DBEAFE', color:'#1E40AF' },
-          { label:'Time Off', bg:'#FEF3C7', color:'#92400E' },
-          { label:'Unexcused', bg:'#FEE2E2', color:'#991B1B' },
-        ].map(l => (
-          <div key={l.label} style={{ display:'flex',alignItems:'center',gap:5 }}>
-            <div style={{ width:10,height:10,borderRadius:2,background:l.bg,border:`1px solid ${l.color}20` }}/>
-            <span style={{ fontSize:11,color:'#6B7280' }}>{l.label}</span>
+      {/* Legend mirrors the bucket card headers — solid accent dot + bold
+          accent label (the pale-wash swatches with gray text were unreadable
+          and didn't visually connect to the cards). */}
+      <div style={{ display:'flex', gap:14, flexWrap:'wrap', marginBottom:12, alignItems:'center' }}>
+        {[styles.worked, styles.pto, styles.plawa, styles.unpaid, styles.unexcused].map(l => (
+          <div key={l.label} style={{ display:'flex',alignItems:'center',gap:6 }}>
+            <span style={{ width:10,height:10,borderRadius:'50%',background:l.ink,flexShrink:0 }}/>
+            <span style={{ fontSize:11.5,fontWeight:700,color:l.ink,textTransform:'uppercase',letterSpacing:'0.03em' }}>{l.label}</span>
           </div>
         ))}
       </div>
@@ -304,17 +421,31 @@ function AttendanceCalendar({ userId }: { userId: number }) {
           const key  = `${year}-${String(month+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
           const worked = clockMap[key];
           const today  = new Date().toISOString().slice(0,10) === key;
+          const cat = unexDays.has(key)
+            ? styles.unexcused
+            : ptoDays.has(key)
+            ? styles.pto
+            : plawaDays.has(key)
+            ? styles.plawa
+            : unpaidDays.has(key)
+            ? styles.unpaid
+            : worked
+            ? { ...styles.worked, label: null as string | null }
+            : { bg:'#FFFFFF', ink:'#9E9B94', label: null as string | null };
           return (
             <div key={key} style={{
-              background: worked ? '#DCFCE7' : '#FFFFFF',
+              background: cat.bg,
               minHeight: isMobile ? 40 : 64, padding: isMobile ? '4px 3px' : '6px 8px', position:'relative',
               outline: today ? '2px solid var(--brand)' : 'none',
               outlineOffset:'-1px',
             }}>
-              <span style={{ fontSize: isMobile ? 9 : 11,fontWeight: today ? 700 : 500, color: worked ? '#166534' : '#9E9B94' }}>{day}</span>
+              <span style={{ fontSize: isMobile ? 9 : 11,fontWeight: today ? 700 : 500, color: cat.ink }}>{day}</span>
+              {cat.label && !isMobile && (
+                <p style={{ fontSize:9,color:cat.ink,margin:'2px 0 0 0',fontWeight:700 }}>{cat.label}</p>
+              )}
               {worked && (
                 <div style={{ marginTop:2 }}>
-                  <p style={{ fontSize:9,color:'#166534',margin:0,fontWeight:600 }}>{worked.in}</p>
+                  <p style={{ fontSize:9,color:cat.ink,margin:0,fontWeight:600 }}>{worked.in}</p>
                   {worked.out && <p style={{ fontSize:9,color:'#6B7280',margin:0 }}>{worked.out}</p>}
                 </div>
               )}
@@ -515,11 +646,342 @@ export default function EmployeeProfilePage() {
     queryFn: () => apiFetch(`/users/${userId}`),
   });
 
+  // [reactivate 2026-07-01] Un-archive an archived employee. An archived tech
+  // (archived_at set) is off the active roster even though is_active=true —
+  // this clears archived_at via the restore endpoint so they return to
+  // dispatch, the time clock, payroll, and pickers.
+  const [restoring, setRestoring] = useState(false);
+  const reactivateEmployee = async () => {
+    setRestoring(true);
+    try {
+      await apiFetch(`/users/${userId}/lms-restore`, { method: 'POST' });
+      await refetchUser();
+      qc.invalidateQueries({ queryKey: ['users'] });
+      showToast('Employee reactivated');
+    } catch (e: any) {
+      showToast(e?.message || 'Reactivate failed');
+    } finally {
+      setRestoring(false);
+    }
+  };
+
+  // [terminate 2026-07-01] HR separation flow. Records reason + dates, marks the
+  // employee inactive, and archives them so they drop off the active roster.
+  // Reversible via the Reactivate button (lms-restore clears it all).
+  const TERMINATION_REASON_OPTIONS = [
+    { value: 'resigned',        label: 'Resigned (voluntary)' },
+    { value: 'job_abandonment', label: 'Job abandonment / no-call-no-show' },
+    { value: 'performance',     label: 'Terminated – performance' },
+    { value: 'misconduct',      label: 'Terminated – misconduct / policy' },
+    { value: 'laid_off',        label: 'Laid off' },
+    { value: 'end_of_season',   label: 'End of season / contract' },
+    { value: 'other',           label: 'Other' },
+  ];
+  const reasonLabel = (v?: string | null) =>
+    TERMINATION_REASON_OPTIONS.find(o => o.value === v)?.label ?? (v || '');
+  const [termOpen, setTermOpen] = useState(false);
+  const [termReason, setTermReason] = useState('');
+  const [termDate, setTermDate] = useState('');
+  const [termLastDay, setTermLastDay] = useState('');
+  const [termRehire, setTermRehire] = useState<'' | 'yes' | 'no'>('');
+  const [terminating, setTerminating] = useState(false);
+  const submitTermination = async () => {
+    if (!termReason) { showToast('Pick a reason'); return; }
+    if (!termDate) { showToast('Pick a termination date'); return; }
+    setTerminating(true);
+    try {
+      await apiFetch(`/users/${userId}/terminate`, {
+        method: 'POST',
+        body: JSON.stringify({
+          termination_date: termDate,
+          last_day_worked: termLastDay || null,
+          termination_reason: termReason,
+          rehire_eligible: termRehire === '' ? null : termRehire === 'yes',
+        }),
+      });
+      await refetchUser();
+      qc.invalidateQueries({ queryKey: ['users'] });
+      setTermOpen(false);
+      showToast('Employee terminated');
+    } catch (e: any) {
+      showToast(e?.message || 'Terminate failed');
+    } finally {
+      setTerminating(false);
+    }
+  };
+
   const { data: availabilityData } = useQuery({
     queryKey: ['availability', userId],
     queryFn: () => apiFetch(`/users/${userId}/availability`),
     enabled: activeTab === 'Availability',
   });
+
+  // [profile-attendance-real-balances 2026-06-24 · Phase 1] Data-driven leave
+  // cards: one per active tenant bucket from the real 3A balances endpoint
+  // (same source as the Leave Balance tab). Usage history comes from the new
+  // /leave/usage feed (the deprecated /hr-leave/balance/:id is retired here).
+  // The bucket of each usage row lives in its note tag ("…/pto","…/plawa",…).
+  const [historyBucket, setHistoryBucket] =
+    useState<null | { slug: string; display_name: string; leave_type_id?: number; office_recorded?: boolean }>(null);
+
+  // [attendance-record 2026-06-25] Office record form for an unexcused absence
+  // or a tardy, with a reason. Posts to /leave/unexcused/record (type
+  // 'absent'|'tardy'); the server stores the reason behind the
+  // "unexcused hours: X (reason)" marker and drives the occurrence ladder
+  // live (real-time entries DO fire the ladder — unlike the historical backfill).
+  const [recordModal, setRecordModal] =
+    useState<null | { type: 'absent' | 'tardy'; title: string; accent: string }>(null);
+  const [recDate, setRecDate] = useState('');
+  const [recHours, setRecHours] = useState('');
+  const [recReason, setRecReason] = useState('');
+  // [time-block 2026-07-08] Optional window the absence covers (Jose worked
+  // his morning job, called off 2-6 PM). Blank = whole day. Display-only —
+  // the occurrence still counts fully for discipline; the dispatch board
+  // tints just this window.
+  const [recStart, setRecStart] = useState('');
+  const [recEnd, setRecEnd] = useState('');
+  const [recBusy, setRecBusy] = useState(false);
+  const [recErr, setRecErr] = useState<string | null>(null);
+  const openRecord = (type: 'absent' | 'tardy', accent: string) => {
+    setRecDate(new Date().toISOString().slice(0, 10));
+    setRecHours(''); setRecReason(''); setRecStart(''); setRecEnd(''); setRecErr(null);
+    setRecordModal({ type, accent, title: type === 'tardy' ? 'Record tardy' : 'Record unexcused absence' });
+  };
+  const submitRecord = async () => {
+    setRecErr(null);
+    const hrs = Number(recHours);
+    if (!recDate) { setRecErr('Pick a date'); return; }
+    if (!Number.isFinite(hrs) || hrs <= 0) { setRecErr('Hours must be a positive number'); return; }
+    if ((recStart && !recEnd) || (!recStart && recEnd)) { setRecErr('Set both times for the block, or leave both blank for the whole day'); return; }
+    if (recStart && recEnd && recStart >= recEnd) { setRecErr('The block start must be before its end'); return; }
+    setRecBusy(true);
+    try {
+      await apiFetch('/leave/unexcused/record', {
+        method: 'POST',
+        body: JSON.stringify({
+          employee_id: Number(userId),
+          log_date: recDate,
+          hours: hrs,
+          type: recordModal!.type,
+          notes: recReason.trim() || undefined,
+          start_time: recStart || undefined,
+          end_time: recEnd || undefined,
+        }),
+      });
+      qc.invalidateQueries({ queryKey: ['attendance-summary', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+      setRecordModal(null);
+    } catch (e: any) {
+      setRecErr(e?.message || 'Could not record — try again');
+    } finally {
+      setRecBusy(false);
+    }
+  };
+  // [mc-migration 2026-07-07] Balance editor — the "Update" button on accrual
+  // buckets (PTO / PLAWA / Unpaid Leave) was a dead no-op. It now opens this
+  // editor and persists via PUT /leave/balances (same office-tier gate as
+  // the API), then refetches the buckets.
+  // [deduct-mode 2026-07-07] Two modes. "Deduct hours" (DEFAULT) is the
+  // everyday workflow — one field, adds to Used, Granted untouched. "Set
+  // totals" is the migration/correction tool with the raw Granted/Used
+  // fields. The totals-only modal caused a real mistake within hours of
+  // shipping: Sal typed the hours-to-deduct (4) into GRANTED and crushed
+  // Hilda's 40-hour bank down to 4/4.
+  const [balModal, setBalModal] =
+    useState<null | { leave_type_id: number; display_name: string; accent: string; granted: number; used: number }>(null);
+  // [undo 2026-07-07] 'add' returns hours to the bucket (Sal: "what if I add
+  // 4 hours to the wrong bucket — I can't fix it").
+  const [balMode, setBalMode] = useState<'deduct' | 'add' | 'set'>('deduct');
+  const [balDeduct, setBalDeduct] = useState('');
+  const [balDate, setBalDate] = useState('');
+  // [time-block 2026-07-08] Optional window the deduction covers ("2-6 PM
+  // off"). Blank = whole day. The dispatch board tints just this window.
+  const [balStart, setBalStart] = useState('');
+  const [balEnd, setBalEnd] = useState('');
+  const [balGranted, setBalGranted] = useState('');
+  const [balUsed, setBalUsed] = useState('');
+  const [balReason, setBalReason] = useState('');
+  const [balBusy, setBalBusy] = useState(false);
+  const [balErr, setBalErr] = useState<string | null>(null);
+  // [office-parity 2026-07-07] office included — Maribel/Francisco approve
+  // requests and correct balances day-to-day (API gate widened to match).
+  const canEditBalance = ['owner', 'admin', 'office', 'super_admin'].includes(getTokenRole() || '');
+  const openBalanceEdit = (b: any) => {
+    setBalGranted(String(Number(b.granted || 0)));
+    setBalUsed(String(Number(b.used || 0)));
+    setBalDeduct('');
+    setBalDate(new Date().toISOString().slice(0, 10));
+    setBalStart(''); setBalEnd('');
+    setBalReason('');
+    setBalMode('deduct');
+    setBalErr(null);
+    setBalModal({
+      leave_type_id: b.leave_type_id, display_name: b.display_name,
+      accent: b.accent || NEUTRAL_ACCENT,
+      granted: Number(b.granted || 0), used: Number(b.used || 0),
+    });
+  };
+  const submitBalanceEdit = async () => {
+    setBalErr(null);
+    let granted: number;
+    let used: number;
+    if (balMode === 'deduct') {
+      // [cascade 2026-07-07] A deduction is a dated event, not a bare number
+      // change — POST /leave/usage writes the ledger row the calendar, View
+      // History, and balances all read, so the deduction shows up everywhere.
+      const hrs = Number(balDeduct);
+      if (balDeduct.trim() === '' || !Number.isFinite(hrs) || hrs <= 0) { setBalErr('Hours to deduct must be more than 0'); return; }
+      if (!balDate) { setBalErr('Pick the date the hours were taken'); return; }
+      if ((balStart && !balEnd) || (!balStart && balEnd)) { setBalErr('Set both times for the block, or leave both blank for the whole day'); return; }
+      if (balStart && balEnd && balStart >= balEnd) { setBalErr('The block start must be before its end'); return; }
+      setBalBusy(true);
+      try {
+        await apiFetch('/leave/usage', {
+          method: 'POST',
+          body: JSON.stringify({
+            user_id: Number(userId),
+            leave_type_id: balModal!.leave_type_id,
+            date: balDate,
+            hours: hrs,
+            reason: balReason.trim() || undefined,
+            start_time: balStart || undefined,
+            end_time: balEnd || undefined,
+          }),
+        });
+        qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+        qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+        qc.invalidateQueries({ queryKey: ['leave-balance-log', userId] });
+        setBalModal(null);
+      } catch (e: any) {
+        setBalErr(e?.message === '403' ? 'Only owners and admins can set balances' : 'Could not save — try again');
+      } finally {
+        setBalBusy(false);
+      }
+      return;
+    } else if (balMode === 'add') {
+      const hrs = Number(balDeduct);
+      if (balDeduct.trim() === '' || !Number.isFinite(hrs) || hrs <= 0) { setBalErr('Hours to add back must be more than 0'); return; }
+      if (hrs > balModal!.used) { setBalErr(`Only ${balModal!.used.toFixed(1)} hrs are used — to raise the annual grant, use Set totals`); return; }
+      granted = balModal!.granted;
+      used = Math.round((balModal!.used - hrs) * 100) / 100;
+    } else {
+      granted = Number(balGranted);
+      used = Number(balUsed);
+      if (balGranted.trim() === '' || !Number.isFinite(granted) || granted < 0) { setBalErr('Granted hours must be 0 or more'); return; }
+      if (balUsed.trim() === '' || !Number.isFinite(used) || used < 0) { setBalErr('Used hours must be 0 or more'); return; }
+    }
+    setBalBusy(true);
+    try {
+      await apiFetch('/leave/balances', {
+        method: 'PUT',
+        body: JSON.stringify({
+          user_id: Number(userId),
+          leave_type_id: balModal!.leave_type_id,
+          granted_hours: granted,
+          used_hours: used,
+          reason: balReason.trim() || undefined,
+        }),
+      });
+      qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balance-log', userId] });
+      setBalModal(null);
+    } catch (e: any) {
+      setBalErr(e?.message === '403' ? 'Only owners and admins can set balances' : 'Could not save — try again');
+    } finally {
+      setBalBusy(false);
+    }
+  };
+  // [undo 2026-07-07] One-click revert on a Balance changes entry — restores
+  // the bucket to the before-state the audit row recorded. Itself audited
+  // as a manual set with an explanatory reason, so reverts are traceable too.
+  const [revertBusy, setRevertBusy] = useState<string | null>(null);
+  const revertBalanceChange = async (r: any, leaveTypeId: number, atLabel: string) => {
+    if (!window.confirm(`Restore this bucket to ${Number(r.granted_old).toFixed(1)} granted / ${Number(r.used_old).toFixed(1)} used — the state before this change?`)) return;
+    setRevertBusy(String(r.at));
+    try {
+      await apiFetch('/leave/balances', {
+        method: 'PUT',
+        body: JSON.stringify({
+          user_id: Number(userId),
+          leave_type_id: leaveTypeId,
+          granted_hours: Number(r.granted_old),
+          used_hours: Number(r.used_old),
+          reason: `Revert of the ${atLabel} change`,
+        }),
+      });
+      qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balance-log', userId] });
+    } catch {
+      window.alert('Could not revert — try again.');
+    } finally {
+      setRevertBusy(null);
+    }
+  };
+  // [leave-log 2026-07-07] Mistake corrections: remove a wrong attendance
+  // record (un-counts it from the disciplinary ladders) or a wrong usage
+  // entry (gives the hours back to the bucket). Both audited server-side.
+  const canDeleteAttendance = ['owner', 'admin', 'office', 'super_admin'].includes(getTokenRole() || '');
+  const [entryDelBusy, setEntryDelBusy] = useState<string | null>(null);
+  const deleteEntry = async (kind: 'attendance' | 'usage', id: number) => {
+    const msg = kind === 'attendance'
+      ? 'Remove this attendance entry? It will no longer count toward the disciplinary ladder.'
+      : 'Remove this leave entry? The hours go back to the bucket.';
+    if (!window.confirm(msg)) return;
+    setEntryDelBusy(`${kind}:${id}`);
+    try {
+      await apiFetch(`/leave/${kind}/${id}`, { method: 'DELETE' });
+      qc.invalidateQueries({ queryKey: ['attendance-summary', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balance-log', userId] });
+      // statDrill holds a snapshot of rows from when it was opened — close it
+      // so the deleted entry can't linger. The bucket history modal derives
+      // its rows live from the query cache, so it stays open.
+      if (kind === 'attendance') setStatDrill(null);
+    } catch {
+      window.alert('Could not remove the entry — try again.');
+    } finally {
+      setEntryDelBusy(null);
+    }
+  };
+  // Provenance feed for the "Balance changes" section of View History —
+  // office sets + engine grants with their trigger (deploy/nightly/apply).
+  const { data: balanceLogResp } = useQuery({
+    queryKey: ['leave-balance-log', userId],
+    queryFn: () => apiFetch(`/leave/balance-log?userId=${userId}`),
+    enabled: activeTab === 'Attendance' && historyBucket != null,
+  });
+  const balanceLog: any[] = balanceLogResp?.data || [];
+  const { data: leaveBalancesResp } = useQuery({
+    queryKey: ['leave-balances', userId],
+    queryFn: () => apiFetch(`/leave/balances?userId=${userId}`),
+    enabled: activeTab === 'Attendance',
+  });
+  const leaveBuckets: any[] = leaveBalancesResp?.data || [];
+  // [Phase 3] slug → {accent, chip label} for the history chips, built from the
+  // tenant's balance rows (which now carry display from leave_types config).
+  const bucketDisplayMap: Record<string, BucketDisp> = Object.fromEntries(
+    leaveBuckets.map((b: any) => [b.slug, { accent: b.accent || NEUTRAL_ACCENT, label: b.chip_label || b.display_name }]),
+  );
+  const { data: leaveUsageResp } = useQuery({
+    queryKey: ['leave-usage', userId],
+    queryFn: () => apiFetch(`/leave/usage?userId=${userId}`),
+    enabled: activeTab === 'Attendance',
+  });
+  const leaveUsage: any[] = leaveUsageResp?.data || [];
+
+  // [Phase 2] Real attendance stats + per-day drill-downs. Default 180-day
+  // window (the API accepts windowDays 30/90/180/365 for a future selector).
+  const [statDrill, setStatDrill] = useState<null | { label: string; days: any[] }>(null);
+  const { data: attnSummaryResp } = useQuery({
+    queryKey: ['attendance-summary', userId],
+    queryFn: () => apiFetch(`/leave/attendance-summary?userId=${userId}&windowDays=180`),
+    enabled: activeTab === 'Attendance',
+  });
+  const attnSummary: any = attnSummaryResp?.data || null;
 
   const { data: ticketsData, refetch: refetchTickets } = useQuery({
     queryKey: ['contact-tickets', userId],
@@ -590,16 +1052,25 @@ export default function EmployeeProfilePage() {
   const { data: scorecardsData, refetch: refetchScores } = useQuery({
     queryKey: ['scorecards-emp', userId],
     queryFn: () => apiFetch(`/users/${userId}/scorecards`),
-    enabled: activeTab === 'Scorecards',
+    enabled: activeTab === 'Performance Score',
   });
 
   // MaidCentral % model: per-job history (scorecard_entries) + authoritative %.
   const { data: scEntriesData, refetch: refetchScEntries } = useQuery({
     queryKey: ['scorecard-entries', userId],
     queryFn: () => apiFetch(`/scorecards/entries/${userId}`),
-    enabled: activeTab === 'Scorecards',
+    enabled: activeTab === 'Performance Score',
   });
   const scEntries: any[] = scEntriesData?.entries || [];
+
+  // [90d-composite] Live 90-day rolling composite: three sub-scores + the
+  // blended headline + counts. Drives the headline number and the breakdown
+  // card below.
+  const { data: compositeData } = useQuery({
+    queryKey: ['scorecard-composite', userId],
+    queryFn: () => apiFetch(`/scorecards/composite/${userId}`),
+    enabled: activeTab === 'Performance Score',
+  });
 
   // [GAP3] Office reply to customer feedback on a scorecard entry.
   const canReplyToFeedback = ['owner', 'admin', 'office'].includes(getTokenRole() || '');
@@ -788,6 +1259,12 @@ export default function EmployeeProfilePage() {
   const scorePct = user.scorecard_pct != null ? parseFloat(user.scorecard_pct)
     : (scoreAvg != null ? Math.round(scoreAvg / 4 * 100) : null);
 
+  // [90d-composite] Displayed headline = the rolling composite (falls back to
+  // the satisfaction-only scorePct until the composite computes). Sub-scores +
+  // counts power the breakdown card.
+  const comp: any = compositeData || null;
+  const compositeScore = comp?.composite != null ? Number(comp.composite) : scorePct;
+
   return (
     <DashboardLayout>
       <div style={{ display:'flex', flexDirection:'column', gap:0, maxWidth:1200, margin:'0 auto' }}>
@@ -798,29 +1275,130 @@ export default function EmployeeProfilePage() {
             style={{ display:'flex',alignItems:'center',gap:6,background:'none',border:'none',cursor:'pointer',color:'#6B7280',fontSize:13,padding:0,fontFamily:'inherit' }}>
             <ArrowLeft size={14}/> Back to Team
           </button>
-          {isOwner && user && user.role !== 'owner' && (
-            <button
-              onClick={async () => {
-                await activateView({ employeeId: userId, employeeName: `${user.first_name} ${user.last_name}` });
-                navigate('/my-jobs');
-              }}
-              style={{
-                display:'flex', alignItems:'center', gap:6,
-                padding:'7px 14px', borderRadius:8,
-                border:'1px solid #E5E2DC', background:'#FFFFFF',
-                color:'#1A1917', fontSize:13, fontWeight:600,
-                cursor:'pointer', fontFamily:'inherit',
-              }}
-            >
-              <Eye size={14} strokeWidth={1.5} /> View as Employee
-            </button>
-          )}
+          <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+            {/* [reactivate 2026-07-01] Un-archive control — only when the
+                employee is actually archived (the state that hides them from
+                the roster). Owner-only, mirrors the archive permission. */}
+            {isOwner && user && user.role !== 'owner' && (user.archived_at || user.termination_date) && (
+              <button
+                onClick={reactivateEmployee}
+                disabled={restoring}
+                style={{
+                  display:'flex', alignItems:'center', gap:6,
+                  padding:'7px 14px', borderRadius:8,
+                  border:'1px solid #00C9A0', background:'#00C9A0',
+                  color:'#FFFFFF', fontSize:13, fontWeight:700,
+                  cursor: restoring ? 'default' : 'pointer', fontFamily:'inherit',
+                  opacity: restoring ? 0.6 : 1,
+                }}
+              >
+                <RotateCcw size={14} strokeWidth={2} /> {restoring ? 'Reactivating…' : 'Reactivate'}
+              </button>
+            )}
+            {isOwner && user && user.role !== 'owner' && (
+              <button
+                onClick={async () => {
+                  await activateView({ employeeId: userId, employeeName: `${user.first_name} ${user.last_name}` });
+                  navigate('/my-jobs');
+                }}
+                style={{
+                  display:'flex', alignItems:'center', gap:6,
+                  padding:'7px 14px', borderRadius:8,
+                  border:'1px solid #E5E2DC', background:'#FFFFFF',
+                  color:'#1A1917', fontSize:13, fontWeight:600,
+                  cursor:'pointer', fontFamily:'inherit',
+                }}
+              >
+                <Eye size={14} strokeWidth={1.5} /> View as Employee
+              </button>
+            )}
+            {/* [terminate 2026-07-01] Terminate control — only for an active
+                (non-separated) employee. Owner-only. Opens the reason/date modal. */}
+            {isOwner && user && user.role !== 'owner' && !user.archived_at && !user.termination_date && (
+              <button
+                onClick={() => { setTermReason(''); setTermDate(''); setTermLastDay(''); setTermRehire(''); setTermOpen(true); }}
+                style={{
+                  display:'flex', alignItems:'center', gap:6,
+                  padding:'7px 14px', borderRadius:8,
+                  border:'1px solid #FECACA', background:'#FFFFFF',
+                  color:'#B91C1C', fontSize:13, fontWeight:600,
+                  cursor:'pointer', fontFamily:'inherit',
+                }}
+              >
+                <Ban size={14} strokeWidth={1.75} /> Terminate
+              </button>
+            )}
+          </div>
         </div>
 
+        {/* [terminate 2026-07-01] Terminate modal — reason + dates + rehire. */}
+        {termOpen && (
+          <div style={{ position:'fixed', inset:0, background:'rgba(10,14,26,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:300, padding:16 }}>
+            <div style={{ background:'#FFFFFF', borderRadius:16, padding:'22px 24px 20px', width:460, maxWidth:'100%', maxHeight:'90vh', overflowY:'auto', boxShadow:'0 24px 70px rgba(10,14,26,0.28)', fontFamily:'inherit' }}>
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:4 }}>
+                <h3 style={{ margin:0, fontSize:17, fontWeight:700, color:'#0A0E1A' }}>Terminate {user.first_name} {user.last_name}</h3>
+                <button onClick={() => setTermOpen(false)} aria-label="Close" style={{ background:'transparent', border:0, fontSize:22, color:'#9E9B94', cursor:'pointer', lineHeight:1, padding:'0 0 0 12px' }}>×</button>
+              </div>
+              <p style={{ margin:'0 0 16px', fontSize:12.5, color:'#6B6860' }}>
+                Records the separation and removes them from the active roster (dispatch, time clock, payroll). Reversible via Reactivate.
+              </p>
+              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Reason</label>
+                  <Select value={termReason} onChange={setTermReason}
+                    options={[{ value:'', label:'Select a reason…' }, ...TERMINATION_REASON_OPTIONS]} />
+                </div>
+                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Termination date</label>
+                    <CalendarPopover value={termDate} ariaLabel="Termination date" onChange={setTermDate} block />
+                  </div>
+                  <div>
+                    <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Last day worked</label>
+                    <CalendarPopover value={termLastDay} ariaLabel="Last day worked" onChange={setTermLastDay} block />
+                  </div>
+                </div>
+                <div>
+                  <label style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.06em', display:'block', marginBottom:6 }}>Eligible for rehire?</label>
+                  <div style={{ display:'flex', gap:8 }}>
+                    {([{v:'yes',l:'Yes'},{v:'no',l:'No'},{v:'',l:'Unspecified'}] as {v:''|'yes'|'no';l:string}[]).map(o => {
+                      const on = termRehire === o.v;
+                      return (
+                        <button key={o.l} type="button" onClick={() => setTermRehire(o.v)}
+                          style={{ padding:'6px 14px', borderRadius:999, fontSize:12.5, fontWeight:600, fontFamily:'inherit', cursor:'pointer',
+                            border:`1px solid ${on ? '#00C9A0' : '#E5E2DC'}`, background:on ? '#F0FBF8' : '#FFFFFF', color:on ? '#0A6E5A' : '#6B6860' }}>
+                          {o.l}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+              <div style={{ display:'flex', gap:10, justifyContent:'flex-end', marginTop:20 }}>
+                <button onClick={() => setTermOpen(false)} disabled={terminating}
+                  style={{ padding:'9px 18px', border:'1px solid #E5E2DC', borderRadius:8, fontSize:13, fontWeight:600, color:'#6B6860', background:'#FFFFFF', cursor:'pointer', fontFamily:'inherit' }}>Cancel</button>
+                <button onClick={submitTermination} disabled={terminating || !termReason || !termDate}
+                  style={{ padding:'9px 22px', borderRadius:8, fontSize:13, fontWeight:700, fontFamily:'inherit', border:'none',
+                    background:(terminating || !termReason || !termDate) ? '#E5E2DC' : '#DC2626',
+                    color:(terminating || !termReason || !termDate) ? '#9E9B94' : '#FFFFFF',
+                    cursor:(terminating || !termReason || !termDate) ? 'default' : 'pointer' }}>
+                  {terminating ? 'Terminating…' : 'Terminate'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* ── PROFILE HEADER ── */}
-        <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding: isMobile ? '16px' : '24px 32px', marginBottom:2, display:'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 16 : 32, alignItems:'flex-start' }}>
+        {/* [ui-overhaul 2026-07-07] The old layout put a narrow identity block
+            left and a 280px stat column right, leaving a dead middle at any
+            desktop width (Sal: "so much empty space where the hero section
+            is"). Now: identity + compact stat tiles share the top line, and
+            Efficiency by Service spreads full-width beneath as a chip grid. */}
+        <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding: isMobile ? '16px' : '22px 28px', marginBottom:2 }}>
+          <div style={{ display:'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 16 : 24, alignItems: isMobile ? 'stretch' : 'center' }}>
           {/* Top row on mobile: avatar + info side-by-side */}
-          <div style={{ display:'flex', flexDirection:'row', gap:16, alignItems:'flex-start', flex:1, minWidth:0 }}>
+          <div style={{ display:'flex', flexDirection:'row', gap:16, alignItems:'center', flex:1, minWidth:0 }}>
           {/* Left: avatar */}
           <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:8, flexShrink:0 }}>
             {user.avatar_url
@@ -848,7 +1426,16 @@ export default function EmployeeProfilePage() {
               <span style={{ ...ROLE_BADGES[user.role], padding:'3px 10px', borderRadius:4, fontSize:11, fontWeight:700, letterSpacing:'0.06em', textTransform:'uppercase', display:'inline-block' }}>
                 {user.role?.replace('_',' ')}
               </span>
-              {!user.is_active && <span style={{ background:'#FEE2E2', color:'#991B1B', border:'1px solid #FECACA', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>INACTIVE</span>}
+              {/* A terminated employee shows a single TERMINATED badge (it
+                  implies inactive + archived) rather than three redundant ones. */}
+              {user.termination_date
+                ? <span title={`${reasonLabel(user.termination_reason)} · ${new Date(user.termination_date + 'T00:00:00').toLocaleDateString()}${user.rehire_eligible === false ? ' · not eligible for rehire' : user.rehire_eligible === true ? ' · eligible for rehire' : ''}`}
+                    style={{ background:'#FEE2E2', color:'#991B1B', border:'1px solid #FECACA', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:700 }}>TERMINATED</span>
+                : <>
+                    {!user.is_active && <span style={{ background:'#FEE2E2', color:'#991B1B', border:'1px solid #FECACA', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>INACTIVE</span>}
+                    {user.archived_at && <span title={`Archived ${new Date(user.archived_at).toLocaleDateString()}`} style={{ background:'#FEF3C7', color:'#92400E', border:'1px solid #FDE68A', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>ARCHIVED</span>}
+                  </>
+              }
             </div>
             <p style={{ fontSize:11, color:'#9E9B94', margin:'0 0 8px 0' }}>Employee #{String(user.id).padStart(5,'0')}</p>
             <div style={{ display:'flex', gap:16, flexWrap:'wrap' }}>
@@ -859,40 +1446,48 @@ export default function EmployeeProfilePage() {
           </div>
           </div>{/* end avatar+info row */}
 
-          {/* Right: snapshot + productivity */}
-          <div style={{ flexShrink:0, width: isMobile ? '100%' : 280, display:'flex', flexDirection: isMobile ? 'row' : 'column', flexWrap:'wrap', gap:12 }}>
-            <div style={{ background:'#F7F6F3', borderRadius:10, padding:'14px 16px', flex: isMobile ? '1 1 0' : undefined, minWidth: isMobile ? 0 : undefined }}>
-              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                  <span style={{ fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>Hire Date</span>
-                  <span style={{ fontSize:12,fontWeight:600,color:'var(--brand)' }}>{user.hire_date ? new Date(user.hire_date + 'T00:00:00').toLocaleDateString() : '—'}</span>
-                </div>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <span style={{ fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em' }}>Score</span>
-                  <div style={{ display:'flex',alignItems:'center',gap:6 }}>
-                    {scorePct != null ? (
-                      <span style={{ fontSize:18,fontWeight:700,color:'var(--brand)' }}>{scorePct.toFixed(0)}%</span>
-                    ) : <span style={{ fontSize:11,color:'#9E9B94' }}>No scores yet</span>}
-                  </div>
-                </div>
+          {/* Right: compact stat tiles on the same line as the identity */}
+          <div style={{ display:'flex', gap:10, flexShrink:0, flexWrap:'wrap' }}>
+            {[
+              { label:'Hire Date', value: user.hire_date ? new Date(user.hire_date + 'T00:00:00').toLocaleDateString() : '—' },
+              { label:'Tenure', value: (() => {
+                  if (!user.hire_date) return '—';
+                  const h = new Date(user.hire_date + 'T00:00:00');
+                  const now = new Date();
+                  let months = (now.getFullYear() - h.getFullYear()) * 12 + (now.getMonth() - h.getMonth());
+                  if (now.getDate() < h.getDate()) months--;
+                  if (months < 0) months = 0;
+                  const y = Math.floor(months / 12), m = months % 12;
+                  return y > 0 ? `${y} yr${y === 1 ? '' : 's'} ${m} mo` : `${m} mo`;
+                })() },
+              { label:'Score', value: scorePct != null ? `${scorePct.toFixed(0)}%` : '—' },
+            ].map(t => (
+              <div key={t.label} style={{ background:'#F7F6F3', borderRadius:10, padding:'10px 16px', minWidth:104, flex: isMobile ? '1 1 0' : undefined }}>
+                <p style={{ fontSize:10.5, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.05em', margin:'0 0 3px 0', whiteSpace:'nowrap' }}>{t.label}</p>
+                <p style={{ fontSize:16, fontWeight:700, color:'var(--brand)', margin:0, whiteSpace:'nowrap' }}>{t.value}</p>
               </div>
-            </div>
+            ))}
+          </div>
+          </div>{/* end top row */}
 
-            <div style={{ background:'#F7F6F3', borderRadius:10, padding:'14px 16px', flex: isMobile ? '1 1 0' : undefined, minWidth: isMobile ? 0 : undefined }}>
-              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                <p style={{ fontSize:12,fontWeight:700,color:'#1A1917',margin:0 }}>Efficiency by Service</p>
-                <span style={{ fontSize:10,color:'#9E9B94' }}>Allowed ÷ Actual</span>
-              </div>
-              <div style={{ maxHeight: 260, overflowY: 'auto' }}>
-                {effPackages.length === 0 && (
-                  <p style={{ fontSize:11, color:'#9E9B94', margin:'4px 0' }}>No efficiency data yet.</p>
-                )}
+          {/* Efficiency by Service — full-width chip grid under the identity
+              row (was a 280px scrolling side panel that left the hero's
+              middle empty). */}
+          <div style={{ borderTop:'1px solid #F0EEE9', marginTop: isMobile ? 14 : 18, paddingTop:14 }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+              <p style={{ fontSize:12,fontWeight:700,color:'#1A1917',margin:0 }}>Efficiency by Service</p>
+              <span style={{ fontSize:10,color:'#9E9B94' }}>Allowed ÷ Actual</span>
+            </div>
+            {effPackages.length === 0 ? (
+              <p style={{ fontSize:11, color:'#9E9B94', margin:'4px 0' }}>No efficiency data yet.</p>
+            ) : (
+              <div style={{ display:'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fill, minmax(220px, 1fr))', gap:'6px 20px' }}>
                 {effPackages.map((type) => {
                   const pct = effByPackage.get(type);
                   const hasData = pct != null && Number.isFinite(pct) && pct > 0;
                   return (
-                    <div key={type} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6, gap:8 }}>
-                      <span style={{ fontSize:12,color:'#1A1917' }}>{type}</span>
+                    <div key={type} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, minWidth:0 }}>
+                      <span style={{ fontSize:12,color:'#1A1917', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{type}</span>
                       {hasData ? (
                         <span style={{ fontSize:12,fontWeight: pct>100 ? 700 : 600, color: pct>100 ? 'var(--brand)' : pct>=80 ? '#1A1917' : '#EF4444', whiteSpace:'nowrap' }}>{Math.round(pct)}%</span>
                       ) : (
@@ -902,13 +1497,18 @@ export default function EmployeeProfilePage() {
                   );
                 })}
               </div>
-            </div>
+            )}
           </div>
         </div>
 
         {/* ── TAB BAR ── */}
-        <div style={{ background:'#FFFFFF', borderLeft:'1px solid #E5E2DC', borderRight:'1px solid #E5E2DC', borderBottom:'1px solid #E5E2DC', overflowX:'auto', marginBottom:20 }}>
-          <div style={{ display:'flex', borderBottom:'1px solid #E5E2DC', whiteSpace:'nowrap' }}>
+        {/* [layout 2026-07-07] 20 tabs don't fit one row on most screens, and
+            a nowrap+overflow row just clips the tail (Mac hides the scrollbar
+            until you scroll — Sal: "things are cutting off on the right").
+            Desktop wraps to as many rows as needed so every tab is visible;
+            mobile keeps the compact horizontal scroll. */}
+        <div style={{ background:'#FFFFFF', borderLeft:'1px solid #E5E2DC', borderRight:'1px solid #E5E2DC', borderBottom:'1px solid #E5E2DC', overflowX: isMobile ? 'auto' : 'visible', marginBottom:20 }}>
+          <div style={{ display:'flex', flexWrap: isMobile ? 'nowrap' : 'wrap', borderBottom:'1px solid #E5E2DC', whiteSpace:'nowrap' }}>
             {TABS.map(tab => (
               <button key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -1027,7 +1627,17 @@ export default function EmployeeProfilePage() {
                   <Field label="Emergency Relationship"><Input value={form.emergency_contact_relation || ''} onChange={v => setField('emergency_contact_relation',v)}/></Field>
                   <Field label="SSN Last 4"><Input value={form.ssn_last4 || ''} onChange={v => setField('ssn_last4',v)} type="password"/></Field>
                   <Field label="Hire Date"><CalendarPopover value={form.hire_date || ''} ariaLabel="Hire Date" onChange={v => setField('hire_date',v)} block /></Field>
-                  <Field label="Termination Date"><CalendarPopover value={form.termination_date || ''} ariaLabel="Termination Date" onChange={v => setField('termination_date',v)} block /></Field>
+                  {/* [terminate 2026-07-01] Read-only — termination is set via the
+                      Terminate button (reason + dates + roster removal), not a bare
+                      date field that silently did nothing on Save. */}
+                  <Field label="Termination">
+                    {user.termination_date
+                      ? <div style={{ fontSize:13, color:'#1A1917', padding:'9px 0' }}>
+                          {new Date(user.termination_date + 'T00:00:00').toLocaleDateString()} · {reasonLabel(user.termination_reason)}
+                          {user.last_day_worked ? ` · last day ${new Date(user.last_day_worked + 'T00:00:00').toLocaleDateString()}` : ''}
+                        </div>
+                      : <div style={{ fontSize:13, color:'#9E9B94', padding:'9px 0' }}>Active — use the Terminate button to record a separation</div>}
+                  </Field>
                 </div>
                 <div style={{ marginTop:16 }}>
                   <Field label="Internal Notes">
@@ -1119,44 +1729,519 @@ export default function EmployeeProfilePage() {
               </div>
 
               <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
-                <div style={{ background:'var(--brand-dim)', borderRadius:10, padding:'14px 16px' }}>
-                  <p style={{ fontSize:13,fontWeight:700,color:'var(--brand)',margin:'0 0 4px 0' }}>— PTO hours Available</p>
-                  <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                    <button style={{ flex:1,padding:'6px 0',border:'1px solid var(--brand)',borderRadius:6,fontSize:12,color:'var(--brand)',background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
-                    <button style={{ flex:1,padding:'6px 0',background:'var(--brand)',border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Update PTO</button>
+                {/* [Phase 4] Discipline flags — OFFICE/OWNER ONLY (never the
+                    employee's own self-view). Sourced from employee_discipline_log
+                    (the unexcused-ladder output). */}
+                {['owner','admin','office','super_admin'].includes(getTokenRole() || '')
+                  && Array.isArray(attnSummary?.discipline) && attnSummary.discipline.length > 0 && (
+                  <div style={{ background:'#FFFFFF', border:'1px solid #E24B4A', borderLeft:'4px solid #E24B4A', borderRadius:10, padding:'12px 16px' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:7, marginBottom:8 }}>
+                      <AlertCircle size={15} color="#E24B4A" />
+                      <span style={{ fontSize:12, fontWeight:700, color:'#E24B4A', textTransform:'uppercase', letterSpacing:'0.04em' }}>Discipline on file</span>
+                      <span style={{ marginLeft:'auto', fontSize:10.5, color:'#9E9B94' }}>office only</span>
+                    </div>
+                    {attnSummary.discipline.map((d: any, i: number) => (
+                      <div key={i} style={{ padding:'6px 0', borderTop: i ? '1px solid #F3F4F6' : 'none' }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+                          <span style={{ fontSize:11, fontWeight:700, color:'#FFFFFF', background:'#E24B4A', borderRadius:99, padding:'1px 8px' }}>{d.label}</span>
+                          <span style={{ fontSize:11, color:'#6B6860' }}>{shortDate(String(d.effective_date))}</span>
+                          {d.pending_review && <span style={{ fontSize:10, fontWeight:600, color:'#92400E', background:'#FEF3C7', borderRadius:99, padding:'1px 7px' }}>pending review</span>}
+                        </div>
+                        {d.reason && <div style={{ fontSize:11.5, color:'#6B6860', marginTop:2 }}>{d.reason}</div>}
+                      </div>
+                    ))}
                   </div>
-                </div>
+                )}
+                {leaveBuckets.length === 0 && (
+                  <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'14px 16px', fontSize:13, color:'#9E9B94' }}>
+                    No leave buckets configured.
+                  </div>
+                )}
+                {leaveBuckets.map((b: any) => {
+                  const accent = b.accent || NEUTRAL_ACCENT;
+                  const officeRecorded = b.accrual_mode === 'office_recorded';
+                  const notVested = !officeRecorded && !b.past_waiting_period;
+                  const granted = Number(b.granted || 0);
+                  const used = Number(b.used || 0);
+                  const avail = Number(b.available || 0);
+                  const unex = officeRecorded ? (attnSummary?.unexcused || null) : null;
 
-                <div style={{ background:'#FEF3C7', borderRadius:10, padding:'14px 16px' }}>
-                  <p style={{ fontSize:13,fontWeight:700,color:'#92400E',margin:'0 0 4px 0' }}>— Sick hours Available</p>
-                  <div style={{ display:'flex', gap:8, marginTop:8 }}>
-                    <button style={{ flex:1,padding:'6px 0',border:'1px solid #92400E',borderRadius:6,fontSize:12,color:'#92400E',background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
-                    <button style={{ flex:1,padding:'6px 0',background:'#92400E',border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Update Sick</button>
+                  // Big number + usage bar geometry + smart color.
+                  let bigNum = avail.toFixed(1);
+                  let bigLabel = 'hours available';
+                  let barPct = 0;
+                  let barColor = accent;
+                  let barCaption = '';
+                  let extraCaption = '';
+                  if (officeRecorded) {
+                    // [40hr-bank 2026-07-07] Hours consumed against the annual
+                    // allowance (the balances API now carries the cap as granted
+                    // and benefit-year hours as used), with the occurrence ladder
+                    // as the caption — discipline still counts OCCURRENCES per
+                    // the handbook (3rd written / 4th final / 5th termination).
+                    const occ = Number(unex?.occurrences || 0);
+                    const nextOcc = Number(unex?.next_step?.occurrence || 0);
+                    const nextLabel = (unex?.next_step?.label || 'discipline').toLowerCase();
+                    const ladderCaption = nextOcc > 0
+                      ? `${occ} of ${nextOcc} occurrences to ${nextLabel}`
+                      : (unex?.current_discipline ? 'At the final disciplinary step' : 'No disciplinary ladder set');
+                    if (granted > 0) {
+                      // Sal: "the remaining balance is not showing" — headline
+                      // is hours used, caption is the used/left/granted line
+                      // (same shape as the other buckets), ladder on line two.
+                      bigNum = used.toFixed(1);
+                      bigLabel = `of ${granted.toFixed(1)} hours used`;
+                      barPct = Math.min(100, (used / granted) * 100);
+                      barColor = used >= granted ? LEAVE_OUT : (granted - used <= 0.2 * granted) ? LEAVE_LOW : accent;
+                      barCaption = `${used.toFixed(1)} used · ${avail.toFixed(1)} left · of ${granted.toFixed(1)} granted`;
+                      extraCaption = ladderCaption;
+                    } else {
+                      bigNum = String(occ);
+                      bigLabel = occ === 1 ? 'occurrence this year' : 'occurrences this year';
+                      if (nextOcc > 0) {
+                        barPct = Math.min(100, (occ / nextOcc) * 100);
+                        barColor = occ >= nextOcc ? LEAVE_OUT : (nextOcc - occ <= 1 ? LEAVE_LOW : accent);
+                      }
+                      barCaption = ladderCaption;
+                    }
+                  } else {
+                    barPct = granted > 0 ? Math.min(100, (used / granted) * 100) : 0;
+                    barColor = avail <= 0 ? LEAVE_OUT : (granted > 0 && avail <= 0.2 * granted) ? LEAVE_LOW : accent;
+                    barCaption = `${used.toFixed(1)} used · ${avail.toFixed(1)} left · of ${granted.toFixed(1)} granted`;
+                  }
+                  const resetDays = !officeRecorded && b.next_reset_date ? daysUntilYmd(b.next_reset_date) : null;
+                  const eligDays = b.eligible_on ? daysUntilYmd(b.eligible_on) : null;
+
+                  return (
+                    // [ui-overhaul] Full 1px border + a slim full-width accent
+                    // bar on top (was a left-only 4px stripe — Sal: "why is
+                    // there only a border on the left side").
+                    <div key={b.leave_type_id} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderTop:`3px solid ${accent}`, borderRadius:10, padding:'14px 16px' }}>
+                      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:7, minWidth:0 }}>
+                          <span style={{ width:9, height:9, borderRadius:'50%', background:accent, flexShrink:0 }} />
+                          <span style={{ fontSize:12, fontWeight:700, color:accent, textTransform:'uppercase', letterSpacing:'0.04em' }}>{b.display_name}</span>
+                        </div>
+                        {resetDays != null && resetDays >= 0 && !notVested && (
+                          <span style={{ fontSize:10.5, color:'#9E9B94', whiteSpace:'nowrap' }}>resets in {resetDays}d · {shortDate(b.next_reset_date)}</span>
+                        )}
+                      </div>
+
+                      {notVested ? (
+                        <div style={{ marginTop:8 }}>
+                          <p style={{ fontSize:14, fontWeight:700, color:accent, margin:0 }}>
+                            {eligDays != null && eligDays > 0 ? `Unlocks in ${eligDays} day${eligDays === 1 ? '' : 's'}` : 'Eligible after waiting period'}
+                          </p>
+                          {b.eligible_on && eligDays != null && eligDays > 0 && (
+                            <p style={{ fontSize:11, color:'#9E9B94', margin:'2px 0 0 0' }}>{b.display_name} available {shortDate(b.eligible_on)}</p>
+                          )}
+                        </div>
+                      ) : (
+                        <>
+                          <div style={{ display:'flex', alignItems:'baseline', gap:6, marginTop:6 }}>
+                            <span style={{ fontSize:30, fontWeight:800, color:accent, lineHeight:1.1 }}>{bigNum}</span>
+                            <span style={{ fontSize:12, color:'#6B6860' }}>{bigLabel}</span>
+                            {officeRecorded && unex?.current_discipline && (
+                              <span style={{ marginLeft:'auto', fontSize:10.5, fontWeight:700, color:'#FFFFFF', background:LEAVE_OUT, borderRadius:99, padding:'2px 8px', whiteSpace:'nowrap' }}>{unex.current_discipline.label}</span>
+                            )}
+                          </div>
+                          {/* usage / progress bar */}
+                          <div style={{ height:6, borderRadius:99, background:'#EEEDEA', marginTop:8, overflow:'hidden' }}>
+                            <div style={{ height:'100%', width:`${barPct}%`, background:barColor, borderRadius:99, transition:'width 0.3s ease' }} />
+                          </div>
+                          <p style={{ fontSize:11, color:'#6B6860', margin:'5px 0 0 0' }}>{barCaption}</p>
+                          {extraCaption && (
+                            <p style={{ fontSize:11, color:'#9E9B94', margin:'2px 0 0 0' }}>{extraCaption}</p>
+                          )}
+                          {!officeRecorded && (
+                            <p style={{ fontSize:11, color:'#9E9B94', margin:'2px 0 0 0' }}>{used.toFixed(1)} hrs taken this year</p>
+                          )}
+                        </>
+                      )}
+
+                      <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                        <button onClick={() => setHistoryBucket({ slug:b.slug, display_name:b.display_name, leave_type_id:b.leave_type_id, office_recorded:officeRecorded })} style={{ flex:1,padding:'6px 0',border:`1px solid ${accent}`,borderRadius:6,fontSize:12,color:accent,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
+                        <button onClick={officeRecorded ? () => openRecord('absent', accent) : (canEditBalance ? () => openBalanceEdit(b) : undefined)} style={{ flex:1,padding:'6px 0',background:accent,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor: (officeRecorded || canEditBalance) ? 'pointer':'default',opacity: (officeRecorded || canEditBalance) ? 1 : 0.5,fontFamily:'inherit' }}>{officeRecorded ? 'Record' : 'Update'}</button>
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* [Occurrence ladder] Tardy/Late disciplinary indicator —
+                    office/owner only (tardies aren't a leave bucket). */}
+                {['owner','admin','office','super_admin'].includes(getTokenRole() || '')
+                  && attnSummary?.tardy && (() => {
+                  const t = attnSummary.tardy;
+                  const occ = Number(t.occurrences || 0);
+                  const nextOcc = Number(t.next_step?.occurrence || 0);
+                  const nextLabel = (t.next_step?.label || 'discipline').toLowerCase();
+                  const accent = '#BA7517'; // tardy = amber accent
+                  const barPct = nextOcc > 0 ? Math.min(100, (occ / nextOcc) * 100) : (occ > 0 ? 100 : 0);
+                  const barColor = nextOcc > 0 ? (occ >= nextOcc ? LEAVE_OUT : (nextOcc - occ <= 1 ? LEAVE_OUT : accent)) : LEAVE_OUT;
+                  const caption = nextOcc > 0 ? `${occ} of ${nextOcc} occurrences to ${nextLabel}` : (occ > 0 ? 'At the final disciplinary step' : 'No disciplinary ladder set');
+                  return (
+                    <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderTop:`3px solid ${accent}`, borderRadius:10, padding:'14px 16px' }}>
+                      <div style={{ display:'flex', alignItems:'center', gap:7 }}>
+                        <span style={{ width:9, height:9, borderRadius:'50%', background:accent, flexShrink:0 }} />
+                        <span style={{ fontSize:12, fontWeight:700, color:accent, textTransform:'uppercase', letterSpacing:'0.04em' }}>Tardies</span>
+                        <span style={{ marginLeft:'auto', fontSize:10.5, color:'#9E9B94' }}>office only</span>
+                      </div>
+                      <div style={{ display:'flex', alignItems:'baseline', gap:6, marginTop:6 }}>
+                        <span style={{ fontSize:30, fontWeight:800, color:accent, lineHeight:1.1 }}>{occ}</span>
+                        <span style={{ fontSize:12, color:'#6B6860' }}>{occ === 1 ? 'late this year' : 'lates this year'}</span>
+                      </div>
+                      <div style={{ height:6, borderRadius:99, background:'#EEEDEA', marginTop:8, overflow:'hidden' }}>
+                        <div style={{ height:'100%', width:`${barPct}%`, background:barColor, borderRadius:99, transition:'width 0.3s ease' }} />
+                      </div>
+                      <p style={{ fontSize:11, color:'#6B6860', margin:'5px 0 0 0' }}>{caption}</p>
+                      <div style={{ display:'flex', gap:8, marginTop:10 }}>
+                        <button onClick={() => setStatDrill({ label:'Tardies', days: attnSummary?.tiles?.late?.days || [] })} style={{ flex:1,padding:'6px 0',border:`1px solid ${accent}`,borderRadius:6,fontSize:12,color:accent,background:'none',cursor:'pointer',fontFamily:'inherit' }}>View History</button>
+                        <button onClick={() => openRecord('tardy', accent)} style={{ flex:1,padding:'6px 0',background:accent,border:'none',borderRadius:6,fontSize:12,color:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Record</button>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* [attendance-record] Record an unexcused absence / tardy with a reason. */}
+                {recordModal && (
+                  <div onClick={() => !recBusy && setRecordModal(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:14,padding:'22px 22px 20px',width:380,maxWidth:'92vw',fontFamily:"'Plus Jakarta Sans',sans-serif",boxShadow:'0 12px 40px rgba(0,0,0,0.18)' }}>
+                      <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:14 }}>
+                        <span style={{ fontSize:16,fontWeight:800,color:'#1A1917' }}>{recordModal.title}</span>
+                        <button onClick={() => !recBusy && setRecordModal(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
+                      </div>
+                      <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Date</label>
+                      <input type="date" value={recDate} onChange={e => setRecDate(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                      <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>{recordModal.type === 'tardy' ? 'Hours late' : 'Hours missed'}</label>
+                      <input type="number" min="0" step="0.25" value={recHours} onChange={e => setRecHours(e.target.value)} placeholder="e.g. 8" style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                      {/* [time-block] Optional window — a partial call-off
+                          ("worked the morning, off 2-6 PM") tints only that
+                          block on the dispatch board. Counts fully either way. */}
+                      <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Time block <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional — blank = whole day)</span></label>
+                      <div style={{ display:'flex',gap:8,marginBottom:12 }}>
+                        <input type="time" value={recStart} onChange={e => setRecStart(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
+                        <span style={{ alignSelf:'center',fontSize:12,color:'#9E9B94' }}>to</span>
+                        <input type="time" value={recEnd} onChange={e => setRecEnd(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
+                      </div>
+                      <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Reason <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional)</span></label>
+                      <textarea value={recReason} onChange={e => setRecReason(e.target.value)} placeholder="e.g. no-show, didn't call" rows={2} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box',resize:'vertical' }} />
+                      {recErr && <p style={{ fontSize:12,color:'#991B1B',margin:'0 0 10px' }}>{recErr}</p>}
+                      <div style={{ display:'flex',gap:8 }}>
+                        <button onClick={() => !recBusy && setRecordModal(null)} disabled={recBusy} style={{ flex:1,padding:'9px 0',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,color:'#6B6860',background:'none',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
+                        <button onClick={submitRecord} disabled={recBusy} style={{ flex:1,padding:'9px 0',border:'none',borderRadius:8,fontSize:13,fontWeight:700,color:'#FFFFFF',background:recordModal.accent,cursor:'pointer',fontFamily:'inherit',opacity:recBusy?0.6:1 }}>{recBusy ? 'Saving…' : 'Record'}</button>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                )}
+
+                {/* [mc-migration] Set a bucket's granted/used balance (owner/admin).
+                    Persists via PUT /leave/balances — the same manual-set endpoint
+                    the Leave Review "Balances & Grants" section uses (#923). */}
+                {balModal && (() => {
+                  // Live preview per mode: deduct subtracts from the current
+                  // available; set-totals recomputes from the raw fields.
+                  const curAvail = Math.max(0, balModal.granted - balModal.used);
+                  const dHrs = Number(balDeduct);
+                  const g = Number(balGranted);
+                  const u = Number(balUsed);
+                  const preview = balMode === 'deduct'
+                    ? (balDeduct.trim() !== '' && Number.isFinite(dHrs) && dHrs > 0 ? Math.max(0, curAvail - dHrs) : null)
+                    : balMode === 'add'
+                    ? (balDeduct.trim() !== '' && Number.isFinite(dHrs) && dHrs > 0 && dHrs <= balModal.used ? curAvail + dHrs : null)
+                    : (Number.isFinite(g) && Number.isFinite(u) ? Math.max(0, g - u) : null);
+                  return (
+                    <div onClick={() => !balBusy && setBalModal(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
+                      <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:14,padding:'22px 22px 20px',width:380,maxWidth:'92vw',fontFamily:"'Plus Jakarta Sans',sans-serif",boxShadow:'0 12px 40px rgba(0,0,0,0.18)' }}>
+                        <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12 }}>
+                          <span style={{ fontSize:16,fontWeight:800,color:'#1A1917' }}>Update {balModal.display_name}</span>
+                          <button onClick={() => !balBusy && setBalModal(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
+                        </div>
+                        <p style={{ fontSize:12,color:'#9E9B94',margin:'0 0 12px' }}>
+                          Current: <strong style={{ color:'#1A1917' }}>{curAvail.toFixed(1)} hrs available</strong> · {balModal.used.toFixed(1)} used of {balModal.granted.toFixed(1)} granted
+                        </p>
+                        <div style={{ display:'flex',gap:6,marginBottom:14 }}>
+                          {([{ v:'deduct', l:'Deduct hours' },{ v:'add', l:'Add hours back' },{ v:'set', l:'Set totals' }] as const).map(m => (
+                            <button key={m.v} onClick={() => { setBalMode(m.v); setBalErr(null); }}
+                              style={{ flex:1,padding:'7px 0',borderRadius:8,fontSize:12,fontWeight:700,fontFamily:'inherit',cursor:'pointer',
+                                border:`1px solid ${balMode === m.v ? balModal.accent : '#E5E2DC'}`,
+                                background: balMode === m.v ? balModal.accent : '#FFFFFF',
+                                color: balMode === m.v ? '#FFFFFF' : '#6B6860' }}>
+                              {m.l}
+                            </button>
+                          ))}
+                        </div>
+                        {balMode === 'deduct' || balMode === 'add' ? (
+                          <>
+                            <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>{balMode === 'deduct' ? 'Hours to deduct' : 'Hours to add back'}{balMode === 'add' && <span style={{ fontWeight:500,color:'#9E9B94' }}> (returns used hours to the bucket)</span>}</label>
+                            <input type="number" min="0" step="0.25" value={balDeduct} onChange={e => setBalDeduct(e.target.value)} placeholder="e.g. 4" autoFocus style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                            {balMode === 'deduct' && (
+                              <>
+                                <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Date taken <span style={{ fontWeight:500,color:'#9E9B94' }}>(shows on the calendar and history)</span></label>
+                                <input type="date" value={balDate} onChange={e => setBalDate(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                                {/* [time-block] Optional window — "off 2-6 PM"
+                                    tints only that block on the dispatch board. */}
+                                <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Time block <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional — blank = whole day)</span></label>
+                                <div style={{ display:'flex',gap:8,marginBottom:12 }}>
+                                  <input type="time" value={balStart} onChange={e => setBalStart(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
+                                  <span style={{ alignSelf:'center',fontSize:12,color:'#9E9B94' }}>to</span>
+                                  <input type="time" value={balEnd} onChange={e => setBalEnd(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
+                                </div>
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Granted hours <span style={{ fontWeight:500,color:'#9E9B94' }}>(total for the year — not the amount to deduct)</span></label>
+                            <input type="number" min="0" step="0.25" value={balGranted} onChange={e => setBalGranted(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                            <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Used hours</label>
+                            <input type="number" min="0" step="0.25" value={balUsed} onChange={e => setBalUsed(e.target.value)} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box' }} />
+                          </>
+                        )}
+                        <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Reason <span style={{ fontWeight:500,color:'#9E9B94' }}>(shown in the Balance changes log)</span></label>
+                        <textarea value={balReason} onChange={e => setBalReason(e.target.value)} placeholder={balMode === 'deduct' ? 'e.g. took 4 hrs unpaid leave 7/7' : balMode === 'add' ? 'e.g. deducted from the wrong bucket' : 'e.g. correcting the MC import'} rows={2} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box',resize:'vertical' }} />
+                        <p style={{ fontSize:12,color:'#6B6860',margin:'0 0 12px' }}>
+                          {preview != null
+                            ? <>Available after save: <strong style={{ color: balModal.accent }}>{preview.toFixed(1)} hrs</strong></>
+                            : (balMode === 'deduct' ? 'Enter the hours to deduct' : balMode === 'add' ? 'Enter the hours to add back' : 'Enter granted and used hours')}
+                        </p>
+                        {balErr && <p style={{ fontSize:12,color:'#991B1B',margin:'0 0 10px' }}>{balErr}</p>}
+                        <div style={{ display:'flex',gap:8 }}>
+                          <button onClick={() => !balBusy && setBalModal(null)} disabled={balBusy} style={{ flex:1,padding:'9px 0',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,color:'#6B6860',background:'none',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
+                          <button onClick={submitBalanceEdit} disabled={balBusy} style={{ flex:1,padding:'9px 0',border:'none',borderRadius:8,fontSize:13,fontWeight:700,color:'#FFFFFF',background:balModal.accent,cursor:'pointer',fontFamily:'inherit',opacity:balBusy?0.6:1 }}>{balBusy ? 'Saving…' : 'Save'}</button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* Per-bucket usage history modal (data-driven over all buckets) */}
+                {historyBucket && (() => {
+                  const tag = leaveBucketTag(historyBucket.slug);
+                  // [unexcused-history 2026-07-07] Office-recorded buckets
+                  // (Unexcused) keep their day records in the attendance log,
+                  // not employee_leave_usage — reading the usage feed here
+                  // rendered "No history" even when the calendar showed the
+                  // absence. Benefit-year rows from the summary match the
+                  // occurrence count on the card.
+                  const attDays: any[] | null = historyBucket.office_recorded
+                    ? (attnSummary?.unexcused?.days || [])
+                    : null;
+                  const rows = attDays ?? leaveUsage
+                    .filter((u: any) => String(u.notes || '').includes(tag))
+                    .sort((a: any, b: any) => String(b.date_used).localeCompare(String(a.date_used)));
+                  return (
+                    <div onClick={() => setHistoryBucket(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
+                      <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:12,padding:24,width:560,maxWidth:'92vw',maxHeight:'80vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+                        <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
+                          <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>{historyBucket.display_name} History</h3>
+                          <button onClick={() => setHistoryBucket(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
+                        </div>
+                        {rows.length === 0 ? (
+                          <p style={{ color:'#9E9B94',fontSize:13,margin:0 }}>No {historyBucket.display_name} history recorded.</p>
+                        ) : attDays ? rows.map((d: any, i: number) => (
+                          <div key={d.id ?? i} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+                            <div style={{ minWidth:0 }}>
+                              <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(d.date))} · {String(d.date)}</div>
+                              <NoteChips note={d.reason} bucketMap={bucketDisplayMap} />
+                              {d.by && <div style={{ fontSize:11,color:'#9E9B94',marginTop:2 }}>{d.by === 'auto-detected' ? 'auto-detected from clock-in' : d.by === 'imported record' ? 'imported from MaidCentral' : `recorded by ${d.by}`}</div>}
+                            </div>
+                            <div style={{ display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap' }}>
+                              {d.hours != null && <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(d.hours).toFixed(2)} h</span>}
+                              {canDeleteAttendance && d.id != null && d.src === 'att' && (
+                                <button
+                                  onClick={() => deleteEntry('attendance', d.id)}
+                                  disabled={entryDelBusy === `attendance:${d.id}`}
+                                  title="Remove this entry — the hours go back to the bucket"
+                                  style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `attendance:${d.id}` ? 0.5 : 1 }}
+                                >Remove</button>
+                              )}
+                            </div>
+                          </div>
+                        )) : rows.map((u: any, i: number) => (
+                          <div key={u.id ?? i} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+                            <div style={{ minWidth:0 }}>
+                              <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(u.date_used).slice(0,10))} · {String(u.date_used).slice(0,10)}</div>
+                              <NoteChips note={u.notes} bucketMap={bucketDisplayMap} />
+                            </div>
+                            <div style={{ display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap' }}>
+                              <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(u.hours).toFixed(2)} h</span>
+                              {canEditBalance && u.id != null && (
+                                <button
+                                  onClick={() => deleteEntry('usage', u.id)}
+                                  disabled={entryDelBusy === `usage:${u.id}`}
+                                  title="Remove this entry — the hours go back to the bucket"
+                                  style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `usage:${u.id}` ? 0.5 : 1 }}
+                                >Remove</button>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+
+                        {/* [leave-log] Provenance — every change to this bucket's
+                            granted/used with who or what made it. */}
+                        {(() => {
+                          const logRows = balanceLog.filter((r: any) =>
+                            (historyBucket.leave_type_id != null && r.leave_type_id === historyBucket.leave_type_id) ||
+                            (r.slug && r.slug === historyBucket.slug));
+                          const fmtAt = (at: string) => {
+                            const d = new Date(at);
+                            return d.toLocaleDateString('en-US', { month:'short', day:'numeric' }) + ', ' +
+                                   d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit' });
+                          };
+                          const fmtPair = (g: number | null, u2: number | null) =>
+                            `${g != null ? g.toFixed(1) : '—'} granted / ${u2 != null ? u2.toFixed(1) : '—'} used`;
+                          const empName = `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim() || 'Employee';
+                          const dayUnitLabel: Record<string, string> = { full_day: 'full day', morning: 'morning', afternoon: 'afternoon', custom: 'custom hours' };
+                          // Headline: WHAT happened. For request-driven rows the
+                          // full designation chain — the employee requested, the
+                          // approver signed off, the hours moved — reads on one card.
+                          const headline = (r: any) => {
+                            const hrs = r.hours_delta != null ? Math.abs(r.hours_delta).toFixed(1) : null;
+                            if (r.source === 'request_approved') return `Request approved — ${hrs ?? '?'} hrs deducted`;
+                            if (r.source === 'request_cancelled') return `Approved request cancelled — ${hrs ?? '?'} hrs restored`;
+                            if (r.source === 'usage_entry_deleted') return 'Usage entry removed — hours restored';
+                            if (r.source === 'office_deduct') return `Hours deducted — ${hrs ?? '?'} hrs`;
+                            if (r.source === 'unexcused_recorded') return `Absence recorded — ${hrs ?? '?'} hrs`;
+                            if (r.source === 'attendance_entry_deleted') return `Absence removed — ${hrs ?? '?'} hrs restored`;
+                            if (r.source === 'office_set') return 'Balance set manually';
+                            if (r.engine_action === 'initial_grant') return 'Automatic grant (eligibility reached)';
+                            if (r.engine_action === 'annual_reset') return 'Automatic benefit-year reset';
+                            if (r.engine_action === 'tier_topup') return 'Automatic tenure top-up';
+                            // Rows logged before the source field existed —
+                            // fall back to the audit action.
+                            if (r.action === 'leave_balance_set') return 'Balance set manually';
+                            if (r.action === 'leave_request_approved') return 'Request approved';
+                            if (r.action === 'leave_request_cancelled') return 'Approved request cancelled';
+                            return 'Balance changed';
+                          };
+                          const chain = (r: any) => {
+                            if (r.source === 'request_approved') return `${empName} requested · approved by ${r.actor}`;
+                            if (r.source === 'request_cancelled') return `cancelled by ${r.actor}`;
+                            if (r.source === 'unexcused_recorded') return `recorded by ${r.actor}`;
+                            if (r.source === 'attendance_entry_deleted') return `removed by ${r.actor}`;
+                            if (r.source === 'office_deduct') return `deducted by ${r.actor}`;
+                            return `by ${r.actor}`;
+                          };
+                          const dateRange = (r: any) => {
+                            const d = r.start_date || r.log_date;
+                            if (!d) return null;
+                            return `${shortDate(String(d))}${r.end_date && r.end_date !== r.start_date ? ` – ${shortDate(String(r.end_date))}` : ''}${r.day_unit ? ` (${dayUnitLabel[r.day_unit] ?? r.day_unit})` : ''}`;
+                          };
+                          return (
+                            <div style={{ marginTop:20 }}>
+                              <h4 style={{ margin:'0 0 4px',fontSize:13,fontWeight:700,color:'#1A1917' }}>Balance changes</h4>
+                              <p style={{ margin:'0 0 8px',fontSize:11.5,color:'#9E9B94' }}>The full audit trail for this bucket — requests and approvals, office edits, automatic grants.</p>
+                              {logRows.length === 0 && (
+                                <p style={{ margin:0,fontSize:12,color:'#9E9B94',borderTop:'1px solid #E5E2DC',paddingTop:8 }}>No balance changes recorded yet. Every future change lands here automatically.</p>
+                              )}
+                              {logRows.map((r: any, i: number) => (
+                                <div key={i} style={{ padding:'8px 0',borderTop: i ? '1px solid #F0EEE9' : '1px solid #E5E2DC' }}>
+                                  <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:10,fontSize:12 }}>
+                                    <span style={{ fontWeight:700,color:'#1A1917' }}>{headline(r)}</span>
+                                    <span style={{ display:'flex',alignItems:'center',gap:8,whiteSpace:'nowrap' }}>
+                                      <span style={{ color:'#9E9B94' }}>{fmtAt(r.at)}</span>
+                                      {canEditBalance && r.granted_old != null && r.used_old != null && (r.action === 'leave_balance_set' || r.action === 'leave_grant_engine') && (
+                                        <button
+                                          onClick={() => revertBalanceChange(r, r.leave_type_id ?? historyBucket.leave_type_id, fmtAt(r.at))}
+                                          disabled={revertBusy === String(r.at)}
+                                          title="Restore the bucket to the state before this change"
+                                          style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'2px 8px',fontSize:11,fontWeight:600,color:'#6B6860',cursor:'pointer',fontFamily:'inherit',opacity: revertBusy === String(r.at) ? 0.5 : 1 }}
+                                        >Revert</button>
+                                      )}
+                                    </span>
+                                  </div>
+                                  <div style={{ fontSize:12,color:'#6B6860',marginTop:2 }}>
+                                    {chain(r)}
+                                    {dateRange(r) && <span style={{ color:'#9E9B94' }}> · {dateRange(r)}</span>}
+                                  </div>
+                                  {(r.granted_new != null || r.used_new != null) && (
+                                    <div style={{ fontSize:12,color:'#6B6860',marginTop:2 }}>
+                                      {fmtPair(r.granted_new, r.used_new)}
+                                      {(r.granted_old != null || r.used_old != null) && (
+                                        <span style={{ color:'#9E9B94' }}> (was {fmtPair(r.granted_old, r.used_old)})</span>
+                                      )}
+                                    </div>
+                                  )}
+                                  {r.reason && (
+                                    <div style={{ fontSize:12,color:'#1A1917',marginTop:2,fontStyle:'italic' }}>"{r.reason}"</div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'14px 16px' }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:12 }}>
-                    <p style={{ fontSize:13,fontWeight:700,color:'#1A1917',margin:0 }}>Stats — Last 180 Days</p>
+                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
+                    <p style={{ fontSize:13,fontWeight:700,color:'#1A1917',margin:0 }}>Attendance — Last 180 Days</p>
                   </div>
-                  {[
-                    {label:'Scheduled', value: user.total_jobs || 0},
-                    {label:'Worked', value: Math.round((user.total_jobs||0)*0.88)},
-                    {label:'Absent', value: 11, pct:'8%'},
-                    {label:'Time Off', value: 9, pct:'6%'},
-                    {label:'Excused', value: 0, pct:'0%'},
-                    {label:'Unexcused', value: 2, pct:'1%'},
-                    {label:'Paid Time Off', value: 3, pct:'2%'},
-                    {label:'Sick', value: 4, pct:'3%'},
-                    {label:'Late', value: 6, pct:'5%'},
-                    {label:'Score', value: scorePct != null ? `${scorePct.toFixed(0)}%` : '—'},
-                  ].map(row => (
-                    <div key={row.label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'5px 0', borderBottom:'1px solid #F3F4F6' }}>
-                      <span style={{ fontSize:12,color:'#6B7280' }}>{row.label}</span>
-                      <span style={{ fontSize:12,fontWeight:600,color:'#1A1917' }}>{row.value}{row.pct ? ` (${row.pct})` : ''}</span>
-                    </div>
-                  ))}
+                  {(() => {
+                    const t = attnSummary?.tiles;
+                    const rows: Array<{ label:string; value:any; days?:any[] }> = [
+                      { label:'Scheduled', value: user.total_jobs || 0 },
+                      { label:'Late', value: t?.late?.count ?? 0, days: t?.late?.days },
+                      { label:'Absent', value: t?.absent?.count ?? 0, days: t?.absent?.days },
+                      { label:'Unexcused', value: t?.unexcused?.count ?? 0, days: t?.unexcused?.days },
+                      { label:'Time Off', value: t?.time_off?.count ?? 0, days: t?.time_off?.days },
+                      { label:'Paid Time Off', value: t?.pto?.count ?? 0, days: t?.pto?.days },
+                      { label:'Sick', value: t?.sick?.count ?? 0, days: t?.sick?.days },
+                      { label:'Score', value: scorePct != null ? `${scorePct.toFixed(0)}%` : '—' },
+                    ];
+                    return rows.map(row => {
+                      const clickable = Array.isArray(row.days);
+                      const hasRows = clickable && (row.days as any[]).length > 0;
+                      return (
+                        <div key={row.label}
+                          onClick={hasRows ? () => setStatDrill({ label: row.label, days: row.days as any[] }) : undefined}
+                          style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', borderBottom:'1px solid #F3F4F6', cursor: hasRows ? 'pointer' : 'default' }}>
+                          <span style={{ fontSize:12, color: hasRows ? 'var(--brand)' : '#6B7280' }}>{row.label}</span>
+                          <span style={{ fontSize:12, fontWeight:600, color:'#1A1917' }}>{row.value}{hasRows ? ' ›' : ''}</span>
+                        </div>
+                      );
+                    });
+                  })()}
+                  {!attnSummary && (
+                    <p style={{ fontSize:11, color:'#9E9B94', margin:'8px 0 0 0' }}>Loading…</p>
+                  )}
                 </div>
+
+                {/* [Phase 2] Stat-tile day-level drill-down (date + reason) */}
+                {statDrill && (
+                  <div onClick={() => setStatDrill(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:12,padding:24,width:560,maxWidth:'92vw',maxHeight:'80vh',overflowY:'auto',boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
+                      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16 }}>
+                        <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>{statDrill.label} — last 180 days</h3>
+                        <button onClick={() => setStatDrill(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
+                      </div>
+                      {statDrill.days.length === 0 ? (
+                        <p style={{ color:'#9E9B94',fontSize:13,margin:0 }}>No {statDrill.label.toLowerCase()} days recorded.</p>
+                      ) : statDrill.days.map((d: any, i: number) => (
+                        <div key={i} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+                          <div style={{ minWidth:0 }}>
+                            <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(d.date))} · {String(d.date)}</div>
+                            <NoteChips note={d.reason} bucketMap={bucketDisplayMap} />
+                            {d.by && <div style={{ fontSize:11,color:'#9E9B94',marginTop:2 }}>{d.by === 'auto-detected' ? 'auto-detected from clock-in' : d.by === 'imported record' ? 'imported from MaidCentral' : `recorded by ${d.by}`}</div>}
+                          </div>
+                          <div style={{ display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap' }}>
+                            {d.hours != null && <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(d.hours).toFixed(2)} h</span>}
+                            {canDeleteAttendance && d.id != null && d.src === 'att' && (
+                              <button
+                                onClick={() => deleteEntry('attendance', d.id)}
+                                disabled={entryDelBusy === `attendance:${d.id}`}
+                                title="Remove this entry (mistake correction)"
+                                style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `attendance:${d.id}` ? 0.5 : 1 }}
+                              >Remove</button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1212,7 +2297,8 @@ export default function EmployeeProfilePage() {
                     {isOwner ? (
                       <Select value={form.role||''} onChange={v=>setField('role',v)} options={[
                         {value:'owner',label:'Owner'},{value:'admin',label:'Admin'},
-                        {value:'office',label:'Office'},{value:'technician',label:'Technician'}
+                        {value:'office',label:'Office'},{value:'technician',label:'Technician'},
+                        {value:'accountant',label:'Accountant (View-only)'}
                       ]}/>
                     ) : (
                       <div style={{ padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:8, background:'#FAFAF8', fontSize:13, color:'#1A1917', textTransform:'capitalize' }}>
@@ -1224,6 +2310,18 @@ export default function EmployeeProfilePage() {
                 </div>
                 <div style={{ marginTop:16 }}>
                   <Toggle value={!!form.is_active} onChange={v=>setField('is_active',v)} label="Account Active"/>
+                </div>
+                {/* [dispatch-visibility 2026-07-09] Hide placeholder / QA-test
+                    accounts (Trainee Placeholder, Test Auditor) from the daily
+                    jobs board without deactivating the login. Default ON. The
+                    accountant/CPA role is already excluded from the board by
+                    role, so this toggle is really for stray technician-role
+                    placeholders. */}
+                <div style={{ marginTop:16 }}>
+                  <Toggle value={form.show_on_dispatch !== false} onChange={v=>setField('show_on_dispatch',v)} label="Show on dispatch board"/>
+                  <p style={{ margin:'6px 0 0', fontSize:12, color:'#9E9B94' }}>
+                    Turn off for placeholder or test accounts you don't want appearing on the daily jobs board. The account stays active everywhere else.
+                  </p>
                 </div>
                 {user.invite_sent_at && (
                   <div style={{ marginTop:12, padding:'10px 12px', background:'#FEF3C7', borderRadius:8 }}>
@@ -1309,28 +2407,53 @@ export default function EmployeeProfilePage() {
           )}
 
           {/* ── SCORECARDS TAB ── */}
-          {activeTab === 'Scorecards' && (
+          {activeTab === 'Performance Score' && (
             <div>
               <div style={{ display:'grid', gridTemplateColumns:'1fr 2fr', gap:20, marginBottom:20 }}>
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'24px', display:'flex', flexDirection:'column', alignItems:'center', gap:8 }}>
                   <p style={{ fontSize:44,fontWeight:700,color:'var(--brand)',margin:0 }}>
-                    {scorePct != null ? `${scorePct.toFixed(0)}%` : '—'}
+                    {compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—'}
                   </p>
-                  <p style={{ fontSize:13,color:'#9E9B94',margin:0,textTransform:'uppercase',letterSpacing:'0.05em' }}>Scorecard Score</p>
-                  {scEntries.length > 0 && <p style={{ fontSize:12,color:'#6B7280',margin:0 }}>{scEntries.length} job{scEntries.length === 1 ? '' : 's'} scored</p>}
+                  <p style={{ fontSize:13,color:'#9E9B94',margin:0,textTransform:'uppercase',letterSpacing:'0.05em' }}>Performance Score</p>
+                  <p style={{ fontSize:12,color:'#6B7280',margin:0 }}>Rolling composite · trailing 90 days</p>
                 </div>
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'20px 24px' }}>
-                  <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Trend — Recent Jobs</p>
-                  <ScoreTrendChart scores={scEntries.slice(0, 12).reverse().map((s: any, i: number) => ({
-                    month: String(i),
-                    score: parseFloat(s.max_value) > 0 ? (parseFloat(s.score_value) / parseFloat(s.max_value)) * 4 : 0,
-                  }))}/>
+                  <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Breakdown — Trailing 90 Days</p>
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
+                    {[
+                      { key:'satisfaction', label:'Customer Satisfaction', value: comp?.satisfaction, weight: comp?.weights?.satisfaction ?? 60,
+                        sub: !comp ? '' : comp.satisfaction_source === 'mc_lifetime'
+                          ? 'MaidCentral history'
+                          : `${comp.counts?.survey_responses ?? 0} survey${(comp.counts?.survey_responses ?? 0) === 1 ? '' : 's'} (90d)` },
+                      { key:'attendance', label:'Attendance', value: comp?.attendance, weight: comp?.weights?.attendance ?? 25,
+                        sub: comp ? `${comp.counts?.attendance_violations ?? 0} issue${(comp.counts?.attendance_violations ?? 0) === 1 ? '' : 's'} · ${comp.counts?.scheduled_days ?? 0} day${(comp.counts?.scheduled_days ?? 0) === 1 ? '' : 's'}` : '' },
+                      { key:'complaint_free', label:'Complaint-Free', value: comp?.complaint_free, weight: comp?.weights?.complaint_free ?? 15,
+                        sub: comp ? `${comp.counts?.valid_complaints ?? 0} complaint${(comp.counts?.valid_complaints ?? 0) === 1 ? '' : 's'} · ${comp.counts?.completed_jobs ?? 0} job${(comp.counts?.completed_jobs ?? 0) === 1 ? '' : 's'}` : '' },
+                    ].map((m) => (
+                      <div key={m.key} style={{ background:'#F7F6F3', border:'1px solid #EEECE7', borderRadius:8, padding:'12px 14px', display:'flex', flexDirection:'column', gap:4 }}>
+                        <span style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.04em' }}>{m.label}</span>
+                        <span style={{ fontSize:26, fontWeight:700, color: m.value != null ? '#1A1917' : '#C4C1BA' }}>
+                          {m.value != null ? `${Number(m.value).toFixed(0)}%` : '—'}
+                        </span>
+                        <span style={{ fontSize:11, color:'#6B7280' }}>{m.weight}% weight</span>
+                        <span style={{ fontSize:11, color:'#9E9B94' }}>{m.sub}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
+              </div>
+
+              <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'20px 24px', marginBottom:20 }}>
+                <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Satisfaction Trend — Recent Jobs</p>
+                <ScoreTrendChart scores={scEntries.slice(0, 12).reverse().map((s: any, i: number) => ({
+                  month: String(i),
+                  score: parseFloat(s.max_value) > 0 ? (parseFloat(s.score_value) / parseFloat(s.max_value)) * 4 : 0,
+                }))}/>
               </div>
 
               <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
                 <div style={{ padding:'14px 20px', borderBottom:'1px solid #EEECE7', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                  <p style={{ fontSize:13,fontWeight:700,color:'#1A1917',margin:0 }}>Scorecard Entries</p>
+                  <p style={{ fontSize:13,fontWeight:700,color:'#1A1917',margin:0 }}>Rating History</p>
                 </div>
                 <table style={{ width:'100%', borderCollapse:'collapse' }}>
                   <thead>
@@ -1490,7 +2613,7 @@ export default function EmployeeProfilePage() {
                                         style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#92400E',fontFamily:'inherit' }}>
                                         <Ban size={11}/> Void
                                       </button>
-                                      {(getTokenRole() === 'owner' || getTokenRole() === 'admin') && (
+                                      {['owner', 'admin', 'office'].includes(getTokenRole() || '') && (
                                         <button
                                           onClick={() => deletePay(p.id)}
                                           disabled={deletingId === p.id}

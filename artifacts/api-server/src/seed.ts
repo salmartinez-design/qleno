@@ -158,6 +158,9 @@ export async function seedIfNeeded() {
 
     // ── Schema guards: add missing columns idempotently ──────────────────────
     await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS is_super_admin BOOLEAN DEFAULT false`);
+    await db.execute(sql`ALTER TABLE clients ADD COLUMN IF NOT EXISTS cancellation_notify_via TEXT DEFAULT 'sms'`);
+    await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS office_email_show_zone BOOLEAN NOT NULL DEFAULT true`);
+    await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS office_email_show_available_techs BOOLEAN NOT NULL DEFAULT true`);
 
     // ── Super admin accounts ────────────────────────────────────────────────
     for (const sa of SUPER_ADMINS) {
@@ -211,7 +214,7 @@ export async function seedIfNeeded() {
           city: "Oak Lawn",
           state: "IL",
           zip: "60453",
-          logo_url: "/api/uploads/logos/phes-logo.jpeg",
+          logo_url: "/images/phes-logo.jpeg",
           business_hours: "Monday \u2013 Friday: 9:00 AM \u2013 6:00 PM\nSaturday: 9:00 AM \u2013 12:00 PM\nSunday: Closed",
         })
         .where(eq(companiesTable.slug, "phes-cleaning"));

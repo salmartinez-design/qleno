@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders } from "@/lib/auth";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, Eye } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -14,6 +14,10 @@ const ROLES = [
   { value: "office", label: "Office" },
   { value: "admin", label: "Admin" },
   { value: "owner", label: "Owner" },
+  // [accountant-readonly 2026-07-03] External view-only role (e.g. the company
+  // CPA). Sees Invoices + Customers, can't edit anything (enforced globally in
+  // requireAuth). Not an employee — pay fields hide + are omitted when chosen.
+  { value: "accountant", label: "Accountant (View-only)" },
 ];
 
 type Form = {
@@ -34,6 +38,8 @@ export default function AddEmployeePage() {
   const [saving, setSaving] = useState(false);
   const set = <K extends keyof Form>(k: K, v: Form[K]) => setForm(p => ({ ...p, [k]: v }));
   const canSave = form.first_name.trim() && form.email.trim() && !saving;
+  // A view-only accountant is not a paid employee — no pay structure.
+  const isAccountant = form.role === "accountant";
 
   async function handleSave() {
     if (!canSave) return;
@@ -53,9 +59,10 @@ export default function AddEmployeePage() {
           city: form.city.trim() || undefined,
           state: form.state.trim() || undefined,
           zip: form.zip.trim() || undefined,
-          hire_date: form.hire_date || undefined,
-          pay_type: form.pay_type,
-          pay_rate: form.pay_rate.trim() || undefined,
+          hire_date: isAccountant ? undefined : (form.hire_date || undefined),
+          // Omit pay entirely for a view-only accountant — no pay record.
+          pay_type: isAccountant ? undefined : form.pay_type,
+          pay_rate: isAccountant ? undefined : (form.pay_rate.trim() || undefined),
         }),
       });
       if (!res.ok) {
@@ -109,24 +116,35 @@ export default function AddEmployeePage() {
               </select>
             </div>
           </div>
-          {field("address", "Street address")}
-          <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "16px" }}>
-            {field("city", "City")}
-            {field("state", "State")}
-            {field("zip", "Zip")}
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px" }}>
-            {field("hire_date", "Hire date", { type: "date" })}
-            <div>
-              <label style={label}>Pay type</label>
-              <select style={input} value={form.pay_type} onChange={e => set("pay_type", e.target.value)}>
-                <option value="hourly">Hourly</option>
-                <option value="fee_split">Fee Split</option>
-                <option value="per_job">Per Job</option>
-              </select>
+          {isAccountant ? (
+            <div style={{ display: "flex", gap: "10px", alignItems: "flex-start", padding: "12px 14px", background: "#F0FAF7", border: "1px solid #B8EBDF", borderRadius: "8px" }}>
+              <Eye size={16} strokeWidth={2} style={{ color: "#00876B", flexShrink: 0, marginTop: "1px" }} />
+              <div style={{ fontSize: "12.5px", color: "#0A5A48", lineHeight: 1.55 }}>
+                <strong>View-only access.</strong> This person can see Invoices and Customers but cannot edit, create, delete, export, manage users, or change settings. No pay structure is required — address and pay fields are skipped.
+              </div>
             </div>
-            {field("pay_rate", "Pay rate", { type: "number" })}
-          </div>
+          ) : (
+            <>
+              {field("address", "Street address")}
+              <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: "16px" }}>
+                {field("city", "City")}
+                {field("state", "State")}
+                {field("zip", "Zip")}
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px" }}>
+                {field("hire_date", "Hire date", { type: "date" })}
+                <div>
+                  <label style={label}>Pay type</label>
+                  <select style={input} value={form.pay_type} onChange={e => set("pay_type", e.target.value)}>
+                    <option value="hourly">Hourly</option>
+                    <option value="fee_split">Fee Split</option>
+                    <option value="per_job">Per Job</option>
+                  </select>
+                </div>
+                {field("pay_rate", "Pay rate", { type: "number" })}
+              </div>
+            </>
+          )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", paddingTop: "4px" }}>
             <button onClick={() => navigate("/employees")} disabled={saving}
               style={{ padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: "8px", backgroundColor: "#FFFFFF", color: "#6B7280", fontSize: "13px", fontWeight: 600, cursor: saving ? "default" : "pointer", fontFamily: FF }}>

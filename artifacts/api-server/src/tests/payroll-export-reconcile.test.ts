@@ -6,10 +6,10 @@
  * detail. `snapshotToExportRow` is the single mapping from the engine's money
  * breakdown to the export's regular/OT/adjustments columns, so these tests pin:
  *
- *   A. gross_cents is EXACTLY the sum of regular + overtime + adjustments —
- *      the column the payroll processor totals can never drift from the parts.
+ *   A. gross_cents is EXACTLY the sum of regular + overtime + tips + adjustments
+ *      — the column the payroll processor totals can never drift from the parts.
  *   B. Each engine bucket lands in the right export column (base→regular,
- *      overtime→overtime, tips+bonus+other→adjustments).
+ *      overtime→overtime, tips→tips [ADP CC Tips], bonus+other→adjustments).
  *   C. Cent rounding is per-component and stable (no float drift on .005 etc).
  *   D. The CSV row built from the mapping carries those same cent values.
  */
@@ -24,12 +24,12 @@ const snap = (over: Partial<Parameters<typeof snapshotToExportRow>[0]> = {}) => 
 });
 
 describe("snapshotToExportRow — engine→export reconciliation", () => {
-  it("A. gross_cents == regular + overtime + adjustments", () => {
+  it("A. gross_cents == regular + overtime + tips + adjustments", () => {
     const r = snapshotToExportRow(snap({
       base: 836.94, tips: 45, overtime: 60.5, bonus: 100, adjustments: 12.34,
       gross: 836.94 + 45 + 60.5 + 100 + 12.34, hours: 38.25,
     }));
-    assert.equal(r.gross_cents, r.regular_pay_cents + r.overtime_pay_cents + r.adjustments_cents);
+    assert.equal(r.gross_cents, r.regular_pay_cents + r.overtime_pay_cents + r.tips_cents + r.adjustments_cents);
     assert.equal(r.gross_cents, Math.round((836.94 + 45 + 60.5 + 100 + 12.34) * 100));
   });
 
@@ -37,7 +37,8 @@ describe("snapshotToExportRow — engine→export reconciliation", () => {
     const r = snapshotToExportRow(snap({ base: 500, overtime: 30, tips: 10, bonus: 20, adjustments: 5, gross: 565 }));
     assert.equal(r.regular_pay_cents, 50000);
     assert.equal(r.overtime_pay_cents, 3000);
-    assert.equal(r.adjustments_cents, 1000 + 2000 + 500); // tips + bonus + other
+    assert.equal(r.tips_cents, 1000); // tips on their own (ADP CC Tips)
+    assert.equal(r.adjustments_cents, 2000 + 500); // bonus + other (NOT tips)
     assert.equal(r.overtime_hours, 0); // OT carried as dollars, not an hours split
     assert.equal(r.regular_hours, 0);
   });
@@ -49,7 +50,7 @@ describe("snapshotToExportRow — engine→export reconciliation", () => {
     const base = 33.33, tips = 0.1, overtime = 0.2, bonus = 7.77, adjustments = 1.11;
     const gross = Math.round((base + tips + overtime + bonus + adjustments) * 100) / 100;
     const r = snapshotToExportRow(snap({ base, tips, overtime, bonus, adjustments, gross }));
-    assert.equal(r.gross_cents, r.regular_pay_cents + r.overtime_pay_cents + r.adjustments_cents);
+    assert.equal(r.gross_cents, r.regular_pay_cents + r.overtime_pay_cents + r.tips_cents + r.adjustments_cents);
     assert.equal(r.gross_cents, 4251); // 33.33 + 0.10 + 0.20 + 7.77 + 1.11 = 42.51
   });
 
@@ -57,8 +58,8 @@ describe("snapshotToExportRow — engine→export reconciliation", () => {
     const r = snapshotToExportRow(snap({ base: 200, overtime: 15, tips: 5, gross: 220, hours: 8 }));
     const csv = buildPayExportCsv({ period_start: "2026-05-31", period_end: "2026-06-06", rows: [r] });
     const dataLine = csv.trim().split("\n")[1];
-    // …,8.00,0.00,200.00,15.00,5.00,220.00
-    assert.match(dataLine, /,8\.00,0\.00,200\.00,15\.00,5\.00,220\.00$/);
+    // …,8.00,0.00,200.00,15.00,5.00,0.00,220.00  (tips=5.00 on its own column)
+    assert.match(dataLine, /,8\.00,0\.00,200\.00,15\.00,5\.00,0\.00,220\.00$/);
     assert.match(dataLine, /^7,Juan,Salazar,2026-05-31,2026-06-06,/);
   });
 });

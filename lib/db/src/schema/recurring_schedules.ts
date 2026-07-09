@@ -14,6 +14,9 @@ export const recurringFrequencyEnum = pgEnum("recurring_frequency", [
   // (typically [1, 15] or [15, 30]). Engine snaps forward to next
   // business day when an anchor falls on a weekend.
   "semi_monthly",
+  // [commercial-cadence] Nth weekday of month — "3rd Wednesday", "last
+  // Friday". Pairs week_of_month (1..4, 5=last) with day_of_week.
+  "monthly_weekday",
 ]);
 
 export const recurringDayEnum = pgEnum("recurring_day", [
@@ -23,7 +26,12 @@ export const recurringDayEnum = pgEnum("recurring_day", [
 export const recurringSchedulesTable = pgTable("recurring_schedules", {
   id: serial("id").primaryKey(),
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
-  customer_id: integer("customer_id").references(() => clientsTable.id).notNull(),
+  // [account-recurrence 2026-07-03] Nullable: an ACCOUNT recurrence has no client
+  // — the account (account_id/account_property_id) is the billing entity. Client
+  // recurrences still set this. The engine already handles null customer_id for
+  // account schedules (trusts schedule.account_id; zip/name/parking lookups all
+  // guard for null). DROP NOT NULL applied to the live DB via runStartupMigrations.
+  customer_id: integer("customer_id").references(() => clientsTable.id),
   frequency: recurringFrequencyEnum("frequency").notNull(),
   day_of_week: recurringDayEnum("day_of_week"),
   start_date: date("start_date").notNull(),
@@ -32,6 +40,28 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   service_type: text("service_type"),
   duration_minutes: integer("duration_minutes"),
   base_fee: text("base_fee"),
+  // [monthly-batch-billing 2026-06-24] Commercial accounts billed once a month
+  // (one visit carries the whole charge, the rest are $0 — e.g. Bill Azzarello
+  // $761.25/mo, 4009 Condo $416.76/mo). monthly_charge_amount holds that lump.
+  // monthly_charge_mode controls how the engine reproduces it:
+  //   'manual' (default)  — generate $0 visits; the office drops the lump on one
+  //                         visit by hand (the current MaidCentral/QuickBooks flow).
+  //   'auto_first_visit'  — engine puts monthly_charge_amount on the FIRST visit
+  //                         of each calendar month, $0 on the rest.
+  monthly_charge_amount: text("monthly_charge_amount"),
+  monthly_charge_mode: text("monthly_charge_mode").notNull().default("manual"),
+  // [commercial-site-schedule 2026-06-24] Targets a specific commercial site.
+  // Multi-building accounts (KMA, Cucci, Daniel Walter PPM, Daveco) have one
+  // client/account with many service addresses, each on its own cadence — one
+  // schedule per site. When set, the engine stamps these onto every generated
+  // job so each site's visits carry the right account link + address. NULL on
+  // ordinary single-location schedules (the client's own address is used).
+  account_id: integer("account_id"),
+  account_property_id: integer("account_property_id"),
+  service_address_street: text("service_address_street"),
+  service_address_city: text("service_address_city"),
+  service_address_state: text("service_address_state"),
+  service_address_zip: text("service_address_zip"),
   notes: text("notes"),
   is_active: boolean("is_active").notNull().default(true),
   last_generated_date: date("last_generated_date"),
@@ -44,6 +74,9 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   // Used when jobs.frequency='every_3_weeks' (no matching enum value on
   // recurring_schedules.frequency, which only has weekly/biweekly/monthly/custom).
   custom_frequency_weeks: integer("custom_frequency_weeks"),
+  // [commercial-cadence] For frequency='monthly_weekday' ("3rd Wednesday",
+  // "last Friday"): 1..4 = first..fourth, 5 = last. Pairs with day_of_week.
+  week_of_month: integer("week_of_month"),
   // [AH] Cascade target for commercial hourly rate. When the user picks
   // "this and all future" on a commercial recurring job, this column gets
   // the rate so the engine can re-derive base_fee for spawned jobs.

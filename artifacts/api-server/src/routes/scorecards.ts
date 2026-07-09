@@ -5,6 +5,7 @@ import { eq, and, avg, count, desc, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { resolveWindow } from "../lib/report-periods.js";
 import { recomputeAllScorecards, recomputeEmployeeScorecard } from "../lib/scorecard-engine.js";
+import { computeCompositeForEmployee, recomputeAllComposites } from "../lib/scorecard-composite.js";
 
 const router = Router();
 
@@ -34,7 +35,21 @@ router.get("/report", requireAuth, requireRole("owner", "admin", "office"), asyn
         SELECT ROUND(AVG(score_value / NULLIF(max_value, 0)) * 100, 2) AS score_pct, COUNT(*)::int AS responses
           FROM scorecard_entries WHERE ${cond("")} AND employee_id = ${employeeId}`);
       const row: any = r.rows[0] ?? {};
-      return res.json({ scope, employee_id: employeeId, window: win, score_pct: row.score_pct != null ? parseFloat(row.score_pct) : null, responses: Number(row.responses ?? 0) });
+      // [90d-composite] Persisted composite columns so the report can show the
+      // displayed headline next to the satisfaction-only score_pct.
+      const cr = await db.execute(sql`
+        SELECT scorecard_composite_90d, score_satisfaction_90d, score_attendance_90d, score_complaint_free_90d
+          FROM users WHERE id = ${employeeId} AND company_id = ${companyId} LIMIT 1`);
+      const c: any = cr.rows[0] ?? {};
+      return res.json({
+        scope, employee_id: employeeId, window: win,
+        score_pct: row.score_pct != null ? parseFloat(row.score_pct) : null,
+        responses: Number(row.responses ?? 0),
+        composite_pct: c.scorecard_composite_90d != null ? parseFloat(c.scorecard_composite_90d) : null,
+        satisfaction_pct: c.score_satisfaction_90d != null ? parseFloat(c.score_satisfaction_90d) : null,
+        attendance_pct: c.score_attendance_90d != null ? parseFloat(c.score_attendance_90d) : null,
+        complaint_free_pct: c.score_complaint_free_90d != null ? parseFloat(c.score_complaint_free_90d) : null,
+      });
     }
 
     // Company: overall (unweighted mean of all responses) + per-tech breakdown.
@@ -43,16 +58,17 @@ router.get("/report", requireAuth, requireRole("owner", "admin", "office"), asyn
         FROM scorecard_entries WHERE ${cond("")}`);
     const byTech = await db.execute(sql`
       SELECT e.employee_id, (u.first_name || ' ' || u.last_name) AS name,
-             ROUND(AVG(e.score_value / NULLIF(e.max_value, 0)) * 100, 2) AS score_pct, COUNT(*)::int AS responses
+             ROUND(AVG(e.score_value / NULLIF(e.max_value, 0)) * 100, 2) AS score_pct, COUNT(*)::int AS responses,
+             u.scorecard_composite_90d AS composite_pct
         FROM scorecard_entries e LEFT JOIN users u ON u.id = e.employee_id
-       WHERE ${cond("e.")} GROUP BY e.employee_id, u.first_name, u.last_name
+       WHERE ${cond("e.")} GROUP BY e.employee_id, u.first_name, u.last_name, u.scorecard_composite_90d
        ORDER BY score_pct DESC NULLS LAST`);
     const o: any = overall.rows[0] ?? {};
     return res.json({
       scope: "company", window: win,
       score_pct: o.score_pct != null ? parseFloat(o.score_pct) : null,
       responses: Number(o.responses ?? 0),
-      employees: (byTech.rows as any[]).map(r => ({ employee_id: r.employee_id, name: r.name, score_pct: r.score_pct != null ? parseFloat(r.score_pct) : null, responses: Number(r.responses) })),
+      employees: (byTech.rows as any[]).map(r => ({ employee_id: r.employee_id, name: r.name, score_pct: r.score_pct != null ? parseFloat(r.score_pct) : null, responses: Number(r.responses), composite_pct: r.composite_pct != null ? parseFloat(r.composite_pct) : null })),
     });
   } catch (err) {
     console.error("Scorecard report error:", err);
@@ -202,6 +218,35 @@ router.get("/entries/:employee_id", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("Scorecard entries error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to fetch scorecard entries" });
+  }
+});
+
+// [90d-composite] Live 90-day rolling composite for one tech: the three
+// sub-scores (satisfaction / attendance / complaint-free), the blended
+// composite (the displayed headline), the per-tenant weights, the window, and
+// the underlying counts for drill-down on the employee profile. Computed fresh
+// (not just the persisted snapshot) so the profile always reflects "as of now".
+router.get("/composite/:employee_id", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const employeeId = parseInt(req.params.employee_id);
+    if (isNaN(employeeId)) return res.status(400).json({ error: "Invalid employee_id" });
+    const result = await computeCompositeForEmployee(companyId, employeeId);
+    return res.json(result);
+  } catch (err) {
+    console.error("Scorecard composite error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to compute composite" });
+  }
+});
+
+// [90d-composite] Office backfill — recompute + persist every tech's composite.
+router.post("/recompute-composite", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const result = await recomputeAllComposites(req.auth!.companyId!);
+    return res.json(result);
+  } catch (err) {
+    console.error("Scorecard recompute-composite error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to recompute composites" });
   }
 });
 

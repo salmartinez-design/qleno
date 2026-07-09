@@ -10,23 +10,12 @@ import crypto from "crypto";
 
 const router = Router();
 
-// Send an SMS via the tenant's Twilio REST credentials. No SDK dependency.
-async function sendTwilioSms(sid: string, authToken: string, from: string, to: string, body: string): Promise<void> {
-  const resp = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: "POST",
-    headers: {
-      "Authorization": "Basic " + Buffer.from(`${sid}:${authToken}`).toString("base64"),
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({ From: from, To: to, Body: body }).toString(),
-  });
-  if (!resp.ok) throw new Error(`Twilio ${resp.status}: ${(await resp.text()).slice(0, 200)}`);
-}
-
 // ── POST /api/satisfaction/send — with 30-day throttle ──
 router.post("/send", requireAuth, async (req, res) => {
   try {
-    const { job_id, customer_id } = req.body;
+    // force=true (office "Resend" on Scorecard Results) bypasses the 30-day
+    // throttle — an explicit human resend, not an automated repeat ask.
+    const { job_id, customer_id, force } = req.body;
     if (!job_id || !customer_id) return res.status(400).json({ error: "job_id, customer_id required" });
 
     const companyId = req.auth!.companyId;
@@ -46,7 +35,7 @@ router.post("/send", requireAuth, async (req, res) => {
 
     const token = crypto.randomBytes(24).toString("hex");
 
-    if (recent.length > 0) {
+    if (recent.length > 0 && force !== true) {
       const [survey] = await db.insert(satisfactionSurveysTable).values({
         company_id: companyId,
         job_id: parseInt(job_id),
@@ -56,38 +45,86 @@ router.post("/send", requireAuth, async (req, res) => {
         suppressed: true,
         suppressed_reason: "throttled — sent within 30 days",
       }).returning();
-      return res.json({ sent: false, reason: "throttled", survey });
+      // Throttled = no survey email either, so the completion thank-you email
+      // should still go out (survey_email_sent false).
+      return res.json({ sent: false, reason: "throttled", survey, survey_email_sent: false });
     }
 
-    // Tenant survey/Twilio config + customer phone. The SMS only actually sends
-    // when survey + Twilio are enabled, creds present, COMMS on, and a phone
-    // exists — otherwise the survey row is created but suppressed with the
-    // reason (Twilio is OFF until go-live, so today it suppresses, by design).
+    // Tenant survey config + customer phone. Twilio creds/number are resolved
+    // below via the shared resolveSender() (env-var creds + branch numbers), NOT
+    // the companies row — Phes stores them there, so reading the row directly
+    // (the old behavior) falsely reported "twilio_unconfigured" for the survey
+    // while every other message sent fine.
     const [company] = await db
       .select({
         name: companiesTable.name,
         survey_enabled: companiesTable.survey_enabled,
         survey_message_template: companiesTable.survey_message_template,
-        twilio_enabled: companiesTable.twilio_enabled,
-        twilio_account_sid: companiesTable.twilio_account_sid,
-        twilio_auth_token: companiesTable.twilio_auth_token,
-        twilio_from_number: companiesTable.twilio_from_number,
       })
       .from(companiesTable).where(eq(companiesTable.id, companyId)).limit(1);
     const [client] = await db
-      .select({ phone: clientsTable.phone, first_name: clientsTable.first_name })
+      .select({ phone: clientsTable.phone, first_name: clientsTable.first_name, email: clientsTable.email })
       .from(clientsTable).where(eq(clientsTable.id, parseInt(customer_id))).limit(1);
 
     // [comms-opt-out] Never survey a client who texted STOP.
     const { isSmsOptedOut } = await import("../lib/opt-out.js");
     const smsOptedOut = client?.phone ? await isSmsOptedOut(companyId, client.phone) : false;
+
+    // [survey-email] Send the survey by EMAIL too, reusing the review_request
+    // email template with the TOKENIZED survey link so an email response
+    // cascades to the tech scorecard exactly like the SMS path. sendNotification
+    // applies its OWN gates — tenant comms, per-client channel preference
+    // (prefClientId), and email opt-out — so this honors the customer's
+    // which-channel choice. Independent of the Twilio gates below: email still
+    // goes out even while SMS/Twilio is disabled. Non-fatal.
+    const appBase = (process.env.APP_BASE_URL || "https://app.qleno.com").replace(/\/$/, "");
+    const surveyUrl = `${appBase}/survey/${token}`;
+    // [one-completion-email] Exposed on every response as survey_email_sent so
+    // completion paths can skip the job_completed thank-you email when the
+    // survey email is the one reaching the inbox — the customer gets exactly
+    // one email per visit.
+    let surveyEmailSent = false;
+    if (client?.email) {
+      try {
+        const { sendNotification } = await import("../services/notificationService.js");
+        surveyEmailSent = await sendNotification(
+          "review_request", "email", companyId, client.email, null,
+          { first_name: client.first_name || "there", review_link: surveyUrl },
+          false, undefined, parseInt(customer_id),
+        );
+      } catch (e: any) {
+        console.error("[satisfaction/send] survey email failed (non-fatal):", e?.message ?? e);
+      }
+    }
+    // [survey-dedupe] Stamp survey_last_sent so the generic review_request cron
+    // (notificationService) skips this client for 30 days — the on-completion
+    // survey is the single feedback ask, so the customer never gets two emails.
+    try {
+      await db.execute(sql`UPDATE clients SET survey_last_sent = NOW() WHERE id = ${parseInt(customer_id)} AND company_id = ${companyId}`);
+    } catch (e: any) {
+      console.error("[satisfaction/send] survey_last_sent stamp failed (non-fatal):", e?.message ?? e);
+    }
+
+    // [survey-twilio-fix] Resolve the sender via the shared comms helper so the
+    // survey uses the SAME Twilio config as every other message — env-var creds
+    // + branch from-numbers. resolveSender's reason already covers the global
+    // COMMS gate, per-tenant comms, twilio creds/number. The survey's own master
+    // toggle (survey_enabled) gates on top.
+    const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+    const sender = await resolveSender(companyId);
+    // [survey-pref-gate 2026-07-07] Honor the per-client "Satisfaction Survey"
+    // SMS toggle (review_request:sms in the preference grid). The grid offered
+    // the switch but this path never consulted it — clients couldn't actually
+    // opt out of the survey text. Email already goes through sendNotification,
+    // which applies the same gate.
+    const { isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
+    const smsPrefOn = await isMessageEnabledForJob({ companyId: companyId!, clientId: parseInt(customer_id) }, "review_request", "sms");
     const gate =
       !company?.survey_enabled ? "survey_disabled"
-      : !company?.twilio_enabled ? "twilio_disabled"
-      : !(company.twilio_account_sid && company.twilio_auth_token && company.twilio_from_number) ? "twilio_unconfigured"
-      : process.env.COMMS_ENABLED !== "true" ? "comms_disabled"
+      : sender.reason ? sender.reason
       : !client?.phone ? "no_phone"
       : smsOptedOut ? "sms_opt_out"
+      : !smsPrefOn ? "client_pref_off"
       : null;
 
     if (gate) {
@@ -95,31 +132,30 @@ router.post("/send", requireAuth, async (req, res) => {
         company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
         token, sent_at: new Date(), suppressed: true, suppressed_reason: gate,
       }).returning();
-      return res.status(201).json({ sent: false, reason: gate, survey, survey_url: `/survey/${token}` });
+      return res.status(201).json({ sent: false, reason: gate, survey, survey_url: `/survey/${token}`, survey_email_sent: surveyEmailSent });
     }
 
-    const base = (process.env.APP_BASE_URL || "https://app.qleno.com").replace(/\/$/, "");
     // Clean short link instead of the long hex token URL.
-    const link = (await shortenUrl(`${base}/survey/${token}`, companyId)) || `${base}/survey/${token}`;
+    const link = (await shortenUrl(surveyUrl, companyId)) || surveyUrl;
     const body = (company.survey_message_template || SURVEY_SMS)
       .replace(/\{\{\s*company_name\s*\}\}/g, company.name || "We")
       .replace(/\{\{\s*first_name\s*\}\}/g, client!.first_name || "there")
       .replace(/\{\{\s*survey_link\s*\}\}/g, link);
     try {
-      await sendTwilioSms(company.twilio_account_sid!, company.twilio_auth_token!, company.twilio_from_number!, client!.phone!, body);
+      await sendSmsVia(sender, client!.phone!, body);
     } catch (e: any) {
       const [survey] = await db.insert(satisfactionSurveysTable).values({
         company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
         token, sent_at: new Date(), suppressed: true, suppressed_reason: `twilio_error: ${String(e?.message ?? e).slice(0, 120)}`,
       }).returning();
-      return res.status(201).json({ sent: false, reason: "twilio_error", survey, survey_url: link });
+      return res.status(201).json({ sent: false, reason: "twilio_error", survey, survey_url: link, survey_email_sent: surveyEmailSent });
     }
 
     const [survey] = await db.insert(satisfactionSurveysTable).values({
       company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
       token, sent_at: new Date(),
     }).returning();
-    return res.status(201).json({ sent: true, ...survey, survey_url: link });
+    return res.status(201).json({ sent: true, ...survey, survey_url: link, survey_email_sent: surveyEmailSent });
   } catch (err) {
     console.error("[satisfaction/send]", err);
     return res.status(500).json({ error: "Server error" });
@@ -179,6 +215,36 @@ router.post("/respond", async (req, res) => {
   }
 });
 
+// ── POST /api/satisfaction/comment — PUBLIC, optional note after rating ──
+// [seamless] The rating is recorded the instant the customer taps; a written
+// note is a no-pressure follow-up. Updates the survey comment AND mirrors it
+// onto the tech's scorecard entry so the office sees it next to the score.
+router.post("/comment", async (req, res) => {
+  try {
+    const { token, comment } = req.body;
+    if (!token) return res.status(400).json({ error: "token required" });
+    const text = (comment ?? "").toString().slice(0, 2000) || null;
+    const [updated] = await db.update(satisfactionSurveysTable)
+      .set({ comment: text })
+      .where(eq(satisfactionSurveysTable.token, token))
+      .returning();
+    if (!updated) return res.status(404).json({ error: "Survey not found" });
+    if (updated.job_id) {
+      try {
+        await db.execute(sql`
+          UPDATE scorecard_entries SET notes = ${text}
+           WHERE company_id = ${updated.company_id} AND job_id = ${updated.job_id} AND source = 'qleno'`);
+      } catch (e: any) {
+        console.error("[satisfaction/comment] scorecard note sync failed (non-fatal):", e?.message ?? e);
+      }
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("[satisfaction/comment]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ── GET /api/satisfaction/survey/:token — PUBLIC ──
 router.get("/survey/:token", async (req, res) => {
   try {
@@ -191,6 +257,12 @@ router.get("/survey/:token", async (req, res) => {
         brand_color: companiesTable.brand_color,
         client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
         job_id: satisfactionSurveysTable.job_id,
+        // [review-funnel] Public Google review link (live-only column). Surfaced
+        // so the survey thank-you can ask happy raters (3–4) for a Google review.
+        google_review_link: sql<string | null>`companies.review_link`,
+        // [review-once] Happy raters are only asked ONCE — hidden after the
+        // client has ever tapped "Leave a Google review".
+        google_review_done: sql<boolean>`(clients.google_review_clicked_at IS NOT NULL)`,
       })
       .from(satisfactionSurveysTable)
       .leftJoin(companiesTable, eq(companiesTable.id, satisfactionSurveysTable.company_id))
@@ -201,6 +273,29 @@ router.get("/survey/:token", async (req, res) => {
     if (!rows[0]) return res.status(404).json({ error: "Survey not found" });
     return res.json(rows[0]);
   } catch (err) {
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ── POST /api/satisfaction/review-click — PUBLIC, token-authed ──
+// [review-once] Stamps clients.google_review_clicked_at when a happy rater taps
+// "Leave a Google review" on the survey thank-you page, so they're never asked
+// again on future surveys. Idempotent — the first tap wins.
+router.post("/review-click", async (req, res) => {
+  try {
+    const { token } = req.body || {};
+    if (!token) return res.status(400).json({ error: "token required" });
+    const [survey] = await db.select({ customer_id: satisfactionSurveysTable.customer_id, company_id: satisfactionSurveysTable.company_id })
+      .from(satisfactionSurveysTable)
+      .where(eq(satisfactionSurveysTable.token, String(token))).limit(1);
+    if (!survey) return res.status(404).json({ error: "Survey not found" });
+    await db.execute(sql`
+      UPDATE clients SET google_review_clicked_at = NOW()
+      WHERE id = ${survey.customer_id} AND company_id = ${survey.company_id}
+        AND google_review_clicked_at IS NULL`);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("[satisfaction/review-click]", err);
     return res.status(500).json({ error: "Server error" });
   }
 });
@@ -350,6 +445,75 @@ router.get("/results", requireAuth, async (req, res) => {
 });
 
 // ── GET /api/satisfaction?customer_id= ──
+// ── GET /api/satisfaction/scorecard-results — MaidCentral-style report ──
+// Per-survey rows over a date range with customer, job, techs, response,
+// trend (vs the customer's previous responded score), plus header KPIs.
+// Suppressed surveys are excluded (they never reached the customer).
+router.get("/scorecard-results", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const today = new Date().toISOString().slice(0, 10);
+    const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from)) ? String(req.query.from) : monthAgo;
+    const to = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to)) ? String(req.query.to) : today;
+    const branchId = parseInt(String(req.query.branch_id)) || null;
+
+    const result = await db.execute(sql`
+      WITH responded AS (
+        SELECT id, LAG(survey_score) OVER (PARTITION BY customer_id ORDER BY responded_at) AS prev_score
+          FROM satisfaction_surveys
+         WHERE company_id = ${companyId} AND responded_at IS NOT NULL AND survey_score IS NOT NULL
+      )
+      SELECT s.id, s.job_id, s.customer_id, s.sent_at, s.responded_at, s.survey_score,
+             s.comment, s.follow_up_required,
+             TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')) AS customer_name,
+             c.email AS client_email, c.phone AS client_phone,
+             j.scheduled_date AS job_date, j.service_type,
+             COALESCE(
+               (SELECT string_agg(DISTINCT TRIM(COALESCE(tu.first_name,'') || ' ' || COALESCE(tu.last_name,'')), ', ')
+                  FROM job_technicians jt JOIN users tu ON tu.id = jt.user_id
+                 WHERE jt.job_id = s.job_id),
+               TRIM(COALESCE(au.first_name,'') || ' ' || COALESCE(au.last_name,''))
+             ) AS techs,
+             r.prev_score
+        FROM satisfaction_surveys s
+        JOIN clients c ON c.id = s.customer_id
+        LEFT JOIN jobs j ON j.id = s.job_id
+        LEFT JOIN users au ON au.id = j.assigned_user_id
+        LEFT JOIN responded r ON r.id = s.id
+       WHERE s.company_id = ${companyId}
+         AND s.suppressed = false
+         AND s.sent_at >= ${from}::date
+         AND s.sent_at < (${to}::date + INTERVAL '1 day')
+         ${branchId ? sql`AND j.branch_id = ${branchId}` : sql``}
+       ORDER BY s.sent_at DESC`);
+
+    const rows = (result.rows as any[]).map(r => ({
+      ...r,
+      trend: r.prev_score == null || r.survey_score == null ? null
+        : r.survey_score > r.prev_score ? "up"
+        : r.survey_score < r.prev_score ? "down" : "flat",
+    }));
+    const returned = rows.filter(r => r.responded_at).length;
+    const scored = rows.filter(r => r.survey_score != null);
+    return res.json({
+      from, to,
+      kpis: {
+        sent: rows.length,
+        returned,
+        response_rate: rows.length ? Math.round((returned / rows.length) * 100) : 0,
+        avg_score_pct: scored.length
+          ? Math.round((scored.reduce((a, r) => a + Number(r.survey_score), 0) / scored.length / 4) * 100)
+          : null,
+      },
+      data: rows,
+    });
+  } catch (err) {
+    console.error("[satisfaction/scorecard-results]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     const { customer_id } = req.query;

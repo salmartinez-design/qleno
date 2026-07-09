@@ -3,21 +3,34 @@
  * "Schedule Request" workflow, extended to SMS (Sal wants employee-facing
  * decisions on SMS + email; MC is email-only).
  *
- * MC templates mirrored (subjects kept close to MC's wording):
+ * Flow (Sal 2026-07-06: "ensure the office is getting an email of the request
+ * as well as an employee ticket. In addition that they get an email letting
+ * them know of the approval… we have to also do the email templates now"):
  *   - submit  → EMPLOYEE "Your Time-Off Request is Pending (<dates>)"
  *               (short-notice/sick → "Emergency Request Received")
- *             + OFFICE/OWNER "ACTION REQUIRED: review & approve …"
+ *             + OFFICE/OWNER in-app "ACTION REQUIRED" AND a direct email to
+ *               every office/owner/admin user (template: leave_request_office).
+ *               (The employee TICKET is created in the POST /requests route —
+ *               a durable contact_tickets row, not a notification.)
  *   - approve → EMPLOYEE "Your Time-Off Request was Approved (<dates>)"
  *   - deny    → EMPLOYEE "Your Time-Off Request was Denied (<dates>)"
  *
- * Channels:
- *   - In-app + web push: via notify.ts (internal staff alerts, ungated).
- *   - Office/owner email: via notifyOfficeUsers (existing staff-alert path).
- *   - EMPLOYEE email + SMS: employee-facing → gated by COMMS_ENABLED
- *     (SMS additionally by the per-tenant/branch gate via resolveSender),
- *     honoring the hard rule that no SMS/email leaves the system until
- *     comms are explicitly enabled. Until then employees still get the
- *     in-app + push alert.
+ * Templates ([leave-templates 2026-07-07]): every email renders from the
+ * tenant's editable notification_templates rows (triggers:
+ * leave_request_office / leave_request_pending / leave_request_emergency /
+ * leave_request_approved / leave_request_denied, channel 'email' — seeded in
+ * phes-data-migration). A missing/inactive template falls back to the
+ * built-in copy below, so a template mishap can never silence the flow.
+ *
+ * Gating ([staff-class 2026-07-07]): time-off emails go to EMPLOYEES and
+ * OFFICE STAFF — internal workforce communications, not customer comms — so
+ * they are TRANSACTIONAL/UNGATED like the staff-alert emails in notify.ts
+ * (sendStaffAlertEmail precedent: "bypasses COMMS_ENABLED — internal staff
+ * notification, never customer-facing"). Previously the employee emails were
+ * gated by COMMS_ENABLED + the per-company comms pause, which meant NO
+ * approval email ever reached an employee while customer comms stay paused —
+ * exactly what Sal reported. Employee SMS keeps the full comms gate ladder
+ * (per-tenant Twilio + comms flags) — texting stays off until comms go live.
  *
  * All sends are best-effort and never throw into the request path — the
  * leave_request row in the DB is the source of truth.
@@ -26,6 +39,8 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { notifyUser, notifyOfficeUsers } from "./notify.js";
 import { resolveSender, sendSmsVia } from "./comms-sender.js";
+import { applyMerge, wrapEmailHtml } from "../services/notificationService.js";
+import { appBaseUrl } from "./app-url.js";
 
 type LeaveCtx = {
   request_id: number;
@@ -40,19 +55,26 @@ type LeaveCtx = {
   start_date: string;
   end_date: string;
   hours: string;
+  start_time: string | null;
+  end_time: string | null;
+  note: string | null;
   status: string;
   decision_note: string | null;
   company_name: string;
+  company_phone: string;
+  company_email: string;
+  company_logo_url: string | null;
   email_from: string;
 };
 
 async function loadCtx(requestId: number): Promise<LeaveCtx | null> {
   const r = await db.execute(sql`
     SELECT lr.id, lr.company_id, lr.user_id, lr.start_date, lr.end_date, lr.hours,
-           lr.status, lr.decision_note,
+           lr.start_time, lr.end_time, lr.note, lr.status, lr.decision_note,
            lt.display_name AS bucket_name, lt.exempt_from_blackout,
            u.first_name, u.last_name, u.email, u.phone,
-           c.name AS company_name, c.email_from_address
+           c.name AS company_name, c.phone AS company_phone, c.email AS company_email,
+           c.logo_url AS company_logo_url, c.email_from_address
       FROM leave_requests lr
       JOIN leave_types lt ON lt.id = lr.leave_type_id
       JOIN users u ON u.id = lr.user_id
@@ -73,38 +95,124 @@ async function loadCtx(requestId: number): Promise<LeaveCtx | null> {
     start_date: String(row.start_date),
     end_date: String(row.end_date),
     hours: String(row.hours),
+    start_time: row.start_time ? String(row.start_time).slice(0, 5) : null,
+    end_time: row.end_time ? String(row.end_time).slice(0, 5) : null,
+    note: row.note ?? null,
     status: String(row.status),
     decision_note: row.decision_note ?? null,
     company_name: row.company_name || "Qleno",
+    company_phone: row.company_phone || "",
+    company_email: row.company_email || "",
+    // [email-polish 2026-07-07] Logo must be ABSOLUTE — the stored value is a
+    // site-relative path (/images/phes-logo.jpeg) which renders as a broken
+    // image in every email client (Sal: "logo not working").
+    company_logo_url: row.company_logo_url
+      ? (String(row.company_logo_url).startsWith("http")
+          ? String(row.company_logo_url)
+          : `${appBaseUrl()}${row.company_logo_url}`)
+      : null,
     email_from: row.email_from_address || "noreply@phes.io",
   };
 }
 
-function dateLabel(c: LeaveCtx): string {
-  return c.start_date === c.end_date ? c.start_date : `${c.start_date} → ${c.end_date}`;
+// [email-polish 2026-07-07] Human formats — Sal: "do not use military time."
+function fmt12(t: string): string {
+  const [hStr, mStr] = t.split(":");
+  let h = parseInt(hStr, 10);
+  if (isNaN(h)) return t;
+  const ampm = h >= 12 ? "PM" : "AM";
+  h = h % 12; if (h === 0) h = 12;
+  return `${h}:${mStr ?? "00"} ${ampm}`;
+}
+function fmtDay(ymd: string): string {
+  const d = new Date(`${ymd}T00:00:00Z`);
+  if (isNaN(d.getTime())) return ymd;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 }
 
-/** Employee-facing email — gated by COMMS_ENABLED (employee-facing comms). */
-async function sendEmployeeEmail(c: LeaveCtx, subject: string, bodyHtml: string): Promise<void> {
+function dateLabel(c: LeaveCtx): string {
+  const base = c.start_date === c.end_date
+    ? fmtDay(c.start_date)
+    : `${fmtDay(c.start_date)} – ${fmtDay(c.end_date)}`;
+  return c.start_time && c.end_time ? `${base}, ${fmt12(c.start_time)}–${fmt12(c.end_time)}` : base;
+}
+
+/** Merge vars available to every leave email template. */
+function mergeVars(c: LeaveCtx): Record<string, string> {
+  return {
+    first_name: c.employee_first,
+    employee_name: c.employee_name,
+    bucket_name: c.bucket_name,
+    dates: dateLabel(c),
+    hours: Number(c.hours).toFixed(2),
+    time_window: c.start_time && c.end_time ? `${fmt12(c.start_time)}–${fmt12(c.end_time)}` : "",
+    note: c.note ?? "",
+    decision_note: c.decision_note ?? "",
+    // The SPA route is /payroll/leave-review — the old /leave-review 404'd
+    // straight out of the ACTION REQUIRED email (Sal: "approval process not
+    // working").
+    review_link: `${appBaseUrl()}/payroll/leave-review`,
+    my_time_off_link: `${appBaseUrl()}/leave`,
+    company_name: c.company_name,
+    company_phone: c.company_phone,
+    company_email: c.company_email,
+  };
+}
+
+/** Load the tenant's editable template for a leave trigger; null → fallback. */
+async function loadTemplate(companyId: number, trigger: string): Promise<{ subject: string | null; body_html: string | null } | null> {
   try {
-    if (process.env.COMMS_ENABLED !== "true") return;
-    const key = process.env.RESEND_API_KEY;
-    if (!key || !c.employee_email) return;
-    const from = `${c.company_name} <${c.email_from}>`;
-    const html = `<div style="font-family:Arial,sans-serif;max-width:520px;margin:0 auto;padding:24px;color:#1A1917">
-${bodyHtml}
-<p style="font-size:12px;color:#9E9B94;margin:16px 0 0">${c.company_name} · Time Off</p>
-</div>`;
-    const { Resend } = await import("resend");
-    const resend = new Resend(key);
-    const r: any = await resend.emails.send({ from, to: [c.employee_email], subject, html });
-    if (r?.error) console.error("[leave-notify] employee email error:", r.error?.message ?? r.error);
-  } catch (e) {
-    console.error("[leave-notify] employee email failed:", e);
+    const r = await db.execute(sql`
+      SELECT subject, body_html FROM notification_templates
+       WHERE company_id = ${companyId} AND trigger = ${trigger}
+         AND channel = 'email' AND is_active = true
+       LIMIT 1`);
+    const row: any = r.rows[0];
+    if (!row || !row.body_html) return null;
+    return { subject: row.subject ?? null, body_html: String(row.body_html) };
+  } catch {
+    return null;
   }
 }
 
-/** Employee-facing SMS — gated by COMMS_ENABLED + tenant/branch via resolveSender. */
+/** Render subject+html from the tenant template, falling back to built-ins. */
+async function renderEmail(
+  c: LeaveCtx,
+  trigger: string,
+  fallbackSubject: string,
+  fallbackBodyHtml: string,
+): Promise<{ subject: string; html: string }> {
+  const vars = mergeVars(c);
+  const tpl = await loadTemplate(c.company_id, trigger);
+  const subject = applyMerge(tpl?.subject || fallbackSubject, vars);
+  const inner = applyMerge(tpl?.body_html || fallbackBodyHtml, vars);
+  // Same branded wrapper the customer templates use (logo header + footer);
+  // the wrapper's own {{company_*}} footer tags resolve from the same vars.
+  const html = applyMerge(
+    wrapEmailHtml(inner, { logoUrl: c.company_logo_url, companyName: c.company_name }),
+    vars,
+  );
+  return { subject, html };
+}
+
+/** [staff-class 2026-07-07] Internal workforce email — TRANSACTIONAL/UNGATED,
+ *  same class as notify.ts sendStaffAlertEmail. Never customer-facing. */
+async function sendInternalEmail(c: LeaveCtx, to: string, subject: string, html: string): Promise<void> {
+  try {
+    const key = process.env.RESEND_API_KEY;
+    if (!key || !to) return;
+    const from = `${c.company_name} <${c.email_from}>`;
+    const { Resend } = await import("resend");
+    const resend = new Resend(key);
+    const r: any = await resend.emails.send({ from, to: [to], subject, html });
+    if (r?.error) console.error("[leave-notify] email error:", r.error?.message ?? r.error);
+  } catch (e) {
+    console.error("[leave-notify] email failed:", e);
+  }
+}
+
+/** Employee-facing SMS — keeps the full comms gate ladder (COMMS_ENABLED +
+ *  per-tenant flags + Twilio config via resolveSender). */
 async function sendEmployeeSms(c: LeaveCtx, body: string): Promise<void> {
   try {
     if (!c.employee_phone) return;
@@ -119,27 +227,78 @@ async function sendEmployeeSms(c: LeaveCtx, body: string): Promise<void> {
   }
 }
 
-/** On submit: office/owner "ACTION REQUIRED" + employee "Pending"/"Emergency"
- *  (or "Denied" if the request was auto-denied at create, e.g. blackout). */
+/** Office alert destination. [email-polish 2026-07-07] Sal: "email needs to
+ *  go to office info@phes.io" — the tenant's office inbox (companies.email)
+ *  is THE recipient. Only when a tenant has no office inbox configured does
+ *  this fall back to fanning out to every office/owner/admin user. */
+async function emailOfficeUsers(c: LeaveCtx, subject: string, html: string): Promise<void> {
+  try {
+    if (c.company_email) {
+      await sendInternalEmail(c, c.company_email, subject, html);
+      return;
+    }
+    const users = await db.execute(sql`
+      SELECT DISTINCT u.email FROM users u
+       WHERE u.is_active = true AND u.email IS NOT NULL AND u.email <> '' AND (
+         (u.company_id = ${c.company_id} AND u.role IN ('owner', 'admin', 'office'))
+         OR u.id IN (SELECT user_id FROM user_companies
+                      WHERE company_id = ${c.company_id} AND role IN ('owner', 'admin', 'office'))
+       )`);
+    for (const u of users.rows as any[]) {
+      await sendInternalEmail(c, String(u.email), subject, html);
+    }
+  } catch (e) {
+    console.error("[leave-notify] office email fan-out failed:", e);
+  }
+}
+
+/** On submit: office/owner "ACTION REQUIRED" (in-app + DIRECT EMAIL) +
+ *  employee "Pending"/"Emergency" (or "Denied" if auto-denied at create). */
 export async function notifyLeaveSubmitted(requestId: number, companyId: number): Promise<void> {
   const c = await loadCtx(requestId);
   if (!c) return;
   const dates = dateLabel(c);
 
-  // Auto-denied at create (blackout overlap on a non-exempt bucket).
-  if (c.status === "denied") {
-    await notifyLeaveDecision(requestId, "denied");
-    return;
-  }
-
-  // Office + owner: ACTION REQUIRED (in-app + push + staff email).
+  // Office + owner: ACTION REQUIRED. In-app + push via notify.ts, PLUS a
+  // direct template-driven email to each office user (Sal: "ensure the office
+  // is getting an email of the request"). Both fire even for auto-denied
+  // (blackout) submissions — the office should know a request bounced.
   await notifyOfficeUsers(companyId, {
     type: "leave_request",
     title: `ACTION REQUIRED: Review ${c.employee_name}'s time-off request`,
     body: `${c.employee_name} requested ${Number(c.hours).toFixed(2)} h of ${c.bucket_name} for ${dates}. Review and approve or deny.`,
-    link: "/leave-review",
+    link: "/payroll/leave-review",
     meta: { request_id: requestId },
   });
+  {
+    const { subject, html } = await renderEmail(
+      c,
+      "leave_request_office",
+      `ACTION REQUIRED: {{employee_name}} requested time off ({{dates}})`,
+      `<p style="margin:0 0 20px"><strong>{{employee_name}}</strong> submitted a time-off request.</p>
+<table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E5E2DC;border-radius:6px;background:#FFFFFF;margin:0 0 24px">
+<tr><td style="padding:20px">
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Type</p>
+  <p style="margin:0 0 16px;font-size:15px;color:#1A1917;font-weight:600">{{bucket_name}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Dates</p>
+  <p style="margin:0 0 16px;font-size:15px;color:#1A1917;font-weight:600">{{dates}}</p>
+  <p style="margin:0 0 8px;font-size:13px;color:#6B6860;text-transform:uppercase;letter-spacing:.05em">Hours</p>
+  <p style="margin:0;font-size:15px;color:#1A1917;font-weight:600">{{hours}}</p>
+</td></tr>
+</table>
+<div style="text-align:center;margin:0 0 8px">
+  <a href="{{review_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Review &amp; Approve or Deny</a>
+</div>`,
+    );
+    await emailOfficeUsers(c, subject, html);
+  }
+
+  // Auto-denied at create (blackout overlap on a non-exempt bucket) — tell the
+  // employee the outcome; the office email above already carried the request.
+  if (c.status === "denied") {
+    await notifyLeaveDecision(requestId, "denied");
+    return;
+  }
 
   // Employee: emergency (short-notice/sick) vs standard pending.
   const emergency = c.exempt_from_blackout || isShortNotice(c.start_date);
@@ -153,20 +312,24 @@ export async function notifyLeaveSubmitted(requestId: number, companyId: number)
     meta: { request_id: requestId },
   });
   if (emergency) {
-    await sendEmployeeEmail(
+    const { subject, html } = await renderEmail(
       c,
-      `ATTN: You've submitted an Emergency Request (${dates})`,
-      `<p style="font-size:16px;font-weight:700;margin:0 0 8px">Emergency time-off request received</p>
-<p style="font-size:14px;line-height:1.5;margin:0">Hi ${c.employee_first}, we received your emergency request for <b>${c.bucket_name}</b> on <b>${dates}</b> (${Number(c.hours).toFixed(2)} h). The office will follow up shortly.</p>`,
+      "leave_request_emergency",
+      `ATTN: You've submitted an Emergency Request ({{dates}})`,
+      `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">We received your <strong>emergency</strong> time-off request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h). The office will follow up shortly.</p>`,
     );
+    await sendInternalEmail(c, c.employee_email ?? "", subject, html);
     await sendEmployeeSms(c, `${c.company_name}: Emergency time-off request received for ${dates} (${c.bucket_name}). The office will follow up.`);
   } else {
-    await sendEmployeeEmail(
+    const { subject, html } = await renderEmail(
       c,
-      `Your Time-Off Request is Pending (${dates})`,
-      `<p style="font-size:16px;font-weight:700;margin:0 0 8px">Your time-off request is pending</p>
-<p style="font-size:14px;line-height:1.5;margin:0">Hi ${c.employee_first}, your request for <b>${c.bucket_name}</b> on <b>${dates}</b> (${Number(c.hours).toFixed(2)} h) is pending office approval. You'll get a message when it's decided.</p>`,
+      "leave_request_pending",
+      `Your Time-Off Request is Pending ({{dates}})`,
+      `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) is pending office approval. You'll get a message when it's decided.</p>`,
     );
+    await sendInternalEmail(c, c.employee_email ?? "", subject, html);
     await sendEmployeeSms(c, `${c.company_name}: Your time-off request for ${dates} (${c.bucket_name}) is pending approval.`);
   }
 }
@@ -189,21 +352,26 @@ export async function notifyLeaveDecision(requestId: number, outcome: "approved"
   });
 
   if (approved) {
-    await sendEmployeeEmail(
+    const { subject, html } = await renderEmail(
       c,
-      `Congrats! Your Time-Off Request has been Approved (${dates})`,
-      `<p style="font-size:16px;font-weight:700;margin:0 0 8px">Your time-off request was approved</p>
-<p style="font-size:14px;line-height:1.5;margin:0">Hi ${c.employee_first}, your request for <b>${c.bucket_name}</b> on <b>${dates}</b> (${Number(c.hours).toFixed(2)} h) has been <b>approved</b>.</p>`,
+      "leave_request_approved",
+      `Congrats! Your Time-Off Request has been Approved ({{dates}})`,
+      `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) has been <strong>approved</strong>. Enjoy your time off.</p>`,
     );
+    await sendInternalEmail(c, c.employee_email ?? "", subject, html);
     await sendEmployeeSms(c, `${c.company_name}: Your time-off request for ${dates} (${c.bucket_name}) was APPROVED.`);
   } else {
-    const note = c.decision_note ? ` Reason: ${c.decision_note}.` : "";
-    await sendEmployeeEmail(
+    const { subject, html } = await renderEmail(
       c,
-      `Your Time-Off Request has been Denied (${dates})`,
-      `<p style="font-size:16px;font-weight:700;margin:0 0 8px">Your time-off request was denied</p>
-<p style="font-size:14px;line-height:1.5;margin:0">Hi ${c.employee_first}, your request for <b>${c.bucket_name}</b> on <b>${dates}</b> (${Number(c.hours).toFixed(2)} h) was <b>denied</b>.${note} Please reach out to the office with questions.</p>`,
+      "leave_request_denied",
+      `Your Time-Off Request has been Denied ({{dates}})`,
+      `<p style="margin:0 0 20px">Hi {{first_name}},</p>
+<p style="margin:0 0 20px">Your request for <strong>{{bucket_name}}</strong> on <strong>{{dates}}</strong> ({{hours}} h) was <strong>denied</strong>.</p>
+<p style="margin:0 0 20px;color:#6B6860">{{decision_note}}</p>
+<p style="margin:0">Please reach out to the office with questions.</p>`,
     );
+    await sendInternalEmail(c, c.employee_email ?? "", subject, html);
     await sendEmployeeSms(c, `${c.company_name}: Your time-off request for ${dates} (${c.bucket_name}) was denied.${c.decision_note ? ` ${c.decision_note}` : ""}`);
   }
 }

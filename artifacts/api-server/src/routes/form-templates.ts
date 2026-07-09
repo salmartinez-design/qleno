@@ -429,6 +429,10 @@ router.post("/:id/send", requireAuth, async (req, res) => {
       })
       .returning();
 
+    // [agreement-esign] Record the 'sent' audit event for the Certificate of Completion.
+    await db.execute(sql`INSERT INTO agreement_events (company_id, agreement_id, event_type, actor_email, meta)
+      VALUES (${req.auth!.companyId}, ${submission.id}, 'sent', ${clientEmail ?? null}, ${JSON.stringify({ by_user: req.auth!.userId })}::jsonb)`).catch(() => {});
+
     const signingUrl = `${req.headers.origin || ''}/sign/${signToken}`;
     console.log(`[AGREEMENT SENT] To: ${clientEmail} | Name: ${clientName} | URL: ${signingUrl}`);
 

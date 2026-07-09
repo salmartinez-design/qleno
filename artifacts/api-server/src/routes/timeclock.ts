@@ -7,7 +7,50 @@ import { logAudit } from "../lib/audit.js";
 import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission-paytype.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
+import { unionHoursByKey } from "../lib/timeclock-hours.js";
 import type { CommissionInputJob } from "../lib/commission-compute.js";
+import { sendNotification, labelServiceType } from "../services/notificationService.js";
+import { notifyOfficeUsers } from "../lib/notify.js";
+
+// [geofence-ticket 2026-07-03] Raise an office "employee ticket" (in-app office
+// broadcast) whenever a punch is RECORDED outside the job geofence — the office's
+// coaching radar (Sal: "put a red flag on the time clock and give us an employee
+// ticket when this occurs"). The timeclock row already carries the red flag
+// (clock_in/out_outside_geofence + flagged); this adds the alert. Fire-and-forget:
+// a notify failure must never break a clock punch.
+async function raiseGeofenceTicket(
+  companyId: number,
+  userId: number | null | undefined,
+  jobId: number | null | undefined,
+  phase: "clock-in" | "clock-out",
+  distanceFt: number | null,
+): Promise<void> {
+  try {
+    if (jobId == null || userId == null) return;
+    const [u] = await db.select({ first_name: usersTable.first_name, last_name: usersTable.last_name })
+      .from(usersTable).where(eq(usersTable.id, userId)).limit(1);
+    const nameRows = await db.execute(sql`
+      SELECT COALESCE(c.first_name || ' ' || COALESCE(c.last_name, ''), a.account_name, 'a job') AS client_name
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+       WHERE j.id = ${jobId} LIMIT 1
+    `);
+    const tech = `${u?.first_name ?? ""} ${u?.last_name ?? ""}`.trim() || "A technician";
+    const client = String((nameRows.rows[0] as any)?.client_name ?? "a job").trim();
+    const ft = distanceFt != null ? `${Math.round(distanceFt).toLocaleString()} ft` : "an unknown distance";
+    await notifyOfficeUsers(companyId, {
+      type: "geofence_violation",
+      title: "Geofence violation — off-site punch",
+      body: `${tech} clocked ${phase === "clock-in" ? "in" : "out"} ${ft} from ${client}. Review the time clock.`,
+      link: "/jobs",
+      meta: { job_id: jobId, user_id: userId, phase, distance_ft: distanceFt },
+    });
+  } catch (e) {
+    console.warn("[geofence-ticket] failed (non-fatal):", e);
+  }
+}
+import { isClientAccountCommsPaused } from "../lib/account-comms.js";
 
 const router = Router();
 
@@ -384,6 +427,11 @@ router.post("/clock-in", requireAuth, async (req, res) => {
       console.error("[late_clockin notify] failed:", notifErr);
     }
 
+    // [geofence-ticket 2026-07-03] Punch recorded outside the fence → office ticket.
+    if (geofenceEnabled && outsideGeofence) {
+      await raiseGeofenceTicket(req.auth!.companyId as number, effectiveUserId, job_id, "clock-in", distanceFt);
+    }
+
     return res.json({
       ...entry,
       distance_from_job_ft: distanceFt,
@@ -516,6 +564,11 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
       return res.status(404).json({ error: "Not Found", message: "Time clock entry not found" });
     }
 
+    // [geofence-ticket 2026-07-03] Clock-out recorded outside the fence → office ticket.
+    if (geofenceEnabled && outsideGeofence) {
+      await raiseGeofenceTicket(req.auth!.companyId as number, updated.user_id, updated.job_id, "clock-out", distanceFt);
+    }
+
     // [GAP2 end-job completion] When the LAST open clock entry for a job closes,
     // the job is done (the "day is derived" model). Mark the job complete and
     // fire the post-job satisfaction survey — the field-app End Job previously
@@ -549,14 +602,45 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
             .catch((e: Error) => console.error("[end-job invoice] non-fatal:", e));
         }
         if (clientId) {
-          fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
+          // [one-completion-email] Survey response says whether the survey EMAIL
+          // went out; the thank-you email below only sends when it didn't.
+          const surveyPromise: Promise<any> = fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
             method: "POST",
             headers: { "Content-Type": "application/json", "Authorization": req.headers.authorization || "" },
             body: JSON.stringify({ job_id: jobId, customer_id: clientId }),
-          }).catch((e: Error) => console.error("[end-job survey] non-fatal:", e));
+          }).then(r => r.json()).catch((e: Error) => { console.error("[end-job survey] non-fatal:", e); return null; });
           import("../services/followUpService.js").then(({ enrollForJobComplete }) =>
             enrollForJobComplete(req.auth!.companyId, jobId, clientId).catch(() => {})
           ).catch(() => {});
+          // ── job_completed notification — mirrors jobs.ts PATCH path ──
+          Promise.resolve().then(async () => {
+            try {
+              if (await isClientAccountCommsPaused(clientId)) return;
+              const [cl] = await db.select({
+                email: clientsTable.email, phone: clientsTable.phone,
+                first_name: clientsTable.first_name,
+                address: clientsTable.address, city: clientsTable.city, state: clientsTable.state,
+              }).from(clientsTable).where(eq(clientsTable.id, clientId)).limit(1);
+              if (!cl) return;
+              const [jobRow] = await db.select({ service_type: jobsTable.service_type, scheduled_date: jobsTable.scheduled_date })
+                .from(jobsTable).where(eq(jobsTable.id, jobId)).limit(1);
+              const mv = {
+                first_name: cl.first_name || "",
+                appointment_date: String(jobRow?.scheduled_date || "").slice(0, 10),
+                scope: labelServiceType((jobRow as any)?.service_type),
+                service_address: [cl.address, cl.city, cl.state].filter(Boolean).join(", "),
+              };
+              // Pass the client id so the per-client channel preference gate
+              // applies (an explicit email/SMS OFF override was ignored here).
+              const survey = await surveyPromise;
+              if (!survey?.survey_email_sent) {
+                sendNotification("job_completed", "email", req.auth!.companyId, cl.email, null, mv, false, undefined, clientId).catch(() => {});
+              }
+              sendNotification("job_completed", "sms", req.auth!.companyId, null, cl.phone, mv, false, undefined, clientId).catch(() => {});
+            } catch (e) {
+              console.error("[timeclock] job_completed notify non-fatal:", (e as Error).message);
+            }
+          }).catch(() => {});
         }
       }
     } catch (e) {
@@ -658,6 +742,29 @@ router.post("/office/clock-in", requireAuth, requireRole("owner", "admin", "offi
       eq(timeclockTable.user_id, user_id), sql`${timeclockTable.clock_out_at} IS NULL`
     )).limit(1);
     if (open) return res.json({ ...open, already_open: true });
+
+    // [punch-dedup 2026-07-01] Also block a CLOSED entry that already COVERS this
+    // clock-in time for the same tech+job. This is the case the open-check above
+    // misses and it's exactly what skewed payroll: a completed field-app punch,
+    // then a manual office punch stacked on top of it. The commission split
+    // weights by clocked minutes summed per (job, tech), so two overlapping
+    // punches double-count the tech's minutes and over-pay them (Juliana got 2/3
+    // of a shared job, Norma 1/3, instead of 50/50). A clock-in strictly AFTER a
+    // prior clock-out (e.g. a lunch break, same job) is still allowed — only a
+    // punch whose start falls INSIDE an existing entry's span is rejected.
+    const [covered] = await db.select({ id: timeclockTable.id }).from(timeclockTable).where(and(
+      eq(timeclockTable.company_id, companyId), eq(timeclockTable.job_id, job_id),
+      eq(timeclockTable.user_id, user_id),
+      sql`${timeclockTable.clock_out_at} IS NOT NULL`,
+      sql`${timeclockTable.clock_in_at} <= ${clockInAt}`,
+      sql`${timeclockTable.clock_out_at} > ${clockInAt}`,
+    )).limit(1);
+    if (covered) {
+      return res.status(409).json({
+        error: "Duplicate punch",
+        message: "This cleaner already has a time entry covering that time on this job — edit the existing entry instead of adding a new one.",
+      });
+    }
 
     const [entry] = await db.insert(timeclockTable).values({
       job_id, user_id, company_id: companyId,
@@ -867,7 +974,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       SELECT j.id AS job_id, j.scheduled_time, j.assigned_user_id,
              j.service_type::text AS service_type, j.address_street,
              j.job_lat, j.job_lng, j.address_lat, j.address_lng,
-             j.account_id, j.client_id, j.base_fee, j.billed_amount, j.allowed_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
+             j.account_id, j.client_id, j.base_fee, j.billed_amount, j.commission_base, j.allowed_hours, j.estimated_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
              c.client_type, c.lat AS client_lat, c.lng AS client_lng,
              -- Service address so the office can tell apart multiple jobs for the
              -- same client/account on one day (e.g. several PPM units) without
@@ -988,12 +1095,13 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       // counts (source='punched'). Synthetic 'estimated' pre-seeds show as a
       // row but contribute $0 until the office enters/verifies a real time
       // (which flips them to punched via PATCH).
-      const techHoursByKey = new Map<string, number>();
-      for (const e of clockRows) {
-        if (e.source !== "punched" || !e.clock_out_at || !e.clock_in_at) continue;
-        const h = (new Date(e.clock_out_at).getTime() - new Date(e.clock_in_at).getTime()) / 3600000;
-        if (h > 0) techHoursByKey.set(`${e.job_id}:${e.user_id}`, (techHoursByKey.get(`${e.job_id}:${e.user_id}`) ?? 0) + h);
-      }
+      // [punch-union 2026-07-01] Count the UNION of each tech's punches per job,
+      // not the raw sum — so a duplicate/overlapping entry (invisible behind the
+      // grid's single row) can't double-count the fee split. Real split shifts
+      // (disjoint punches) still add up.
+      const techHoursByKey = unionHoursByKey(
+        clockRows.filter((e: any) => e.source === "punched" && e.clock_in_at && e.clock_out_at)
+      );
       // [lockout-pay 2026-06-17] Jobs charged via Cancel/Lockout pay the tech
       // the cancellation fee (an additional_pay 'cancellation_pay' row), NOT the
       // job's normal commission — exclude them from the commission calc so the
@@ -1037,7 +1145,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         .map((j: any) => ({
           id: Number(j.job_id), assigned_user_id: j.assigned_user_id != null ? Number(j.assigned_user_id) : null,
           service_type: j.service_type ?? null, account_id: j.account_id ?? null, base_fee: j.base_fee ?? null,
-          billed_amount: j.billed_amount ?? null, allowed_hours: j.allowed_hours ?? null, actual_hours: null,
+          billed_amount: j.billed_amount ?? null, commission_base: j.commission_base ?? null, allowed_hours: j.allowed_hours ?? null, actual_hours: null,
           branch_id: j.branch_id ?? null, scheduled_date: j.scheduled_date ?? date, client_type: j.client_type ?? null,
         })) as CommissionInputJob[];
       for (const r of computePerTechCommissionRows({ jobs: jobsForCalc, jobTechs: jobTechsForCalc, techHoursByKey, serviceTypePctBySlug, resRates, commercial })) {
@@ -1051,6 +1159,17 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  address: string | null; client_id: number | null; account_id: number | null;
                  entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null;
                  flagged: boolean; minutes: number | null;
+                 // [allowed-hrs-display 2026-07-04] The job's allowed-hours budget
+                 // — the number that DRIVES pay on an Allowed Hours line (pay =
+                 // allowed_hours × rate × share) and the denominator for budget-vs-
+                 // actual efficiency. Was never sent, so Allowed-Hours rows showed a
+                 // rate and a $ with no visible hours.
+                 allowed_hours: number | null;
+                 // [sched-window 2026-07-04] estimated_hours is the fallback
+                 // duration for deriving a scheduled STOP time (start + duration)
+                 // when allowed_hours isn't set. The meta line showed only the
+                 // scheduled start ("sched 6:00 AM") with no end.
+                 estimated_hours: number | null;
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
                  pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null;
                  // pay_kind tells the UI whether `pay` is normal commission or
@@ -1118,9 +1237,28 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     const minutesOf = (a: string | null, b: string | null) =>
       a && b ? Math.max(0, Math.round((new Date(b).getTime() - new Date(a).getTime()) / 60000)) : null;
 
+    // [cancel-no-clock 2026-07-01] A plain office CANCEL (not a lockout) means
+    // the visit never happened — keep it off the time clock entirely (Sal:
+    // "when we cancel a job it should not have any effect on the clocks as the
+    // job was never completed"). Hide such jobs from the per-tech grid UNLESS
+    // the tech actually punched on it OR was granted cancellation pay (legacy
+    // cancels booked before this change) — so we never hide real worked time or
+    // pay already owed. Lockouts always stay visible; the tech earned the fee.
+    const jobsWithPunch = new Set<number>(clockRows.map((e: any) => Number(e.job_id)));
+    const hiddenCancelJobIds = new Set<number>();
+    for (const [jid, act] of cancelActionByJob) {
+      if (act !== "cancel") continue;
+      if (jobsWithPunch.has(jid)) continue;
+      const anyCancelPay = [...cancelPayByKey.entries()]
+        .some(([k, amt]) => Number(String(k).split(":")[0]) === jid && (amt ?? 0) > 0);
+      if (anyCancelPay) continue;
+      hiddenCancelJobIds.add(jid);
+    }
+
     const seen = new Set<string>();
     for (const j of jobs) {
       const jid = Number(j.job_id);
+      if (hiddenCancelJobIds.has(jid)) continue;
       let techs = techsByJob.get(jid) || [];
       if (techs.length === 0 && j.assigned_user_id != null) techs = [{ user_id: Number(j.assigned_user_id), name: nameByUser.get(Number(j.assigned_user_id)) || "Tech", is_primary: true }];
       for (const t of techs) {
@@ -1132,6 +1270,8 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           address: j.address ?? null, client_id: j.client_id != null ? Number(j.client_id) : null, account_id: j.account_id != null ? Number(j.account_id) : null,
           entry_id: e ? Number(e.id) : null, clock_in_at: e?.clock_in_at ?? null, clock_out_at: e?.clock_out_at ?? null,
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
+          allowed_hours: j.allowed_hours != null ? Number(j.allowed_hours) : null,
+          estimated_hours: j.estimated_hours != null ? Number(j.estimated_hours) : null,
           ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), source: e?.source ?? null,
           ...gpsOf(e), ...coordsOf(j),
         });
@@ -1146,6 +1286,8 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         address: j?.address ?? null, client_id: j?.client_id != null ? Number(j.client_id) : null, account_id: j?.account_id != null ? Number(j.account_id) : null,
         scheduled_time: j?.scheduled_time ?? null, entry_id: Number(e.id), clock_in_at: e.clock_in_at ?? null,
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
+        allowed_hours: j?.allowed_hours != null ? Number(j.allowed_hours) : null,
+        estimated_hours: j?.estimated_hours != null ? Number(j.estimated_hours) : null,
         ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
         ...gpsOf(e), ...coordsOf(j),
       });
@@ -1239,6 +1381,43 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     logAudit(req, "TIMECLOCK_EDIT", "timeclock", id,
       { clock_in_at: existing.clock_in_at, clock_out_at: existing.clock_out_at },
       { clock_in_at: updated.clock_in_at, clock_out_at: updated.clock_out_at });
+
+    // [manual-clock-completion 2026-07-01] Mirror the field-app clock-out (GAP2):
+    // when this office edit leaves the job with a closed clock and NO open
+    // entries, the job is done — mark it complete so the dispatch card shows the
+    // completion check. Previously fixing clocks manually left status untouched,
+    // so the green check never appeared (office bug report). Guarded + idempotent
+    // (no-op if already complete/cancelled); generates the draft invoice like the
+    // field path so a manually-completed job isn't left invoice-less. The
+    // satisfaction survey is intentionally NOT fired here — an office data-fix
+    // (often days later) shouldn't message the customer about an old job.
+    const completedJobId = existing.job_id;
+    if (outAt && completedJobId != null) {
+      try {
+        const openLeft = await db.execute(sql`
+          SELECT COUNT(*)::int AS cnt FROM timeclock
+          WHERE job_id = ${completedJobId} AND clock_out_at IS NULL
+        `);
+        if (((openLeft.rows[0] as any)?.cnt ?? 0) === 0) {
+          const done = await db.execute(sql`
+            UPDATE jobs
+            SET status = 'complete', actual_end_time = ${outAt}, completed_by_user_id = ${req.auth!.userId}
+            WHERE id = ${completedJobId} AND company_id = ${companyId}
+              AND status NOT IN ('complete', 'cancelled')
+            RETURNING id
+          `);
+          if (done.rows[0]) {
+            // completedJobId is non-null (guarded above); the assertion just
+            // restores the narrowing TS drops across the awaits.
+            ensureInvoiceForCompletedJob(companyId, completedJobId!, req.auth!.userId)
+              .catch((e: Error) => console.error("[manual-clock invoice] non-fatal:", e));
+          }
+        }
+      } catch (e) {
+        console.error("[manual-clock completion] non-fatal:", e);
+      }
+    }
+
     return res.json(updated);
   } catch (err) {
     console.error("PATCH /timeclock/:id error:", err);

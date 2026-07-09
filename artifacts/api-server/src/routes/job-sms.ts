@@ -4,11 +4,23 @@ import { jobsTable, clientsTable, usersTable, companiesTable, jobStatusLogsTable
 import { eq, and, desc } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { sendNotification } from "../services/notificationService.js";
+import { renderCustomerTemplate } from "../lib/customer-messages.js";
 import { isSmsOptedOut } from "../lib/opt-out.js";
+
+// [editable-jobstatus-sms 2026-07-06] Job-status events that have an editable
+// Customer Message equivalent, so the office's own wording is what actually
+// sends (previously these SMS bodies were hardcoded and the editable text was
+// dead). Events not listed here (paused/resumed/complete) still use SMS_MESSAGES.
+export const JOBSTATUS_TO_TRIGGER: Record<string, string> = {
+  on_my_way: "on_my_way",
+  arrived:   "job_started",
+};
 
 const router = Router();
 
-const SMS_MESSAGES: Record<string, (name: string, client: string, addr: string) => string> = {
+// Exported so the Send Test feature can render the exact same job-status SMS
+// bodies with sample data (testSendService) — keep this the single source.
+export const SMS_MESSAGES: Record<string, (name: string, client: string, addr: string) => string> = {
   on_my_way: (name, client, addr) => `Hi ${client}! Your cleaner ${name} is on their way to ${addr}. They'll arrive shortly!`,
   arrived:   (name, client, addr) => `Hi ${client}! ${name} has arrived at ${addr} and is starting your clean.`,
   paused:    (name, client, addr) => `Hi ${client}! ${name} has paused your clean at ${addr} and will resume shortly.`,
@@ -62,6 +74,7 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
     const jobs = await db.select({
       id: jobsTable.id, status: jobsTable.status, notes: jobsTable.notes,
       client_id: jobsTable.client_id, assigned_user_id: jobsTable.assigned_user_id,
+      service_type: jobsTable.service_type,
     }).from(jobsTable).where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
     const job = jobs[0];
     if (!job) return res.status(404).json({ error: "Job not found" });
@@ -93,7 +106,7 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
       const clientEmail = await db.select({ email: clientsTable.email })
         .from(clientsTable).where(eq(clientsTable.id, job.client_id)).limit(1)
         .then(r => r[0]?.email ?? null);
-      sendNotification("on_my_way", "email", companyId, clientEmail, null, emailMv).catch(() => {});
+      sendNotification("on_my_way", "email", companyId, clientEmail, null, emailMv, false, undefined, job.client_id).catch(() => {});
     }
 
     // Check SMS enabled for this event
@@ -117,10 +130,48 @@ router.post("/:id/sms-status", requireAuth, async (req, res) => {
       return res.json({ success: true, sms_sent: false, reason: "Client opted out of SMS", log_id: log.id });
     }
 
+    // [notif-prefs-enforce 2026-07-07] Honor the per-client/account message
+    // toggle. This route predates the preference layer (PR #774) and was the
+    // ONLY live sender that skipped it — a client with "On My Way" or
+    // "Cleaning Started" SMS toggled OFF still got the text when the tech
+    // tapped the button. Same trigger keys the grid writes (on_my_way /
+    // job_started); events without a grid row (paused/resumed/complete) are
+    // unaffected. Fail-open like every other caller: only an explicit OFF
+    // suppresses.
+    const prefTrigger = JOBSTATUS_TO_TRIGGER[event];
+    if (prefTrigger && job.client_id) {
+      try {
+        const { isMessageEnabledForJob } = await import("../lib/notification-preferences.js");
+        const enabled = await isMessageEnabledForJob({ companyId, clientId: job.client_id }, prefTrigger, "sms");
+        if (!enabled) {
+          return res.json({ success: true, sms_sent: false, reason: "This message is turned off for this client", log_id: log.id });
+        }
+      } catch { /* fail-open — a pref-layer error must never block the send */ }
+    }
+
     const clientName = `${client.first_name}`;
     const empName    = `${emp?.first_name ?? "Your cleaner"}`;
     const addr       = [client.address, client.city].filter(Boolean).join(", ") || "your address";
-    const message    = SMS_MESSAGES[event](empName, clientName, addr);
+
+    // [editable-jobstatus-sms 2026-07-06] Prefer the office's editable Customer
+    // Message wording when the event has one (on_my_way -> "on_my_way",
+    // arrived -> "job_started"); fall back to the built-in copy so it can never
+    // regress (no template row, cleared body, or render error).
+    let message = SMS_MESSAGES[event](empName, clientName, addr);
+    const editableTrigger = JOBSTATUS_TO_TRIGGER[event];
+    if (editableTrigger) {
+      try {
+        const tpl = await renderCustomerTemplate(companyId, editableTrigger, "sms", {
+          company_name:    company.name ?? "",
+          tech_name:       empName,
+          first_name:      clientName,
+          service_address: addr,
+          arrival_window:  "shortly",
+          service_type:    (job.service_type ?? "cleaning").replace(/_/g, " "),
+        });
+        if (tpl && tpl.is_active && tpl.body.trim()) message = tpl.body;
+      } catch { /* keep the built-in fallback */ }
+    }
 
     try {
       await sendTwilioSms(client.phone, company.twilio_from_number, message);

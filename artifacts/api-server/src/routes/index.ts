@@ -29,8 +29,10 @@ import notificationsRouter from "./notifications.js";
 import jobSmsRouter from "./job-sms.js";
 import quotesRouter from "./quotes.js";
 import estimatesRouter from "./estimates.js";
+import trackRouter from "./track.js";
 import paymentsRouter from "./payments.js";
 import attachmentsRouter from "./attachments.js";
+import teamPhotoNotesRouter from "./team-photo-notes.js";
 import { quoteAttachmentsRouter, jobAttachmentsRouter } from "./quote-attachments.js";
 import propertyGroupsRouter from "./property-groups.js";
 import agreementTemplatesRouter from "./agreement-templates.js";
@@ -44,6 +46,7 @@ import zonesRouter from "./zones.js";
 import recurringRouter from "./recurring.js";
 import cancellationRouter from "./cancellation.js";
 import commLogRouter from "./communication-log.js";
+import officeRemindersRouter from "./office-reminders.js";
 import incentivesRouter from "./incentives.js";
 import satisfactionRouter from "./satisfaction.js";
 import churnRouter from "./churn.js";
@@ -104,8 +107,10 @@ import lmsSettingsRouter from "./lms-settings.js";
 import lmsAdminAuditRouter from "./lms-admin-audit.js";
 import lmsOnboardingIntakeRouter from "./lms-onboarding-intake.js";
 import translateRouter from "./translate.js";
+import messageToneRouter from "./message-tone.js";
 import assistantRouter from "./assistant.js";
 import devicesRouter from "./devices.js";
+import guidesRouter from "./guides.js";
 
 const router: IRouter = Router();
 
@@ -135,13 +140,19 @@ router.use("/search", searchRouter);
 router.use("/messages", messagesRouter);
 router.use("/reports", reportsRouter);
 router.use("/notifications", notificationsRouter);
+router.use("/office-reminders", officeRemindersRouter);
 router.use("/quotes", quotesRouter);
 router.use("/estimates", estimatesRouter);
+router.use("/track", trackRouter);
 router.use("/payments", paymentsRouter);
 router.use("/attachments", attachmentsRouter);
+router.use("/team-photo-notes", teamPhotoNotesRouter);
 // [translate-job-notes 2026-05-27] Office-only translation endpoint —
 // Claude API. POST /api/translate {text, target} → {translated}.
 router.use("/translate", translateRouter);
+// [message-tone 2026-07-02] One-tap tone polish for outbound customer SMS.
+// POST /api/message-tone {text, tone} → {result}.
+router.use("/message-tone", messageToneRouter);
 // [voice-assistant 2026-06-08] Field-tech voice assistant — Claude API, scoped
 // to the caller's own jobs. POST /api/assistant/ask {question, language} → {answer, navigate_url}.
 router.use("/assistant", assistantRouter);
@@ -205,6 +216,7 @@ router.use("/pay", payRouter);
 router.use("/ops", opsIntegrityRouter);
 // Cutover 1D — office live view (/api/ops/today/* + /api/ops/jobs/:id/detail)
 router.use("/ops", opsRouter);
+router.use("/guides", guidesRouter);
 router.use("/acquisition-sources", acquisitionSourcesRouter);
 router.use("/bundles", bundlesRouter);
 router.use("/photos", photosRouter);

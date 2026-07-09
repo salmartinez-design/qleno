@@ -5,7 +5,7 @@ import { runPhesDataMigration } from "./phes-data-migration";
 import { runCutoverDataMigration } from "./cutover-data-migration";
 import { verifyClockIntegrityConstraint } from "./lib/clock-integrity-self-check";
 import { runUserCompaniesMigration } from "./user-companies-migration.js";
-import { runReminderCron, runReviewRequestCron } from "./services/notificationService.js";
+import { runReminderCron, runScheduledJobMessages } from "./services/notificationService.js";
 import { runRateLockNightlyChecks } from "./utils/rateLock.js";
 import { processDueEnrollments } from "./services/followUpService.js";
 import { runSmokeTests } from "./lib/smoke-test.js";
@@ -15,6 +15,11 @@ import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
 import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./lib/job-history-sync.js";
 import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
 import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
+import { runAutoTardySweep } from "./lib/auto-tardy.js";
+import { runScorecardCompositeCron } from "./lib/scorecard-composite.js";
+import { runMileageAutoCompute } from "./lib/mileage-auto-cron.js";
+import { setAppReady } from "./lib/readiness.js";
+import { processScheduledSms } from "./lib/sms-scheduler.js";
 
 const port = Number(process.env.PORT) || 3000;
 
@@ -71,26 +76,47 @@ function startNotificationCron() {
     const ctMonth = ctNow.getUTCMonth(); // 0-indexed; December = 11
     const ctDay   = ctNow.getUTCDate();
 
-    // 9 AM CT → reminder_3day (jobs in 3 days)
-    if (ctH === 9 && fired["reminder_3day"] !== `${ctDate}-9`) {
-      fired["reminder_3day"] = `${ctDate}-9`;
-      runReminderCron(3).catch((e: Error) => console.error("[cron] reminder_3day error:", e));
+    // Every hour → scheduled customer-message engine. Replaces the old fixed
+    // 72h/24h reminder triggers: each tenant's offset messages (built-in
+    // reminders + any custom ones the office adds) carry their OWN send_hour, so
+    // the engine itself decides what's due this hour. It's idempotent via the
+    // job_message_sends ledger, so an hourly cadence + catch-up never
+    // double-sends. (runReminderCron is retained as a copy reference but no
+    // longer scheduled.)
+    // Every minute → send due scheduled SMS/MMS
+    processScheduledSms().catch((e: Error) => console.error("[cron] scheduled_sms error:", e));
+
+    const schedKey = `${ctDate}-${ctH}`;
+    if (fired["scheduled_messages"] !== schedKey) {
+      fired["scheduled_messages"] = schedKey;
+      runScheduledJobMessages().catch((e: Error) => console.error("[cron] scheduled_messages error:", e));
     }
-    // 4 PM CT → reminder_1day (jobs tomorrow)
-    if (ctH === 16 && fired["reminder_1day"] !== `${ctDate}-16`) {
-      fired["reminder_1day"] = `${ctDate}-16`;
-      runReminderCron(1).catch((e: Error) => console.error("[cron] reminder_1day error:", e));
-    }
-    // Every hour → review_request
-    const hrKey = `${ctDate}-${ctH}`;
-    if (fired["review_request"] !== hrKey) {
-      fired["review_request"] = hrKey;
-      runReviewRequestCron().catch((e: Error) => console.error("[cron] review_request error:", e));
-    }
+    // [scorecard-only 2026-06-30] The generic Google-review ask (runReviewRequestCron)
+    // is DISABLED — per owner decision, the only post-job feedback message is the
+    // scorecard satisfaction survey (sent on job completion from /api/satisfaction/send,
+    // SMS + the review_request EMAIL template carrying the tokenized survey link).
+    // Re-enable here if a separate public-review ask is wanted again.
+    // const hrKey = `${ctDate}-${ctH}`;
+    // if (fired["review_request"] !== hrKey) {
+    //   fired["review_request"] = hrKey;
+    //   runReviewRequestCron().catch((e: Error) => console.error("[cron] review_request error:", e));
+    // }
     // 1 AM CT → rate lock nightly checks (service gap voids, expiry voids, renewal alerts)
     if (ctH === 1 && fired["rate_lock_nightly"] !== `${ctDate}-1`) {
       fired["rate_lock_nightly"] = `${ctDate}-1`;
       runRateLockNightlyChecks().catch((e: Error) => console.error("[cron] rate_lock_nightly error:", e));
+    }
+    // [auto-tardy 2026-07-07] 1:30 AM window (runs on the 1 AM tick after
+    // rate-lock) → sweep YESTERDAY's punched clock-ins: first job of each
+    // tech's day, >20 min past scheduled start = a tardy occurrence through
+    // the same ladder writer the office form uses. Nightly only — no boot
+    // run, so an office deletion of a mistaken auto-tardy is never
+    // re-inserted by a redeploy. No backfill (starts with the first run).
+    if (ctH === 1 && fired["auto_tardy"] !== `${ctDate}-1`) {
+      fired["auto_tardy"] = `${ctDate}-1`;
+      const yd = new Date(`${ctDate}T00:00:00Z`);
+      yd.setUTCDate(yd.getUTCDate() - 1);
+      runAutoTardySweep(yd.toISOString().slice(0, 10)).catch((e: Error) => console.error("[cron] auto_tardy error:", e));
     }
     // 2 AM CT → leave accrual: grant-on-eligibility (90-day sick / 1-year
     // PTO gates) + work-anniversary reset (re-front-load on each employee's
@@ -100,6 +126,43 @@ function startNotificationCron() {
     if (ctH === 2 && fired["leave_accrual"] !== `${ctDate}-2`) {
       fired["leave_accrual"] = `${ctDate}-2`;
       runLeaveAccrualCron(ctDate).catch((e: Error) => console.error("[cron] leave_accrual error:", e));
+    }
+    // [mc-migration 2026-07-07] Also run ONCE at boot (first tick) when the
+    // flag is enabled — flipping LEAVE_ACCRUAL_ENABLED in Railway otherwise
+    // only takes effect at the next 2 AM, which left employees without
+    // balances all day. Idempotent: the engine no-ops once the benefit
+    // year's grant has landed.
+    if (!fired["leave_accrual_boot"]) {
+      fired["leave_accrual_boot"] = "done";
+      runLeaveAccrualCron(ctDate, "boot").catch((e: Error) => console.error("[boot] leave_accrual error:", e));
+    }
+    // 3 AM CT → recompute the 90-day rolling composite scorecard for every tech
+    // so the trailing window advances daily even on days with no survey /
+    // attendance / complaint events. Event-driven recomputes (survey response,
+    // attendance confirm, complaint) keep it fresh in between.
+    if (ctH === 3 && fired["scorecard_composite"] !== `${ctDate}-3`) {
+      fired["scorecard_composite"] = `${ctDate}-3`;
+      runScorecardCompositeCron().catch((e: Error) => console.error("[cron] scorecard_composite error:", e));
+    }
+    // 4 AM CT → auto-compute mileage for every mileage-enabled tenant's open
+    // period(s). The engine (On My Way → clock-sequence → scheduled failsafe)
+    // existed but nothing triggered it, so payroll showed $0. This is that
+    // trigger. COMPUTE only — legs land status='computed' for the office to
+    // review; no pay moves. Idempotent + distance-cached, so re-runs are cheap.
+    // Gated by MILEAGE_AUTO_COMPUTE_ENABLED (default ON; "off" kills it).
+    if (ctH === 4 && fired["mileage_auto"] !== `${ctDate}-4` && process.env.MILEAGE_AUTO_COMPUTE_ENABLED !== "off") {
+      fired["mileage_auto"] = `${ctDate}-4`;
+      runMileageAutoCompute()
+        .then((r) => console.log(`[cron] mileage_auto: ${r.inserted} legs across ${r.periods} period(s), ${r.companies} tenant(s)`))
+        .catch((e: Error) => console.error("[cron] mileage_auto error:", e));
+    }
+    // Boot run (once, first tick) so flipping the env / deploying doesn't leave
+    // mileage stale until 4 AM. Idempotent — inserts only new legs.
+    if (!fired["mileage_auto_boot"] && process.env.MILEAGE_AUTO_COMPUTE_ENABLED !== "off") {
+      fired["mileage_auto_boot"] = "done";
+      runMileageAutoCompute()
+        .then((r) => console.log(`[boot] mileage_auto: ${r.inserted} legs across ${r.periods} period(s), ${r.companies} tenant(s)`))
+        .catch((e: Error) => console.error("[boot] mileage_auto error:", e));
     }
     // December 1 at 9 AM CT → annual re-acknowledgment cycle auto-open
     // for every tenant. Idempotent: skips tenants with an existing
@@ -214,7 +277,108 @@ function withBootTimeout<T>(
 // onboarding-password bootstrap, LMS recompute backfills) moved AFTER listen,
 // fire-and-forget. The schema DDL that those data ops depend on
 // (ensureJobHistoryLiveBridgeSchema) STAYS before listen.
-async function startup() {
+async function runStartupMigrations() {
+  // [invoice-service-date 2026-07-03] Additive nullable column for the manual
+  // service-date override. Runs FIRST and is instant (nullable, no default), so
+  // the column exists before the API gate opens and before any query references
+  // invoices.service_date. Idempotent — safe on every cold start.
+  try {
+    await withBootTimeout("addInvoiceColumns", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS service_date date`);
+      await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS bill_to_name text`);
+      // [manual-edit-detach 2026-07-06] Stamped when the office hand-edits an
+      // invoice's line items / tip via PUT. While set, the invoice is DETACHED
+      // from job mirroring: the mark-paid pre-payment recalc and the job-edit
+      // draft re-sync both skip it (Maribel: "we edit the invoice, click paid,
+      // and it goes back to the old amount"). Cleared by the explicit
+      // "Recalc from job" action, which deliberately re-attaches it.
+      await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS manually_edited_at timestamp`);
+      // [job-card-invoice-link 2026-07-06] The dispatch job card resolves a
+      // job's invoice by direct FK OR by line_items containment (consolidated
+      // account invoices / merge parents carry jobs inside line_items with
+      // job_id NULL). Index both lookup paths.
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_invoices_job ON invoices(job_id)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_invoices_line_items_gin ON invoices USING gin (line_items jsonb_path_ops)`);
+      // [custom-hours 2026-07-07] Time-off requests for an explicit time window
+      // ("work 9am to 1pm") — new enum value + the window columns. ADD VALUE is
+      // idempotent and runs outside any transaction here (plain execute).
+      await db.execute(sql`ALTER TYPE leave_day_unit ADD VALUE IF NOT EXISTS 'custom'`);
+      await db.execute(sql`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS start_time time`);
+      await db.execute(sql`ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS end_time time`);
+      // [time-off-ticket 2026-07-07] Employee time-off submissions also create a
+      // contact ticket on the employee (profile + Contact Tickets report).
+      await db.execute(sql`ALTER TYPE contact_ticket_type ADD VALUE IF NOT EXISTS 'time_off_request'`);
+      // [quote-details-carry 2026-07-07] Full widget-quote snapshot (bedrooms/
+      // bathrooms/sqft/frequency/add-ons/referral/step_reached) on the lead +
+      // abandoned-booking rows, so the office alert and Lead Pipeline show
+      // exactly what the visitor filled out.
+      await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS details jsonb`);
+      await db.execute(sql`ALTER TABLE abandoned_bookings ADD COLUMN IF NOT EXISTS details jsonb`);
+      // [source-precedence 2026-07-09] Guarantee leads.lead_source exists before
+      // the public widget path writes it (upsertWidgetLead now stamps it = source
+      // so online leads stop showing the "Office" chip). Mirrors the value in
+      // phes-data-migration; idempotent, so no-op where it already exists.
+      await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS lead_source text NOT NULL DEFAULT 'manual'`);
+      // [dispatch-visibility 2026-07-09] Per-employee opt-out from the dispatch
+      // board. Default true so every existing tech keeps showing; the office
+      // turns it OFF for placeholder / QA-test accounts (Trainee Placeholder,
+      // Test Auditor) via the User Account tab toggle. NOT NULL + DEFAULT true
+      // is safe on existing rows (they backfill to true). Idempotent.
+      await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS show_on_dispatch boolean NOT NULL DEFAULT true`);
+      // [property-link-heal 2026-07-07] Account jobs/schedules carry BOTH a
+      // property link (account_property_id) and their own service address; a
+      // setup mistake can point the link at the WRONG building (Daveco: the
+      // 18440 Torrence schedule linked to the 18428 property), which duplicated
+      // addresses on the account calendar and mis-filtered per-property views.
+      // Heal: when a row's own street EXACTLY matches (case/space-insensitive)
+      // the address of exactly ONE property of the same account, and the
+      // currently linked property does NOT match, re-link it. Idempotent —
+      // once links agree with addresses, both UPDATEs match zero rows.
+      await db.execute(sql`
+        UPDATE recurring_schedules rs SET account_property_id = m.pid
+        FROM (
+          SELECT rs2.id AS sid, MIN(ap.id) AS pid
+          FROM recurring_schedules rs2
+          JOIN account_properties ap ON ap.account_id = rs2.account_id
+            AND lower(regexp_replace(btrim(ap.address), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim(rs2.service_address_street), '\\s+', ' ', 'g'))
+          WHERE rs2.account_id IS NOT NULL AND NULLIF(btrim(rs2.service_address_street), '') IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM account_properties cur WHERE cur.id = rs2.account_property_id
+                AND lower(regexp_replace(btrim(cur.address), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim(rs2.service_address_street), '\\s+', ' ', 'g'))
+            )
+          GROUP BY rs2.id HAVING COUNT(DISTINCT ap.id) = 1
+        ) m
+        WHERE rs.id = m.sid AND rs.account_property_id IS DISTINCT FROM m.pid
+      `);
+      await db.execute(sql`
+        UPDATE jobs j SET account_property_id = m.pid
+        FROM (
+          SELECT j2.id AS jid, MIN(ap.id) AS pid
+          FROM jobs j2
+          JOIN account_properties ap ON ap.account_id = j2.account_id
+            AND lower(regexp_replace(btrim(ap.address), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim(j2.address_street), '\\s+', ' ', 'g'))
+          WHERE j2.account_id IS NOT NULL AND NULLIF(btrim(j2.address_street), '') IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM account_properties cur WHERE cur.id = j2.account_property_id
+                AND lower(regexp_replace(btrim(cur.address), '\\s+', ' ', 'g')) = lower(regexp_replace(btrim(j2.address_street), '\\s+', ' ', 'g'))
+            )
+          GROUP BY j2.id HAVING COUNT(DISTINCT ap.id) = 1
+        ) m
+        WHERE j.id = m.jid AND j.account_property_id IS DISTINCT FROM m.pid
+      `);
+      // [account-recurrence 2026-07-03] Account recurrences have no client; the
+      // account is the billing entity. Idempotent (no-op once dropped).
+      await db.execute(sql`ALTER TABLE recurring_schedules ALTER COLUMN customer_id DROP NOT NULL`);
+      // [account-payment 2026-07-03] A payment on a commercial/account invoice
+      // has no individual client — Mark Paid on Cucci/PPM/National Able 500'd on
+      // the payments.client_id NOT NULL constraint. Drop it. Idempotent.
+      await db.execute(sql`ALTER TABLE payments ALTER COLUMN client_id DROP NOT NULL`);
+    });
+  } catch (err: any) {
+    console.error("[startup] addInvoiceColumns — non-fatal:", err?.message ?? err);
+  }
   try {
     await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());
   } catch (err: any) {
@@ -244,6 +408,15 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] runAutoPromosMigration — non-fatal:", err?.message ?? err);
   }
+  // [help-guides 2026-06-21] guides table + placeholder tech guide seed.
+  try {
+    await withBootTimeout("runGuidesMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runGuidesMigration } = await import("./lib/guides-migrate.js");
+      await runGuidesMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runGuidesMigration — non-fatal:", err?.message ?? err);
+  }
   // [comms-opt-out 2026-06-21] clients.sms_opt_out_at / email_opt_out_at /
   // email_unsub_token columns + token backfill + unique index.
   try {
@@ -254,6 +427,50 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] runCommsOptOutMigration — non-fatal:", err?.message ?? err);
   }
+  // [team-photo-notes] team_photo_notes table (pictures + notes attached to a
+  // job or made sticky to a customer/property).
+  try {
+    await withBootTimeout("runTeamPhotoNotesMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runTeamPhotoNotesMigration } = await import("./lib/team-photo-notes-migrate.js");
+      await runTeamPhotoNotesMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runTeamPhotoNotesMigration — non-fatal:", err?.message ?? err);
+  }
+  // [customer-messages 2026-06-26] customer_message_schedules + job_message_sends
+  // tables + ledger backfill from the legacy reminder_*_sent flags (so the new
+  // engine never re-sends an already-reminded job).
+  try {
+    await withBootTimeout("runCustomerMessagesMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runCustomerMessagesMigration } = await import("./lib/customer-messages.js");
+      await runCustomerMessagesMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runCustomerMessagesMigration — non-fatal:", err?.message ?? err);
+  }
+  // [reschedule-label-backfill 2026-06-29] correct historical reschedules that the
+  // legacy cancellation-log path stored with a NULL action, so the Activity feed
+  // stops showing past reschedules as "Cancelled". Scoped to rows whose note marks
+  // them a reschedule; never touches a genuine cancellation. Idempotent.
+  try {
+    await withBootTimeout("runRescheduleLabelBackfill", SCHEMA_TIMEOUT_MS, async () => {
+      const { runRescheduleLabelBackfill } = await import("./lib/reschedule-label-backfill.js");
+      await runRescheduleLabelBackfill();
+    });
+  } catch (err: any) {
+    console.error("[startup] runRescheduleLabelBackfill — non-fatal:", err?.message ?? err);
+  }
+  // [notif-prefs] customer_notification_preferences — per-client/per-account
+  // sparse override table controlling WHICH customer messages fire on WHICH
+  // channel. No rows seeded: absence = inherit tenant default (all on).
+  try {
+    await withBootTimeout("runNotificationPreferencesMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runNotificationPreferencesMigration } = await import("./lib/notification-preferences.js");
+      await runNotificationPreferencesMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runNotificationPreferencesMigration — non-fatal:", err?.message ?? err);
+  }
   // [booking-confirmation GAP1] token column + job_scheduled SMS template (all tenants)
   try {
     await withBootTimeout("ensureBookingConfirmationSetup", SCHEMA_TIMEOUT_MS, async () => {
@@ -262,6 +479,26 @@ async function startup() {
     });
   } catch (err: any) {
     console.error("[startup] ensureBookingConfirmationSetup — non-fatal:", err?.message ?? err);
+  }
+  // [referral-program] referrals table + program columns (widget Give $25 /
+  // Get $25 flow: referrer capture, lead link, credited stamp).
+  try {
+    await withBootTimeout("ensureReferralSetup", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureReferralSetup } = await import("./lib/referrals.js");
+      await ensureReferralSetup();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureReferralSetup — non-fatal:", err?.message ?? err);
+  }
+  // [time-change-notice 2026-06-30] jobs.time_change_pending / time_change_from
+  // columns + job_time_updated SMS+email templates (all tenants).
+  try {
+    await withBootTimeout("ensureTimeChangeNoticeSetup", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureTimeChangeNoticeSetup } = await import("./lib/time-change-notice.js");
+      await ensureTimeChangeNoticeSetup();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureTimeChangeNoticeSetup — non-fatal:", err?.message ?? err);
   }
   // [invoicing-engine] backfill clients.payment_source (stripe if card on file, else square)
   try {
@@ -280,6 +517,16 @@ async function startup() {
     });
   } catch (err: any) {
     console.error("[startup] ensureScorecardReplyColumns — non-fatal:", err?.message ?? err);
+  }
+  // [90d-composite] users.score_*_90d / scorecard_composite_90d + companies
+  // .score_weight_* columns for the rolling composite scorecard.
+  try {
+    await withBootTimeout("ensureCompositeScoreColumns", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureCompositeScoreColumns } = await import("./lib/scorecard-composite.js");
+      await ensureCompositeScoreColumns();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureCompositeScoreColumns — non-fatal:", err?.message ?? err);
   }
   // [sms Pass3] short-link table + customer-facing SMS copy upgrade
   try {
@@ -317,6 +564,15 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] ensurePayrollSnapshotSetup — non-fatal:", err?.message ?? err);
   }
+  // [sms-mms-scheduling] media_urls column + scheduled_sms table
+  try {
+    await withBootTimeout("ensureSmsMmsSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureSmsMmsSchema } = await import("./lib/sms-mms-schema.js");
+      await ensureSmsMmsSchema();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureSmsMmsSchema — non-fatal:", err?.message ?? err);
+  }
   // [revenue-connect 2026-06-12] job_history live bridge — mirrors completed
   // jobs into the revenue ledger past each tenant's MC-import end date, so
   // the dashboard forecast / business health / client history stay live
@@ -331,8 +587,39 @@ async function startup() {
   } catch (err: any) {
     console.error("[startup] ensureJobHistoryLiveBridgeSchema — non-fatal:", err?.message ?? err);
   }
+  // [refunds 2026-06-27] invoices.refunded_amount / refund_reason / refunded_at columns.
+  try {
+    await withBootTimeout("ensureInvoiceRefundColumns", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureInvoiceRefundColumns } = await import("./lib/invoice-refund-migrate.js");
+      await ensureInvoiceRefundColumns();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureInvoiceRefundColumns — non-fatal:", err?.message ?? err);
+  }
+  // [commission-override 2026-06-27] jobs.commission_override_pct — per-job pool rate override.
+  try {
+    await withBootTimeout("ensureCommissionOverrideColumn", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureCommissionOverrideColumn } = await import("./lib/commission-override-migrate.js");
+      await ensureCommissionOverrideColumn();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureCommissionOverrideColumn — non-fatal:", err?.message ?? err);
+  }
+}
 
-  app.listen(port, "0.0.0.0", () => {
+// [boot-resilience 2026-06-24] Bind the port FIRST, then run the migration
+// chain in the background AFTER the server is listening. Health (/api/health,
+// /api/healthz) answers the instant the port is bound, so Railway's healthcheck
+// passes immediately — ending the chronic deploy-healthcheck failures caused by
+// the migrations-before-listen ordering (the old code ran all 16 guarded
+// migrations before app.listen(); under a slow/locked DB the cumulative
+// withBootTimeout budget exceeded even a 600s healthcheck window). The
+// readiness gate in app.ts holds all OTHER /api routes at 503 until the chain
+// completes, so no request can hit partially-migrated schema (preserves the
+// 2026-05-17 read/write-divergence fix). withBootTimeout still bounds each step,
+// so the gate always opens within a bounded time even on a degraded DB.
+async function startup() {
+  app.listen(port, "0.0.0.0", async () => {
     console.log("Server running on port", process.env.PORT || 3000);
     // [DR runbook 2026-04-30] Static reminder visible on every cold
     // start. Surfaces backup-state in Railway logs without requiring
@@ -343,24 +630,52 @@ async function startup() {
     // Procedure + RPO/RTO targets: docs/disaster-recovery.md
     console.log("[backup-check] static reminder: Railway Hobby plan provides daily backups, 7-day retention. Verify quarterly via dashboard. Procedure: docs/disaster-recovery.md");
 
+    // Run the schema/data migration chain now that the port is bound. Until
+    // this resolves, the app.ts readiness gate returns 503 for every non-health
+    // /api route. withBootTimeout bounds each step, so the gate always opens.
+    await runStartupMigrations();
+    setAppReady(true);
+    console.log("[startup] migrations complete — API readiness gate opened");
+
     // [boot-resilience 2026-06-19] Heavy NON-schema data work that does not
     // gate request correctness runs here, AFTER the port is bound, so a slow
     // or recovering DB delays these tasks instead of the whole boot (→ 502).
     // Fire-and-forget: each task self-logs and is independently guarded.
     void runPostListenDataTasks();
 
-    const recurringEngineEnabled = process.env.RECURRING_ENGINE_ENABLED !== "false";
-    // [2026-04-22 J3] Startup invocation of runRecurringJobGeneration() removed —
-    // Railway restart cascades caused 5x concurrent engine runs on the
-    // 2026-04-22 overnight cron, creating 270 duplicate rows. The engine now
-    // only fires via the 2 AM cron registered below. Seed + PHES data migration
-    // already completed above (await chain before listen).
-    if (recurringEngineEnabled) {
-    startRecurringJobCron();
-    console.log("[recurring-engine] Cron started");
-  } else {
-    console.log("[recurring-engine] Cron DISABLED via RECURRING_ENGINE_ENABLED=false env var");
-  }
+    // [2026-06-24] Cron control moved to the per-company
+    // companies.recurring_engine_enabled flag — enforced per-tenant inside
+    // generateRecurringJobs() and guarded by a per-company advisory lock, so a
+    // running cron only ever generates for enabled tenants (Oak Lawn yes,
+    // Schaumburg no). The legacy RECURRING_ENGINE_ENABLED env kill-switch is
+    // retired now the phase/dedup fixes are in + audited.
+    // RECURRING_ENGINE_ENABLED=off still forces a hard global stop (break-glass).
+    // [2026-04-22 J3] Startup invocation of runRecurringJobGeneration() stays
+    // removed — Railway restart cascades caused 5x concurrent runs / 270 dup
+    // rows. The engine only fires via the 2 AM cron registered below.
+    void (async () => {
+      if (process.env.RECURRING_ENGINE_ENABLED === "off") {
+        console.log("[recurring-engine] Cron HARD-STOPPED via RECURRING_ENGINE_ENABLED=off");
+        return;
+      }
+      try {
+        const { db } = await import("@workspace/db");
+        const { companiesTable } = await import("@workspace/db/schema");
+        const { eq } = await import("drizzle-orm");
+        const enabled = await db
+          .select({ id: companiesTable.id })
+          .from(companiesTable)
+          .where(eq(companiesTable.recurring_engine_enabled, true));
+        if (enabled.length > 0) {
+          startRecurringJobCron();
+          console.log(`[recurring-engine] Cron started — ${enabled.length} tenant(s) enabled (DB flag)`);
+        } else {
+          console.log("[recurring-engine] Cron not started — no tenant has recurring_engine_enabled=true");
+        }
+      } catch (err) {
+        console.error("[recurring-engine] cron-start flag check failed — not starting:", err);
+      }
+    })();
 
   // [AI] Per-tenant engine flag visibility. Future sessions verifying the
   // disabled state can grep this line. Runs after migrations complete so

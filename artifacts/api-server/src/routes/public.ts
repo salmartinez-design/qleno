@@ -11,7 +11,7 @@ import { companiesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getBranchByZip } from "../lib/branchRouter";
 import { buildClientConfirmationEmail, buildOfficeNotificationEmail } from "../lib/emailTemplates";
-import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking } from "../services/followUpService.js";
+import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
 
 const router = Router();
 
@@ -39,6 +39,83 @@ function normalizeReferral(value: string | null | undefined): string | null {
   return REFERRAL_MAP[value.toLowerCase().trim()] ?? "other";
 }
 
+// [widget-lead-upsert 2026-07-04] Find-or-create the Lead Pipeline lead for a
+// public booking-widget action, deduped by email/phone within the company. An
+// online residential QUOTE (abandon-track) creates a needs_contacted lead so it
+// shows up in Leads; a later booking (confirm) UPGRADES that same lead to booked
+// instead of creating a duplicate. Status only advances, never downgrades.
+// Contact fields fill in but never clobber. Non-fatal.
+const LEAD_STATUS_RANK: Record<string, number> = { needs_contacted: 0, contacted: 1, quoted: 2, booked: 3 };
+async function upsertWidgetLead(companyId: number, opts: {
+  email?: string | null; phone?: string | null; first_name?: string | null; last_name?: string | null;
+  address?: string | null; zip?: string | null; scope?: string | null;
+  source: string; status: string; jobId?: number | null; booked?: boolean; quoteAmount?: number | null;
+  // [quote-details-carry 2026-07-07] Sanitized snapshot of what the visitor
+  // filled in on the widget (bedrooms/bathrooms/sqft/frequency/add-ons/
+  // referral/step_reached). Merged into leads.details so the Lead Pipeline
+  // shows the full quote picture; newer keys win over older ones.
+  details?: Record<string, unknown> | null;
+}): Promise<number | null> {
+  try {
+    const { sql: s } = await import("drizzle-orm");
+    const email = opts.email ? String(opts.email).toLowerCase().trim() : null;
+    const phone10 = (opts.phone ?? "").replace(/[^0-9]/g, "").slice(-10) || null;
+    let existing: any = null;
+    if (email || phone10) {
+      const found = await db.execute(s`
+        SELECT id, status FROM leads
+         WHERE company_id = ${companyId}
+           AND (${email ? s`LOWER(email) = ${email}` : s`FALSE`}
+                OR ${phone10 ? s`RIGHT(regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g'), 10) = ${phone10}` : s`FALSE`})
+         ORDER BY created_at DESC LIMIT 1`);
+      existing = (found.rows as any[])[0] ?? null;
+    }
+    if (existing) {
+      const upgrade = (LEAD_STATUS_RANK[opts.status] ?? 0) > (LEAD_STATUS_RANK[String(existing.status)] ?? 0);
+      await db.execute(s`
+        UPDATE leads SET
+          first_name = COALESCE(first_name, ${opts.first_name ?? null}),
+          last_name  = COALESCE(last_name, ${opts.last_name ?? null}),
+          email      = COALESCE(email, ${opts.email ?? null}),
+          phone      = COALESCE(phone, ${opts.phone ?? null}),
+          address    = COALESCE(address, ${opts.address ?? null}),
+          zip        = COALESCE(zip, ${opts.zip ?? null}),
+          scope      = COALESCE(scope, ${opts.scope ?? null}),
+          status     = ${upgrade ? s`${opts.status}` : s`status`},
+          quote_amount = COALESCE(${opts.quoteAmount ?? null}, quote_amount),
+          quoted_at  = ${opts.status === "quoted" ? s`COALESCE(quoted_at, NOW())` : s`quoted_at`},
+          job_id     = COALESCE(job_id, ${opts.jobId ?? null}),
+          booked_at  = ${opts.booked ? s`COALESCE(booked_at, NOW())` : s`booked_at`},
+          details    = COALESCE(details, '{}'::jsonb) || COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb),
+          updated_at = NOW()
+        WHERE id = ${existing.id}`);
+      return Number(existing.id);
+    }
+    // [source-precedence 2026-07-09] Stamp lead_source = source (not the DB
+    // default 'manual'). Without this, every online/widget lead landed with
+    // lead_source='manual' and rendered as the "Office" chip in the pipeline,
+    // misrepresenting client-submitted leads as office-created ones.
+    const ins = await db.execute(s`
+      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, lead_source, status, quote_amount, quoted_at, job_id, booked_at, details, created_at, updated_at)
+      VALUES (${companyId}, ${opts.first_name ?? null}, ${opts.last_name ?? null}, ${opts.phone ?? null}, ${opts.email ?? null},
+              ${opts.address ?? null}, ${opts.zip ?? null}, ${opts.scope ?? null}, ${opts.source}, ${opts.source}, ${opts.status},
+              ${opts.quoteAmount ?? null}, ${opts.status === "quoted" ? s`NOW()` : s`NULL`},
+              ${opts.jobId ?? null}, ${opts.booked ? s`NOW()` : s`NULL`},
+              COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb), NOW(), NOW())
+      RETURNING id`);
+    return Number((ins.rows as any[])[0]?.id) || null;
+  } catch (e) {
+    // Non-fatal by design (a DB hiccup must not break the customer's widget),
+    // but log with enough context to diagnose a dropped lead — this catch is
+    // what silently swallowed the Georgann Gambill lead. Callers now also log
+    // when this returns null.
+    console.error("[widget-lead] upsert failed:", {
+      companyId, email: opts.email, phone: opts.phone, source: opts.source, status: opts.status,
+    }, e);
+    return null;
+  }
+}
+
 // ── Simple in-memory rate limiter: 30 req/min per IP ────────────────────────
 const ipCounts = new Map<string, { count: number; resetAt: number }>();
 function rateLimit(req: any, res: any, next: any) {
@@ -55,6 +132,14 @@ function rateLimit(req: any, res: any, next: any) {
   }
   return next();
 }
+
+// ── GET /api/public/config/google-maps-key ───────────────────────────────────
+// Public (no requireAuth) so the booking widget can load Maps Places at runtime.
+// The build-time VITE_GOOGLE_MAPS_API_KEY is empty in the Railway build, so the
+// browser key is served from the server-side GOOGLE_MAPS_API_KEY env instead.
+router.get("/config/google-maps-key", rateLimit, (_req, res) => {
+  return res.json({ key: process.env.GOOGLE_MAPS_API_KEY ?? "" });
+});
 
 // ── GET /api/public/company/:slug ────────────────────────────────────────────
 router.get("/company/:slug", rateLimit, async (req, res) => {
@@ -160,6 +245,167 @@ router.get("/addons/:scopeId", rateLimit, async (req, res) => {
   }
 });
 
+// ── GET /api/public/quote/:token ────────────────────────────────────────────
+// Hands the booking widget a quote's saved answers so a "Book this quote" link
+// can PRE-FILL the flow instead of restarting it. Public (rate-limited), keyed
+// on the customer-facing sign_token. Only still-open quotes resolve (a booked /
+// expired quote returns 410 so the widget can fall back to a fresh booking).
+router.get("/quote/:token", rateLimit, async (req, res) => {
+  const { sql: drSql } = await import("drizzle-orm");
+  try {
+    const token = String(req.params.token || "").trim();
+    if (!token) return res.status(400).json({ error: "Missing token" });
+    const r = await db.execute(drSql`
+      SELECT q.id, q.company_id, q.lead_name, q.lead_email, q.lead_phone, q.address,
+             q.service_type, q.frequency, q.scope_id, q.addons, q.total_price,
+             q.estimated_hours, q.manual_hours,
+             q.bedrooms, q.bathrooms, q.half_baths, q.sqft, q.dirt_level, q.pets,
+             q.status, q.special_instructions, c.slug AS company_slug
+      FROM quotes q JOIN companies c ON c.id = q.company_id
+      WHERE q.sign_token = ${token} LIMIT 1
+    `);
+    const q: any = (r as any).rows?.[0];
+    if (!q) return res.status(404).json({ error: "Quote not found" });
+    if (["booked", "accepted", "converted", "expired", "declined", "lost"].includes(String(q.status))) {
+      return res.status(410).json({ error: "Quote no longer available", status: q.status });
+    }
+    // Split lead_name → first/last for the contact step.
+    const name = String(q.lead_name || "").trim();
+    const sp = name.indexOf(" ");
+    const first_name = sp > 0 ? name.slice(0, sp) : name;
+    const last_name = sp > 0 ? name.slice(sp + 1) : "";
+    // addons jsonb → addon_ids where the stored item carries a numeric id.
+    const addons = Array.isArray(q.addons) ? q.addons : [];
+    const addon_ids = addons
+      .map((a: any) => Number(a?.id))
+      .filter((x: any) => Number.isFinite(x));
+    return res.json({
+      quote_id: q.id,
+      company_id: q.company_id,
+      company_slug: q.company_slug,
+      first_name, last_name,
+      email: q.lead_email || "",
+      phone: q.lead_phone || "",
+      address: q.address || "",
+      service_type: q.service_type || null,
+      frequency: q.frequency || null,
+      scope_id: q.scope_id ?? null,
+      addon_ids, addons,
+      bedrooms: q.bedrooms ?? null,
+      bathrooms: q.bathrooms ?? null,
+      half_baths: q.half_baths ?? null,
+      sqft: q.sqft ?? null,
+      dirt_level: q.dirt_level ?? null,
+      pets: q.pets ?? null,
+      special_instructions: q.special_instructions || null,
+      total_price: q.total_price ?? null,
+      // manual_hours is the office override; estimated_hours the computed stamp.
+      estimated_hours: (Number(q.manual_hours) > 0 ? q.manual_hours : q.estimated_hours) ?? null,
+    });
+  } catch (err) {
+    console.error("GET /public/quote/:token:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/public/referral ────────────────────────────────────────────────
+// [referral-program] Give $25 / Get $25 — the confirmation-page "Refer a friend
+// or business" form. Creates (a) a Lead Pipeline lead for the referred person
+// (deduped via upsertWidgetLead, source 'referral', tagged with who referred
+// them + the promo) and (b) a referrals row linked to that lead — the link is
+// what lets the Referrals report derive booked/completed/credited later. Fires
+// the office new-lead alert. Public + rate-limited; never exposes internal ids.
+router.post("/referral", rateLimit, async (req, res) => {
+  const { sql: s } = await import("drizzle-orm");
+  try {
+    const b: any = req.body ?? {};
+    const clip = (v: unknown, n: number) => String(v ?? "").trim().slice(0, n);
+    const companySlug = clip(b.company_slug, 80);
+    const referredName = clip(b.referred_name, 120);
+    const referredPhone = clip(b.referred_phone, 40);
+    const referredEmail = clip(b.referred_email, 160);
+    const referralType = b.referral_type === "commercial" ? "commercial" : "residential";
+    const ref: any = b.referrer ?? {};
+    const referrerFirst = clip(ref.first_name, 80);
+    const referrerLast = clip(ref.last_name, 80);
+    const referrerEmail = clip(ref.email, 160).toLowerCase();
+    const referrerPhone = clip(ref.phone, 40);
+    const referrerName = [referrerFirst, referrerLast].filter(Boolean).join(" ");
+
+    if (!companySlug) return res.status(400).json({ error: "Missing company" });
+    if (!referredName) return res.status(400).json({ error: "Please tell us who you're referring." });
+    if (!referredPhone && !referredEmail) return res.status(400).json({ error: "A phone number or email for them is required." });
+
+    const companyRow = await db.execute(s`SELECT id FROM companies WHERE slug = ${companySlug} LIMIT 1`);
+    const companyId = Number((companyRow.rows[0] as any)?.id);
+    if (!companyId) return res.status(404).json({ error: "Company not found" });
+
+    // Match the referrer to an existing client by email/phone (they usually
+    // just booked, so this normally hits). Kept nullable — a lead who refers
+    // before their client record exists still counts.
+    let referrerClientId: number | null = null;
+    const refPhone10 = referrerPhone.replace(/\D/g, "").slice(-10);
+    if (referrerEmail || refPhone10) {
+      const m = await db.execute(s`
+        SELECT id FROM clients
+         WHERE company_id = ${companyId}
+           AND (${referrerEmail ? s`LOWER(email) = ${referrerEmail}` : s`FALSE`}
+                OR ${refPhone10 ? s`RIGHT(regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g'), 10) = ${refPhone10}` : s`FALSE`})
+         ORDER BY id DESC LIMIT 1`);
+      referrerClientId = Number((m.rows[0] as any)?.id) || null;
+    }
+
+    const sp = referredName.indexOf(" ");
+    const referredFirst = sp > 0 ? referredName.slice(0, sp) : referredName;
+    const referredLast = sp > 0 ? referredName.slice(sp + 1) : null;
+    const { REFERRAL_PROMO } = await import("../lib/referrals.js");
+
+    const leadId = await upsertWidgetLead(companyId, {
+      first_name: referredFirst,
+      last_name: referredLast,
+      phone: referredPhone || null,
+      email: referredEmail || null,
+      scope: referralType === "commercial" ? "Commercial Cleaning" : null,
+      source: "referral",
+      status: "needs_contacted",
+      details: {
+        referred_by: referrerName || referrerEmail || "a customer",
+        referral_type: referralType,
+        referral_promo: REFERRAL_PROMO,
+      },
+    });
+
+    await db.execute(s`
+      INSERT INTO referrals
+        (company_id, referrer_client_id, referrer_name, referrer_email, referrer_phone,
+         referred_name, referred_phone, referred_email, referral_type,
+         source, status, promo, lead_id, created_at, updated_at)
+      VALUES
+        (${companyId}, ${referrerClientId}, ${referrerName || null}, ${referrerEmail || null}, ${referrerPhone || null},
+         ${referredName}, ${referredPhone || null}, ${referredEmail || null}, ${referralType},
+         'widget', 'pending', ${REFERRAL_PROMO}, ${leadId}, NOW(), NOW())
+    `);
+
+    // Office alert — same channel every other new lead uses. Fire-and-forget.
+    try {
+      const { fireOfficeNotification } = await import("./leads.js");
+      void fireOfficeNotification(
+        companyId, leadId ?? 0, referredFirst, referredLast,
+        `Referral — from ${referrerName || "a customer"} ($25/$25 promo)`,
+        referredPhone || null,
+        referralType === "commercial" ? "Commercial Cleaning" : null,
+      ).catch((e: any) => console.error("[referral] office alert failed:", e?.message ?? e));
+    } catch (e: any) {
+      console.error("[referral] office alert failed:", e?.message ?? e);
+    }
+
+    return res.status(201).json({ ok: true });
+  } catch (err) {
+    console.error("POST /public/referral:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── GET /api/public/offer-settings/:slug ────────────────────────────────────
 router.get("/offer-settings/:slug", rateLimit, async (req, res) => {
   const { sql: drSql } = await import("drizzle-orm");
@@ -176,6 +422,35 @@ router.get("/offer-settings/:slug", rateLimit, async (req, res) => {
   } catch (err) {
     console.error("GET offer-settings:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── GET /api/public/referral-sources/:slug ──────────────────────────────────
+// Returns active acquisition sources for the booking widget. Falls back to
+// hardcoded defaults when no custom sources have been configured.
+router.get("/referral-sources/:slug", rateLimit, async (req, res) => {
+  const { sql: drSql } = await import("drizzle-orm");
+  const DEFAULTS = [
+    { name: "Google", slug: "google" },
+    { name: "Facebook", slug: "facebook" },
+    { name: "Instagram", slug: "instagram" },
+    { name: "Nextdoor", slug: "nextdoor" },
+    { name: "Friend / Family", slug: "client_referral" },
+    { name: "Other", slug: "other" },
+  ];
+  try {
+    const slug = req.params.slug;
+    const companyRow = await db.execute(drSql`SELECT id FROM companies WHERE slug = ${slug} LIMIT 1`);
+    if (!companyRow.rows.length) return res.json(DEFAULTS);
+    const companyId = (companyRow.rows[0] as any).id;
+    const result = await db.execute(drSql`
+      SELECT name, slug FROM acquisition_sources
+       WHERE company_id = ${companyId} AND is_active = true
+       ORDER BY display_order, id
+    `);
+    return res.json((result as any).rows.length ? (result as any).rows : DEFAULTS);
+  } catch {
+    return res.json(DEFAULTS);
   }
 });
 
@@ -472,26 +747,6 @@ export async function runCalculate(params: {
     }
   }
 
-  // [auto-promos 2026-06-21] Auto-applied promotions honored at checkout. Only
-  // the deep-clean promo is determinable from a single quote (the 2nd-recurring
-  // promo is contextual to a schedule occurrence and lands at invoice build).
-  // Computed against the cleaning base price and REPORTED in a dedicated field —
-  // we deliberately do NOT mutate final_total, so a booked job's stored base_fee
-  // stays PRE-promo and the discount is applied exactly once, at invoice time,
-  // by the single chokepoint (see lib/auto-promos.ts ensureAutoPromosForJob).
-  // The booking widget displays final_total_after_auto_promo so the advertised
-  // price is honored at checkout. This keeps "stored price = pre-promo" an
-  // invariant — there is no path where the promo can double-apply.
-  const { computeCheckoutPromo } = await import("../lib/auto-promos.js");
-  const autoPromo = await computeCheckoutPromo({
-    companyId: company_id,
-    serviceType: scopeNameToServiceType(scope.name),
-    basePrice: base_price,
-  });
-  const final_total_after_auto_promo = autoPromo
-    ? Math.max(0, Math.round((final_total - autoPromo.amount) * 100) / 100)
-    : Math.round(final_total * 100) / 100;
-
   return {
     scope_id,
     scope_name: scope.name,
@@ -512,14 +767,6 @@ export async function runCalculate(params: {
     discount_amount: Math.round(discount_amount * 100) / 100,
     discount_valid: discount_code ? discount_valid : undefined,
     final_total: Math.round(final_total * 100) / 100,
-    // [auto-promos] Auto-applied promotions (deep-clean at checkout). final_total
-    // stays PRE-promo (= the stored base); final_total_after_auto_promo is the
-    // advertised price the widget shows. Discount itemizes on the invoice.
-    auto_promos: autoPromo
-      ? [{ kind: autoPromo.kind, label: autoPromo.label, pct: autoPromo.pct, amount: autoPromo.amount }]
-      : [],
-    auto_promo_discount: autoPromo ? autoPromo.amount : 0,
-    final_total_after_auto_promo,
   };
 }
 
@@ -575,11 +822,37 @@ router.post("/book/setup", rateLimit, async (req, res) => {
       customerId = customer.id;
     }
 
-    const setupIntent = await stripe.setupIntents.create({
-      customer: customerId,
-      payment_method_types: ["card"],
-      usage: "off_session",
-    });
+    let setupIntent;
+    try {
+      setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        payment_method_types: ["card"],
+        usage: "off_session",
+      });
+    } catch (siErr: any) {
+      // A saved stripe_customer_id can be stale (e.g. created under a different
+      // Stripe account or in test mode) → Stripe returns "No such customer".
+      // Recover transparently by minting a fresh customer + repairing the row,
+      // so a returning client can still book instead of hitting a 500.
+      const stale = siErr?.code === "resource_missing" ||
+        siErr?.statusCode === 404 || /no such customer/i.test(siErr?.message || "");
+      if (!stale) throw siErr;
+      const fresh = await stripe.customers.create({
+        email,
+        name: `${first_name || ""} ${last_name || ""}`.trim(),
+        phone: phone || undefined,
+        metadata: { company_id: String(company_id) },
+      });
+      customerId = fresh.id;
+      setupIntent = await stripe.setupIntents.create({
+        customer: customerId,
+        payment_method_types: ["card"],
+        usage: "off_session",
+      });
+      try {
+        await db.execute(drizzleSql`UPDATE clients SET stripe_customer_id = ${customerId} WHERE email = ${email} AND company_id = ${company_id}`);
+      } catch { /* best-effort repair */ }
+    }
 
     return res.json({
       stripe_enabled: true,
@@ -619,6 +892,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       booking_location,
       address_street, address_city, address_state, address_zip,
       address_lat, address_lng, address_verified,
+      quote_id, // set when the booking came from a quote email's "Book" link
     } = req.body;
 
     if (!company_id || !first_name || !last_name || !phone || !email || !scope_id || !sqft || !frequency) {
@@ -666,6 +940,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       drizzleSql`SELECT id FROM clients WHERE email = ${email} AND company_id = ${company_id} LIMIT 1`
     );
 
+    const isReturningClient = existingClients.rows.length > 0;
     let clientId: number;
     if (existingClients.rows.length > 0) {
       clientId = (existingClients.rows[0] as any).id;
@@ -792,6 +1067,22 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     );
     const jobId = (jobResult.rows[0] as any).id;
 
+    // [book-from-quote] If this booking came from a quote email's "Book" link,
+    // mark that quote booked (linked to the new job) + stop its follow-up drip,
+    // so the customer isn't chased after they've already booked. Non-blocking.
+    if (quote_id) {
+      try {
+        await db.execute(drizzleSql`
+          UPDATE quotes SET status = 'booked', booked_job_id = ${jobId}, accepted_at = NOW()
+          WHERE id = ${Number(quote_id)} AND company_id = ${Number(company_id)}`);
+        import("../services/followUpService.js")
+          .then(({ stopEnrollmentsForQuote }) => stopEnrollmentsForQuote(Number(quote_id), "booked").catch(() => {}))
+          .catch(() => {});
+      } catch (qErr) {
+        console.error("[book-from-quote] mark quote booked failed:", qErr);
+      }
+    }
+
     // ── In-app notification: new booking ────────────────────────────────────
     try {
       const notifBody = `${first_name} ${last_name} booked a ${scopeName} for ${preferred_date || "an upcoming date"} — $${adjustedTotal.toFixed(2)}`;
@@ -888,19 +1179,15 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       `
     );
 
-    // ── Create lead record (booking_widget source) ────────────────────────────
+    // ── Create/advance lead record (booking_widget source) ────────────────────
     try {
-      const scopeLabel = scopeName;
-      await db.execute(drizzleSql`
-        INSERT INTO leads (
-          company_id, first_name, last_name, phone, email, address, zip,
-          scope, source, status, job_id, booked_at, created_at, updated_at
-        ) VALUES (
-          ${company_id}, ${first_name}, ${last_name}, ${phone}, ${email},
-          ${address || null}, ${zip || null},
-          ${scopeLabel}, 'booking_widget', 'booked', ${jobId}, NOW(), NOW(), NOW()
-        )
-      `);
+      // Dedup: if this customer already got an online quote (needs_contacted
+      // lead from abandon-track), UPGRADE that same lead to booked rather than
+      // create a second one. Else insert a fresh booked lead.
+      await upsertWidgetLead(company_id, {
+        email, phone, first_name, last_name, address: address || null, zip: zip || null,
+        scope: scopeName, source: "booking_widget", status: "booked", jobId, booked: true,
+      });
       // Booking finished — stop any abandoned-booking drip first (FK is
       // ON DELETE SET NULL, so the delete below only nulls an already-stopped
       // enrollment), then remove the abandoned booking for this email.
@@ -913,6 +1200,9 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     }
 
     // ── Confirmation emails ───────────────────────────────────────────────────
+    // COMMS_ENABLED does NOT gate transactional booking confirmations — only
+    // automated outbound (reminders, drip, promos) is suppressed by that flag.
+    // This is the same bypass used by /api/contact for inbound lead signals.
     const resendKey = process.env.RESEND_API_KEY;
     const emailDateStr = preferred_date
       ? new Date(preferred_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
@@ -920,6 +1210,77 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const emailWindowLabel = arrivalWindowVal === "morning" ? "9:00 AM – 12:00 PM" : arrivalWindowVal === "afternoon" ? "12:00 PM – 2:00 PM" : "To be confirmed";
     const emailAddonBreakdown: Array<{ name: string; amount: number }> = (pricing.addon_breakdown || []).map((a: any) => ({ name: a.name, amount: parseFloat(String(a.amount || 0)) }));
     const emailBundleDiscount = bundleDiscount ? Math.abs(parseFloat(String(bundleDiscount))) : 0;
+
+    // Read per-tenant office email settings to gate zone + techs queries
+    let officeEmailShowZone = true;
+    let officeEmailShowTechs = true;
+    try {
+      const settingsRow = await db.execute(drizzleSql`
+        SELECT office_email_show_zone, office_email_show_available_techs
+        FROM companies WHERE id = ${company_id} LIMIT 1
+      `);
+      if ((settingsRow as any).rows?.length > 0) {
+        const r = (settingsRow as any).rows[0];
+        officeEmailShowZone = r.office_email_show_zone !== false;
+        officeEmailShowTechs = r.office_email_show_available_techs !== false;
+      }
+    } catch {}
+
+    // Zone lookup for office notification subject and body
+    let bookingZoneName: string | null = null;
+    let bookingZoneColor: string | null = null;
+    if (officeEmailShowZone) {
+      try {
+        const zipForZone = (address_zip || zip || "").trim().replace(/\D/g, "").slice(0, 5);
+        if (zipForZone.length === 5) {
+          const zoneResult = await db.execute(drizzleSql`
+            SELECT name, color FROM service_zones
+            WHERE company_id = ${company_id}
+              AND is_active = true
+              AND zip_codes @> ARRAY[${zipForZone}]::text[]
+            LIMIT 1
+          `);
+          if ((zoneResult as any).rows?.length > 0) {
+            bookingZoneName = (zoneResult as any).rows[0].name || null;
+            bookingZoneColor = (zoneResult as any).rows[0].color || null;
+          }
+        }
+      } catch {}
+    }
+
+    // Available techs: active techs with no jobs assigned on the booking date
+    let availableTechs: Array<{ name: string }> | null = null;
+    if (officeEmailShowTechs) {
+      try {
+        if (preferred_date) {
+          const techResult = await db.execute(drizzleSql`
+            SELECT u.first_name, u.last_name
+            FROM users u
+            WHERE u.company_id = ${company_id}
+              AND u.role = 'tech'
+              AND u.is_active = true
+              AND u.id NOT IN (
+                SELECT jt.user_id FROM job_technicians jt
+                JOIN jobs j ON j.id = jt.job_id
+                WHERE j.company_id = ${company_id}
+                  AND j.scheduled_date = ${preferred_date}::date
+                  AND j.status != 'cancelled'
+                UNION
+                SELECT j.assigned_user_id FROM jobs j
+                WHERE j.company_id = ${company_id}
+                  AND j.scheduled_date = ${preferred_date}::date
+                  AND j.assigned_user_id IS NOT NULL
+                  AND j.status != 'cancelled'
+              )
+            ORDER BY u.first_name
+          `);
+          availableTechs = ((techResult as any).rows ?? []).map((r: any) => ({
+            name: `${r.first_name || ""} ${r.last_name || ""}`.trim(),
+          }));
+        }
+      } catch {}
+    }
+
     const emailParams = {
       firstName: first_name,
       lastName: last_name,
@@ -950,10 +1311,12 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       pets: pets ? parseInt(String(pets)) : null,
       cleanlinessRating: cleanliness ? parseInt(String(cleanliness)) : null,
       acquisitionSource: normalizeReferral(referral_source),
+      isReturningClient,
+      zoneName: bookingZoneName,
+      zoneColor: bookingZoneColor,
+      availableTechs,
     };
-    if (process.env.COMMS_ENABLED !== "true") {
-      console.log("[COMMS BLOCKED] Booking confirmation email suppressed:", { to: email, name: `${first_name} ${last_name}`, branch: branchConfig.branch, jobId });
-    } else if (resendKey) {
+    if (resendKey) {
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(resendKey);
@@ -1219,6 +1582,11 @@ router.post("/book/walkthrough", rateLimit, async (req, res) => {
     );
     const jobId = (jobResult.rows[0] as any).id;
 
+    // [widget-lead 2026-07-04] A commercial walkthrough request must land in the
+    // Lead Pipeline so the office follows up (do the walkthrough, then quote).
+    // needs_contacted (not booked) — the sale isn't closed yet. Non-fatal.
+    await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address: address || null, zip: wtAddrZip, scope: "Commercial Walkthrough", source: "booking_widget", status: "needs_contacted", jobId });
+
     const resendKey = process.env.RESEND_API_KEY;
     if (process.env.COMMS_ENABLED !== "true") {
       console.log("[COMMS BLOCKED] Walkthrough notification email suppressed:", { email, first_name, last_name });
@@ -1348,6 +1716,12 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
     );
     const jobId = (jobResult.rows[0] as any).id;
 
+    // [widget-lead 2026-07-04] Surface this booking in the Lead Pipeline.
+    // Only /book/confirm (residential) created a lead — the commercial paths
+    // didn't, so paid commercial bookings from the widget never appeared in
+    // Leads. Mirror the /book/confirm insert. Non-fatal (never fails a booking).
+    await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address: address || null, zip: cAddrZip, scope: "Commercial Cleaning", source: "booking_widget", status: "booked", jobId, booked: true });
+
     console.log(`[COMMERCIAL] Single visit confirmed — client_id=${clientId} job_id=${jobId} card=${cardBrand} *${cardLast4}`);
     return res.status(201).json({ ok: true, client_id: clientId, job_id: jobId, pricing: { final_total: 180 }, card_last4: cardLast4, card_brand: cardBrand });
   } catch (err: any) {
@@ -1356,20 +1730,142 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
   }
 });
 
+// [quote-details-carry 2026-07-07] Office alert for a web quote lead — carries
+// EVERYTHING the visitor filled in (Sal: "how many bedrooms, how many
+// bathrooms, what's the square footage, how did they hear about us… this
+// basic information is not enough") plus a direct "Open this lead in Qleno"
+// button. kind 'new' = first capture (contact + home details entered);
+// kind 'quoted' = same visitor reached the price step and saw a real number.
+// Bypasses COMMS_ENABLED — inbound lead signal, same as /api/contact.
+async function sendQuoteLeadAlert(companyId: number, kind: "new" | "quoted", lead: {
+  first_name?: string | null; last_name?: string | null; email?: string | null;
+  phone?: string | null; address?: string | null; zip?: string | null; scope?: string | null;
+  quoteAmount?: number | null; details?: Record<string, unknown> | null; leadId?: number | null;
+}): Promise<void> {
+  const resendKey = process.env.RESEND_API_KEY;
+  if (!resendKey) return;
+  const { sql: s } = await import("drizzle-orm");
+  const cfgRows = await db.execute(s`
+    SELECT lead_notify_email, email AS company_email, email_from_address
+    FROM companies WHERE id = ${companyId} LIMIT 1
+  `);
+  const cfg: any = cfgRows.rows[0] ?? {};
+  const notifyEmail = cfg.lead_notify_email || cfg.company_email || null;
+  if (!notifyEmail) return;
+  const fromAddr = cfg.email_from_address ? `Qleno <${cfg.email_from_address}>` : "Qleno <noreply@phes.io>";
+  const fullName = [lead.first_name, lead.last_name].filter(Boolean).join(" ") || "Unknown";
+  const d: any = lead.details ?? {};
+  const esc = (v: unknown) => String(v ?? "").replace(/[<>&]/g, ch => (ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : "&amp;"));
+  const row = (label: string, value: unknown) =>
+    value == null || value === "" ? "" :
+    `<tr><td style="padding:6px 0;color:#6B6860;width:150px;vertical-align:top;">${label}</td><td style="padding:6px 0;font-weight:600;">${esc(value)}</td></tr>`;
+  const stepLabel =
+    Number(d.step_reached) >= 4 ? "Saw their price (reached the payment step)" :
+    Number(d.step_reached) >= 2 ? "Entered contact + home details (left before seeing the price)" : null;
+  const { appBaseUrl } = await import("../lib/app-url.js");
+  const leadLink = `${appBaseUrl()}/leads${lead.leadId ? `?lead=${lead.leadId}` : ""}`;
+  const subject = kind === "quoted"
+    ? `Quote Viewed${lead.quoteAmount != null ? ` ($${Number(lead.quoteAmount).toFixed(2)})` : ""} — ${fullName}`
+    : `New Quote Request — ${fullName}`;
+  const intro = kind === "quoted"
+    ? "This visitor reached the price step and saw their quote, but has not completed the booking."
+    : "Someone requested a quote on the website but has not yet completed their booking.";
+  const { Resend } = await import("resend");
+  const resend = new Resend(resendKey);
+  await resend.emails.send({
+    from: fromAddr,
+    to: [notifyEmail],
+    subject,
+    html: `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px;background:#F7F6F3;">
+<div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">
+<div style="background:#00C9A0;padding:14px 20px;border-radius:4px;margin-bottom:20px;">
+  <span style="color:#fff;font-size:16px;font-weight:bold;">${esc(subject)}</span>
+</div>
+<p style="color:#6B6860;font-size:13px;margin:0 0 16px;">${intro}</p>
+<table style="width:100%;font-size:14px;color:#1A1917;border-collapse:collapse;">
+  ${row("Name", fullName)}
+  ${row("Email", lead.email)}
+  ${row("Phone", lead.phone)}
+  ${row("Address", lead.address ? `${lead.address}${lead.zip ? ` ${lead.zip}` : ""}` : null)}
+  ${row("Service", lead.scope)}
+  ${row("Frequency", d.frequency)}
+  ${row("Bedrooms", d.bedrooms)}
+  ${row("Bathrooms", d.bathrooms)}
+  ${row("Square footage", d.sqft ? `${d.sqft} sq ft` : null)}
+  ${row("Add-ons", Array.isArray(d.add_ons) && d.add_ons.length ? d.add_ons.join(", ") : null)}
+  ${row("How they heard about us", d.referral_source)}
+  ${row("Quote shown", lead.quoteAmount != null ? `$${Number(lead.quoteAmount).toFixed(2)}` : null)}
+  ${row("How far they got", stepLabel)}
+</table>
+<div style="text-align:center;margin:24px 0 0;">
+  <a href="${leadLink}" style="display:inline-block;background:#00C9A0;color:#ffffff;text-decoration:none;font-weight:600;font-size:14px;padding:12px 24px;border-radius:6px;">Open This Lead in Qleno</a>
+</div>
+</div></div>`,
+  });
+}
+
 // ── POST /api/public/book/abandon-track ──────────────────────────────────────
 // Called from the booking widget when a user completes Step 1 but hasn't paid yet.
 // Upserts an abandoned_bookings record so office can follow up if they leave.
 router.post("/book/abandon-track", rateLimit, async (req, res) => {
   try {
-    const { company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned = 2 } = req.body;
+    const { company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned = 2, stage, quote_amount, details: rawDetails } = req.body;
     if (!company_id) return res.status(400).json({ error: "company_id required" });
+
+    // [quote-details-carry 2026-07-07] Sanitized snapshot of the widget form —
+    // whitelisted keys only, strings capped, so a hostile payload can't stuff
+    // the jsonb. This is what makes the office alert + Lead Pipeline show the
+    // FULL quote picture (beds/baths/sqft/frequency/add-ons/heard-about-us/how
+    // far they got) instead of just contact info.
+    const details: Record<string, unknown> = {};
+    if (rawDetails && typeof rawDetails === "object") {
+      const num = (v: unknown) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : null; };
+      const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 120) : null);
+      const d: any = rawDetails;
+      if (num(d.bedrooms)) details.bedrooms = num(d.bedrooms);
+      if (num(d.bathrooms)) details.bathrooms = num(d.bathrooms);
+      if (num(d.sqft)) details.sqft = num(d.sqft);
+      if (str(d.frequency)) details.frequency = str(d.frequency);
+      if (str(d.referral_source)) details.referral_source = str(d.referral_source);
+      if (Array.isArray(d.add_ons)) {
+        const ads = d.add_ons.map(str).filter(Boolean).slice(0, 20);
+        if (ads.length) details.add_ons = ads;
+      }
+      if (num(d.step_reached)) details.step_reached = num(d.step_reached);
+    }
+    const detailsOrNull = Object.keys(details).length ? details : null;
+    // [quote-not-booked 2026-07-06] The widget passes stage='quoted' (+ quote_amount)
+    // once the visitor reaches the payment step and has seen a real price, so an
+    // un-booked online quote lands in the Pipeline's QUOTED column. Default stays
+    // needs_contacted (the early step-1 capture). Only these two stages are accepted;
+    // upsertWidgetLead only ever UPGRADES stage, so this never downgrades a booking.
+    const leadStage = stage === "quoted" ? "quoted" : "needs_contacted";
+    const quoteAmt = quote_amount != null && !isNaN(Number(quote_amount)) ? Number(quote_amount) : null;
+
+    // [widget-lead-first 2026-07-09] Create/upgrade the pipeline Lead FIRST —
+    // before the abandoned_bookings write and drip enrollment. The lead (contact
+    // + full quote snapshot in details) is what the office actually needs; it
+    // must never again be the order-last, failure-swallowed afterthought that let
+    // a completed online quote fire the "you didn't finish" recovery drip while
+    // leaving NO lead in the pipeline (the Georgann Gambill incident). Deduped by
+    // email/phone; upgrades to booked later. Non-fatal, but we now log loudly on
+    // failure so a dropped lead is diagnosable instead of silent.
+    const leadId = await upsertWidgetLead(company_id, {
+      email, phone, first_name, last_name, address, zip, scope,
+      source: "web_quote", status: leadStage, quoteAmount: quoteAmt, details: detailsOrNull,
+    });
+    if (leadId == null) {
+      console.error("[abandon-track] LEAD CREATION FAILED — recording abandoned booking + drip, but NO pipeline lead was created:", { company_id, email, phone, stage: leadStage });
+    }
+
     const { sql: drizzleSql } = await import("drizzle-orm");
     if (email) {
       const existing = await db.execute(
-        drizzleSql`SELECT id FROM abandoned_bookings WHERE company_id = ${company_id} AND email = ${email} LIMIT 1`
+        drizzleSql`SELECT id, step_abandoned FROM abandoned_bookings WHERE company_id = ${company_id} AND email = ${email} LIMIT 1`
       );
       if (existing.rows.length > 0) {
         const abId = (existing.rows[0] as any).id;
+        const prevStep = Number((existing.rows[0] as any).step_abandoned) || 0;
         await db.execute(drizzleSql`
           UPDATE abandoned_bookings SET
             first_name = COALESCE(${first_name || null}, first_name),
@@ -1379,22 +1875,58 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
             zip        = COALESCE(${zip || null}, zip),
             scope      = COALESCE(${scope || null}, scope),
             step_abandoned = ${step_abandoned},
+            details    = COALESCE(details, '{}'::jsonb) || COALESCE(${detailsOrNull ? JSON.stringify(detailsOrNull) : null}::jsonb, '{}'::jsonb),
             updated_at = NOW()
           WHERE company_id = ${company_id} AND email = ${email}
         `);
         // Idempotent enroll (no-ops if already enrolled or sequence inactive).
+        // The Lead was already created/upgraded above (widget-lead-first).
         await enrollForAbandonedBooking(company_id, abId);
+        // [quote-details-carry 2026-07-07] Second office alert when the SAME
+        // visitor advances to the price step ("did they only click this
+        // quote?" — this says they saw a real number). Fires once: only on
+        // the step 2→4 upgrade.
+        if (leadStage === "quoted" && prevStep < 4 && Number(step_abandoned) >= 4) {
+          await sendQuoteLeadAlert(company_id, "quoted", {
+            first_name, last_name, email, phone, address, zip, scope,
+            quoteAmount: quoteAmt, details: detailsOrNull, leadId,
+          }).catch((e: any) => console.error("[abandon-track] quoted alert error:", e));
+        }
         return res.json({ ok: true, action: "updated" });
       }
     }
     const inserted = await db.execute(drizzleSql`
-      INSERT INTO abandoned_bookings (company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned, created_at, updated_at)
+      INSERT INTO abandoned_bookings (company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned, details, created_at, updated_at)
       VALUES (${company_id}, ${first_name || null}, ${last_name || null}, ${email || null}, ${phone || null},
-              ${address || null}, ${zip || null}, ${scope || null}, ${step_abandoned}, NOW(), NOW())
+              ${address || null}, ${zip || null}, ${scope || null}, ${step_abandoned},
+              COALESCE(${detailsOrNull ? JSON.stringify(detailsOrNull) : null}::jsonb, '{}'::jsonb), NOW(), NOW())
       RETURNING id
     `);
     const newAbId = (inserted.rows[0] as any)?.id;
     if (newAbId) await enrollForAbandonedBooking(company_id, newAbId);
+    // Lead already created above (widget-lead-first) as `leadId`.
+
+    // Immediate office notification — bypass COMMS_ENABLED (this is an inbound
+    // lead signal, not automated outbound). Same bypass logic as /api/contact.
+    // [quote-details-carry 2026-07-07] Full quote picture + Open-in-Qleno link.
+    try {
+      await sendQuoteLeadAlert(company_id, "new", {
+        first_name, last_name, email, phone, address, zip, scope,
+        quoteAmount: quoteAmt, details: detailsOrNull, leadId,
+      });
+      // Office SMS alert via per-tenant sender
+      const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+      const sender = await resolveSender(Number(company_id), null);
+      const notifyRows = await db.execute(drizzleSql`SELECT lead_notify_phone FROM companies WHERE id = ${company_id} LIMIT 1`);
+      const officeTo = (notifyRows.rows[0] as any)?.lead_notify_phone || null;
+      const fullName = [first_name, last_name].filter(Boolean).join(" ") || "Unknown";
+      if (!sender.reason && officeTo) {
+        await sendSmsVia(sender, officeTo, `New quote request — ${fullName}${phone ? ` — ${phone}` : ""}${scope ? ` — ${scope}` : ""}. Did not complete booking.`);
+      }
+    } catch (notifyErr) {
+      console.error("[abandon-track] Office notification error:", notifyErr);
+    }
+
     return res.json({ ok: true, action: "created" });
   } catch (err: any) {
     console.error("POST /public/book/abandon-track:", err);
@@ -1420,6 +1952,11 @@ router.post("/leads", rateLimit, async (req, res) => {
       RETURNING id
     `);
     const leadId = (insertResult.rows[0] as any)?.id;
+
+    // [lead-drip-autoenroll] Un-booked online lead → start the online-quote
+    // nurture drip (lead_drip_web), same as the office path does. Idempotent +
+    // fire-and-forget; no-ops if the sequence is inactive.
+    if (leadId) enrollForLeadDrip(Number(company_id), leadId, "web_quote").catch(() => {});
 
     // Office SMS alert (per-tenant) — FROM the tenant's own number via
     // resolveSender, TO the tenant's lead_notify_phone. No global-env / Oak Lawn.
@@ -1496,12 +2033,16 @@ router.post("/leads/post-construction", rateLimit, async (req, res) => {
 
     // ── Insert lead ───────────────────────────────────────────────────────────
     const { sql: drizzleSql } = await import("drizzle-orm");
-    await db.execute(drizzleSql`
+    const pcInsert = await db.execute(drizzleSql`
       INSERT INTO leads (company_id, first_name, last_name, email, phone, address, lead_type, source, status, construction_type, completion_date, notes, sqft, created_at, updated_at)
       VALUES (${company_id}, ${first_name}, ${last_name || null}, ${email}, ${phone || null}, ${address || null},
               'post_construction', 'widget', 'new', ${construction_type}, ${completion_date}, ${notes || null},
               ${sqft ? parseInt(sqft) : null}, NOW(), NOW())
+      RETURNING id
     `);
+    // [lead-drip-autoenroll] Online post-construction inquiry → online-quote drip.
+    const pcLeadId = (pcInsert.rows[0] as any)?.id;
+    if (pcLeadId) enrollForLeadDrip(Number(company_id), pcLeadId, "web_quote").catch(() => {});
 
     // ── Send email to PHES office ─────────────────────────────────────────────
     const resendKey = process.env.RESEND_API_KEY;

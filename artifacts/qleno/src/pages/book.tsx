@@ -75,10 +75,8 @@ interface CalcResult {
   final_total_after_auto_promo?: number;
 }
 
-// Effective customer-facing per-visit total after any auto-applied promotion.
-// Falls back to final_total when the API hasn't supplied the promo fields.
 function effectiveTotal(c: CalcResult): number {
-  return c.final_total_after_auto_promo != null ? c.final_total_after_auto_promo : c.final_total;
+  return c.final_total;
 }
 
 // ── Stepper counter component ────────────────────────────────────────────────
@@ -357,6 +355,14 @@ export default function BookPage() {
   const [email, setEmail] = useState("");
   const [zip, setZip] = useState("");
   const [referral, setReferral] = useState("");
+  const [referralSources, setReferralSources] = useState<Array<{ name: string; slug: string }>>([
+    { name: "Google", slug: "google" },
+    { name: "Facebook", slug: "facebook" },
+    { name: "Instagram", slug: "instagram" },
+    { name: "Nextdoor", slug: "nextdoor" },
+    { name: "Friend / Family", slug: "client_referral" },
+    { name: "Other", slug: "other" },
+  ]);
   const [smsConsent, setSmsConsent] = useState(false);
   const [termsConsent, setTermsConsent] = useState(false);
 
@@ -418,7 +424,7 @@ export default function BookPage() {
   const [mobilePoliciesOpen, setMobilePoliciesOpen] = useState(false);
   const [sidebarOpenCats, setSidebarOpenCats] = useState<Set<number>>(new Set());
   const [mobileOpenCats, setMobileOpenCats] = useState<Set<number>>(new Set());
-  const [mobilePriceExpanded, setMobilePriceExpanded] = useState(false);
+  const [mobilePriceExpanded, setMobilePriceExpanded] = useState(true);
 
   // Upsell state (Deep Clean recurring upsell)
   const [upsellCadence, setUpsellCadence] = useState("");
@@ -495,6 +501,7 @@ export default function BookPage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastCleanedRef = useRef<HTMLDivElement>(null);
   const addressInputRef = useRef<HTMLInputElement>(null);
+  const pageTopRef = useRef<HTMLDivElement>(null);
   const [inputMounted, setInputMounted] = useState(false);
   const addressRefCallback = useCallback((node: HTMLInputElement | null) => {
     addressInputRef.current = node;
@@ -521,8 +528,10 @@ export default function BookPage() {
   }, [slug]);
 
   // ── Load Google Maps Places ───────────────────────────────────────────────
+  // Fetch the browser key at runtime from the public config endpoint first
+  // (VITE_GOOGLE_MAPS_API_KEY is empty in the Railway build), then fall back to
+  // the build-time var if the runtime fetch yields nothing.
   useEffect(() => {
-    const key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
     if ((window as any).google?.maps?.places) { setMapsReady(true); return; }
     const scriptId = "gmap-places-script";
     if (document.getElementById(scriptId)) {
@@ -530,15 +539,39 @@ export default function BookPage() {
       if (existing) { existing.addEventListener("load", () => setMapsReady(true)); }
       return;
     }
-    if (!key) return;
-    const s = document.createElement("script");
-    s.id = scriptId;
-    s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
-    s.async = true;
-    s.defer = true;
-    s.onload = () => setMapsReady(true);
-    document.head.appendChild(s);
+    let cancelled = false;
+    (async () => {
+      let key = "";
+      try {
+        const res = await pubFetch("/api/public/config/google-maps-key");
+        key = String(res?.key ?? "");
+      } catch { /* fall through to build-time key */ }
+      if (!key) key = (import.meta as any).env?.VITE_GOOGLE_MAPS_API_KEY ?? "";
+      if (cancelled || !key) return;
+      if (document.getElementById(scriptId)) { setMapsReady(true); return; }
+      const s = document.createElement("script");
+      s.id = scriptId;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+      s.async = true; s.defer = true;
+      s.onload = () => setMapsReady(true);
+      document.head.appendChild(s);
+    })();
+    return () => { cancelled = true; };
   }, []);
+
+  // ── Scroll to top on every step change ────────────────────────────────────
+  useEffect(() => {
+    const doScroll = () => {
+      try { window.scrollTo({ top: 0, behavior: "instant" as ScrollBehavior }); } catch { window.scrollTo(0, 0); }
+      try { document.documentElement.scrollTop = 0; } catch {}
+      try { document.body.scrollTop = 0; } catch {}
+      if (pageTopRef.current) pageTopRef.current.scrollIntoView({ behavior: "auto", block: "start" });
+      try { window.parent?.postMessage({ type: "qleno-booking-scroll-top", step }, "*"); } catch {}
+    };
+    // Small delay lets React commit the new step's DOM before scrolling
+    const t = setTimeout(doScroll, 30);
+    return () => clearTimeout(t);
+  }, [step]);
 
   // ── Wire autocomplete after Maps is ready AND input is in the DOM ──────────
   useEffect(() => {
@@ -588,6 +621,7 @@ export default function BookPage() {
         pubFetch(`/api/public/bundles/${d.id}`).then(bs => setBundles(bs)).catch(() => {});
         pubFetch(`/api/public/offer-settings/${slug}`).then(os => setOfferSettings(os)).catch(() => {});
         pubFetch(`/api/public/booking-settings/${slug}`).then(bs => setBookingSettings(bs)).catch(() => {});
+        pubFetch(`/api/public/referral-sources/${slug}`).then(rs => { if (Array.isArray(rs) && rs.length) setReferralSources(rs); }).catch(() => {});
       })
       .catch(() => { setNotFound(true); setLoading(false); });
   }, [slug]);
@@ -709,6 +743,59 @@ export default function BookPage() {
     debounceRef.current = setTimeout(runCalc, 200);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [scopeId, sqft, frequencyStr, frequencies, selectedAddonIds, step]);
+
+  // [capture-via-effect 2026-07-06] Abandoned-quote capture — the SINGLE source of
+  // truth for turning an online quote into a Lead Pipeline lead + office alert +
+  // the abandoned-booking drip. It used to be fired inline from the step buttons
+  // but that ALWAYS threw a ReferenceError (`scopeName`/`scope` don't exist — the
+  // scope name is `selectedScope?.name`) *after* setStep ran, so the fetch never
+  // fired and NO quote was ever captured. Driving it from this effect, keyed on
+  // `step`, fixes that and can't be skipped by a button path:
+  //   - reach the quote step (step >= 2) -> needs_contacted lead
+  //   - reach the payment step (step >= 4) -> upgrade to "quoted" (+ amount)
+  // Per-tenant via company.id; server-side dedupes + only upgrades stage, so a
+  // later Confirm & Book still wins. Residential only. Fire-once per milestone.
+  const captureFiredRef = useRef({ needs: false, quoted: false });
+  useEffect(() => {
+    // Guard on company FIRST: `isCommercial`/`selectedScope` are declared below the
+    // component's company-loading early-return, so on the initial (company === null)
+    // render they're in the temporal dead zone. Short-circuiting on !company?.id here
+    // means we never touch them until company is loaded (past the early-return).
+    if (!company?.id || !email) return;
+    if (isCommercial) return;
+    const post = (extra: Record<string, unknown>) => {
+      // [quote-details-carry 2026-07-07] Everything the visitor filled in rides
+      // along, so the office alert + Lead Pipeline show the FULL quote picture
+      // (Sal: "how many bedrooms, bathrooms, square footage, how did they hear
+      // about us… this basic information is not enough"), not just contact info.
+      const details = {
+        bedrooms: bedrooms || null,
+        bathrooms: bathrooms || null,
+        sqft: sqft || null,
+        frequency: frequencyStr || null,
+        add_ons: addons.filter(a => selectedAddonIds.includes(a.id)).map(a => a.name),
+        referral_source: referralSources.find(r => r.slug === referral)?.name || referral || null,
+        step_reached: step,
+      };
+      pubFetch("/api/public/book/abandon-track", {
+        method: "POST",
+        body: JSON.stringify({
+          company_id: company.id,
+          first_name: firstName, last_name: lastName, email, phone, address, zip,
+          scope: selectedScope?.name || "", details, ...extra,
+        }),
+      }).catch(() => {});
+    };
+    if (step >= 2 && !captureFiredRef.current.needs) {
+      captureFiredRef.current.needs = true;
+      post({ stage: "needs_contacted", step_abandoned: 2 });
+    }
+    if (step >= 4 && !captureFiredRef.current.quoted) {
+      captureFiredRef.current.quoted = true;
+      const quoteAmt = calcResult ? Number((effectiveTotal(calcResult) * conditionMultiplier).toFixed(2)) : undefined;
+      post({ stage: "quoted", quote_amount: quoteAmt, step_abandoned: 4 });
+    }
+  }, [step, company, email]);
 
 
   // ── Step 0 validation ─────────────────────────────────────────────────────
@@ -1297,9 +1384,6 @@ export default function BookPage() {
       {calcResult.discount_amount > 0 && (
         <Row label="Discount code applied" value={`-$${calcResult.discount_amount.toFixed(2)}`} green />
       )}
-      {(calcResult.auto_promos ?? []).filter(p => p.amount > 0).map((p, i) => (
-        <Row key={`promo-${i}`} label={p.label} value={`-$${p.amount.toFixed(2)}`} green />
-      ))}
       {calcResult.minimum_applied && (
         <p style={{ fontSize: 11, color: "#F59E0B", margin: "2px 0 0" }}>Minimum applied</p>
       )}
@@ -1503,7 +1587,7 @@ export default function BookPage() {
 
   // ── Page wrapper ──────────────────────────────────────────────────────────
   return (
-    <div className="bw-root" style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+    <div className="bw-root" style={{ minHeight: step < 5 ? "100vh" : "auto", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <style dangerouslySetInnerHTML={{ __html: `
         .bw-policies-mobile { display: none; }
         .bw-price-sticky { display: none; }
@@ -1551,7 +1635,7 @@ export default function BookPage() {
       {/* Top bar */}
       <div className="bw-topbar" style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "12px 32px", display: "flex", alignItems: "center", gap: 16 }}>
         {logoSrc ? (
-          <img src={logoSrc} alt={company.name} style={{ width: 120, height: 48, objectFit: "contain", objectPosition: "left center", flexShrink: 0 }} />
+          <img src={logoSrc} alt={company.name} style={{ width: 200, height: 64, objectFit: "contain", objectPosition: "left center", flexShrink: 0 }} />
         ) : (
           <span style={{ fontWeight: 800, fontSize: 18, color: brand }}>{company.name}</span>
         )}
@@ -1584,7 +1668,7 @@ export default function BookPage() {
         </div>
       )}
 
-      <div className="bw-body" style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px", display: "flex", gap: 32, alignItems: "flex-start" }}>
+      <div ref={pageTopRef} className="bw-body" style={{ maxWidth: 900, margin: "0 auto", padding: "32px 24px", display: "flex", gap: 32, alignItems: "flex-start" }}>
         <div className="bw-form" style={{ flex: 1, minWidth: 0 }}>
 
           {/* ── Step 0: Contact Info ────────────────────────────────────────── */}
@@ -1616,7 +1700,7 @@ export default function BookPage() {
                 <FieldWrap label="How did you hear about us?">
                   <select style={{ ...s.input, width: "100%" }} value={referral} onChange={e => setReferral(e.target.value)}>
                     <option value="">Select...</option>
-                    {["Google","Facebook","Instagram","Nextdoor","Friend/Family","Other"].map(v => <option key={v} value={v}>{v}</option>)}
+                    {referralSources.map(src => <option key={src.slug} value={src.slug}>{src.name}</option>)}
                   </select>
                 </FieldWrap>
               </div>
@@ -1676,8 +1760,6 @@ export default function BookPage() {
                   <input type="checkbox" checked={smsConsent} onChange={e => setSmsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: brand, width: 16, height: 16, flexShrink: 0, minHeight: "unset" }} />
                   <span className="bw-consent" style={{ fontSize: 13, color: "#6B6860", width: "100%" }}>
                     By checking this box, you agree to receive transactional SMS messages from Phes regarding your appointment. Message frequency varies. Message and data rates may apply. Reply STOP to opt out. You must be 18 or older to opt in. View our{" "}
-                    <a href="https://phes.io/terms" target="_blank" rel="noopener noreferrer" style={{ color: brand, textDecoration: "underline" }}>Terms of Service</a>
-                    {" "}and{" "}
                     <a href="https://phes.io/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: brand, textDecoration: "underline" }}>Privacy Policy</a>.
                   </span>
                 </label>
@@ -2217,7 +2299,7 @@ export default function BookPage() {
                                       await pubFetch("/api/public/leads", {
                                         method: "POST",
                                         body: JSON.stringify({
-                                          company_id: company?.id ?? 1,
+                                          company_id: company?.id,
                                           first_name: firstName,
                                           last_name: lastName,
                                           phone,
@@ -2248,7 +2330,7 @@ export default function BookPage() {
 
                   {/* ── Deep Clean Recurring Upsell ──────────────────────────── */}
                   {(showUpsellOffer || showUpsellConfirmed || showSoftNudge) && offerSettings?.upsell_enabled !== false && (
-                    <div style={{ marginTop: 16, background: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: `3px solid ${brand}`, borderRadius: 10, padding: 20 }}>
+                    <div style={{ marginTop: 16, background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: 20 }}>
                       {showUpsellOffer && (
                         <>
                           <p style={{ margin: "0 0 4px", fontSize: 11, fontWeight: 700, color: brand, textTransform: "uppercase", letterSpacing: "0.08em" }}>Limited Offer</p>
@@ -2471,7 +2553,15 @@ export default function BookPage() {
                   })()}
                   onClick={() => {
                     if (isCommercial) { setStep(3); }
-                    else { runCalc(); setStep(2); }
+                    else {
+                      runCalc();
+                      setStep(2);
+                      // [capture-via-effect 2026-07-06] The abandoned-quote capture is
+                      // NO LONGER fired inline here — that silently never ran (verified:
+                      // only /calculate fired on this click). It's now driven by a
+                      // state effect keyed on `step` (see the capture useEffect), which
+                      // fires reliably.
+                    }
                   }}
                 >
                   Continue
@@ -3060,6 +3150,9 @@ export default function BookPage() {
                       submitWalkthroughBooking();
                     } else {
                       setStep(4);
+                      // [capture-via-effect 2026-07-06] The "quoted" capture is driven by
+                      // the capture useEffect (keyed on step reaching 4), not fired inline
+                      // here — the inline version silently never ran.
                     }
                   }}
                 >
@@ -3073,7 +3166,7 @@ export default function BookPage() {
           {step === 4 && (
             <div style={s.card}>
               <p style={s.h2}>Secure your appointment</p>
-              <p style={s.sub}>Your card is saved securely and charged only after each completed cleaning.</p>
+              <p style={s.sub}>Your card is saved securely and billed on the day of service.</p>
 
               {/* Stripe card form */}
               {stripeEnabled === false ? (
@@ -3130,7 +3223,7 @@ export default function BookPage() {
               {upsellAccepted && (
                 <div style={{ marginBottom: 20, padding: "14px 16px", background: "#F0F9FF", border: "1px solid #BAE6FD", borderRadius: 10 }}>
                   <p style={{ margin: 0, fontSize: 13, color: "#0369A1", lineHeight: 1.6 }}>
-                    The card you authorize today will be kept securely on file and used to process payment after each completed cleaning, including your recurring visits. You may update your card at any time by contacting our office.
+                    The card you authorize today will be kept securely on file and used to process payment on the day of each service, including your recurring visits. You may update your card at any time by contacting our office.
                   </p>
                 </div>
               )}
@@ -3181,10 +3274,10 @@ export default function BookPage() {
           {step === 5 && bookResult && !(isCommercial && commercialOption === "walkthrough") && (
             <div style={s.card}>
               <div style={{ textAlign: "center", marginBottom: 28 }}>
-                <div style={{ width: 64, height: 64, borderRadius: "50%", background: `${brand}20`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-                  <CheckCircle2 size={32} color={brand} />
+                <div style={{ width: 80, height: 80, borderRadius: "50%", background: brand, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px", boxShadow: `0 6px 20px ${brand}40` }}>
+                  <CheckCircle2 size={44} color="#fff" />
                 </div>
-                <p style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 800, color: "#1A1917" }}>Your booking is confirmed!</p>
+                <p style={{ margin: "0 0 10px", fontSize: 28, fontWeight: 800, lineHeight: 1.2, letterSpacing: "-0.02em", color: "#1A1917" }}>Your booking is confirmed!</p>
                 <p style={{ margin: "0 0 6px", fontSize: 14, color: "#6B6860" }}>
                   Thank you, {firstName}. {selectedScope?.name} is scheduled
                   {selectedDate ? ` for ${new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}` : ""}
@@ -3197,9 +3290,9 @@ export default function BookPage() {
               </div>
 
               {(bookResult.branch_phone || bookResult.branch_email) && (
-                <div style={{ background: "#EBF4FF", borderLeft: `4px solid ${brand}`, borderRadius: "0 6px 6px 0", padding: "14px 16px", marginBottom: 24, fontSize: 14, color: "#1A1917" }}>
-                  <strong>Questions?</strong> Call us at <strong>{bookResult.branch_phone}</strong> or email{" "}
-                  <a href={`mailto:${bookResult.branch_email}`} style={{ color: brand }}>{bookResult.branch_email}</a>
+                <div style={{ background: "#EBF4FF", border: `1px solid ${brand}25`, borderRadius: 8, padding: "14px 16px", marginBottom: 24, fontSize: 14, color: "#1A1917", wordBreak: "break-word" }}>
+                  <strong>Questions?</strong> Call or text <strong><a href={`tel:${bookResult.branch_phone?.replace(/[^\d+]/g, "")}`} style={{ color: "#1A1917", textDecoration: "none" }}>{bookResult.branch_phone}</a></strong>
+                  {bookResult.branch_email && <> or email <a href={`mailto:${bookResult.branch_email}`} style={{ color: brand }}>{bookResult.branch_email}</a></>}
                 </div>
               )}
 
@@ -3221,12 +3314,29 @@ export default function BookPage() {
                     <Row label="Estimated Time" value={`${(bookResult.pricing?.total_hours ?? bookResult.pricing?.base_hours ?? calcResult?.total_hours ?? calcResult?.base_hours ?? 0).toFixed(1)} hrs`} />
                   )}
                   {bookResult.pricing?.final_total !== undefined && <Row label="First Visit Total" value={`$${bookResult.pricing.final_total.toFixed(2)}`} bold />}
+                  {(calcResult?.addon_breakdown ?? []).filter(a => a.amount > 0).map(a => (
+                    <Row key={a.id} label={a.name.split(" — ")[0].split(" (")[0].trim()} value={`+$${a.amount.toFixed(2)}`} />
+                  ))}
+                  {bookResult.pricing?.discount_amount > 0 && (
+                    <Row label="Discount applied" value={`-$${bookResult.pricing.discount_amount.toFixed(2)}`} green />
+                  )}
                 </div>
               </div>
 
+              {/* Cancellation policy notice */}
+              <div style={{ background: "#FEF9EC", border: "1px solid #F59E0B30", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#92400E", lineHeight: 1.6 }}>
+                <strong>Cancellation:</strong> Please provide at least 48 hours notice to cancel or reschedule. Cancellations within 24 hours may be subject to a fee. Reply STOP to SMS to opt out of reminders.
+              </div>
+
+              {/* Referral section — Give $25, get $25 */}
+              <ReferralCard
+                companySlug={slug}
+                referrer={{ first_name: firstName, last_name: lastName, email, phone }}
+              />
+
               {upsellAccepted && (
                 <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px", marginBottom: 24, fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
-                  The card you authorize today will be kept securely on file and used to process payment after each completed cleaning, including your recurring visits. You may update your card at any time by contacting our office.
+                  The card you authorize today will be kept securely on file and used to process payment on the day of each service, including your recurring visits. You may update your card at any time by contacting our office.
                 </div>
               )}
 
@@ -3250,6 +3360,123 @@ export default function BookPage() {
 }
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+// [referral-program] Confirmation-page referral card: Give $25, get $25. Three
+// states — pitch card with button → inline form (friend's name + phone, email
+// optional, home/business toggle) → thank-you. The referrer's own info comes
+// from the booking they just completed; POST /api/public/referral creates the
+// lead + referral record and alerts the office.
+function ReferralCard({ companySlug, referrer }: {
+  companySlug: string;
+  referrer: { first_name: string; last_name: string; email: string; phone: string };
+}) {
+  const [open, setOpen] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const [refType, setRefType] = useState<"residential" | "commercial">("residential");
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [sentToName, setSentToName] = useState("");
+
+  const labelStyle = { display: "block", fontSize: 11, fontWeight: 700, letterSpacing: ".06em", textTransform: "uppercase" as const, color: "#6B6860", margin: "0 0 5px" };
+  const inputStyle = { width: "100%", boxSizing: "border-box" as const, border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 12px", fontSize: 14, fontFamily: "inherit", background: "#fff", color: "#1A1917", marginBottom: 12 };
+
+  async function submit() {
+    setErr("");
+    if (!name.trim()) { setErr("Please tell us who you're referring."); return; }
+    if (!phone.trim() && !email.trim()) { setErr("A phone number or email for them is required."); return; }
+    setBusy(true);
+    try {
+      await pubFetch("/api/public/referral", {
+        method: "POST",
+        body: JSON.stringify({
+          company_slug: companySlug,
+          referral_type: refType,
+          referred_name: name.trim(),
+          referred_phone: phone.trim(),
+          referred_email: email.trim(),
+          referrer,
+        }),
+      });
+      setSentToName(name.trim().split(/\s+/)[0]);
+      setSent(true);
+      setName(""); setPhone(""); setEmail("");
+    } catch {
+      setErr("Something went wrong — please try again or mention it to our office.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (sent) {
+    return (
+      <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 18px", marginBottom: 20, textAlign: "center" as const }}>
+        <div style={{ width: 36, height: 36, borderRadius: "50%", background: "#E1F5EE", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 8px" }}>
+          <CheckCircle2 size={20} color="#0F6E56" />
+        </div>
+        <p style={{ margin: "0 0 4px", fontWeight: 800, fontSize: 15, color: "#1A1917" }}>Thanks — we'll take it from here</p>
+        <p style={{ margin: "0 0 12px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
+          We'll reach out to {sentToName || "them"} with their $25 off. Once their first cleaning is complete, your $25 credit is applied to your next visit.
+        </p>
+        <button onClick={() => { setSent(false); setOpen(true); }}
+          style={{ background: "#fff", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 16px", fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}>
+          Refer someone else
+        </button>
+      </div>
+    );
+  }
+
+  if (!open) {
+    return (
+      <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 18px", marginBottom: 20, textAlign: "center" as const }}>
+        <span style={{ display: "inline-block", background: "#E1F5EE", color: "#085041", fontSize: 11, fontWeight: 700, letterSpacing: ".05em", textTransform: "uppercase", padding: "4px 12px", borderRadius: 999, marginBottom: 8 }}>Referral program</span>
+        <p style={{ margin: "0 0 4px", fontWeight: 800, fontSize: 16, color: "#1A1917" }}>Give $25, get $25</p>
+        <p style={{ margin: "0 0 14px", fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>
+          Know someone who could use a cleaning — a friend's home or a business? They get $25 off their first clean, and you get $25 off your next one after their first visit.
+        </p>
+        <button onClick={() => setOpen(true)}
+          style={{ background: "#5B9BD5", color: "#fff", border: "none", borderRadius: 8, padding: "11px 22px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}>
+          Refer a friend or business
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 18px", marginBottom: 20 }}>
+      <p style={{ margin: "0 0 2px", fontWeight: 800, fontSize: 15, color: "#1A1917" }}>Give $25, get $25</p>
+      <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "#6B6860", lineHeight: 1.6 }}>
+        We'll reach out with $25 off their first cleaning. Your $25 credit is applied after their first visit is complete.
+      </p>
+      <label style={labelStyle}>Who are you referring?</label>
+      <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
+        {(["residential", "commercial"] as const).map((t) => (
+          <button key={t} onClick={() => setRefType(t)}
+            style={{ flex: 1, textAlign: "center", padding: "9px 0", fontSize: 13, fontWeight: 700, fontFamily: "inherit", border: "none", cursor: "pointer",
+              background: refType === t ? "#5B9BD5" : "#fff", color: refType === t ? "#fff" : "#6B6860" }}>
+            {t === "residential" ? "A home" : "A business"}
+          </button>
+        ))}
+      </div>
+      <label style={labelStyle}>{refType === "commercial" ? "Business or contact name" : "Their first name"}</label>
+      <input value={name} onChange={(e) => setName(e.target.value)} style={inputStyle} />
+      <label style={labelStyle}>Their phone</label>
+      <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" style={inputStyle} />
+      <label style={labelStyle}>Their email <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 600, color: "#9E9B94" }}>(optional)</span></label>
+      <input value={email} onChange={(e) => setEmail(e.target.value)} inputMode="email" placeholder="name@example.com" style={{ ...inputStyle, marginBottom: 14 }} />
+      {err && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "#DC2626" }}>{err}</p>}
+      <button onClick={submit} disabled={busy}
+        style={{ width: "100%", background: "#5B9BD5", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
+        {busy ? "Sending…" : "Send them $25 off"}
+      </button>
+      <p style={{ margin: "10px 0 0", fontSize: 11.5, color: "#9E9B94", textAlign: "center", lineHeight: 1.5 }}>
+        We'll mention you by first name. No spam — one friendly text or email from our office.
+      </p>
+    </div>
+  );
+}
+
 function FieldWrap({ label, error, children }: { label: string; error?: string; children: React.ReactNode }) {
   return (
     <div style={{ marginBottom: 16 }}>

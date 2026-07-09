@@ -66,7 +66,7 @@ router.get("/", requireAuth, async (req, res) => {
     const usersRows = await db.execute(sql`
       SELECT u.id, u.email, u.first_name, u.last_name, u.role::text AS role,
              u.pay_rate, u.pay_type::text AS pay_type, u.is_active,
-             u.hire_date, u.avatar_url, u.scorecard_pct,
+             u.hire_date, u.avatar_url, u.scorecard_pct, u.scorecard_composite_90d,
              -- [payroll-roster 2026-06-12] Sandbox/archive/termination flags so
              -- list consumers (the payroll page's billableEmployees filter) can
              -- exclude test fixtures and former staff. The filter already
@@ -159,8 +159,13 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
          -- technician. The old role IN (technician, team_lead) was narrower than
          -- the board, so cleaners shown on the board but carrying any other role
          -- were missing from the Add Team Member picker.
+         -- [dispatch-visibility 2026-07-09] Keep parity with the board: exclude
+         -- the accountant/CPA role, and honor the per-employee show_on_dispatch
+         -- toggle so a placeholder/test account hidden from the board can't be
+         -- assigned to a job either.
+         AND u.show_on_dispatch IS NOT FALSE
          AND (
-              u.role NOT IN ('admin', 'owner', 'office', 'super_admin')
+              u.role NOT IN ('admin', 'owner', 'office', 'super_admin', 'accountant')
            OR (COALESCE(u.tags, '{}') && ARRAY['field','technician']::text[])
          )
          AND (
@@ -241,6 +246,27 @@ router.get("/techs-with-status", requireAuth, async (req, res) => {
  * or belongs to a different company (defensive — no partial reset across
  * tenants).
  */
+// [office-admin-parity 2026-06-26] Office is elevated to full admin-and-then-some
+// access (Sal: "office needs access to all, I just need to be able to delete
+// them"). The ONE asymmetry: the OWNER account may only be managed by the owner
+// (or super_admin). These two helpers are the single guarantee that an office
+// (or admin) user can never edit, deactivate, delete, demote, or reset the
+// password of the owner — so the owner can always remove them, never the
+// reverse. Role changes (promote/demote) stay owner-only via the existing
+// guard in PUT /:id, so office still can't escalate anyone to owner.
+const OUTRANKS_OWNER = (role: string): boolean =>
+  role === "owner" || role === "super_admin";
+
+async function targetIsOwner(userId: number, companyId: number | null): Promise<boolean> {
+  if (companyId == null || !Number.isFinite(userId)) return false;
+  const row = await db
+    .select({ role: usersTable.role })
+    .from(usersTable)
+    .where(and(eq(usersTable.id, userId), eq(usersTable.company_id, companyId)))
+    .limit(1);
+  return row[0]?.role === "owner";
+}
+
 router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
@@ -272,12 +298,12 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin", "
       .where(and(eq(usersTable.company_id, companyId), sql`${usersTable.id} = ANY(ARRAY[${sql.raw(idCsv)}]::int[])`));
     const ownedIds = new Set(tenantRows.map((r) => r.id));
     const foreign = ids.filter((id) => !ownedIds.has(id));
-    // [office-perms 2026-06-17] Office may reset a tech's password but never an
-    // admin/office/owner peer's. Owner/admin/super_admin are unrestricted.
-    if (req.auth!.role === "office") {
-      const protectedTargets = tenantRows.filter(r => !["technician", "team_lead"].includes(String(r.role)));
-      if (protectedTargets.length > 0) {
-        return res.status(403).json({ error: "Forbidden", message: "Office staff can only reset technician passwords." });
+    // [office-admin-parity 2026-06-26] Office/admin may reset any password
+    // EXCEPT the owner's — only owner/super_admin can reset an owner account.
+    if (!OUTRANKS_OWNER(req.auth!.role)) {
+      const ownerTargets = tenantRows.filter(r => String(r.role) === "owner");
+      if (ownerTargets.length > 0) {
+        return res.status(403).json({ error: "Forbidden", message: "Only the owner can reset the owner's password." });
       }
     }
     if (foreign.length > 0) {
@@ -319,12 +345,12 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office", "super_adm
       return res.status(400).json({ error: "email and first_name are required" });
     }
 
-    // [office-perms 2026-06-17] Office staff can onboard field techs, but must
-    // NOT be able to create admin/office/owner peers. Owner/admin/super_admin
-    // are unrestricted.
+    // [office-admin-parity 2026-06-26] Office/admin may onboard any role EXCEPT
+    // owner — only the owner/super_admin can mint another owner account, so
+    // office can never create a peer that outranks (or matches) the owner.
     const effectiveRole = role || "technician";
-    if (req.auth!.role === "office" && !["technician", "team_lead"].includes(effectiveRole)) {
-      return res.status(403).json({ error: "Forbidden", message: "Office staff can only add technicians or team leads." });
+    if (effectiveRole === "owner" && !OUTRANKS_OWNER(req.auth!.role)) {
+      return res.status(403).json({ error: "Forbidden", message: "Only the owner can create an owner account." });
     }
 
     const tempPassword = onboardingTempPassword();
@@ -471,19 +497,14 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       }
     }
 
-    // [office-perms 2026-06-17] Office can edit techs but never a peer (other
-    // office), an admin, or the owner — and not their own record. Same
-    // counterpart rule as admins, scoped to office.
+    // [office-admin-parity 2026-06-26] Office is admin-tier: it may edit any
+    // record EXCEPT the owner's. (Role changes stay owner-only via the guard
+    // below, so editing an admin/office record can't be used to escalate.)
     if (callerRole === "office") {
-      const target = await db
-        .select({ role: usersTable.role })
-        .from(usersTable)
-        .where(and(eq(usersTable.id, userId), eq(usersTable.company_id, req.auth!.companyId)))
-        .limit(1);
-      if (target[0] && !["technician", "team_lead"].includes(String(target[0].role))) {
+      if (await targetIsOwner(userId, req.auth!.companyId)) {
         return res.status(403).json({
           error: "Forbidden",
-          message: "Office staff can only edit technician records.",
+          message: "Only the owner can edit the owner account.",
         });
       }
     }
@@ -500,6 +521,9 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       personal_email, address, city, state, zip, dob, gender,
       employment_type, bank_name, emergency_contact_name,
       emergency_contact_phone, notes,
+      // [dispatch-visibility 2026-07-09] Toggle for hiding placeholder / QA-test
+      // accounts from the dispatch board (User Account tab).
+      show_on_dispatch,
     } = req.body;
 
     // Only the OWNER may change a user's role (grant/revoke admin etc.).
@@ -565,6 +589,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
         ...(emergency_contact_name !== undefined && { emergency_contact_name }),
         ...(emergency_contact_phone !== undefined && { emergency_contact_phone }),
         ...(notes !== undefined && { notes }),
+        ...(show_on_dispatch !== undefined && { show_on_dispatch: !!show_on_dispatch }),
       })
       .where(and(
         eq(usersTable.id, userId),
@@ -591,19 +616,14 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin", "office", "supe
     const userId = parseInt(req.params.id);
     const callerRole = req.auth!.role;
 
-    // [office-perms 2026-06-17] Office may deactivate techs, never a peer/owner
-    // or themselves. Owner/admin keep their existing counterpart rules below.
+    // [office-admin-parity 2026-06-26] Office is admin-tier: it may deactivate
+    // any non-owner account, but never the owner — and never itself.
     if (callerRole === "office") {
       if (userId === req.auth!.userId) {
         return res.status(403).json({ error: "Forbidden", message: "You cannot deactivate your own account." });
       }
-      const target = await db
-        .select({ role: usersTable.role })
-        .from(usersTable)
-        .where(and(eq(usersTable.id, userId), eq(usersTable.company_id, req.auth!.companyId)))
-        .limit(1);
-      if (target[0] && !["technician", "team_lead"].includes(String(target[0].role))) {
-        return res.status(403).json({ error: "Forbidden", message: "Office staff can only deactivate technicians." });
+      if (await targetIsOwner(userId, req.auth!.companyId)) {
+        return res.status(403).json({ error: "Forbidden", message: "Only the owner can deactivate the owner account." });
       }
     }
 
@@ -1152,6 +1172,213 @@ router.post(
   },
 );
 
+// POST /:id/lms-restore — Owner only. The restore counterpart to lms-archive:
+// clears `archived_at` so the user returns to the active roster (dispatch,
+// time clock, payroll, pickers). This is what a "Reactivate" button calls.
+// [reactivate 2026-07-01] Previously missing — archive shipped without a
+// restore path, so an archived tech (e.g. Norma Puga) could not be brought
+// back from the UI at all. Idempotent: restoring a non-archived user is a
+// no-op success.
+router.post(
+  "/:id/lms-restore",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const callerCompanyId = req.auth!.companyId;
+      if (callerCompanyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const targetId = Number(req.params.id);
+      if (!Number.isFinite(targetId) || targetId <= 0) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "Invalid user id" });
+      }
+
+      const target = await db
+        .select({
+          id: usersTable.id,
+          company_id: usersTable.company_id,
+          email: usersTable.email,
+          archived_at: usersTable.archived_at,
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetId))
+        .limit(1);
+      if (!target[0] || target[0].company_id !== callerCompanyId) {
+        return res
+          .status(404)
+          .json({ error: "Not Found", message: "User not found in tenant" });
+      }
+      // [terminate 2026-07-01] Reactivate fully re-onboards: clears the archive
+      // AND any termination record, and flips is_active back on — so one button
+      // reverses both "archive" and "terminate". History is kept in the audit
+      // log. Idempotent for a user who is neither archived nor terminated.
+      const updated = await db
+        .update(usersTable)
+        .set({
+          archived_at: null,
+          is_active: true,
+          termination_date: null,
+          last_day_worked: null,
+          termination_reason: null,
+          rehire_eligible: null,
+        })
+        .where(eq(usersTable.id, targetId))
+        .returning({
+          id: usersTable.id,
+          archived_at: usersTable.archived_at,
+        });
+
+      await logAudit(
+        req,
+        "users.lms_restore",
+        "user",
+        targetId,
+        { archived_at: target[0].archived_at?.toISOString?.() ?? String(target[0].archived_at) },
+        { email: target[0].email, archived_at: null },
+      );
+
+      return res.json({ data: updated[0] });
+    } catch (err) {
+      console.error("[users] /:id/lms-restore error:", err);
+      return res
+        .status(500)
+        .json({ error: "Internal Server Error", message: "Failed to restore user" });
+    }
+  },
+);
+
+// [terminate 2026-07-01] Allowed termination reasons — kept in lockstep with the
+// Terminate modal's dropdown. Stored as the slug; the UI owns the labels.
+const TERMINATION_REASONS = new Set([
+  "resigned",
+  "job_abandonment",
+  "performance",
+  "misconduct",
+  "laid_off",
+  "end_of_season",
+  "other",
+]);
+
+// POST /:id/terminate — Owner only. Records an HR separation and takes the
+// employee off the active roster in one step: sets termination_date +
+// last_day_worked + termination_reason + rehire_eligible, flips is_active off,
+// and archives them (archived_at) so they drop from dispatch, the time clock,
+// payroll, and pickers. Reversible via /:id/lms-restore (the Reactivate button).
+router.post(
+  "/:id/terminate",
+  requireAuth,
+  requireRole("owner"),
+  async (req, res) => {
+    try {
+      const callerCompanyId = req.auth!.companyId;
+      if (callerCompanyId == null) {
+        return res
+          .status(400)
+          .json({ error: "Bad Request", message: "User has no company assignment" });
+      }
+      const targetId = Number(req.params.id);
+      if (!Number.isFinite(targetId) || targetId <= 0) {
+        return res.status(400).json({ error: "Bad Request", message: "Invalid user id" });
+      }
+
+      const {
+        termination_date,
+        last_day_worked,
+        termination_reason,
+        rehire_eligible,
+      } = req.body ?? {};
+
+      const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+      if (!termination_date || !dateRe.test(String(termination_date))) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "termination_date (YYYY-MM-DD) is required",
+        });
+      }
+      if (last_day_worked != null && last_day_worked !== "" && !dateRe.test(String(last_day_worked))) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: "last_day_worked must be YYYY-MM-DD when provided",
+        });
+      }
+      if (!termination_reason || !TERMINATION_REASONS.has(String(termination_reason))) {
+        return res.status(400).json({
+          error: "Bad Request",
+          message: `termination_reason must be one of: ${[...TERMINATION_REASONS].join(", ")}`,
+        });
+      }
+
+      const target = await db
+        .select({
+          id: usersTable.id,
+          company_id: usersTable.company_id,
+          email: usersTable.email,
+          role: usersTable.role,
+        })
+        .from(usersTable)
+        .where(eq(usersTable.id, targetId))
+        .limit(1);
+      if (!target[0] || target[0].company_id !== callerCompanyId) {
+        return res.status(404).json({ error: "Not Found", message: "User not found in tenant" });
+      }
+      if (target[0].role === "owner") {
+        return res.status(400).json({ error: "Bad Request", message: "Cannot terminate an owner account" });
+      }
+      if (target[0].id === req.auth!.userId) {
+        return res.status(400).json({ error: "Bad Request", message: "Cannot terminate yourself" });
+      }
+
+      const updated = await db
+        .update(usersTable)
+        .set({
+          termination_date: String(termination_date),
+          last_day_worked: last_day_worked ? String(last_day_worked) : null,
+          termination_reason: String(termination_reason),
+          rehire_eligible: typeof rehire_eligible === "boolean" ? rehire_eligible : null,
+          is_active: false,
+          archived_at: new Date(),
+        })
+        .where(eq(usersTable.id, targetId))
+        .returning({
+          id: usersTable.id,
+          termination_date: usersTable.termination_date,
+          last_day_worked: usersTable.last_day_worked,
+          termination_reason: usersTable.termination_reason,
+          rehire_eligible: usersTable.rehire_eligible,
+          is_active: usersTable.is_active,
+          archived_at: usersTable.archived_at,
+        });
+
+      await logAudit(
+        req,
+        "users.terminate",
+        "user",
+        targetId,
+        null,
+        {
+          email: target[0].email,
+          termination_date: String(termination_date),
+          last_day_worked: last_day_worked ? String(last_day_worked) : null,
+          termination_reason: String(termination_reason),
+          rehire_eligible: typeof rehire_eligible === "boolean" ? rehire_eligible : null,
+        },
+      );
+
+      return res.json({ data: updated[0] });
+    } catch (err) {
+      console.error("[users] /:id/terminate error:", err);
+      return res
+        .status(500)
+        .json({ error: "Internal Server Error", message: "Failed to terminate user" });
+    }
+  },
+);
+
 // ─────────────────────────────────────────────────────────────────────────────
 // LMS-scoped Add/Edit Employee endpoints (sprint 2026-05-15)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1178,6 +1405,10 @@ async function adminGateAllowed(
   setting: "admin_add_employee_allowed" | "admin_edit_employee_allowed",
 ): Promise<boolean> {
   if (callerRole === "owner") return true;
+  // [office-admin-parity 2026-06-26] Office gets the same LMS add/edit employee
+  // access as the owner — full access, no toggle gate. (The owner account stays
+  // protected by the role-allowlists + owner-target guards on those routes.)
+  if (callerRole === "office") return true;
   if (callerRole !== "admin") return false;
   const rows = await db
     .select({

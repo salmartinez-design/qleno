@@ -3,6 +3,27 @@ import { db } from "@workspace/db";
 import { notificationTemplatesTable, notificationLogTable } from "@workspace/db/schema";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import {
+  CUSTOMER_MESSAGE_CATALOG,
+  MERGE_TAGS,
+  ensureCustomerMessageTemplates,
+  ensureCustomerMessageSchedules,
+} from "../lib/customer-messages.js";
+import { sendTestNotification, assertUnderRateLimit, TestSendError } from "../services/testSendService.js";
+
+// Friendly "when does it send" string for an offset (cron-driven) message.
+function formatOffsetTiming(anchor: string, days: number | null, hour: number | null): string {
+  const h = hour == null ? 9 : hour;
+  const hr = `${((h + 11) % 12) + 1}:00 ${h < 12 ? "AM" : "PM"} CT`;
+  const d = days == null ? 0 : days;
+  const dl = `${d} day${d === 1 ? "" : "s"}`;
+  if (anchor === "before_appointment") return d === 0 ? `${hr}, the day of the appointment` : `${hr}, ${dl} before the appointment`;
+  return `${hr}, ${dl} after the appointment`;
+}
+function slugifyKey(label: string): string {
+  const base = "custom_" + (label || "message").toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 36);
+  return base.replace(/_+$/g, "") || "custom_message";
+}
 
 const router = Router();
 
@@ -72,14 +93,165 @@ router.get("/templates", requireAuth, requireRole("owner", "admin"), async (req,
   }
 });
 
+// ── Customer Messages control panel ─────────────────────────────────────────
+// Schedule-driven: returns every customer message (built-in + custom) with its
+// timing, copy, and on/off state. Built-in metadata (group, description) comes
+// from the catalog; custom messages derive theirs from the schedule row.
+router.get("/customer-messages", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    await ensureCustomerMessageSchedules(companyId); // seeds schedules + templates idempotently
+    const [schedRes, tplRows] = await Promise.all([
+      db.execute(sql`SELECT key, label, anchor, offset_days, send_hour, channels, is_active, is_builtin, sort_order
+                       FROM customer_message_schedules WHERE company_id = ${companyId} ORDER BY sort_order, id`),
+      db.select().from(notificationTemplatesTable).where(eq(notificationTemplatesTable.company_id, companyId)),
+    ]);
+    const tplByKey = new Map((tplRows as any[]).map((r) => [`${r.trigger}:${r.channel}`, r]));
+    const catalogByKey = new Map(CUSTOMER_MESSAGE_CATALOG.map((d) => [d.trigger, d]));
+
+    const messages = (schedRes.rows as any[]).map((s) => {
+      const def = catalogByKey.get(s.key);
+      const editableTiming = s.anchor === "before_appointment" || s.anchor === "after_appointment";
+      const channels: string[] = Array.isArray(s.channels) ? s.channels : [];
+      return {
+        key: s.key,
+        label: s.label,
+        group: def?.group ?? (s.anchor === "after_appointment" ? "after" : "before"),
+        description: def?.description ?? "",
+        anchor: s.anchor,
+        offset_days: s.offset_days,
+        send_hour: s.send_hour,
+        is_builtin: s.is_builtin,
+        editable_timing: editableTiming,
+        timing: editableTiming ? formatOffsetTiming(s.anchor, s.offset_days, s.send_hour) : (def?.timing ?? ""),
+        channels: channels.map((channel) => {
+          const row: any = tplByKey.get(`${s.key}:${channel}`);
+          const defCh = def?.channels.find((c) => c.channel === channel);
+          const body = channel === "email" ? (row?.body_html || row?.body) : (row?.body_text || row?.body);
+          return {
+            channel,
+            id: row?.id ?? null,
+            subject: row?.subject ?? defCh?.subject ?? null,
+            body: body ?? defCh?.body ?? "",
+            is_active: row?.is_active ?? true,
+          };
+        }),
+      };
+    });
+    return res.json({ data: messages, merge_tags: MERGE_TAGS });
+  } catch (err) {
+    console.error("Customer messages fetch error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Edit the CADENCE (timing) of an offset message — days before/after + send hour.
+router.patch("/customer-messages/:key", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const key = req.params.key;
+    const { offset_days, send_hour } = req.body ?? {};
+    const [sched] = await db.execute(sql`SELECT anchor FROM customer_message_schedules WHERE company_id = ${companyId} AND key = ${key} LIMIT 1`).then((r: any) => r.rows);
+    if (!sched) return res.status(404).json({ error: "Message not found" });
+    if (sched.anchor !== "before_appointment" && sched.anchor !== "after_appointment") {
+      return res.status(400).json({ error: "This message's timing is event-driven and can't be rescheduled." });
+    }
+    const days = Math.max(0, Math.min(60, parseInt(String(offset_days))));
+    const hour = Math.max(0, Math.min(23, parseInt(String(send_hour))));
+    if (!Number.isFinite(days) || !Number.isFinite(hour)) return res.status(400).json({ error: "Invalid timing" });
+    await db.execute(sql`UPDATE customer_message_schedules SET offset_days = ${days}, send_hour = ${hour} WHERE company_id = ${companyId} AND key = ${key}`);
+    return res.json({ ok: true, offset_days: days, send_hour: hour });
+  } catch (err) {
+    console.error("Update cadence error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ADD a custom automated message to the cadence (before/after the appointment).
+router.post("/customer-messages", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const b = req.body ?? {};
+    const label = String(b.label || "").trim();
+    const anchor = b.anchor === "after_appointment" ? "after_appointment" : "before_appointment";
+    const days = Math.max(0, Math.min(60, parseInt(String(b.offset_days ?? 1)) || 0));
+    const hour = Math.max(0, Math.min(23, parseInt(String(b.send_hour ?? 9)) || 0));
+    const wantEmail = !!b.email_body;
+    const wantSms = !!b.sms_body;
+    if (!label) return res.status(400).json({ error: "Give the message a name." });
+    if (!wantEmail && !wantSms) return res.status(400).json({ error: "Add an email or text message body." });
+
+    // Unique key.
+    let key = slugifyKey(label);
+    const taken = new Set((await db.execute(sql`SELECT key FROM customer_message_schedules WHERE company_id = ${companyId}`)).rows.map((r: any) => r.key));
+    if (taken.has(key)) { let n = 2; while (taken.has(`${key}_${n}`)) n++; key = `${key}_${n}`; }
+
+    const channels = [wantEmail ? "email" : null, wantSms ? "sms" : null].filter(Boolean) as string[];
+    const channelsLiteral = `{${channels.join(",")}}`;
+    const maxOrder = (await db.execute(sql`SELECT COALESCE(MAX(sort_order), 0) AS m FROM customer_message_schedules WHERE company_id = ${companyId}`)).rows[0] as any;
+    await db.execute(sql`
+      INSERT INTO customer_message_schedules (company_id, key, label, anchor, offset_days, send_hour, channels, is_active, is_builtin, sort_order)
+      VALUES (${companyId}, ${key}, ${label}, ${anchor}, ${days}, ${hour}, ${channelsLiteral}::text[], true, false, ${Number(maxOrder.m) + 10})`);
+    if (wantEmail) {
+      const subj = String(b.email_subject || label);
+      const body = String(b.email_body);
+      await db.execute(sql`INSERT INTO notification_templates (company_id, trigger, channel, subject, body, body_html, is_active, created_at)
+                           VALUES (${companyId}, ${key}, 'email', ${subj}, ${body}, ${body}, true, NOW())`);
+    }
+    if (wantSms) {
+      const body = String(b.sms_body);
+      await db.execute(sql`INSERT INTO notification_templates (company_id, trigger, channel, subject, body, body_text, is_active, created_at)
+                           VALUES (${companyId}, ${key}, 'sms', NULL, ${body}, ${body}, true, NOW())`);
+    }
+    return res.json({ ok: true, key });
+  } catch (err) {
+    console.error("Add customer message error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// DELETE a custom message (built-ins can't be deleted — only paused).
+router.delete("/customer-messages/:key", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const key = req.params.key;
+    const [sched] = await db.execute(sql`SELECT is_builtin FROM customer_message_schedules WHERE company_id = ${companyId} AND key = ${key} LIMIT 1`).then((r: any) => r.rows);
+    if (!sched) return res.status(404).json({ error: "Message not found" });
+    if (sched.is_builtin) return res.status(400).json({ error: "Built-in messages can be paused but not deleted." });
+    await db.execute(sql`DELETE FROM notification_templates WHERE company_id = ${companyId} AND trigger = ${key}`);
+    await db.execute(sql`DELETE FROM customer_message_schedules WHERE company_id = ${companyId} AND key = ${key}`);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Delete customer message error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.patch("/templates/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const id = parseInt(req.params.id);
     const { is_active, subject, body } = req.body;
 
+    // Fetch the row first so we know its channel and can keep the editable
+    // `body` in sync with the channel-specific column the send path reads
+    // (body_html for email, body_text for sms). Without this sync, an edit to
+    // `body` is shadowed by a stale body_text/body_html and never goes out.
+    const [existing] = await db.select().from(notificationTemplatesTable)
+      .where(and(eq(notificationTemplatesTable.id, id), eq(notificationTemplatesTable.company_id, companyId)));
+    if (!existing) return res.status(404).json({ error: "Template not found" });
+
+    const patch: Record<string, any> = {};
+    if (is_active !== undefined) patch.is_active = is_active;
+    if (subject !== undefined) patch.subject = subject;
+    if (body !== undefined) {
+      patch.body = body;
+      if (existing.channel === "email") patch.body_html = body;
+      if (existing.channel === "sms") patch.body_text = body;
+    }
+
     const [updated] = await db.update(notificationTemplatesTable)
-      .set({ is_active, subject, body })
+      .set(patch)
       .where(and(eq(notificationTemplatesTable.id, id), eq(notificationTemplatesTable.company_id, companyId)))
       .returning();
 
@@ -111,6 +283,52 @@ router.post("/templates/:id/test", requireAuth, requireRole("owner", "admin"), a
     return res.json({ success: true, message: `Test notification logged for trigger: ${template.trigger}` });
   } catch (err) {
     console.error("Test notification error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Send Test ────────────────────────────────────────────────────────────────
+// Render a real customer-message template with sample data and deliver it to the
+// logged-in staff member (or an entered override), tagged "[TEST]". Isolated
+// from Recent Sends and all automations — see services/testSendService.ts.
+//   Body: { template_key, channel: "email"|"sms",
+//           fixture: "sample" | { appointment_id }, recipient_override?, branch_id? }
+router.post("/test-send", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const b = req.body ?? {};
+    const templateKey = String(b.template_key || "").trim();
+    const channel = b.channel === "sms" ? "sms" : b.channel === "email" ? "email" : null;
+    if (!templateKey) return res.status(400).json({ error: "template_key required" });
+    if (!channel) return res.status(400).json({ error: "channel must be 'email' or 'sms'" });
+    const fixture = b.fixture === "sample" || (b.fixture && typeof b.fixture === "object" && b.fixture.appointment_id != null)
+      ? b.fixture
+      : "sample";
+    const branchIdRaw = b.branch_id;
+    const branchId = branchIdRaw == null || branchIdRaw === "all" ? null : Number(branchIdRaw);
+
+    await assertUnderRateLimit(userId);
+    const result = await sendTestNotification({
+      companyId,
+      userId,
+      userLoginEmail: req.auth!.email,
+      branchId: Number.isFinite(branchId as number) ? (branchId as number) : null,
+      templateKey,
+      channel,
+      fixture,
+      recipientOverride: b.recipient_override ?? null,
+      // [draft-test] Unsaved editor content — when present the test renders the
+      // draft instead of the saved template row.
+      subjectOverride: typeof b.subject === "string" ? b.subject : null,
+      bodyOverride: typeof b.body === "string" ? b.body : null,
+    });
+    return res.json(result);
+  } catch (err) {
+    if (err instanceof TestSendError) {
+      return res.status(err.httpStatus).json({ error: err.code, message: err.message });
+    }
+    console.error("Test send error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -232,6 +450,72 @@ router.put("/settings", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("PUT /notifications/settings:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── AI rewrite — "make it warmer / shorter / friendlier / translate" ──────────
+// Office-only helper that rewrites a customer-message body with Claude. It only
+// transforms text supplied in the request — it never sends anything and reads no
+// tenant data, so it's safe. CRITICAL: merge tags ({{first_name}} etc.) must
+// survive verbatim, so the system prompt forbids touching them.
+const AI_MODES: Record<string, string> = {
+  warmer: "Rewrite it to sound warmer, friendlier, and more personable, while keeping the same meaning and length roughly the same.",
+  shorter: "Make it noticeably shorter and punchier without losing any essential information. Aim for about half the length.",
+  friendlier: "Make it clearer and more conversational — plain, friendly language a homeowner would appreciate.",
+  proofread: "Fix any spelling, grammar, and punctuation problems. Keep the wording and tone otherwise unchanged.",
+  spanish: "Translate it into natural, friendly Mexican Spanish that a homeowner would understand. Output only the Spanish version.",
+};
+
+router.post("/ai-rewrite", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const text = typeof req.body?.text === "string" ? req.body.text : "";
+    const mode = typeof req.body?.mode === "string" ? req.body.mode : "";
+    const channel = req.body?.channel === "sms" ? "sms" : "email";
+    if (!text.trim()) { res.status(400).json({ error: "text required" }); return; }
+    if (text.length > 6000) { res.status(400).json({ error: "text too long" }); return; }
+    const instruction = AI_MODES[mode];
+    if (!instruction) { res.status(400).json({ error: `mode must be one of: ${Object.keys(AI_MODES).join(", ")}` }); return; }
+    if (!process.env.ANTHROPIC_API_KEY) {
+      res.status(503).json({ error: "AI assist is not configured — set ANTHROPIC_API_KEY in Railway" });
+      return;
+    }
+
+    const { default: Anthropic } = await import("@anthropic-ai/sdk");
+    const client = new Anthropic();
+    const channelNote = channel === "sms"
+      ? "This is an SMS text message — keep it concise and do not add HTML."
+      : "This is an email body — you may keep simple HTML tags (p, strong, em, ul, li, a, br, h2, h3) but add no styles, classes, or new wrappers.";
+    const system =
+      `You edit automated customer messages for a residential cleaning company. ` +
+      `${instruction} ${channelNote} ` +
+      `ABSOLUTE RULE: the text contains merge tags wrapped in double curly braces like {{first_name}}, {{appointment_date}}, {{appointment_window}}. ` +
+      `Preserve every merge tag EXACTLY — same spelling, same braces — and never invent, remove, or translate a tag. ` +
+      `Output ONLY the rewritten message — no quotes, no preamble, no commentary.`;
+
+    const response = await client.messages.create({
+      model: "claude-haiku-4-5",
+      max_tokens: 2048,
+      system,
+      messages: [{ role: "user", content: text }],
+    });
+    const result = response.content
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("")
+      .trim();
+    if (!result) { res.status(502).json({ error: "AI returned an empty result" }); return; }
+    res.json({ result });
+  } catch (e: any) {
+    if (e?.constructor?.name === "AuthenticationError") {
+      res.status(503).json({ error: "AI auth failed — check ANTHROPIC_API_KEY" });
+      return;
+    }
+    if (e?.constructor?.name === "RateLimitError") {
+      res.status(429).json({ error: "AI is busy — try again in a moment" });
+      return;
+    }
+    console.error("[notifications/ai-rewrite] error:", e);
+    res.status(500).json({ error: "AI rewrite failed", message: e?.message });
   }
 });
 
