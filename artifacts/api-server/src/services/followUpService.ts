@@ -17,6 +17,18 @@ function resolveMergeFields(template: string, vars: Record<string, string>): str
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => vars[key] ?? "");
 }
 
+// [sms-opt-out 2026-07-09] Every marketing/drip TEXT must carry opt-out language
+// (TCPA/CTIA — Sal: "Stop SMS has to be enabled per law"). Appended to every
+// follow-up SMS at send time. Idempotent: if the copy already mentions STOP we
+// leave it, so a tenant that writes their own opt-out line isn't doubled up.
+// (Email opt-out is handled separately via buildEmailUnsubData / unsubscribe
+// link. Transactional messages go through notificationService, not this file.)
+function appendSmsOptOut(body: string): string {
+  const b = (body || "").trim();
+  if (/\bSTOP\b/i.test(b)) return b;
+  return `${b}\n\nReply STOP to opt out`;
+}
+
 // ── Business-hours clamp (America/Chicago, 8am–9pm) ────────────────────────────
 // Phes sends nothing outside 8:00–21:00 local. A computed next_fire_at before
 // 8am moves to 8am the same day; at/after 9pm moves to 8am the next day.
@@ -1012,7 +1024,7 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
         sendError  = sender.reason;
         console.log(`[follow-up] SMS suppressed (${sender.reason}) enrollment ${enr.id}`);
       } else {
-        await sendSmsVia(sender, recipientPhone, body);
+        await sendSmsVia(sender, recipientPhone, appendSmsOptOut(body));
       }
     } else if (step.channel === "email" && recipientEmail) {
       if (await isEmailOptedOut(enr.company_id, recipientEmail)) {
@@ -1175,8 +1187,9 @@ export async function runSequenceTest(
         if (!sender) sender = await resolveSender(companyId, null);
         if (!sender.account_sid || !sender.auth_token) throw new Error("Texting is not set up (Twilio credentials missing)");
         if (!sender.from_number) throw new Error("No from-number configured for texts");
-        await sendSmsVia(sender, opts.toPhone, `[TEST] ${body}`);
-        results.push({ step_number: st.step_number, channel, status: "sent", recipient: opts.toPhone, subject: null, preview: `[TEST] ${body}` });
+        const smsOut = appendSmsOptOut(`[TEST] ${body}`);
+        await sendSmsVia(sender, opts.toPhone, smsOut);
+        results.push({ step_number: st.step_number, channel, status: "sent", recipient: opts.toPhone, subject: null, preview: smsOut });
       }
     } catch (e: any) {
       results.push({ step_number: st.step_number, channel, status: "failed", recipient: channel === "email" ? (opts.toEmail ?? null) : (opts.toPhone ?? null), error: String(e?.message || e), subject, preview: body });
@@ -1291,17 +1304,25 @@ export async function sendSingleEnrollmentTouch(
   let recipient: string | null = null;
   let logStatus = "sent", logErr = "";
 
+  // [compliance 2026-07-09] The manual send used to skip the opt-out list and
+  // omit the email unsubscribe. Honor both here too: never send to someone who
+  // opted out, always include the email unsubscribe, always append SMS opt-out.
+  const { isSmsOptedOut, isEmailOptedOut, buildEmailUnsubData } = await import("../lib/opt-out.js");
+
   if (step.channel === "email") {
     if (!recipientEmail) return { sent: false, channel: "email", reason: "no_recipient_email", step: step.step_number };
     recipient = recipientEmail;
+    if (await isEmailOptedOut(companyId, recipientEmail)) return { sent: false, channel: "email", recipient: recipientEmail, step: step.step_number, reason: "email_opt_out" };
     try {
-      providerId = await sendEmailRaw(recipientEmail, subject, body, await companyFromAddress(companyId), emailBrand);
+      const unsub = await buildEmailUnsubData(companyId, recipientEmail);
+      providerId = await sendEmailRaw(recipientEmail, subject, body, await companyFromAddress(companyId), emailBrand, unsub ?? undefined);
     } catch (e: any) {
       logStatus = "failed"; logErr = e?.message || "email_send_error";
     }
   } else if (step.channel === "sms") {
     if (!recipientPhone) return { sent: false, channel: "sms", reason: "no_recipient_phone", step: step.step_number };
     recipient = recipientPhone;
+    if (await isSmsOptedOut(companyId, recipientPhone)) return { sent: false, channel: "sms", recipient: recipientPhone, step: step.step_number, reason: "sms_opt_out" };
     // resolveSender returns creds + branch from-number even when its gate `reason`
     // is set; we deliberately ignore reason here (scoped one-off) but still
     // require the physical creds + a from-number to actually send.
@@ -1309,7 +1330,7 @@ export async function sendSingleEnrollmentTouch(
     if (!sender.account_sid || !sender.auth_token) return { sent: false, channel: "sms", recipient: recipientPhone, step: step.step_number, reason: "twilio_unconfigured" };
     if (!sender.from_number) return { sent: false, channel: "sms", recipient: recipientPhone, step: step.step_number, reason: "no_from_number" };
     try {
-      const tw = await sendSmsVia(sender, recipientPhone, body);
+      const tw = await sendSmsVia(sender, recipientPhone, appendSmsOptOut(body));
       providerId = tw?.sid ?? null;
     } catch (e: any) {
       logStatus = "failed"; logErr = e?.message || "sms_send_error";

@@ -857,7 +857,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
           <div>
             <div style={{ fontSize: 20, fontWeight: 700, color: "#1A1917", letterSpacing: -0.4, lineHeight: 1.1, fontFamily: FF }}>{name}</div>
             <div style={{ fontSize: 10, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>
-              Lead · {fmtDate(lead.created_at)}{lead.assignee_first_name ? ` · ${lead.assignee_first_name} ${lead.assignee_last_name || ""}`.trim() : ""}
+              Lead · {fmtDateTime(lead.created_at)}{lead.assignee_first_name ? ` · ${lead.assignee_first_name} ${lead.assignee_last_name || ""}`.trim() : ""}
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
