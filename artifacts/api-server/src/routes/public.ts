@@ -89,6 +89,16 @@ async function upsertWidgetLead(companyId: number, opts: {
           details    = COALESCE(details, '{}'::jsonb) || COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb),
           updated_at = NOW()
         WHERE id = ${existing.id}`);
+      // [booked-drip-stop 2026-07-09] The public booking-confirm paths upgrade a
+      // lead to booked THROUGH this helper (raw SQL) and used to call NO stop
+      // function — so an existing lead's drips kept firing after they booked
+      // online (Francisco: booked clients still getting follow-ups). Stop the
+      // lead's cadences here when this upsert marks it booked. advanceLeadStage
+      // owns this for the internal paths; this is the widget equivalent.
+      if (opts.status === "booked" || opts.booked) {
+        import("../services/followUpService.js").then(({ stopEnrollmentsForLead }) =>
+          stopEnrollmentsForLead(Number(existing.id), "lead_booked").catch(() => {})).catch(() => {});
+      }
       return Number(existing.id);
     }
     const ins = await db.execute(s`

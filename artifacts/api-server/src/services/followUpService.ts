@@ -756,11 +756,63 @@ export async function processDueEnrollments(): Promise<void> {
   }
 }
 
+// [booked-send-guard 2026-07-09] The sender (processDueEnrollments) trusts
+// `stopped_at` 100% — it never re-checks whether the recipient is already
+// booked. So if ANY booking path forgets to stop the enrollment, a booked
+// customer keeps getting follow-ups (Francisco: "why are booked clients
+// receiving follow up messages?"). This is a catch-all defense at send time:
+// right before sending, if the subject is already booked / converted (lead),
+// booked / accepted (quote), or a retention target who now has an upcoming job
+// (client), we STOP the enrollment and skip the send. It closes the whole class
+// no matter which booking path missed its stop hook. Returns a stop reason
+// string when the subject is booked, else null. Best-effort — a check error
+// never blocks the normal flow (returns null so the send proceeds as before).
+async function subjectAlreadyBooked(enr: any): Promise<string | null> {
+  try {
+    if (enr.lead_id) {
+      const r = await db.execute(sql`SELECT status FROM leads WHERE id = ${enr.lead_id} LIMIT 1`);
+      const st = String((r.rows[0] as any)?.status ?? "");
+      // A lead that's booked (won) or terminal (dead) should not be chased.
+      if (["booked", "not_interested", "no_response", "closed"].includes(st)) return `lead_${st}`;
+    }
+    if (enr.quote_id) {
+      const r = await db.execute(sql`SELECT status FROM quotes WHERE id = ${enr.quote_id} LIMIT 1`);
+      const st = String((r.rows[0] as any)?.status ?? "");
+      if (["booked", "accepted", "converted", "won"].includes(st)) return `quote_${st}`;
+    }
+    // post_job_retention is a win-back for clients with NO upcoming visit. If a
+    // future (non-cancelled) job now exists they've rebooked — stop chasing.
+    // Scoped to that sequence type so other client-keyed sequences are unaffected.
+    if (enr.client_id && enr.sequence_type === "post_job_retention") {
+      const r = await db.execute(sql`
+        SELECT 1 FROM jobs
+         WHERE client_id = ${enr.client_id} AND company_id = ${enr.company_id}
+           AND status NOT IN ('cancelled', 'complete')
+           AND scheduled_date >= CURRENT_DATE
+         LIMIT 1`);
+      if (r.rows.length) return "client_rebooked";
+    }
+  } catch (e) {
+    console.error("[follow-up] subjectAlreadyBooked check failed for enrollment", enr.id, e);
+  }
+  return null;
+}
+
 // Returns the outcome of the touch it just processed (used by the immediate
 // "Send now" path to report whether the email actually went out). The cron
 // callers ignore the return.
 type TouchResult = { channel: string; status: string; recipient: string | null };
 async function processEnrollment(enr: any): Promise<TouchResult | null> {
+  // [booked-send-guard 2026-07-09] Skip + stop before doing any work if the
+  // subject is already booked/converted — see subjectAlreadyBooked above.
+  const bookedReason = await subjectAlreadyBooked(enr);
+  if (bookedReason) {
+    await db.execute(sql`
+      UPDATE follow_up_enrollments SET stopped_at = NOW(), stopped_reason = ${bookedReason}
+       WHERE id = ${enr.id} AND stopped_at IS NULL`);
+    console.log(`[follow-up] enrollment ${enr.id} stopped pre-send (${bookedReason}) — subject already booked`);
+    return null;
+  }
   // Fetch the current step (template_id links to a managed message_templates row)
   const stepRows = await db.execute(sql`
     SELECT id, step_number, delay_hours, channel, subject, message_template, template_id
