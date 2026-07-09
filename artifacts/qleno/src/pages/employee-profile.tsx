@@ -2311,6 +2311,18 @@ export default function EmployeeProfilePage() {
                 <div style={{ marginTop:16 }}>
                   <Toggle value={!!form.is_active} onChange={v=>setField('is_active',v)} label="Account Active"/>
                 </div>
+                {/* [dispatch-visibility 2026-07-09] Hide placeholder / QA-test
+                    accounts (Trainee Placeholder, Test Auditor) from the daily
+                    jobs board without deactivating the login. Default ON. The
+                    accountant/CPA role is already excluded from the board by
+                    role, so this toggle is really for stray technician-role
+                    placeholders. */}
+                <div style={{ marginTop:16 }}>
+                  <Toggle value={form.show_on_dispatch !== false} onChange={v=>setField('show_on_dispatch',v)} label="Show on dispatch board"/>
+                  <p style={{ margin:'6px 0 0', fontSize:12, color:'#9E9B94' }}>
+                    Turn off for placeholder or test accounts you don't want appearing on the daily jobs board. The account stays active everywhere else.
+                  </p>
+                </div>
                 {user.invite_sent_at && (
                   <div style={{ marginTop:12, padding:'10px 12px', background:'#FEF3C7', borderRadius:8 }}>
                     <p style={{ margin:0,fontSize:12,color:'#92400E' }}>
