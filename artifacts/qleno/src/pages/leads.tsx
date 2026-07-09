@@ -131,8 +131,14 @@ const lbl: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 6
 const selectStyle: React.CSSProperties = { width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 14, fontFamily: FF, background: "#fff", outline: "none" };
 
 function leadSourceTag(lead: Lead) {
-  const src = lead.lead_source || (lead.source === "booking_widget" || lead.source === "online_booking" ? "web_quote" : null) || lead.source || "manual";
-  const cfg = SOURCE_CONFIG[src] || SOURCE_CONFIG["manual"];
+  // [source-precedence 2026-07-09] Prefer the explicit `source` over the
+  // DB-defaulted `lead_source` ('manual'), so online/widget leads stop rendering
+  // as the "Office" chip. Mirrors COALESCE(NULLIF(source,''), lead_source).
+  const src = ((lead.source && lead.source.trim()) ? lead.source : (lead.lead_source || "manual"));
+  // A web-ish source that isn't in the config map (e.g. legacy 'widget') must
+  // NOT fall back to the "Office" chip — that's the very mislabel we're fixing.
+  const webish = /web|widget|online|quote|form|very_dirty/.test(String(src).toLowerCase());
+  const cfg = SOURCE_CONFIG[src] || (webish ? SOURCE_CONFIG["web_quote"] : SOURCE_CONFIG["manual"]);
   return { src, cfg };
 }
 
@@ -1548,7 +1554,13 @@ const LIMIT = 50;
 
 // Website vs Office — the source differentiator shown on every card.
 function leadChannel(lead: any): "Website" | "Office" {
-  const s = String(lead.lead_source || lead.source || "").toLowerCase();
+  // [source-precedence 2026-07-09] Prefer the explicit `source` over `lead_source`.
+  // `lead_source` is NOT NULL DEFAULT 'manual' in the DB and the public widget
+  // path only ever sets `source`, so reading lead_source first mislabels every
+  // client-submitted online lead as "Office". Mirror the backend's
+  // COALESCE(NULLIF(source,''), lead_source) used by the summary/report queries.
+  const raw = (typeof lead.source === "string" && lead.source.trim()) ? lead.source : lead.lead_source;
+  const s = String(raw || "").toLowerCase();
   return /web|widget|online|quote|form|very_dirty/.test(s) ? "Website" : "Office";
 }
 
