@@ -433,6 +433,12 @@ export async function enrollForJobComplete(
 export async function enrollForAbandonedBooking(
   companyId: number,
   abandonedBookingId: number,
+  // [cart-drip-visible 2026-07-09] The lead this abandoned booking maps to.
+  // Stamped onto the enrollment so the cart drip shows on the LEAD card + Drip
+  // tab (both key off lead_id) and auto-fires there — before this, the cart
+  // drip ran only against the hidden abandoned_bookings row, so the lead read
+  // "No drip running" even though it was firing.
+  leadId?: number | null,
 ): Promise<void> {
   try {
     const seqRows = await db.execute(sql`
@@ -450,15 +456,25 @@ export async function enrollForAbandonedBooking(
         AND completed_at IS NULL AND stopped_at IS NULL
       LIMIT 1
     `);
-    if (existing.rows.length > 0) return;
+    if (existing.rows.length > 0) {
+      // Already enrolled (e.g. a repeat abandon on the same email). Backfill the
+      // lead link if it wasn't set yet, so the lead surfaces the running drip.
+      if (leadId != null) {
+        await db.execute(sql`
+          UPDATE follow_up_enrollments SET lead_id = ${leadId}
+          WHERE id = ${(existing.rows[0] as any).id} AND lead_id IS NULL
+        `);
+      }
+      return;
+    }
 
     await db.execute(sql`
       INSERT INTO follow_up_enrollments
-        (company_id, sequence_id, abandoned_booking_id, current_step, next_fire_at)
+        (company_id, sequence_id, abandoned_booking_id, lead_id, current_step, next_fire_at)
       VALUES
-        (${companyId}, ${sequenceId}, ${abandonedBookingId}, 1, NOW() + INTERVAL '20 minutes')
+        (${companyId}, ${sequenceId}, ${abandonedBookingId}, ${leadId ?? null}, 1, NOW() + INTERVAL '20 minutes')
     `);
-    console.log(`[follow-up] Enrolled abandoned_booking ${abandonedBookingId} in abandoned_booking sequence ${sequenceId}`);
+    console.log(`[follow-up] Enrolled abandoned_booking ${abandonedBookingId} (lead ${leadId ?? "—"}) in abandoned_booking sequence ${sequenceId}`);
   } catch (err) {
     console.error("[follow-up] enrollForAbandonedBooking error (non-fatal):", err);
   }
@@ -563,6 +579,22 @@ export async function enrollForLeadDrip(
 ): Promise<void> {
   try {
     const seqType = leadSource === 'phone_in' ? 'lead_drip_phone' : 'lead_drip_web';
+    // [cart-drip-visible 2026-07-09] If this lead already has an active
+    // abandoned-booking (cart) drip, that drip OWNS the conversation — don't
+    // stack a second lead drip on top (an abandoner who later submits a full
+    // quote would otherwise get double-texted). The cart drip is the more
+    // specific, purpose-built sequence, so it wins.
+    const cart = await db.execute(sql`
+      SELECT fe.id FROM follow_up_enrollments fe
+      JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+      WHERE fe.lead_id = ${leadId} AND fs.sequence_type = 'abandoned_booking'
+        AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+      LIMIT 1
+    `);
+    if (cart.rows.length > 0) {
+      console.log(`[follow-up] lead ${leadId} already in abandoned_booking (cart) drip — skipping ${seqType} to avoid a double drip.`);
+      return;
+    }
     const seqRows = await db.execute(sql`
       SELECT id FROM follow_up_sequences
       WHERE company_id = ${companyId} AND sequence_type = ${seqType} AND is_active = true

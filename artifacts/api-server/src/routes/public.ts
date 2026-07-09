@@ -1853,12 +1853,14 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
             updated_at = NOW()
           WHERE company_id = ${company_id} AND email = ${email}
         `);
-        // Idempotent enroll (no-ops if already enrolled or sequence inactive).
-        await enrollForAbandonedBooking(company_id, abId);
         // [widget-lead 2026-07-04] An online quote (contact entered, not yet
         // booked) must show in the Lead Pipeline so the office follows up.
         // Deduped: upgrades to booked later if they complete the booking.
         const updLeadId = await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: leadStage, quoteAmount: quoteAmt, details: detailsOrNull });
+        // Idempotent enroll (no-ops if already enrolled or sequence inactive).
+        // [cart-drip-visible 2026-07-09] Pass the lead id so the cart drip links
+        // to the lead and surfaces on the lead card + Drip tab.
+        await enrollForAbandonedBooking(company_id, abId, updLeadId);
         // [quote-details-carry 2026-07-07] Second office alert when the SAME
         // visitor advances to the price step ("did they only click this
         // quote?" — this says they saw a real number). Fires once: only on
@@ -1880,9 +1882,11 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
       RETURNING id
     `);
     const newAbId = (inserted.rows[0] as any)?.id;
-    if (newAbId) await enrollForAbandonedBooking(company_id, newAbId);
     // [widget-lead 2026-07-04] Online quote → Lead Pipeline lead (stage: needs_contacted or quoted).
     const newLeadId = await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address, zip, scope, source: "web_quote", status: leadStage, quoteAmount: quoteAmt, details: detailsOrNull });
+    // [cart-drip-visible 2026-07-09] Enroll AFTER the lead exists so the cart
+    // drip links to the lead and shows on the lead card + Drip tab.
+    if (newAbId) await enrollForAbandonedBooking(company_id, newAbId, newLeadId);
 
     // Immediate office notification — bypass COMMS_ENABLED (this is an inbound
     // lead signal, not automated outbound). Same bypass logic as /api/contact.

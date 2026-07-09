@@ -126,7 +126,10 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
         FROM follow_up_enrollments fe
         JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
         WHERE fe.lead_id = l.id
-          AND fs.sequence_type IN ('lead_drip_web','lead_drip_phone')
+          -- [cart-drip-visible 2026-07-09] Include abandoned_booking so an
+          -- abandoned-cart lead shows its running cart drip on the card, not
+          -- "No drip running" (the drip is linked to the lead via lead_id now).
+          AND fs.sequence_type IN ('lead_drip_web','lead_drip_phone','abandoned_booking')
           AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
         ORDER BY fe.id DESC LIMIT 1
       ) drip ON TRUE
