@@ -92,9 +92,24 @@ router.post("/", async (req, res) => {
     const toPhone = normalizePhone(rawTo);
 
     // Handle STOP opt-out
+    // [lead-opt-out 2026-07-09] This used to be a no-op ("handled by Twilio"),
+    // which left OUR records opted-in and people still enrolled — so a later
+    // re-enrollment would text someone who said STOP. Now we resolve the company
+    // by our inbound number and actually (a) flag the opt-out on clients + leads
+    // and (b) stop their active lead cadences. Twilio still blocks at the
+    // carrier; this keeps our own system compliant.
     const upperBody = bodyText.toUpperCase().trim();
-    if (upperBody === "STOP" || upperBody === "UNSUBSCRIBE") {
-      // Mark client as opted out — handled by Twilio automatically
+    if (["STOP", "STOPALL", "UNSUBSCRIBE", "CANCEL", "END", "QUIT"].includes(upperBody)) {
+      try {
+        const co = await db.select({ id: companiesTable.id }).from(companiesTable)
+          .where(eq(companiesTable.twilio_from_number, toPhone)).limit(1);
+        if (co.length) {
+          const { setSmsOptOutByPhone } = await import("../lib/opt-out.js");
+          const { handleInboundReply } = await import("../lib/lead-sync.js");
+          await setSmsOptOutByPhone(co[0].id, fromPhone, true).catch(() => {});
+          await handleInboundReply(co[0].id, fromPhone, true).catch(() => {});
+        }
+      } catch (e) { console.warn("[sms-inbound] STOP handling failed:", (e as any)?.message ?? e); }
       return res.send("<Response></Response>");
     }
 

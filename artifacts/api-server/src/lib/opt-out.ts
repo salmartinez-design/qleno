@@ -36,10 +36,12 @@ export async function isSmsOptedOut(companyId: number, phone: string | null | un
   if (!d || d.length < 10) return false;
   try {
     const r = await db.execute(sql`
-      SELECT 1 FROM clients
-       WHERE company_id = ${companyId}
-         AND sms_opt_out_at IS NOT NULL
-         AND right(regexp_replace(COALESCE(phone,''), '\\D', '', 'g'), 10) = ${d}
+      SELECT 1 FROM (
+        SELECT phone FROM clients WHERE company_id = ${companyId} AND sms_opt_out_at IS NOT NULL
+        UNION ALL
+        SELECT phone FROM leads   WHERE company_id = ${companyId} AND sms_opt_out_at IS NOT NULL
+      ) t
+       WHERE right(regexp_replace(COALESCE(phone,''), '\\D', '', 'g'), 10) = ${d}
        LIMIT 1
     `);
     return r.rows.length > 0;
@@ -55,10 +57,12 @@ export async function isEmailOptedOut(companyId: number, email: string | null | 
   if (!e) return false;
   try {
     const r = await db.execute(sql`
-      SELECT 1 FROM clients
-       WHERE company_id = ${companyId}
-         AND email_opt_out_at IS NOT NULL
-         AND lower(email) = ${e}
+      SELECT 1 FROM (
+        SELECT email FROM clients WHERE company_id = ${companyId} AND email_opt_out_at IS NOT NULL
+        UNION ALL
+        SELECT email FROM leads   WHERE company_id = ${companyId} AND email_opt_out_at IS NOT NULL
+      ) t
+       WHERE lower(email) = ${e}
        LIMIT 1
     `);
     return r.rows.length > 0;
@@ -75,13 +79,21 @@ export async function setSmsOptOutByPhone(companyId: number, phone: string, opte
   const d = phoneDigits(phone);
   if (!d || d.length < 10) return 0;
   try {
-    const r = await db.execute(sql`
+    const rc = await db.execute(sql`
       UPDATE clients
          SET sms_opt_out_at = ${optedOut ? sql`now()` : sql`NULL`}
        WHERE company_id = ${companyId}
          AND right(regexp_replace(COALESCE(phone,''), '\\D', '', 'g'), 10) = ${d}
     `);
-    return (r as any).rowCount ?? 0;
+    // [lead-opt-out 2026-07-09] Also flag the lead(s) on that phone — the drip
+    // audience is leads, so a STOP that only touched clients left them opted in.
+    const rl = await db.execute(sql`
+      UPDATE leads
+         SET sms_opt_out_at = ${optedOut ? sql`now()` : sql`NULL`}
+       WHERE company_id = ${companyId}
+         AND right(regexp_replace(COALESCE(phone,''), '\\D', '', 'g'), 10) = ${d}
+    `);
+    return ((rc as any).rowCount ?? 0) + ((rl as any).rowCount ?? 0);
   } catch (e) {
     console.error("[opt-out] setSmsOptOutByPhone failed:", (e as any)?.message ?? e);
     return 0;
@@ -101,7 +113,14 @@ export async function setEmailOptOutByToken(
        WHERE email_unsub_token = ${t}
        RETURNING id, email, company_id
     `);
-    return (r.rows[0] as any) ?? null;
+    if (r.rows.length) return (r.rows[0] as any);
+    // [lead-opt-out 2026-07-09] Token might belong to a lead, not a client.
+    const rl = await db.execute(sql`
+      UPDATE leads SET email_opt_out_at = now()
+       WHERE email_unsub_token = ${t}
+       RETURNING id, email, company_id
+    `);
+    return (rl.rows[0] as any) ?? null;
   } catch (e) {
     console.error("[opt-out] setEmailOptOutByToken failed:", (e as any)?.message ?? e);
     return null;
@@ -120,7 +139,14 @@ export async function clearEmailOptOutByToken(
        WHERE email_unsub_token = ${t}
        RETURNING id, email, company_id
     `);
-    return (r.rows[0] as any) ?? null;
+    if (r.rows.length) return (r.rows[0] as any);
+    // [lead-opt-out 2026-07-09] Token might belong to a lead, not a client.
+    const rl = await db.execute(sql`
+      UPDATE leads SET email_opt_out_at = NULL
+       WHERE email_unsub_token = ${t}
+       RETURNING id, email, company_id
+    `);
+    return (rl.rows[0] as any) ?? null;
   } catch (e) {
     console.error("[opt-out] clearEmailOptOutByToken failed:", (e as any)?.message ?? e);
     return null;
@@ -138,17 +164,29 @@ export async function buildEmailUnsubData(
   const e = String(email ?? "").trim().toLowerCase();
   if (!e) return null;
   try {
-    const r = await db.execute(sql`
+    // Look for a client first, then a lead. [lead-opt-out 2026-07-09] Drip
+    // emails go to LEADS, so without the lead lookup those emails shipped with
+    // no unsubscribe link (the old code returned null for lead-only recipients).
+    let table: "clients" | "leads" = "clients";
+    let r = await db.execute(sql`
       SELECT id, email_unsub_token FROM clients
        WHERE company_id = ${companyId} AND lower(email) = ${e}
        LIMIT 1
     `);
+    if (!r.rows.length) {
+      table = "leads";
+      r = await db.execute(sql`
+        SELECT id, email_unsub_token FROM leads
+         WHERE company_id = ${companyId} AND lower(email) = ${e}
+         LIMIT 1
+      `);
+    }
     const row = r.rows[0] as any;
     if (!row) return null;
     let token: string = row.email_unsub_token;
     if (!token) {
       token = randomUUID();
-      await db.execute(sql`UPDATE clients SET email_unsub_token = ${token} WHERE id = ${row.id}`);
+      await db.execute(sql`UPDATE ${sql.raw(table)} SET email_unsub_token = ${token} WHERE id = ${row.id}`);
     }
     return buildUnsubDataFromToken(token);
   } catch (err) {
@@ -179,7 +217,27 @@ export async function runCommsOptOutMigration(): Promise<void> {
       CREATE UNIQUE INDEX IF NOT EXISTS clients_email_unsub_token_uidx
         ON clients (email_unsub_token) WHERE email_unsub_token IS NOT NULL
     `);
-    console.log("[opt-out] migration ok");
+    // [lead-opt-out 2026-07-09] Drip campaigns target LEADS, not clients, so the
+    // opt-out flags + unsubscribe token must exist on leads too — otherwise a
+    // lead who replies STOP or clicks unsubscribe is never recorded and gets
+    // re-messaged, and lead drip emails ship with no unsubscribe link. Mirror
+    // the exact client columns onto leads.
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS sms_opt_out_at timestamp`);
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS email_opt_out_at timestamp`);
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS email_unsub_token text`);
+    try {
+      await db.execute(sql`
+        UPDATE leads SET email_unsub_token = gen_random_uuid()::text
+         WHERE email_unsub_token IS NULL
+      `);
+    } catch (e) {
+      console.warn("[opt-out] lead token backfill via gen_random_uuid skipped:", (e as any)?.message ?? e);
+    }
+    await db.execute(sql`
+      CREATE UNIQUE INDEX IF NOT EXISTS leads_email_unsub_token_uidx
+        ON leads (email_unsub_token) WHERE email_unsub_token IS NOT NULL
+    `);
+    console.log("[opt-out] migration ok (clients + leads)");
   } catch (err) {
     console.error("[opt-out] migration error (non-fatal):", err);
   }
