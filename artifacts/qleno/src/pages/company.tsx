@@ -16,7 +16,7 @@ import { MessagePreview } from "@/components/message-preview";
 import { PricingTab } from "./company/pricing";
 import { AddonsTab } from "./company/addons-tab";
 
-type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'addons' | 'online-booking' | 'service-zones' | 'follow-up' | 'survey';
+type Tab = 'general' | 'branding' | 'integrations' | 'payroll' | 'notifications' | 'office-alerts' | 'clock-inout' | 'invoicing' | 'hr-policies' | 'documents' | 'pricing' | 'addons' | 'online-booking' | 'service-zones' | 'follow-up' | 'survey';
 
 // [settings-nav 2026-05-26] Grouped sidebar replaces the 14-tab flat strip.
 // Groups reflect how the day actually flows: Business (identity), Pricing &
@@ -56,6 +56,7 @@ const TAB_GROUPS: { label: string; tabs: { id: Tab; label: string }[] }[] = [
     tabs: [
       { id: 'notifications', label: 'Customer Communications' },
       { id: 'survey', label: 'Customer Survey' },
+      { id: 'office-alerts', label: 'Office & Staff Alerts' },
     ],
   },
   {
@@ -130,6 +131,7 @@ export default function CompanyPage() {
             {activeTab === 'branding' && <BrandingTab />}
             {activeTab === 'general' && <GeneralTab />}
             {activeTab === 'notifications' && <NotificationsTab />}
+            {activeTab === 'office-alerts' && <OfficeStaffAlertsTab />}
             {activeTab === 'survey' && <CustomerSurveyTab />}
             {activeTab === 'clock-inout' && <ClockInOutTab />}
             {activeTab === 'invoicing' && <InvoicingTab />}
@@ -649,8 +651,8 @@ function GeneralTab() {
   return (
     <div style={{ maxWidth: '560px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
       {activeBranchId !== "all" && <BranchContactCard branchId={activeBranchId as number} />}
-      <CompanyCommsCard />
-      {activeBranchId !== "all" && <BranchCommsCard branchId={activeBranchId as number} />}
+      {/* [comms-reorg 2026-07-09] The customer-messaging master switch moved to
+          Customer Communications (top of that page) where people look for it. */}
       <Section title="Company Name" desc="">
         <input
           value={name}
@@ -2050,6 +2052,23 @@ function NotificationsTab() {
         </div>
       )}
 
+      {/* [comms-reorg 2026-07-09] Master switch pulled to the TOP of Customer
+          Communications (was buried in the General tab, where nobody could find
+          it). This is the single on/off for all customer messaging. */}
+      <div style={{ marginBottom: 22, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <CompanyCommsCard />
+        {activeBranchId !== "all" && <BranchCommsCard branchId={activeBranchId as number} />}
+      </div>
+
+      {/* Journey — Stage 1: getting a lead booked (acquisition drips). */}
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 10 }}>
+          <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>Getting them booked</p>
+          <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>Automated follow-up for people who haven&rsquo;t booked yet — abandoned bookings, website and phone leads, and open quotes.</p>
+        </div>
+        <FollowUpSequencesTab onTest={openTest} only={t => t !== 'post_job_retention'} />
+      </div>
+
       {CM_GROUPS.map(group => {
         const groupMsgs = messages.filter(m => m.group === group.key);
         if (groupMsgs.length === 0) return null;
@@ -2161,17 +2180,21 @@ function NotificationsTab() {
         );
       })}
 
+      {/* Journey — Stage 5: win-back drip for past customers with no next visit. */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ marginBottom: 10 }}>
           <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>Winning them back</p>
-          <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>Automated follow-up drips for quotes, abandoned bookings, and past clients. Each runs on its own until they book.</p>
+          <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>A past customer finished a job with nothing on the calendar. This drip nudges them to rebook.</p>
         </div>
-        <FollowUpSequencesTab onTest={openTest} />
+        <FollowUpSequencesTab onTest={openTest} only={t => t === 'post_job_retention'} />
       </div>
 
-      <OfficeNotificationsCard onTest={openTest} />
-      <TimeOffEmailsCard onTest={openTest} />
-      <LeadAlertsCard />
+      {/* Setup &amp; compliance — the plumbing behind the messages. Internal
+          office/staff alerts moved to their own "Office & Staff Alerts" tab. */}
+      <div style={{ marginBottom: 10 }}>
+        <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>Setup &amp; compliance</p>
+        <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>Your texting toggles and phone number. Opt-out (Reply STOP) and email unsubscribe are always on and honored by law.</p>
+      </div>
       <SmsSmsSettingsCard onTest={openTest} />
 
       {testFor && (
@@ -2208,7 +2231,7 @@ function NotificationsTab() {
 // alert on submission + employee pending/emergency/approved/denied. Each row
 // sends a [TEST] copy with sample employee data through the same render path
 // production uses (notification_templates row → merge tags → branded shell).
-function TimeOffEmailsCard({ onTest }: { onTest: (t: { key: string; label: string; channel: string }) => void }) {
+function TimeOffEmailsCard({ onTest }: { onTest?: (t: { key: string; label: string; channel: string }) => void }) {
   const FF = "'Plus Jakarta Sans', sans-serif";
   const rows = [
     { key: "leave_request_office", label: "Office — new request alert", desc: "Sent to every office/owner/admin user the moment an employee submits a time-off request. ACTION REQUIRED with a Review button." },
@@ -2232,10 +2255,10 @@ function TimeOffEmailsCard({ onTest }: { onTest: (t: { key: string; label: strin
               <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 2px' }}>{row.label}</p>
               <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{row.desc}</p>
             </div>
-            <button onClick={() => onTest({ key: row.key, label: row.label, channel: 'email' })} title="Send a [TEST] copy to yourself"
+            {onTest && <button onClick={() => onTest({ key: row.key, label: row.label, channel: 'email' })} title="Send a [TEST] copy to yourself"
               style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600, flexShrink: 0 }}>
               Send Test
-            </button>
+            </button>}
           </div>
         ))}
       </div>
@@ -2243,7 +2266,25 @@ function TimeOffEmailsCard({ onTest }: { onTest: (t: { key: string; label: strin
   );
 }
 
-function OfficeNotificationsCard({ onTest }: { onTest: (t: { key: string; label: string; channel: string }) => void }) {
+// [comms-reorg 2026-07-09] Internal alerts (to the office/staff, NEVER to
+// customers) split out of Customer Communications into their own tab, so the
+// Communications page carries only customer-facing messages in journey order.
+function OfficeStaffAlertsTab() {
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 0, fontFamily: FF }}>
+      <div style={{ marginBottom: 20 }}>
+        <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 4px' }}>Office &amp; Staff Alerts</p>
+        <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, maxWidth: 560, lineHeight: 1.5 }}>Internal notifications that go to your office and team, never to customers. These still send even when customer messaging is paused.</p>
+      </div>
+      <OfficeNotificationsCard />
+      <LeadAlertsCard />
+      <TimeOffEmailsCard />
+    </div>
+  );
+}
+
+function OfficeNotificationsCard({ onTest }: { onTest?: (t: { key: string; label: string; channel: string }) => void }) {
   const { toast } = useToast();
   const FF = "'Plus Jakarta Sans', sans-serif";
   const [showZone, setShowZone] = useState(true);
@@ -2304,10 +2345,10 @@ function OfficeNotificationsCard({ onTest }: { onTest: (t: { key: string; label:
           <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Office Booking Notification</p>
           <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Controls what appears in the email your office receives when a new booking comes in online.</p>
         </div>
-        <button onClick={() => onTest({ key: 'office_booking', label: 'Office Booking Notification', channel: 'email' })} title="Send a [TEST] copy to yourself"
+        {onTest && <button onClick={() => onTest({ key: 'office_booking', label: 'Office Booking Notification', channel: 'email' })} title="Send a [TEST] copy to yourself"
           style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600, flexShrink: 0 }}>
           Send Test
-        </button>
+        </button>}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 16 }}>
         {rows.map(row => (
@@ -3373,7 +3414,7 @@ function delayLabel(hours: number): string {
   return `Day ${d}`;
 }
 
-function FollowUpSequencesTab({ onTest }: { onTest?: (t: { key: string; label: string; channel: string; body?: string; subject?: string | null }) => void }) {
+function FollowUpSequencesTab({ onTest, only }: { onTest?: (t: { key: string; label: string; channel: string; body?: string; subject?: string | null }) => void; only?: (sequenceType: string) => boolean }) {
   const FFF = "'Plus Jakarta Sans', sans-serif";
   const FU_API = import.meta.env.BASE_URL.replace(/\/$/, "");
   const { toast } = useToast();
@@ -3456,7 +3497,7 @@ function FollowUpSequencesTab({ onTest }: { onTest?: (t: { key: string; label: s
   return (
     <div>
       <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-        {sequences.map(seq => {
+        {sequences.filter(seq => !only || only(String((seq as any).sequence_type))).map(seq => {
           const isExpanded = expandedSeq === seq.id;
           return (
             <div key={seq.id} style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
