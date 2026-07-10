@@ -3372,15 +3372,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   return `${label} job · ${t === "hourly" ? "hourly pay per tech" : "commission % per tech"}`;
                 })()}
               </div>
-              {/* [add-tech-on-complete 2026-06-18] Team is editable on completed
-                  jobs — the office reconciles who actually worked, for payroll
-                  (Sal: "job is complete but I can't add another tech"). Only a
-                  cancelled job blocks it. */}
-              <button onClick={() => job.status !== "cancelled" && setAddTechOpen(true)}
-                disabled={job.status === "cancelled"}
-                style={{ marginTop: 8, width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: job.status === "cancelled" ? "#9E9B94" : "#2D9B83", border: `1px dashed ${job.status === "cancelled" ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
-                <Plus size={12} /> Add tech
-              </button>
+              {/* [add-tech-dedupe 2026-07-10] The Commission-section "Add tech"
+                  button was a duplicate of the one in the tech-edit region at the
+                  top of the panel (both open the same picker). Removed here so
+                  there's a single Add-tech affordance (Maribel's declutter note). */}
               </>)}
               {tab === "clock" && clockAvail && (<>
                 {clockTechList.map(t => {
@@ -3423,16 +3418,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   <Info size={11} style={{ color: "#C4C0BB" }} /> About this clock
                 </span>
               </>)}
-            </PS>
-            );
-          })()}
-
-          {/* [tips 2026-06-29] Tips — office records a tip after the visit and
-              attributes it to the tech(s). Pass-through pay (never commission);
-              shows in the tech's earnings + payroll. Works on completed jobs.
-              Default split is proportional to clocked time, editable per tech. */}
-          {canManageCommission && (
-            <PS label="Tips">
+              {/* [tips-fold 2026-07-10] Tips folded into the Commission panel so
+                  the card carries ONE pay box, not two (Maribel declutter; same
+                  move as the Time Clock fold). Tips are tech pay — office records a
+                  tip after the visit, split across the tech(s) by clocked time;
+                  pass-through pay, never commission. Works on completed jobs. */}
+              {canManageCommission && (<>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", margin: "16px 0 8px", borderTop: "1px solid #F0EDE8", paddingTop: 14 }}>Tips</div>
               {tips.length > 0 && (
                 <div style={{ marginBottom: tipFormOpen ? 10 : 8 }}>
                   {tips.map(t => (
@@ -3531,11 +3523,14 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   })()}
                 </div>
               )}
+              </>)}
             </PS>
-          )}
+            );
+          })()}
 
           {/* [clock-pay-tabs 2026-07-10] The standalone Time Clock section moved
-              into the Commission tabbed section above (Maribel's redundancy note). */}
+              into the Commission tabbed section above (Maribel's redundancy note).
+              [tips-fold 2026-07-10] Tips likewise folded into that panel above. */}
 
           {/* Add Tech Modal */}
           {addTechOpen && (
