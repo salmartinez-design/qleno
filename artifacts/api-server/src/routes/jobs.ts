@@ -4596,7 +4596,7 @@ router.get("/:id/technicians", requireAuth, requireRole("owner", "admin", "offic
 //      Team Member" on an unassigned job) auto-promotes the new tech to
 //      primary and mirrors. Caller can still pass is_primary explicitly.
 // Audit row written for traceability since this is the most-used path.
-router.post("/:id/technicians", requireAuth, async (req, res) => {
+router.post("/:id/technicians", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId!;
@@ -4793,7 +4793,7 @@ router.delete("/:id/discounts/:discountId", requireAuth, async (req, res) => {
   } catch (e) { console.error("delete job discount:", e); return res.status(500).json({ error: "Internal Server Error" }); }
 });
 
-router.delete("/:id/technicians/:techId", requireAuth, async (req, res) => {
+router.delete("/:id/technicians/:techId", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
     const techId = parseInt(req.params.techId);
@@ -4898,7 +4898,7 @@ router.delete("/:id/technicians/:techId", requireAuth, async (req, res) => {
 });
 
 // PUT /api/jobs/:id/technicians/:techId/override — set pay override for a tech
-router.put("/:id/technicians/:techId/override", requireAuth, async (req, res) => {
+router.put("/:id/technicians/:techId/override", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
     const techId = parseInt(req.params.techId);
@@ -5319,7 +5319,7 @@ router.delete("/:id/tips/:tipId", requireAuth, requireRole("owner", "admin", "of
 });
 
 // POST /api/jobs/:id/commission/set-pool-rate
-router.post("/:id/commission/set-pool-rate", requireAuth, async (req, res) => {
+router.post("/:id/commission/set-pool-rate", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
