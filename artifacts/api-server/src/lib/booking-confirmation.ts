@@ -241,7 +241,7 @@ export async function sendJobScheduledConfirmation(
       paymentTotal,
       hasCardOnFile: !!j.stripe_payment_method_id,
       // TODO: make the checklist URL tenant-configurable (Company Settings).
-      checklistUrl: "https://phes.io/checklist",
+      checklistUrl: "https://phes.io/cleaning-checklist",
     });
     const renderEmail = isPhes ? renderPhes : renderStandard;
 

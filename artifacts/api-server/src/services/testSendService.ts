@@ -367,7 +367,7 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
             scheduledTimeRaw: "9:00 AM",
             paymentTotal: "$673.00",
             hasCardOnFile: true,
-            checklistUrl: "https://phes.io/checklist",
+            checklistUrl: "https://phes.io/cleaning-checklist",
           })
         : bodyIsFullHtml
         ? rendered.body

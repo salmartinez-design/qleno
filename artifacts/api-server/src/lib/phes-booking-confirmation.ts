@@ -136,7 +136,7 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
       <td colspan="2" style="padding:11px 0;border-bottom:1px solid ${BORDER};font-family:${FONT};font-size:13px;color:${INK};line-height:1.5;">
         <strong style="color:${MUTE};">Payment:</strong> ${o.hasCardOnFile
           ? `<strong>${esc(o.paymentTotal)}</strong> will be charged to your card on the day of service.`
-          : `<strong>${esc(o.paymentTotal)}</strong> due at service. We accept card, Zelle, or check.`}
+          : `<strong>${esc(o.paymentTotal)}</strong> due at service. We accept card.`}
       </td>
     </tr>` : "";
 
