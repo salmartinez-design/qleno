@@ -240,16 +240,27 @@ async function findExistingQbCustomer(
 }
 
 // ── Invoice dedup lookup ───────────────────────────────────────────────────
-// Returns the QB Invoice Id already carrying this DocNumber (oldest wins), else
-// null. QB's /invoice endpoint has NO client-side dedup — a create fired twice
-// for the same invoice (concurrent/rapid re-push, or a retry after the row's
-// qbo_invoice_id failed to persist) makes a SECOND QB invoice with the same
-// DocNumber. syncInvoice calls this before creating so it adopts + updates the
-// existing one instead. Mirrors findExistingQbCustomer.
+// [qb-history-guard 2026-07-09] Adopt-by-DocNumber is now VERIFIED. The 07-03
+// version adopted ANY QB invoice carrying the same DocNumber (oldest wins) and
+// then updated it. That was written for retry-dedup of OUR OWN pushes, but it
+// could not tell them apart from pre-Qleno history: when the Qleno number
+// sequence collided with MaidCentral-era numbers (e.g. #6390), the sync
+// ADOPTED the historical May invoice (De Arruda $195, QB txn 18065) and
+// rewrote it into a July invoice (Cucci $150) — destroying the historical
+// record. ~20+ Apr/May invoices were corrupted this way (see qb_sync_queue
+// rows whose qb_entity_id is in the 179xx–180xx range).
+//
+// The fix: only adopt a same-DocNumber QB invoice when it demonstrably IS a
+// prior push of THIS invoice — same CustomerRef and same TotalAmt (±1¢).
+// Anything else is a doc-number collision with a foreign/historical invoice:
+// return null so the caller CREATES a fresh QB invoice (QBO permits duplicate
+// DocNumbers) and log loudly so the collision is visible.
 async function findExistingQbInvoiceByDoc(
   token: string,
   realmId: string,
   docNumber: string,
+  expectedCustomerId: string,
+  expectedTotal: number,
 ): Promise<string | null> {
   const qbQuote = (s: string) => s.replace(/'/g, "\\'");
   try {
@@ -257,10 +268,23 @@ async function findExistingQbInvoiceByDoc(
       token,
       realmId,
       `/query?query=${encodeURIComponent(
-        `SELECT Id, DocNumber FROM Invoice WHERE DocNumber = '${qbQuote(docNumber)}' ORDERBY Id MAXRESULTS 1`,
+        `SELECT Id, DocNumber, TotalAmt, CustomerRef FROM Invoice WHERE DocNumber = '${qbQuote(docNumber)}'`,
       )}&`,
     );
-    return q.QueryResponse?.Invoice?.[0]?.Id ?? null;
+    const hits: any[] = q.QueryResponse?.Invoice ?? [];
+    for (const hit of hits) {
+      const custMatch = String(hit.CustomerRef?.value ?? "") === String(expectedCustomerId);
+      const amtMatch = Math.abs(Number(hit.TotalAmt ?? 0) - expectedTotal) < 0.01;
+      if (custMatch && amtMatch) return String(hit.Id);
+    }
+    if (hits.length > 0) {
+      console.warn(
+        `[QB] DocNumber collision: ${hits.length} QB invoice(s) already carry #${docNumber} ` +
+        `but none match customer ${expectedCustomerId} @ ${expectedTotal} — creating a NEW QB invoice, ` +
+        `NOT adopting. Existing ids: ${hits.map((h) => h.Id).join(",")}`,
+      );
+    }
+    return null;
   } catch (e: any) {
     console.warn(`[QB] findExistingQbInvoiceByDoc failed (non-fatal):`, e.message);
     return null;
@@ -510,6 +534,16 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       .limit(1);
     if (!invoice) return;
 
+    // [qb-draft-guard 2026-07-09] Never push a draft/void/superseded invoice.
+    // Drafts are working documents — several landed in QB as open receivables
+    // (e.g. ACC-4, ACC-26, #6322) and became phantom/double A/R. Void cleanup
+    // goes through voidQbInvoice, not a push. A draft that later issues will
+    // sync on the issue transition like every other invoice.
+    if (invoice.status === "draft" || invoice.status === "void" || invoice.status === "superseded") {
+      await upsertQueue(companyId, "invoice", invoiceId, "skipped", undefined, `not pushed: status=${invoice.status}`);
+      return;
+    }
+
     // [qb-cutover] Cutover guard. Tenants migrating from another system that
     // already feeds the SAME QuickBooks company (e.g. Oak Lawn ← MaidCentral)
     // set companies.qb_sync_start_date. Any invoice created before the cutover
@@ -644,11 +678,15 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       // ── Create path — the ONLY place a duplicate can form ─────────────────
       // Two guards, layered:
       //
-      // [qb-invoice-idempotency 2026-07-03] (a) find-by-DocNumber: before
-      // creating, check QB for an invoice already carrying this DocNumber. QB's
-      // /invoice has no server-side dedup, so a sequential retry (or a sync after
-      // qbo_invoice_id failed to persist / a crash between create and save) would
-      // otherwise create a second copy. Adopt + update the existing one instead.
+      // [qb-invoice-idempotency 2026-07-03, hardened 2026-07-09] (a) VERIFIED
+      // find-by-DocNumber: before creating, check QB for an invoice already
+      // carrying this DocNumber that ALSO matches this invoice's customer and
+      // total — i.e. it is demonstrably our own earlier push (retry after a
+      // crash between create and persist). Only then adopt + update. A
+      // same-number invoice belonging to a different customer/amount is
+      // pre-Qleno history (MaidCentral era) — NEVER adopt it; create a new QB
+      // invoice instead. The unverified version of this guard rewrote ~20+
+      // historical Apr/May invoices when the number sequences collided.
       //
       // [qb-invoice-lock 2026-07-03] (b) per-invoice advisory lock: serialize
       // concurrent syncs of THIS invoice so two SIMULTANEOUS first-time creates
@@ -666,6 +704,7 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       // and acceptable; revisit with a claim-column if first-sync bursts ever
       // pressure the pool.
       const QB_INV_LOCK_NS = 4243;
+      const expectedTotal = parseFloat(invoice.total || "0");
       qbInvoiceId = await db.transaction(async (tx) => {
         await tx.execute(sql`SELECT pg_advisory_xact_lock(${QB_INV_LOCK_NS}, ${invoiceId})`);
 
@@ -677,7 +716,7 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
 
         const docNumber = (invoice.invoice_number || String(invoiceId)).slice(-21);
         const targetId = (fresh?.qbo ?? null)
-          ?? (await findExistingQbInvoiceByDoc(token, realmId, docNumber));
+          ?? (await findExistingQbInvoiceByDoc(token, realmId, docNumber, qbCustomerId!, expectedTotal));
 
         let resolvedId: string;
         if (targetId) {
@@ -855,22 +894,27 @@ export async function voidQbInvoice(companyId: number, invoiceId: number): Promi
 }
 
 // ── DEDUPE INVOICES ────────────────────────────────────────────────────────
-// [qb-invoice-idempotency 2026-07-03] One-time cleanup for duplicate QB invoices
-// created before the idempotency guard landed (concurrent/rapid re-pushes each
-// CREATED a fresh QB invoice with the same DocNumber). For every DocNumber that
-// this company's synced invoices reference, query ALL matching QB invoices; if
-// more than one exists, keep the CANONICAL copy (the Id stored on the Qleno row,
-// else the oldest) and delete the rest. Dry-run (default) only reports. Deleting
-// (not voiding) removes the phantom rows entirely so the P&L stops double/triple
-// counting — these copies never should have existed and carry no payments (the
-// real one, kept, retains its ledger). Owner-triggered via POST /dedupe.
+// [qb-invoice-idempotency 2026-07-03, hardened 2026-07-09] One-time cleanup for
+// duplicate QB invoices created before the idempotency guard landed. For every
+// DocNumber that this company's synced invoices reference, query ALL matching QB
+// invoices; if more than one exists, keep the CANONICAL copy (the Id stored on
+// the Qleno row, else the oldest) and delete the rest.
+//
+// [qb-history-guard 2026-07-09] SAFETY: a copy is only deletable when it matches
+// the kept canonical invoice on BOTH CustomerRef and TotalAmt (±1¢) — i.e. it is
+// a true duplicate of the same bill. A same-DocNumber invoice for a DIFFERENT
+// customer or amount is pre-Qleno history (MaidCentral-era numbering overlap) and
+// is NEVER deleted — the group is reported with `skipped_foreign` for manual
+// review instead. The unguarded version could destroy historical invoices that
+// merely shared a number.
+// Dry-run (default) only reports. Owner-triggered via POST /dedupe.
 export async function dedupeQbInvoices(
   companyId: number,
   dryRun: boolean = true,
 ): Promise<{
   dry_run: boolean;
   connected: boolean;
-  duplicate_groups: Array<{ doc_number: string; total: string | number; copies: number; keep: string; deleted: string[] }>;
+  duplicate_groups: Array<{ doc_number: string; total: string | number; copies: number; keep: string; deleted: string[]; skipped_foreign: string[] }>;
   invoices_deleted: number;
 }> {
   const auth = await getValidToken(companyId);
@@ -883,7 +927,7 @@ export async function dedupeQbInvoices(
     .from(invoicesTable)
     .where(and(eq(invoicesTable.company_id, companyId), sql`${invoicesTable.qbo_invoice_id} IS NOT NULL`));
 
-  const groups: Array<{ doc_number: string; total: string | number; copies: number; keep: string; deleted: string[] }> = [];
+  const groups: Array<{ doc_number: string; total: string | number; copies: number; keep: string; deleted: string[]; skipped_foreign: string[] }> = [];
   let deleted = 0;
   const seen = new Set<string>();
 
@@ -897,7 +941,7 @@ export async function dedupeQbInvoices(
         token,
         realmId,
         `/query?query=${encodeURIComponent(
-          `SELECT Id, SyncToken, DocNumber, TotalAmt FROM Invoice WHERE DocNumber = '${qbQuote(docNumber)}'`,
+          `SELECT Id, SyncToken, DocNumber, TotalAmt, CustomerRef FROM Invoice WHERE DocNumber = '${qbQuote(docNumber)}'`,
         )}&`,
       );
       hits = q.QueryResponse?.Invoice ?? [];
@@ -908,12 +952,34 @@ export async function dedupeQbInvoices(
     if (hits.length <= 1) continue;
 
     // Keep the canonical copy: the Id the Qleno row points to, else the oldest
-    // (lowest numeric Id). Delete every other copy.
+    // (lowest numeric Id).
     const canonicalId = String(inv.qbo);
     const keep = hits.find((h) => String(h.Id) === canonicalId)
       ?? [...hits].sort((a, b) => Number(a.Id) - Number(b.Id))[0];
-    const toDelete = hits.filter((h) => String(h.Id) !== String(keep.Id));
-    groups.push({ doc_number: docNumber, total: hits[0].TotalAmt, copies: hits.length, keep: String(keep.Id), deleted: toDelete.map((h) => String(h.Id)) });
+
+    // Partition the rest: true duplicates (same customer + same total as the
+    // kept copy) are deletable; anything else is foreign history — skip it.
+    const isTrueDuplicate = (h: any) =>
+      String(h.CustomerRef?.value ?? "") === String(keep.CustomerRef?.value ?? "") &&
+      Math.abs(Number(h.TotalAmt ?? 0) - Number(keep.TotalAmt ?? 0)) < 0.01;
+    const others = hits.filter((h) => String(h.Id) !== String(keep.Id));
+    const toDelete = others.filter(isTrueDuplicate);
+    const skippedForeign = others.filter((h) => !isTrueDuplicate(h));
+    if (skippedForeign.length > 0) {
+      console.warn(
+        `[QB] dedupe: DocNumber ${docNumber} has ${skippedForeign.length} same-number invoice(s) ` +
+        `with a DIFFERENT customer/amount (ids ${skippedForeign.map((h) => h.Id).join(",")}) — ` +
+        `foreign/historical, NOT deleting. Review manually.`,
+      );
+    }
+    groups.push({
+      doc_number: docNumber,
+      total: hits[0].TotalAmt,
+      copies: hits.length,
+      keep: String(keep.Id),
+      deleted: toDelete.map((h) => String(h.Id)),
+      skipped_foreign: skippedForeign.map((h) => String(h.Id)),
+    });
 
     if (!dryRun) {
       // If the surviving copy isn't the one Qleno referenced, re-point Qleno.
