@@ -119,7 +119,7 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office", "super_admi
 // Response shape:
 //   [{ id, first_name, last_name, name, role,
 //      is_clocked_in: bool, currently_at: string|null }]
-router.get("/techs-with-status", requireAuth, async (req, res) => {
+router.get("/techs-with-status", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const excludeParam = (req.query.exclude as string | undefined) ?? "";
