@@ -1681,6 +1681,47 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // [duplicate-job 2026-06-08] HCP-style "copy this job to a new date, same
   // service" (Maribel). Works the same on mobile + desktop via this shared panel.
   const [duplicateOpen, setDuplicateOpen] = useState(false);
+  // [redo-service 2026-07-10] Create Redo Service modal state.
+  const [redoOpen, setRedoOpen] = useState(false);
+  const [redoBusy, setRedoBusy] = useState(false);
+  const [redoReason, setRedoReason] = useState("");
+  const [redoCategory, setRedoCategory] = useState("Missed area");
+  const [redoAreas, setRedoAreas] = useState("");
+  const [redoAccountable, setRedoAccountable] = useState<number[]>([]);
+  const [redoMode, setRedoMode] = useState<"same" | "recovery">("same");
+  const [redoRecoveryTech, setRedoRecoveryTech] = useState<number | null>(null);
+  const [redoPay, setRedoPay] = useState("");
+  const [redoDate, setRedoDate] = useState("");
+  const [redoMsg, setRedoMsg] = useState("");
+  const redoLbl: React.CSSProperties = { display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", margin: "12px 0 5px" };
+  const redoInp: React.CSSProperties = { width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, boxSizing: "border-box", background: "#fff" };
+  const redoJobTechs = (job.technicians && job.technicians.length
+    ? job.technicians.map(t => ({ id: t.user_id, name: t.name }))
+    : (job.assigned_user_id ? [{ id: job.assigned_user_id, name: job.assigned_user_name || `Technician #${job.assigned_user_id}` }] : []));
+  async function submitRedo() {
+    if (!redoAccountable.length) { setRedoMsg("Pick at least one cleaner this redo is on."); return; }
+    if (redoMode === "recovery" && !redoRecoveryTech) { setRedoMsg("Pick the recovery cleaner doing the redo."); return; }
+    if (!redoDate) { setRedoMsg("Pick a redo date."); return; }
+    setRedoBusy(true); setRedoMsg("");
+    try {
+      const r = await fetch(`${API}/api/jobs/${job.id}/redo`, {
+        method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reason: redoReason, reason_category: redoCategory,
+          areas: redoAreas ? redoAreas.split(",").map(s => s.trim()).filter(Boolean) : [],
+          accountable_user_ids: redoAccountable,
+          mode: redoMode,
+          recovery_user_id: redoMode === "recovery" ? redoRecoveryTech : undefined,
+          recovery_pay: redoMode === "recovery" ? (Number(redoPay) || 0) : undefined,
+          scheduled_date: redoDate, scheduled_time: job.scheduled_time || undefined,
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) { setRedoMsg(d.error || "Failed to create redo."); setRedoBusy(false); return; }
+      setRedoOpen(false); onUpdate();
+    } catch (e: any) { setRedoMsg(e?.message || "Failed to create redo."); }
+    setRedoBusy(false);
+  }
   const [duplicateDate, setDuplicateDate] = useState("");
   const [duplicateTime, setDuplicateTime] = useState("");
   const [duplicateBusy, setDuplicateBusy] = useState(false);
@@ -3837,6 +3878,21 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             style={{ padding: "10px 12px", border: "1px solid #DDD6FE", borderRadius: 8, backgroundColor: "#F5F3FF", color: "#6D28D9", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
             Duplicate
           </button>
+          {canManageCommission && (
+            <button
+              onClick={() => {
+                const base = job.scheduled_date ? new Date(`${job.scheduled_date}T12:00:00`) : new Date();
+                base.setDate(base.getDate() + 3);
+                setRedoDate(base.toISOString().slice(0, 10));
+                setRedoAccountable(redoJobTechs.length ? [redoJobTechs[0].id] : []);
+                setRedoMode("same"); setRedoReason(""); setRedoCategory("Missed area");
+                setRedoAreas(""); setRedoRecoveryTech(null); setRedoPay(""); setRedoMsg("");
+                setRedoOpen(true);
+              }}
+              style={{ padding: "10px 12px", border: "1px solid #0A0E1A", borderRadius: 8, backgroundColor: "#0A0E1A", color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+              Create Redo Service
+            </button>
+          )}
           <button
             disabled={isLocked}
             onClick={() => {
@@ -3874,6 +3930,81 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           )}
         </div>
       </div>
+
+      {/* [redo-service 2026-07-10] Create Redo Service Modal */}
+      {redoOpen && (
+        <>
+          <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 299 }} onClick={() => !redoBusy && setRedoOpen(false)} />
+          <div style={mobile
+            ? { position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 300, backgroundColor: "#FFFFFF", borderRadius: "16px 16px 0 0", padding: "20px 20px 28px", fontFamily: FF, maxHeight: "88vh", overflowY: "auto" }
+            : { position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 300, backgroundColor: "#FFFFFF", borderRadius: 16, width: "100%", maxWidth: 460, padding: 24, boxShadow: "0 24px 64px rgba(0,0,0,0.25)", fontFamily: FF, maxHeight: "88vh", overflowY: "auto" }
+          }>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Create Redo Service</span>
+              <button onClick={() => !redoBusy && setRedoOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }} type="button"><X size={18} /></button>
+            </div>
+            <p style={{ fontSize: 12, color: "#9E9B94", margin: "0 0 6px" }}>A free re-clean linked to this job. Logs a quality ticket on the accountable cleaner(s).</p>
+
+            <label style={redoLbl}>Reason category</label>
+            <select value={redoCategory} onChange={e => setRedoCategory(e.target.value)} style={redoInp}>
+              <option>Missed area</option><option>Streaks &amp; residue left behind</option><option>Damage / breakage</option><option>Attitude / professionalism</option><option>Other</option>
+            </select>
+
+            <label style={redoLbl}>Reason detail</label>
+            <textarea value={redoReason} onChange={e => setRedoReason(e.target.value)} rows={2} placeholder="What was wrong?" style={{ ...redoInp, resize: "vertical" }} />
+
+            <label style={redoLbl}>Areas to redo (comma-separated)</label>
+            <input value={redoAreas} onChange={e => setRedoAreas(e.target.value)} placeholder="e.g. Restroom 1, Break room" style={redoInp} />
+
+            <label style={redoLbl}>Who is this redo on? (accountable cleaner)</label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {redoJobTechs.map(t => {
+                const on = redoAccountable.includes(t.id);
+                return <button key={t.id} type="button" onClick={() => setRedoAccountable(on ? redoAccountable.filter(x => x !== t.id) : [...redoAccountable, t.id])}
+                  style={{ padding: "6px 12px", borderRadius: 999, border: `1.5px solid ${on ? "#00C9A0" : "#E5E2DC"}`, background: on ? "#E6F8F3" : "#fff", color: on ? "#065f46" : "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>{t.name}</button>;
+              })}
+              {!redoJobTechs.length && <span style={{ fontSize: 12, color: "#DC2626" }}>This job has no assigned cleaner to attach the ticket to.</span>}
+            </div>
+
+            <label style={redoLbl}>Who&rsquo;s doing the redo visit?</label>
+            <div style={{ display: "flex", gap: 8 }}>
+              {(["same", "recovery"] as const).map(m => (
+                <button key={m} type="button" onClick={() => setRedoMode(m)}
+                  style={{ flex: 1, padding: "9px 11px", borderRadius: 10, border: `1.5px solid ${redoMode === m ? "#00C9A0" : "#E5E2DC"}`, background: redoMode === m ? "#E6F8F3" : "#fff", cursor: "pointer", fontFamily: FF, textAlign: "left" }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 700, color: "#1A1917" }}>{m === "same" ? "Same cleaner" : "Different cleaner"}</div>
+                  <div style={{ fontSize: 10.5, color: "#6B6860", marginTop: 2 }}>{m === "same" ? "Unpaid — part of original commission" : "Recovery cleaner, paid"}</div>
+                </button>
+              ))}
+            </div>
+
+            {redoMode === "recovery" && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <label style={redoLbl}>Recovery cleaner</label>
+                  <select value={redoRecoveryTech ?? ""} onChange={e => setRedoRecoveryTech(e.target.value ? Number(e.target.value) : null)} style={redoInp}>
+                    <option value="">Select&hellip;</option>
+                    {employees.map(emp => <option key={emp.id} value={emp.id}>{emp.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ width: 110 }}>
+                  <label style={redoLbl}>Pay ($)</label>
+                  <input value={redoPay} onChange={e => setRedoPay(e.target.value)} placeholder="60" inputMode="decimal" style={redoInp} />
+                </div>
+              </div>
+            )}
+
+            <label style={redoLbl}>Redo date</label>
+            <input type="date" value={redoDate} onChange={e => setRedoDate(e.target.value)} style={redoInp} />
+
+            {redoMsg && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 8 }}>{redoMsg}</div>}
+            <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 8, lineHeight: 1.4 }}>Client isn&rsquo;t charged and isn&rsquo;t messaged. The ticket counts toward the 2-in-30 probation rule.</div>
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
+              <button type="button" onClick={() => setRedoOpen(false)} disabled={redoBusy} style={{ padding: "9px 16px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+              <button type="button" onClick={submitRedo} disabled={redoBusy} style={{ padding: "9px 18px", border: "none", borderRadius: 8, background: "#0A0E1A", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, opacity: redoBusy ? 0.6 : 1 }}>{redoBusy ? "Creating…" : "Create redo"}</button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* Duplicate Job Modal */}
       {duplicateOpen && (
