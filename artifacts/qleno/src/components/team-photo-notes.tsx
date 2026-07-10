@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Camera, Pin, Trash2, Loader2, ImagePlus } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
+import { compressImage } from "@/lib/compress-image";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -83,7 +84,10 @@ export function TeamPhotoNotes(props: TeamPhotoNotesProps) {
     setSaving(true); setError("");
     try {
       const form = new FormData();
-      if (file) form.append("file", file);
+      // [photo-compress 2026-07-10] Shrink the photo in the browser before
+      // upload (1600px JPEG, ~300 KB) so it lands in ~2s on cell data instead
+      // of ~30s, and so iPhone HEIC is converted rather than rejected.
+      if (file) form.append("file", await compressImage(file));
       if (text.trim()) form.append("note", text.trim());
 
       const makeSticky = isJobContext ? sticky && jobHasCustomer : true;
