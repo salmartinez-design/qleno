@@ -12,8 +12,51 @@ import { eq, and } from "drizzle-orm";
 import { getBranchByZip } from "../lib/branchRouter";
 import { buildClientConfirmationEmail, buildOfficeNotificationEmail } from "../lib/emailTemplates";
 import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
+import { geocodeWithComponents } from "../lib/geocode";
 
 const router = Router();
+
+// [address-capture 2026-07-10] Resolve a booking's address into clean street/city/
+// state/zip. The widget only parses these when the customer PICKS a Google
+// autocomplete suggestion — a manually typed address arrives with just the full
+// string (and maybe a zip), so the job + client ended up with only "IL 60655" on
+// the dispatch card (Maribel: "the address wasn't picked up"). When the parsed
+// street is missing but we have a full address string, geocode it server-side to
+// recover the components. Best-effort: if geocoding is unavailable or fails, we
+// keep whatever the widget sent (never worse than before).
+async function resolveBookingAddress(p: {
+  address?: string | null; address_street?: string | null; address_city?: string | null;
+  address_state?: string | null; address_zip?: string | null; zip?: string | null;
+  address_lat?: any; address_lng?: any;
+}): Promise<{ street: string | null; city: string | null; state: string | null; zip: string | null; lat: number | null; lng: number | null }> {
+  const trim = (v: any) => { const s = v == null ? "" : String(v).trim(); return s || null; };
+  let street = trim(p.address_street);
+  let city = trim(p.address_city);
+  let state = trim(p.address_state);
+  let zip = trim(p.address_zip) ?? trim(p.zip);
+  let lat = p.address_lat != null && p.address_lat !== "" ? parseFloat(String(p.address_lat)) : null;
+  let lng = p.address_lng != null && p.address_lng !== "" ? parseFloat(String(p.address_lng)) : null;
+  const full = trim(p.address);
+  if (!street && full) {
+    try {
+      const g = await geocodeWithComponents(full);
+      if (g) {
+        street = trim(g.street) ?? street;
+        city = city ?? trim(g.city);
+        state = state ?? trim(g.state);
+        zip = zip ?? trim(g.zip);
+        if (lat == null) lat = g.lat;
+        if (lng == null) lng = g.lng;
+      }
+    } catch (e) {
+      console.warn("[address-capture] geocode fallback failed:", (e as any)?.message ?? e);
+    }
+    // Last resort — if geocoding produced no street, store the typed string so the
+    // card shows the real address instead of just the zip.
+    if (!street) street = full;
+  }
+  return { street, city, state, zip, lat, lng };
+}
 
 // ── Normalize referral_source to match production ENUM values ────────────────
 // Production DB has: google, nextdoor, facebook, yelp, client_referral,
@@ -950,6 +993,12 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       drizzleSql`SELECT id FROM clients WHERE email = ${email} AND company_id = ${company_id} LIMIT 1`
     );
 
+    // [address-capture 2026-07-10] Resolve street/city/state/zip up front so the
+    // client row actually stores the address (it never did before — the dispatch
+    // card fell back to clients.* and showed only "IL 60655"). Geocodes a
+    // manually-typed address when the widget didn't parse it.
+    const resolvedAddr = await resolveBookingAddress({ address, address_street, address_city, address_state, address_zip, zip, address_lat, address_lng });
+
     const isReturningClient = existingClients.rows.length > 0;
     let clientId: number;
     if (existingClients.rows.length > 0) {
@@ -962,7 +1011,11 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           card_last_four = ${cardLast4},
           card_brand = ${cardBrand},
           card_expiry = ${cardExpiry},
-          card_saved_at = NOW()
+          card_saved_at = NOW(),
+          address = COALESCE(NULLIF(address, ''), ${resolvedAddr.street}),
+          city    = COALESCE(NULLIF(city, ''),    ${resolvedAddr.city}),
+          state   = COALESCE(NULLIF(state, ''),   ${resolvedAddr.state}),
+          zip     = COALESCE(NULLIF(zip, ''),     ${resolvedAddr.zip})
           WHERE id = ${clientId}`
       );
     } else {
@@ -970,12 +1023,12 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
         drizzleSql`
           INSERT INTO clients (
             company_id, first_name, last_name, phone, email,
-            referral_source,
+            referral_source, address, city, state, zip,
             stripe_customer_id, stripe_payment_method_id, payment_source,
             card_last_four, card_brand, card_expiry, card_saved_at, created_at
           ) VALUES (
             ${company_id}, ${first_name}, ${last_name}, ${phone}, ${email},
-            ${normalizeReferral(referral_source)},
+            ${normalizeReferral(referral_source)}, ${resolvedAddr.street}, ${resolvedAddr.city}, ${resolvedAddr.state}, ${resolvedAddr.zip},
             ${stripe_customer_id || null}, ${payment_method_id}, 'stripe',
             ${cardLast4}, ${cardBrand}, ${cardExpiry}, NOW(), NOW()
           ) RETURNING id
@@ -1029,15 +1082,17 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const arrivalWindowVal = (arrival_window === "morning" || arrival_window === "afternoon") ? arrival_window : null;
 
     const bookLocVal = (booking_location === "oak_lawn" || booking_location === "schaumburg") ? booking_location : null;
-    const addrStreet = address_street || null;
-    const addrCity = address_city || null;
-    const addrState = address_state || null;
-    const addrZip = address_zip || zip || null;
-    const addrLat = address_lat ? parseFloat(String(address_lat)) : null;
-    const addrLng = address_lng ? parseFloat(String(address_lng)) : null;
+    // [address-capture 2026-07-10] Use the resolved address (parsed or geocoded) so
+    // the job itself carries a real street/city, not just state+zip.
+    const addrStreet = resolvedAddr.street;
+    const addrCity = resolvedAddr.city;
+    const addrState = resolvedAddr.state;
+    const addrZip = resolvedAddr.zip;
+    const addrLat = resolvedAddr.lat;
+    const addrLng = resolvedAddr.lng;
     const addrVerified = address_verified === true || address_verified === "true" ? true : false;
 
-    const branchConfig = getBranchByZip(zip || address_zip || "");
+    const branchConfig = getBranchByZip(resolvedAddr.zip || zip || address_zip || "");
 
     const jobResult = await db.execute(
       drizzleSql`
@@ -1439,14 +1494,26 @@ router.post("/book", rateLimit, async (req, res) => {
       drizzleSql`SELECT id FROM clients WHERE email = ${email} AND company_id = ${company_id} LIMIT 1`
     );
 
+    // [address-capture 2026-07-10] Same address resolution as /book/confirm so the
+    // client + job carry a real street, not just state+zip.
+    const legResolvedAddr = await resolveBookingAddress({ address, address_street, address_city, address_state, address_zip, zip, address_lat, address_lng });
+
     let clientId: number;
     if (existingClients.rows.length > 0) {
       clientId = (existingClients.rows[0] as any).id;
+      await db.execute(
+        drizzleSql`UPDATE clients SET
+          address = COALESCE(NULLIF(address, ''), ${legResolvedAddr.street}),
+          city    = COALESCE(NULLIF(city, ''),    ${legResolvedAddr.city}),
+          state   = COALESCE(NULLIF(state, ''),   ${legResolvedAddr.state}),
+          zip     = COALESCE(NULLIF(zip, ''),     ${legResolvedAddr.zip})
+          WHERE id = ${clientId}`
+      );
     } else {
       const newClient = await db.execute(
         drizzleSql`
-          INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, sms_consent, created_at)
-          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${normalizeReferral(referral_source)}, ${sms_consent ? true : false}, NOW())
+          INSERT INTO clients (company_id, first_name, last_name, phone, email, referral_source, address, city, state, zip, sms_consent, created_at)
+          VALUES (${company_id}, ${first_name}, ${last_name}, ${phone}, ${email}, ${normalizeReferral(referral_source)}, ${legResolvedAddr.street}, ${legResolvedAddr.city}, ${legResolvedAddr.state}, ${legResolvedAddr.zip}, ${sms_consent ? true : false}, NOW())
           RETURNING id
         `
       );
@@ -1468,12 +1535,12 @@ router.post("/book", rateLimit, async (req, res) => {
     const jobNotes = `Booked via online widget. Cleanliness: ${cleanliness || "N/A"}. People: ${people || "N/A"}. Floors: ${floors || "N/A"}. Home ID: ${homeId}.`;
 
     const legBookLoc = (booking_location === "oak_lawn" || booking_location === "schaumburg") ? booking_location : null;
-    const legAddrStreet = address_street || null;
-    const legAddrCity = address_city || null;
-    const legAddrState = address_state || null;
-    const legAddrZip = address_zip || zip || null;
-    const legAddrLat = address_lat ? parseFloat(String(address_lat)) : null;
-    const legAddrLng = address_lng ? parseFloat(String(address_lng)) : null;
+    const legAddrStreet = legResolvedAddr.street;
+    const legAddrCity = legResolvedAddr.city;
+    const legAddrState = legResolvedAddr.state;
+    const legAddrZip = legResolvedAddr.zip;
+    const legAddrLat = legResolvedAddr.lat;
+    const legAddrLng = legResolvedAddr.lng;
     const legAddrVerified = address_verified === true || address_verified === "true" ? true : false;
     const legNormFreq = (() => {
       const v = (frequency || "").toLowerCase().replace(/[\s-]/g, "_");
