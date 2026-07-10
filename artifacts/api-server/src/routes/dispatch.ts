@@ -121,6 +121,16 @@ async function buildDispatchPayload(
         client_city:    clientsTable.city,
         client_state:   clientsTable.state,
         client_address_zip: clientsTable.zip,
+        // [home-address-fallback 2026-07-10] The online-booking widget saves the
+        // address onto the customer's primary HOME (client_homes), not always onto
+        // the job or the client row — so a job whose job/client address is blank
+        // showed only the zip on the card (Maribel: "the address was saved but not
+        // displaying"). Pull the primary home's address components so the mapping
+        // below can fall back to them. Primary home first, else the oldest.
+        home_address: sql<string | null>`(SELECT ch.address FROM client_homes ch WHERE ch.client_id = ${jobsTable.client_id} AND ch.company_id = ${jobsTable.company_id} ORDER BY ch.is_primary DESC NULLS LAST, ch.id ASC LIMIT 1)`,
+        home_city:    sql<string | null>`(SELECT ch.city    FROM client_homes ch WHERE ch.client_id = ${jobsTable.client_id} AND ch.company_id = ${jobsTable.company_id} ORDER BY ch.is_primary DESC NULLS LAST, ch.id ASC LIMIT 1)`,
+        home_state:   sql<string | null>`(SELECT ch.state   FROM client_homes ch WHERE ch.client_id = ${jobsTable.client_id} AND ch.company_id = ${jobsTable.company_id} ORDER BY ch.is_primary DESC NULLS LAST, ch.id ASC LIMIT 1)`,
+        home_zip:     sql<string | null>`(SELECT ch.zip     FROM client_homes ch WHERE ch.client_id = ${jobsTable.client_id} AND ch.company_id = ${jobsTable.company_id} ORDER BY ch.is_primary DESC NULLS LAST, ch.id ASC LIMIT 1)`,
         // [Q2] New: surface notes + payment method on the client row for hover card
         client_notes: clientsTable.notes,
         client_payment_method: clientsTable.payment_method,
@@ -883,9 +893,23 @@ async function buildDispatchPayload(
         if (stateZip) parts.push(stateZip);
         return parts.length > 0 ? parts.join(", ") : null;
       };
-      const displayAddress = isCommercial
+      let displayAddress = isCommercial
         ? fmtAddr(j.property_address, j.property_city, j.property_state, j.property_zip)
         : fmtAddr(j.address, j.city, j.state, j.zip);
+      // [home-address-fallback 2026-07-10] Residential job with no street on the job
+      // OR the client row (j.address is COALESCE(job.street, client.address)), but the
+      // customer's primary HOME has one — show the home address so the card stops
+      // reading just "IL 60655". If the home address already contains a 5-digit zip
+      // it's a full formatted string — use it as-is (never re-append state/zip, which
+      // would duplicate). Otherwise format it with the best city/state/zip available.
+      if (!isCommercial && !String(j.address ?? "").trim()) {
+        const ha = String((j as any).home_address ?? "").trim();
+        if (ha && ha.toLowerCase() !== "(address pending)") {
+          displayAddress = /\b\d{5}\b/.test(ha)
+            ? ha
+            : fmtAddr(ha, (j as any).home_city ?? j.city, (j as any).home_state ?? j.state, (j as any).home_zip ?? j.zip);
+        }
+      }
       const jobTotal = j.billed_amount ? parseFloat(j.billed_amount) : (j.base_fee ? parseFloat(j.base_fee) : 0);
       // [pay-matrix 2026-04-29] Per-tech commission. The 4-cell matrix
       // (residential|commercial × commission|hourly) on each user row
