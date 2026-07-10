@@ -25,7 +25,9 @@ function onboardingTempPassword(): string {
   return process.env.DEFAULT_ONBOARDING_PASSWORD || "chicago23";
 }
 
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
+  // [tech-isolation 2026-07-10] Office-only — full roster incl. every
+  // colleague's pay_rate / pay_type / scorecard. Techs don't need it.
   try {
     const { role, is_active, page = "1", limit = "25", branch_id } = req.query;
     const offset = (parseInt(page as string) - 1) * parseInt(limit as string);
@@ -391,6 +393,10 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office", "super_adm
 router.get("/:id", requireAuth, async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
+    // [tech-isolation 2026-07-10] A tech may read only their OWN profile.
+    if (!["owner", "admin", "office", "super_admin"].includes(req.auth!.role) && userId !== req.auth!.userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
     const user = await db
       .select()
@@ -691,6 +697,10 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin", "office", "supe
 router.get("/:id/scorecards", requireAuth, async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
+    // [tech-isolation 2026-07-10] A tech may read only their OWN scorecards.
+    if (!["owner", "admin", "office", "super_admin"].includes(req.auth!.role) && userId !== req.auth!.userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
     const scorecards = await db
       .select({
@@ -737,6 +747,10 @@ router.get("/:id/scorecards", requireAuth, async (req, res) => {
 router.get("/:id/additional-pay", requireAuth, async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
+    // [tech-isolation 2026-07-10] A tech may read only their OWN additional pay.
+    if (!["owner", "admin", "office", "super_admin"].includes(req.auth!.role) && userId !== req.auth!.userId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
 
     const records = await db
       .select()

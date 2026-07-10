@@ -384,8 +384,11 @@ router.post("/:id/redo", requireAuth, requireRole("owner", "admin", "office"), a
   }
 });
 
-router.get("/", requireAuth, async (req, res) => {
+router.get("/", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
+    // [tech-isolation 2026-07-10] Office-only — this returns EVERY tech's jobs
+    // (schedule, fee, assigned tech) company-wide. Techs use /api/jobs/my-jobs
+    // (self-scoped). Frontend already hides it; this closes the direct-API leak.
     // [BUG-7 / 2026-06-01] Added `date` as a single-day filter alongside the
     // existing date_from/date_to range. `?date=YYYY-MM-DD` was being ignored
     // (silently passed through), so callers got the full jobs table back.
@@ -1344,7 +1347,9 @@ router.get("/ready-to-charge", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/:id", requireAuth, async (req, res) => {
+router.get("/:id", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
+  // [tech-isolation 2026-07-10] Office-only — leaks any job's fee, assigned
+  // tech, and clock GPS. Techs see their own jobs via /api/jobs/my-jobs.
   try {
     const jobId = parseInt(req.params.id);
 
@@ -4566,7 +4571,9 @@ async function calculateTechPay(jobId: number, companyId: number): Promise<Array
 }
 
 // GET /api/jobs/:id/technicians
-router.get("/:id/technicians", requireAuth, async (req, res) => {
+router.get("/:id/technicians", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
+  // [tech-isolation 2026-07-10] Office-only — this is the commission/PAY panel
+  // (every tech's calc_pay / final_pay / pay_override on the job). The #1 leak.
   try {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId;

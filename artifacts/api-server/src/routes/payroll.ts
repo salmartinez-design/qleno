@@ -589,8 +589,12 @@ router.get("/detail", requireAuth, async (req, res) => {
     const myUserId = (req as any).auth!.userId;
     const companyId = (req as any).auth!.companyId;
 
-    // Techs can only see their own data
-    const filterUserId = role === "technician" ? myUserId : (user_id ? parseInt(user_id as string) : null);
+    // [tech-isolation 2026-07-10] Only office roles may see all/other techs'
+    // pay. Any non-office role (technician AND team_lead) is locked to their
+    // own userId — the old `role === "technician"` check let a team_lead pass
+    // ?user_id=anyone and read every tech's pay detail.
+    const canSeeAll = ["owner", "admin", "office", "super_admin"].includes(role);
+    const filterUserId = canSeeAll ? (user_id ? parseInt(user_id as string) : null) : myUserId;
 
     // Get company payroll settings (using raw SQL since columns added via ALTER TABLE)
     // [AI.7.5.hotfix] Resilient SELECT — see routes/dispatch.ts for the
