@@ -18,6 +18,11 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import jobsRouter from "../routes/jobs.js";
 import usersRouter from "../routes/users.js";
 
+// 'technician' is the ONLY field role Phes actually uses. 'team_lead' is a
+// leftover value in the user_role enum (users.ts) that no Phes employee holds;
+// the code treats it as field-tier everywhere (grouped with technician), so we
+// keep a defensive assertion that it's also refused — but it is NOT a real
+// operational role here.
 const techToken = signToken({ userId: 999, companyId: 1, role: "technician", email: "tech@phes.io" });
 const teamLeadToken = signToken({ userId: 998, companyId: 1, role: "team_lead", email: "lead@phes.io" });
 const officeToken = signToken({ userId: 1, companyId: 1, role: "office", email: "office@phes.io" });
@@ -73,7 +78,7 @@ test("technician is refused (403) on every other-tech endpoint", async () => {
   }
 });
 
-test("team_lead (also a field role) is refused (403) the same way", async () => {
+test("team_lead (enum leftover, unused at Phes) is also refused (403), defensively", async () => {
   const { base, close } = await startApp();
   try {
     for (const [method, path, desc] of FORBIDDEN_FOR_TECH) {
