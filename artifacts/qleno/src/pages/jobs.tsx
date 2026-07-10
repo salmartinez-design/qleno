@@ -2687,9 +2687,15 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             // Bug #6: primary tech is the one the top-tile editor overrides.
             const primaryTech = techs.find(t => t.is_primary) ?? techs[0] ?? null;
             const canEditComm = canManageCommission && !isLocked && primaryTech != null;
-            const Tile = ({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) => (
+            // [declutter-info 2026-07-10] Optional `info` renders a hover ⓘ next to
+            // the label instead of an always-on sub-line (Maribel: "add the info icon
+            // next to Hours and Time Clock, show the explanation on hover, declutter").
+            const Tile = ({ label, value, sub, color, info }: { label: string; value: string; sub?: string; color?: string; info?: string }) => (
               <div style={{ flex: 1, minWidth: 0, background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 11px" }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", gap: 3 }}>
+                  {label}
+                  {info && <span title={info} aria-label={info} style={{ display: "inline-flex", cursor: "help" }}><Info size={11} style={{ color: "#C4C0BB", flexShrink: 0 }} /></span>}
+                </div>
                 <div style={{ fontSize: 18, fontWeight: 800, color: color ?? "#1A1917", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{value}</div>
                 {sub && <div style={{ fontSize: 10, color: "#9E9B94", marginTop: 1 }}>{sub}</div>}
               </div>
@@ -2715,9 +2721,15 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       (allowed ÷ techs) like MaidCentral, not the summed person-
                       hours — otherwise a 2-tech job reads "5.0h" and looks like
                       the crew wasn't counted. Total labor moves to the sub-line. */}
+                  {/* [declutter-info 2026-07-10] The verbose "on clock · Xh total ·
+                      N techs" line now lives in the ⓘ tooltip so the tile stays clean. */}
                   <Tile label="Hours"
                     value={allowed != null ? `${(techCount > 1 && perTechAllowed != null ? perTechAllowed : allowed).toFixed(1)}h` : "—"}
-                    sub={techCount > 1 && perTechAllowed != null ? `on clock · ${allowed.toFixed(1)}h total · ${techCount} techs` : "allowed"} />
+                    info={allowed == null
+                      ? "Allowed hours — the labor budget for this visit."
+                      : techCount > 1 && perTechAllowed != null
+                        ? `Allowed hours per tech. ${allowed.toFixed(1)}h total across ${techCount} techs — the labor budget for this visit.`
+                        : `Allowed hours — the labor budget for this visit (${allowed.toFixed(1)}h).`} />
                 </div>
                 {/* Inline commission editor — overrides the primary tech's pay
                     for THIS job, via the same payroll-safe pay_override path the
@@ -3282,9 +3294,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     </div>
                   );
                 })}
-                <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 2 }}>
-                  Office clock — feeds payroll hours and the actual-minutes commission split.
-                </div>
+                {/* [declutter-info 2026-07-10] The clock explanation moved into a hover
+                    ⓘ instead of an always-on sentence (Maribel's declutter note). */}
+                <span title="Office clock — feeds payroll hours and the actual-minutes commission split." aria-label="Office clock — feeds payroll hours and the actual-minutes commission split."
+                  style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 4, cursor: "help", fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                  <Info size={11} style={{ color: "#C4C0BB" }} /> About this clock
+                </span>
               </>)}
             </PS>
             );
@@ -6280,7 +6295,16 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
   const { setNodeRef, isOver } = useDroppable({ id: `row-${employee.id}` });
   const [, navigate] = useLocation();
   const initials = employee.name.split(" ").map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
-  const totalMins = employee.jobs.reduce((s: number, j: DispatchJob) => s + j.duration_minutes, 0);
+  // [grid-hours 2026-07-10] The per-tech day total must match the job card's Hours
+  // tile. duration_minutes falls back to a flat 120 min on the server whenever a job
+  // has no allowed_hours, so summing it undercounted jobs that only carry
+  // estimated_hours (Maribel: card reads 3.1h, grid read 2.0h). est_hours_per_tech
+  // is the server's per-tech figure (allowed|estimated ÷ techs) — use it, and only
+  // fall back to the calendar block when it's absent.
+  const totalMins = employee.jobs.reduce((s: number, j: DispatchJob) => {
+    const perTechHrs = j.est_hours_per_tech ?? (j.duration_minutes != null ? j.duration_minutes / 60 : 0);
+    return s + perTechHrs * 60;
+  }, 0);
   // [BUG-3F2 / 2026-06-02] Badge revenue sums per-tech revenue_share
   // when present so shared jobs (multi-tech) don't inflate both rows
   // to the full job amount. Falls back to j.amount for solo jobs and
@@ -8281,7 +8305,10 @@ export default function JobsPage() {
             // [labor-hours 2026-06-08] Total scheduled labor for the day (MC's
             // "59.2h"). jobs.allowed_hours is team-aggregated, so a plain sum
             // across the day's jobs = total labor hours across all techs.
-            const laborHrs = allJobs.reduce((s, j: any) => s + (j.allowed_hours != null ? Number(j.allowed_hours) : 0), 0);
+            // [grid-hours 2026-07-10] Fall back to estimated_hours so a job with no
+            // allowed_hours (residential deep cleans often have none) still counts
+            // toward the day's labor — matching the card + the per-tech row totals.
+            const laborHrs = allJobs.reduce((s, j: any) => s + (j.allowed_hours != null ? Number(j.allowed_hours) : (j.estimated_hours != null ? Number(j.estimated_hours) : 0)), 0);
             const availableHrs = totalTechs * ((DAY_END - DAY_START) / 60);
             const utilization = availableHrs > 0 ? Math.round((scheduledHrs / availableHrs) * 100) : 0;
             const now = new Date();
