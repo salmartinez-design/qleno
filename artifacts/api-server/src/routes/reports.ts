@@ -1230,9 +1230,12 @@ router.get("/first-time", requireAuth, ROLE, async (req, res) => {
 });
 
 // ── GET /api/reports/upsell-conversion ──────────────────────────────────────
-router.get("/upsell-conversion", requireAuth, async (req, res) => {
+router.get("/upsell-conversion", requireAuth, ROLE, async (req, res) => {
   const { sql: dsql } = await import("drizzle-orm");
-  const companyId = (req as any).user?.company_id;
+  // [tech-isolation 2026-07-10] Add the ROLE gate every sibling report has, and
+  // fix the company scope: req.user is undefined (middleware sets req.auth), so
+  // companyId was silently null here.
+  const companyId = (req as any).auth?.companyId;
   const { from, to, status: statusFilter, cadence: cadenceFilter } = req.query as Record<string, string>;
   const fromStr = from || new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
   const toStr = to || new Date().toISOString().split("T")[0];
