@@ -59,6 +59,7 @@ const ScorecardsReportPage= lazy(() => import("@/pages/reports/scorecards"));
 const QualityEfficiencyReportPage = lazy(() => import("@/pages/reports/quality-efficiency"));
 const CancellationsPage   = lazy(() => import("@/pages/reports/cancellations"));
 const ContactTicketsReportPage = lazy(() => import("@/pages/reports/contact-tickets"));
+const RedosReportPage = lazy(() => import("@/pages/reports/redos"));
 const HotSheetPage        = lazy(() => import("@/pages/reports/hot-sheet"));
 const FirstTimePage       = lazy(() => import("@/pages/reports/first-time"));
 const PropertyGroupsPage  = lazy(() => import("@/pages/property-groups"));
@@ -286,6 +287,7 @@ function Router() {
         <Route path="/reports/quality-efficiency" component={QualityEfficiencyReportPage} />
         <Route path="/reports/cancellations" component={CancellationsPage} />
         <Route path="/reports/contact-tickets" component={ContactTicketsReportPage} />
+        <Route path="/reports/redos" component={RedosReportPage} />
         <Route path="/reports/hot-sheet" component={HotSheetPage} />
         <Route path="/reports/first-time" component={FirstTimePage} />
 

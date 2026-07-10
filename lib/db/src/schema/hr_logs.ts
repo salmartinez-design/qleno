@@ -61,6 +61,12 @@ export const qualityComplaintsTable = pgTable("quality_complaints", {
   re_clean_required: boolean("re_clean_required").default(false),
   recovery_tech_id: integer("recovery_tech_id").references(() => usersTable.id),
   resolved: boolean("resolved").default(false),
+  // [redo-service 2026-07-10] Structured fields so the Redos & Quality reports
+  // can aggregate by reason (reason_category) and by area (areas, comma-joined),
+  // and link the complaint to the redo job that was spawned for it.
+  reason_category: text("reason_category"),
+  areas: text("areas"),
+  redo_job_id: integer("redo_job_id").references(() => jobsTable.id),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 

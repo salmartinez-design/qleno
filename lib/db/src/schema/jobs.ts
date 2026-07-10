@@ -168,6 +168,13 @@ export const jobsTable = pgTable("jobs", {
   // confirmed mapped. The dispatch UI in 1B reads service_type_id when
   // present and falls back to service_type otherwise.
   service_type_id: integer("service_type_id"),
+  // [redo-service 2026-07-10] A redo / re-clean created from an original job via
+  // the "Create Redo Service" flow. redo_of_job_id links back to the original;
+  // non_billable=true keeps the $0 redo OUT of revenue counts + invoicing (it's
+  // free under the client guarantee). A recovery tech is still paid via the
+  // job_technicians pay_override — non_billable only affects client billing.
+  redo_of_job_id: integer("redo_of_job_id"),
+  non_billable: boolean("non_billable").notNull().default(false),
 });
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, created_at: true });

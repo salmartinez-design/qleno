@@ -582,7 +582,10 @@ async function handleClockEvent(
       ensureInvoiceForCompletedJob(companyId, job.id, userId)
         .catch((e: Error) => console.error("[tech-clock invoice] non-fatal:", e));
       // ── job_completed notification + satisfaction survey (non-blocking) ─
-      if (job.client_id) {
+      // [redo-service 2026-07-10] Skip the survey after a redo — don't ask a
+      // just-dissatisfied client for a review.
+      const [_redoChk] = await db.select({ nb: jobsTable.non_billable, ro: jobsTable.redo_of_job_id }).from(jobsTable).where(eq(jobsTable.id, job.id)).limit(1);
+      if (job.client_id && !(_redoChk?.nb || _redoChk?.ro != null)) {
         // [one-completion-email] Survey first (same trigger as the office path,
         // jobs.ts PATCH); its response says whether the survey EMAIL reached the
         // inbox. The thank-you email only goes when it didn't, so the customer

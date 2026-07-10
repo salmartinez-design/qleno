@@ -96,11 +96,15 @@ export async function ensureInvoiceForCompletedJob(
         hourly_rate: jobsTable.hourly_rate,
         charge_succeeded_at: jobsTable.charge_succeeded_at,
         scheduled_date: jobsTable.scheduled_date,
+        non_billable: jobsTable.non_billable,
       })
       .from(jobsTable)
       .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
       .limit(1);
     if (!job) return NO_OP;
+    // [redo-service 2026-07-10] A redo/re-clean is free to the client under the
+    // guarantee — never invoice it, not even a $0 draft on a commercial account.
+    if (job.non_billable) return NO_OP;
 
     // [cutover-guard 2026-06-17] Pre-cutover jobs are billed in MaidCentral, NOT
     // Qleno. Never auto-invoice a job scheduled before the Qleno go-live date —
