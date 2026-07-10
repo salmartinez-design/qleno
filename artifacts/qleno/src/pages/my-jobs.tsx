@@ -13,6 +13,7 @@ import { PushNudge } from "@/components/push-nudge";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles } from "@/lib/job-status";
 import { formatAddress, mapsDirectionsUrl } from "@/lib/format-address";
+import { compressImage } from "@/lib/compress-image";
 import { VoiceAssistant } from "@/components/voice-assistant";
 import { QlenoMark } from "@/components/brand/QlenoMark";
 import { QuoteAttachments } from "@/components/quote-attachments";
@@ -422,38 +423,53 @@ function PhotoGrid({ jobId, type, photos, onUploaded }: {
   const { toast } = useToast();
 
   // [multi-photo 2026-06-10] Juliana: "can't upload more than one photo at a
-  // time." The picker is now `multiple`; we upload every selected file (one
-  // request each — the endpoint takes one photo per POST), skipping any that
-  // are oversized/invalid, and report how many landed.
+  // time." The picker is `multiple`.
+  // [photo-compress 2026-07-10] Juliana again: uploads took ~30 min and photos
+  // "couldn't be added." Two causes fixed here: (1) each raw phone photo (3–12
+  // MB) was sent full-size and uploaded ONE AT A TIME; (2) HEIC (iPhone default)
+  // and >10 MB shots were silently skipped. Now we compress every photo to a
+  // ~1600px JPEG (~300 KB) FIRST — which also converts HEIC → JPEG so nothing
+  // gets dropped — then upload a few at a time. A 5 MB / 30 s upload becomes
+  // ~300 KB / ~2 s, and a batch runs in parallel.
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
     setUploading(true);
     let ok = 0, skipped = 0;
+    const token = useAuthStore.getState().token;
+
+    const uploadOne = async (raw: File) => {
+      const file = await compressImage(raw);
+      // After compression a photo is well under the server's 15 MB cap; this
+      // only trips for a huge non-image or an undecodable original.
+      if (file.size > 15 * 1024 * 1024) { skipped++; return; }
+      try {
+        // [photos-r2 2026-06-24] Multipart (not base64 JSON); the server streams
+        // it to R2. Direct fetch because apiFetch forces JSON — FormData needs
+        // the browser to set its own multipart boundary.
+        const fd = new FormData();
+        fd.append("photo", file);
+        fd.append("photo_type", type);
+        const res = await fetch(`${BASE}/api/jobs/${jobId}/photos`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: fd,
+        });
+        if (!res.ok) { skipped++; return; }
+        ok++;
+      } catch { skipped++; }
+    };
+
     try {
-      for (const file of files) {
-        if (file.size > 10 * 1024 * 1024 || !["image/jpeg", "image/png", "image/webp"].includes(file.type)) { skipped++; continue; }
-        try {
-          // [photos-r2 2026-06-24] Send the raw file as multipart (not base64
-          // JSON). The server streams it to R2. Using a direct fetch because
-          // apiFetch forces Content-Type: application/json — for FormData the
-          // browser must set its own multipart boundary.
-          const fd = new FormData();
-          fd.append("photo", file);
-          fd.append("photo_type", type);
-          const token = useAuthStore.getState().token;
-          const res = await fetch(`${BASE}/api/jobs/${jobId}/photos`, {
-            method: "POST",
-            headers: { Authorization: `Bearer ${token}` },
-            body: fd,
-          });
-          if (!res.ok) { skipped++; continue; }
-          ok++;
-        } catch { skipped++; }
+      // Upload in small parallel batches — fast, but capped so a weak mobile
+      // connection isn't overwhelmed.
+      const CONCURRENCY = 3;
+      for (let i = 0; i < files.length; i += CONCURRENCY) {
+        await Promise.all(files.slice(i, i + CONCURRENCY).map(uploadOne));
       }
       if (ok > 0) onUploaded();
       if (ok > 0) toast({ title: `${ok} ${type} photo${ok === 1 ? "" : "s"} added${skipped ? ` · ${skipped} skipped` : ""}` });
-      else if (skipped > 0) toast({ variant: "destructive", title: "Couldn't add photos", description: "Too large or unsupported type (max 10MB; JPG/PNG/WebP)." });
+      else if (skipped > 0) toast({ variant: "destructive", title: "Couldn't add photos", description: "Those files couldn't be read as photos. Try taking the picture again." });
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
