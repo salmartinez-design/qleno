@@ -13,7 +13,8 @@
     "test:lms": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/lms-*.test.ts",
     "test:cutover": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/cutover-*.test.ts",
     "test:promos": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/auto-promos.test.ts",
-    "test:optout": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/opt-out.test.ts"
+    "test:optout": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/opt-out.test.ts",
+    "test:isolation": "DATABASE_URL=postgres://stub@stub/stub tsx --test src/tests/tech-isolation.test.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.71.0",
