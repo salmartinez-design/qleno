@@ -1132,6 +1132,43 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     );
     const jobId = (jobResult.rows[0] as any).id;
 
+    // [booking-itemize 2026-07-10] Persist the customer's selected add-ons AND any
+    // discounts as job line items. Before this, booking priced them into the total
+    // but never wrote the rows, so the job card, invoice, and confirmation email all
+    // showed just "Deep Clean $X" with the add-ons invisible and any discount folded
+    // silently into the base (Maribel: "didn't pick up any of the add ons"). All
+    // three surfaces already itemize off job_add_ons via the same subtract-from-base
+    // math (dispatch card baseInit, buildJobLineItems scope line), so populating these
+    // rows fixes every surface at once. base_fee stays the all-in NET total — these
+    // rows are the breakdown of money already inside it: positives for add-ons,
+    // negatives for discounts (the established "negative add-on = discount" pattern
+    // the card + invoice already render). Scaled by condMult to match base_fee
+    // (= final_total × condMult) so base + add-ons − discounts reconciles exactly.
+    // Best-effort — a failure here never blocks the booking.
+    try {
+      const lineAddOns: Array<{ pricing_addon_id?: number; name?: string; qty?: number; unit_price?: number; subtotal?: number }> = [];
+      for (const a of ((pricing as any).addon_breakdown ?? [])) {
+        const amt = Math.round((Number(a.amount) || 0) * condMult * 100) / 100;
+        if (amt === 0) continue;
+        lineAddOns.push({ pricing_addon_id: Number(a.id) || undefined, name: a.name, qty: 1, unit_price: amt, subtotal: amt });
+      }
+      for (const b of ((pricing as any).bundle_breakdown ?? [])) {
+        const d = Math.round((Number(b.discount) || 0) * condMult * 100) / 100;
+        if (d <= 0) continue;
+        lineAddOns.push({ name: b.name || "Bundle discount", qty: 1, unit_price: -d, subtotal: -d });
+      }
+      const codeDisc = Math.round((Number((pricing as any).discount_amount) || 0) * condMult * 100) / 100;
+      if (codeDisc > 0) {
+        lineAddOns.push({ name: discount_code ? `Discount (${String(discount_code).toUpperCase()})` : "Discount", qty: 1, unit_price: -codeDisc, subtotal: -codeDisc });
+      }
+      if (lineAddOns.length > 0) {
+        const { persistJobAddOns } = await import("./jobs.js");
+        await persistJobAddOns(db, jobId, Number(company_id), lineAddOns);
+      }
+    } catch (itemErr) {
+      console.error("[booking-itemize] failed to persist add-ons/discounts for job", jobId, itemErr);
+    }
+
     // [book-from-quote] If this booking came from a quote email's "Book" link,
     // mark that quote booked (linked to the new job) + stop its follow-up drip,
     // so the customer isn't chased after they've already booked. Non-blocking.
