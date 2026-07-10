@@ -278,6 +278,112 @@ router.post("/:id/duplicate", requireAuth, async (req, res) => {
   }
 });
 
+// [redo-service 2026-07-10] POST /api/jobs/:id/redo — "Create Redo Service".
+// Spawns a $0, NON-BILLABLE, one-off redo job linked to the original (copying
+// the original's client/account + address + zone + service so it routes and
+// assigns correctly), logs an auto-validated quality complaint on the
+// accountable cleaner(s), and runs the 2-in-30 probation check (which alerts the
+// office). Built as a DIRECT insert (like Duplicate) so the standard "cleaning
+// confirmed" customer comms on POST /api/jobs never fire for a redo.
+// Body: { reason, reason_category, areas[], accountable_user_ids[],
+//         mode: 'same'|'recovery', recovery_user_id?, recovery_pay?,
+//         recovery_hours?, scheduled_date, scheduled_time? }
+router.post("/:id/redo", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const userId = req.auth!.userId as number;
+    const srcId = parseInt(String(req.params.id));
+    const {
+      reason, reason_category, areas, accountable_user_ids,
+      mode, recovery_user_id, recovery_pay, recovery_hours,
+      scheduled_date, scheduled_time,
+    } = req.body ?? {};
+
+    if (!scheduled_date) return res.status(400).json({ error: "scheduled_date required" });
+    const accountable: number[] = Array.isArray(accountable_user_ids)
+      ? accountable_user_ids.map((x: any) => Number(x)).filter((x: number) => Number.isFinite(x)) : [];
+    if (!accountable.length) return res.status(400).json({ error: "Select at least one cleaner this redo is on." });
+    const isRecovery = mode === "recovery";
+    if (isRecovery && !recovery_user_id) return res.status(400).json({ error: "recovery_user_id required for a paid recovery redo." });
+
+    const [src] = await db.select().from(jobsTable).where(and(eq(jobsTable.id, srcId), eq(jobsTable.company_id, companyId)));
+    if (!src) return res.status(404).json({ error: "Job not found" });
+
+    // The redo VISIT is assigned to the recovery cleaner (paid) or the original
+    // cleaner (unpaid). Guard: never assign/pay a deactivated cleaner.
+    const assignedTechId = isRecovery ? Number(recovery_user_id) : accountable[0];
+    const activeChk = await db.execute(sql`SELECT 1 FROM users WHERE id = ${assignedTechId} AND is_active = true LIMIT 1`);
+    if (!activeChk.rows.length) return res.status(400).json({ error: "That cleaner is not active — pick an active cleaner for the redo." });
+
+    // Hours drive commercial pay, so cap them to the recovery minimum (default 3)
+    // — never copy the original's hours (that overpays commercial redos).
+    const redoHours = Number.isFinite(Number(recovery_hours)) && Number(recovery_hours) > 0 ? Number(recovery_hours) : 3;
+
+    // Copy the original's definition, then override to a clean $0 one-off redo.
+    const { id: _omitId, created_at: _omitCreated, ...rest } = src as any;
+    const [redo] = await db.insert(jobsTable).values({
+      ...rest,
+      scheduled_date,
+      scheduled_time: scheduled_time ?? src.scheduled_time,
+      status: "scheduled",
+      frequency: "on_demand",
+      recurring_schedule_id: null,
+      occurrence_date: null,
+      base_fee: "0",
+      allowed_hours: String(redoHours),
+      assigned_user_id: assignedTechId,
+      // [redo-service] the load-bearing new fields
+      redo_of_job_id: srcId,
+      non_billable: true,
+      notes: `Redo of job #${srcId}. ${reason ? "Reason: " + String(reason).slice(0, 500) : ""}`.trim(),
+      // reset all operational / clock / billing / completion state
+      billed_hours: null, billed_amount: null, actual_hours: null, actual_end_time: null,
+      locked_at: null, completed_by_user_id: null, completion_pdf_url: null, completion_pdf_sent_at: null,
+      charge_attempted_at: null, charge_succeeded_at: null, charge_failed_at: null, charge_failure_reason: null,
+      no_show_marked_by_tech: null, no_show_marked_by_user_id: null, flagged: false,
+    } as any).returning();
+
+    const redoId = redo.id;
+    logAudit(req, "CREATE", "job", redoId, null, redo);
+
+    // Assign the cleaner + set pay via a per-job override (uniform + avoids the
+    // residential-% vs commercial-hourly trap): recovery = the flat amount,
+    // same-cleaner = $0 (the Fix-It Rule).
+    const payOverride = isRecovery ? String(Number(recovery_pay) || 0) : "0";
+    await db.execute(sql`
+      INSERT INTO job_technicians (job_id, user_id, company_id, is_primary, pay_override, final_pay)
+      VALUES (${redoId}, ${assignedTechId}, ${companyId}, true, ${payOverride}, ${payOverride})
+      ON CONFLICT (job_id, user_id) DO UPDATE SET is_primary = true, pay_override = EXCLUDED.pay_override, final_pay = EXCLUDED.final_pay
+    `);
+
+    // Log an AUTO-VALIDATED quality complaint on each accountable cleaner, then
+    // run the 2-in-30 probation check (which alerts the office on a new crossing).
+    const today = new Date().toISOString().slice(0, 10);
+    const areasStr = Array.isArray(areas) ? areas.filter(Boolean).join(", ") : (areas ? String(areas) : null);
+    const { checkProbationThreshold } = await import("./hr-quality.js");
+    const probation: any[] = [];
+    for (const accId of accountable) {
+      await db.execute(sql`
+        INSERT INTO quality_complaints
+          (company_id, job_id, employee_id, complaint_date, description, valid, validated_by, validated_at,
+           re_clean_required, recovery_tech_id, reason_category, areas, redo_job_id, created_at)
+        VALUES
+          (${companyId}, ${srcId}, ${accId}, ${today}, ${reason ?? null}, true, ${userId}, NOW(),
+           true, ${isRecovery ? Number(recovery_user_id) : null}, ${reason_category ?? null}, ${areasStr}, ${redoId}, NOW())
+      `);
+      try {
+        const p = await checkProbationThreshold(companyId, accId);
+        probation.push({ employee_id: accId, ...p });
+      } catch (e) { console.error("[redo] probation check failed for", accId, e); }
+    }
+
+    return res.status(201).json({ redo_job: redo, accountable, probation });
+  } catch (err) {
+    console.error("[jobs redo]", err);
+    return res.status(500).json({ error: "Failed to create redo service" });
+  }
+});
+
 router.get("/", requireAuth, async (req, res) => {
   try {
     // [BUG-7 / 2026-06-01] Added `date` as a single-day filter alongside the
@@ -4027,8 +4133,11 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     // thank-you email is skipped so the customer gets exactly ONE email per
     // visit (thank-you only on survey-throttled visits). SMS unaffected.
     const clientId = (updated[0] as any).client_id;
+    // [redo-service 2026-07-10] A redo/re-clean must NOT re-ask the client for a
+    // review (they just complained) or start a "we miss you" drip.
+    const isRedoJob = !!(updated[0] as any).non_billable || (updated[0] as any).redo_of_job_id != null;
     let surveyPromise: Promise<any> = Promise.resolve(null);
-    if (clientId) {
+    if (clientId && !isRedoJob) {
       surveyPromise = fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {
         method: "POST",
         headers: {
@@ -4041,7 +4150,7 @@ router.post("/:id/complete", requireAuth, async (req, res) => {
     // ─────────────────────────────────────────────────────────────────────
 
     // ── post_job_retention enrollment (non-blocking) ──────────────────────
-    if (completedJob.client_id) {
+    if (completedJob.client_id && !isRedoJob) {
       import("../services/followUpService.js").then(({ enrollForJobComplete }) => {
         enrollForJobComplete(req.auth!.companyId, jobId, completedJob.client_id).catch(() => {});
       });

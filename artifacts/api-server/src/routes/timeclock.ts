@@ -601,7 +601,9 @@ router.post("/:id/clock-out", requireAuth, async (req, res) => {
           ensureInvoiceForCompletedJob(req.auth!.companyId, jobId, req.auth!.userId)
             .catch((e: Error) => console.error("[end-job invoice] non-fatal:", e));
         }
-        if (clientId) {
+        // [redo-service 2026-07-10] Skip survey + retention drip after a redo.
+        const [_redoChk] = await db.select({ nb: jobsTable.non_billable, ro: jobsTable.redo_of_job_id }).from(jobsTable).where(eq(jobsTable.id, jobId)).limit(1);
+        if (clientId && !(_redoChk?.nb || _redoChk?.ro != null)) {
           // [one-completion-email] Survey response says whether the survey EMAIL
           // went out; the thank-you email below only sends when it didn't.
           const surveyPromise: Promise<any> = fetch(`http://localhost:${process.env.PORT || 8080}/api/satisfaction/send`, {

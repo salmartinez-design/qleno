@@ -123,7 +123,12 @@ router.post("/probation/check", requireAuth, requireRole("owner", "admin"), asyn
   }
 });
 
-async function checkProbationThreshold(companyId: number, employeeId: number) {
+// [redo-service 2026-07-10] exported so the Create Redo Service flow can run the
+// same 2-in-30 check after it logs a redo's quality complaint, and now fires a
+// DEDUPED office alert (the piece that was missing) when a cleaner NEWLY crosses
+// into probation — so re-validating old complaints or a 3rd/4th redo doesn't
+// re-spam the office.
+export async function checkProbationThreshold(companyId: number, employeeId: number) {
   const policyRows = await db.select().from(companyPayPolicyTable).where(eq(companyPayPolicyTable.company_id, companyId)).limit(1);
   if (!policyRows.length || !policyRows[0].quality_probation_enabled) return { threshold_met: false };
   const policy = policyRows[0];
@@ -145,9 +150,26 @@ async function checkProbationThreshold(companyId: number, employeeId: number) {
   const thresholdMet = total >= triggerCount;
 
   if (thresholdMet) {
+    // Was the cleaner already flagged? If so, don't re-alert (dedupe).
+    const cur = await db.select({ hr_status: usersTable.hr_status, first_name: usersTable.first_name, last_name: usersTable.last_name })
+      .from(usersTable).where(and(eq(usersTable.id, employeeId), eq(usersTable.company_id, companyId))).limit(1);
+    const alreadyOnProbation = cur[0]?.hr_status === "quality_probation";
     await db.update(usersTable)
       .set({ hr_status: "quality_probation" })
       .where(and(eq(usersTable.id, employeeId), eq(usersTable.company_id, companyId)));
+    if (!alreadyOnProbation) {
+      try {
+        const name = cur[0] ? `${cur[0].first_name ?? ""} ${cur[0].last_name ?? ""}`.trim() : `Employee #${employeeId}`;
+        const { notifyOfficeUsers } = await import("../lib/notify.js");
+        await notifyOfficeUsers(companyId, {
+          type: "quality_probation",
+          title: "Quality probation triggered",
+          body: `${name} reached ${total} valid quality/redo complaints in ${rollingDays} days. Review for disciplinary action.`,
+          link: `/employees/${employeeId}`,
+          meta: { employee_id: employeeId, count: total, rolling_days: rollingDays },
+        });
+      } catch (e) { console.error("[hr-quality] office probation alert failed (non-fatal):", e); }
+    }
   }
 
   return { threshold_met: thresholdMet, valid_complaints_in_window: total };

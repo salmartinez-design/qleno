@@ -427,6 +427,16 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] runCommsOptOutMigration — non-fatal:", err?.message ?? err);
   }
+  // [redo-service 2026-07-10] jobs.redo_of_job_id / non_billable +
+  // quality_complaints.reason_category / areas / redo_job_id.
+  try {
+    await withBootTimeout("runRedoServiceMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runRedoServiceMigration } = await import("./lib/redo-service.js");
+      await runRedoServiceMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runRedoServiceMigration — non-fatal:", err?.message ?? err);
+  }
   // [team-photo-notes] team_photo_notes table (pictures + notes attached to a
   // job or made sticky to a customer/property).
   try {
