@@ -1316,7 +1316,7 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
 // uses — with cascade_scope:'this_job' so it only touches THIS occurrence, never
 // the whole series. Commercial-hourly prices as rate×hours (the base line is not
 // base_fee), so those stay read-only and route to the full editor.
-function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; canEdit: boolean; onUpdate: () => void }) {
+function InlinePricingEditor({ job, canEdit, onUpdate, adjustments }: { job: DispatchJob; canEdit: boolean; onUpdate: () => void; adjustments?: React.ReactNode }) {
   const token = useAuthStore(s => s.token)!;
   const { toast } = useToast();
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -1453,6 +1453,10 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
             <Pencil size={13} /> {isHourlyCommercial ? "Edit hours and add-ons" : "Edit base rate and add-ons"}
           </button>
         )}
+        {/* [adjustments-merge 2026-07-10] The single Time & Fee Adjustments control
+            lives here now (Maribel: "this should be integrated arriba") — passed in
+            from JobPanel so the billing/commission logic stays in one place. */}
+        {adjustments}
       </PS>
     );
   }
@@ -1471,19 +1475,13 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
             <input type="number" step="0.01" min="0" value={baseVal} onChange={e => setBaseVal(e.target.value)} style={inputStyle} autoFocus />
           </div>
         )}
-        {items.map((a, i) => {
-          // A custom line (added here in the editor) has no catalog id, so its name
-          // is editable inline; catalog add-ons keep their fixed label.
-          const isCustom = a.pricing_addon_id == null && a.add_on_id == null;
-          return (
+        {/* [adjustments-merge 2026-07-10] The edit view edits the base rate/hours and
+            the booking add-on lines only. Adding a NEW adjustment (parking, discount,
+            extra time) now goes through the single Adjustments control below the total
+            — no separate "+ Add adjustment" here. */}
+        {items.map((a, i) => (
           <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            {isCustom ? (
-              <input type="text" value={a.name ?? ""} placeholder="Adjustment name (e.g. Parking fee)"
-                onChange={e => { const nm = e.target.value; setItems(prev => prev.map((it, idx) => idx === i ? { ...it, name: nm } : it)); }}
-                style={{ flex: 1, minWidth: 0, padding: "5px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF, outline: "none" }} />
-            ) : (
-              <span style={{ fontSize: 13, color: "#6B6860", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
-            )}
+            <span style={{ fontSize: 13, color: "#6B6860", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
             <input type="number" step="0.01" value={String(a.subtotal ?? 0)}
               onChange={e => { const v = parseFloat(e.target.value) || 0; setItems(prev => prev.map((it, idx) => idx === i ? { ...it, subtotal: v, unit_price: (it.quantity && it.quantity > 0) ? v / it.quantity : v } : it)); }}
               style={inputStyle} />
@@ -1492,18 +1490,7 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
               <X size={12} />
             </button>
           </div>
-          );
-        })}
-        {/* [custom-adjustment-line 2026-07-10] Add any adjustment right here — parking
-            fee, a one-off charge, or a discount (negative amount). Maribel: "when we
-            click edit hours and add-ons we should be able to add any adjustment." */}
-        <button onClick={() => setItems(prev => [...prev, { name: "", subtotal: 0, unit_price: 0, quantity: 1 } as JobAddOn])}
-          style={{ marginTop: 2, alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#2D9B83", border: "1px dashed #2D9B83", borderRadius: 8, background: "transparent", padding: "6px 10px", cursor: "pointer", fontFamily: FF }}>
-          <Plus size={12} /> Add adjustment
-        </button>
-        <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: -2 }}>
-          Parking fee, extra charge, or a discount — use a negative amount for a discount (e.g. −20).
-        </div>
+        ))}
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 4, paddingTop: 8 }}>
           <span style={{ fontWeight: 700, color: "#1A1917" }}>Total</span>
           <span style={{ fontWeight: 800, color: "#1A1917" }}>{num(liveTotal)}</span>
@@ -2863,7 +2850,101 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               INLINE editor (Maribel): base rate + each add-on editable + removable
               right here, total recomputed. Residential only (commercial-hourly
               stays read-only — see InlinePricingEditor). */}
-          <InlinePricingEditor job={job} canEdit={canEditOfficeNotes} onUpdate={onUpdate} />
+          <InlinePricingEditor job={job} canEdit={canEditOfficeNotes} onUpdate={onUpdate}
+            adjustments={canManageMods ? (
+              <div style={{ marginTop: 14, borderTop: "1px solid #F0EDE8", paddingTop: 12 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Adjustments</div>
+                {rateMods.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 8 }}>
+                    {rateModsLoaded ? "No adjustments" : "Loading…"}
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
+                    {rateMods.map(m => {
+                      const amt = parseFloat(m.amount);
+                      const sign = amt >= 0 ? "+" : "−";
+                      const abs = Math.abs(amt).toFixed(2);
+                      const detail = m.mod_type === "time"
+                        ? `Extra time · ${(m.minutes ?? 0) >= 0 ? "+" : ""}${m.minutes} min`
+                        : "Fee / discount";
+                      return (
+                        <div key={m.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF" }}>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
+                              {detail} · {sign}${abs}
+                            </div>
+                            <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2, wordBreak: "break-word" }}>
+                              {m.reason}
+                            </div>
+                          </div>
+                          {adjUnlocked && (
+                            <button onClick={() => deleteRateMod(m.id)}
+                              style={{ marginLeft: 8, padding: 4, border: "none", background: "transparent", cursor: "pointer", color: "#9E9B94" }}
+                              title="Remove adjustment">
+                              <X size={14} />
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {!modAddOpen ? (
+                  <button onClick={() => adjUnlocked && setModAddOpen(true)}
+                    disabled={!adjUnlocked}
+                    style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: !adjUnlocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${!adjUnlocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: !adjUnlocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: !adjUnlocked ? 0.6 : 1 }}>
+                    <Plus size={12} /> Add adjustment
+                  </button>
+                ) : (
+                  <div style={{ padding: 10, border: "1px solid #E5E2DC", borderRadius: 8, background: "#FAFAF7" }}>
+                    <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                      <button onClick={() => setModType("flat")}
+                        style={{ flex: 1, padding: "6px 8px", border: `1px solid ${modType === "flat" ? "#2D9B83" : "#E5E2DC"}`, borderRadius: 6, background: modType === "flat" ? "#2D9B83" : "#FFFFFF", color: modType === "flat" ? "#FFFFFF" : "#1A1917", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        Fee / discount
+                      </button>
+                      <button onClick={() => setModType("time")}
+                        style={{ flex: 1, padding: "6px 8px", border: `1px solid ${modType === "time" ? "#2D9B83" : "#E5E2DC"}`, borderRadius: 6, background: modType === "time" ? "#2D9B83" : "#FFFFFF", color: modType === "time" ? "#FFFFFF" : "#1A1917", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        Extra time
+                      </button>
+                    </div>
+                    {modType === "time" && (
+                      <input type="number" placeholder="Minutes (e.g. 30 or -15)"
+                        value={modMinutes} onChange={e => setModMinutes(e.target.value)}
+                        style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 6, boxSizing: "border-box" }} />
+                    )}
+                    <input type="number" step="0.01" placeholder={modType === "time" ? "Amount added to the bill (e.g. 25)" : "Amount (e.g. 30, or -20 for a discount)"}
+                      value={modAmount} onChange={e => setModAmount(e.target.value)}
+                      style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 6, boxSizing: "border-box" }} />
+                    <input type="text" placeholder="Reason (e.g. Parking)"
+                      value={modReason} onChange={e => setModReason(e.target.value)}
+                      style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 8, boxSizing: "border-box" }} />
+                    <label style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 8, cursor: "pointer" }}>
+                      <input type="checkbox" checked={modAffectsCommission}
+                        onChange={e => setModAffectsCommission(e.target.checked)}
+                        style={{ width: 14, height: 14, marginTop: 1, accentColor: "#16A34A", flexShrink: 0, cursor: "pointer" }} />
+                      <span style={{ fontSize: 11, color: "#1A1917", userSelect: "none" }}>
+                        Counts toward the tech's commission / fee split
+                        <span style={{ display: "block", color: "#9E9B94", fontSize: 10.5 }}>
+                          Off = billing only, does not change tech pay
+                        </span>
+                      </span>
+                    </label>
+                    {modError && <div style={{ color: "#DC2626", fontSize: 11, marginBottom: 6 }}>{modError}</div>}
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button onClick={addRateMod} disabled={modBusy}
+                        style={{ flex: 1, padding: "6px 8px", border: "none", borderRadius: 6, background: "#16A34A", color: "#FFFFFF", fontSize: 12, fontWeight: 600, cursor: modBusy ? "wait" : "pointer", fontFamily: FF }}>
+                        {modBusy ? "Saving…" : "Save"}
+                      </button>
+                      <button onClick={() => { setModAddOpen(false); setModError(""); }} disabled={modBusy}
+                        style={{ padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : null}
+          />
 
           {/* [lockout-visibility 2026-06-17] This completed job is actually a
               charged cancellation/lockout — make that unmistakable in the
@@ -3646,101 +3727,6 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               addTechOpen modal are still wired through (see InlineTechEdit
               area above and the existing Add Team Member modal below). */}
 
-          {/* Time & Fee Adjustments — per-job mods stacked on top of base_fee */}
-          {canManageMods && (
-            <PS label="Time & Fee Adjustments">
-              {rateMods.length === 0 ? (
-                <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 8 }}>
-                  {rateModsLoaded ? "No adjustments" : "Loading…"}
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 8 }}>
-                  {rateMods.map(m => {
-                    const amt = parseFloat(m.amount);
-                    const sign = amt >= 0 ? "+" : "−";
-                    const abs = Math.abs(amt).toFixed(2);
-                    const detail = m.mod_type === "time"
-                      ? `${(m.minutes ?? 0) >= 0 ? "+" : ""}${m.minutes} min`
-                      : "Flat fee";
-                    return (
-                      <div key={m.id} style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF" }}>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
-                            {detail} · {sign}${abs}
-                          </div>
-                          <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2, wordBreak: "break-word" }}>
-                            {m.reason}
-                          </div>
-                        </div>
-                        {adjUnlocked && (
-                          <button onClick={() => deleteRateMod(m.id)}
-                            style={{ marginLeft: 8, padding: 4, border: "none", background: "transparent", cursor: "pointer", color: "#9E9B94" }}
-                            title="Remove adjustment">
-                            <X size={14} />
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {!modAddOpen ? (
-                <button onClick={() => adjUnlocked && setModAddOpen(true)}
-                  disabled={!adjUnlocked}
-                  style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: !adjUnlocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${!adjUnlocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: !adjUnlocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: !adjUnlocked ? 0.6 : 1 }}>
-                  <Plus size={12} /> Add Adjustment
-                </button>
-              ) : (
-                <div style={{ padding: 10, border: "1px solid #E5E2DC", borderRadius: 8, background: "#FAFAF7" }}>
-                  <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
-                    <button onClick={() => setModType("time")}
-                      style={{ flex: 1, padding: "6px 8px", border: `1px solid ${modType === "time" ? "#2D9B83" : "#E5E2DC"}`, borderRadius: 6, background: modType === "time" ? "#2D9B83" : "#FFFFFF", color: modType === "time" ? "#FFFFFF" : "#1A1917", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
-                      Time
-                    </button>
-                    <button onClick={() => setModType("flat")}
-                      style={{ flex: 1, padding: "6px 8px", border: `1px solid ${modType === "flat" ? "#2D9B83" : "#E5E2DC"}`, borderRadius: 6, background: modType === "flat" ? "#2D9B83" : "#FFFFFF", color: modType === "flat" ? "#FFFFFF" : "#1A1917", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
-                      Flat Fee
-                    </button>
-                  </div>
-                  {modType === "time" && (
-                    <input type="number" placeholder="Minutes (e.g. 30 or -15)"
-                      value={modMinutes} onChange={e => setModMinutes(e.target.value)}
-                      style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 6, boxSizing: "border-box" }} />
-                  )}
-                  <input type="number" step="0.01" placeholder="Amount (e.g. 30 or -50)"
-                    value={modAmount} onChange={e => setModAmount(e.target.value)}
-                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 6, boxSizing: "border-box" }} />
-                  <input type="text" placeholder="Reason"
-                    value={modReason} onChange={e => setModReason(e.target.value)}
-                    style={{ width: "100%", padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, marginBottom: 8, boxSizing: "border-box" }} />
-                  {/* [commission-optin 2026-07-01] Opt-in: whether this adjustment
-                      counts toward the tech's fee split / commission. */}
-                  <label style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 8, cursor: "pointer" }}>
-                    <input type="checkbox" checked={modAffectsCommission}
-                      onChange={e => setModAffectsCommission(e.target.checked)}
-                      style={{ width: 14, height: 14, marginTop: 1, accentColor: "#16A34A", flexShrink: 0, cursor: "pointer" }} />
-                    <span style={{ fontSize: 11, color: "#1A1917", userSelect: "none" }}>
-                      Counts toward the tech's commission / fee split
-                      <span style={{ display: "block", color: "#9E9B94", fontSize: 10.5 }}>
-                        Off = billing only, does not change tech pay
-                      </span>
-                    </span>
-                  </label>
-                  {modError && <div style={{ color: "#DC2626", fontSize: 11, marginBottom: 6 }}>{modError}</div>}
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={addRateMod} disabled={modBusy}
-                      style={{ flex: 1, padding: "6px 8px", border: "none", borderRadius: 6, background: "#16A34A", color: "#FFFFFF", fontSize: 12, fontWeight: 600, cursor: modBusy ? "wait" : "pointer", fontFamily: FF }}>
-                      {modBusy ? "Saving…" : "Save"}
-                    </button>
-                    <button onClick={() => { setModAddOpen(false); setModError(""); }} disabled={modBusy}
-                      style={{ padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-            </PS>
-          )}
 
           {/* [AF] Supplies Used section removed per drawer cleanup. */}
         </div>
