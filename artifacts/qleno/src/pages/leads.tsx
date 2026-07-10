@@ -100,6 +100,12 @@ const SOURCE_CONFIG: Record<string, { label: string; color: string; bg: string }
   very_dirty:           { label: "V. Dirty",color: "#DC2626", bg: "#FEF2F2" },
   contact_form:         { label: "Form",    color: "#7C3AED", bg: "#F5F3FF" },
   quote_request:        { label: "Quote",   color: "#D97706", bg: "#FFFBEB" },
+  // [source-fix 2026-07-10] `source='quote'` is an OFFICE-built quote (see the
+  // description map below: "Office quote (built by your team)"). It was falling
+  // through to the "Web" chip because the webish regex matched the substring
+  // "quote". Give it an explicit Office chip so office quotes stop showing as
+  // website leads (Francisco: "all leads showing like they came from the site").
+  quote:                { label: "Office",  color: "#374151", bg: "#F3F4F6" },
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -137,7 +143,9 @@ function leadSourceTag(lead: Lead) {
   const src = ((lead.source && lead.source.trim()) ? lead.source : (lead.lead_source || "manual"));
   // A web-ish source that isn't in the config map (e.g. legacy 'widget') must
   // NOT fall back to the "Office" chip — that's the very mislabel we're fixing.
-  const webish = /web|widget|online|quote|form|very_dirty/.test(String(src).toLowerCase());
+  // [source-fix 2026-07-10] Do NOT match bare "quote" here — that's an OFFICE
+  // quote (now in SOURCE_CONFIG above). "web_quote" still matches via "web".
+  const webish = /web|widget|online|form|very_dirty/.test(String(src).toLowerCase());
   const cfg = SOURCE_CONFIG[src] || (webish ? SOURCE_CONFIG["web_quote"] : SOURCE_CONFIG["manual"]);
   return { src, cfg };
 }
