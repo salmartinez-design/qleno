@@ -118,9 +118,16 @@ router.get("/", requireAuth, async (req, res) => {
     // today-or-earlier jobs all stay. Pass ?include_future=1 to show everything.
     const includeFuture = String(req.query.include_future || "") === "1";
     if (!includeFuture) {
+      // [account-draft-visible 2026-07-10] The future-hide was built to hide
+      // RESIDENTIAL recurring auto-drafts (billing-in-advance noise). But ACCOUNT
+      // (commercial) invoicing is per-job DRAFT invoices that the office
+      // deliberately accumulates and merges into one bill — hiding a future-dated
+      // account draft broke that: Maribel couldn't merge Autochlor's 7/20 draft
+      // because it never appeared in the list. Only hide NON-account future drafts.
       conditions.push(sql`NOT (
         ${invoicesTable.status} = 'draft'
         AND ${invoicesTable.job_id} IS NOT NULL
+        AND ${invoicesTable.account_id} IS NULL
         AND EXISTS (
           SELECT 1 FROM jobs j
           WHERE j.id = ${invoicesTable.job_id}
