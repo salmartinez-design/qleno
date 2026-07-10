@@ -124,7 +124,7 @@ async function syncJobInvoiceDraft(
 // (POST /) and the edit cascade (PATCH /:id) so the FK-resolution logic
 // lives in exactly one place. `exec` is a db or transaction handle (both
 // expose .execute).
-type JobAddOnInput = { pricing_addon_id?: number; add_on_id?: number; qty?: number; unit_price?: number; subtotal?: number };
+type JobAddOnInput = { pricing_addon_id?: number; add_on_id?: number; qty?: number; unit_price?: number; subtotal?: number; name?: string };
 export async function persistJobAddOns(exec: any, jobId: number, companyId: number, addOns: JobAddOnInput[]): Promise<void> {
   await exec.execute(sql`DELETE FROM job_add_ons WHERE job_id = ${jobId}`);
   for (const a of addOns) {
@@ -159,6 +159,28 @@ export async function persistJobAddOns(exec: any, jobId: number, companyId: numb
           `);
           realAddOnId = Number((created.rows[0] as any).id);
         }
+      }
+    }
+    // [custom-adjustment-line 2026-07-10] Office added a free-text line from the
+    // dispatch pricing editor (Maribel: "when we click edit hours and add-ons we
+    // should be able to add any adjustment — parking fee, discounts, etc.").
+    // There's no pricing_addon catalog row for these, so resolve/create an
+    // add_ons row by the typed NAME (same case-insensitive lookup as the catalog
+    // path). A negative subtotal is a discount; positive is a fee/add-on.
+    const customName = String(a.name ?? "").trim();
+    if (!realAddOnId && customName) {
+      const existing = await exec.execute(sql`
+        SELECT id FROM add_ons WHERE company_id = ${companyId} AND LOWER(name) = LOWER(${customName}) LIMIT 1
+      `);
+      if (existing.rows.length) {
+        realAddOnId = Number((existing.rows[0] as any).id);
+      } else {
+        const created = await exec.execute(sql`
+          INSERT INTO add_ons (company_id, name, price, category, is_active)
+          VALUES (${companyId}, ${customName}, ${unitPrice}, 'other', true)
+          RETURNING id
+        `);
+        realAddOnId = Number((created.rows[0] as any).id);
       }
     }
     // Last-resort fallback: caller passed an explicit add_on_id that already
@@ -3531,6 +3553,87 @@ router.patch("/:id", requireAuth, async (req, res) => {
   }
 });
 
+// [orphan-client-cleanup 2026-07-10] When deleting a job leaves behind a customer
+// that has NOTHING else — no other jobs, quotes, invoices, estimates, or recurring
+// schedules — that customer is a leftover of the deleted job (typically a one-off
+// lead/quote that never became a real account). Maribel: "this customer should've
+// been deleted along with that job." We remove it, but ONLY when truly orphaned,
+// and NEVER in a way that can block the job delete: this runs in its OWN
+// transaction AFTER the job delete commits, with per-statement savepoints, and
+// swallows every error. If anything goes wrong the job is still deleted; the
+// client is just left in place (logged). Returns true only if the client row was
+// actually removed.
+async function cleanupOrphanedClient(clientId: number, companyId: number, jobId: number): Promise<boolean> {
+  try {
+    // Strict orphan test — any real linkage means it's a genuine customer we keep.
+    const counts = ((await db.execute(sql`
+      SELECT
+        (SELECT count(*) FROM jobs                WHERE client_id   = ${clientId} AND company_id = ${companyId}) AS jobs,
+        (SELECT count(*) FROM quotes              WHERE client_id   = ${clientId} AND company_id = ${companyId}) AS quotes,
+        (SELECT count(*) FROM invoices            WHERE client_id   = ${clientId} AND company_id = ${companyId}) AS invoices,
+        (SELECT count(*) FROM estimates           WHERE client_id   = ${clientId} AND company_id = ${companyId}) AS estimates,
+        (SELECT count(*) FROM recurring_schedules WHERE customer_id = ${clientId} AND company_id = ${companyId}) AS schedules
+    `)).rows[0]) as any;
+    const stillReferenced = ["jobs", "quotes", "invoices", "estimates", "schedules"]
+      .some(k => Number(counts?.[k] ?? 0) > 0);
+    if (stillReferenced) return false;
+
+    let deleted = false;
+    await db.transaction(async (tx) => {
+      // Same resilient pattern as the job-delete sweep: each child cleanup gets its
+      // own SAVEPOINT so a table that doesn't exist on THIS database (schema drift)
+      // rolls back just that step instead of aborting the whole cleanup.
+      let spN = 0;
+      const clean = async (stmt: any) => {
+        const sp = `oc_sp_${spN++}`;
+        await tx.execute(sql.raw(`SAVEPOINT ${sp}`));
+        try {
+          await tx.execute(stmt);
+          await tx.execute(sql.raw(`RELEASE SAVEPOINT ${sp}`));
+        } catch (e) {
+          await tx.execute(sql.raw(`ROLLBACK TO SAVEPOINT ${sp}`));
+          console.warn(`[orphan-client] skipped a cleanup step for client ${clientId}:`, (e as any)?.message ?? e);
+        }
+      };
+      await clean(sql`DELETE FROM client_homes           WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM client_communications  WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM communication_log      WHERE customer_id = ${clientId}`);
+      await clean(sql`DELETE FROM client_audit_log       WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM client_ratings         WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM client_notifications   WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM contact_tickets        WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM form_submissions       WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM scorecards             WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM satisfaction_surveys   WHERE customer_id = ${clientId}`);
+      await clean(sql`DELETE FROM churn_scores           WHERE customer_id = ${clientId}`);
+      await clean(sql`DELETE FROM loyalty_points_log     WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM sms_messages           WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM scheduled_sms          WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM client_attachments     WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM client_agreements      WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM document_signatures    WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM document_requests      WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM payment_links          WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM rate_locks             WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM technician_preferences WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM team_photo_notes       WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM follow_up_enrollments  WHERE client_id   = ${clientId}`);
+      await clean(sql`DELETE FROM qb_customer_map        WHERE qleno_customer_id = ${clientId}`);
+      // Finally the client itself — NOT wrapped in a savepoint. If a still-uncovered
+      // child FK blocks it, this throws, the whole transaction rolls back (children
+      // restored), the outer catch logs it, and the client is left intact. That's
+      // the correct "leave it alone" outcome, never a broken half-deleted customer.
+      const del = await tx.execute(sql`DELETE FROM clients WHERE id = ${clientId} AND company_id = ${companyId}`);
+      deleted = Number((del as any).rowCount ?? 0) > 0;
+    });
+    if (deleted) console.log(`[orphan-client] removed leftover customer ${clientId} after deleting its only job ${jobId}`);
+    return deleted;
+  } catch (e) {
+    console.warn(`[orphan-client] cleanup failed for client ${clientId} (job ${jobId}); leaving client in place:`, (e as any)?.message ?? e);
+    return false;
+  }
+}
+
 router.delete("/:id", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
@@ -3686,7 +3789,20 @@ router.delete("/:id", requireAuth, async (req, res) => {
       service_type: existing.service_type, base_fee: existing.base_fee,
       billed_amount: existing.billed_amount, status: existing.status,
     }, null);
-    return res.json({ success: true, message: "Job deleted" });
+    // [orphan-client-cleanup 2026-07-10] Runs AFTER the job delete has committed and
+    // AFTER the audit logs (which write to client_audit_log) — so removing the
+    // client can't FK-collide with its own "job_deleted" log entry. Best-effort:
+    // never throws, only removes a client with zero remaining linkage.
+    let clientRemoved = false;
+    const deletedClientId = existing.client_id;
+    if (deletedClientId != null && companyId != null) {
+      clientRemoved = await cleanupOrphanedClient(deletedClientId, companyId, jobId);
+    }
+    return res.json({
+      success: true,
+      message: clientRemoved ? "Job deleted, and its leftover customer was removed" : "Job deleted",
+      client_deleted: clientRemoved,
+    });
   } catch (err: any) {
     // [delete-diagnostics 2026-07-08] Surface the ACTUAL Postgres error so
     // "Failed to delete job" stops being a dead end for the office (Francisco/

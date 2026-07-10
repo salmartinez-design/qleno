@@ -1384,13 +1384,20 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
       // Residential convention: base_fee carries the ALL-IN total. add_ons are
       // the itemized record (NOT re-summed into revenue) — so we send both.
       const newBaseFee = Math.round((liveBase + liveAddOnSum) * 100) / 100;
-      const add_ons = items.map(a => ({
-        pricing_addon_id: a.pricing_addon_id ?? null,
-        add_on_id: a.add_on_id ?? a.pricing_addon_id ?? null,
-        qty: a.quantity ?? 1,
-        unit_price: a.unit_price ?? a.subtotal ?? 0,
-        subtotal: a.subtotal ?? 0,
-      }));
+      // [custom-adjustment-line 2026-07-10] Drop blank/nameless zero rows the office
+      // added but never filled in, so an empty "Add adjustment" line can't persist a
+      // phantom $0 add-on. Send `name` so custom (catalog-less) lines resolve/create
+      // their add_ons row by name on the server.
+      const add_ons = items
+        .filter(a => (a.pricing_addon_id != null || a.add_on_id != null) || (String(a.name ?? "").trim() !== "" && Number(a.subtotal ?? 0) !== 0))
+        .map(a => ({
+          pricing_addon_id: a.pricing_addon_id ?? null,
+          add_on_id: a.add_on_id ?? a.pricing_addon_id ?? null,
+          name: a.name ?? null,
+          qty: a.quantity ?? 1,
+          unit_price: a.unit_price ?? a.subtotal ?? 0,
+          subtotal: a.subtotal ?? 0,
+        }));
       const r = await fetch(`${API}/api/jobs/${job.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -1464,18 +1471,39 @@ function InlinePricingEditor({ job, canEdit, onUpdate }: { job: DispatchJob; can
             <input type="number" step="0.01" min="0" value={baseVal} onChange={e => setBaseVal(e.target.value)} style={inputStyle} autoFocus />
           </div>
         )}
-        {items.map((a, i) => (
+        {items.map((a, i) => {
+          // A custom line (added here in the editor) has no catalog id, so its name
+          // is editable inline; catalog add-ons keep their fixed label.
+          const isCustom = a.pricing_addon_id == null && a.add_on_id == null;
+          return (
           <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 13, color: "#6B6860", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+            {isCustom ? (
+              <input type="text" value={a.name ?? ""} placeholder="Adjustment name (e.g. Parking fee)"
+                onChange={e => { const nm = e.target.value; setItems(prev => prev.map((it, idx) => idx === i ? { ...it, name: nm } : it)); }}
+                style={{ flex: 1, minWidth: 0, padding: "5px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF, outline: "none" }} />
+            ) : (
+              <span style={{ fontSize: 13, color: "#6B6860", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
+            )}
             <input type="number" step="0.01" value={String(a.subtotal ?? 0)}
               onChange={e => { const v = parseFloat(e.target.value) || 0; setItems(prev => prev.map((it, idx) => idx === i ? { ...it, subtotal: v, unit_price: (it.quantity && it.quantity > 0) ? v / it.quantity : v } : it)); }}
               style={inputStyle} />
-            <button onClick={() => setItems(prev => prev.filter((_, idx) => idx !== i))} title={`Remove ${a.name}`} aria-label={`Remove ${a.name}`}
+            <button onClick={() => setItems(prev => prev.filter((_, idx) => idx !== i))} title={`Remove ${a.name || "line"}`} aria-label={`Remove ${a.name || "line"}`}
               style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, color: "#B91C1C", border: "1px solid #F3D2D2", background: "#FEF2F2", borderRadius: 5, cursor: "pointer", flexShrink: 0 }}>
               <X size={12} />
             </button>
           </div>
-        ))}
+          );
+        })}
+        {/* [custom-adjustment-line 2026-07-10] Add any adjustment right here — parking
+            fee, a one-off charge, or a discount (negative amount). Maribel: "when we
+            click edit hours and add-ons we should be able to add any adjustment." */}
+        <button onClick={() => setItems(prev => [...prev, { name: "", subtotal: 0, unit_price: 0, quantity: 1 } as JobAddOn])}
+          style={{ marginTop: 2, alignSelf: "flex-start", display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#2D9B83", border: "1px dashed #2D9B83", borderRadius: 8, background: "transparent", padding: "6px 10px", cursor: "pointer", fontFamily: FF }}>
+          <Plus size={12} /> Add adjustment
+        </button>
+        <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: -2 }}>
+          Parking fee, extra charge, or a discount — use a negative amount for a discount (e.g. −20).
+        </div>
         <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 4, paddingTop: 8 }}>
           <span style={{ fontWeight: 700, color: "#1A1917" }}>Total</span>
           <span style={{ fontWeight: 800, color: "#1A1917" }}>{num(liveTotal)}</span>
@@ -1812,6 +1840,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const canClock = (userRole === "owner" || userRole === "admin" || userRole === "office");
   const [clockMap, setClockMap] = useState<Record<number, { id: number; clock_in_at: string; clock_out_at: string | null }>>({});
   const [clockBusy, setClockBusy] = useState<number | null>(null);
+  // [clock-pay-tabs 2026-07-10] Commission + Time Clock share one tabbed section
+  // (Maribel: "commission comes from the clock ... combine ... like a tab time
+  // clock"). This tracks which tab is showing.
+  const [payClockTab, setPayClockTab] = useState<"commission" | "clock">("commission");
   const loadClocks = useCallback(async () => {
     try {
       const r = await fetch(`${_API3}/api/timeclock?job_id=${job.id}`, { headers: { Authorization: `Bearer ${token}` } });
@@ -3015,9 +3047,36 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </PS>
           )}
 
-          {/* Commission Section — visible to owner/admin/office */}
-          {canManageCommission && (job.estimated_hours ?? 0) > 0 && (
-            <PS label="Commission">
+          {/* [clock-pay-tabs 2026-07-10] Commission + Time Clock merged into one
+              tabbed section (Maribel: "commission comes from the clock ... i think
+              this is redundant ... combine ... something like the tab time clock").
+              Both original bodies live here now under Commission / Time Clock tabs;
+              the standalone Time Clock section below was removed. */}
+          {(() => {
+            const clockTechList: { user_id: number; name: string }[] = commTechs.length > 0
+              ? commTechs.map(t => ({ user_id: t.user_id, name: t.name }))
+              : (job.assigned_user_id ? [{ user_id: job.assigned_user_id, name: assignedEmp?.name || job.assigned_user_name || "Tech" }] : []);
+            const commissionAvail = canManageCommission && (job.estimated_hours ?? 0) > 0;
+            const clockAvail = canClock && clockTechList.length > 0;
+            if (!commissionAvail && !clockAvail) return null;
+            const bothTabs = commissionAvail && clockAvail;
+            const tab: "commission" | "clock" =
+              payClockTab === "clock" && clockAvail ? "clock"
+              : payClockTab === "commission" && commissionAvail ? "commission"
+              : (commissionAvail ? "commission" : "clock");
+            return (
+            <PS label={bothTabs ? "Time Clock & Commission" : (commissionAvail ? "Commission" : "Time Clock")}>
+              {bothTabs && (
+                <div style={{ display: "flex", gap: 4, marginBottom: 12, background: "#F2F0EC", borderRadius: 8, padding: 3 }}>
+                  {(["commission", "clock"] as const).map(k => (
+                    <button key={k} onClick={() => setPayClockTab(k)}
+                      style={{ flex: 1, padding: "6px 8px", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: FF, cursor: "pointer", background: tab === k ? "#FFFFFF" : "transparent", color: tab === k ? "#1A1917" : "#6B6860", boxShadow: tab === k ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
+                      {k === "commission" ? "Commission" : "Time Clock"}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {tab === "commission" && commissionAvail && (<>
               {/* [commission-override 2026-06-27] Pool rate row — shows company default or override */}
               {job.commission_basis !== "commercial_hourly" && (() => {
                 const effectivePct = job.commission_override_pct != null
@@ -3188,8 +3247,48 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 style={{ marginTop: 8, width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: job.status === "cancelled" ? "#9E9B94" : "#2D9B83", border: `1px dashed ${job.status === "cancelled" ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
                 <Plus size={12} /> Add tech
               </button>
+              </>)}
+              {tab === "clock" && clockAvail && (<>
+                {clockTechList.map(t => {
+                  const entry = clockMap[t.user_id];
+                  const clockedIn = !!entry && !entry.clock_out_at;
+                  const done = !!entry && !!entry.clock_out_at;
+                  const busy = clockBusy === t.user_id;
+                  return (
+                    <div key={t.user_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
+                        <div style={{ fontSize: 11, color: clockedIn ? "#B5710C" : done ? "#16A34A" : "#9E9B94", fontWeight: clockedIn || done ? 600 : 400 }}>
+                          {clockedIn
+                            ? `On the clock since ${fmtClock(entry!.clock_in_at)}`
+                            : done
+                              ? `${fmtClock(entry!.clock_in_at)}–${fmtClock(entry!.clock_out_at!)} · ${clockDuration(entry!.clock_in_at, entry!.clock_out_at!)}`
+                              : "Not clocked in"}
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleOfficeClock(t.user_id, clockedIn ? "out" : "in")}
+                        disabled={busy || done}
+                        title={done ? "Shift complete" : clockedIn ? "Clock out" : "Clock in"}
+                        style={{
+                          flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700,
+                          padding: "6px 12px", borderRadius: 7, fontFamily: FF, border: "none", color: "#FFFFFF",
+                          cursor: busy || done ? "default" : "pointer", opacity: busy ? 0.6 : 1,
+                          background: done ? "#C4C0BB" : clockedIn ? "#D85A30" : "#2D9B83",
+                        }}>
+                        <Clock size={12} />
+                        {done ? "Done" : clockedIn ? "Clock Out" : "Clock In"}
+                      </button>
+                    </div>
+                  );
+                })}
+                <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 2 }}>
+                  Office clock — feeds payroll hours and the actual-minutes commission split.
+                </div>
+              </>)}
             </PS>
-          )}
+            );
+          })()}
 
           {/* [tips 2026-06-29] Tips — office records a tip after the visit and
               attributes it to the tech(s). Pass-through pay (never commission);
@@ -3298,55 +3397,8 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </PS>
           )}
 
-          {/* [office-clock 2026-06-05] Time Clock — office clocks each assigned
-              tech in/out on this job. Real punches feed payroll hours and the
-              actual-minutes commission split. Owner/admin/office only. */}
-          {canClock && (() => {
-            const techList: { user_id: number; name: string }[] = commTechs.length > 0
-              ? commTechs.map(t => ({ user_id: t.user_id, name: t.name }))
-              : (job.assigned_user_id ? [{ user_id: job.assigned_user_id, name: assignedEmp?.name || job.assigned_user_name || "Tech" }] : []);
-            if (techList.length === 0) return null;
-            return (
-              <PS label="Time Clock">
-                {techList.map(t => {
-                  const entry = clockMap[t.user_id];
-                  const clockedIn = !!entry && !entry.clock_out_at;
-                  const done = !!entry && !!entry.clock_out_at;
-                  const busy = clockBusy === t.user_id;
-                  return (
-                    <div key={t.user_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
-                        <div style={{ fontSize: 11, color: clockedIn ? "#B5710C" : done ? "#16A34A" : "#9E9B94", fontWeight: clockedIn || done ? 600 : 400 }}>
-                          {clockedIn
-                            ? `On the clock since ${fmtClock(entry!.clock_in_at)}`
-                            : done
-                              ? `${fmtClock(entry!.clock_in_at)}–${fmtClock(entry!.clock_out_at!)} · ${clockDuration(entry!.clock_in_at, entry!.clock_out_at!)}`
-                              : "Not clocked in"}
-                        </div>
-                      </div>
-                      <button
-                        onClick={() => handleOfficeClock(t.user_id, clockedIn ? "out" : "in")}
-                        disabled={busy || done}
-                        title={done ? "Shift complete" : clockedIn ? "Clock out" : "Clock in"}
-                        style={{
-                          flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700,
-                          padding: "6px 12px", borderRadius: 7, fontFamily: FF, border: "none", color: "#FFFFFF",
-                          cursor: busy || done ? "default" : "pointer", opacity: busy ? 0.6 : 1,
-                          background: done ? "#C4C0BB" : clockedIn ? "#D85A30" : "#2D9B83",
-                        }}>
-                        <Clock size={12} />
-                        {done ? "Done" : clockedIn ? "Clock Out" : "Clock In"}
-                      </button>
-                    </div>
-                  );
-                })}
-                <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 2 }}>
-                  Office clock — feeds payroll hours and the actual-minutes commission split.
-                </div>
-              </PS>
-            );
-          })()}
+          {/* [clock-pay-tabs 2026-07-10] The standalone Time Clock section moved
+              into the Commission tabbed section above (Maribel's redundancy note). */}
 
           {/* Add Tech Modal */}
           {addTechOpen && (
