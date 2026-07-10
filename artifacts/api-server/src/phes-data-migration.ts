@@ -6922,7 +6922,7 @@ async function runNotificationTemplateSeed() {
 <div style="text-align:center;margin:0 0 24px">
   <a href="{{quote_link}}" style="display:inline-block;background:#5B9BD5;color:#ffffff;text-decoration:none;font-weight:600;font-size:15px;padding:14px 28px;border-radius:6px">Review Your Quote</a>
 </div>
-<p style="margin:0 0 20px;color:#6B6860;font-size:14px">This estimate is based on the information provided. If your home\u2019s condition differs significantly, we may revise it before or at the start of service. Additional time is billed at $65 per hour per cleaner.</p>
+<p style="margin:0 0 20px;color:#6B6860;font-size:14px">This estimate is based on the information provided. If your home\u2019s condition differs significantly, we may revise it before or at the start of service. Additional time is billed at $70 per hour per cleaner.</p>
 <p style="margin:0">To book, approve the quote online or call us at <strong>{{company_phone}}</strong>.</p>`,
         body_text: "Hi {{first_name}}, your quote #{{quote_number}} from {{company_name}} is ready \u2014 ${{quote_total}} estimated. Review: {{quote_link}} or call {{company_phone}} to book.",
       },
