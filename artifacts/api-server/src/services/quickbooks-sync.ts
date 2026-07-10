@@ -261,33 +261,41 @@ async function findExistingQbInvoiceByDoc(
   docNumber: string,
   expectedCustomerId: string,
   expectedTotal: number,
-): Promise<string | null> {
+  cutoverDate: string | null, // 'YYYY-MM-DD' — never adopt a QB invoice dated before this
+): Promise<{ adoptId: string | null; collision: boolean }> {
   const qbQuote = (s: string) => s.replace(/'/g, "\\'");
   try {
     const q = await qbGet(
       token,
       realmId,
       `/query?query=${encodeURIComponent(
-        `SELECT Id, DocNumber, TotalAmt, CustomerRef FROM Invoice WHERE DocNumber = '${qbQuote(docNumber)}'`,
+        `SELECT Id, DocNumber, TxnDate, TotalAmt, CustomerRef FROM Invoice WHERE DocNumber = '${qbQuote(docNumber)}'`,
       )}&`,
     );
     const hits: any[] = q.QueryResponse?.Invoice ?? [];
     for (const hit of hits) {
       const custMatch = String(hit.CustomerRef?.value ?? "") === String(expectedCustomerId);
       const amtMatch = Math.abs(Number(hit.TotalAmt ?? 0) - expectedTotal) < 0.01;
-      if (custMatch && amtMatch) return String(hit.Id);
+      // [qb-cutover-adopt-guard 2026-07-10] customer+amount matching CANNOT
+      // distinguish a recurring client's May visit from their July visit (same
+      // customer, same weekly price). The hard invariant: an invoice dated
+      // before the tenant's qb_sync_start_date belongs to the PRIOR system's
+      // history and must never be adopted, no matter how well it matches.
+      const dateOk = !cutoverDate || String(hit.TxnDate ?? "") >= cutoverDate;
+      if (custMatch && amtMatch && dateOk) return { adoptId: String(hit.Id), collision: false };
     }
     if (hits.length > 0) {
       console.warn(
         `[QB] DocNumber collision: ${hits.length} QB invoice(s) already carry #${docNumber} ` +
-        `but none match customer ${expectedCustomerId} @ ${expectedTotal} — creating a NEW QB invoice, ` +
-        `NOT adopting. Existing ids: ${hits.map((h) => h.Id).join(",")}`,
+        `but none match customer ${expectedCustomerId} @ ${expectedTotal} — will create a NEW QB invoice ` +
+        `under a suffixed DocNumber, NOT adopting. Existing ids: ${hits.map((h) => h.Id).join(",")}`,
       );
+      return { adoptId: null, collision: true };
     }
-    return null;
+    return { adoptId: null, collision: false };
   } catch (e: any) {
     console.warn(`[QB] findExistingQbInvoiceByDoc failed (non-fatal):`, e.message);
-    return null;
+    return { adoptId: null, collision: false };
   }
 }
 
@@ -715,8 +723,14 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
           .limit(1);
 
         const docNumber = (invoice.invoice_number || String(invoiceId)).slice(-21);
-        const targetId = (fresh?.qbo ?? null)
-          ?? (await findExistingQbInvoiceByDoc(token, realmId, docNumber, qbCustomerId!, expectedTotal));
+        let targetId: string | null = fresh?.qbo ?? null;
+        let collision = false;
+        if (!targetId) {
+          const cutoverStr = cutoverCo?.cutover ? new Date(cutoverCo.cutover).toISOString().slice(0, 10) : null;
+          const found = await findExistingQbInvoiceByDoc(token, realmId, docNumber, qbCustomerId!, expectedTotal, cutoverStr);
+          targetId = found.adoptId;
+          collision = found.collision;
+        }
 
         let resolvedId: string;
         if (targetId) {
@@ -729,6 +743,18 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
           });
           resolvedId = updateData.Invoice?.Id || targetId;
         } else {
+          // [qb-collision-renumber 2026-07-10] If a FOREIGN QB invoice already
+          // carries this DocNumber, creating with the same number is rejected
+          // when QBO's duplicate-doc-number check is on (error 6140) — and the
+          // failed/retried sync is exactly how the 07-10 backfill mislinked 21
+          // historical invoices. Push under a unique suffixed DocNumber instead
+          // ("<num>Q<qlenoId>", trimmed to QB's 21-char cap): the create
+          // succeeds first try, qbo_invoice_id persists, and every later sync
+          // takes the safe update path.
+          if (collision) {
+            const suffix = `Q${invoiceId}`;
+            qbInvoicePayload.DocNumber = `${docNumber.slice(0, 21 - suffix.length)}${suffix}`;
+          }
           const createData = await qbPost(token, realmId, "/invoice", qbInvoicePayload);
           resolvedId = createData.Invoice?.Id;
         }
