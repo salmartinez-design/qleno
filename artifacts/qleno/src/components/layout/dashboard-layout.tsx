@@ -69,7 +69,47 @@ const ROUTE_TITLES: Record<string, string> = {
   '/company/zones':                'Service Zones',
   '/company/rates':                'Rates & Add-ons',
   '/notifications':                'Notifications',
+  // [tab-titles 2026-07-10] Francisco: several tabs just read "Qleno" — the map
+  // was missing whole sections and never handled detail pages. Added the common
+  // sections; routeTitle() below covers everything else (detail pages + any
+  // route not listed here) so no tab is ever a bare "Qleno" again.
+  '/accounts':                     'Accounts',
+  '/estimates':                    'Estimates',
+  '/estimates/engagement':         'Estimate Engagement',
+  '/quotes':                       'Quotes',
+  '/discounts':                    'Discounts',
+  '/messages':                     'Messages',
+  '/my-day':                       'My Day',
+  '/my-pay':                       'My Pay',
+  '/help':                         'Help & Guides',
+  '/lms':                          'Training',
+  '/lms/admin':                    'Training Admin',
+  '/time-clock':                   'Time Clock',
+  '/all-locations':                'All Locations',
+  '/leads/partners':               'Lead Partners',
+  '/leads/reports':                'Lead Reports',
+  '/leads/templates':              'Lead Templates',
+  '/payroll/leave-review':         'Leave Review',
+  '/payroll/mileage-review':       'Mileage Review',
 };
+
+// [tab-titles 2026-07-10] Resolve a descriptive tab title for ANY path, so
+// detail pages (/customers/123, /invoices/9, /accounts/45) and unmapped routes
+// stop falling back to a bare "Qleno". Order: exact map hit → parent section
+// after stripping trailing ids/tokens → title-cased last segment.
+function routeTitle(location: string): string {
+  if (ROUTE_TITLES[location]) return ROUTE_TITLES[location];
+  const segs = location.split('/').filter(Boolean);
+  // Drop trailing numeric ids or long hex tokens so /customers/123 → /customers.
+  while (segs.length && (/^\d+$/.test(segs[segs.length - 1]) || /^[0-9a-f-]{8,}$/i.test(segs[segs.length - 1]))) {
+    segs.pop();
+  }
+  const parent = '/' + segs.join('/');
+  if (ROUTE_TITLES[parent]) return ROUTE_TITLES[parent];
+  const last = segs[segs.length - 1];
+  if (last) return last.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  return 'Qleno';
+}
 
 const BOTTOM_TABS_MANAGER = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Today' },
@@ -694,8 +734,8 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   }, [location]);
 
   useEffect(() => {
-    const pt = title || ROUTE_TITLES[location] || 'Qleno';
-    document.title = `${pt} — Qleno`;
+    const pt = title || routeTitle(location);
+    document.title = pt === 'Qleno' ? 'Qleno' : `${pt} — Qleno`;
   }, [location, title]);
 
   useEffect(() => {
@@ -726,7 +766,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
     );
   }
 
-  const pageTitle = title || ROUTE_TITLES[location] || 'Qleno';
+  const pageTitle = title || routeTitle(location);
   const initials = user ? `${user.first_name?.[0] || ''}${user.last_name?.[0] || ''}`.toUpperCase() : '';
 
   if (isMobile || isTech) {
