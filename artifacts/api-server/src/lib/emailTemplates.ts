@@ -193,7 +193,7 @@ function serviceSpecificNotes(kind: "deep" | "standard" | "moveinout" | "recurri
   <p style="margin:0 0 6px;font-weight:700;color:#92400E;font-size:14px;">Deep Clean: What to Expect</p>
   <p style="margin:0 0 6px;color:${DARK};font-size:13px;">A deep clean is more thorough than a standard service and covers areas often skipped in routine cleanings (inside appliances if selected, baseboards, light fixtures, etc.).</p>
   <p style="margin:0 0 6px;color:${DARK};font-size:13px;"><strong>Please have your home decluttered</strong> before we arrive — cleared countertops, sinks, and floors let our team focus on the actual cleaning rather than tidying.</p>
-  <p style="margin:0;color:${DARK};font-size:13px;"><strong>Condition note:</strong> If the home's condition significantly differs from what was selected, we will contact you before proceeding with any additional charges. Extra time beyond the estimate is billed at $65/hr per cleaner.</p>
+  <p style="margin:0;color:${DARK};font-size:13px;"><strong>Condition note:</strong> If the home's condition significantly differs from what was selected, we will contact you before proceeding with any additional charges. Extra time beyond the estimate is billed at $70/hr per cleaner.</p>
 </div>`;
   }
   if (kind === "moveinout") {
