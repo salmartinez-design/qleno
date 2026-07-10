@@ -45,6 +45,7 @@ const REPORT_GROUPS = [
       { title: "Quality & Efficiency", desc: "Performance Score + efficiency by package — company or per-tech, time-bucketed.", url: "/reports/quality-efficiency", icon: ClipboardList },
       { title: "Cancellations",        desc: "Clients with cancelled jobs, tenure, and revenue lost.", url: "/reports/cancellations",    icon: AlertTriangle },
       { title: "Contact Tickets",      desc: "Complaints, breakages, compliments, and incidents.",     url: "/reports/contact-tickets",  icon: FileText },
+      { title: "Redos & Quality",      desc: "Re-cleans by cleaner, clients with repeat complaints, and top reasons.", url: "/reports/redos", icon: RefreshCw },
     ],
   },
   {

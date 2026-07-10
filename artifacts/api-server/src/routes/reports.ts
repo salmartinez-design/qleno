@@ -1038,6 +1038,67 @@ router.get("/cancellations", requireAuth, ROLE, async (req, res) => {
 });
 
 // ─── CONTACT TICKETS ─────────────────────────────────────────────────────────
+// [redo-service 2026-07-10] Redos & Quality report — three views: by cleaner
+// (accountability + redo rate), by client (repeat complaints + not-valid abuse
+// flag), and by reason (category + area aggregation). Company-scoped, ROLE-gated.
+router.get("/redos", requireAuth, ROLE, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const days = Math.min(Math.max(parseInt(String(req.query.days ?? "30")) || 30, 1), 365);
+    const cutoff = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+
+    const byCleaner = await db.execute(sql`
+      SELECT u.id AS employee_id,
+             NULLIF(TRIM(CONCAT(u.first_name, ' ', u.last_name)), '') AS name,
+             u.hr_status,
+             COUNT(*) FILTER (WHERE qc.valid) AS valid_count,
+             COUNT(*) AS total_count,
+             (SELECT COUNT(DISTINCT jt.job_id) FROM job_technicians jt JOIN jobs j2 ON j2.id = jt.job_id
+               WHERE jt.user_id = u.id AND j2.company_id = ${companyId} AND j2.status = 'complete'
+                 AND j2.scheduled_date >= ${cutoff}) AS jobs_done
+      FROM quality_complaints qc JOIN users u ON u.id = qc.employee_id
+      WHERE qc.company_id = ${companyId} AND qc.complaint_date >= ${cutoff}
+      GROUP BY u.id, name, u.hr_status
+      ORDER BY valid_count DESC, total_count DESC`);
+
+    const byClient = await db.execute(sql`
+      SELECT COALESCE(cl.id, a.id) AS client_id,
+             COALESCE(NULLIF(TRIM(CONCAT(cl.first_name, ' ', cl.last_name)), ''), a.account_name, 'Unknown') AS name,
+             COUNT(*) FILTER (WHERE qc.valid) AS valid_count,
+             COUNT(*) FILTER (WHERE NOT qc.valid) AS invalid_count
+      FROM quality_complaints qc
+      JOIN jobs j ON j.id = qc.job_id
+      LEFT JOIN clients cl ON cl.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
+      WHERE qc.company_id = ${companyId} AND qc.complaint_date >= ${cutoff}
+      GROUP BY client_id, name
+      ORDER BY valid_count DESC, invalid_count DESC`);
+
+    const byCategory = await db.execute(sql`
+      SELECT COALESCE(NULLIF(TRIM(reason_category), ''), 'Uncategorized') AS category, COUNT(*) AS n
+      FROM quality_complaints qc
+      WHERE qc.company_id = ${companyId} AND qc.complaint_date >= ${cutoff} AND qc.valid
+      GROUP BY category ORDER BY n DESC`);
+
+    const byArea = await db.execute(sql`
+      SELECT TRIM(area) AS area, COUNT(*) AS n
+      FROM quality_complaints qc, unnest(string_to_array(COALESCE(qc.areas, ''), ',')) AS area
+      WHERE qc.company_id = ${companyId} AND qc.complaint_date >= ${cutoff} AND qc.valid AND TRIM(area) <> ''
+      GROUP BY TRIM(area) ORDER BY n DESC LIMIT 12`);
+
+    return res.json({
+      days,
+      by_cleaner: byCleaner.rows,
+      by_client: byClient.rows,
+      by_category: byCategory.rows,
+      by_area: byArea.rows,
+    });
+  } catch (err) {
+    console.error("[reports/redos]", err);
+    return res.status(500).json({ error: "Failed to load redos report" });
+  }
+});
+
 router.get("/contact-tickets", requireAuth, ROLE, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
