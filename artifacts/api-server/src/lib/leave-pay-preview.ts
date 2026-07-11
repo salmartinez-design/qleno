@@ -17,7 +17,7 @@ import {
   usersTable,
 } from "@workspace/db/schema";
 import { and, eq, gte, lte } from "drizzle-orm";
-import { LEAVE_PAY_RATE } from "./leave-pay.js";
+import { resolveLeavePayRate } from "./leave-pay.js";
 
 export type LeavePayPreviewRow = {
   user_id: number;
@@ -87,6 +87,7 @@ export async function computeLeavePayPreview(
     agg.set(key, cur);
   }
 
+  const rate = await resolveLeavePayRate(companyId);
   const rows: LeavePayPreviewRow[] = [];
   for (const a of agg.values()) {
     const hours = Math.round(a.hours * 100) / 100;
@@ -96,8 +97,8 @@ export async function computeLeavePayPreview(
       slug: a.slug,
       bucket: a.bucket,
       pending_hours: hours,
-      hourly_rate: LEAVE_PAY_RATE,
-      amount: Math.round(hours * LEAVE_PAY_RATE * 100) / 100,
+      hourly_rate: rate,
+      amount: Math.round(hours * rate * 100) / 100,
     });
   }
   rows.sort((x, y) => x.name.localeCompare(y.name) || x.slug.localeCompare(y.slug));
@@ -106,7 +107,7 @@ export async function computeLeavePayPreview(
   return {
     rows,
     total: Math.round(total * 100) / 100,
-    rate: LEAVE_PAY_RATE,
-    note: `Forecast of PENDING paid-leave requests at $${LEAVE_PAY_RATE}/hr. Approved leave already auto-pays on the payroll summary; this is the not-yet-approved pipeline. Attributed by start_date.`,
+    rate,
+    note: `Forecast of PENDING paid-leave requests at $${rate}/hr. Approved leave already auto-pays on the payroll summary; this is the not-yet-approved pipeline. Attributed by start_date.`,
   };
 }

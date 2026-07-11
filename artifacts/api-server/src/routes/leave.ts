@@ -89,7 +89,7 @@ import {
   notifyLeaveSubmitted,
   notifyLeaveDecision,
 } from "../lib/leave-notifications.js";
-import { writeApprovedLeavePay, voidApprovedLeavePay } from "../lib/leave-pay.js";
+import { writeApprovedLeavePay, voidApprovedLeavePay, writeUsageLeavePay, voidUsageLeavePay } from "../lib/leave-pay.js";
 import { slugToBucket } from "../lib/leave-bucket.js";
 import { logAudit } from "../lib/audit.js";
 import multer from "multer";
@@ -692,6 +692,15 @@ router.post("/usage", adminWriteGate, async (req, res) => {
       .update(employeeLeaveBalancesTable)
       .set({ used_hours: newUsed.toFixed(2), updated_at: new Date() })
       .where(eq(employeeLeaveBalancesTable.id, bal.id));
+    // [leave-pay-cascade 2026-07-11] Paid buckets (PLAWA/PTO) must pay for the
+    // hours taken, same as the request-approval path. Without this, office
+    // deductions drew down the balance but paid $0. Best-effort: the balance
+    // write above is the source of truth; a failed pay insert is logged, never
+    // rolls back the deduction (office can re-trigger by re-recording).
+    if (bucket.is_paid && inserted[0]?.id) {
+      try { await writeUsageLeavePay(companyId, inserted[0].id); }
+      catch (payErr) { console.error("leave usage pay cascade failed (non-fatal):", payErr); }
+    }
     try {
       await logAudit(req, "office_deducted", "employee_leave_balance", String(bal.id), {
         granted_hours: bal.granted_hours, used_hours: bal.used_hours,
@@ -756,6 +765,11 @@ router.delete("/usage/:id", adminWriteGate, async (req, res) => {
       }
     }
     await db.delete(employeeLeaveUsageTable).where(eq(employeeLeaveUsageTable.id, id));
+    // [leave-pay-cascade 2026-07-11] Void any auto-pay this usage row generated
+    // (paid buckets only; no-op otherwise) so removing a deduction also pulls
+    // its pay back — symmetric with the create path.
+    try { await voidUsageLeavePay(companyId, id, req.auth!.userId!); }
+    catch (payErr) { console.error("leave usage pay void failed (non-fatal):", payErr); }
     try {
       await logAudit(req, "leave_usage_deleted", "employee_leave_usage", String(id), {
         employee_id: row.employee_id, date_used: String(row.date_used), hours: Number(row.hours), notes: row.notes,

@@ -1206,6 +1206,7 @@ function PayrollOptionsTab() {
   const [resTechPayPct, setResTechPayPct] = useState('35');
   const [commercialHourlyRate, setCommercialHourlyRate] = useState('20');
   const [commercialCompMode, setCommercialCompMode] = useState('allowed_hours');
+  const [leavePayRate, setLeavePayRate] = useState('20');
   const [trainingPayRate, setTrainingPayRate] = useState('20');
   const [minJobPayHours, setMinJobPayHours] = useState('3');
   const [recleanTechRate, setRecleanTechRate] = useState('20');
@@ -1224,6 +1225,7 @@ function PayrollOptionsTab() {
     if (c?.res_tech_pay_pct != null) setResTechPayPct(String(Math.round(parseFloat(c.res_tech_pay_pct) * 100)));
     if (c?.commercial_hourly_rate != null) setCommercialHourlyRate(String(c.commercial_hourly_rate));
     if (c?.commercial_comp_mode != null) setCommercialCompMode(c.commercial_comp_mode);
+    if (c?.leave_pay_rate != null) setLeavePayRate(String(c.leave_pay_rate));
     // Load detailed payroll settings from payroll_settings table
     fetch(`${BASE}/api/payroll-settings`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : null)
@@ -1274,6 +1276,7 @@ function PayrollOptionsTab() {
           res_tech_pay_pct: parseFloat(resTechPayPct) / 100,
           commercial_hourly_rate: parseFloat(commercialHourlyRate),
           commercial_comp_mode: commercialCompMode,
+          leave_pay_rate: parseFloat(leavePayRate),
         }),
       });
       toast({ title: 'Payroll settings saved' });
@@ -1361,6 +1364,23 @@ function PayrollOptionsTab() {
             </div>
             <p style={{ fontSize: 12, color: '#9E9B94', margin: '6px 0 0', fontFamily: FF2 }}>Formula: rate × hours. Can be overridden per job.</p>
           </div>
+        </div>
+      </div>
+
+      <div style={sectionCard}>
+        <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 16px', fontFamily: FF2 }}>Paid Leave (PLAWA / PTO)</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <label style={fieldLabel}>Leave Pay Rate</label>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
+            <input
+              type="number" step="0.25" min="0" value={leavePayRate}
+              onChange={e => setLeavePayRate(e.target.value)} style={inputStyle(fieldInput)} placeholder="20.00"
+              disabled={!isOwner}
+            />
+            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+          </div>
+          <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF2 }}>Flat rate paid for approved and office-recorded paid-leave hours (PLAWA sick, PTO). Formula: hours × rate. Default $20/hr.</p>
         </div>
       </div>
 

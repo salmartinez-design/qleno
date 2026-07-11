@@ -295,6 +295,16 @@ router.patch("/me", requireAuth, async (req, res) => {
       await db.execute(sql`UPDATE companies SET arrival_window_minutes = ${n} WHERE id = ${req.auth!.companyId}`);
     }
 
+    // [leave-pay-cascade 2026-07-11] Flat $/hr rate for paid leave (PLAWA/PTO).
+    // Raw SQL for the same reason as arrival_window_minutes (not in the Drizzle
+    // model). Clamped to a sane 0–200 range; invalid input falls back to $20.
+    const { leave_pay_rate } = req.body;
+    if (leave_pay_rate !== undefined) {
+      const raw = Number(leave_pay_rate);
+      const n = Number.isFinite(raw) && raw > 0 ? Math.min(200, Math.round(raw * 100) / 100) : 20;
+      await db.execute(sql`UPDATE companies SET leave_pay_rate = ${n} WHERE id = ${req.auth!.companyId}`);
+    }
+
     if (Object.keys(patch).length === 0) return res.json({ success: true });
 
     const [updated] = await db
