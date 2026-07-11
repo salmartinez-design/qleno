@@ -762,11 +762,8 @@ export default function MessagesPage() {
                           <>
                             <div onClick={() => setSendMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
                             <div style={{ position: "absolute", bottom: "calc(100% + 6px)", right: 0, zIndex: 41, background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(10,14,26,0.16)", padding: 6, minWidth: 190 }}>
-                              <button onClick={() => { setSendMenuOpen(false); send(); }} disabled={!canSend || sending}
-                                style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "9px 11px", background: "transparent", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: FF, color: INK, cursor: canSend && !sending ? "pointer" : "default", opacity: canSend && !sending ? 1 : 0.5 }}
-                                onMouseEnter={e => (e.currentTarget.style.background = "#F5F4F0")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
-                                <Send size={14} color={BRAND} /> Send now
-                              </button>
+                              {/* "Send now" removed — the main Send button already
+                                  does that; the caret menu only holds Schedule. */}
                               <button onClick={() => { setSendMenuOpen(false); openSchedulePicker(); }}
                                 style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "9px 11px", background: "transparent", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: FF, color: INK, cursor: "pointer" }}
                                 onMouseEnter={e => (e.currentTarget.style.background = "#F5F4F0")} onMouseLeave={e => (e.currentTarget.style.background = "transparent")}>
