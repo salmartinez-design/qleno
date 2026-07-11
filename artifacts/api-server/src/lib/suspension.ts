@@ -28,6 +28,71 @@ import { emailLogoUrl } from "./app-url.js";
 export const MAX_SUSPEND_DAYS = 90;
 export const RESUME_REMINDER_LEAD_DAYS = 30;
 
+const FREQ_LABEL: Record<string, string> = {
+  weekly: "Weekly", biweekly: "Bi-weekly", every_2_weeks: "Bi-weekly",
+  every_3_weeks: "Every 3 weeks", monthly: "Monthly", monthly_weekday: "Monthly",
+  semi_monthly: "Twice a month", daily: "Daily", weekdays: "Weekday",
+  custom_days: "Recurring", on_demand: "As-needed",
+};
+function titleCase(s: string): string {
+  return s.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()).trim();
+}
+function money(v: unknown): string | null {
+  const n = typeof v === "string" ? parseFloat(v) : typeof v === "number" ? v : NaN;
+  if (!isFinite(n) || n <= 0) return null;
+  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+}
+
+// Resolve the client's current service description + per-visit price for the
+// suspension messages ("the service they have and the price they pay"). Prefers
+// the client's recurring schedule (the carrier of the real cadence + rate),
+// falling back to the client record. Always returns display-ready strings.
+export async function resolveServiceInfo(
+  companyId: number,
+  clientId: number,
+): Promise<{ serviceSummary: string; servicePrice: string }> {
+  let freq: string | null = null, svc: string | null = null, fee: unknown = null;
+  try {
+    const rs = await db.execute(sql`
+      SELECT frequency, service_type, base_fee
+        FROM recurring_schedules
+       WHERE customer_id = ${clientId} AND company_id = ${companyId}
+       ORDER BY (is_active OR paused_by_suspension) DESC, id DESC
+       LIMIT 1
+    `);
+    const r: any = rs.rows[0];
+    if (r) { freq = r.frequency; svc = r.service_type; fee = r.base_fee; }
+  } catch { /* fall through to client fields */ }
+
+  let clientType = "residential", hourly: unknown = null, allowed: unknown = null;
+  try {
+    const cl = await db.execute(sql`
+      SELECT frequency, service_type, base_fee, commercial_hourly_rate, allowed_hours, client_type
+        FROM clients WHERE id = ${clientId} AND company_id = ${companyId} LIMIT 1
+    `);
+    const c: any = cl.rows[0] || {};
+    freq = freq || c.frequency; svc = svc || c.service_type; fee = fee ?? c.base_fee;
+    clientType = c.client_type || "residential"; hourly = c.commercial_hourly_rate; allowed = c.allowed_hours;
+  } catch { /* use whatever we have */ }
+
+  const freqLabel = freq ? (FREQ_LABEL[String(freq)] || titleCase(String(freq))) : "";
+  const svcLabel = svc ? titleCase(String(svc)) : "";
+  const summaryParts = [freqLabel, svcLabel].filter(Boolean);
+  const serviceSummary = summaryParts.length
+    ? (svcLabel.toLowerCase().includes("clean") ? summaryParts.join(" ") : summaryParts.join(" ") + " Clean")
+    : "Your recurring cleaning";
+
+  const perVisit = money(fee);
+  const hourlyStr = money(hourly);
+  const servicePrice = perVisit
+    ? `${perVisit} per visit`
+    : (clientType === "commercial" && hourlyStr)
+      ? `${hourlyStr}/hr`
+      : "your current rate";
+
+  return { serviceSummary, servicePrice };
+}
+
 // Wrap the inner content produced by the suspension-email renderers in the
 // shared house chrome and resolve the footer's {{company_phone}}/{{company_email}}
 // merge tags to real values.
@@ -145,9 +210,11 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
     `);
     for (const r of due.rows as any[]) {
       const expiry = String(r.suspend_until).slice(0, 10);
+      const svcInfo = await resolveServiceInfo(r.company_id, r.id);
       const { subject, contentHtml } = renderResumeReminderEmail({
         clientName: r.first_name,
         expiryDate: expiry,
+        ...svcInfo,
       });
       const html = buildSuspensionEmailHtml(contentHtml, {
         name: r.company_name, logo_url: r.company_logo, phone: r.company_phone, email: r.company_email,
@@ -183,9 +250,11 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
     `);
     for (const r of expired.rows as any[]) {
       const expiry = String(r.suspend_until).slice(0, 10);
+      const svcInfo = await resolveServiceInfo(r.company_id, r.id);
       const { subject, contentHtml } = renderSuspensionExpiredEmail({
         clientName: r.first_name,
         expiryDate: expiry,
+        ...svcInfo,
       });
       const html = buildSuspensionEmailHtml(contentHtml, {
         name: r.company_name, logo_url: r.company_logo, phone: r.company_phone, email: r.company_email,
