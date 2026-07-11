@@ -7,6 +7,7 @@ import { ErrorBoundary } from "@/components/error-boundary";
 import { BranchProvider } from "@/contexts/branch-context";
 import { EmployeeViewProvider } from "@/contexts/employee-view-context";
 import { useAuthStore, getTokenRole, isTokenExpired, startTokenRefresh } from "@/lib/auth";
+import { computeTitle } from "@/lib/page-title";
 
 const Login               = lazy(() => import("@/pages/login"));
 const Dashboard           = lazy(() => import("@/pages/dashboard"));
@@ -221,9 +222,21 @@ function RootIndex() {
   return <Dashboard />;
 }
 
+// [tab-titles 2026-07-11] Titles EVERY route from the shared route map, so pages
+// that render outside DashboardLayout (quote builder, my-day, my-jobs, ops,
+// training, booking, portal…) get a real browser-tab name instead of "Qleno".
+// Rendered before <Switch> so its effect runs BEFORE a page's DashboardLayout
+// effect, letting that layout's per-page `title` override win when present.
+function TitleManager() {
+  const [loc] = useLocation();
+  useEffect(() => { document.title = computeTitle(loc); }, [loc]);
+  return null;
+}
+
 function Router() {
   return (
     <Suspense fallback={<PageLoader />}>
+      <TitleManager />
       <TechRouteGuard>
       <Switch>
         <Route path="/" component={RootIndex} />
