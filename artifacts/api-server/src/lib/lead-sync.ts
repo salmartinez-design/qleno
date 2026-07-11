@@ -206,7 +206,7 @@ export async function handleInboundReply(companyId: number, fromPhone: string, o
   const reason = optOut ? "opted_out" : "replied";
   for (const id of ids) {
     await db.execute(sql`
-      UPDATE follow_up_enrollments SET stopped_at = NOW(), stopped_reason = ${reason}
+      UPDATE follow_up_enrollments SET stopped_at = NOW(), stopped_reason = ${reason}, next_fire_at = NULL
        WHERE company_id = ${companyId} AND lead_id = ${id} AND completed_at IS NULL AND stopped_at IS NULL`).catch(() => {});
     // Surface the reply on the board: replied_at drives the REPLIED badge +
     // top-of-column sort. Cleared when the office opens the lead or logs a
