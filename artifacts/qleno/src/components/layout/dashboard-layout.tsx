@@ -7,6 +7,7 @@ import { useGetMe } from "@workspace/api-client-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { NotificationBell } from "@/components/notification-bell";
 import { useTenantBrand } from "@/lib/tenant-brand";
+import { routeTitle, computeTitle } from "@/lib/page-title";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { VoiceAssistant } from "@/components/voice-assistant";
 import { GlobalSearch } from "@/components/global-search";
@@ -35,81 +36,9 @@ interface DashboardLayoutProps {
   onNewJob?: () => void;
 }
 
-const ROUTE_TITLES: Record<string, string> = {
-  '/dashboard':                    'Dashboard',
-  '/dispatch':                     'Jobs',
-  '/jobs':                         'Jobs',
-  '/my-jobs':                      'My Jobs',
-  '/leave':                        'Time Off',
-  '/employees':                    'Employees',
-  '/employees/clocks':             'Clock Monitor',
-  '/customers':                    'Customers',
-  '/invoices':                     'Invoices',
-  '/payroll':                      'Payroll',
-  '/cleancyclopedia':              'Cleancyclopedia',
-  '/loyalty':                      'Loyalty',
-  '/company':                      'Company Settings',
-  '/leads':                        'Lead Pipeline',
-  '/reports':                      'Reports',
-  '/reports/insights':             'Core KPIs',
-  '/reports/revenue':              'Revenue Summary',
-  '/reports/payroll':              'Payroll Summary',
-  '/reports/employee-stats':       'Employee Stats',
-  '/reports/tips':                 'Tips Report',
-  '/reports/receivables':          'Accounts Receivable',
-  '/reports/job-costing':          'Job Costing',
-  '/reports/payroll-to-revenue':   'Payroll % Revenue',
-  '/reports/efficiency':           'Schedule Efficiency',
-  '/reports/week-review':          'Week in Review',
-  '/reports/scorecards':           'Scorecards',
-  '/reports/cancellations':        'Cancellations',
-  '/reports/contact-tickets':      'Contact Tickets',
-  '/reports/hot-sheet':            'Hot Sheet',
-  '/reports/first-time':           'First Time In',
-  '/company/zones':                'Service Zones',
-  '/company/rates':                'Rates & Add-ons',
-  '/notifications':                'Notifications',
-  // [tab-titles 2026-07-10] Francisco: several tabs just read "Qleno" — the map
-  // was missing whole sections and never handled detail pages. Added the common
-  // sections; routeTitle() below covers everything else (detail pages + any
-  // route not listed here) so no tab is ever a bare "Qleno" again.
-  '/accounts':                     'Accounts',
-  '/estimates':                    'Estimates',
-  '/estimates/engagement':         'Estimate Engagement',
-  '/quotes':                       'Quotes',
-  '/discounts':                    'Discounts',
-  '/messages':                     'Messages',
-  '/my-day':                       'My Day',
-  '/my-pay':                       'My Pay',
-  '/help':                         'Help & Guides',
-  '/lms':                          'Training',
-  '/lms/admin':                    'Training Admin',
-  '/time-clock':                   'Time Clock',
-  '/all-locations':                'All Locations',
-  '/leads/partners':               'Lead Partners',
-  '/leads/reports':                'Lead Reports',
-  '/leads/templates':              'Lead Templates',
-  '/payroll/leave-review':         'Leave Review',
-  '/payroll/mileage-review':       'Mileage Review',
-};
-
-// [tab-titles 2026-07-10] Resolve a descriptive tab title for ANY path, so
-// detail pages (/customers/123, /invoices/9, /accounts/45) and unmapped routes
-// stop falling back to a bare "Qleno". Order: exact map hit → parent section
-// after stripping trailing ids/tokens → title-cased last segment.
-function routeTitle(location: string): string {
-  if (ROUTE_TITLES[location]) return ROUTE_TITLES[location];
-  const segs = location.split('/').filter(Boolean);
-  // Drop trailing numeric ids or long hex tokens so /customers/123 → /customers.
-  while (segs.length && (/^\d+$/.test(segs[segs.length - 1]) || /^[0-9a-f-]{8,}$/i.test(segs[segs.length - 1]))) {
-    segs.pop();
-  }
-  const parent = '/' + segs.join('/');
-  if (ROUTE_TITLES[parent]) return ROUTE_TITLES[parent];
-  const last = segs[segs.length - 1];
-  if (last) return last.replace(/[-_]/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
-  return 'Qleno';
-}
+// [tab-titles 2026-07-11] Route→title map + routeTitle() now live in
+// lib/page-title.ts so App's global <TitleManager/> can title pages that render
+// OUTSIDE this layout too. computeTitle() applies any per-page `title` override.
 
 const BOTTOM_TABS_MANAGER = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Today' },
@@ -734,8 +663,10 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
   }, [location]);
 
   useEffect(() => {
-    const pt = title || routeTitle(location);
-    document.title = pt === 'Qleno' ? 'Qleno' : `${pt} — Qleno`;
+    // Layers this page's `title` override on top of the route map. Fires AFTER
+    // App's global TitleManager (child effects run after the parent sibling that
+    // precedes the Switch), so the override wins for DashboardLayout pages.
+    document.title = computeTitle(location, title);
   }, [location, title]);
 
   useEffect(() => {
