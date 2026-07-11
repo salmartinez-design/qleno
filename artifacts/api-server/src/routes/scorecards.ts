@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { resolveWindow } from "../lib/report-periods.js";
 import { recomputeAllScorecards, recomputeEmployeeScorecard } from "../lib/scorecard-engine.js";
 import { computeCompositeForEmployee, recomputeAllComposites } from "../lib/scorecard-composite.js";
+import { canonicalRating } from "../lib/scorecard-scale.js";
 
 const router = Router();
 
@@ -367,6 +368,67 @@ router.post("/import", requireAuth, requireRole("owner", "admin"), async (req, r
   } catch (err) {
     console.error("Scorecard import error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to import scorecards" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/scorecards/audit/scale — find + optionally fix mis-scaled scorecards.
+//
+// Historical rows written by the inbound-SMS path stored `score` on a 0-100
+// scale (100/75/40/0) while the customer profile reads it as 0-4, so negative
+// ratings rendered green/positive. This lists every row whose `score` is off
+// the 0-4 scale (score > 4) and, with ?apply=true, backfills `score` to the
+// canonical 0-4 rating. Dry-run by default — nothing changes without apply.
+// Owner/admin/office only, company-scoped.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/audit/scale", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const apply = String(req.query.apply ?? "") === "true";
+    const bad = await db.execute(sql`
+      SELECT id, job_id, client_id, user_id, score, rating, weight, created_at
+        FROM scorecards
+       WHERE company_id = ${companyId} AND score > 4
+       ORDER BY created_at DESC`);
+    const rows: any[] = (bad as any).rows ?? [];
+    const preview = rows.slice(0, 100).map((r) => ({
+      id: r.id,
+      job_id: r.job_id,
+      client_id: r.client_id,
+      stored_score: Number(r.score),
+      rating: r.rating == null ? null : Number(r.rating),
+      canonical_0_4: canonicalRating(r),
+      created_at: r.created_at,
+    }));
+    let updated = 0;
+    if (apply && rows.length) {
+      // Canonicalize per row so legacy rows missing `rating` still resolve via
+      // weight / the 0-100 reverse-map. Guarded to company + score > 4.
+      const upd = await db.execute(sql`
+        UPDATE scorecards SET score = CASE
+            WHEN rating IS NOT NULL THEN rating
+            WHEN weight = 1    THEN 4
+            WHEN weight = 0.75 THEN 3
+            WHEN weight = 0.4  THEN 2
+            WHEN score >= 100  THEN 4
+            WHEN score >= 75   THEN 3
+            WHEN score >= 40   THEN 2
+            ELSE 1 END
+         WHERE company_id = ${companyId} AND score > 4`);
+      updated = (upd as any).rowCount ?? rows.length;
+    }
+    return res.json({
+      dry_run: !apply,
+      mis_scaled_count: rows.length,
+      updated,
+      note: apply
+        ? "Backfilled score to the 0-4 rating for all mis-scaled rows."
+        : "Dry run — pass ?apply=true to backfill score to the 0-4 rating.",
+      sample: preview,
+    });
+  } catch (err) {
+    console.error("Scorecard scale audit error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to run the scale audit" });
   }
 });
 

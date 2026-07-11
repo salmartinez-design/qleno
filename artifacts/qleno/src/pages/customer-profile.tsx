@@ -3725,7 +3725,7 @@ function JobDetailSlideOver({ row, profile, onClose }: { row: any; profile?: any
           {scorecard && (
             <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "12px 14px", borderLeft: "3px solid var(--brand)" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Performance Score</div>
-              <div style={{ fontSize: 20, fontWeight: 900, color: scorecard.score >= 4 ? "#16A34A" : scorecard.score >= 3 ? "#D97706" : "#DC2626" }}>{scorecard.score} / 5</div>
+              <div style={{ fontSize: 20, fontWeight: 900, color: scorecard.score >= 4 ? "#16A34A" : scorecard.score >= 3 ? "#D97706" : "#DC2626" }}>{scorecard.score} / 4</div>
               {scorecard.comments && <div style={{ fontSize: 12, color: "#374151", marginTop: 4 }}>{scorecard.comments}</div>}
             </div>
           )}
@@ -3938,7 +3938,7 @@ function ClientIntelligencePanel({ jhStats, profile, noCard }: { jhStats: any; p
         <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 14 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Avg Performance Score</div>
           <div style={{ fontSize: 20, fontWeight: 800, color: profile.stats.scorecard_avg >= 4 ? "#16A34A" : profile.stats.scorecard_avg >= 3 ? "#D97706" : "#DC2626" }}>
-            {profile.stats.scorecard_avg.toFixed(1)} / 5
+            {profile.stats.scorecard_avg.toFixed(1)} / 4
           </div>
         </div>
       )}
@@ -6095,7 +6095,7 @@ export default function CustomerProfilePage() {
         {profile?.stats?.scorecard_avg && (
           <SR2
             label="Avg Performance Score"
-            value={`${profile.stats.scorecard_avg.toFixed(1)} / 5`}
+            value={`${profile.stats.scorecard_avg.toFixed(1)} / 4`}
             color={profile.stats.scorecard_avg >= 4 ? "#16A34A" : profile.stats.scorecard_avg >= 3 ? "#D97706" : "#DC2626"}
           />
         )}

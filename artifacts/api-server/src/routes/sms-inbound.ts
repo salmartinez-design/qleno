@@ -190,7 +190,13 @@ router.post("/", async (req, res) => {
       return res.send("<Response><Message>We already received your rating. Thank you!</Message></Response>");
     }
 
-    const score = Math.round(weight * 100);
+    // [scorecard-scale 2026-07-11] Store the rating on the 0-4 scale that the
+    // customer profile + scorecard_avg read. Previously this wrote
+    // Math.round(weight * 100) (0-100), which the profile read as 0-4 with a
+    // ">= 4 = green" threshold, so a negative rating (e.g. "A Few Concerns" =>
+    // 40) rendered as top-marks green. `weight` (0-1) still drives the 95%
+    // floor check below; `rating` is kept verbatim for the reply branch.
+    const score = rating;
     const employeeIdsArr = `{${employeeIds.join(",")}}`;
 
     await db.execute(sql`

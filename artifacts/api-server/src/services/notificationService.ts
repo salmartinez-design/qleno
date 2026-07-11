@@ -1,6 +1,7 @@
 import { db } from "@workspace/db";
-import { notificationTemplatesTable, notificationLogTable, clientsTable, companiesTable } from "@workspace/db/schema";
+import { notificationTemplatesTable, notificationLogTable, clientsTable, companiesTable, satisfactionSurveysTable } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
+import crypto from "crypto";
 import { getBranchByZip } from "../lib/branchRouter";
 import { buildReminderEmail } from "../lib/emailTemplates";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
@@ -861,10 +862,32 @@ export async function runReviewRequestCron(): Promise<void> {
       `
     );
     const jobs: any[] = (rows as any).rows ?? [];
+    const appBase = (process.env.APP_BASE_URL || "https://app.qleno.com").replace(/\/$/, "");
     for (const job of jobs) {
+      // [scorecard-scale 2026-07-11] The review_request template is the 4-button
+      // SURVEY ("Thrilled / Happy / A Few Concerns / Major Concerns"), so its
+      // buttons must point at the TOKENIZED survey page — NOT the company's
+      // public Google review link. Previously this passed co.review_link
+      // (a g.page URL), which dumped an unhappy customer straight onto public
+      // Google reviews and recorded no survey/scorecard. Mint a survey token per
+      // job (same shape as routes/satisfaction.ts) and link to it; the survey
+      // page then routes happy -> Google review, concerns -> "make it right".
+      const token = crypto.randomBytes(24).toString("hex");
+      try {
+        await db.insert(satisfactionSurveysTable).values({
+          company_id: job.company_id,
+          job_id: job.id,
+          customer_id: job.client_id,
+          token,
+          sent_at: new Date(),
+        });
+      } catch (e) {
+        console.error("[notifications] review_request cron: survey token insert failed (non-fatal):", (e as any)?.message ?? e);
+      }
+      const surveyUrl = `${appBase}/survey/${token}`;
       const mergeVars = {
         first_name:  job.first_name || "",
-        review_link: job.review_link || "https://g.page/r/phes/review",
+        review_link: surveyUrl,
         scope:       labelServiceType(job.service_type),
         service_type: labelServiceType(job.service_type),
         // [appointment-vars] So a review template referencing the visit date
