@@ -30,7 +30,19 @@ router.get("/conversations", requireAuth, requireRole("owner", "admin", "office"
               AND right(regexp_replace(coalesce(c.phone,''),'\\D','','g'),10) = s.contact_phone LIMIT 1),
           (SELECT NULLIF(trim(l.first_name||' '||coalesce(l.last_name,'')),'') FROM leads l WHERE l.company_id = ${companyId}
               AND right(regexp_replace(coalesce(l.phone,''),'\\D','','g'),10) = s.contact_phone LIMIT 1)
-        ) AS name
+        ) AS name,
+        -- [scheduled-visibility 2026-07-11] Flag threads with a pending scheduled
+        -- reply so a teammate scanning the inbox sees it's already handled (and by
+        -- whom) and doesn't message the customer again.
+        (SELECT count(*)::int FROM scheduled_sms ss
+           WHERE ss.company_id = ${companyId} AND ss.contact_phone = s.contact_phone AND ss.status = 'pending') AS scheduled_count,
+        (SELECT ss.scheduled_for FROM scheduled_sms ss
+           WHERE ss.company_id = ${companyId} AND ss.contact_phone = s.contact_phone AND ss.status = 'pending'
+           ORDER BY ss.scheduled_for ASC LIMIT 1) AS next_scheduled_for,
+        (SELECT NULLIF(trim(u.first_name||' '||coalesce(u.last_name,'')),'')
+           FROM scheduled_sms ss LEFT JOIN users u ON u.id = ss.created_by
+           WHERE ss.company_id = ${companyId} AND ss.contact_phone = s.contact_phone AND ss.status = 'pending'
+           ORDER BY ss.scheduled_for ASC LIMIT 1) AS scheduled_by
       FROM (
         SELECT contact_phone, max(created_at) AS last_at,
           (array_agg(body ORDER BY created_at DESC))[1] AS last_body,
@@ -336,7 +348,11 @@ router.get("/scheduled", requireAuth, requireRole("owner", "admin", "office"), a
     else if (leadId) where = sql`${where} AND lead_id = ${leadId}`;
 
     const r = await db.execute(sql`
-      SELECT id, contact_phone, client_id, lead_id, message, media_urls, scheduled_for, status, created_at
+      SELECT id, contact_phone, client_id, lead_id, message, media_urls, scheduled_for, status, created_at, created_by,
+        -- [scheduled-visibility 2026-07-11] Who scheduled it, so the thread shows
+        -- "Scheduled by <name>" and teammates know it's already handled.
+        (SELECT NULLIF(trim(u.first_name||' '||coalesce(u.last_name,'')),'')
+           FROM users u WHERE u.id = scheduled_sms.created_by) AS scheduled_by
         FROM scheduled_sms
        WHERE ${where}
        ORDER BY scheduled_for ASC`);

@@ -15,6 +15,9 @@ const BRAND = "#00C9A0";
 interface Convo {
   contact_phone: string; last_at: string; last_body: string; last_dir: string;
   unread: number; client_id: number | null; lead_id: number | null; name: string | null;
+  // [scheduled-visibility 2026-07-11] Pending scheduled reply on this thread, so
+  // the inbox flags it as already-handled (and by whom) to prevent double-texting.
+  scheduled_count?: number; next_scheduled_for?: string | null; scheduled_by?: string | null;
 }
 interface Msg {
   id: number; direction: string; body: string; from_number: string | null;
@@ -24,6 +27,7 @@ interface Msg {
 interface ScheduledMsg {
   id: number; message: string; media_urls?: string[] | null;
   scheduled_for: string; status: string; contact_phone: string;
+  scheduled_by?: string | null;
 }
 interface AttachPreview { file: File; objectUrl: string; r2Key?: string; uploading: boolean; }
 
@@ -597,6 +601,16 @@ export default function MessagesPage() {
                       </span>
                       {c.unread > 0 && <span style={{ background: BRAND, color: "#04241d", fontSize: 11, fontWeight: 800, borderRadius: 999, padding: "1px 7px", flexShrink: 0 }}>{c.unread}</span>}
                     </div>
+                    {/* [scheduled-visibility 2026-07-11] Pending scheduled reply — tells the
+                        team this thread is already handled (and by whom) so they don't re-text. */}
+                    {(c.scheduled_count ?? 0) > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
+                        <Clock size={11} color="#B45309" />
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          Reply scheduled{c.scheduled_by ? ` by ${c.scheduled_by}` : ""}{c.next_scheduled_for ? ` · ${fmtScheduled(c.next_scheduled_for)}` : ""}
+                        </span>
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
@@ -646,7 +660,7 @@ export default function MessagesPage() {
                           borderBottomRightRadius: 3, position: "relative" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 4 }}>
                             <Clock size={11} color={MUTE} />
-                            <span style={{ fontSize: 10, color: MUTE, fontWeight: 600 }}>Scheduled · {fmtScheduled(s.scheduled_for)}</span>
+                            <span style={{ fontSize: 10, color: MUTE, fontWeight: 600 }}>Scheduled{s.scheduled_by ? ` by ${s.scheduled_by}` : ""} · {fmtScheduled(s.scheduled_for)}</span>
                             <button onClick={() => cancelScheduled(s.id)} title="Cancel scheduled message"
                               style={{ marginLeft: "auto", border: "none", background: "transparent", cursor: "pointer", padding: 0, display: "flex" }}>
                               <Trash2 size={11} color={MUTE} />
