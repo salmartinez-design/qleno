@@ -3,7 +3,7 @@ import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Search, Send, ChevronLeft, Plus, X, Paperclip, Clock, Trash2, Image, Sparkles, Mic, Undo2, ChevronDown } from "lucide-react";
+import { MessageSquare, Search, Send, ChevronLeft, Plus, X, Paperclip, Clock, Trash2, Image, Sparkles, Mic, Undo2, ChevronDown, Wand2 } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -102,9 +102,41 @@ function ComposerAiTools({ value, onChange }: { value: string; onChange: (v: str
   const [toning, setToning] = useState(false);
   const [prePolish, setPrePolish] = useState<string | null>(null);
   const [listening, setListening] = useState(false);
+  // [help-me-write 2026-07-11] Gmail-style "Help me write" — generate a draft
+  // from a short instruction (distinct from Polish, which rewrites an existing
+  // draft). Reuses the same prePolish slot so one Undo reverts either action.
+  const [writeOpen, setWriteOpen] = useState(false);
+  const [writing, setWriting] = useState(false);
+  const [writePrompt, setWritePrompt] = useState("");
   const recognitionRef = useRef<any>(null);
   const speechSupported = typeof window !== "undefined" &&
     (("SpeechRecognition" in window) || ("webkitSpeechRecognition" in window));
+
+  async function helpMeWrite() {
+    const p = writePrompt.trim();
+    if (!p || writing) return;
+    setWriting(true);
+    try {
+      const r = await fetch(`${API}/api/help-me-write`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        // Pass any existing draft as light context so a half-written message
+        // gets finished rather than tossed.
+        body: JSON.stringify({ prompt: p, context: value.trim() || undefined }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (r.ok && data?.result) {
+        setPrePolish(value);
+        onChange(data.result);
+        setWriteOpen(false);
+        setWritePrompt("");
+      } else {
+        toast({ title: data?.error || "Couldn't generate a message", variant: "destructive" as any });
+      }
+    } catch {
+      toast({ title: "Couldn't reach the AI writer", variant: "destructive" as any });
+    } finally { setWriting(false); }
+  }
 
   async function polishTone(tone: string) {
     const text = value.trim();
@@ -153,6 +185,39 @@ function ComposerAiTools({ value, onChange }: { value: string; onChange: (v: str
 
   return (
     <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      <div style={{ position: "relative" }}>
+        <button type="button" onClick={() => setWriteOpen(o => !o)} disabled={writing} title="Draft a message with AI from a short instruction"
+          style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: FF, color: INK, cursor: writing ? "default" : "pointer", opacity: writing ? 0.5 : 1 }}>
+          <Wand2 size={13} color={BRAND} /> {writing ? "Writing…" : "Help me write"}
+        </button>
+        {writeOpen && (
+          <>
+            <div onClick={() => setWriteOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 40 }} />
+            <div style={{ position: "absolute", bottom: "calc(100% + 6px)", left: 0, zIndex: 41, background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 12, boxShadow: "0 8px 24px rgba(10,14,26,0.16)", padding: 12, width: 300, maxWidth: "80vw" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                <Wand2 size={14} color={BRAND} />
+                <span style={{ fontSize: 13, fontWeight: 800, fontFamily: FF, color: INK }}>Help me write</span>
+              </div>
+              <textarea
+                autoFocus
+                value={writePrompt}
+                onChange={e => setWritePrompt(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); helpMeWrite(); } }}
+                placeholder="e.g. Let the client know we're running 15 minutes late"
+                rows={3}
+                maxLength={1000}
+                style={{ width: "100%", boxSizing: "border-box", resize: "vertical", padding: "8px 10px", border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 13, fontFamily: FF, color: INK, outline: "none" }}
+              />
+              <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 8 }}>
+                <button type="button" onClick={helpMeWrite} disabled={!writePrompt.trim() || writing}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "7px 16px", background: BRAND, color: "#04241d", border: "none", borderRadius: 20, fontSize: 12, fontWeight: 800, fontFamily: FF, cursor: writePrompt.trim() && !writing ? "pointer" : "default", opacity: writePrompt.trim() && !writing ? 1 : 0.5 }}>
+                  <Sparkles size={13} /> {writing ? "Writing…" : "Create"}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
       <div style={{ position: "relative" }}>
         <button type="button" onClick={() => setToneOpen(o => !o)} disabled={!value.trim() || toning} title="Rewrite the tone with AI"
           style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 20, fontSize: 12, fontWeight: 700, fontFamily: FF, color: INK, cursor: value.trim() && !toning ? "pointer" : "default", opacity: value.trim() && !toning ? 1 : 0.5 }}>
