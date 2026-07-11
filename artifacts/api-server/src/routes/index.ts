@@ -108,6 +108,8 @@ import lmsAdminAuditRouter from "./lms-admin-audit.js";
 import lmsOnboardingIntakeRouter from "./lms-onboarding-intake.js";
 import translateRouter from "./translate.js";
 import messageToneRouter from "./message-tone.js";
+import helpMeWriteRouter from "./help-me-write.js";
+import clientSuspensionRouter from "./client-suspension.js";
 import assistantRouter from "./assistant.js";
 import devicesRouter from "./devices.js";
 import guidesRouter from "./guides.js";
@@ -120,6 +122,9 @@ router.use("/companies", companiesRouter);
 router.use("/users", employeeExtendedRouter);
 router.use("/users", usersRouter);
 router.use("/clients", clientsRouter);
+// [service-suspension 2026-07-11] Suspend/resume a client's service.
+// POST /api/clients/:id/suspend {until?, reason?, notify?}, POST /:id/resume.
+router.use("/clients", clientSuspensionRouter);
 router.use("/jobs", jobsRouter);
 router.use("/jobs", jobSmsRouter);
 router.use("/timeclock", timeclockRouter);
@@ -153,6 +158,10 @@ router.use("/translate", translateRouter);
 // [message-tone 2026-07-02] One-tap tone polish for outbound customer SMS.
 // POST /api/message-tone {text, tone} → {result}.
 router.use("/message-tone", messageToneRouter);
+// [help-me-write 2026-07-11] Gmail-style draft generation from a short
+// instruction for outbound customer SMS. Claude API. No tenant data read.
+// POST /api/help-me-write {prompt, context?} → {result}.
+router.use("/help-me-write", helpMeWriteRouter);
 // [voice-assistant 2026-06-08] Field-tech voice assistant — Claude API, scoped
 // to the caller's own jobs. POST /api/assistant/ask {question, language} → {answer, navigate_url}.
 router.use("/assistant", assistantRouter);

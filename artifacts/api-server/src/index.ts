@@ -18,6 +18,7 @@ import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
 import { runAutoTardySweep } from "./lib/auto-tardy.js";
 import { runScorecardCompositeCron } from "./lib/scorecard-composite.js";
 import { runMileageAutoCompute } from "./lib/mileage-auto-cron.js";
+import { runSuspensionReminders } from "./lib/suspension.js";
 import { setAppReady } from "./lib/readiness.js";
 import { processScheduledSms } from "./lib/sms-scheduler.js";
 
@@ -163,6 +164,16 @@ function startNotificationCron() {
       runMileageAutoCompute()
         .then((r) => console.log(`[boot] mileage_auto: ${r.inserted} legs across ${r.periods} period(s), ${r.companies} tenant(s)`))
         .catch((e: Error) => console.error("[boot] mileage_auto error:", e));
+    }
+    // [service-suspension 2026-07-11] 8 AM CT → suspension lifecycle messages:
+    // the 30-days-before-expiry "want to resume?" reminder + the at-expiry
+    // final notice (flag for office; NO automatic cancel/resume). Idempotent
+    // via the clients.suspend_*_sent_at stamps, so the once-daily cadence never
+    // double-sends. Each send goes through sendNotification (COMMS_ENABLED gate
+    // + email/SMS opt-out) on the editable suspension_* templates.
+    if (ctH === 8 && fired["suspension_reminders"] !== `${ctDate}-8`) {
+      fired["suspension_reminders"] = `${ctDate}-8`;
+      runSuspensionReminders(ctDate).catch((e: Error) => console.error("[cron] suspension_reminders error:", e));
     }
     // December 1 at 9 AM CT → annual re-acknowledgment cycle auto-open
     // for every tenant. Idempotent: skips tenants with an existing
@@ -426,6 +437,16 @@ async function runStartupMigrations() {
     });
   } catch (err: any) {
     console.error("[startup] runCommsOptOutMigration — non-fatal:", err?.message ?? err);
+  }
+  // [service-suspension 2026-07-11] clients.suspend_* columns + recurring_
+  // schedules.paused_by_suspension marker.
+  try {
+    await withBootTimeout("runSuspensionMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runSuspensionMigration } = await import("./lib/suspension.js");
+      await runSuspensionMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runSuspensionMigration — non-fatal:", err?.message ?? err);
   }
   // [redo-service 2026-07-10] jobs.redo_of_job_id / non_billable +
   // quality_complaints.reason_category / areas / redo_job_id.

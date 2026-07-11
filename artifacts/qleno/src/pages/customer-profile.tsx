@@ -860,6 +860,116 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
 }
 
 // ─── Overview Tab ─────────────────────────────────────────────────────────────
+// [service-suspension 2026-07-11] Suspend / resume a client's cleaning service.
+// Self-contained card (own mutations) dropped at the top of the Overview tab.
+// Suspending cancels the client's future jobs + pauses their recurring
+// schedules and (optionally) emails a confirmation; resuming reverses the
+// schedule pause. Office/admin/owner only — the server also role-gates.
+function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => void }) {
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const qc = useQueryClient();
+  const role = getTokenRole();
+  const canManage = role === "owner" || role === "admin" || role === "office";
+  const isSuspended = !!client.suspended_at;
+
+  // Default resume date = 90 days out; the picker is capped at that max.
+  const today = new Date().toISOString().slice(0, 10);
+  const maxDate = (() => { const d = new Date(); d.setDate(d.getDate() + 90); return d.toISOString().slice(0, 10); })();
+  const expired = isSuspended && client.suspend_until && String(client.suspend_until).slice(0, 10) <= today;
+
+  const [modalOpen, setModalOpen] = useState(false);
+  const [until, setUntil] = useState(maxDate);
+  const [reason, setReason] = useState("");
+  const [notify, setNotify] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+
+  const invalidate = () => { qc.invalidateQueries({ queryKey: ["client-recurring", client.id] }); qc.invalidateQueries({ queryKey: ["client-jobs", client.id] }); refetch(); };
+
+  const suspendMut = useMutation({
+    mutationFn: () => apiFetch(`/api/clients/${client.id}/suspend`, { method: "POST", body: JSON.stringify({ until, reason: reason.trim() || undefined, notify }) }),
+    onSuccess: () => { setModalOpen(false); setReason(""); setErr(null); invalidate(); },
+    onError: (e: any) => setErr(String(e?.message || e).slice(0, 200)),
+  });
+  const resumeMut = useMutation({
+    mutationFn: () => apiFetch(`/api/clients/${client.id}/resume`, { method: "POST", body: JSON.stringify({}) }),
+    onSuccess: () => invalidate(),
+    onError: (e: any) => setErr(String(e?.message || e).slice(0, 200)),
+  });
+
+  const daysLeft = isSuspended && client.suspend_until
+    ? Math.ceil((new Date(String(client.suspend_until).slice(0, 10) + "T12:00:00").getTime() - Date.now()) / 86400000)
+    : null;
+
+  return (
+    <div style={{ background: "#FFFFFF", border: `1px solid ${expired ? "#FCA5A5" : isSuspended ? "#FCD34D" : "#E5E2DC"}`, borderRadius: 10, padding: "18px 20px", fontFamily: FF }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ width: 40, height: 40, borderRadius: "50%", background: expired ? "#FEE2E2" : isSuspended ? "#FEF3C7" : "#DCFCE7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Clock size={18} style={{ color: expired ? "#991B1B" : isSuspended ? "#92400E" : "#166534" }} />
+        </div>
+        <div style={{ flex: 1, minWidth: 180 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1917" }}>
+            {expired ? "Service hold expired" : isSuspended ? "Service suspended" : "Service active"}
+          </div>
+          <div style={{ fontSize: 12, color: "#6B6860", marginTop: 2 }}>
+            {expired
+              ? `Hold ended ${fmtDate(client.suspend_until)} — awaiting follow-up to resume or close out.`
+              : isSuspended
+                ? `On hold until ${fmtDate(client.suspend_until)}${daysLeft != null && daysLeft >= 0 ? ` · ${daysLeft} day${daysLeft === 1 ? "" : "s"} left` : ""}${client.suspend_reason ? ` · ${client.suspend_reason}` : ""}`
+                : "Cleanings are scheduling normally."}
+          </div>
+        </div>
+        {canManage && (
+          isSuspended ? (
+            <button onClick={() => resumeMut.mutate()} disabled={resumeMut.isPending}
+              style={{ padding: "8px 14px", border: "none", borderRadius: 8, background: "var(--brand)", color: "#04241d", fontSize: 13, fontWeight: 700, cursor: resumeMut.isPending ? "default" : "pointer", opacity: resumeMut.isPending ? 0.6 : 1, fontFamily: FF }}>
+              {resumeMut.isPending ? "Resuming…" : "Resume service"}
+            </button>
+          ) : (
+            <button onClick={() => { setErr(null); setUntil(maxDate); setModalOpen(true); }}
+              style={{ padding: "8px 14px", border: "1px solid #FCD34D", borderRadius: 8, background: "#FFFBEB", color: "#92400E", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+              Suspend service
+            </button>
+          )
+        )}
+      </div>
+      {isSuspended && err && <div style={{ fontSize: 12, color: "#991B1B", marginTop: 10 }}>{err}</div>}
+
+      {modalOpen && (
+        <div onClick={() => !suspendMut.isPending && setModalOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: "#FFFFFF", borderRadius: 14, padding: 24, width: 440, maxWidth: "100%", fontFamily: FF, boxShadow: "0 20px 50px rgba(10,14,26,0.3)" }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#0A0E1A", marginBottom: 6 }}>Suspend service</div>
+            <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 18, lineHeight: 1.5 }}>
+              Places {client.first_name} {client.last_name} on hold for up to 90 days. Upcoming jobs are cancelled and recurring schedules pause. Resume any time before the end date.
+            </div>
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Resume / end date (max 90 days)</label>
+            <input type="date" value={until} min={today} max={maxDate} onChange={e => setUntil(e.target.value)}
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", marginBottom: 14, fontFamily: FF }} />
+            <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Reason (optional)</label>
+            <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} maxLength={500}
+              placeholder="e.g. Traveling for the summer"
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", resize: "vertical", marginBottom: 14, fontFamily: FF }} />
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1A1917", marginBottom: 6, cursor: "pointer" }}>
+              <input type="checkbox" checked={notify} onChange={e => setNotify(e.target.checked)} />
+              Email the customer a suspension confirmation
+            </label>
+            {err && <div style={{ fontSize: 12, color: "#991B1B", marginBottom: 8 }}>{err}</div>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
+              <button onClick={() => setModalOpen(false)} disabled={suspendMut.isPending}
+                style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#6B7280", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+              <button onClick={() => suspendMut.mutate()} disabled={suspendMut.isPending || !until}
+                style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#B45309", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: suspendMut.isPending ? "default" : "pointer", opacity: suspendMut.isPending || !until ? 0.6 : 1, fontFamily: FF }}>
+                {suspendMut.isPending ? "Suspending…" : "Suspend service"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (data: any) => Promise<void>; refetch: () => void }) {
   const { data: companyMe } = useQuery<any>({ queryKey: ["company-me"], queryFn: () => apiFetch("/api/companies/me") });
   const companySlug = companyMe?.slug ?? "phes-cleaning";
@@ -963,6 +1073,9 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
           </button>
         )}
       </div>
+
+      {/* [service-suspension 2026-07-11] Suspend / resume service */}
+      <ServiceStatusCard client={client} refetch={refetch} />
 
       {/* Intelligence Badges (NPS / Churn) */}
       {((client.latest_nps_score !== null && client.latest_nps_score !== undefined) || (client.churn_risk_score !== null && client.churn_risk_score !== undefined)) && (
@@ -3382,6 +3495,11 @@ function ProfileHero({ client, stats, jhStats, recurringSchedule, onSchedule, on
             {freqBadge && (
               <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 4, background: "var(--brand-dim)", color: "var(--brand)", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>
                 {freqBadge}
+              </span>
+            )}
+            {client.suspended_at && (
+              <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 9px", borderRadius: 4, textTransform: "uppercase" as const, letterSpacing: "0.07em", background: "#FEF3C7", color: "#92400E" }}>
+                Suspended{client.suspend_until ? ` · until ${fmtDate(client.suspend_until)}` : ""}
               </span>
             )}
           </div>

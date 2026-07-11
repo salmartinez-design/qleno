@@ -139,6 +139,23 @@ export const clientsTable = pgTable("clients", {
   // The cancel modal "Notify client" checkbox uses this. 'sms' = text only;
   // 'email' = email only; 'both' = both channels; 'none' = no notification.
   cancellation_notify_via: text("cancellation_notify_via").default("sms"),
+  // [service-suspension 2026-07-11] Temporary service hold (up to 90 days).
+  // Suspending sets suspended_at (when) + suspend_until (the office-chosen
+  // resume/expiry date, capped 90 days out) + suspend_reason, cancels future
+  // jobs, and deactivates the client's recurring schedules. NULL suspended_at =
+  // active (the default). Timestamp-not-bool follows the sms/email_opt_out_at
+  // convention so we keep an audit of WHEN. The two *_sent_at stamps make the
+  // lifecycle emails idempotent (the daily cron only sends once each):
+  //   suspend_resume_reminder_sent_at — the 30-days-before-expiry "want to
+  //     resume?" follow-up.
+  //   suspend_expiry_notice_sent_at — the at-expiry final notice (flag for
+  //     office; no automatic state change).
+  suspended_at: timestamp("suspended_at"),
+  suspend_until: date("suspend_until"),
+  suspend_reason: text("suspend_reason"),
+  suspended_by_user_id: integer("suspended_by_user_id"),
+  suspend_resume_reminder_sent_at: timestamp("suspend_resume_reminder_sent_at"),
+  suspend_expiry_notice_sent_at: timestamp("suspend_expiry_notice_sent_at"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 });
 
