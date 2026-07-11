@@ -4,6 +4,7 @@ import { useParams, useLocation } from "wouter";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { EmployeeAvatar } from "@/components/employee-avatar";
+import { HorizontalTimeField } from "@/components/horizontal-time-field";
 import { AvatarCropModal } from "@/components/avatar-crop-modal";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { CalendarPopover } from "@/components/calendar-popover";
@@ -1918,10 +1919,15 @@ export default function EmployeeProfilePage() {
                           ("worked the morning, off 2-6 PM") tints only that
                           block on the dispatch board. Counts fully either way. */}
                       <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Time block <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional — blank = whole day)</span></label>
-                      <div style={{ display:'flex',gap:8,marginBottom:12 }}>
-                        <input type="time" value={recStart} onChange={e => setRecStart(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
-                        <span style={{ alignSelf:'center',fontSize:12,color:'#9E9B94' }}>to</span>
-                        <input type="time" value={recEnd} onChange={e => setRecEnd(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
+                      <div style={{ display:'flex',flexDirection:'column',gap:8,marginBottom:12 }}>
+                        <div style={{ display:'flex',alignItems:'center',gap:8 }}>
+                          <span style={{ width:34,flexShrink:0,fontSize:12,fontWeight:600,color:'#9E9B94' }}>From</span>
+                          <HorizontalTimeField value={recStart} onChange={setRecStart} ariaLabel="Start time" />
+                        </div>
+                        <div style={{ display:'flex',alignItems:'center',gap:8 }}>
+                          <span style={{ width:34,flexShrink:0,fontSize:12,fontWeight:600,color:'#9E9B94' }}>To</span>
+                          <HorizontalTimeField value={recEnd} onChange={setRecEnd} ariaLabel="End time" />
+                        </div>
                       </div>
                       <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Reason <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional)</span></label>
                       <textarea value={recReason} onChange={e => setRecReason(e.target.value)} placeholder="e.g. no-show, didn't call" rows={2} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box',resize:'vertical' }} />
@@ -1981,10 +1987,15 @@ export default function EmployeeProfilePage() {
                                 {/* [time-block] Optional window — "off 2-6 PM"
                                     tints only that block on the dispatch board. */}
                                 <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Time block <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional — blank = whole day)</span></label>
-                                <div style={{ display:'flex',gap:8,marginBottom:12 }}>
-                                  <input type="time" value={balStart} onChange={e => setBalStart(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
-                                  <span style={{ alignSelf:'center',fontSize:12,color:'#9E9B94' }}>to</span>
-                                  <input type="time" value={balEnd} onChange={e => setBalEnd(e.target.value)} style={{ flex:1,padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',boxSizing:'border-box' }} />
+                                <div style={{ display:'flex',flexDirection:'column',gap:8,marginBottom:12 }}>
+                                  <div style={{ display:'flex',alignItems:'center',gap:8 }}>
+                                    <span style={{ width:34,flexShrink:0,fontSize:12,fontWeight:600,color:'#9E9B94' }}>From</span>
+                                    <HorizontalTimeField value={balStart} onChange={setBalStart} ariaLabel="Start time" />
+                                  </div>
+                                  <div style={{ display:'flex',alignItems:'center',gap:8 }}>
+                                    <span style={{ width:34,flexShrink:0,fontSize:12,fontWeight:600,color:'#9E9B94' }}>To</span>
+                                    <HorizontalTimeField value={balEnd} onChange={setBalEnd} ariaLabel="End time" />
+                                  </div>
                                 </div>
                               </>
                             )}
