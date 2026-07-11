@@ -66,17 +66,18 @@ interface StartArgs extends ServiceInfo {
   clientName: string;
   startDate: string; // YYYY-MM-DD
   expiryDate: string; // YYYY-MM-DD
-  reason?: string | null;
+  // NOTE: the suspend reason is INTERNAL only (saved to clients.suspend_reason
+  // for the office) and deliberately NOT surfaced in customer copy — there are
+  // too many possible reasons to word around cleanly.
 }
 
 // (1) Sent when the office suspends the service.
 export function renderSuspensionStartEmail(a: StartArgs): { subject: string; contentHtml: string } {
   const first = a.clientName?.trim() || "there";
-  const reasonClause = a.reason?.trim() ? ` at your request (${esc(a.reason.trim())})` : "";
   const contentHtml =
     pill("On hold") +
     h1("Your recurring service is on hold") +
-    intro(`Hi ${esc(first)}, this confirms that your recurring cleaning service has been placed on hold${reasonClause}. During the hold we won't schedule any visits, and you won't be billed for cleanings.`) +
+    intro(`Hi ${esc(first)}, this confirms that your recurring cleaning service has been placed on hold. During the hold we won't schedule any visits, and you won't be billed for cleanings.`) +
     detailTable([
       ["Your service", a.serviceSummary],
       ["Your recurring rate", a.servicePrice, true],

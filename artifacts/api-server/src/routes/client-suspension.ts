@@ -113,11 +113,12 @@ router.post("/:id/suspend", requireAuth, requireRole("owner", "admin", "office")
           `);
           const c: any = co.rows[0] || {};
           const svcInfo = await resolveServiceInfo(companyId, clientId);
+          // reason is stored internally (clients.suspend_reason) but intentionally
+          // NOT passed to the customer email.
           const { subject, contentHtml } = renderSuspensionStartEmail({
             clientName: client.first_name,
             startDate: today,
             expiryDate: until,
-            reason,
             ...svcInfo,
           });
           const html = buildSuspensionEmailHtml(contentHtml, {
