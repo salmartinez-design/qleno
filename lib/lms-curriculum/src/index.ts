@@ -305,6 +305,8 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-40-no-price-discussion": 1,
   "q-pp-41-parking": 1,
   "q-pp-42-supply-maintenance": 1,
+  "q-pp-43-ncns": 2,
+  "q-pp-44-plawa-increment": 0,
 
   // ── Module 2: compensation (16, alignment with handbook hardening 2026-05-21) ───
   // Dropped q-cm-04/06/10 (duplicates + non-legal); added q-cm-17/18/19
@@ -571,6 +573,8 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-41-parking",
       // Supply pickup responsibility (2026-05-24)
       "q-pp-42-supply-maintenance",
+      // PLAWA compliance: NCNS weight + minimum increment (2026-07-11)
+      "q-pp-43-ncns", "q-pp-44-plawa-increment",
     ],
     compensation: [
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",

@@ -91,16 +91,16 @@ describe("LMS curriculum — constants & catalog shape", () => {
     assert.equal(FINAL_TEST_SIZE, 30);
   });
 
-  it("phes-policies has 42 questions (40 baseline + parking 2026-05-22 + supply-pickup 2026-05-24)", () => {
+  it("phes-policies has 44 questions (42 + PLAWA ncns + minimum-increment 2026-07-11)", () => {
     assert.equal(
       QUESTIONS_BY_MODULE["phes-policies"].length,
-      42,
-      `phes-policies should have 42 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
+      44,
+      `phes-policies should have 44 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
     );
   });
 
   it("each non-policies module has its specified question count", () => {
-    // phes-policies: 42 (40 baseline + parking 2026-05-22 + supply-pickup 2026-05-24)
+    // phes-policies: 44 (42 + PLAWA ncns + minimum-increment 2026-07-11)
     // compensation: 18 (17 + fix-it-mileage 2026-05-22)
     // drug-alcohol: 10 (Phase 3 spec, legally-important concepts only)
     // code-of-conduct: 10 (Phase 4 spec, behavior-comprehension)
@@ -112,7 +112,7 @@ describe("LMS curriculum — constants & catalog shape", () => {
     //   property-care questions for supply-pickup; total still 10)
     // all others: 15 (per original Phes spec)
     const expected: Record<string, number> = {
-      "phes-policies": 42,
+      "phes-policies": 44,
       "drug-alcohol": 10,
       "code-of-conduct": 10,
       "video-photo-release": 9,
@@ -135,8 +135,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 192 total (42 + 18 + 15*4 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 192);
+  it("ALL_QUESTION_IDS is 194 total (44 + 18 + 15*4 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 194);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {

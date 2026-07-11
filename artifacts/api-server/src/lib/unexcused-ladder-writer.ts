@@ -27,7 +27,7 @@ import {
   employeeDisciplineLogTable,
   usersTable,
 } from "@workspace/db/schema";
-import { and, eq, gte, lte } from "drizzle-orm";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
 import {
   evaluateLadder,
   evaluateOccurrenceLadder,
@@ -37,6 +37,7 @@ import {
   type OccurrenceStep,
 } from "./unexcused-ladder.js";
 import { benefitYearStartDate } from "./leave-grant-reset.js";
+import { countUnexcusedOccurrences } from "./attendance-compliance.js";
 
 /**
  * `tx` accepts the global db handle OR a transaction handle. Drizzle's
@@ -275,7 +276,10 @@ async function driveOccurrenceLadder(
   kind: "tardy" | "unexcused",
   steps: OccurrenceStep[],
 ): Promise<UnexcusedLadderResult> {
-  const attType = kind === "tardy" ? "tardy" : "absent";
+  // The unexcused counter spans plain absences AND No-Call/No-Shows; the tardy
+  // counter is its own track. NCNS rows weigh +2 (procedural violation) and are
+  // never protected — see countUnexcusedOccurrences.
+  const attTypes: string[] = kind === "tardy" ? ["tardy"] : ["absent", "ncns"];
   const marker = kind === "tardy" ? "tardy-occ" : "unexcused-occ";
   const nullResult: UnexcusedLadderResult = {
     attendance_log_id,
@@ -293,10 +297,13 @@ async function driveOccurrenceLadder(
   const hireDate = u[0]?.hire_date ? String(u[0].hire_date).slice(0, 10) : args.log_date;
   const byStart = benefitYearStartDate(hireDate, args.log_date).toISOString().slice(0, 10);
 
-  // Count this kind's NON-protected occurrences in the current benefit year
-  // (includes the row just inserted).
+  // Count this counter's occurrences in the current benefit year (includes the
+  // row just inserted). Protected (PLAWA-covered) rows count zero; a plain
+  // unexcused absence counts 1; a No-Call/No-Show counts 2 regardless of PLAWA
+  // balance. countUnexcusedOccurrences encodes those weights.
   const rows = await tx
     .select({
+      type: employeeAttendanceLogTable.type,
       is_protected: employeeAttendanceLogTable.protected,
     })
     .from(employeeAttendanceLogTable)
@@ -304,14 +311,18 @@ async function driveOccurrenceLadder(
       and(
         eq(employeeAttendanceLogTable.company_id, args.company_id),
         eq(employeeAttendanceLogTable.employee_id, args.employee_id),
-        eq(employeeAttendanceLogTable.type, attType),
+        inArray(employeeAttendanceLogTable.type, attTypes),
         gte(employeeAttendanceLogTable.log_date, byStart),
         lte(employeeAttendanceLogTable.log_date, args.log_date),
       ),
     );
-  const occurrenceCount = (rows as Array<{ is_protected: boolean | null }>).filter(
-    (r) => !r.is_protected,
-  ).length;
+  const typedRows = rows as Array<{ type: string; is_protected: boolean | null }>;
+  const occurrenceCount =
+    kind === "tardy"
+      ? typedRows.filter((r) => !r.is_protected).length
+      : countUnexcusedOccurrences(
+          typedRows.map((r) => ({ type: r.type, protected: r.is_protected })),
+        );
 
   // Already-fired steps for THIS kind + THIS benefit year (idempotent).
   const disc = await tx

@@ -288,17 +288,35 @@ const BASE_MODULES: Module[] = [
         },
       },
 
-      { type: "h", text: { en: "Unexcused Absence Scale (Per Benefit Year)", es: "Escala de Ausencia Injustificada (Por Año de Beneficios)" } },
+      { type: "h", text: { en: "Unexcused Absence Scale (Post-PLAWA, Per Benefit Year)", es: "Escala de Ausencia Injustificada (Después de PLAWA, Por Año de Beneficios)" } },
+      {
+        type: "callout",
+        tone: "info",
+        text: {
+          // LEGAL-REVIEW-PENDING (2026-07-11): tightened post-PLAWA 3-strike scale.
+          en: "As long as PLAWA hours are available and you give the grace call, a call-off is protected and records ZERO occurrences. Occurrences on this scale only begin once your PLAWA bank reaches 0.00 (or the absence is a no-call / no-show). Using your paid leave is never held against you.",
+          es: "Mientras tenga horas de PLAWA disponibles y dé la llamada de gracia, una ausencia está protegida y registra CERO ocurrencias. Las ocurrencias en esta escala solo comienzan una vez que su banco de PLAWA llega a 0.00 (o la ausencia es un no llamó / no se presentó). Usar su licencia pagada nunca se usa en su contra.",
+        },
+      },
       {
         type: "table",
         head: { en: ["Occurrence", "Action"], es: ["Ocurrencia", "Acción"] },
         rows: [
-          { en: ["1st", "Recorded."], es: ["1ª", "Registrada."] },
-          { en: ["2nd", "Recorded."], es: ["2ª", "Registrada."] },
-          { en: ["3rd", "Written warning."], es: ["3ª", "Advertencia por escrito."] },
-          { en: ["4th", "Final warning."], es: ["4ª", "Advertencia final."] },
-          { en: ["5th", "Termination."], es: ["5ª", "Terminación."] },
+          { en: ["1st", "Written warning / coaching."], es: ["1ª", "Advertencia por escrito / orientación."] },
+          { en: ["2nd", "Final written warning."], es: ["2ª", "Advertencia final por escrito."] },
+          { en: ["3rd", "Termination review."], es: ["3ª", "Revisión de terminación."] },
         ],
+      },
+
+      { type: "h", text: { en: "No-Call / No-Show (Counts as 2 Occurrences)", es: "No Llamó / No se Presentó (Cuenta como 2 Ocurrencias)" } },
+      {
+        type: "callout",
+        tone: "warning",
+        text: {
+          // LEGAL-REVIEW-PENDING (2026-07-11): NCNS = 2 occurrences, balance-independent.
+          en: "If you do not contact the office through the designated channel within the 20-minute grace window, the missed shift is a no-call / no-show. A no-call / no-show counts as TWO occurrences on the scale above, whether or not you have PLAWA hours left, because the issue is the broken notice rule, not the time off. One no-call / no-show puts you at a final written warning; a second triggers a termination review. Calling in protects you. Going silent does not.",
+          es: "Si no contacta a la oficina por el canal designado dentro de la ventana de gracia de 20 minutos, el turno perdido es un no llamó / no se presentó. Un no llamó / no se presentó cuenta como DOS ocurrencias en la escala anterior, tenga o no horas de PLAWA disponibles, porque el problema es la regla de aviso incumplida, no el tiempo libre. Un no llamó / no se presentó lo coloca en una advertencia final por escrito; un segundo activa una revisión de terminación. Llamar lo protege. Guardar silencio no.",
+        },
       },
 
       { type: "h", text: { en: "Job Abandonment", es: "Abandono del Empleo" } },
@@ -357,6 +375,7 @@ const BASE_MODULES: Module[] = [
           { en: "Use it for ANY reason. Examples: your illness, family illness, mental health day, medical appointment, flat tire, or no reason given. The law does not require you to explain.", es: "Úsela por CUALQUIER razón. Ejemplos: su enfermedad, enfermedad familiar, día de salud mental, cita médica, llanta ponchada o sin razón dada. La ley no exige que explique." },
           { en: "Phes NEVER requires documentation, regardless of absence length. This is Phes's policy choice and is stricter than what the law requires.", es: "Phes NUNCA exige documentación, sin importar la duración de la ausencia. Esta es la política de Phes y es más estricta que lo que exige la ley." },
           { en: "Notice: the 20-minute grace call only. No advance approval required.", es: "Aviso: solo la llamada de gracia de 20 minutos. No se requiere aprobación previa." },
+          { en: "PLAWA is used in a minimum of 2-hour increments. A same-day call-off or late start that draws PLAWA takes at least 2 hours from your bank, unless your entire scheduled shift that day was shorter than 2 hours (then only the shift length is used).", es: "El PLAWA se usa en incrementos mínimos de 2 horas. Una ausencia el mismo día o una llegada tarde que use PLAWA toma al menos 2 horas de su banco, a menos que todo su turno programado ese día fuera menor a 2 horas (entonces solo se usa la duración del turno)." },
           { en: "Cannot be denied for business needs. PLAWA is protected leave.", es: "No se puede negar por necesidades del negocio. PLAWA es licencia protegida." },
           { en: "PLAWA is AUTOMATIC when you have hours and give the grace call. You do not need to specifically request 'sick time' or give a reason. PLAWA covers you by default.", es: "PLAWA es AUTOMÁTICA cuando tiene horas y da la llamada de gracia. No necesita solicitar específicamente 'tiempo por enfermedad' ni dar una razón. PLAWA lo cubre por defecto." },
           { en: "4 or more CONSECUTIVE PLAWA days requires advance approval if the absence is foreseeable. 'Foreseeable' means planned in advance: a scheduled medical procedure, a planned mental health retreat, or a known appointment series. Unforeseeable absences (sudden illness like the flu, family emergency, accident) do NOT require advance approval. Just give the grace call each day. If you are sick for a week with the flu and call each day, that is fine.", es: "4 o más días consecutivos de PLAWA requieren aprobación previa si la ausencia es previsible. 'Previsible' significa planeado con anticipación: un procedimiento médico programado, un retiro de salud mental planeado, o una serie de citas conocida. Las ausencias imprevisibles (enfermedad súbita como la gripe, emergencia familiar, accidente) NO requieren aprobación previa. Solo dé la llamada de gracia cada día. Si está enfermo una semana con la gripe y llama cada día, está bien." },
@@ -3631,12 +3650,12 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-pp-11-unexcused-fourth",
     moduleId: "phes-policies",
-    prompt: { en: "An absence becomes 'unexcused' when (a) you no-call/no-show, or (b) PLAWA is exhausted AND the day was not pre-approved as PTO or Unpaid Personal Leave (both require 7 days advance notice) AND the absence is not protected by law. Once an absence IS unexcused, what happens at the 4th occurrence?", es: "Una ausencia se considera 'injustificada' cuando (a) no llama / no se presenta, o (b) el PLAWA está agotado Y el día no fue pre-aprobado como PTO o Licencia Personal No Pagada (ambos requieren 7 días de aviso anticipado) Y la ausencia no está protegida por la ley. Una vez que una ausencia ES injustificada, ¿qué sucede en la 4ª ocurrencia?" },
+    prompt: { en: "Your PLAWA bank is exhausted, so absences now count on the discipline scale. What does the SECOND unexcused occurrence in your benefit year trigger?", es: "Su banco de PLAWA está agotado, así que las ausencias ahora cuentan en la escala de disciplina. ¿Qué activa la SEGUNDA ocurrencia injustificada en su año de beneficios?" },
     options: [
-      { en: "Coaching conversation", es: "Conversación de orientación" },
-      { en: "Written warning", es: "Advertencia por escrito" },
-      { en: "Final warning", es: "Última advertencia" },
-      { en: "Immediate termination", es: "Terminación inmediata" },
+      { en: "A recorded note with no further action.", es: "Una nota registrada sin acción adicional." },
+      { en: "A first written warning and coaching.", es: "Una primera advertencia por escrito y orientación." },
+      { en: "A final written warning is issued.", es: "Se emite una advertencia final por escrito." },
+      { en: "An automatic termination that same day.", es: "Una terminación automática ese mismo día." },
     ],
     correctIndex: 2,
   },
@@ -4108,6 +4127,37 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "I receive an automatic pay deduction for each missed supply pickup.", es: "Recibo una deducción automática de pago por cada recogida no realizada." },
     ],
     correctIndex: 1,
+  },
+  // PLAWA compliance additions (2026-07-11): NCNS weight + minimum increment.
+  {
+    id: "q-pp-43-ncns",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "A cleaner never contacts the office and misses the shift entirely. How is that scored on the attendance scale?",
+      es: "Un cleaner nunca contacta a la oficina y pierde el turno por completo. ¿Cómo se califica en la escala de asistencia?",
+    },
+    options: [
+      { en: "One occurrence, like any other call-off.", es: "Una ocurrencia, como cualquier otra ausencia." },
+      { en: "No occurrence while PLAWA hours remain.", es: "Ninguna ocurrencia mientras queden horas de PLAWA." },
+      { en: "Two occurrences for the broken notice rule.", es: "Dos ocurrencias por la regla de aviso incumplida." },
+      { en: "Two occurrences only after a prior warning.", es: "Dos ocurrencias solo después de una advertencia previa." },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-pp-44-plawa-increment",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "An employee draws PLAWA for a one-hour late start on a full shift. How much comes out of their bank?",
+      es: "Un empleado usa PLAWA por una llegada tarde de una hora en un turno completo. ¿Cuánto sale de su banco?",
+    },
+    options: [
+      { en: "Two hours, the PLAWA minimum increment.", es: "Dos horas, el incremento mínimo de PLAWA." },
+      { en: "One hour, matching the time missed.", es: "Una hora, igual al tiempo perdido." },
+      { en: "Four hours, rounded to a half shift.", es: "Cuatro horas, redondeado a medio turno." },
+      { en: "No hours, since lateness never draws leave.", es: "Ninguna hora, la tardanza nunca usa licencia." },
+    ],
+    correctIndex: 0,
   },
 
   // q-pp-42-w2-tip-reporting, q-pp-43-abandonment-window,

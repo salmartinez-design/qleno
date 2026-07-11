@@ -62,7 +62,7 @@ function makeFakeTx(opts: {
   unexSteps?: OccurrenceStep[];
   tardySteps?: OccurrenceStep[];
   hire_date?: string;
-  attendance?: Array<{ is_protected?: boolean }>;
+  attendance?: Array<{ type?: string; is_protected?: boolean }>;
   discipline?: Array<{ reason: string }>;
 }) {
   const disciplineInserts: any[] = [];
@@ -92,7 +92,11 @@ function makeFakeTx(opts: {
           return Promise.resolve([]);
         },
         then(resolve: any) {
-          if (chain._table === "employee_attendance_log") return resolve(opts.attendance ?? []);
+          // Real attendance rows carry a `type`; the writer's counting is now
+          // type-aware (absent=1, ncns=2). These fixtures model absences unless
+          // a row overrides `type`, so default to "absent".
+          if (chain._table === "employee_attendance_log")
+            return resolve((opts.attendance ?? []).map((a) => ({ type: a.type ?? "absent", is_protected: a.is_protected ?? false })));
           if (chain._table === "employee_discipline_log") return resolve((opts.discipline ?? []).map((d) => ({ reason: d.reason })));
           return resolve([]);
         },
@@ -138,6 +142,20 @@ describe("recordUnexcusedEntryAndDriveLadder — occurrence path", () => {
       company_id: 1, employee_id: 42, log_date: "2026-05-29", hours: 8, type: "absent", logged_by: 1,
     });
     assert.equal(fake.disciplineInserts.length, 0); // only 2 count
+  });
+  it("NCNS weighs +2 on the unexcused counter (2 NCNS = 4 occ → highest crossed step fires)", async () => {
+    const fake = makeFakeTx({
+      unexSteps: PHES_UNEX, // 3/4/5
+      attendance: [{ type: "ncns" }, { type: "ncns" }], // 2 × 2 = 4 occurrences
+      discipline: [],
+    });
+    await recordUnexcusedEntryAndDriveLadder(fake.tx, {
+      company_id: 1, employee_id: 42, log_date: "2026-05-29", hours: 8, type: "ncns", logged_by: 1,
+    });
+    assert.equal(fake.disciplineInserts.length, 1);
+    // 4 crosses steps 3 and 4 → highest not-yet-fired = 4 = final_warning.
+    assert.equal(fake.disciplineInserts[0].discipline_type, "final_warning");
+    assert.match(fake.disciplineInserts[0].reason, /unexcused-occ s=4 .* count=4/);
   });
   it("tardy counter is independent (uses tardy_occurrence_steps, tardy_warning)", async () => {
     const fake = makeFakeTx({ tardySteps: PHES_TARDY, attendance: [{}, {}, {}], discipline: [] });

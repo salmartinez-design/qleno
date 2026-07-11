@@ -70,6 +70,8 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pp-40-no-price-discussion": 1,
   "q-pp-41-parking": 1,
   "q-pp-42-supply-maintenance": 1,
+  "q-pp-43-ncns": 2,
+  "q-pp-44-plawa-increment": 0,
 
   // ── Module 2: compensation (16, alignment 2026-05-21) ────────────────────
   // Mirror of curriculum ANSWER_KEY. Drift-sync test verifies they match.

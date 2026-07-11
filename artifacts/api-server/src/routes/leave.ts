@@ -53,6 +53,7 @@ import {
   employeeAttendanceLogTable,
   employeeDisciplineLogTable,
   companyLeavePolicyTable,
+  companyAttendancePolicyTable,
   usersTable,
   contactTicketsTable,
 } from "@workspace/db/schema";
@@ -67,7 +68,8 @@ import {
 } from "../lib/leave-balance.js";
 import { nextResetDate } from "../lib/leave-reset-format.js";
 import { benefitYearStartDate } from "../lib/leave-grant-reset.js";
-import { nextOccurrenceStep } from "../lib/unexcused-ladder.js";
+import { nextOccurrenceStep, type OccurrenceStep } from "../lib/unexcused-ladder.js";
+import { countUnexcusedOccurrences } from "../lib/attendance-compliance.js";
 import { resolveBucketDisplay } from "../lib/leave-bucket-display.js";
 import {
   DISC_LABEL,
@@ -90,6 +92,7 @@ import {
   notifyLeaveDecision,
 } from "../lib/leave-notifications.js";
 import { writeApprovedLeavePay, voidApprovedLeavePay, writeUsageLeavePay, voidUsageLeavePay } from "../lib/leave-pay.js";
+import { applyPlawaMinimumIncrement } from "../lib/attendance-compliance.js";
 import { slugToBucket } from "../lib/leave-bucket.js";
 import { logAudit } from "../lib/audit.js";
 import multer from "multer";
@@ -652,14 +655,14 @@ router.get("/attendance-log", officeReadGate, async (req, res) => {
 router.post("/usage", adminWriteGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
-    const body = req.body as { user_id?: number; leave_type_id?: number; date?: string; hours?: number | string; reason?: string; start_time?: string; end_time?: string };
+    const body = req.body as { user_id?: number; leave_type_id?: number; date?: string; hours?: number | string; reason?: string; start_time?: string; end_time?: string; scheduled_shift_hours?: number | string };
     const userId = Number(body?.user_id);
     const leaveTypeId = Number(body?.leave_type_id);
-    const hours = Number(body?.hours);
+    const requestedHours = Number(body?.hours);
     const date = String(body?.date ?? "");
     if (!Number.isFinite(userId) || !Number.isFinite(leaveTypeId)) return bad(res, "user_id and leave_type_id required");
     if (!ISO_DATE_RE.test(date)) return bad(res, "date YYYY-MM-DD required");
-    if (!Number.isFinite(hours) || hours <= 0 || hours > 24) return bad(res, "hours must be between 0 and 24");
+    if (!Number.isFinite(requestedHours) || requestedHours <= 0 || requestedHours > 24) return bad(res, "hours must be between 0 and 24");
     // [time-block 2026-07-08] Optional block the deduction covers ("2-6 PM
     // off"). Both or neither; the dispatch board tints just this window.
     const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -669,6 +672,42 @@ router.post("/usage", adminWriteGate, async (req, res) => {
     if (startTime && endTime && startTime >= endTime) return bad(res, "start_time must be before end_time");
     const bucket = await findBucket(companyId, leaveTypeId);
     if (!bucket) return notFound(res, "Leave type not found");
+    const isPlawa = String(bucket.slug).toLowerCase() === "plawa";
+    // [PLAWA deny-pay 2026-07-11] A No-Call/No-Show gave no notice, so PLAWA
+    // coverage is denied for that shift — the office cannot draw PLAWA to pay a
+    // ghosted day. The 2-occurrence attendance penalty (recorded separately)
+    // stands. If the NCNS was logged in error, the office removes it first.
+    if (isPlawa) {
+      const ncns = await db
+        .select({ id: employeeAttendanceLogTable.id })
+        .from(employeeAttendanceLogTable)
+        .where(
+          and(
+            eq(employeeAttendanceLogTable.company_id, companyId),
+            eq(employeeAttendanceLogTable.employee_id, userId),
+            eq(employeeAttendanceLogTable.type, "ncns"),
+            eq(employeeAttendanceLogTable.log_date, date),
+          ),
+        )
+        .limit(1);
+      if (ncns[0]) {
+        return bad(
+          res,
+          "This date is a No-Call/No-Show - PLAWA coverage is denied because no notice was given, and the 2-occurrence attendance penalty stands. If the NCNS was recorded in error, remove it first, then apply PLAWA.",
+        );
+      }
+    }
+    // [PLAWA 2-hour minimum increment 2026-07-11] IL lets an employer require a
+    // minimum leave increment (capped at 2h); Phes sets 2h. A sub-2h PLAWA
+    // deduction floors to 2h unless the scheduled shift that day was shorter
+    // (pass scheduled_shift_hours to signal a &lt;2h shift). Only affects PLAWA.
+    const scheduledShiftHours = Number(body?.scheduled_shift_hours);
+    const hours = applyPlawaMinimumIncrement(
+      bucket.slug,
+      requestedHours,
+      Number.isFinite(scheduledShiftHours) ? scheduledShiftHours : undefined,
+    );
+    const flooredToMinimum = hours > requestedHours;
     const reason = String(body?.reason ?? "").trim().slice(0, 500);
     const tag = slugToBucket(bucket.slug);
     const bal = await ensureBalanceRow(companyId, userId, leaveTypeId);
@@ -680,7 +719,7 @@ router.post("/usage", adminWriteGate, async (req, res) => {
       hours: hours.toFixed(2),
       // Same class/bucket tag shape as approvals + MC imports, so the
       // calendar, View History filter, and usage-delete refund all work.
-      notes: `office deduction${reason ? ` (${reason})` : ""} usage/${tag}`,
+      notes: `office deduction${reason ? ` (${reason})` : ""}${flooredToMinimum ? ` [PLAWA 2h minimum: ${requestedHours.toFixed(2)}h requested]` : ""} usage/${tag}`,
       // Structured designation + block — the dispatch board reads these
       // instead of guessing "full-day PTO" from the row's existence.
       leave_type_id: leaveTypeId,
@@ -710,11 +749,19 @@ router.post("/usage", adminWriteGate, async (req, res) => {
         hours_delta: -hours, log_date: date,
         reason: reason || null,
         source: "office_deduct",
+        requested_hours: requestedHours,
+        floored_to_minimum: flooredToMinimum,
         usage_id: inserted[0]?.id ?? null,
       });
     } catch { /* audit best-effort */ }
     const data = await buildBalancesForUser(companyId, userId);
-    return res.json({ ok: true, data });
+    return res.json({
+      ok: true,
+      data,
+      effective_hours: hours,
+      requested_hours: requestedHours,
+      floored_to_minimum: flooredToMinimum,
+    });
   } catch (err) {
     console.error("leave usage create error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to record the deduction" });
@@ -2175,6 +2222,150 @@ router.get("/alerts/use-it-or-lose-it", officeReadGate, async (req, res) => {
 // Unexcused-hours ladder watcher endpoint
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GET /reliability — the office attendance dashboard (Maribel + Pancho).
+//
+// Per active employee, in their CURRENT benefit year: unexcused occurrence count
+// (post-PLAWA / notice-violation events; NCNS weighs +2), tardy count, PLAWA
+// balance + whether the bank is at 0.00, and where they stand on the 3-strike
+// ladder. Sorted most-at-risk first.
+//
+// RETALIATION GUARD (locked, Sal 2026-07-11): the reliability signal is built
+// ONLY from employee_attendance_log occurrences. It NEVER reads the
+// /leave/usage (PLAWA deduction) path, and PROTECTED (PLAWA-covered) rows count
+// zero — so lawful PLAWA use can never feed a flag or a schedule change. The
+// PLAWA balance is shown for context only; it is not part of the risk score.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/reliability", officeReadGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const today = new Date().toISOString().slice(0, 10);
+    // A benefit year is <= 366 days, so this window covers every employee's
+    // current year; we then trim per-employee to their own benefit-year start.
+    const windowStart = (() => {
+      const d = new Date(`${today}T00:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - 366);
+      return d.toISOString().slice(0, 10);
+    })();
+
+    const employees = await db
+      .select({
+        id: usersTable.id,
+        first_name: usersTable.first_name,
+        last_name: usersTable.last_name,
+        hire_date: usersTable.hire_date,
+      })
+      .from(usersTable)
+      .where(and(eq(usersTable.company_id, companyId), eq(usersTable.is_active, true)));
+
+    // Occurrence ladder (for the strike label + next step).
+    const policyRows = await db
+      .select({ steps: companyAttendancePolicyTable.unexcused_occurrence_steps })
+      .from(companyAttendancePolicyTable)
+      .where(eq(companyAttendancePolicyTable.company_id, companyId))
+      .limit(1);
+    const steps = ((policyRows[0]?.steps as OccurrenceStep[] | null) ?? []) as OccurrenceStep[];
+
+    // Attendance rows for the whole company across the max window (ONE query).
+    const attRows = await db
+      .select({
+        employee_id: employeeAttendanceLogTable.employee_id,
+        type: employeeAttendanceLogTable.type,
+        is_protected: employeeAttendanceLogTable.protected,
+        log_date: employeeAttendanceLogTable.log_date,
+      })
+      .from(employeeAttendanceLogTable)
+      .where(
+        and(
+          eq(employeeAttendanceLogTable.company_id, companyId),
+          inArray(employeeAttendanceLogTable.type, ["absent", "ncns", "tardy"]),
+          gte(employeeAttendanceLogTable.log_date, windowStart),
+          lte(employeeAttendanceLogTable.log_date, today),
+        ),
+      );
+
+    // PLAWA balance (context only — NOT part of the risk score).
+    const plawaType = (
+      await db
+        .select({ id: leaveTypesTable.id })
+        .from(leaveTypesTable)
+        .where(
+          and(
+            eq(leaveTypesTable.company_id, companyId),
+            eq(leaveTypesTable.slug, "plawa"),
+            eq(leaveTypesTable.active, true),
+          ),
+        )
+        .limit(1)
+    )[0];
+    const balByUser = new Map<number, { granted: number; used: number }>();
+    if (plawaType) {
+      const balRows = await db
+        .select({
+          user_id: employeeLeaveBalancesTable.user_id,
+          granted_hours: employeeLeaveBalancesTable.granted_hours,
+          used_hours: employeeLeaveBalancesTable.used_hours,
+        })
+        .from(employeeLeaveBalancesTable)
+        .where(
+          and(
+            eq(employeeLeaveBalancesTable.company_id, companyId),
+            eq(employeeLeaveBalancesTable.leave_type_id, plawaType.id),
+          ),
+        );
+      for (const b of balRows) {
+        balByUser.set(Number(b.user_id), { granted: Number(b.granted_hours), used: Number(b.used_hours) });
+      }
+    }
+
+    const rows = employees.map((e) => {
+      const hireDate = e.hire_date ? String(e.hire_date).slice(0, 10) : null;
+      const byStart = hireDate
+        ? benefitYearStartDate(hireDate, today).toISOString().slice(0, 10)
+        : windowStart;
+      const mine = attRows.filter(
+        (r) => Number(r.employee_id) === Number(e.id) && String(r.log_date) >= byStart,
+      );
+      // Unexcused ladder counter: absent (1 each, protected excluded) + ncns (+2).
+      const occurrence_count = countUnexcusedOccurrences(
+        mine
+          .filter((r) => r.type === "absent" || r.type === "ncns")
+          .map((r) => ({ type: r.type, protected: r.is_protected })),
+      );
+      const ncns_count = mine.filter((r) => r.type === "ncns").length;
+      const tardy_count = mine.filter((r) => r.type === "tardy" && !r.is_protected).length;
+      const bal = balByUser.get(Number(e.id));
+      const plawa_remaining = bal ? Math.max(0, Math.round((bal.granted - bal.used) * 100) / 100) : null;
+      const next = nextOccurrenceStep(steps, occurrence_count);
+      const strikes_used = steps.filter((s) => occurrence_count >= s.occurrence).length;
+      return {
+        employee_id: Number(e.id),
+        name: `${e.first_name} ${e.last_name}`.trim(),
+        benefit_year_start: hireDate ? byStart : null,
+        missing_hire_date: !hireDate,
+        occurrence_count,
+        ncns_count,
+        tardy_count,
+        plawa_remaining,
+        plawa_at_zero: plawa_remaining !== null ? plawa_remaining <= 0 : null,
+        strikes_used,
+        next_step: next
+          ? { occurrence: next.occurrence, discipline_type: next.discipline_type, label: next.label ?? null }
+          : null,
+        at_termination_trigger: steps.some(
+          (s) => s.discipline_type === "termination" && occurrence_count >= s.occurrence,
+        ),
+      };
+    });
+    // Most-at-risk first: highest occurrence count, then closest to a strike.
+    rows.sort((a, b) => b.occurrence_count - a.occurrence_count || b.ncns_count - a.ncns_count);
+    return res.json({ data: rows, ladder: steps });
+  } catch (err) {
+    console.error("leave reliability error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to build reliability view" });
+  }
+});
+
 router.post("/unexcused/record", officeReadGate, async (req, res) => {
   const companyId = req.auth!.companyId!;
   const actingUserId = req.auth!.userId!;
@@ -2194,10 +2385,13 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
   const hours = Number(body.hours);
   if (!Number.isFinite(hours) || hours <= 0)
     return bad(res, "hours must be positive");
-  // Optional type — the same endpoint records an unexcused absence OR a tardy
-  // (the writer + occurrence ladder already support both, with separate
-  // counters). Default 'absent' for backward compatibility with prior callers.
-  const recordType = body.type === "tardy" ? "tardy" : "absent";
+  // Optional type — the same endpoint records an unexcused absence, a tardy, OR
+  // a No-Call/No-Show (the writer + occurrence ladder support all three).
+  // Default 'absent' for backward compatibility with prior callers. NCNS feeds
+  // the SAME unexcused counter as 'absent' but weighs +2 occurrences (procedural
+  // notice violation) and is never protected.
+  const recordType =
+    body.type === "tardy" ? "tardy" : body.type === "ncns" ? "ncns" : "absent";
   // [time-block 2026-07-08] Optional block the absence covers (Jose worked
   // the morning, called off 2-6 PM). Display-only — the occurrence still
   // counts fully; the dispatch board tints just this window.
