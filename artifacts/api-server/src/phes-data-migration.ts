@@ -6575,6 +6575,9 @@ async function runNotificationTemplateSeed() {
       // grid renders empty with a "Could not load schedule" toast.
       ["companies.commercial_hourly_rate",          sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS commercial_hourly_rate NUMERIC(10,2) NOT NULL DEFAULT 20.00`],
       ["companies.commercial_comp_mode",            sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS commercial_comp_mode TEXT NOT NULL DEFAULT 'allowed_hours'`],
+      // [leave-pay-cascade 2026-07-11] Configurable flat rate for paid leave
+      // (PLAWA/PTO) pay. Both leave-pay paths read companies.leave_pay_rate.
+      ["companies.leave_pay_rate",                  sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS leave_pay_rate NUMERIC(10,2) NOT NULL DEFAULT 20.00`],
       // [AI.10] AI.8's geocoded_at + geocode_source columns retired —
       // the user-facing Zone Coverage page is gone, and the boot-time
       // backfill runs unconditionally with a `WHERE zip IS NULL` guard
