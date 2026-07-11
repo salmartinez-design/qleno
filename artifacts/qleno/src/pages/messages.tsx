@@ -91,12 +91,24 @@ function AuthMedia({ msgId, idx, mediaKey }: { msgId: number; idx: number; media
   );
 }
 
+// [help-me-write-context 2026-07-11] Build a compact transcript of the recent
+// thread so "Help me write" can reply in context (most recent last). Media-only
+// messages are skipped; capped to the last 15 turns to keep the request cheap.
+function buildTranscript(msgs: Msg[]): string {
+  return msgs
+    .filter(m => (m.body || "").trim())
+    .slice(-15)
+    .map(m => `${m.direction === "inbound" ? "Customer" : "Us"}: ${m.body.trim()}`)
+    .join("\n");
+}
+
 // [composer-ai-tools 2026-07-02] Reusable AI toolbar for any SMS composer —
 // used by BOTH the in-thread reply box and the New Message modal (so the
 // Polish / Dictate tools don't go missing when you start a fresh message).
 // Polish rewrites the draft's tone via /api/message-tone (one-tap Undo);
 // Dictate does Web Speech voice-to-text. Self-contained state per instance.
-function ComposerAiTools({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+// `conversation` (in-thread only) grounds "Help me write" in the real thread.
+function ComposerAiTools({ value, onChange, conversation }: { value: string; onChange: (v: string) => void; conversation?: string }) {
   const { toast } = useToast();
   const [toneOpen, setToneOpen] = useState(false);
   const [toning, setToning] = useState(false);
@@ -122,7 +134,9 @@ function ComposerAiTools({ value, onChange }: { value: string; onChange: (v: str
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         // Pass any existing draft as light context so a half-written message
         // gets finished rather than tossed.
-        body: JSON.stringify({ prompt: p, context: value.trim() || undefined }),
+        // Pass the recent thread so the model can reply in context, plus any
+        // half-written draft.
+        body: JSON.stringify({ prompt: p, context: value.trim() || undefined, conversation: conversation || undefined }),
       });
       const data = await r.json().catch(() => ({}));
       if (r.ok && data?.result) {
@@ -725,7 +739,7 @@ export default function MessagesPage() {
                       Message modal gets the same tools. */}
                   <div style={{ padding: "8px 10px 2px", background: "#fff", borderTop: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <ComposerAiTools value={reply} onChange={setReply} />
+                      <ComposerAiTools value={reply} onChange={setReply} conversation={buildTranscript(thread)} />
                     </div>
                     {/* Hidden file input */}
                     <input ref={fileInputRef} type="file" multiple accept="image/*,video/*" style={{ display: "none" }} onChange={handleFileSelect} />
