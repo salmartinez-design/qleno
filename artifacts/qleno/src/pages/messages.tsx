@@ -35,12 +35,22 @@ function fmtPhone(p: string) {
   const d = String(p || "").replace(/\D/g, "").slice(-10);
   return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p;
 }
-function fmtTime(s: string) {
-  if (!s) return "";
-  // Normalize to UTC: replace space separator and append Z if no timezone marker
+// [tz-normalize 2026-07-11] Single source of truth for reading a server
+// timestamp. Server timestamps are UTC but may arrive WITHOUT a timezone marker
+// (a bare "2026-07-11 19:14:00"), which `new Date(...)` would misread as the
+// viewer's local time and shift by the whole UTC offset (e.g. show 2:14 PM as
+// 7:14 PM in Chicago). We append "Z" when there's no marker so the value is
+// parsed as UTC; toLocale* then renders it in the viewer's own zone (Central
+// for the Phes office). Every time display in Messages goes through this so
+// they can never drift apart.
+function parseServerDate(s: string): Date {
   const iso = s.includes("T") ? s : s.replace(" ", "T");
   const withTZ = /Z$|[+-]\d{2}:\d{2}$/.test(iso) ? iso : iso + "Z";
-  const d = new Date(withTZ);
+  return new Date(withTZ);
+}
+function fmtTime(s: string) {
+  if (!s) return "";
+  const d = parseServerDate(s);
   if (isNaN(d.getTime())) return s;
   const today = new Date();
   const sameDay = d.toDateString() === today.toDateString();
@@ -49,7 +59,9 @@ function fmtTime(s: string) {
     : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 function fmtScheduled(s: string) {
-  const d = new Date(s);
+  if (!s) return "";
+  const d = parseServerDate(s);
+  if (isNaN(d.getTime())) return s;
   return d.toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 
