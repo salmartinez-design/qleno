@@ -18,6 +18,7 @@ const router = Router();
 
 const MAX_PROMPT_CHARS = 1000; // The instruction is short; keep the model cheap.
 const MAX_CONTEXT_CHARS = 2000; // Existing draft passed as light context.
+const MAX_CONVERSATION_CHARS = 6000; // Recent thread transcript (trimmed FE-side).
 
 router.post("/", requireAuth, async (req, res) => {
   try {
@@ -25,6 +26,10 @@ router.post("/", requireAuth, async (req, res) => {
     // Optional: whatever is already in the composer, used only as context so a
     // half-written draft can be finished rather than discarded. Never required.
     const context = typeof req.body?.context === "string" ? req.body.context : "";
+    // Optional: a transcript of the recent conversation with this customer
+    // (most recent last, each line "Customer:" or "Us:") so the model can write
+    // a reply that actually fits what was just said. Never required.
+    const conversation = typeof req.body?.conversation === "string" ? req.body.conversation : "";
 
     if (!prompt.trim()) { res.status(400).json({ error: "prompt required" }); return; }
     if (prompt.length > MAX_PROMPT_CHARS) {
@@ -35,6 +40,11 @@ router.post("/", requireAuth, async (req, res) => {
       res.status(400).json({ error: `context exceeds ${MAX_CONTEXT_CHARS} chars` });
       return;
     }
+    // Over-long transcripts are trimmed (keep the most recent tail) rather than
+    // rejected — the office shouldn't hit an error for a long thread.
+    const convo = conversation.length > MAX_CONVERSATION_CHARS
+      ? conversation.slice(-MAX_CONVERSATION_CHARS)
+      : conversation;
 
     if (!process.env.ANTHROPIC_API_KEY) {
       console.warn("[help-me-write] ANTHROPIC_API_KEY not set — Help me write disabled");
@@ -52,21 +62,27 @@ router.post("/", requireAuth, async (req, res) => {
     // sending — that's far safer than a hallucinated number.
     const system =
       `You write outbound text messages for a residential cleaning company sending SMS to its clients. ` +
-      `You will be given a short instruction describing what the office wants to say. ` +
+      `You will be given a short instruction describing what the office wants to say, and often the recent conversation with the customer. ` +
       `Write ONE ready-to-send message that carries out the instruction. ` +
+      `When a conversation is provided, USE IT: reply directly to what the customer last said, reference the relevant details, and keep the thread coherent (don't repeat what was already covered). ` +
       `Tone: warm, polished, and professional — the way a trusted local cleaning company texts a client. ` +
       `Keep it SMS-length and easy to read on a phone. ` +
       `Rules: Output ONLY the message text — no quotes, no options, no commentary, no preamble, no subject line. ` +
-      `Do NOT invent specific facts (prices, dates, times, names, addresses) that the instruction doesn't give you; ` +
+      `Do NOT invent specific facts (prices, dates, times, names, addresses) that the instruction or conversation doesn't give you; ` +
       `if a specific detail is truly required but missing, use a short bracketed placeholder like [time] or [date] for the office to fill in. ` +
-      `Match the instruction's language (if it's written in Spanish, write the message in Spanish). ` +
+      `Match the customer's language (if the conversation or instruction is in Spanish, write the message in Spanish). ` +
       `Include a brief, natural greeting and sign-off only if the message reads better with them.`;
 
-    // If the composer already has a draft, hand it over as context so the
-    // model can build on it rather than start from scratch.
-    const userContent = context.trim()
-      ? `Instruction: ${prompt}\n\nThe office has already started this draft — improve or continue it to match the instruction:\n${context}`
-      : `Instruction: ${prompt}`;
+    // Assemble the user turn: the recent conversation (if any) for grounding,
+    // then the office's instruction, then any half-written draft to build on.
+    let userContent = "";
+    if (convo.trim()) {
+      userContent += `Recent conversation with the customer (most recent last; "Customer:" is them, "Us:" is our team):\n${convo.trim()}\n\n`;
+    }
+    userContent += `Instruction: ${prompt}`;
+    if (context.trim()) {
+      userContent += `\n\nThe office has already started this draft — improve or continue it to match the instruction:\n${context}`;
+    }
 
     const response = await client.messages.create({
       model: "claude-haiku-4-5",
