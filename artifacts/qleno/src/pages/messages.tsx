@@ -645,9 +645,9 @@ export default function MessagesPage() {
                       {active.client_id ? (
                         <button
                           onClick={() => window.open(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/customers/${active.client_id}`, "_blank")}
+                          title="Open profile"
                           style={{ fontSize: 15, fontWeight: 700, color: INK, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                           {active.name || fmtPhone(active.contact_phone)}
-                          <span style={{ fontSize: 11, color: "var(--brand, #5B9BD5)", marginLeft: 8, fontWeight: 600 }}>Open profile ↗</span>
                         </button>
                       ) : (
                         <div style={{ fontSize: 15, fontWeight: 700, color: INK }}>{active.name || fmtPhone(active.contact_phone)}</div>
