@@ -14,7 +14,7 @@
 //                 billed_amount already rolls everything into the metered total.
 //   discount lines — each job_discounts row as a negative line so the total nets.
 import { db } from "@workspace/db";
-import { jobsTable, jobAddOnsTable, addOnsTable, jobDiscountsTable, accountPropertiesTable } from "@workspace/db/schema";
+import { jobsTable, jobAddOnsTable, addOnsTable, jobDiscountsTable, accountPropertiesTable, clientsTable } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { ensureAutoPromosForJob } from "./auto-promos.js";
 
@@ -47,8 +47,15 @@ export async function buildJobLineItems(
       hourly_rate: jobsTable.hourly_rate,
       manual_rate_override: jobsTable.manual_rate_override,
       account_property_id: jobsTable.account_property_id,
+      // [flat-addon-itemize 2026-07-11] account_id + client_type mirror the
+      // commercial test in recomputeJobBilledAmount so we can tell a genuinely
+      // metered job (rate × hours) apart from a residential/flat job whose
+      // billed_amount is merely base_fee + mods (see isMetered below).
+      account_id: jobsTable.account_id,
+      client_type: clientsTable.client_type,
     })
     .from(jobsTable)
+    .leftJoin(clientsTable, eq(clientsTable.id, jobsTable.client_id))
     .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
     .limit(1);
   if (!job) return null;
@@ -89,8 +96,37 @@ export async function buildJobLineItems(
   const hoursNum = job.billed_hours
     ? parseFloat(String(job.billed_hours))
     : (job.allowed_hours ? parseFloat(String(job.allowed_hours)) : 0);
-  const isMetered = !!job.billed_amount;
-  const isHourlyRateDriven = !isMetered && !job.manual_rate_override && rateNum > 0 && hoursNum > 0;
+  // [flat-addon-itemize 2026-07-11] billed_amount being SET is not enough to
+  // treat a job as metered. recomputeJobBilledAmount stamps billed_amount for
+  // EVERY job — commercial as rate×allowed_hours+add-ons+mods, but residential/
+  // flat as plain base_fee + mods. In the residential case the add-ons still
+  // live in base_fee and must be itemized (base_fee − add-ons scope). Treating
+  // it as "metered" skipped that (add-ons roll into the scope line), so the
+  // moment the office added an adjustment — which is what stamps billed_amount —
+  // the add-on silently folded into the base "service" line (Joni Schildgen:
+  // a $62.40 window vanished into a $478.40 "Deep Clean" line). Only a genuine
+  // metered total rolls add-ons in: commercial hourly (the exact commercial
+  // condition recomputeJobBilledAmount uses) or a clock-metered job (billed_hours
+  // set). Everything else itemizes, so an adjustment can never move the base line.
+  const isCommercial = job.account_id != null || job.client_type === "commercial";
+  const allowedHrsNum = job.allowed_hours ? parseFloat(String(job.allowed_hours)) : 0;
+  const commercialMetered = isCommercial && !job.manual_rate_override && rateNum > 0 && allowedHrsNum > 0;
+  const clockMetered = !!job.billed_hours;
+  // Numeric guard: only a POSITIVE billed_amount can be re-classified. A zero/
+  // blank billed_amount stays on the exact legacy path (`!!billed_amount`, which
+  // is truthy for the string "0.00") so this change's blast radius is strictly
+  // positive-billed residential/flat jobs — the population where adding an
+  // adjustment stamped billed_amount = base_fee + mods and folded add-ons into
+  // the base line. Legacy $0-billed rows are left byte-for-byte unchanged.
+  const billedNum = parseFloat(String(job.billed_amount ?? "0"));
+  const isMetered = billedNum > 0 ? (commercialMetered || clockMetered) : !!job.billed_amount;
+  // Gate on billed_amount being ABSENT (its original domain — this was
+  // `!isMetered` back when isMetered === !!billed_amount). Keeping it tied to
+  // billed_amount, not the new narrowed isMetered, means a residential job that
+  // now falls out of the metered branch lands in the FLAT branch (scope =
+  // base_fee − add-ons) rather than hours × rate — so its total is provably
+  // unchanged (base_fee + mods = the stamped billed_amount).
+  const isHourlyRateDriven = !job.billed_amount && !job.manual_rate_override && rateNum > 0 && hoursNum > 0;
   const svcLabel = (job.service_type ?? "Cleaning Service")
     .split("_").map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
   // [building-names 2026-07-02] For account/commercial jobs, lead the line with
@@ -108,9 +144,13 @@ export async function buildJobLineItems(
     } catch { /* non-fatal — fall back to the service label */ }
   }
   // Add-ons are fetched up front because the FLAT branch below must subtract
-  // their subtotal from the scope line (see comment there). Only itemized when
-  // billed_amount is unset — a metered total already rolls them in.
-  const addons: Array<{ name: string | null; quantity: number | null; unit_price: string | null; subtotal: string | null }> = !job.billed_amount
+  // their subtotal from the scope line (see comment there). Itemized whenever
+  // the job is NOT genuinely metered — a true metered total (commercial hourly /
+  // clock-metered) already rolls them in, but a residential/flat job's add-ons
+  // sit in base_fee and have to be split back out. Gated on isMetered (not raw
+  // billed_amount) so a residential job with a stamped billed_amount still
+  // itemizes (the [flat-addon-itemize] fix).
+  const addons: Array<{ name: string | null; quantity: number | null; unit_price: string | null; subtotal: string | null }> = !isMetered
     ? await exec
         .select({
           name: addOnsTable.name,
@@ -144,7 +184,20 @@ export async function buildJobLineItems(
     // customer $640.80 in the booking-confirmation email while the office
     // quote correctly said $528.40 (Francisco: "the email is adding the total
     // with add ons and adding again the add ons").
-    scopeAmount = Math.max(0, Math.round((parseFloat(String(job.base_fee ?? "0")) - addOnsSubtotal) * 100) / 100);
+    // [flat-addon-itemize 2026-07-11] When a positive billed_amount is present
+    // (a residential/flat job whose adjustment stamped billed_amount = base_fee
+    // + mods), anchor the pure-service line on billed_amount − mods − add-ons.
+    // The mods and add-ons are re-added as their own lines below, so the invoice
+    // total lands on exactly billed_amount − discounts — BYTE-IDENTICAL to the
+    // pre-fix metered path — while the add-on becomes its own line instead of
+    // hiding inside "Deep Clean" (Joni Schildgen's $62.40 window). Anchoring on
+    // billed_amount (not base_fee) also keeps the total stable when a legacy
+    // job's billed_amount is stale relative to base_fee + mods. With no
+    // billed_amount, fall back to the base_fee − add-ons legacy path unchanged.
+    const flatAnchor = billedNum > 0
+      ? billedNum - modsTotal - addOnsSubtotal
+      : parseFloat(String(job.base_fee ?? "0")) - addOnsSubtotal;
+    scopeAmount = Math.max(0, Math.round(flatAnchor * 100) / 100);
     scopeQty = 1;
     scopeUnit = scopeAmount;
   }
