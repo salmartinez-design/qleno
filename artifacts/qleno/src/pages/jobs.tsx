@@ -568,8 +568,9 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
     || (currentTechFromList ? currentTechFromList.name : null)
     || (job.assigned_user_id != null ? `Technician #${job.assigned_user_id}` : "Unassigned");
 
-  async function onChange(newId: number) {
-    if (newId === job.assigned_user_id) return;
+  // newId === null unassigns the job (pulls it to the Unassigned row).
+  async function onChange(newId: number | null) {
+    if (newId === (job.assigned_user_id ?? null)) return;
     setSaving(true);
     try {
       const r = await fetch(`${API}/api/jobs/${job.id}/reassign-tech`, {
@@ -581,10 +582,10 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
         const body = await r.json().catch(() => ({}));
         throw new Error(body.error || `Failed (HTTP ${r.status})`);
       }
-      toast({ title: "Technician reassigned" });
+      toast({ title: newId == null ? "Job unassigned" : "Technician reassigned" });
       onUpdate();
     } catch (e: any) {
-      toast({ title: "Could not reassign", description: e.message, variant: "destructive" });
+      toast({ title: newId == null ? "Could not unassign" : "Could not reassign", description: e.message, variant: "destructive" });
     } finally {
       setSaving(false);
     }
@@ -599,7 +600,7 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
         : <span style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }}><User size={14} /></span>}
       <select
         value={job.assigned_user_id ?? ""}
-        onChange={e => onChange(parseInt(e.target.value, 10))}
+        onChange={e => { const v = e.target.value; onChange(v === "" ? null : parseInt(v, 10)); }}
         disabled={saving || loadingTechs}
         style={{
           fontSize: 13, color: "#1A1917", fontFamily: FF, fontWeight: 500,
@@ -621,6 +622,13 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
           .map(t => (
             <option key={t.id} value={t.id}>{t.name || `${t.first_name} ${t.last_name}`}</option>
           ))}
+        {/* Unassign — only offered when a tech is currently assigned, so the
+            office can pull the job back to the Unassigned row. Empty value =
+            clear; the placeholder above only renders on already-unassigned jobs,
+            so there's no duplicate value="" collision. */}
+        {job.assigned_user_id != null && (
+          <option value="">— Unassigned —</option>
+        )}
       </select>
       {saving && <span style={{ fontSize: 11, color: "#9E9B94" }}>Saving…</span>}
     </div>
