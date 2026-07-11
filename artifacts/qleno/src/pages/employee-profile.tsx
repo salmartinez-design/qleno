@@ -5,6 +5,8 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { EmployeeAvatar } from "@/components/employee-avatar";
 import { HorizontalTimeField } from "@/components/horizontal-time-field";
+import { AttendanceAttachments } from "@/components/attendance-attachments-field";
+import { compressImage } from "@/lib/compress-image";
 import { AvatarCropModal } from "@/components/avatar-crop-modal";
 import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { CalendarPopover } from "@/components/calendar-popover";
@@ -741,11 +743,14 @@ export default function EmployeeProfilePage() {
   // tints just this window.
   const [recStart, setRecStart] = useState('');
   const [recEnd, setRecEnd] = useState('');
+  // [attendance-attachments 2026-07-11] Files (injury photos, doctor's note)
+  // staged in the modal; uploaded after the record is created and we know its id.
+  const [recFiles, setRecFiles] = useState<File[]>([]);
   const [recBusy, setRecBusy] = useState(false);
   const [recErr, setRecErr] = useState<string | null>(null);
   const openRecord = (type: 'absent' | 'tardy', accent: string) => {
     setRecDate(new Date().toISOString().slice(0, 10));
-    setRecHours(''); setRecReason(''); setRecStart(''); setRecEnd(''); setRecErr(null);
+    setRecHours(''); setRecReason(''); setRecStart(''); setRecEnd(''); setRecFiles([]); setRecErr(null);
     setRecordModal({ type, accent, title: type === 'tardy' ? 'Record tardy' : 'Record unexcused absence' });
   };
   const submitRecord = async () => {
@@ -757,7 +762,7 @@ export default function EmployeeProfilePage() {
     if (recStart && recEnd && recStart >= recEnd) { setRecErr('The block start must be before its end'); return; }
     setRecBusy(true);
     try {
-      await apiFetch('/leave/unexcused/record', {
+      const res = await apiFetch('/leave/unexcused/record', {
         method: 'POST',
         body: JSON.stringify({
           employee_id: Number(userId),
@@ -769,6 +774,22 @@ export default function EmployeeProfilePage() {
           end_time: recEnd || undefined,
         }),
       });
+      // [attendance-attachments] Upload staged files against the new record.
+      // Best-effort per file — a failed attachment never unwinds the record.
+      const newLogId = res?.data?.attendance_log_id as number | undefined;
+      if (newLogId && recFiles.length) {
+        const headers = { ...(getAuthHeaders() as Record<string, string>) };
+        delete headers['Content-Type']; delete headers['content-type'];
+        for (const raw of recFiles) {
+          try {
+            const isImg = raw.type ? raw.type.startsWith('image/') : /\.(jpe?g|png|webp|heic|heif|gif)$/i.test(raw.name);
+            const file = isImg ? await compressImage(raw) : raw;
+            const fd = new FormData();
+            fd.append('file', file);
+            await fetch(`${API}/api/attendance/${newLogId}/attachments`, { method: 'POST', headers, body: fd });
+          } catch { /* per-file best effort */ }
+        }
+      }
       qc.invalidateQueries({ queryKey: ['attendance-summary', userId] });
       qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
       qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
@@ -1931,6 +1952,13 @@ export default function EmployeeProfilePage() {
                       </div>
                       <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Reason <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional)</span></label>
                       <textarea value={recReason} onChange={e => setRecReason(e.target.value)} placeholder="e.g. no-show, didn't call" rows={2} style={{ width:'100%',padding:'9px 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',marginBottom:12,boxSizing:'border-box',resize:'vertical' }} />
+                      {/* [attendance-attachments 2026-07-11] Doctor's note / injury
+                          photos the employee texted in. Staged here, uploaded to
+                          the record after it's created. */}
+                      <label style={{ display:'block',fontSize:11.5,fontWeight:700,color:'#6B6860',marginBottom:4 }}>Attachments <span style={{ fontWeight:500,color:'#9E9B94' }}>(optional — photos or doctor's note)</span></label>
+                      <div style={{ marginBottom:12 }}>
+                        <AttendanceAttachments files={recFiles} onFilesChange={setRecFiles} />
+                      </div>
                       {recErr && <p style={{ fontSize:12,color:'#991B1B',margin:'0 0 10px' }}>{recErr}</p>}
                       <div style={{ display:'flex',gap:8 }}>
                         <button onClick={() => !recBusy && setRecordModal(null)} disabled={recBusy} style={{ flex:1,padding:'9px 0',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,color:'#6B6860',background:'none',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
@@ -2050,23 +2078,32 @@ export default function EmployeeProfilePage() {
                         {rows.length === 0 ? (
                           <p style={{ color:'#9E9B94',fontSize:13,margin:0 }}>No {historyBucket.display_name} history recorded.</p>
                         ) : attDays ? rows.map((d: any, i: number) => (
-                          <div key={d.id ?? i} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
-                            <div style={{ minWidth:0 }}>
-                              <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(d.date))} · {String(d.date)}</div>
-                              <NoteChips note={d.reason} bucketMap={bucketDisplayMap} />
-                              {d.by && <div style={{ fontSize:11,color:'#9E9B94',marginTop:2 }}>{d.by === 'auto-detected' ? 'auto-detected from clock-in' : d.by === 'imported record' ? 'imported from MaidCentral' : `recorded by ${d.by}`}</div>}
+                          <div key={d.id ?? i} style={{ padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+                            <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:12 }}>
+                              <div style={{ minWidth:0 }}>
+                                <div style={{ fontSize:13,fontWeight:600,color:'#1A1917',marginBottom:3 }}>{shortDate(String(d.date))} · {String(d.date)}</div>
+                                <NoteChips note={d.reason} bucketMap={bucketDisplayMap} />
+                                {d.by && <div style={{ fontSize:11,color:'#9E9B94',marginTop:2 }}>{d.by === 'auto-detected' ? 'auto-detected from clock-in' : d.by === 'imported record' ? 'imported from MaidCentral' : `recorded by ${d.by}`}</div>}
+                              </div>
+                              <div style={{ display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap' }}>
+                                {d.hours != null && <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(d.hours).toFixed(2)} h</span>}
+                                {canDeleteAttendance && d.id != null && d.src === 'att' && (
+                                  <button
+                                    onClick={() => deleteEntry('attendance', d.id)}
+                                    disabled={entryDelBusy === `attendance:${d.id}`}
+                                    title="Remove this entry — the hours go back to the bucket"
+                                    style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `attendance:${d.id}` ? 0.5 : 1 }}
+                                  >Remove</button>
+                                )}
+                              </div>
                             </div>
-                            <div style={{ display:'flex',alignItems:'center',gap:10,whiteSpace:'nowrap' }}>
-                              {d.hours != null && <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(d.hours).toFixed(2)} h</span>}
-                              {canDeleteAttendance && d.id != null && d.src === 'att' && (
-                                <button
-                                  onClick={() => deleteEntry('attendance', d.id)}
-                                  disabled={entryDelBusy === `attendance:${d.id}`}
-                                  title="Remove this entry — the hours go back to the bucket"
-                                  style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `attendance:${d.id}` ? 0.5 : 1 }}
-                                >Remove</button>
-                              )}
-                            </div>
+                            {/* [attendance-attachments 2026-07-11] Files on this record
+                                (doctor's note / photos). Office can view, add, remove. */}
+                            {d.id != null && d.src === 'att' && (
+                              <div style={{ marginTop:8 }}>
+                                <AttendanceAttachments logId={d.id} readOnly={!canDeleteAttendance} compact />
+                              </div>
+                            )}
                           </div>
                         )) : rows.map((u: any, i: number) => (
                           <div key={u.id ?? i} style={{ display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 0',borderTop: i ? '1px solid #E5E2DC' : 'none' }}>

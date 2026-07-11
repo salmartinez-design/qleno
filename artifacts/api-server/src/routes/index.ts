@@ -34,6 +34,7 @@ import paymentsRouter from "./payments.js";
 import attachmentsRouter from "./attachments.js";
 import teamPhotoNotesRouter from "./team-photo-notes.js";
 import { quoteAttachmentsRouter, jobAttachmentsRouter } from "./quote-attachments.js";
+import attendanceAttachmentsRouter from "./attendance-attachments.js";
 import propertyGroupsRouter from "./property-groups.js";
 import agreementTemplatesRouter from "./agreement-templates.js";
 import billingRouter from "./billing.js";
@@ -170,6 +171,7 @@ router.use("/devices", devicesRouter);
 // (`:id/attachments`), so mount them at the resource root.
 router.use("/quotes", quoteAttachmentsRouter);
 router.use("/jobs", jobAttachmentsRouter);
+router.use("/attendance", attendanceAttachmentsRouter);
 router.use("/property-groups", propertyGroupsRouter);
 router.use("/agreement-templates", agreementTemplatesRouter);
 router.use("/billing", billingRouter);
