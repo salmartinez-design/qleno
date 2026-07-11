@@ -1,32 +1,44 @@
 // [service-suspension 2026-07-11] Service-suspension engine: idempotent boot
-// migration, a COMMS_ENABLED-gated customer email helper, and the daily
-// lifecycle cron (30-days-before-expiry resume reminder + at-expiry final
-// notice). The suspend/resume ACTIONS live in routes/client-suspension.ts;
-// this module owns the schema + the time-driven emails.
+// migration, the client service-info resolver, and the daily lifecycle cron
+// (30-days-before-expiry resume reminder + at-expiry final notice). The
+// suspend/resume ACTIONS live in routes/client-suspension.ts; this module owns
+// the schema + the time-driven sends.
+//
+// All customer messages route through the standard sendNotification() pipeline
+// (editable Customer-Messages templates, house chrome, COMMS_ENABLED gate,
+// email/SMS opt-out, per-tenant sender, comm log) — the triggers are
+// service_suspended / suspension_resume_reminder / suspension_expired in
+// lib/customer-messages.ts. prefClientId is omitted so the per-client
+// preference gate never runs (these are account-lifecycle, not the 6 job msgs).
 //
 // Design decisions (locked with the owner 2026-07-11):
 //   - Suspending cancels future jobs + deactivates recurring schedules
 //     (mirrors routes/cancellation.ts cancel_service).
-//   - At the 90-day expiry we FLAG for office (final email) — NO automatic
+//   - At the 90-day expiry we FLAG for office (final message) — NO automatic
 //     cancel or resume; a person decides.
 //   - Office picks the end date, default +90 days, capped at 90.
-// All customer sends respect COMMS_ENABLED (hard project rule) and the
-// client's email_opt_out_at.
 
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
-import {
-  renderResumeReminderEmail,
-  renderSuspensionExpiredEmail,
-} from "./suspension-emails.js";
-// Reuse the SAME email chrome (logo masthead + standard footer) + merge-tag
-// substitution every other customer email uses, so suspension emails are
-// visually consistent with the rest of client communications.
-import { wrapEmailHtml, applyMerge, labelServiceType } from "../services/notificationService.js";
-import { emailLogoUrl } from "./app-url.js";
+import { sendNotification, labelServiceType } from "../services/notificationService.js";
 
 export const MAX_SUSPEND_DAYS = 90;
 export const RESUME_REMINDER_LEAD_DAYS = 30;
+
+// Hold-date formatters: long form for email ("Monday, October 12, 2026"), short
+// for SMS ("Oct 12, 2026"). Both anchor a bare YYYY-MM-DD at local noon so the
+// day never shifts across a US-Central timezone boundary.
+function fmtHoldDate(ymd: string, opts: Intl.DateTimeFormatOptions): string {
+  const s = /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd + "T12:00:00" : ymd;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? ymd : d.toLocaleDateString("en-US", opts);
+}
+export function fmtHoldDateLong(ymd: string): string {
+  return fmtHoldDate(ymd, { weekday: "long", year: "numeric", month: "long", day: "numeric" });
+}
+export function fmtHoldDateShort(ymd: string): string {
+  return fmtHoldDate(ymd, { year: "numeric", month: "short", day: "numeric" });
+}
 
 const FREQ_LABEL: Record<string, string> = {
   weekly: "Weekly", biweekly: "Bi-weekly", every_2_weeks: "Bi-weekly",
@@ -116,23 +128,6 @@ export async function resolveServiceInfo(
   return { serviceSummary, servicePrice };
 }
 
-// Wrap the inner content produced by the suspension-email renderers in the
-// shared house chrome and resolve the footer's {{company_phone}}/{{company_email}}
-// merge tags to real values.
-export function buildSuspensionEmailHtml(
-  contentHtml: string,
-  company: { name?: string | null; logo_url?: string | null; phone?: string | null; email?: string | null },
-): string {
-  const wrapped = wrapEmailHtml(contentHtml, {
-    logoUrl: emailLogoUrl(company.logo_url),
-    companyName: company.name,
-  });
-  return applyMerge(wrapped, {
-    company_phone: company.phone || "",
-    company_email: company.email || "",
-  });
-}
-
 // Idempotent boot migration — add the suspension columns to clients and the
 // pause marker to recurring_schedules. Safe to run on every cold start.
 export async function runSuspensionMigration(): Promise<void> {
@@ -150,45 +145,6 @@ export async function runSuspensionMigration(): Promise<void> {
     console.log("[suspension] migration ok");
   } catch (err) {
     console.error("[suspension] migration error (non-fatal):", err);
-  }
-}
-
-// Send a customer email, respecting the same gates every automated send path
-// honors: the global COMMS_ENABLED kill-switch and the client's email opt-out.
-// Returns true only if an email was actually handed to Resend. Never throws —
-// the caller (a cron sweep) must keep going for the other clients.
-export async function sendSuspensionEmail(opts: {
-  to: string | null | undefined;
-  emailOptOutAt: unknown;
-  fromName: string;
-  fromAddress: string | null | undefined;
-  subject: string;
-  html: string;
-}): Promise<boolean> {
-  try {
-    if (!opts.to || opts.emailOptOutAt) return false;
-    if (process.env.COMMS_ENABLED !== "true") {
-      console.log(`[suspension] [COMMS BLOCKED] would email ${opts.to}: ${opts.subject}`);
-      return false;
-    }
-    const key = process.env.RESEND_API_KEY;
-    if (!key) {
-      console.warn("[suspension] RESEND_API_KEY not set — email skipped");
-      return false;
-    }
-    const { Resend } = await import("resend");
-    const resend = new Resend(key);
-    const from = `${opts.fromName || "Qleno"} <${opts.fromAddress || "noreply@phes.io"}>`;
-    const resp = await resend.emails.send({ from, to: [opts.to], subject: opts.subject, html: opts.html });
-    // The Resend SDK does NOT throw on API errors — it returns { error }.
-    if ((resp as any)?.error) {
-      console.error("[suspension] resend error:", (resp as any).error);
-      return false;
-    }
-    return true;
-  } catch (e) {
-    console.error("[suspension] email send failed:", e);
-    return false;
   }
 }
 
@@ -220,11 +176,8 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
   // ── A) 30-days-before-expiry resume reminder ────────────────────────────────
   try {
     const due = await db.execute(sql`
-      SELECT c.id, c.company_id, c.first_name, c.email, c.email_opt_out_at, c.suspend_until,
-             co.name AS company_name, co.phone AS company_phone, co.email AS company_email,
-             co.logo_url AS company_logo, co.email_from_address
+      SELECT c.id, c.company_id, c.first_name, c.email, c.phone, c.suspend_until
         FROM clients c
-        JOIN companies co ON co.id = c.company_id
        WHERE c.suspended_at IS NOT NULL
          AND c.suspend_until IS NOT NULL
          AND c.suspend_resume_reminder_sent_at IS NULL
@@ -233,25 +186,15 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
     `);
     for (const r of due.rows as any[]) {
       const expiry = String(r.suspend_until).slice(0, 10);
-      const svcInfo = await resolveServiceInfo(r.company_id, r.id);
-      const { subject, contentHtml } = renderResumeReminderEmail({
-        clientName: r.first_name,
-        expiryDate: expiry,
-        ...svcInfo,
-      });
-      const html = buildSuspensionEmailHtml(contentHtml, {
-        name: r.company_name, logo_url: r.company_logo, phone: r.company_phone, email: r.company_email,
-      });
-      await sendSuspensionEmail({
-        to: r.email, emailOptOutAt: r.email_opt_out_at,
-        fromName: r.company_name || "Qleno", fromAddress: r.email_from_address,
-        subject, html,
-      });
-      // Stamp regardless of whether the email actually shipped (opt-out /
-      // comms-off) so we never re-scan this client every day. The office sees
-      // the [COMMS BLOCKED] log if it was suppressed.
+      const svc = await resolveServiceInfo(r.company_id, r.id);
+      const base = { first_name: r.first_name || "there", service_summary: svc.serviceSummary, service_price: svc.servicePrice };
+      await sendNotification("suspension_resume_reminder", "email", r.company_id, r.email, null, { ...base, end_date: fmtHoldDateLong(expiry) }).catch(() => false);
+      await sendNotification("suspension_resume_reminder", "sms", r.company_id, null, r.phone, { ...base, end_date: fmtHoldDateShort(expiry) }).catch(() => false);
+      // Stamp regardless of whether a message actually shipped (opt-out /
+      // comms-off) so we never re-scan this client every day. sendNotification
+      // logs the suppression reason to notification_log.
       await db.execute(sql`UPDATE clients SET suspend_resume_reminder_sent_at = now() WHERE id = ${r.id}`);
-      await logClientComm(r.company_id, r.id, subject, "Resume-reminder email (30 days before hold ends).");
+      await logClientComm(r.company_id, r.id, "Resume reminder", "Resume reminder sent (30 days before hold ends).");
       reminders++;
     }
   } catch (e) {
@@ -261,11 +204,8 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
   // ── B) at-expiry final notice (flag for office; no state change) ─────────────
   try {
     const expired = await db.execute(sql`
-      SELECT c.id, c.company_id, c.first_name, c.email, c.email_opt_out_at, c.suspend_until,
-             co.name AS company_name, co.phone AS company_phone, co.email AS company_email,
-             co.logo_url AS company_logo, co.email_from_address
+      SELECT c.id, c.company_id, c.first_name, c.email, c.phone, c.suspend_until
         FROM clients c
-        JOIN companies co ON co.id = c.company_id
        WHERE c.suspended_at IS NOT NULL
          AND c.suspend_until IS NOT NULL
          AND c.suspend_expiry_notice_sent_at IS NULL
@@ -273,22 +213,12 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
     `);
     for (const r of expired.rows as any[]) {
       const expiry = String(r.suspend_until).slice(0, 10);
-      const svcInfo = await resolveServiceInfo(r.company_id, r.id);
-      const { subject, contentHtml } = renderSuspensionExpiredEmail({
-        clientName: r.first_name,
-        expiryDate: expiry,
-        ...svcInfo,
-      });
-      const html = buildSuspensionEmailHtml(contentHtml, {
-        name: r.company_name, logo_url: r.company_logo, phone: r.company_phone, email: r.company_email,
-      });
-      await sendSuspensionEmail({
-        to: r.email, emailOptOutAt: r.email_opt_out_at,
-        fromName: r.company_name || "Qleno", fromAddress: r.email_from_address,
-        subject, html,
-      });
+      const svc = await resolveServiceInfo(r.company_id, r.id);
+      const base = { first_name: r.first_name || "there", service_summary: svc.serviceSummary, service_price: svc.servicePrice };
+      await sendNotification("suspension_expired", "email", r.company_id, r.email, null, { ...base, end_date: fmtHoldDateLong(expiry) }).catch(() => false);
+      await sendNotification("suspension_expired", "sms", r.company_id, null, r.phone, { ...base, end_date: fmtHoldDateShort(expiry) }).catch(() => false);
       await db.execute(sql`UPDATE clients SET suspend_expiry_notice_sent_at = now() WHERE id = ${r.id}`);
-      await logClientComm(r.company_id, r.id, subject, "Hold expired — final notice sent; awaiting office follow-up.");
+      await logClientComm(r.company_id, r.id, "Hold ended", "Hold expired — final notice sent; awaiting office follow-up.");
       // Office heads-up notification (same table cancellation.ts uses).
       try {
         await db.execute(sql`

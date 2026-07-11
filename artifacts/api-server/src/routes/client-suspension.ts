@@ -12,8 +12,8 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
-import { MAX_SUSPEND_DAYS, sendSuspensionEmail, buildSuspensionEmailHtml, resolveServiceInfo } from "../lib/suspension.js";
-import { renderSuspensionStartEmail } from "../lib/suspension-emails.js";
+import { MAX_SUSPEND_DAYS, resolveServiceInfo, fmtHoldDateLong, fmtHoldDateShort } from "../lib/suspension.js";
+import { sendNotification } from "../services/notificationService.js";
 
 const router = Router();
 
@@ -48,7 +48,7 @@ router.post("/:id/suspend", requireAuth, requireRole("owner", "admin", "office")
 
     // Load + guard the client (tenant-scoped) before mutating anything.
     const cRes = await db.execute(sql`
-      SELECT id, first_name, email, email_opt_out_at, suspended_at
+      SELECT id, first_name, email, phone, suspended_at
         FROM clients WHERE id = ${clientId} AND company_id = ${companyId} LIMIT 1
     `);
     const client: any = cRes.rows[0];
@@ -100,41 +100,29 @@ router.post("/:id/suspend", requireAuth, requireRole("owner", "admin", "office")
       pausedSchedules = (paused.rows as any[]).length;
     });
 
-    // Fire-and-forget confirmation email — after commit so a notify failure
-    // never rolls back the suspension. Gated on COMMS_ENABLED + opt-out inside
-    // sendSuspensionEmail.
+    // Fire-and-forget confirmation — after commit so a notify failure never
+    // rolls back the suspension. Routes through the standard sendNotification
+    // pipeline (editable "service_suspended" template, house chrome, COMMS_
+    // ENABLED gate, email/SMS opt-out, per-tenant sender, comm log). prefClientId
+    // is intentionally omitted so the per-client preference gate never runs.
+    // reason is stored internally (clients.suspend_reason) but never sent.
     if (notify) {
       (async () => {
         try {
-          const co = await db.execute(sql`
-            SELECT name AS company_name, phone AS company_phone, email AS company_email,
-                   logo_url AS company_logo, email_from_address
-              FROM companies WHERE id = ${companyId} LIMIT 1
-          `);
-          const c: any = co.rows[0] || {};
-          const svcInfo = await resolveServiceInfo(companyId, clientId);
-          // reason is stored internally (clients.suspend_reason) but intentionally
-          // NOT passed to the customer email.
-          const { subject, contentHtml } = renderSuspensionStartEmail({
-            clientName: client.first_name,
-            startDate: today,
-            expiryDate: until,
-            ...svcInfo,
-          });
-          const html = buildSuspensionEmailHtml(contentHtml, {
-            name: c.company_name, logo_url: c.company_logo, phone: c.company_phone, email: c.company_email,
-          });
-          const sent = await sendSuspensionEmail({
-            to: client.email, emailOptOutAt: client.email_opt_out_at,
-            fromName: c.company_name || "Qleno", fromAddress: c.email_from_address,
-            subject, html,
-          });
+          const svc = await resolveServiceInfo(companyId, clientId);
+          const base = { first_name: client.first_name || "there", service_summary: svc.serviceSummary, service_price: svc.servicePrice };
+          const emailVars = { ...base, start_date: fmtHoldDateLong(today), end_date: fmtHoldDateLong(until) };
+          const smsVars = { ...base, start_date: fmtHoldDateShort(today), end_date: fmtHoldDateShort(until) };
+          const emailSent = await sendNotification("service_suspended", "email", companyId, client.email, null, emailVars).catch(() => false);
+          const smsSent = await sendNotification("service_suspended", "sms", companyId, null, client.phone, smsVars).catch(() => false);
+          // Mirror onto the client's Comm Log tab (client_communications is
+          // separate from notification_log, which sendNotification already writes).
           await db.execute(sql`
             INSERT INTO client_communications
               (company_id, client_id, type, direction, subject, body, from_name, created_at)
             VALUES
-              (${companyId}, ${clientId}, 'suspension', 'outbound', ${subject},
-               ${sent ? "Suspension-confirmation email sent." : "Suspension recorded (email suppressed by comms settings / opt-out)."},
+              (${companyId}, ${clientId}, 'suspension', 'outbound', 'Service suspended',
+               ${(emailSent || smsSent) ? "Suspension confirmation sent." : "Suspension recorded (message suppressed by comms settings / opt-out)."},
                'System', now())
           `);
         } catch (e) { console.error("[suspension] suspend notify failed:", e); }

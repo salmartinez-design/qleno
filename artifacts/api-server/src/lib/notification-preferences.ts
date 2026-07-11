@@ -33,8 +33,12 @@ import { CUSTOMER_MESSAGE_CATALOG, type MsgChannel } from "./customer-messages.j
 export type PrefScopeType = "client" | "account";
 
 // The triggers the office can toggle. Drawn from the canonical catalog so this
-// list can never drift from what actually sends.
-export const PREFERENCE_TRIGGERS = CUSTOMER_MESSAGE_CATALOG.map((m) => m.trigger);
+// list can never drift from what actually sends. excludeFromPrefs messages
+// (e.g. account-lifecycle suspension messages) are left out — their send path
+// bypasses the pref gate, so a grid toggle would be a no-op.
+export const PREFERENCE_TRIGGERS = CUSTOMER_MESSAGE_CATALOG
+  .filter((m) => !m.excludeFromPrefs)
+  .map((m) => m.trigger);
 
 // Catalog shape the UI grid renders: one row per message, the channels it
 // supports, its office-facing label and timing.
@@ -46,13 +50,15 @@ export interface PreferenceCatalogRow {
   channels: MsgChannel[];
 }
 
-export const PREFERENCE_CATALOG: PreferenceCatalogRow[] = CUSTOMER_MESSAGE_CATALOG.map((m) => ({
-  trigger: m.trigger,
-  label: m.label,
-  timing: m.timing,
-  description: m.description,
-  channels: m.channels.map((c) => c.channel),
-}));
+export const PREFERENCE_CATALOG: PreferenceCatalogRow[] = CUSTOMER_MESSAGE_CATALOG
+  .filter((m) => !m.excludeFromPrefs)
+  .map((m) => ({
+    trigger: m.trigger,
+    label: m.label,
+    timing: m.timing,
+    description: m.description,
+    channels: m.channels.map((c) => c.channel),
+  }));
 
 // Quick membership check used by the send paths — only customer messages are
 // pref-gated; transactional sends (reset/invite) and non-catalog triggers

@@ -165,11 +165,12 @@ function startNotificationCron() {
         .then((r) => console.log(`[boot] mileage_auto: ${r.inserted} legs across ${r.periods} period(s), ${r.companies} tenant(s)`))
         .catch((e: Error) => console.error("[boot] mileage_auto error:", e));
     }
-    // [service-suspension 2026-07-11] 8 AM CT → suspension lifecycle emails:
+    // [service-suspension 2026-07-11] 8 AM CT → suspension lifecycle messages:
     // the 30-days-before-expiry "want to resume?" reminder + the at-expiry
     // final notice (flag for office; NO automatic cancel/resume). Idempotent
     // via the clients.suspend_*_sent_at stamps, so the once-daily cadence never
-    // double-sends. Gated inside sendSuspensionEmail on COMMS_ENABLED + opt-out.
+    // double-sends. Each send goes through sendNotification (COMMS_ENABLED gate
+    // + email/SMS opt-out) on the editable suspension_* templates.
     if (ctH === 8 && fired["suspension_reminders"] !== `${ctDate}-8`) {
       fired["suspension_reminders"] = `${ctDate}-8`;
       runSuspensionReminders(ctDate).catch((e: Error) => console.error("[cron] suspension_reminders error:", e));
