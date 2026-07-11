@@ -428,6 +428,16 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] runGuidesMigration — non-fatal:", err?.message ?? err);
   }
+  // [attendance-attachments 2026-07-11] attendance_attachments table (files on
+  // an unexcused-absence / tardy record — injury photos, doctor's notes).
+  try {
+    await withBootTimeout("runAttendanceAttachmentsMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runAttendanceAttachmentsMigration } = await import("./lib/attendance-attachments-migrate.js");
+      await runAttendanceAttachmentsMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runAttendanceAttachmentsMigration — non-fatal:", err?.message ?? err);
+  }
   // [comms-opt-out 2026-06-21] clients.sms_opt_out_at / email_opt_out_at /
   // email_unsub_token columns + token backfill + unique index.
   try {

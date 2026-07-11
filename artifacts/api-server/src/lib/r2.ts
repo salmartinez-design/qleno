@@ -111,3 +111,15 @@ export function jobPhotoKey(
   const safeExt = (ext || "jpg").replace(/[^a-z0-9]/gi, "").toLowerCase() || "jpg";
   return `companies/${companyId}/jobs/${jobId}/${rand}.${safeExt}`;
 }
+
+// [attendance-attachments 2026-07-11] Key for a file attached to an
+// attendance-log record (injury photo, doctor's note).
+export function attendanceAttachmentKey(
+  companyId: number,
+  logId: number,
+  ext: string,
+  rand: string
+): string {
+  const safeExt = (ext || "bin").replace(/[^a-z0-9]/gi, "").toLowerCase() || "bin";
+  return `companies/${companyId}/attendance/${logId}/${rand}.${safeExt}`;
+}

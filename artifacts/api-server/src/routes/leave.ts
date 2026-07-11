@@ -2240,12 +2240,15 @@ router.post("/unexcused/record", officeReadGate, async (req, res) => {
     } catch { /* audit best-effort */ }
   }
   if (!result.ladder_eval.triggered_step) {
-    return res.json({ data: { recorded: true, triggered_step: null } });
+    // attendance_log_id lets the client attach files (photos / doctor's note)
+    // to the record it just created.
+    return res.json({ data: { recorded: true, triggered_step: null, attendance_log_id: result.attendance_log_id } });
   }
   const step = result.ladder_eval.triggered_step;
   return res.json({
     data: {
       recorded: true,
+      attendance_log_id: result.attendance_log_id,
       triggered_step: {
         threshold_hours: step.threshold_hours,
         discipline_type: step.discipline_type,
