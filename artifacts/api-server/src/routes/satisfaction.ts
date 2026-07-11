@@ -257,6 +257,13 @@ router.get("/survey/:token", async (req, res) => {
         brand_color: companiesTable.brand_color,
         client_name: sql<string>`concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})`,
         job_id: satisfactionSurveysTable.job_id,
+        // [revisit-score] Return the recorded rating so a customer who REOPENS
+        // an already-answered link sees the thank-you screen matching how they
+        // actually rated. Without this the page had no score in hand on a fresh
+        // load and defaulted to the "we missed the mark" apology — shown to
+        // happy raters (Jackie Flores rated 4/4, saw the apology on revisit).
+        survey_score: satisfactionSurveysTable.survey_score,
+        nps_score: satisfactionSurveysTable.nps_score,
         // [review-funnel] Public Google review link (live-only column). Surfaced
         // so the survey thank-you can ask happy raters (3–4) for a Google review.
         google_review_link: sql<string | null>`companies.review_link`,
