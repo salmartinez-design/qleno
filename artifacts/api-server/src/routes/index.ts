@@ -109,6 +109,7 @@ import lmsOnboardingIntakeRouter from "./lms-onboarding-intake.js";
 import translateRouter from "./translate.js";
 import messageToneRouter from "./message-tone.js";
 import helpMeWriteRouter from "./help-me-write.js";
+import clientSuspensionRouter from "./client-suspension.js";
 import assistantRouter from "./assistant.js";
 import devicesRouter from "./devices.js";
 import guidesRouter from "./guides.js";
@@ -121,6 +122,9 @@ router.use("/companies", companiesRouter);
 router.use("/users", employeeExtendedRouter);
 router.use("/users", usersRouter);
 router.use("/clients", clientsRouter);
+// [service-suspension 2026-07-11] Suspend/resume a client's service.
+// POST /api/clients/:id/suspend {until?, reason?, notify?}, POST /:id/resume.
+router.use("/clients", clientSuspensionRouter);
 router.use("/jobs", jobsRouter);
 router.use("/jobs", jobSmsRouter);
 router.use("/timeclock", timeclockRouter);

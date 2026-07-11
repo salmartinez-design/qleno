@@ -107,6 +107,12 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   parking_fee_enabled: boolean("parking_fee_enabled").notNull().default(false),
   parking_fee_amount: numeric("parking_fee_amount", { precision: 10, scale: 2 }),
   parking_fee_days: integer("parking_fee_days").array(),
+  // [service-suspension 2026-07-11] TRUE when this schedule was deactivated
+  // (is_active=false) by a client service suspension — NOT by a deliberate
+  // office cancellation. Resuming the client only re-activates schedules
+  // carrying this marker, so a schedule the office cancelled BEFORE the
+  // suspension is never silently revived. Cleared back to false on resume.
+  paused_by_suspension: boolean("paused_by_suspension").notNull().default(false),
 });
 
 export type RecurringSchedule = typeof recurringSchedulesTable.$inferSelect;
