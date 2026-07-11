@@ -1184,6 +1184,11 @@ async function buildDispatchPayload(
         // 06-01; without this Qleno couldn't compute the matching total.
         allowed_hours: j.allowed_hours ? parseFloat(j.allowed_hours) : null,
         billed_amount: j.billed_amount ? parseFloat(j.billed_amount) : null,
+        // [flat-addon-itemize 2026-07-11] base_fee is the all-in service+add-ons
+        // amount BEFORE adjustments. The pricing card derives its "service" line
+        // from base_fee − add-ons so an adjustment (rate-mod) never moves the
+        // base line — `amount` above already folds mods in, which inflated it.
+        base_fee: j.base_fee ? parseFloat(j.base_fee) : null,
         charge_failed_at: j.charge_failed_at ?? null,
         charge_succeeded_at: j.charge_succeeded_at ?? null,
         property_address: displayAddress,
