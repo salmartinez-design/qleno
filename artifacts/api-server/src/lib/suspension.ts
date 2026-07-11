@@ -22,7 +22,7 @@ import {
 // Reuse the SAME email chrome (logo masthead + standard footer) + merge-tag
 // substitution every other customer email uses, so suspension emails are
 // visually consistent with the rest of client communications.
-import { wrapEmailHtml, applyMerge } from "../services/notificationService.js";
+import { wrapEmailHtml, applyMerge, labelServiceType } from "../services/notificationService.js";
 import { emailLogoUrl } from "./app-url.js";
 
 export const MAX_SUSPEND_DAYS = 90;
@@ -51,44 +51,67 @@ export async function resolveServiceInfo(
   companyId: number,
   clientId: number,
 ): Promise<{ serviceSummary: string; servicePrice: string }> {
-  let freq: string | null = null, svc: string | null = null, fee: unknown = null;
+  let freq: string | null = null, svc: string | null = null;
+  let fee: unknown = null, monthly: unknown = null;
   try {
     const rs = await db.execute(sql`
-      SELECT frequency, service_type, base_fee
+      SELECT frequency, service_type, base_fee, monthly_charge_amount
         FROM recurring_schedules
        WHERE customer_id = ${clientId} AND company_id = ${companyId}
        ORDER BY (is_active OR paused_by_suspension) DESC, id DESC
        LIMIT 1
     `);
     const r: any = rs.rows[0];
-    if (r) { freq = r.frequency; svc = r.service_type; fee = r.base_fee; }
+    if (r) { freq = r.frequency; svc = r.service_type; fee = r.base_fee; monthly = r.monthly_charge_amount; }
   } catch { /* fall through to client fields */ }
 
-  let clientType = "residential", hourly: unknown = null, allowed: unknown = null;
+  let clientType = "residential", hourly: unknown = null;
   try {
     const cl = await db.execute(sql`
-      SELECT frequency, service_type, base_fee, commercial_hourly_rate, allowed_hours, client_type
+      SELECT frequency, service_type, base_fee, commercial_hourly_rate, client_type
         FROM clients WHERE id = ${clientId} AND company_id = ${companyId} LIMIT 1
     `);
     const c: any = cl.rows[0] || {};
     freq = freq || c.frequency; svc = svc || c.service_type; fee = fee ?? c.base_fee;
-    clientType = c.client_type || "residential"; hourly = c.commercial_hourly_rate; allowed = c.allowed_hours;
+    clientType = c.client_type || "residential"; hourly = c.commercial_hourly_rate;
   } catch { /* use whatever we have */ }
 
-  const freqLabel = freq ? (FREQ_LABEL[String(freq)] || titleCase(String(freq))) : "";
-  const svcLabel = svc ? titleCase(String(svc)) : "";
-  const summaryParts = [freqLabel, svcLabel].filter(Boolean);
-  const serviceSummary = summaryParts.length
-    ? (svcLabel.toLowerCase().includes("clean") ? summaryParts.join(" ") : summaryParts.join(" ") + " Clean")
-    : "Your recurring cleaning";
+  // Resolve the service_type slug to the tenant's OWN display label. This is the
+  // per-tenant source of truth that covers residential, commercial, AND any
+  // custom types the office added — so a unique slug on one client still shows a
+  // proper name. Falls back to the static labeler, then a plain title-case.
+  let svcLabel = "";
+  if (svc) {
+    try {
+      const st = await db.execute(sql`
+        SELECT name FROM service_types
+         WHERE company_id = ${companyId} AND slug = ${String(svc)}
+         ORDER BY is_active DESC, display_order ASC
+         LIMIT 1
+      `);
+      svcLabel = String((st.rows[0] as any)?.name || "").trim();
+    } catch { /* table may be mid-migration — fall back below */ }
+    if (!svcLabel) svcLabel = labelServiceType(String(svc)) || titleCase(String(svc));
+  }
 
+  const freqLabel = freq ? (FREQ_LABEL[String(freq)] || titleCase(String(freq))) : "";
+  const serviceSummary = svcLabel
+    ? [freqLabel, svcLabel].filter(Boolean).join(" ")
+    : (freqLabel ? `${freqLabel} cleaning` : "your recurring cleaning service");
+
+  // Price catches per-visit, monthly-batch commercial, and hourly commercial.
+  const perMonth = money(monthly);
   const perVisit = money(fee);
   const hourlyStr = money(hourly);
-  const servicePrice = perVisit
-    ? `${perVisit} per visit`
-    : (clientType === "commercial" && hourlyStr)
-      ? `${hourlyStr}/hr`
-      : "your current rate";
+  const servicePrice = perMonth
+    ? `${perMonth} per month`
+    : perVisit
+      ? `${perVisit} per visit`
+      : (clientType === "commercial" && hourlyStr)
+        ? `${hourlyStr}/hr`
+        // Fallback deliberately avoids the word "rate" so it composes cleanly in
+        // copy like "keep your rate of {price}" without doubling up.
+        : "your current pricing";
 
   return { serviceSummary, servicePrice };
 }

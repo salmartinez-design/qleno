@@ -104,8 +104,8 @@ export function renderResumeReminderEmail(a: ReminderArgs): { subject: string; c
       ["Your recurring rate", a.servicePrice, true],
       ["Hold ends on", fmtLongDate(a.expiryDate)],
     ]) +
-    closing(`Recurring clients keep a locked-in rate, a reserved place on our schedule, and their regular team. If your hold lapses on ${esc(fmtLongDate(a.expiryDate))}, you'll come off recurring service and rebook at our standard rates. Want to keep your ${esc(a.servicePrice)} rate? Reply to this email or call us and we'll get you back on the calendar.`);
-  return { subject: `Keep your ${a.servicePrice} recurring rate before your hold ends`, contentHtml };
+    closing(`Recurring clients keep a locked-in rate, a reserved place on our schedule, and their regular team. If your hold lapses on ${esc(fmtLongDate(a.expiryDate))}, you'll come off recurring service and rebook at our standard rates. Want to keep your rate of ${esc(a.servicePrice)}? Reply to this email or call us and we'll get you back on the calendar.`);
+  return { subject: `Keep your recurring cleaning benefits before your hold ends`, contentHtml };
 }
 
 interface ExpiredArgs extends ServiceInfo {
@@ -127,6 +127,6 @@ export function renderSuspensionExpiredEmail(a: ExpiredArgs): { subject: string;
       ["Your recurring rate", a.servicePrice, true],
       ["Hold ended", fmtLongDate(a.expiryDate)],
     ]) +
-    closing(`Reactivate now to keep your ${esc(a.servicePrice)} recurring rate and your regular team before your spot is released. If you come off recurring service, future cleanings would be booked at our standard rates. Just reply to this email or call us and we'll set up your next visit.`);
-  return { subject: `Your recurring hold has ended - keep your ${a.servicePrice} rate`, contentHtml };
+    closing(`Reactivate now to keep your rate of ${esc(a.servicePrice)} and your regular team before your spot is released. If you come off recurring service, future cleanings would be booked at our standard rates. Just reply to this email or call us and we'll set up your next visit.`);
+  return { subject: `Your recurring hold has ended - let's get you back on the schedule`, contentHtml };
 }
