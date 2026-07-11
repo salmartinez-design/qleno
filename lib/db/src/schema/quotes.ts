@@ -19,6 +19,11 @@ export const quotesTable = pgTable("quotes", {
   frequency: text("frequency"),
   estimated_hours: numeric("estimated_hours", { precision: 4, scale: 2 }),
   base_price: numeric("base_price", { precision: 10, scale: 2 }),
+  // [rate-override 2026-07-11] Explicit per-quote $/hr the office typed (Sunday /
+  // after-hours / special pricing). NULL = use the scope's configured rate. It's
+  // baked into base_price/total_price already; stored on its own so it survives
+  // edit + carries to the job on convert. Does NOT change base pricing config.
+  hourly_rate_override: numeric("hourly_rate_override", { precision: 10, scale: 2 }),
   status: text("status").notNull().default("draft"),
   sent_at: timestamp("sent_at"),
   viewed_at: timestamp("viewed_at"),

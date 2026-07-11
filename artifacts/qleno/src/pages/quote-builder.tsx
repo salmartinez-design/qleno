@@ -184,6 +184,12 @@ interface SelectedScopeState {
   // [combo-optional] Bundle ids the office toggled OFF for this scope. Passed
   // to the pricing engine so their discount isn't applied to the total.
   disabledBundleIds: number[];
+  // [rate-override 2026-07-11] Office-typed $/hr for THIS quote (Sunday /
+  // after-hours / special pricing) — overrides the scope's config rate for this
+  // quote only. null = use the configured rate. Sent to /pricing/calculate as
+  // hourly_rate_override (engine already supports it), baked into the quote's
+  // total, and carried to the job on convert. Does NOT change base pricing.
+  hourlyRateOverride: number | null;
   frequencies: PricingFrequency[];
   addons: PricingAddon[];
   calc: CalcResult | null;
@@ -469,6 +475,9 @@ export default function QuoteBuilderPage() {
           frequency: existingQuote.frequency || "",
           hours: existingQuote.estimated_hours ? parseFloat(existingQuote.estimated_hours) : 0,
           addon_ids: Array.isArray(existingQuote.addons) ? existingQuote.addons.map((a: any) => a.id).filter(Boolean) : [],
+          // [rate-override 2026-07-11] Restore the explicit per-quote rate override
+          // so editing a quote doesn't silently drop it.
+          hourly_rate_override: existingQuote.hourly_rate_override != null ? parseFloat(existingQuote.hourly_rate_override) : null,
         });
       }
     }
@@ -647,6 +656,9 @@ export default function QuoteBuilderPage() {
           if (currentSqft > 0) body.sqft = currentSqft;
         }
         if (discountCodeRef.current) body.discount_code = discountCodeRef.current;
+        // [rate-override 2026-07-11] Per-quote $/hr override — the engine recomputes
+        // base_price = hours × override (pricing.ts already supports this param).
+        if (state.hourlyRateOverride != null && state.hourlyRateOverride > 0) body.hourly_rate_override = state.hourlyRateOverride;
         // [combo-optional] Tell the engine which bundles the office toggled off
         // so their discount isn't applied (they're still returned for the UI).
         if (state.disabledBundleIds && state.disabledBundleIds.length > 0) body.disabled_bundle_ids = state.disabledBundleIds;
@@ -659,7 +671,7 @@ export default function QuoteBuilderPage() {
   }
 
   // ── Toggle scope selection ────────────────────────────────────────────────
-  async function toggleScope(scope: PricingScope, initialState?: { frequency?: string; hours?: number; addon_ids?: number[] }) {
+  async function toggleScope(scope: PricingScope, initialState?: { frequency?: string; hours?: number; addon_ids?: number[]; hourly_rate_override?: number | null }) {
     const isSelected = selectedScopesRef.current.some(s => s.scope_id === scope.id);
     if (isSelected && !initialState) {
       setSelectedScopes(prev => prev.filter(s => s.scope_id !== scope.id));
@@ -697,6 +709,7 @@ export default function QuoteBuilderPage() {
         adjMinus: 0,
         adjMinusReason: "",
         disabledBundleIds: [],
+        hourlyRateOverride: initialState?.hourly_rate_override ?? null,
         frequencies: freqs as PricingFrequency[],
         addons: addons as PricingAddon[],
         calc: null,
@@ -711,6 +724,7 @@ export default function QuoteBuilderPage() {
         hoursOverrideSet: false, addon_ids: initialState?.addon_ids ?? [],
         addonQtys: {}, addonRecurring: {}, adjPlus: 0, adjPlusReason: "", adjMinus: 0, adjMinusReason: "",
         disabledBundleIds: [],
+        hourlyRateOverride: initialState?.hourly_rate_override ?? null,
         frequencies: [], addons: [],
         calc: null, calcLoading: false, expanded: true,
       }]);
@@ -729,6 +743,15 @@ export default function QuoteBuilderPage() {
 
   function updateScopeHoursManual(scopeId: number, hours: number) {
     setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, hours: Math.max(0.5, hours), hoursOverrideSet: true } : s));
+    setTimeout(() => recalcScopeById(scopeId), 50);
+  }
+
+  // [rate-override 2026-07-11] Set/clear the per-quote $/hr override, then
+  // recompute so the line total reflects the new rate. null clears it back to
+  // the configured rate.
+  function updateScopeRate(scopeId: number, rate: number | null) {
+    const clean = rate != null && isFinite(rate) && rate > 0 ? rate : null;
+    setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, hourlyRateOverride: clean } : s));
     setTimeout(() => recalcScopeById(scopeId), 50);
   }
 
@@ -853,6 +876,11 @@ export default function QuoteBuilderPage() {
       // every add-on's time — the job came out under-budgeted on the schedule.
       estimated_hours: cr ? String(cr.total_hours ?? cr.base_hours) : primaryScopeState?.hours ? String(primaryScopeState.hours) : null,
       hourly_rate: cr ? String(cr.hourly_rate) : null,
+      // [rate-override 2026-07-11] The EXPLICIT per-quote $/hr override (null when
+      // not overridden), stored on its own so it round-trips on edit + convert
+      // without being confused with the computed effective rate.
+      hourly_rate_override: primaryScopeState?.hourlyRateOverride != null
+        ? String(primaryScopeState.hourlyRateOverride) : null,
       notes: notes || null,
       internal_memo: internalMemo || null,
       office_notes: officeMemo || null,
@@ -2309,6 +2337,22 @@ export default function QuoteBuilderPage() {
                             </button>
                             {s.expanded && (
                               <div style={{ padding: "12px 14px" }}>
+                                {/* [rate-override 2026-07-11] Editable $/hr for this quote (Sunday /
+                                    after-hours / special pricing). Blank = configured rate. */}
+                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
+                                  <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>Rate: $</span>
+                                  <input type="number" min="0" step="1"
+                                    value={s.hourlyRateOverride ?? ""}
+                                    placeholder={Number(s.calc?.hourly_rate ?? scope.hourly_rate).toFixed(2)}
+                                    onChange={e => updateScopeRate(s.scope_id, e.target.value === "" ? null : parseFloat(e.target.value))}
+                                    title="Override the hourly rate for this quote only"
+                                    style={{ width: 74, height: 28, border: `1px solid ${s.hourlyRateOverride != null ? "#00C9A0" : "#E5E2DC"}`, borderRadius: 6, padding: "0 6px", fontSize: 13, fontFamily: FF, outline: "none", textAlign: "center" }} />
+                                  <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>/hr</span>
+                                  {s.hourlyRateOverride != null && (
+                                    <button onClick={() => updateScopeRate(s.scope_id, null)} title="Reset to the configured rate"
+                                      style={{ fontSize: 11, color: "#6B6860", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: FF, padding: 0 }}>reset</button>
+                                  )}
+                                </div>
                                 {!isHourly && s.calc && (
                                   <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
                                     {sqft > 0 ? `${sqft.toLocaleString()} sqft` : "No sqft"} {"\u2192"} {s.calc.base_hours || estHours} hrs {"\u00D7"} ${Number(s.calc.hourly_rate ?? scope.hourly_rate).toFixed(2)}/hr = ${s.calc.base_price.toFixed(2)}
@@ -2325,7 +2369,7 @@ export default function QuoteBuilderPage() {
                                     <button onClick={() => updateScopeHoursManual(s.scope_id, (s.hours || 0) + 0.5)}
                                       style={{ width: 28, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, background: "#F7F6F3", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                                     <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>
-                                      {s.hours ? `= $${(s.hours * Number(scope.hourly_rate)).toFixed(2)}` : "Enter hours to calculate"}
+                                      {s.hours ? `= $${(s.hours * (s.hourlyRateOverride ?? Number(scope.hourly_rate))).toFixed(2)}` : "Enter hours to calculate"}
                                     </span>
                                   </div>
                                 )}
