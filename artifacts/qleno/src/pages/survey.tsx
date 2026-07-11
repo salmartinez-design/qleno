@@ -89,7 +89,14 @@ export default function SurveyPage() {
         else if (d.suppressed) setErrorMsg("This link is no longer active.");
         else {
           setMeta(d);
-          if (d.responded_at) { setSubmitted(true); }
+          if (d.responded_at) {
+            // [revisit-score] Already answered — hydrate the score they gave so
+            // the thank-you screen reflects their real rating. Missing this made
+            // `happy` default to false on a fresh load, showing the "we missed
+            // the mark" apology to happy raters who simply reopened the link.
+            if (typeof d.survey_score === "number") setScore(d.survey_score);
+            setSubmitted(true);
+          }
           else if (urlScore != null) { submit(urlScore); } // one-tap from the email
         }
       })
