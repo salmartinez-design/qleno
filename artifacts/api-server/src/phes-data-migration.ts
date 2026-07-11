@@ -5405,15 +5405,15 @@ async function runLeadDripSequenceSeed(): Promise<void> {
         const webId = (seqWeb.rows[0] as any).id;
         const webSteps = [
           { n: 1, h: 0,   ch: 'sms',   s: null,
-            t: 'Hi {{first_name}}! We saw your online quote — we’d love to help you get on the schedule. Any questions? Just text back. — {{company_name}}' },
+            t: 'Hi {{first_name}}! We saw your online quote — we’d love to help you get on the schedule. Book here: {{book_link}}. Questions? Just text back. — {{company_name}}' },
           { n: 2, h: 2,   ch: 'email', s: 'Your quote from {{company_name}} is saved',
             t: 'Hi {{first_name}},\n\nThank you for starting a quote with us! Your estimate is saved and ready whenever you are.\n\nWe’re known for arriving on time, being thorough, and treating every home like our own. Most clients tell us they noticed the difference in the first visit.\n\nHave questions or want to get scheduled? Just reply here or call us at {{company_phone}}.\n\n— {{company_name}}' },
           { n: 3, h: 24,  ch: 'sms',   s: null,
-            t: '{{first_name}}, still thinking it over? We have openings this week — one text gets you on the schedule.' },
+            t: '{{first_name}}, still thinking it over? We have openings this week — book your quote in a tap: {{book_link}}' },
           { n: 4, h: 48,  ch: 'email', s: 'Why our clients choose {{company_name}}',
             t: 'Hi {{first_name}},\n\nWe wanted to share why hundreds of families in the area trust us with their homes:\n\n• Background-checked, insured, and trained professionals\n• Consistent team so you’re not meeting someone new every visit\n• Eco-friendly products available on request\n• Satisfaction guarantee on every clean\n\nIf you’re ready to get started, just reply here and we’ll find a time that works.\n\n— {{company_name}}' },
           { n: 5, h: 72,  ch: 'sms',   s: null,
-            t: 'Last check-in for now — if you’re ready, just reply “book” and we’ll take it from there. — {{company_name}}' },
+            t: 'Last check-in for now — ready to lock it in? Book your quote here: {{book_link}} — {{company_name}}' },
           { n: 6, h: 120, ch: 'email', s: 'A few spots left this week',
             t: 'Hi {{first_name}},\n\nWe have a few openings left this week if you’d like to get on the schedule. It’s quick — just reply here with a preferred day and morning or afternoon, and we’ll confirm.\n\n— {{company_name}}' },
           { n: 7, h: 168, ch: 'sms',   s: null,
@@ -5441,13 +5441,13 @@ async function runLeadDripSequenceSeed(): Promise<void> {
         const phoneId = (seqPhone.rows[0] as any).id;
         const phoneSteps = [
           { n: 1, h: 0,   ch: 'sms',   s: null,
-            t: 'Hi {{first_name}}, great talking with you! Here’s your quote recap from {{company_name}}. Questions? Just reply here.' },
+            t: 'Hi {{first_name}}, great talking with you! Here’s your quote from {{company_name}} — review it and book in a tap: {{book_link}}. Questions? Just reply here.' },
           { n: 2, h: 24,  ch: 'sms',   s: null,
-            t: '{{first_name}}, following up from {{company_name}}. Ready to get on the schedule? Just say the word.' },
+            t: '{{first_name}}, following up from {{company_name}}. Ready to get on the schedule? Book your quote here: {{book_link}}' },
           { n: 3, h: 48,  ch: 'email', s: 'Your quote from our call',
             t: 'Hi {{first_name}},\n\nIt was great speaking with you! Per our conversation, here is a quick recap of what we discussed.\n\nWhen you’re ready to get scheduled, just reply here and I’ll take care of it.\n\n— {{company_name}}' },
           { n: 4, h: 72,  ch: 'sms',   s: null,
-            t: '{{first_name}}, we’d love to get your home sparkling. Want me to find you a morning or afternoon slot this week?' },
+            t: '{{first_name}}, we’d love to get your home sparkling. Book your quote in a tap: {{book_link}}' },
           { n: 5, h: 120, ch: 'email', s: 'Still here whenever you’re ready',
             t: 'Hi {{first_name}},\n\nJust checking in one more time. We’d love to earn your business and make your home shine.\n\nReply here or call {{company_phone}} anytime.\n\n— {{company_name}}' },
           { n: 6, h: 168, ch: 'sms',   s: null,
@@ -5461,7 +5461,44 @@ async function runLeadDripSequenceSeed(): Promise<void> {
         }
       }
     }
-    console.log("[lead-drip-seed] Lead drip sequences seeded for all companies.");
+    // [quoted-lead quick-book 2026-07-11] Backfill the {{book_link}} quick-book
+    // CTA into EXISTING lead-drip SMS steps (the seed above only inserts for new
+    // companies). Exact-match on the original seed body so we only touch
+    // untouched seed rows — never an office-customized template — and it's
+    // idempotent (after update the old text no longer matches). {{book_link}}
+    // resolves at send time to the lead's own quote's /book-quote page, or the
+    // generic booking wizard when they have no quote.
+    const linkBackfills: Array<{ type: string; n: number; from: string; to: string }> = [
+      { type: 'lead_drip_web', n: 1,
+        from: 'Hi {{first_name}}! We saw your online quote — we’d love to help you get on the schedule. Any questions? Just text back. — {{company_name}}',
+        to:   'Hi {{first_name}}! We saw your online quote — we’d love to help you get on the schedule. Book here: {{book_link}}. Questions? Just text back. — {{company_name}}' },
+      { type: 'lead_drip_web', n: 3,
+        from: '{{first_name}}, still thinking it over? We have openings this week — one text gets you on the schedule.',
+        to:   '{{first_name}}, still thinking it over? We have openings this week — book your quote in a tap: {{book_link}}' },
+      { type: 'lead_drip_web', n: 5,
+        from: 'Last check-in for now — if you’re ready, just reply “book” and we’ll take it from there. — {{company_name}}',
+        to:   'Last check-in for now — ready to lock it in? Book your quote here: {{book_link}} — {{company_name}}' },
+      { type: 'lead_drip_phone', n: 1,
+        from: 'Hi {{first_name}}, great talking with you! Here’s your quote recap from {{company_name}}. Questions? Just reply here.',
+        to:   'Hi {{first_name}}, great talking with you! Here’s your quote from {{company_name}} — review it and book in a tap: {{book_link}}. Questions? Just reply here.' },
+      { type: 'lead_drip_phone', n: 2,
+        from: '{{first_name}}, following up from {{company_name}}. Ready to get on the schedule? Just say the word.',
+        to:   '{{first_name}}, following up from {{company_name}}. Ready to get on the schedule? Book your quote here: {{book_link}}' },
+      { type: 'lead_drip_phone', n: 4,
+        from: '{{first_name}}, we’d love to get your home sparkling. Want me to find you a morning or afternoon slot this week?',
+        to:   '{{first_name}}, we’d love to get your home sparkling. Book your quote in a tap: {{book_link}}' },
+    ];
+    for (const b of linkBackfills) {
+      await db.execute(sql`
+        UPDATE follow_up_steps s
+           SET message_template = ${b.to}
+          FROM follow_up_sequences q
+         WHERE s.sequence_id = q.id
+           AND q.sequence_type = ${b.type}
+           AND s.step_number = ${b.n}
+           AND s.message_template = ${b.from}`);
+    }
+    console.log("[lead-drip-seed] Lead drip sequences seeded + quick-book link backfilled for all companies.");
   } catch (err) {
     console.error("[lead-drip-seed] Seed error (non-fatal):", err);
   }
