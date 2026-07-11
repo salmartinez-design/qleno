@@ -19,9 +19,31 @@ import {
   renderResumeReminderEmail,
   renderSuspensionExpiredEmail,
 } from "./suspension-emails.js";
+// Reuse the SAME email chrome (logo masthead + standard footer) + merge-tag
+// substitution every other customer email uses, so suspension emails are
+// visually consistent with the rest of client communications.
+import { wrapEmailHtml, applyMerge } from "../services/notificationService.js";
+import { emailLogoUrl } from "./app-url.js";
 
 export const MAX_SUSPEND_DAYS = 90;
 export const RESUME_REMINDER_LEAD_DAYS = 30;
+
+// Wrap the inner content produced by the suspension-email renderers in the
+// shared house chrome and resolve the footer's {{company_phone}}/{{company_email}}
+// merge tags to real values.
+export function buildSuspensionEmailHtml(
+  contentHtml: string,
+  company: { name?: string | null; logo_url?: string | null; phone?: string | null; email?: string | null },
+): string {
+  const wrapped = wrapEmailHtml(contentHtml, {
+    logoUrl: emailLogoUrl(company.logo_url),
+    companyName: company.name,
+  });
+  return applyMerge(wrapped, {
+    company_phone: company.phone || "",
+    company_email: company.email || "",
+  });
+}
 
 // Idempotent boot migration — add the suspension columns to clients and the
 // pause marker to recurring_schedules. Safe to run on every cold start.
@@ -111,7 +133,8 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
   try {
     const due = await db.execute(sql`
       SELECT c.id, c.company_id, c.first_name, c.email, c.email_opt_out_at, c.suspend_until,
-             co.name AS company_name, co.phone AS company_phone, co.email_from_address
+             co.name AS company_name, co.phone AS company_phone, co.email AS company_email,
+             co.logo_url AS company_logo, co.email_from_address
         FROM clients c
         JOIN companies co ON co.id = c.company_id
        WHERE c.suspended_at IS NOT NULL
@@ -122,11 +145,12 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
     `);
     for (const r of due.rows as any[]) {
       const expiry = String(r.suspend_until).slice(0, 10);
-      const { subject, html } = renderResumeReminderEmail({
+      const { subject, contentHtml } = renderResumeReminderEmail({
         clientName: r.first_name,
-        companyName: r.company_name || "Qleno",
-        companyPhone: r.company_phone,
         expiryDate: expiry,
+      });
+      const html = buildSuspensionEmailHtml(contentHtml, {
+        name: r.company_name, logo_url: r.company_logo, phone: r.company_phone, email: r.company_email,
       });
       await sendSuspensionEmail({
         to: r.email, emailOptOutAt: r.email_opt_out_at,
@@ -148,7 +172,8 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
   try {
     const expired = await db.execute(sql`
       SELECT c.id, c.company_id, c.first_name, c.email, c.email_opt_out_at, c.suspend_until,
-             co.name AS company_name, co.phone AS company_phone, co.email_from_address
+             co.name AS company_name, co.phone AS company_phone, co.email AS company_email,
+             co.logo_url AS company_logo, co.email_from_address
         FROM clients c
         JOIN companies co ON co.id = c.company_id
        WHERE c.suspended_at IS NOT NULL
@@ -158,11 +183,12 @@ export async function runSuspensionReminders(todayYmd: string): Promise<{ remind
     `);
     for (const r of expired.rows as any[]) {
       const expiry = String(r.suspend_until).slice(0, 10);
-      const { subject, html } = renderSuspensionExpiredEmail({
+      const { subject, contentHtml } = renderSuspensionExpiredEmail({
         clientName: r.first_name,
-        companyName: r.company_name || "Qleno",
-        companyPhone: r.company_phone,
         expiryDate: expiry,
+      });
+      const html = buildSuspensionEmailHtml(contentHtml, {
+        name: r.company_name, logo_url: r.company_logo, phone: r.company_phone, email: r.company_email,
       });
       await sendSuspensionEmail({
         to: r.email, emailOptOutAt: r.email_opt_out_at,

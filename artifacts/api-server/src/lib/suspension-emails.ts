@@ -1,19 +1,20 @@
-// [service-suspension 2026-07-11] Pure, dependency-free renderers for the three
-// service-suspension lifecycle emails. No DB / Express imports so they can be
-// unit-rendered and previewed in isolation. Mail-client-safe: table layout,
-// inline styles, Plus Jakarta Sans + sans-serif fallback, Qleno/Phes brand
-// (navy #0A0E1A, mint #00C9A0, page bg #F7F6F3). Each returns { subject, html }.
+// [service-suspension 2026-07-11] Renderers for the three service-suspension
+// lifecycle emails. To keep client communications visually consistent, these
+// produce ONLY the inner content (status pill + heading + intro + a bordered
+// detail table + closing) in the exact house style of lib/confirmation-email.ts,
+// and the caller wraps them in the shared wrapEmailHtml() chrome (navy/logo
+// masthead + standard "Phes | phone | email | phes.io" footer) that every other
+// customer email uses — see buildSuspensionEmailHtml in lib/suspension.ts.
 //
-// The office fires (1) on suspend, and the daily cron fires (2) 30 days before
-// the resume date and (3) at expiry. None of these send anything by themselves —
-// the caller still gates on COMMS_ENABLED + the client's email_opt_out_at.
+// Pure + dependency-free so they can be unit-rendered and previewed in
+// isolation. Each returns { subject, contentHtml }.
 
-const FONT = "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-const NAVY = "#0A0E1A";
-const MINT = "#00C9A0";
+// Match the confirmation email's font stack: brand font first, Arial fallback
+// (email clients that can't load Plus Jakarta Sans render Arial, same as the
+// shared wrapEmailHtml chrome).
+const FONT = "'Plus Jakarta Sans', Arial, Helvetica, sans-serif";
 const INK = "#1A1917";
 const MUTE = "#6B6860";
-const PAGE_BG = "#F7F6F3";
 const BORDER = "#E5E2DC";
 
 const esc = (s: string) =>
@@ -29,115 +30,85 @@ export function fmtLongDate(d: string | Date): string {
   return dt.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 }
 
-interface Shell {
-  companyName: string;
-  companyPhone?: string | null;
-  heading: string;
-  bodyHtml: string; // inner paragraphs / callouts
+// ── House-style inner-content pieces (mirror lib/confirmation-email.ts) ─────────
+function pill(label: string): string {
+  // Amber "on hold" pill — same shape as the confirmation email's green
+  // "Confirmed" pill, recolored for a service hold.
+  return `<div style="display:inline-block;padding:4px 12px;border-radius:999px;font-family:${FONT};font-size:12px;font-weight:700;background:#FEF3C7;color:#92400E;margin-bottom:14px;">${esc(label)}</div>`;
 }
-
-// Shared branded chrome so all three emails read as one system.
-function renderShell({ companyName, companyPhone, heading, bodyHtml }: Shell): string {
-  const phoneLine = companyPhone
-    ? `<p style="font-family:${FONT};font-size:13px;color:${MUTE};line-height:1.6;margin:0 0 4px;">Questions? Call us at <a href="tel:${esc(companyPhone)}" style="color:${INK};text-decoration:none;font-weight:700;">${esc(companyPhone)}</a>.</p>`
-    : "";
-  return `<div style="background:${PAGE_BG};padding:24px 0;">
-  <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:${PAGE_BG};">
-    <tr><td align="center">
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="max-width:540px;background:#FFFFFF;border:1px solid ${BORDER};border-radius:14px;overflow:hidden;">
-        <tr><td style="background:${NAVY};padding:22px 28px;">
-          <span style="font-family:${FONT};font-size:18px;font-weight:800;color:#FFFFFF;letter-spacing:-0.01em;">${esc(companyName)}</span>
-        </td></tr>
-        <tr><td style="padding:28px;">
-          <h1 style="font-family:${FONT};font-size:20px;font-weight:800;color:${NAVY};margin:0 0 16px;line-height:1.3;">${esc(heading)}</h1>
-          ${bodyHtml}
-          ${phoneLine}
-          <p style="font-family:${FONT};font-size:13px;color:${MUTE};line-height:1.6;margin:14px 0 0;">— The ${esc(companyName)} team</p>
-        </td></tr>
-        <tr><td style="padding:16px 28px;border-top:1px solid ${BORDER};">
-          <span style="font-family:${FONT};font-size:11px;color:#9E9B94;">${esc(companyName)}</span>
-        </td></tr>
-      </table>
-    </td></tr>
-  </table>
-</div>`;
+function h1(text: string): string {
+  return `<h1 style="margin:0 0 6px;font-family:${FONT};font-size:22px;font-weight:700;color:${INK};">${esc(text)}</h1>`;
 }
-
-function para(text: string): string {
-  return `<p style="font-family:${FONT};font-size:15px;color:${INK};line-height:1.65;margin:0 0 16px;">${text}</p>`;
+function intro(text: string): string {
+  return `<p style="margin:0 0 22px;font-family:${FONT};font-size:14px;color:${MUTE};line-height:1.6;">${text}</p>`;
 }
-
-// A single-cell callout table (email-client-safe) highlighting the key date.
-function dateCallout(label: string, value: string): string {
-  return `<table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="margin:0 0 20px;">
-    <tr><td style="background:#F1FBF8;border:1px solid ${MINT}55;border-radius:10px;padding:16px 18px;">
-      <div style="font-family:${FONT};font-size:11px;font-weight:700;color:${MUTE};text-transform:uppercase;letter-spacing:0.07em;">${esc(label)}</div>
-      <div style="font-family:${FONT};font-size:17px;font-weight:800;color:${NAVY};margin-top:3px;">${esc(value)}</div>
-    </td></tr>
-  </table>`;
+function closing(text: string): string {
+  return `<p style="margin:22px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;">${text}</p>`;
+}
+function detailTable(rows: Array<[string, string]>): string {
+  const body = rows.map(([label, value]) => `
+    <tr>
+      <td style="padding:11px 0;border-bottom:1px solid ${BORDER};font-family:${FONT};font-size:13px;color:${MUTE};">${esc(label)}</td>
+      <td align="right" style="padding:11px 0;border-bottom:1px solid ${BORDER};font-family:${FONT};font-size:14px;font-weight:600;color:${INK};">${esc(value)}</td>
+    </tr>`).join("");
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid ${BORDER};border-radius:10px;padding:2px 16px;">${body}</table>`;
 }
 
 interface StartArgs {
   clientName: string;
-  companyName: string;
-  companyPhone?: string | null;
   startDate: string; // YYYY-MM-DD
   expiryDate: string; // YYYY-MM-DD
   reason?: string | null;
 }
 
 // (1) Sent when the office suspends the service.
-export function renderSuspensionStartEmail(a: StartArgs): { subject: string; html: string } {
+export function renderSuspensionStartEmail(a: StartArgs): { subject: string; contentHtml: string } {
   const first = a.clientName?.trim() || "there";
   const reasonClause = a.reason?.trim() ? ` at your request (${esc(a.reason.trim())})` : "";
-  const bodyHtml =
-    para(`Hi ${esc(first)}, this confirms that your cleaning service has been placed on hold${reasonClause}. During the hold, we won't schedule any visits, and you won't be billed for cleanings.`) +
-    dateCallout("Suspension starts", fmtLongDate(a.startDate)) +
-    dateCallout("Hold ends on", fmtLongDate(a.expiryDate)) +
-    para(`You can resume any time before ${esc(fmtLongDate(a.expiryDate))} — just reply to this email or give us a call and we'll get you back on the schedule. We'll also check in with you about a month before the hold ends.`);
-  return {
-    subject: `Your cleaning service is on hold until ${fmtLongDate(a.expiryDate)}`,
-    html: renderShell({ companyName: a.companyName, companyPhone: a.companyPhone, heading: "Your service is on hold", bodyHtml }),
-  };
+  const contentHtml =
+    pill("On hold") +
+    h1("Your service is on hold") +
+    intro(`Hi ${esc(first)}, this confirms that your cleaning service has been placed on hold${reasonClause}. During the hold, we won't schedule any visits, and you won't be billed for cleanings.`) +
+    detailTable([
+      ["Suspension starts", fmtLongDate(a.startDate)],
+      ["Hold ends on", fmtLongDate(a.expiryDate)],
+    ]) +
+    closing(`You can resume any time before ${esc(fmtLongDate(a.expiryDate))} — just reply to this email or give us a call and we'll get you back on the schedule. We'll also check in with you about a month before the hold ends.`);
+  return { subject: `Your cleaning service is on hold until ${fmtLongDate(a.expiryDate)}`, contentHtml };
 }
 
 interface ReminderArgs {
   clientName: string;
-  companyName: string;
-  companyPhone?: string | null;
   expiryDate: string; // YYYY-MM-DD
 }
 
 // (2) Sent ~30 days before the hold ends — the "want to resume?" follow-up.
-export function renderResumeReminderEmail(a: ReminderArgs): { subject: string; html: string } {
+export function renderResumeReminderEmail(a: ReminderArgs): { subject: string; contentHtml: string } {
   const first = a.clientName?.trim() || "there";
-  const bodyHtml =
-    para(`Hi ${esc(first)}, your cleaning service has been on hold, and that hold is coming to an end soon. We'd love to welcome you back.`) +
-    dateCallout("Your hold ends on", fmtLongDate(a.expiryDate)) +
-    para(`Would you like to resume service? Just reply to this email or call us and we'll get your regular cleanings back on the calendar. If we don't hear from you by ${esc(fmtLongDate(a.expiryDate))}, we'll follow up once more before closing out the hold.`);
-  return {
-    subject: `Ready to resume your cleaning service?`,
-    html: renderShell({ companyName: a.companyName, companyPhone: a.companyPhone, heading: "Your hold ends soon", bodyHtml }),
-  };
+  const contentHtml =
+    pill("Ending soon") +
+    h1("Your hold ends soon") +
+    intro(`Hi ${esc(first)}, your cleaning service has been on hold, and that hold is coming to an end soon. We'd love to welcome you back.`) +
+    detailTable([["Your hold ends on", fmtLongDate(a.expiryDate)]]) +
+    closing(`Would you like to resume service? Just reply to this email or call us and we'll get your regular cleanings back on the calendar. If we don't hear from you by ${esc(fmtLongDate(a.expiryDate))}, we'll follow up once more before closing out the hold.`);
+  return { subject: `Ready to resume your cleaning service?`, contentHtml };
 }
 
 interface ExpiredArgs {
   clientName: string;
-  companyName: string;
-  companyPhone?: string | null;
   expiryDate: string; // YYYY-MM-DD
 }
 
 // (3) Sent at expiry — final notice. We do NOT change any account state
 // automatically; this simply lets the customer know the hold has ended and
 // invites them back, while the office follows up.
-export function renderSuspensionExpiredEmail(a: ExpiredArgs): { subject: string; html: string } {
+export function renderSuspensionExpiredEmail(a: ExpiredArgs): { subject: string; contentHtml: string } {
   const first = a.clientName?.trim() || "there";
-  const bodyHtml =
-    para(`Hi ${esc(first)}, your cleaning service hold has now ended as of ${esc(fmtLongDate(a.expiryDate))}. We haven't scheduled any visits yet — we wanted to check with you first.`) +
-    para(`If you'd like to pick your cleanings back up, just reply to this email or give us a call and we'll set up your next visit right away. We'd be glad to have you back.`);
-  return {
-    subject: `Your cleaning service hold has ended`,
-    html: renderShell({ companyName: a.companyName, companyPhone: a.companyPhone, heading: "Your hold has ended", bodyHtml }),
-  };
+  const contentHtml =
+    pill("Hold ended") +
+    h1("Your hold has ended") +
+    intro(`Hi ${esc(first)}, your cleaning service hold ended on ${esc(fmtLongDate(a.expiryDate))}. We haven't scheduled any visits yet — we wanted to check with you first.`) +
+    detailTable([["Hold ended", fmtLongDate(a.expiryDate)]]) +
+    closing(`If you'd like to pick your cleanings back up, just reply to this email or give us a call and we'll set up your next visit right away. We'd be glad to have you back.`);
+  return { subject: `Your cleaning service hold has ended`, contentHtml };
 }

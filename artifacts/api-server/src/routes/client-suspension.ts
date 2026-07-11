@@ -12,7 +12,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
-import { MAX_SUSPEND_DAYS, sendSuspensionEmail } from "../lib/suspension.js";
+import { MAX_SUSPEND_DAYS, sendSuspensionEmail, buildSuspensionEmailHtml } from "../lib/suspension.js";
 import { renderSuspensionStartEmail } from "../lib/suspension-emails.js";
 
 const router = Router();
@@ -107,17 +107,19 @@ router.post("/:id/suspend", requireAuth, requireRole("owner", "admin", "office")
       (async () => {
         try {
           const co = await db.execute(sql`
-            SELECT name AS company_name, phone AS company_phone, email_from_address
+            SELECT name AS company_name, phone AS company_phone, email AS company_email,
+                   logo_url AS company_logo, email_from_address
               FROM companies WHERE id = ${companyId} LIMIT 1
           `);
           const c: any = co.rows[0] || {};
-          const { subject, html } = renderSuspensionStartEmail({
+          const { subject, contentHtml } = renderSuspensionStartEmail({
             clientName: client.first_name,
-            companyName: c.company_name || "Qleno",
-            companyPhone: c.company_phone,
             startDate: today,
             expiryDate: until,
             reason,
+          });
+          const html = buildSuspensionEmailHtml(contentHtml, {
+            name: c.company_name, logo_url: c.company_logo, phone: c.company_phone, email: c.company_email,
           });
           const sent = await sendSuspensionEmail({
             to: client.email, emailOptOutAt: client.email_opt_out_at,
