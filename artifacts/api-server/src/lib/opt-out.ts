@@ -100,6 +100,59 @@ export async function setSmsOptOutByPhone(companyId: number, phone: string, opte
   }
 }
 
+// [opt-out-confirmation 2026-07-11] Send the ONE compliance confirmation a
+// customer gets after texting STOP. The office reported that opt-outs registered
+// silently — the cadence stopped and the flag was set, but nothing was sent, so
+// it "looked" like the STOP did nothing (John Trocellier). Best-effort and
+// self-contained:
+//   • Replies from the SAME number the customer texted (thread continuity).
+//   • Honors the comms gate via resolveSender().reason — if comms are globally /
+//     tenant / branch disabled we don't (and can't) send.
+//   • Deliberately BYPASSES the app-level opt-out suppression: this is the single
+//     message allowed AFTER a STOP, so we call the Twilio primitive directly
+//     rather than a guarded send path.
+//   • If the carrier already has the number on its STOP list (Twilio's own
+//     default opt-out already answered), Twilio rejects ours with error 21610 —
+//     caught and logged, never fatal. The opt-out itself already stuck.
+//   • Logs the sent confirmation into sms_messages so the office SEES it in the
+//     conversation thread.
+// Returns true only when Twilio accepted the message.
+export async function sendSmsOptOutConfirmation(
+  companyId: number,
+  toPhone: string,
+  fromNumber?: string | null,
+): Promise<boolean> {
+  try {
+    const { resolveSender, sendSmsVia } = await import("./comms-sender.js");
+    const sender = await resolveSender(companyId);
+    if (sender.reason) {
+      console.log(`[opt-out] confirmation skipped (${sender.reason}) company=${companyId}`);
+      return false;
+    }
+    // Reply from the exact number the customer texted, when we have it.
+    const from = (fromNumber && String(fromNumber).trim()) || sender.from_number;
+    if (!from) return false;
+    // Name the brand in the copy (carriers expect opt-out confirmations to
+    // identify the sender).
+    let brand = "Our team";
+    try {
+      const r = await db.execute(sql`SELECT name FROM companies WHERE id = ${companyId} LIMIT 1`);
+      brand = (r.rows[0] as any)?.name || brand;
+    } catch { /* non-fatal — fall back to the generic label */ }
+    const body = `${brand}: You're unsubscribed and won't receive more texts. Reply START to resubscribe.`;
+    await sendSmsVia({ ...sender, from_number: from }, toPhone, body);
+    try {
+      const { recordOutboundSms } = await import("./sms-store.js");
+      await recordOutboundSms({ companyId, toRaw: toPhone, fromNumber: from, body });
+    } catch (e) { console.warn("[opt-out] confirmation log failed:", (e as any)?.message ?? e); }
+    return true;
+  } catch (e: any) {
+    // 21610 = recipient already opted out at the carrier (Twilio answered it).
+    console.warn(`[opt-out] confirmation not delivered: ${e?.message ?? e}`);
+    return false;
+  }
+}
+
 // Set the email opt-out flag from an unsubscribe token. Returns the affected
 // client (id/email/company_id) or null when the token doesn't match. Idempotent.
 export async function setEmailOptOutByToken(
