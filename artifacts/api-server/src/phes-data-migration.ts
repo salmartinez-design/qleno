@@ -361,6 +361,7 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "quotes.alternate_options",       stmt: "ALTER TABLE quotes ADD COLUMN IF NOT EXISTS alternate_options JSONB" },
     { label: "quotes.zone_override",           stmt: "ALTER TABLE quotes ADD COLUMN IF NOT EXISTS zone_override BOOLEAN DEFAULT FALSE" },
     { label: "quotes.address_verified",        stmt: "ALTER TABLE quotes ADD COLUMN IF NOT EXISTS address_verified BOOLEAN DEFAULT FALSE" },
+    { label: "quotes.hourly_rate_override",    stmt: "ALTER TABLE quotes ADD COLUMN IF NOT EXISTS hourly_rate_override NUMERIC(10,2)" },
     // ── service_zones extra columns ─────────────────────────────────────────
     { label: "service_zones.location",         stmt: "ALTER TABLE service_zones ADD COLUMN IF NOT EXISTS location TEXT NOT NULL DEFAULT 'oak_lawn'" },
     // ── rate_locks table ────────────────────────────────────────────────────

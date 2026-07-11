@@ -43,6 +43,7 @@ async function getQuoteWithDetails(id: number, companyId: number) {
       frequency: quotesTable.frequency,
       estimated_hours: quotesTable.estimated_hours,
       base_price: quotesTable.base_price,
+      hourly_rate_override: quotesTable.hourly_rate_override,
       total_price: quotesTable.total_price,
       discount_amount: quotesTable.discount_amount,
       discount_code: quotesTable.discount_code,
@@ -183,7 +184,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     const {
       client_id, lead_name, lead_email, lead_phone, address,
       scope_id, pricing_method, frequency, estimated_hours, manual_hours,
-      base_price, total_price, discount_amount, discount_code, addons,
+      base_price, total_price, discount_amount, discount_code, addons, hourly_rate_override,
       bedrooms, bathrooms, half_baths, sqft, dirt_level, pets,
       special_instructions, internal_memo, client_notes, notes, status,
       unit_suite, referral_source, office_notes, call_notes, manual_adjustments,
@@ -209,6 +210,8 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       manual_hours: manual_hours ? String(manual_hours) : null,
       base_price: base_price ? String(base_price) : null,
       total_price: total_price ? String(total_price) : null,
+      // [rate-override 2026-07-11] Explicit per-quote $/hr override (null = none).
+      hourly_rate_override: hourly_rate_override != null && hourly_rate_override !== "" ? String(hourly_rate_override) : null,
       discount_amount: discount_amount ? String(discount_amount) : "0",
       discount_code: discount_code || null,
       addons: addons || [],
@@ -253,7 +256,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
   try {
     const id = parseInt(req.params.id);
     const allowed = [
-      "status", "base_price", "total_price", "estimated_hours", "manual_hours",
+      "status", "base_price", "total_price", "estimated_hours", "manual_hours", "hourly_rate_override",
       "notes", "client_notes", "internal_memo", "special_instructions", "call_notes",
       "frequency", "scope_id", "pricing_method", "addons",
       "discount_code", "discount_amount", "bedrooms", "bathrooms", "half_baths",
@@ -265,8 +268,8 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     const updates: any = {};
     for (const k of allowed) {
       if (req.body[k] !== undefined) {
-        if (["base_price", "total_price", "estimated_hours", "manual_hours", "discount_amount"].includes(k)) {
-          updates[k] = req.body[k] !== null ? String(req.body[k]) : null;
+        if (["base_price", "total_price", "estimated_hours", "manual_hours", "discount_amount", "hourly_rate_override"].includes(k)) {
+          updates[k] = req.body[k] !== null && req.body[k] !== "" ? String(req.body[k]) : null;
         } else {
           updates[k] = req.body[k];
         }
@@ -781,7 +784,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       INSERT INTO jobs (
         company_id, client_id, scheduled_date, scheduled_time,
         service_type, base_fee, status, assigned_user_id,
-        frequency, notes, office_notes, allowed_hours, estimated_hours, address_street, created_at
+        frequency, notes, office_notes, allowed_hours, estimated_hours, hourly_rate, address_street, created_at
       ) VALUES (
         ${companyId},
         ${clientId},
@@ -796,6 +799,7 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
         ${jobOfficeNotes},
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
         ${chosenHours != null ? String(chosenHours) : (q.estimated_hours || null)},
+        ${q.hourly_rate_override != null ? String(q.hourly_rate_override) : null},
         ${(q as any).address || null},
         NOW()
       ) RETURNING id
