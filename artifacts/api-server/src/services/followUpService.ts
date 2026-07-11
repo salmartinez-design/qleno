@@ -846,6 +846,51 @@ async function subjectAlreadyBooked(enr: any): Promise<string | null> {
 // "Send now" path to report whether the email actually went out). The cron
 // callers ignore the return.
 type TouchResult = { channel: string; status: string; recipient: string | null };
+// [quoted-lead quick-book 2026-07-11] Resolve the customer's quick-book link for
+// a drip touch: their most-recent OPEN, already-sent quote's /book-quote/<token>
+// page (their quote → pick date → card on file → booked). This is what keeps a
+// quoted lead who clicks a follow-up from being dumped into a blank new-quote
+// wizard. Match order mirrors loadQuoteEmailData: the quote keyed to the
+// enrollment, else the lead's quote by client_id → email → last-10 phone. Falls
+// back to the generic booking wizard ONLY when the lead has no such quote.
+async function resolveBookLink(
+  companyId: number,
+  opts: { clientId?: number | null; quoteId?: number | null; email?: string | null; phone?: string | null },
+): Promise<string> {
+  const base = appBaseUrl();
+  let token: string | null = null;
+
+  if (opts.quoteId) {
+    const r = await db.execute(sql`SELECT sign_token FROM quotes WHERE id = ${opts.quoteId} AND company_id = ${companyId} LIMIT 1`);
+    token = (r.rows[0] as any)?.sign_token ?? null;
+  }
+  if (!token) {
+    const email = String(opts.email || "").trim().toLowerCase();
+    const phone10 = String(opts.phone || "").replace(/\D/g, "").slice(-10);
+    const clientId = opts.clientId ?? null;
+    if (clientId != null || email || phone10) {
+      const r = await db.execute(sql`
+        SELECT sign_token FROM quotes
+         WHERE company_id = ${companyId}
+           AND status NOT IN ('accepted','booked','converted','expired','declined','lost')
+           AND sent_at IS NOT NULL
+           AND sign_token IS NOT NULL
+           AND (
+             (${clientId}::int IS NOT NULL AND client_id = ${clientId})
+             OR (${email} <> '' AND lower(lead_email) = ${email})
+             OR (${phone10} <> '' AND right(regexp_replace(coalesce(lead_phone,''),'\\D','','g'),10) = ${phone10})
+           )
+         ORDER BY id DESC LIMIT 1`);
+      token = (r.rows[0] as any)?.sign_token ?? null;
+    }
+  }
+  if (token) return `${base}/book-quote/${token}`;
+
+  const slugRows = await db.execute(sql`SELECT slug FROM companies WHERE id = ${companyId} LIMIT 1`);
+  const slug = (slugRows.rows[0] as any)?.slug;
+  return slug ? `${base}/book/${slug}` : `${base}/book`;
+}
+
 async function processEnrollment(enr: any): Promise<TouchResult | null> {
   // [booked-send-guard 2026-07-09] Skip + stop before doing any work if the
   // subject is already booked/converted — see subjectAlreadyBooked above.
@@ -971,13 +1016,21 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
   // Estimate enrollments get the commercial-estimate merge set (contact, property,
   // monthly total, hosted view link).
   if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(enr.company_id, enr.estimate_id, enr.id));
-  // Abandoned-booking enrollments get {{resume_link}} (the company booking page)
-  // + {{office_phone}} (the steps reference both).
+  // [quoted-lead quick-book 2026-07-11] Every drip touch gets {{book_link}} — the
+  // lead's existing quote's /book-quote page when they have one, else the generic
+  // booking wizard. So a quoted lead clicking any follow-up lands on THEIR quote
+  // to book in a tap, instead of rebuilding a quote from scratch.
+  const bookLink = await resolveBookLink(enr.company_id, {
+    clientId: enr.client_id ?? null,
+    quoteId: enr.quote_id ?? null,
+    email: recipientEmail,
+    phone: recipientPhone,
+  });
+  mergeVars.book_link = bookLink;
+  // Abandoned-booking enrollments' {{resume_link}} now points at the same target
+  // (their quote when one exists), plus {{office_phone}} the steps reference.
   if (enr.abandoned_booking_id) {
-    const slugRows = await db.execute(sql`SELECT slug FROM companies WHERE id = ${enr.company_id} LIMIT 1`);
-    const slug = (slugRows.rows[0] as any)?.slug;
-    const base = appBaseUrl();
-    mergeVars.resume_link = slug ? `${base}/book/${slug}` : `${base}/book`;
+    mergeVars.resume_link = bookLink;
     mergeVars.office_phone = mergeVars.company_phone;
   }
   let body      = resolveMergeFields(rawBody, mergeVars);
