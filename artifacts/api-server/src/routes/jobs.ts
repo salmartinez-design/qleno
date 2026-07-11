@@ -5360,8 +5360,14 @@ router.patch("/:id/reassign-tech", requireAuth, async (req, res) => {
     const jobId = parseInt(req.params.id);
     const companyId = req.auth!.companyId!;
     const userId = req.auth!.userId!;
-    const newTechId = Number((req.body ?? {}).new_tech_id);
-    if (!Number.isFinite(newTechId) || newTechId <= 0) {
+    // new_tech_id: a positive user id reassigns the primary; an explicit null
+    // (or missing key sent as null) UNASSIGNS the job — pulls it back to the
+    // dispatch Unassigned row. The inline dropdown's "Unassigned" option sends
+    // new_tech_id: null.
+    const rawTechId = (req.body ?? {}).new_tech_id;
+    const isUnassign = rawTechId === null;
+    const newTechId = Number(rawTechId);
+    if (!isUnassign && (!Number.isFinite(newTechId) || newTechId <= 0)) {
       return res.status(400).json({ error: "new_tech_id required" });
     }
 
@@ -5374,6 +5380,59 @@ router.patch("/:id/reassign-tech", requireAuth, async (req, res) => {
     const job = jobRows.rows[0] as any;
     const oldAssignedUserId = job.assigned_user_id ?? null;
     const jobBranchId = job.branch_id ?? null;
+
+    // ── UNASSIGN ──────────────────────────────────────────────────────────
+    // Explicit "Unassigned" pick in the inline dropdown. Removes every tech on
+    // the job (all job_technicians rows) and nulls jobs.assigned_user_id so the
+    // job lands cleanly in the dispatch Unassigned row. If we nulled the mirror
+    // but left a job_technicians row behind, the board would show the job in the
+    // Unassigned row while a tech chip still pointed at it — a split-brain — so
+    // both writes happen together. (Assignment Mirror invariant, CLAUDE.md.)
+    if (isUnassign) {
+      if (oldAssignedUserId == null) {
+        return res.json({ data: { unchanged: true, assigned_user_id: null } });
+      }
+      const techsBeforeUnassign = await db.execute(sql`
+        SELECT user_id, is_primary FROM job_technicians
+        WHERE job_id = ${jobId} ORDER BY is_primary DESC, id
+      `);
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`DELETE FROM job_technicians WHERE job_id = ${jobId}`);
+        await tx.execute(sql`
+          UPDATE jobs SET assigned_user_id = NULL
+          WHERE id = ${jobId} AND company_id = ${companyId}
+        `);
+      });
+      // Audit + pay recompute after commit, each non-fatal (same resilience
+      // rationale as the reassign path below).
+      try {
+        const userRows = await db.execute(sql`
+          SELECT first_name, last_name, email FROM users WHERE id = ${userId} LIMIT 1
+        `);
+        const u = (userRows.rows[0] as any) ?? {};
+        const actorName = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || "Unknown";
+        const actorEmail = String(u.email ?? "");
+        await db.execute(sql`
+          INSERT INTO job_audit_log
+            (job_id, company_id, user_id, user_name, user_email,
+             field_name, old_value, new_value, cascade_scope, schedule_id)
+          VALUES
+            (${jobId}, ${companyId}, ${userId}, ${actorName}, ${actorEmail},
+             'tech_unassigned',
+             ${JSON.stringify({ assigned_user_id: oldAssignedUserId, techs: techsBeforeUnassign.rows })}::jsonb,
+             ${JSON.stringify({ action: "tech_unassigned", previous_assigned_user_id: oldAssignedUserId, previous_techs: techsBeforeUnassign.rows })}::jsonb,
+             'this_job', ${null})
+        `);
+      } catch (auditErr) {
+        console.error("reassign-tech (unassign) audit log failed (non-fatal):", auditErr);
+      }
+      let techPayUnassign: Awaited<ReturnType<typeof calculateTechPay>> = [];
+      try { techPayUnassign = await calculateTechPay(jobId, companyId); }
+      catch (payErr) { console.error("reassign-tech (unassign) pay recompute failed (non-fatal):", payErr); }
+      return res.json({
+        data: { assigned_user_id: null, assigned_user_name: null, techs: techPayUnassign },
+      });
+    }
 
     if (oldAssignedUserId === newTechId) {
       // No change, return early.
