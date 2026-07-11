@@ -802,6 +802,25 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     `);
     const jobId = (jobResult.rows[0] as any)?.id;
 
+    // [discount-commission-fix 2026-07-11] A promo/discount reduced the booked
+    // base_fee above. For residential jobs base_fee ALSO serves as the
+    // commission base, so a baked-in discount would dock the cleaner's pay
+    // (Francisco: discounts must not touch payroll). Pin commission_base to the
+    // PRE-discount amount (booked base_fee + the discount that was applied) so
+    // commission is computed on the FULL service price, while the client still
+    // pays the discounted base_fee. Only when a discount was actually applied;
+    // otherwise commission_base stays NULL and the engine's existing fallback
+    // (max(base_fee, billed_amount)) is unchanged.
+    const convertDiscount = q.discount_amount != null ? Number(q.discount_amount) : 0;
+    if (jobId && convertDiscount > 0) {
+      try {
+        await db.execute(sql`
+          UPDATE jobs
+             SET commission_base = ROUND(COALESCE(base_fee, 0) + ${convertDiscount}, 2)
+           WHERE id = ${jobId} AND company_id = ${companyId}`);
+      } catch (e) { console.warn("[convert] commission_base pin non-fatal:", e); }
+    }
+
     // Link job back to quote (safe — column may not exist yet)
     if (jobId) {
       try {
@@ -911,6 +930,52 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin", "office"), asyn
     logAudit(req, "DELETE", "quote", id, null, null);
     return res.json({ success: true });
   } catch (err) {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [discount-commission-fix 2026-07-11] READ-ONLY audit: existing jobs converted
+// from a discounted quote whose commission_base was never pinned (NULL), so the
+// pay engine fell through to the discounted base_fee — i.e. the cleaner was
+// likely underpaid by discount × the fee-split %. Changes NOTHING; the office
+// reviews this list before deciding on any correction.
+//   GET /api/quotes/audit/discount-commission
+router.get("/audit/discount-commission", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const rows = await db.execute(sql`
+      SELECT j.id AS job_id, j.scheduled_date, j.base_fee, j.billed_amount, j.commission_base,
+             q.id AS quote_id, q.discount_code, q.discount_amount,
+             cl.first_name, cl.last_name,
+             COALESCE(co.res_tech_pay_pct, 0.35) AS pct
+        FROM quotes q
+        JOIN jobs j ON j.id = q.booked_job_id AND j.company_id = q.company_id
+        LEFT JOIN clients cl ON cl.id = j.client_id
+        JOIN companies co ON co.id = q.company_id
+       WHERE q.company_id = ${companyId}
+         AND q.discount_amount IS NOT NULL AND q.discount_amount::numeric > 0
+         AND j.commission_base IS NULL
+         AND j.account_id IS NULL
+       ORDER BY j.scheduled_date DESC`);
+    const jobs = (rows.rows as any[]).map((r) => {
+      const disc = Number(r.discount_amount) || 0;
+      const pct = Number(r.pct) || 0.35;
+      return {
+        job_id: r.job_id,
+        quote_id: r.quote_id,
+        scheduled_date: r.scheduled_date,
+        client: [r.first_name, r.last_name].filter(Boolean).join(" ") || null,
+        discount_code: r.discount_code,
+        discount_amount: disc,
+        base_fee: r.base_fee != null ? Number(r.base_fee) : null,
+        est_underpaid_commission: Math.round(disc * pct * 100) / 100,
+      };
+    });
+    const estimated_total_underpaid_commission =
+      Math.round(jobs.reduce((s, j) => s + j.est_underpaid_commission, 0) * 100) / 100;
+    return res.json({ affected_jobs: jobs.length, estimated_total_underpaid_commission, jobs });
+  } catch (err) {
+    console.error("GET /quotes/audit/discount-commission:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
