@@ -911,12 +911,34 @@ async function seedPhesLeavePolicy3A(): Promise<void> {
  * uses absence_warning; both render the label "Written warning".)
  */
 async function seedPhesOccurrenceLadders(): Promise<void> {
+  // [PLAWA tightened 3-strike 2026-07-11] Post-PLAWA-exhaustion attendance is a
+  // strict 3-strike scale per Benefit Year: 1st unexcused occurrence → written
+  // warning, 2nd → final warning, 3rd → termination trigger. Occurrences only
+  // accrue once PLAWA can't cover the absence (PLAWA-covered absences are logged
+  // via /leave/usage and never hit the ladder), so the 1st occurrence here is
+  // already a post-exhaustion / notice-violation event. A No-Call/No-Show weighs
+  // +2 occurrences, so one NCNS lands at Final and two trigger termination.
+  // (Superseded the prior 3/4/5 scale confirmed 2026-06-24 — handbook + LMS
+  // updated in lockstep.)
   const UNEXCUSED = JSON.stringify([
+    { occurrence: 1, discipline_type: "absence_warning", label: "Written warning", notify: true },
+    { occurrence: 2, discipline_type: "final_warning", label: "Final warning", notify: true },
+    { occurrence: 3, discipline_type: "termination", label: "Termination", notify: true },
+  ]);
+  const TARDY = JSON.stringify([
+    { occurrence: 1, discipline_type: "tardy_warning", label: "Written warning", notify: true },
+    { occurrence: 2, discipline_type: "final_warning", label: "Final warning", notify: true },
+    { occurrence: 3, discipline_type: "termination", label: "Termination", notify: true },
+  ]);
+  // The exact prior 3/4/5 ladders (unexcused + tardy). A one-time UPDATE below
+  // migrates rows still carrying these onto the tightened scale — but ONLY those,
+  // so any office customization is preserved.
+  const PRIOR_UNEXCUSED = JSON.stringify([
     { occurrence: 3, discipline_type: "absence_warning", label: "Written warning", notify: true },
     { occurrence: 4, discipline_type: "final_warning", label: "Final warning", notify: true },
     { occurrence: 5, discipline_type: "termination", label: "Termination", notify: true },
   ]);
-  const TARDY = JSON.stringify([
+  const PRIOR_TARDY = JSON.stringify([
     { occurrence: 3, discipline_type: "tardy_warning", label: "Written warning", notify: true },
     { occurrence: 4, discipline_type: "final_warning", label: "Final warning", notify: true },
     { occurrence: 5, discipline_type: "termination", label: "Termination", notify: true },
@@ -973,7 +995,20 @@ async function seedPhesOccurrenceLadders(): Promise<void> {
         SET tardy_occurrence_steps = '${TARDY}'::jsonb
         WHERE company_id IN (1,4)
           AND (tardy_occurrence_steps IS NULL OR tardy_occurrence_steps = '[]'::jsonb);
-      RAISE NOTICE 'cutover-migration: ensured PHES occurrence disciplinary ladders (3/4/5 → written/final/termination)';
+
+      -- [PLAWA tightened 3-strike 2026-07-11] One-time migration of rows still on
+      -- the prior 3/4/5 scale onto the new 1/2/3. Guarded to the EXACT prior JSON
+      -- so any office customization (a different ladder) is left untouched.
+      -- Idempotent: after it runs once the rows no longer match the prior shape.
+      UPDATE company_attendance_policy
+        SET unexcused_occurrence_steps = '${UNEXCUSED}'::jsonb
+        WHERE company_id IN (1,4)
+          AND unexcused_occurrence_steps = '${PRIOR_UNEXCUSED}'::jsonb;
+      UPDATE company_attendance_policy
+        SET tardy_occurrence_steps = '${TARDY}'::jsonb
+        WHERE company_id IN (1,4)
+          AND tardy_occurrence_steps = '${PRIOR_TARDY}'::jsonb;
+      RAISE NOTICE 'cutover-migration: ensured PHES occurrence disciplinary ladders (tightened 1/2/3 → written/final/termination)';
     END
     $$;
   `),
