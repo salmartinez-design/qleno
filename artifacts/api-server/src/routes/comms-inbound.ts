@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { handleInboundReply } from "../lib/lead-sync.js";
 import { resolveTenantByNumber, recordInboundSms } from "../lib/sms-store.js";
-import { isStopKeyword, isStartKeyword, setSmsOptOutByPhone, setEmailOptOutByToken, clearEmailOptOutByToken, isSmsOptedOut, sendSmsOptOutConfirmation } from "../lib/opt-out.js";
+import { isStopKeyword, isStartKeyword, setSmsOptOutByPhone, setEmailOptOutByToken, clearEmailOptOutByToken } from "../lib/opt-out.js";
 
 const router = Router();
 
@@ -108,17 +108,16 @@ router.post("/inbound", async (req, res) => {
     // clears it (a customer can resubscribe by text, as carriers require).
     try {
       if (isStopKeyword(body)) {
-        // Was this number already opted out BEFORE this STOP? If so, don't
-        // re-send the confirmation on a repeat STOP.
-        const wasOptedOut = await isSmsOptedOut(companyId, from);
         const n = await setSmsOptOutByPhone(companyId, from, true);
         console.log(`[comms/inbound] SMS opt-OUT recorded for ${n} client(s) (company=${companyId})`);
-        // [opt-out-confirmation 2026-07-11] Acknowledge the opt-out with the one
-        // allowed post-STOP message, from the number they texted (`to`), so the
-        // opt-out no longer registers silently. Only on a NEW opt-out.
-        if (!wasOptedOut) {
-          await sendSmsOptOutConfirmation(companyId, from, to).catch(() => {});
-        }
+        // [opt-out-confirmation 2026-07-12] We do NOT send an app-level
+        // "you're unsubscribed" reply here. Twilio's carrier opt-out blocks the
+        // number the instant STOP arrives, so any reply from the same number
+        // fails with error 21610 ("cannot send to unsubscribed recipient") —
+        // verified in prod (Leen Subei, Jul 12). The compliance confirmation MUST
+        // come from Twilio's own Advanced Opt-Out (Messaging Service → Opt-Out
+        // Management), not our code. The opt-out is recorded above and surfaced on
+        // the lead + inbox; the customer-facing text is Twilio's job.
       } else if (isStartKeyword(body)) {
         const n = await setSmsOptOutByPhone(companyId, from, false);
         console.log(`[comms/inbound] SMS opt-IN (resubscribe) for ${n} client(s) (company=${companyId})`);

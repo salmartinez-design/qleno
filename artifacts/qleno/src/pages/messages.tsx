@@ -3,7 +3,7 @@ import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Search, Send, ChevronLeft, Plus, X, Paperclip, Clock, Trash2, Image, Sparkles, Mic, Undo2, ChevronDown, Wand2 } from "lucide-react";
+import { MessageSquare, Search, Send, ChevronLeft, Plus, X, Paperclip, Clock, Trash2, Image, Sparkles, Mic, Undo2, ChevronDown, Wand2, Zap } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -18,11 +18,17 @@ interface Convo {
   // [scheduled-visibility 2026-07-11] Pending scheduled reply on this thread, so
   // the inbox flags it as already-handled (and by whom) to prevent double-texting.
   scheduled_count?: number; next_scheduled_for?: string | null; scheduled_by?: string | null;
+  // [drip-reply-tag 2026-07-12] Latest message is an inbound reply that followed a
+  // drip touch — inbox flags "replied to drip" so a bare STOP has context.
+  last_inbound_drip?: boolean;
 }
 interface Msg {
   id: number; direction: string; body: string; from_number: string | null;
   to_number: string | null; status: string; read_at: string | null; created_at: string;
   media_urls?: string[] | null; sent_by_name?: string | null;
+  // [drip-reply-tag 2026-07-12] Set on inbound replies that arrived within 5 days
+  // after a drip touch to the same lead, so the office sees WHY they texted.
+  drip_related?: boolean; drip_campaign?: string | null; drip_step?: number | null;
 }
 interface ScheduledMsg {
   id: number; message: string; media_urls?: string[] | null;
@@ -34,6 +40,17 @@ interface AttachPreview { file: File; objectUrl: string; r2Key?: string; uploadi
 function fmtPhone(p: string) {
   const d = String(p || "").replace(/\D/g, "").slice(-10);
   return d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : p;
+}
+// [drip-reply-tag 2026-07-12] Humanize a drip campaign label for the reply badge.
+// Friendly names ("Web Quote Drip") pass through; slugs (lead_drip_web) prettify.
+function prettyCampaign(name: string): string {
+  const n = String(name || "").trim();
+  if (!n) return "";
+  const map: Record<string, string> = { lead_drip_web: "Web Quote Drip", lead_drip_phone: "Phone-In Drip", quote_followup: "Quote Follow-up" };
+  if (map[n]) return map[n];
+  return /[_-]/.test(n) && !/\s/.test(n)
+    ? n.replace(/[_-]+/g, " ").replace(/\b\w/g, c => c.toUpperCase())
+    : n;
 }
 // [tz-normalize 2026-07-11] Single source of truth for reading a server
 // timestamp. Server timestamps are UTC but may arrive WITHOUT a timezone marker
@@ -623,6 +640,14 @@ export default function MessagesPage() {
                         </span>
                       </div>
                     )}
+                    {/* [drip-reply-tag 2026-07-12] Their latest message replied to a
+                        drip touch — so a bare "Stop" has context without opening the lead. */}
+                    {c.last_inbound_drip && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
+                        <Zap size={11} color="#7C3AED" />
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#7C3AED" }}>Replied to drip</span>
+                      </div>
+                    )}
                   </button>
                 ))}
               </div>
@@ -706,6 +731,17 @@ export default function MessagesPage() {
                               {fmtTime(m.created_at)}{!inbound && m.status && m.status !== "sent" ? ` · ${m.status}` : ""}
                             </div>
                           </div>
+                          {/* [drip-reply-tag 2026-07-12] This inbound reply followed a
+                              drip touch — flag it so the office knows a "Stop" was aimed
+                              at the automated campaign, not a live conversation. */}
+                          {inbound && m.drip_related && (
+                            <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, paddingLeft: 2 }}>
+                              <Zap size={10} color="#7C3AED" />
+                              <span style={{ fontSize: 10.5, fontWeight: 700, color: "#7C3AED" }}>
+                                Reply to drip{m.drip_campaign ? `: ${prettyCampaign(m.drip_campaign)}` : ""}
+                              </span>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

@@ -476,6 +476,62 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
 
 // ── Messages Tab ──────────────────────────────────────────────────────────────
 
+// [email-render 2026-07-12] A drip EMAIL touch stores its full rendered HTML in
+// `body`. The old thread dumped that raw ("<h2 style=…>") so the office couldn't
+// actually read what the customer got. Render SMS as a plain bubble, but render an
+// EMAIL as a card whose body is the real email in a sandboxed iframe (scripts
+// blocked, styles contained) with a plain-text preview when collapsed.
+function stripHtml(html: string): string {
+  return String(html || "").replace(/<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
+}
+function LeadMessageRow({ m }: { m: any }) {
+  const [open, setOpen] = useState(false);
+  const isEmail = String(m.channel || "").toLowerCase() === "email";
+  const meta = (
+    <div style={{ fontSize: 9, color: "#9E9B94", textAlign: m.direction === "outbound" ? "right" : "left", marginBottom: 6, fontFamily: FF }}>
+      {m.step_number ? `Drip touch ${m.step_number} - ${(m.channel || "sms").toUpperCase()} - ` : ""}{fmtDateTime(m.created_at)}
+    </div>
+  );
+  if (isEmail) {
+    return (
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ border: "0.5px solid #E5E2DC", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
+          <button onClick={() => setOpen(o => !o)}
+            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "#FAF9F6", border: "none", borderBottom: open ? "0.5px solid #E5E2DC" : "none", cursor: "pointer", fontFamily: FF, textAlign: "left" }}>
+            <Mail size={13} color="#5B21B6" />
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#1A1917", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {open ? "Email" : stripHtml(m.body).slice(0, 90) || "Email"}
+            </span>
+            <ChevronDown size={13} color="#9E9B94" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0 }} />
+          </button>
+          {open && (
+            <iframe title="Email preview" sandbox="" srcDoc={m.body}
+              style={{ width: "100%", height: 340, border: "none", background: "#fff", display: "block" }} />
+          )}
+        </div>
+        {meta}
+      </div>
+    );
+  }
+  return (
+    <div style={{ marginBottom: 8 }}>
+      <div style={{ display: "flex", justifyContent: m.direction === "outbound" ? "flex-end" : "flex-start" }}>
+        <div style={{
+          fontSize: 11, lineHeight: 1.45, padding: "7px 10px", display: "inline-block",
+          maxWidth: "78%", fontFamily: FF, whiteSpace: "pre-wrap", wordBreak: "break-word",
+          background: m.direction === "outbound" ? "#0A0E1A" : "#F2EFE9",
+          color: m.direction === "outbound" ? "#fff" : "#1A1917",
+          borderRadius: m.direction === "outbound" ? "10px 3px 10px 10px" : "3px 10px 10px 10px",
+        }}>
+          {m.body}
+        </div>
+      </div>
+      {meta}
+    </div>
+  );
+}
+
 function MessagesTab({ lead }: { lead: Lead }) {
   const { toast } = useToast();
   const [messages, setMessages] = useState<any[]>([]);
@@ -519,24 +575,7 @@ function MessagesTab({ lead }: { lead: Lead }) {
         {!messages.length && (
           <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 10 }}>No messages yet.</div>
         )}
-        {messages.map((m: any) => (
-          <div key={m.id} style={{ marginBottom: 8 }}>
-            <div style={{ display: "flex", justifyContent: m.direction === "outbound" ? "flex-end" : "flex-start" }}>
-              <div style={{
-                fontSize: 11, lineHeight: 1.45, padding: "7px 10px", display: "inline-block",
-                maxWidth: "78%", fontFamily: FF,
-                background: m.direction === "outbound" ? "#0A0E1A" : "#F2EFE9",
-                color: m.direction === "outbound" ? "#fff" : "#1A1917",
-                borderRadius: m.direction === "outbound" ? "10px 3px 10px 10px" : "3px 10px 10px 10px",
-              }}>
-                {m.body}
-              </div>
-            </div>
-            <div style={{ fontSize: 9, color: "#9E9B94", textAlign: m.direction === "outbound" ? "right" : "left", marginBottom: 6, fontFamily: FF }}>
-              {m.step_number ? `Drip touch ${m.step_number} - ${(m.channel || "sms").toUpperCase()} - ` : ""}{fmtDateTime(m.created_at)}
-            </div>
-          </div>
-        ))}
+        {messages.map((m: any) => <LeadMessageRow key={m.id} m={m} />)}
         <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
           <input
             value={msgText} onChange={e => setMsgText(e.target.value)}

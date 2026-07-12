@@ -42,7 +42,20 @@ router.get("/conversations", requireAuth, requireRole("owner", "admin", "office"
         (SELECT NULLIF(trim(u.first_name||' '||coalesce(u.last_name,'')),'')
            FROM scheduled_sms ss LEFT JOIN users u ON u.id = ss.created_by
            WHERE ss.company_id = ${companyId} AND ss.contact_phone = s.contact_phone AND ss.status = 'pending'
-           ORDER BY ss.scheduled_for ASC LIMIT 1) AS scheduled_by
+           ORDER BY ss.scheduled_for ASC LIMIT 1) AS scheduled_by,
+        -- [drip-reply-tag 2026-07-12] The latest message on this thread is an
+        -- inbound reply that followed a drip touch (within 5 days) — so the inbox
+        -- flags "replied to drip" and the office knows why (e.g. a bare STOP)
+        -- without opening the lead.
+        (s.last_dir = 'inbound' AND EXISTS (
+          SELECT 1 FROM message_log ml
+            JOIN follow_up_enrollments fe ON fe.id = ml.enrollment_id
+            JOIN leads l ON l.id = fe.lead_id
+           WHERE fe.company_id = ${companyId}
+             AND right(regexp_replace(coalesce(l.phone,''),'\\D','','g'),10) = s.contact_phone
+             AND ml.sent_at IS NOT NULL AND ml.sent_at <= s.last_at
+             AND ml.sent_at >= s.last_at - interval '5 days'
+        )) AS last_inbound_drip
       FROM (
         SELECT contact_phone, max(created_at) AS last_at,
           (array_agg(body ORDER BY created_at DESC))[1] AS last_body,
@@ -79,6 +92,45 @@ router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), asyn
     const leadId = req.query.lead_id ? parseInt(String(req.query.lead_id)) : null;
     const messages = await getThread(companyId, { clientId, leadId, phone });
     const cp = phone10(phone || (messages[0] as any)?.contact_phone || "");
+
+    // [drip-reply-tag 2026-07-12] Flag inbound replies that arrived in response to
+    // a lead drip, so the office sees WHY someone texted (e.g. STOP) without
+    // opening the lead. A reply is drip-related when a drip touch (message_log)
+    // went to the same lead within 5 days before it. Read-only; no schema change.
+    try {
+      let dripLeadId = leadId ?? (messages as any[]).find(m => m.lead_id)?.lead_id ?? null;
+      if (!dripLeadId && cp) {
+        const lr = await db.execute(sql`
+          SELECT id FROM leads WHERE company_id = ${companyId}
+            AND right(regexp_replace(coalesce(phone,''),'\\D','','g'),10) = ${cp}
+          ORDER BY id DESC LIMIT 1`);
+        dripLeadId = (lr.rows[0] as any)?.id ?? null;
+      }
+      if (dripLeadId) {
+        const touches = await db.execute(sql`
+          SELECT ml.sent_at, COALESCE(fs.name, fs.sequence_type::text) AS campaign, ml.step_number
+            FROM message_log ml
+            JOIN follow_up_enrollments fe ON fe.id = ml.enrollment_id
+            LEFT JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+           WHERE fe.company_id = ${companyId} AND fe.lead_id = ${dripLeadId} AND ml.sent_at IS NOT NULL
+           ORDER BY ml.sent_at ASC`);
+        const trows = touches.rows as any[];
+        if (trows.length) {
+          const WINDOW = 5 * 24 * 3600 * 1000;
+          for (const m of messages as any[]) {
+            if (m.direction !== "inbound" || !m.created_at) continue;
+            const t = new Date(m.created_at).getTime();
+            let best: any = null;
+            for (const tr of trows) {
+              const ts = new Date(tr.sent_at).getTime();
+              if (ts <= t && t - ts <= WINDOW) best = tr; // most recent preceding touch
+            }
+            if (best) { m.drip_related = true; m.drip_campaign = best.campaign; m.drip_step = best.step_number; }
+          }
+        }
+      }
+    } catch (e) { console.warn("[sms/thread] drip-tag skipped:", (e as any)?.message ?? e); }
+
     return res.json({ contact_phone: cp, messages });
   } catch (err) {
     console.error("GET /sms/thread:", err);
