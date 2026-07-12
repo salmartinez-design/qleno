@@ -104,15 +104,15 @@ router.post("/", async (req, res) => {
         const co = await db.select({ id: companiesTable.id }).from(companiesTable)
           .where(eq(companiesTable.twilio_from_number, toPhone)).limit(1);
         if (co.length) {
-          const { setSmsOptOutByPhone, isSmsOptedOut, sendSmsOptOutConfirmation } = await import("../lib/opt-out.js");
+          const { setSmsOptOutByPhone } = await import("../lib/opt-out.js");
           const { handleInboundReply } = await import("../lib/lead-sync.js");
-          // [opt-out-confirmation 2026-07-11] Mirror the comms/inbound path:
-          // acknowledge the opt-out with the one allowed post-STOP message (from
-          // the number they texted), but only on a NEW opt-out.
-          const wasOptedOut = await isSmsOptedOut(co[0].id, fromPhone);
+          // [opt-out-confirmation 2026-07-12] Record the opt-out + stop cadences.
+          // We do NOT send an app-level confirmation: Twilio's carrier opt-out
+          // blocks the number the instant STOP arrives, so our reply fails 21610
+          // (verified in prod). The compliance confirmation must come from Twilio's
+          // Advanced Opt-Out config, not here.
           await setSmsOptOutByPhone(co[0].id, fromPhone, true).catch(() => {});
           await handleInboundReply(co[0].id, fromPhone, true).catch(() => {});
-          if (!wasOptedOut) await sendSmsOptOutConfirmation(co[0].id, fromPhone, toPhone).catch(() => {});
         }
       } catch (e) { console.warn("[sms-inbound] STOP handling failed:", (e as any)?.message ?? e); }
       return res.send("<Response></Response>");
