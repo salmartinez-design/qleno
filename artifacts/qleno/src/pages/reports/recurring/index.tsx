@@ -30,7 +30,15 @@ interface Overview {
   };
 }
 
+interface ClientRow {
+  client_id: number; name: string; city: string | null; cadence: string; cadence_key: string;
+  rate: number | null; mrr: number | null; mrr_computable: boolean; mrr_reason: string | null;
+  cleaner: string | null; start_date: string | null; status: string;
+}
+interface ClientsResp { count: number; total_mrr: number; clients: ClientRow[] }
+
 const TABS = [
+  { k: "clients", label: "Clients", live: true },
   { k: "health", label: "Data Health", live: true },
   { k: "dash", label: "Dashboard", live: true },
   { k: "analytics", label: "Analytics", live: false },
@@ -39,8 +47,9 @@ const TABS = [
 ];
 
 export default function RecurringRevenuePage() {
-  const [tab, setTab] = useState("health");
-  const { data, loading } = useReportData<Overview>("/recurring/overview");
+  const [tab, setTab] = useState("clients");
+  const { data, loading, error } = useReportData<Overview>("/recurring/overview");
+  const { data: clientsData, loading: clientsLoading } = useReportData<ClientsResp>("/recurring/clients");
 
   const dh = data?.data_health;
   const db = data?.dashboard;
@@ -75,19 +84,26 @@ export default function RecurringRevenuePage() {
           ))}
         </div>
 
-        {loading && <div style={{ color: C.grey, padding: "40px 0" }}>Loading your recurring data…</div>}
+        {tab === "clients" && <Clients data={clientsData} loading={clientsLoading} />}
 
-        {!loading && dh && db && (
+        {(tab === "health" || tab === "dash") && (
           <>
-            {tab === "health" && <DataHealth dh={dh} />}
-            {tab === "dash" && <Dashboard db={db} />}
-            {["analytics", "growth", "commissions"].includes(tab) && (
-              <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: "40px 28px", textAlign: "center", color: C.grey }}>
-                <div style={{ fontWeight: 800, color: C.ink, marginBottom: 4 }}>Building this next</div>
-                <div style={{ fontSize: 13.5 }}>{TABS.find(t => t.k === tab)?.label} runs on the same live data — coming right after Data Health &amp; Dashboard.</div>
+            {loading && <div style={{ color: C.grey, padding: "40px 0" }}>Loading your recurring data…</div>}
+            {error && !loading && (
+              <div style={{ background: C.redBg, border: `1px solid #F1C9C9`, borderRadius: 14, padding: "18px 20px", color: C.red, fontWeight: 600 }}>
+                Couldn't load this view: {error}. Try refreshing — if it persists, tell me.
               </div>
             )}
+            {!loading && dh && db && tab === "health" && <DataHealth dh={dh} />}
+            {!loading && dh && db && tab === "dash" && <Dashboard db={db} />}
           </>
+        )}
+
+        {["analytics", "growth", "commissions"].includes(tab) && (
+          <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: "40px 28px", textAlign: "center", color: C.grey }}>
+            <div style={{ fontWeight: 800, color: C.ink, marginBottom: 4 }}>Building this next</div>
+            <div style={{ fontSize: 13.5 }}>{TABS.find(t => t.k === tab)?.label} runs on the same live data — coming right after this.</div>
+          </div>
         )}
       </div>
     </DashboardLayout>
@@ -218,6 +234,55 @@ function Dashboard({ db }: { db: Overview["dashboard"] }) {
             })}
           </tbody>
         </table>
+      </div>
+    </>
+  );
+}
+
+function fmtDate(d: string | null): string {
+  if (!d) return "—";
+  const t = new Date(d);
+  if (isNaN(t.getTime())) return "—";
+  return t.toLocaleDateString("en-US", { month: "numeric", day: "numeric", year: "2-digit" });
+}
+
+function Clients({ data, loading }: { data: ClientsResp | null; loading: boolean }) {
+  if (loading) return <div style={{ color: C.grey, padding: "40px 0" }}>Loading your recurring clients…</div>;
+  if (!data) return <div style={{ color: C.grey, padding: "40px 0" }}>Couldn't load clients — try refreshing.</div>;
+  const td: React.CSSProperties = { padding: "13px 18px", borderTop: `1px solid ${C.lineSoft}`, fontSize: 13.5 };
+  return (
+    <>
+      <div style={{ ...card(), display: "flex", alignItems: "baseline", gap: 26, padding: "16px 22px", marginBottom: 16, flexWrap: "wrap" }}>
+        <div><span style={{ fontSize: 24, fontWeight: 800 }}>{data.count}</span> <span style={{ color: C.grey, fontSize: 13, fontWeight: 600 }}>recurring clients</span></div>
+        <div><span style={{ fontSize: 24, fontWeight: 800 }}>{money(data.total_mrr)}</span> <span style={{ color: C.grey, fontSize: 13, fontWeight: 600 }}>combined MRR</span></div>
+        <span style={{ marginLeft: "auto", fontSize: 12, color: C.faint }}>Live from your active recurring schedules</span>
+      </div>
+      <div style={{ ...card(), overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 720 }}>
+            <thead><tr>
+              {["Client", "City", "Cadence", "Cleaner", "First cleaning", "Monthly", "Status"].map((h, i) => (
+                <th key={h} style={{ textAlign: i === 5 ? "right" : "left", fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", color: C.faint, fontWeight: 800, padding: "12px 18px", borderBottom: `1px solid ${C.line}` }}>{h}</th>
+              ))}
+            </tr></thead>
+            <tbody>
+              {data.clients.map((c) => (
+                <tr key={c.client_id}>
+                  <td style={{ ...td, fontWeight: 700 }}>{c.name}</td>
+                  <td style={{ ...td, color: C.grey }}>{c.city || "—"}</td>
+                  <td style={td}><span style={{ background: C.tint2, color: C.grey, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999 }}>{c.cadence}</span></td>
+                  <td style={{ ...td, color: c.cleaner ? C.ink : C.faint }}>{c.cleaner || "Unassigned"}</td>
+                  <td style={{ ...td, color: C.grey }}>{fmtDate(c.start_date)}</td>
+                  <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{c.mrr_computable ? money(c.mrr) : <span style={{ color: C.amber, fontSize: 12, fontWeight: 700 }}>needs data</span>}</td>
+                  <td style={td}><span style={{ background: C.mintBg, color: C.mintDeep, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999 }}>Active</span></td>
+                </tr>
+              ))}
+              {data.clients.length === 0 && (
+                <tr><td colSpan={7} style={{ padding: "40px 18px", textAlign: "center", color: C.grey }}>No active recurring residential clients found.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </>
   );
