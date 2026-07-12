@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useReportData } from "../_shared";
 
@@ -68,8 +69,8 @@ export default function RecurringRevenuePage() {
         {/* header */}
         <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
           <div>
-            <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: "-.02em", margin: 0 }}>Recurring Revenue</h1>
-            <p style={{ color: C.grey, fontSize: 14, margin: "3px 0 0" }}>MRR, retention, and VA sales commission — computed from your own data.</p>
+            <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: "-.02em", margin: 0 }}>Ares</h1>
+            <p style={{ color: C.grey, fontSize: 14, margin: "3px 0 0" }}>Recurring revenue, retention &amp; VA commission — computed from your own data.</p>
           </div>
           <span style={{ marginLeft: "auto", border: `1px solid ${C.line}`, background: "#fff", borderRadius: 999, padding: "7px 6px 7px 14px", fontSize: 13, fontWeight: 700, display: "inline-flex", gap: 10, alignItems: "center" }}>
             <span style={{ background: C.mintBg, color: C.mintDeep, borderRadius: 999, padding: "3px 11px", fontSize: 12 }}>Residential</span>
@@ -256,11 +257,13 @@ function fmtDate(d: string | null): string {
 }
 
 function Clients({ data, loading }: { data: ClientsResp | null; loading: boolean }) {
+  const [, setLocation] = useLocation();
   if (loading) return <div style={{ color: C.grey, padding: "40px 0" }}>Loading your recurring clients…</div>;
   if (!data) return <div style={{ color: C.grey, padding: "40px 0" }}>Couldn't load clients — try refreshing.</div>;
   const td: React.CSSProperties = { padding: "13px 18px", borderTop: `1px solid ${C.lineSoft}`, fontSize: 13.5 };
   return (
     <>
+      <style>{`.rr-row{cursor:pointer} .rr-row:hover{background:${C.tint}}`}</style>
       <div style={{ ...card(), display: "flex", alignItems: "baseline", gap: 26, padding: "16px 22px", marginBottom: 16, flexWrap: "wrap" }}>
         <div><span style={{ fontSize: 24, fontWeight: 800 }}>{data.count}</span> <span style={{ color: C.grey, fontSize: 13, fontWeight: 600 }}>recurring clients</span></div>
         <div><span style={{ fontSize: 24, fontWeight: 800 }}>{money(data.total_mrr)}</span> <span style={{ color: C.grey, fontSize: 13, fontWeight: 600 }}>combined MRR</span></div>
@@ -276,8 +279,8 @@ function Clients({ data, loading }: { data: ClientsResp | null; loading: boolean
             </tr></thead>
             <tbody>
               {data.clients.map((c) => (
-                <tr key={c.client_id}>
-                  <td style={{ ...td, fontWeight: 700 }}>{c.name}</td>
+                <tr key={c.client_id} className="rr-row" onClick={() => setLocation(`/customers/${c.client_id}`)}>
+                  <td style={{ ...td, fontWeight: 700, color: C.mintDeep }}>{c.name}</td>
                   <td style={{ ...td, color: C.grey }}>{c.city || "—"}</td>
                   <td style={td}><span style={{ background: C.tint2, color: C.grey, fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999 }}>{c.cadence}</span></td>
                   <td style={{ ...td, color: c.cleaner ? C.ink : C.faint }}>{c.cleaner || "Unassigned"}</td>

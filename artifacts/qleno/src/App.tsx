@@ -327,6 +327,7 @@ function Router() {
         <Route path="/intelligence/retention" component={RetentionBoardPage} />
         <Route path="/reports/satisfaction" component={SatisfactionReportPage} />
         <Route path="/reports/recurring" component={RecurringRevenuePage} />
+        <Route path="/ares" component={RecurringRevenuePage} />
         <Route path="/reports/referrals" component={ReferralReportPage} />
         <Route path="/reports/incentives" component={IncentivesPage} />
         <Route path="/reports/revenue-goal" component={RevenueGoalPage} />
