@@ -10,6 +10,10 @@ export const userRoleEnum = pgEnum("user_role", [
   // CPA). Read-everything, edit-nothing — enforced globally in requireAuth
   // (every non-GET request from this role is rejected).
   "accountant",
+  // [recurring-revenue 2026-07-12] VA = virtual assistant who SELLS recurring
+  // subscriptions and earns SALES commission (the recurring-revenue module) —
+  // wholly separate from technician pay. Scoped to their own commissions.
+  "VA",
 ]);
 
 export const payTypeEnum = pgEnum("pay_type", [
