@@ -128,6 +128,70 @@ router.get("/overview", requireAuth, requireRole(...VIEW_ROLES), async (req, res
   }
 });
 
+// GET /api/recurring/analytics?branch_id= — portfolio + MRR by cadence, monthly
+// acquisition, avg client value. Churn/retention read the (empty until capture)
+// lifecycle table. SELECT only.
+router.get("/analytics", requireAuth, requireRole(...VIEW_ROLES), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const branchId = req.query.branch_id != null ? parseInt(String(req.query.branch_id)) : null;
+    const rows = await db.execute(sql`
+      SELECT rs.frequency::text AS cadence, rs.base_fee::numeric AS rate,
+             rs.custom_frequency_weeks AS custom_weeks, rs.start_date
+        FROM recurring_schedules rs
+        JOIN clients c ON c.id = rs.customer_id
+       WHERE rs.company_id = ${companyId} AND rs.is_active = true AND c.client_type = ${RES}
+         ${branchId != null ? sql`AND c.branch_id = ${branchId}` : sql``}`);
+    const scheds = rows.rows as Array<{ cadence: string; rate: string | null; custom_weeks: number | null; start_date: string | null }>;
+
+    const byCad = new Map<string, { count: number; mrr: number }>();
+    let totalMrr = 0, computable = 0, rateSum = 0;
+    const monthly = new Map<string, number>();
+    for (const s of scheds) {
+      const m = computeMrr(s.cadence, s.rate, s.custom_weeks);
+      const key = CADENCE_LABEL[s.cadence] ?? s.cadence;
+      const b = byCad.get(key) ?? { count: 0, mrr: 0 };
+      b.count++;
+      if (m.computable && m.mrr != null) { b.mrr += m.mrr; totalMrr += m.mrr; computable++; rateSum += parseFloat(String(s.rate ?? "0")); }
+      byCad.set(key, b);
+      if (s.start_date) { const mk = String(s.start_date).slice(0, 7); monthly.set(mk, (monthly.get(mk) ?? 0) + 1); }
+    }
+    totalMrr = Math.round(totalMrr * 100) / 100;
+    const total = scheds.length;
+
+    // last 12 months acquisition
+    const months: Array<{ month: string; count: number }> = [];
+    const now = new Date(); now.setUTCDate(1);
+    for (let i = 11; i >= 0; i--) {
+      const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+      const mk = d.toISOString().slice(0, 7);
+      months.push({ month: mk, count: monthly.get(mk) ?? 0 });
+    }
+
+    const portfolio = [...byCad.entries()].map(([cadence, v]) => ({
+      cadence, count: v.count, count_pct: total ? Math.round((v.count / total) * 100) : 0,
+      mrr: Math.round(v.mrr * 100) / 100, mrr_pct: totalMrr ? Math.round((v.mrr / totalMrr) * 100) : 0,
+    })).sort((a, b) => b.count - a.count);
+
+    const cap = async (q: any): Promise<number> => { try { const r = await db.execute(q); return Number((r.rows[0] as any)?.n ?? 0); } catch { return 0; } };
+    const lostAll = await cap(sql`SELECT count(*)::int n FROM recurring_subscriptions WHERE company_id=${companyId} AND client_type=${RES} AND status='lost'`);
+    const captureStarted = (await cap(sql`SELECT count(*)::int n FROM recurring_subscriptions WHERE company_id=${companyId}`)) > 0;
+
+    return res.json({
+      client_type: RES,
+      total_active: total, computable, total_mrr: totalMrr,
+      avg_client_value_month: computable ? Math.round((totalMrr / computable) * 100) / 100 : 0,
+      avg_client_value_visit: computable ? Math.round((rateSum / computable) * 100) / 100 : 0,
+      portfolio,
+      acquisition_monthly: months,
+      churn: { lost_all_time: lostAll, capture_started: captureStarted },
+    });
+  } catch (err) {
+    console.error("[recurring/analytics]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 // GET /api/recurring/clients?branch_id= — the recurring-clients list. Reads live
 // from recurring_schedules + clients + the assigned cleaner (SELECT only).
 router.get("/clients", requireAuth, requireRole(...VIEW_ROLES), async (req, res) => {
