@@ -47,7 +47,6 @@ interface AnalyticsResp {
 
 const TABS = [
   { k: "clients", label: "Clients", live: true },
-  { k: "health", label: "Data Health", live: true },
   { k: "dash", label: "Dashboard", live: true },
   { k: "analytics", label: "Analytics", live: true },
   { k: "growth", label: "Growth", live: false },
@@ -60,7 +59,6 @@ export default function RecurringRevenuePage() {
   const { data: clientsData, loading: clientsLoading } = useReportData<ClientsResp>("/recurring/clients");
   const { data: analyticsData, loading: analyticsLoading } = useReportData<AnalyticsResp>("/recurring/analytics");
 
-  const dh = data?.data_health;
   const db = data?.dashboard;
 
   return (
@@ -96,7 +94,7 @@ export default function RecurringRevenuePage() {
         {tab === "clients" && <Clients data={clientsData} loading={clientsLoading} />}
         {tab === "analytics" && <Analytics data={analyticsData} loading={analyticsLoading} />}
 
-        {(tab === "health" || tab === "dash") && (
+        {tab === "dash" && (
           <>
             {loading && <div style={{ color: C.grey, padding: "40px 0" }}>Loading your recurring data…</div>}
             {error && !loading && (
@@ -104,8 +102,7 @@ export default function RecurringRevenuePage() {
                 Couldn't load this view: {error}. Try refreshing — if it persists, tell me.
               </div>
             )}
-            {!loading && dh && db && tab === "health" && <DataHealth dh={dh} />}
-            {!loading && dh && db && tab === "dash" && <Dashboard db={db} />}
+            {!loading && db && <Dashboard db={db} />}
           </>
         )}
 
@@ -125,73 +122,6 @@ function card(): React.CSSProperties {
 }
 function eyebrow(): React.CSSProperties {
   return { fontSize: 11, fontWeight: 800, letterSpacing: ".07em", textTransform: "uppercase", color: C.faint };
-}
-
-function DataHealth({ dh }: { dh: Overview["data_health"] }) {
-  const bcard = (t: string, n: string, d: string, wt: string, color: string) => (
-    <div style={{ background: C.tint, border: `1px solid ${C.lineSoft}`, borderRadius: 10, padding: "16px 16px 15px" }}>
-      <div style={{ ...eyebrow(), letterSpacing: ".05em" }}>{t}</div>
-      <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.02em", margin: "8px 0 2px", color }}>{n}</div>
-      <div style={{ fontSize: 12, color: C.grey }}>{d}</div>
-      <div style={{ fontSize: 11, color: C.faint, marginTop: 6 }}>{wt}</div>
-    </div>
-  );
-  const sev = (s: string) => {
-    const on = s === "blocker" ? { bg: C.redBg, fg: C.red, t: "Blocker" } : { bg: C.amberBg, fg: C.amber, t: "High" };
-    return <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".03em", textTransform: "uppercase", padding: "4px 10px", borderRadius: 7, background: on.bg, color: on.fg }}>{on.t}</span>;
-  };
-  return (
-    <>
-      <div style={card()}>
-        <div style={{ display: "grid", gridTemplateColumns: "280px 1fr" }}>
-          <div style={{ padding: "30px 28px", borderRight: `1px solid ${C.line}` }}>
-            <div style={{ fontSize: 66, fontWeight: 800, letterSpacing: "-.04em", lineHeight: 1 }}>{dh.confidence}%</div>
-            <div style={{ ...eyebrow(), margin: "10px 0 4px" }}>MRR Confidence</div>
-            <div style={{ fontSize: 13, color: C.grey }}>{dh.computable} of {dh.total_active} active schedules can produce an MRR figure.</div>
-            <div style={{ height: 8, borderRadius: 99, background: C.tint2, marginTop: 20, overflow: "hidden" }}>
-              <div style={{ height: "100%", width: `${dh.confidence}%`, background: `linear-gradient(90deg, ${C.mint}, ${C.mintDeep})`, borderRadius: 99 }} />
-            </div>
-          </div>
-          <div style={{ padding: "24px 26px" }}>
-            <div style={eyebrow()}>MRR breakdown — residential</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 14 }}>
-              {bcard("Derived MRR", money(dh.derived_mrr), "what we can compute today", `${dh.computable} schedules · computable`, C.ink)}
-              {bcard("$0 rate", String(dh.blocked_zero_rate), "no rate on the schedule", "set a real rate to recover", C.red)}
-              {bcard("No interval", String(dh.blocked_no_multiplier), "Custom cadence · no interval", "set “every N weeks” to recover", C.amber)}
-            </div>
-            <p style={{ fontSize: 12.5, color: C.grey, margin: "16px 0 0" }}>Clean these and the number climbs to the truth — then the capture layer keeps it true. The module reports; it never auto-fixes.</p>
-          </div>
-        </div>
-      </div>
-
-      <div style={{ ...eyebrow(), margin: "30px 2px 12px" }}>What's blocking each dollar</div>
-      <div style={{ ...card(), overflow: "hidden" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr>
-            {["Severity", "Issue", "Count"].map((h, i) => (
-              <th key={h} style={{ textAlign: i === 2 ? "right" : "left", fontSize: 11, textTransform: "uppercase", letterSpacing: ".06em", color: C.faint, fontWeight: 800, padding: "12px 20px" }}>{h}</th>
-            ))}
-          </tr></thead>
-          <tbody>
-            {dh.issues.map((it, i) => (
-              <tr key={it.key}>
-                <td style={{ padding: "14px 20px", borderTop: `1px solid ${C.lineSoft}` }}>{sev(it.severity)}</td>
-                <td style={{ padding: "14px 20px", borderTop: `1px solid ${C.lineSoft}` }}>
-                  <div style={{ fontWeight: 700, fontSize: 13.5 }}>{it.title}</div>
-                  <div style={{ color: C.grey, fontSize: 12.5, marginTop: 3 }}>{it.detail}</div>
-                </td>
-                <td style={{ padding: "14px 20px", borderTop: `1px solid ${C.lineSoft}`, textAlign: "right", fontSize: 20, fontWeight: 800 }}>{it.count}</td>
-              </tr>
-            ))}
-            {dh.issues.length === 0 && (
-              <tr><td colSpan={3} style={{ padding: "24px 20px", color: C.mintDeep, fontWeight: 700 }}>Nothing blocking — every active schedule computes. </td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
-      <p style={{ fontSize: 12, color: C.faint, marginTop: 20 }}>Live from your recurring schedules · residential.</p>
-    </>
-  );
 }
 
 function Dashboard({ db }: { db: Overview["dashboard"] }) {
