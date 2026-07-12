@@ -25,14 +25,23 @@ export type MrrResult = {
   reason: string | null;      // why it's not computable, for Data Health
 };
 
-export function computeMrr(cadence: string | null | undefined, rate: unknown): MrrResult {
+// [custom-interval-recovery 2026-07-12] A 'custom' or 'weekdays' cadence has no
+// fixed multiplier on its own — BUT Qleno stores custom_frequency_weeks ("every
+// N weeks") on the schedule. When that's present, the schedule IS computable:
+// monthly multiplier = 4.333 / N (52 weeks/yr ÷ 12 months ÷ N). Pass customWeeks
+// to recover those instead of writing them off. Only a truly interval-less
+// custom stays non-computable.
+export function computeMrr(cadence: string | null | undefined, rate: unknown, customWeeks?: number | null): MrrResult {
   const c = String(cadence ?? "").trim();
-  if (!(c in CADENCE_MULTIPLIERS)) {
+  let mult: number | null;
+  if (c in CADENCE_MULTIPLIERS && CADENCE_MULTIPLIERS[c] != null) {
+    mult = CADENCE_MULTIPLIERS[c];
+  } else if ((c === "custom" || c === "weekdays") && customWeeks && customWeeks > 0) {
+    mult = Math.round((4.333 / customWeeks) * 1000) / 1000;   // e.g. every 4 wks → 1.083
+  } else if (c in CADENCE_MULTIPLIERS) {
+    return { multiplier: null, mrr: null, computable: false, reason: `cadence '${c}' has no interval — MRR indeterminate` };
+  } else {
     return { multiplier: null, mrr: null, computable: false, reason: `unknown cadence '${c || "(blank)"}'` };
-  }
-  const mult = CADENCE_MULTIPLIERS[c];
-  if (mult == null) {
-    return { multiplier: null, mrr: null, computable: false, reason: `cadence '${c}' has no monthly multiplier` };
   }
   const r = typeof rate === "number" ? rate : parseFloat(String(rate ?? ""));
   if (!Number.isFinite(r) || r <= 0) {

@@ -85,6 +85,7 @@ const RouteSequencesPage  = lazy(() => import("@/pages/route-sequences"));
 const ChurnBoardPage      = lazy(() => import("@/pages/intelligence/churn"));
 const RetentionBoardPage  = lazy(() => import("@/pages/intelligence/retention"));
 const SatisfactionReportPage = lazy(() => import("@/pages/reports/satisfaction"));
+const RecurringRevenuePage = lazy(() => import("@/pages/reports/recurring"));
 const AddOnCatalogPage    = lazy(() => import("@/pages/company/addons"));
 const PackagesPage        = lazy(() => import("@/pages/company/packages"));
 const CompanyW9Page       = lazy(() => import("@/pages/company/w9"));
@@ -325,6 +326,7 @@ function Router() {
         <Route path="/intelligence/churn" component={ChurnBoardPage} />
         <Route path="/intelligence/retention" component={RetentionBoardPage} />
         <Route path="/reports/satisfaction" component={SatisfactionReportPage} />
+        <Route path="/reports/recurring" component={RecurringRevenuePage} />
         <Route path="/reports/referrals" component={ReferralReportPage} />
         <Route path="/reports/incentives" component={IncentivesPage} />
         <Route path="/reports/revenue-goal" component={RevenueGoalPage} />

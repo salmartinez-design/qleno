@@ -10,6 +10,7 @@ import {
 import { and, eq, sql, desc, isNull } from "drizzle-orm";
 import { requireAuth, requireRole } from "../../lib/auth.js";
 import { computeMrr, KNOWN_CADENCES, normalizePersonName } from "../../lib/recurring-mrr.js";
+import reportsRouter from "./reports.js";
 
 // [recurring-revenue 2026-07-12] Step 2 — GO-FORWARD CAPTURE.
 // The capture layer for the native recurring-revenue engine: attribution on
@@ -27,6 +28,9 @@ import { computeMrr, KNOWN_CADENCES, normalizePersonName } from "../../lib/recur
 const router = Router();
 const RES_ONLY = "residential" as const;   // Phase-1 hard-set; Phase 2 = read from req
 const CAPTURE_ROLES = ["owner", "admin", "office"] as const;
+
+// Read-only reporting (GET /overview → Data Health + Dashboard) lives in reports.ts.
+router.use(reportsRouter);
 
 // Small manual-validation helpers (house convention: no Zod).
 const bad = (res: any, msg: string) => res.status(400).json({ error: "Bad Request", message: msg });
