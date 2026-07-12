@@ -3,7 +3,7 @@ import {
   Briefcase, Users, UserCheck, FileText, DollarSign,
   BarChart2, TrendingUp, FileText as FileTextIcon,
   BookOpen, Settings, AlertTriangle, HeartPulse, Building2,
-  UserPlus, GraduationCap, Clock, Calculator, MessageSquare, LifeBuoy,
+  UserPlus, GraduationCap, Clock, Calculator, MessageSquare, LifeBuoy, Repeat,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuthStore } from "@/lib/auth";
@@ -64,6 +64,9 @@ const NAV_SECTIONS = [
       // MULTI_URL_HIGHLIGHT below.
       { title: "Jobs",      url: "/dispatch",  icon: Briefcase, roles: ["owner", "admin", "office", "super_admin"] },
       { title: "Customers", url: "/customers", icon: Users, roles: ["owner", "admin", "office", "super_admin", "accountant"] },
+      // [recurring-revenue 2026-07-12] The recurring-revenue engine, surfaced
+      // under the name the office already knows the old tool by ("Ares").
+      { title: "Ares",      url: "/ares", icon: Repeat, roles: ["owner", "admin", "office", "super_admin"] },
       { title: "Messages",  url: "/messages",  icon: MessageSquare, roles: ["owner", "admin", "office", "super_admin"] },
       { title: "Accounts",  url: "/accounts",  icon: Building2, roles: ["owner", "admin", "office", "super_admin"] },
     ],

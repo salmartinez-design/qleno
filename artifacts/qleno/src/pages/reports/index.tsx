@@ -54,7 +54,7 @@ const REPORT_GROUPS = [
     reports: [
       { title: "Upsell Conversion",    desc: "Deep Clean to recurring conversion rates, rate lock health, and trend data.", url: "/reports/upsell-conversion", icon: RefreshCw },
       { title: "Message Log",          desc: "All automated follow-up messages sent via SMS and email, with status and sequence details.", url: "/reports/message-log", icon: FileText },
-      { title: "Recurring Revenue",    desc: "MRR, retention, churn, and VA sales commission for recurring clients.", url: "/reports/recurring", icon: TrendingUp },
+      { title: "Ares",                 desc: "Recurring revenue — MRR, retention, churn, and VA sales commission for recurring clients.", url: "/ares", icon: TrendingUp },
     ],
   },
 ];
