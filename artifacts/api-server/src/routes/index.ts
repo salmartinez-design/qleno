@@ -29,6 +29,7 @@ import notificationsRouter from "./notifications.js";
 import jobSmsRouter from "./job-sms.js";
 import quotesRouter from "./quotes.js";
 import estimatesRouter from "./estimates.js";
+import recurringRevenueRouter from "./recurring/index.js";
 import trackRouter from "./track.js";
 import paymentsRouter from "./payments.js";
 import attachmentsRouter from "./attachments.js";
@@ -257,5 +258,6 @@ router.use("/lms/annual-ack", lmsAnnualAckRouter);
 router.use("/lms-settings", lmsSettingsRouter);
 router.use("/lms/admin-audit", lmsAdminAuditRouter);
 router.use("/lms/onboarding-intake", lmsOnboardingIntakeRouter);
+router.use("/recurring", recurringRevenueRouter);
 
 export default router;
