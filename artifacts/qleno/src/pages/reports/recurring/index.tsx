@@ -36,12 +36,19 @@ interface ClientRow {
   cleaner: string | null; start_date: string | null; status: string;
 }
 interface ClientsResp { count: number; total_mrr: number; clients: ClientRow[] }
+interface AnalyticsResp {
+  total_active: number; computable: number; total_mrr: number;
+  avg_client_value_month: number; avg_client_value_visit: number;
+  portfolio: Array<{ cadence: string; count: number; count_pct: number; mrr: number; mrr_pct: number }>;
+  acquisition_monthly: Array<{ month: string; count: number }>;
+  churn: { lost_all_time: number; capture_started: boolean };
+}
 
 const TABS = [
   { k: "clients", label: "Clients", live: true },
   { k: "health", label: "Data Health", live: true },
   { k: "dash", label: "Dashboard", live: true },
-  { k: "analytics", label: "Analytics", live: false },
+  { k: "analytics", label: "Analytics", live: true },
   { k: "growth", label: "Growth", live: false },
   { k: "commissions", label: "Commissions", live: false },
 ];
@@ -50,6 +57,7 @@ export default function RecurringRevenuePage() {
   const [tab, setTab] = useState("clients");
   const { data, loading, error } = useReportData<Overview>("/recurring/overview");
   const { data: clientsData, loading: clientsLoading } = useReportData<ClientsResp>("/recurring/clients");
+  const { data: analyticsData, loading: analyticsLoading } = useReportData<AnalyticsResp>("/recurring/analytics");
 
   const dh = data?.data_health;
   const db = data?.dashboard;
@@ -85,6 +93,7 @@ export default function RecurringRevenuePage() {
         </div>
 
         {tab === "clients" && <Clients data={clientsData} loading={clientsLoading} />}
+        {tab === "analytics" && <Analytics data={analyticsData} loading={analyticsLoading} />}
 
         {(tab === "health" || tab === "dash") && (
           <>
@@ -99,7 +108,7 @@ export default function RecurringRevenuePage() {
           </>
         )}
 
-        {["analytics", "growth", "commissions"].includes(tab) && (
+        {["growth", "commissions"].includes(tab) && (
           <div style={{ background: C.card, border: `1px solid ${C.line}`, borderRadius: 14, padding: "40px 28px", textAlign: "center", color: C.grey }}>
             <div style={{ fontWeight: 800, color: C.ink, marginBottom: 4 }}>Building this next</div>
             <div style={{ fontSize: 13.5 }}>{TABS.find(t => t.k === tab)?.label} runs on the same live data — coming right after this.</div>
@@ -282,6 +291,78 @@ function Clients({ data, loading }: { data: ClientsResp | null; loading: boolean
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+    </>
+  );
+}
+
+function Analytics({ data, loading }: { data: AnalyticsResp | null; loading: boolean }) {
+  if (loading) return <div style={{ color: C.grey, padding: "40px 0" }}>Loading analytics…</div>;
+  if (!data) return <div style={{ color: C.grey, padding: "40px 0" }}>Couldn't load analytics — try refreshing.</div>;
+  const maxAcq = Math.max(1, ...data.acquisition_monthly.map((m) => m.count));
+  const kpi = (lab: string, big: string, sub: string, mut?: boolean) => (
+    <div style={{ ...card(), padding: "18px 20px" }}>
+      <div style={eyebrow()}>{lab}</div>
+      <div style={{ fontSize: 26, fontWeight: 800, letterSpacing: "-.02em", margin: "6px 0 2px", color: mut ? C.faint : C.ink }}>{big}</div>
+      <div style={{ fontSize: 12, color: C.grey }}>{sub}</div>
+    </div>
+  );
+  const td: React.CSSProperties = { padding: "11px 8px", borderTop: `1px solid ${C.lineSoft}`, fontSize: 13.5 };
+  const th: React.CSSProperties = { fontSize: 11, textTransform: "uppercase", letterSpacing: ".05em", color: C.faint, fontWeight: 800, padding: "10px 8px" };
+  return (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16 }}>
+        {kpi("MRR", money(data.total_mrr), `${data.computable} of ${data.total_active} active`)}
+        {kpi("Avg client value / mo", money(data.avg_client_value_month), "computable clients")}
+        {kpi("Avg client value / visit", money(data.avg_client_value_visit), "per cleaning")}
+        {kpi("Retention rate", "—", "captured going forward", true)}
+      </div>
+
+      <div style={{ ...eyebrow(), margin: "30px 2px 12px" }}>Client acquisition · last 12 months</div>
+      <div style={{ ...card(), padding: "22px 24px" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 10, height: 150 }}>
+          {data.acquisition_monthly.map((m) => (
+            <div key={m.month} style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", gap: 6, height: "100%" }}>
+              <div style={{ fontSize: 11, color: C.grey, fontWeight: 700 }}>{m.count || ""}</div>
+              <div style={{ width: "100%", maxWidth: 34, height: `${Math.round((m.count / maxAcq) * 100)}%`, minHeight: m.count ? 4 : 0, background: C.mint, borderRadius: "6px 6px 0 0" }} />
+              <div style={{ fontSize: 10.5, color: C.faint }}>{new Date(m.month + "-01").toLocaleDateString("en-US", { month: "short" })}</div>
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 12, color: C.faint, marginTop: 10 }}>New recurring clients by first-cleaning month.</div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginTop: 24, alignItems: "start" }}>
+        <div style={{ ...card(), padding: "22px 24px" }}>
+          <div style={eyebrow()}>Portfolio &amp; MRR by cadence</div>
+          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 6 }}>
+            <thead><tr>
+              <th style={{ ...th, textAlign: "left" }}>Cadence</th>
+              <th style={{ ...th, textAlign: "right" }}>Clients</th>
+              <th style={{ ...th, textAlign: "right" }}>%</th>
+              <th style={{ ...th, textAlign: "right" }}>MRR</th>
+              <th style={{ ...th, textAlign: "right" }}>%</th>
+            </tr></thead>
+            <tbody>
+              {data.portfolio.map((p) => (
+                <tr key={p.cadence}>
+                  <td style={td}>{p.cadence}</td>
+                  <td style={{ ...td, textAlign: "right" }}>{p.count}</td>
+                  <td style={{ ...td, textAlign: "right", color: C.faint, fontSize: 12 }}>{p.count_pct}%</td>
+                  <td style={{ ...td, textAlign: "right", fontWeight: 700 }}>{p.mrr ? money(p.mrr) : "—"}</td>
+                  <td style={{ ...td, textAlign: "right", color: C.faint, fontSize: 12 }}>{p.mrr_pct}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ ...card(), padding: "22px 24px" }}>
+          <div style={eyebrow()}>Retention &amp; churn</div>
+          <div style={{ padding: "20px 0 4px", color: C.grey, fontSize: 13.5 }}>
+            <div style={{ fontWeight: 800, color: C.ink, marginBottom: 6 }}>Captured going forward</div>
+            Churn, lost MRR, and reasons fill in as clients are classified on cancel — that history can't be back-computed.{data.churn.lost_all_time > 0 ? ` ${data.churn.lost_all_time} lost so far.` : ""}
+          </div>
         </div>
       </div>
     </>
