@@ -128,4 +128,42 @@ router.get("/overview", requireAuth, requireRole(...VIEW_ROLES), async (req, res
   }
 });
 
+// GET /api/recurring/clients?branch_id= — the recurring-clients list. Reads live
+// from recurring_schedules + clients + the assigned cleaner (SELECT only).
+router.get("/clients", requireAuth, requireRole(...VIEW_ROLES), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const branchId = req.query.branch_id != null ? parseInt(String(req.query.branch_id)) : null;
+    const rows = await db.execute(sql`
+      SELECT rs.id AS schedule_id, c.id AS client_id,
+             concat(c.first_name, ' ', c.last_name) AS client_name,
+             c.city, c.client_type,
+             rs.frequency::text AS cadence, rs.base_fee::numeric AS rate,
+             rs.custom_frequency_weeks AS custom_weeks, rs.start_date,
+             concat(u.first_name, ' ', u.last_name) AS cleaner
+        FROM recurring_schedules rs
+        JOIN clients c ON c.id = rs.customer_id
+        LEFT JOIN users u ON u.id = rs.assigned_employee_id
+       WHERE rs.company_id = ${companyId} AND rs.is_active = true AND c.client_type = ${RES}
+         ${branchId != null ? sql`AND c.branch_id = ${branchId}` : sql``}
+       ORDER BY c.first_name, c.last_name`);
+    const clients = (rows.rows as any[]).map((r) => {
+      const m = computeMrr(r.cadence, r.rate, r.custom_weeks);
+      return {
+        client_id: r.client_id, name: r.client_name, city: r.city, client_type: r.client_type,
+        cadence: CADENCE_LABEL[r.cadence] ?? r.cadence, cadence_key: r.cadence,
+        rate: r.rate != null ? Number(r.rate) : null,
+        mrr: m.mrr, mrr_computable: m.computable, mrr_reason: m.reason,
+        cleaner: r.cleaner && r.cleaner.trim() ? r.cleaner : null,
+        start_date: r.start_date, status: "active",
+      };
+    });
+    const totalMrr = Math.round(clients.reduce((s, c) => s + (c.mrr ?? 0), 0) * 100) / 100;
+    return res.json({ client_type: RES, count: clients.length, total_mrr: totalMrr, clients });
+  } catch (err) {
+    console.error("[recurring/clients]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 export default router;
