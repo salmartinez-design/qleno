@@ -15,6 +15,61 @@ import {
 
 const router = Router();
 
+// [tech-departure 2026-07-12] Single source of truth for taking a departing
+// tech's work off their plate when they go inactive (quit / terminated /
+// deactivated). Runs on EVERY path that flips is_active off — the DELETE
+// deactivate, the terminate endpoint, and the profile PUT toggle — so a tech
+// can never again be left inactive with 200+ future jobs + live recurring
+// routes still stamped to them (the Norma Puga incident: deactivated via the
+// profile toggle, which released nothing).
+//
+// Matches how most field-service CRMs (MaidCentral / Housecall / Jobber) handle
+// it: the SCHEDULE belongs to the client, not the tech — so we keep the cadence
+// and only clear the "who":
+//   1. Release the tech's FUTURE, non-complete/cancelled jobs → Unassigned
+//      (jobs already reassigned to another tech aren't touched — the release is
+//      scoped to assigned_user_id = this tech).
+//   2. Remove the tech from those jobs' job_technicians crew rows.
+//   3. Clear the tech from their recurring schedules (assigned_employee_id +
+//      recurring_schedule_technicians) — the cadence stays active, future
+//      generated visits just come out Unassigned for the office to reassign.
+// Idempotent: safe to call repeatedly (a second call releases nothing). Past +
+// completed history is left intact. Returns counts for the audit log.
+async function releaseDepartingTech(
+  userId: number,
+  companyId: number,
+): Promise<{ jobs_released: number; team_rows_removed: number; schedules_cleared: number }> {
+  const rel = await db.execute(sql`
+    UPDATE jobs SET assigned_user_id = NULL
+     WHERE assigned_user_id = ${userId} AND company_id = ${companyId}
+       AND status NOT IN ('complete', 'cancelled')
+       AND scheduled_date >= CURRENT_DATE
+  `);
+  const jt = await db.execute(sql`
+    DELETE FROM job_technicians jt USING jobs j
+     WHERE jt.job_id = j.id AND jt.user_id = ${userId}
+       AND j.company_id = ${companyId}
+       AND j.status NOT IN ('complete', 'cancelled')
+       AND j.scheduled_date >= CURRENT_DATE
+  `).catch((e) => { console.error("[releaseDepartingTech] job_technicians cleanup skipped:", (e as any)?.message); return { rowCount: 0 } as any; });
+  const sched = await db.execute(sql`
+    UPDATE recurring_schedules SET assigned_employee_id = NULL
+     WHERE assigned_employee_id = ${userId} AND company_id = ${companyId}
+  `).catch((e) => { console.error("[releaseDepartingTech] schedule assignee clear skipped:", (e as any)?.message); return { rowCount: 0 } as any; });
+  // recurring_schedule_technicians is the multi-tech crew table; may be absent
+  // in older schemas — never let its absence fail the deactivation.
+  await db.execute(sql`
+    DELETE FROM recurring_schedule_technicians rst USING recurring_schedules rs
+     WHERE rst.recurring_schedule_id = rs.id AND rst.user_id = ${userId}
+       AND rs.company_id = ${companyId}
+  `).catch(() => {});
+  return {
+    jobs_released: (rel as any)?.rowCount ?? 0,
+    team_rows_removed: (jt as any)?.rowCount ?? 0,
+    schedules_cleared: (sched as any)?.rowCount ?? 0,
+  };
+}
+
 // [onboarding-password 2026-06-16] Until COMMS is enabled (so the temp-password
 // email actually sends), a new hire can't receive a random temp and can't log
 // in. While comms are off, new accounts get a known default the office hands out
@@ -607,6 +662,14 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       return res.status(404).json({ error: "Not Found", message: "User not found" });
     }
 
+    // [tech-departure 2026-07-12] The profile "Active" toggle flips is_active
+    // through THIS endpoint — the exact path that left Norma Puga inactive with
+    // 243 future jobs + 10 live routes still assigned. Route it through the same
+    // cleanup so no path can orphan work. Idempotent (no-op if already released).
+    if (is_active !== undefined && (updated[0] as any).is_active === false) {
+      await releaseDepartingTech(userId, req.auth!.companyId!);
+    }
+
     const { password_hash: _, ...safeUser } = updated[0];
     const action = role && role !== req.body._prevRole ? "ROLE_CHANGED" : "UPDATE_EMPLOYEE";
     logAudit(req, action, "employee", userId, null, { role: safeUser.role, is_active: safeUser.is_active });
@@ -662,20 +725,9 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin", "office", "supe
     // assignment (payroll/history). The dispatch board also guards defensively,
     // but clearing the source here keeps the data clean (assignment-mirror
     // invariant: jobs.assigned_user_id is the dispatch source of truth).
-    const released = await db.execute(sql`
-      UPDATE jobs SET assigned_user_id = NULL
-      WHERE assigned_user_id = ${userId}
-        AND company_id = ${req.auth!.companyId}
-        AND status <> 'complete'
-    `);
-    try {
-      await db.execute(sql`
-        DELETE FROM job_technicians jt
-        USING jobs j
-        WHERE jt.job_id = j.id AND jt.user_id = ${userId}
-          AND j.company_id = ${req.auth!.companyId} AND j.status <> 'complete'
-      `);
-    } catch (e) { console.error("[deactivate] job_technicians cleanup skipped:", (e as any)?.message); }
+    // [tech-departure 2026-07-12] Release future jobs + clear recurring routes
+    // via the shared helper (keeps cadence, jobs fall to Unassigned).
+    const released = await releaseDepartingTech(userId, req.auth!.companyId!);
 
     await db
       .update(usersTable)
@@ -685,7 +737,9 @@ router.delete("/:id", requireAuth, requireRole("owner", "admin", "office", "supe
         eq(usersTable.company_id, req.auth!.companyId)
       ));
     logAudit(req, "DELETE_EMPLOYEE", "employee", userId, null, {
-      is_active: false, jobs_released_to_unassigned: (released as any)?.rowCount ?? undefined,
+      is_active: false,
+      jobs_released_to_unassigned: released.jobs_released,
+      recurring_schedules_cleared: released.schedules_cleared,
     });
     return res.json({ success: true, message: "User deactivated" });
   } catch (err) {
@@ -1368,6 +1422,12 @@ router.post(
           archived_at: usersTable.archived_at,
         });
 
+      // [tech-departure 2026-07-12] A termination also takes the tech off their
+      // upcoming work — release future jobs + clear recurring routes (keeps
+      // cadence). Previously terminate flipped the flags but left every job and
+      // schedule stamped to the departed employee.
+      const released = await releaseDepartingTech(targetId, callerCompanyId);
+
       await logAudit(
         req,
         "users.terminate",
@@ -1380,6 +1440,8 @@ router.post(
           last_day_worked: last_day_worked ? String(last_day_worked) : null,
           termination_reason: String(termination_reason),
           rehire_eligible: typeof rehire_eligible === "boolean" ? rehire_eligible : null,
+          jobs_released_to_unassigned: released.jobs_released,
+          recurring_schedules_cleared: released.schedules_cleared,
         },
       );
 
