@@ -185,8 +185,10 @@ function scopeLabel(job: { service_type?: string | null; frequency?: string | nu
     standard_clean: "Standard Clean",
     deep_clean: "Deep Clean",
     move_in: "Move In",
-    move_out: "Move Out",
-    move_in_out: "Move In/Out",
+    // move_out is the canonical enum for PHES's combined "Move In / Move Out"
+    // product (both the booking widget and the hourly quote path map to it).
+    move_out: "Move In / Move Out",
+    move_in_out: "Move In / Move Out",
     post_construction: "Post-Construction",
     office_cleaning: "Office",
     common_areas: "Common Areas",
