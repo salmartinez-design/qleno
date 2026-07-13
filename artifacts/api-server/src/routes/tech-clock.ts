@@ -579,8 +579,13 @@ async function handleClockEvent(
       // path the office PATCH uses, so field completions never go uninvoiced.
       // Fire-and-forget so it never blocks the clock-out response (the helper
       // is internally non-fatal and skips if an invoice already exists).
-      ensureInvoiceForCompletedJob(companyId, job.id, userId)
-        .catch((e: Error) => console.error("[tech-clock invoice] non-fatal:", e));
+      // [office-events 2026-07-13] Skip for office events (meetings/trainings) —
+      // a non-cleaning job_kind has no client and must never spawn an invoice.
+      const [_kindChk] = await db.select({ k: jobsTable.job_kind }).from(jobsTable).where(eq(jobsTable.id, job.id)).limit(1);
+      if (!_kindChk?.k || _kindChk.k === "cleaning") {
+        ensureInvoiceForCompletedJob(companyId, job.id, userId)
+          .catch((e: Error) => console.error("[tech-clock invoice] non-fatal:", e));
+      }
       // ── job_completed notification + satisfaction survey (non-blocking) ─
       // [redo-service 2026-07-10] Skip the survey after a redo — don't ask a
       // just-dissatisfied client for a review.

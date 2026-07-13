@@ -16,7 +16,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2, MoreVertical,
-  Languages, Pencil, Paperclip, Image,
+  Languages, Pencil, Paperclip, Image, Users,
 } from "lucide-react";
 import { getJobVisualStatus, STATUS_VISUALS, ensureJobStatusStyles, LIVE_OPS, mutedFill } from "@/lib/job-status";
 import { computePriceDelta } from "@/lib/price-delta";
@@ -78,7 +78,7 @@ const STATUS: Record<string, { bg: string; border: string; text: string; dot: st
 interface ClockEntry { id: number; clock_in_at: string | null; clock_out_at: string | null; distance_from_job_ft: number | null; is_flagged: boolean; clock_in_distance_ft?: number | null; clock_out_distance_ft?: number | null; clock_in_outside_geofence?: boolean; clock_out_outside_geofence?: boolean; gps_missing?: boolean; }
 interface JobTechCommission { user_id: number; name: string; is_primary: boolean; est_hours: number; calc_pay: number; final_pay: number; pay_override: number | null; /* [pay-matrix 2026-04-29] surface the per-tech matrix cell so JobPanel can render "Hourly $20/hr × 6h" or "Commission 35%" without re-deriving */ pay_type?: "commission" | "hourly"; pay_rate?: number; }
 interface JobAddOn { name: string; quantity: number; unit_price: number; subtotal: number; pricing_addon_id?: number | null; add_on_id?: number | null; }
-interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; /* [time-change-notice] same-day time bump raises a manual "notify the client of the new arrival time" note on the card; time_change_from is the prior "HH:MM" */ time_change_pending?: boolean; time_change_from?: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [flat-addon-itemize] all-in service+add-ons amount BEFORE adjustments; the pricing card's base line = base_fee − add-ons so a rate-mod never shifts it */ base_fee?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [dispatch-invoice 2026-06-27] Live invoice for this job — null until the job completes and the engine fires. */ invoice_id?: number | null; invoice_status?: string | null; invoice_total?: string | null; /* [commission-override 2026-06-27] */ commission_override_pct?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
+interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; /* [office-events 2026-07-13] job_kind !== 'cleaning' = a non-job office event (meeting/training/1-1) */ job_kind?: string; status: string; scheduled_date: string; scheduled_time: string | null; /* [time-change-notice] same-day time bump raises a manual "notify the client of the new arrival time" note on the card; time_change_from is the prior "HH:MM" */ time_change_pending?: boolean; time_change_from?: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [flat-addon-itemize] all-in service+add-ons amount BEFORE adjustments; the pricing card's base line = base_fee − add-ons so a rate-mod never shifts it */ base_fee?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [dispatch-invoice 2026-06-27] Live invoice for this job — null until the job completes and the engine fires. */ invoice_id?: number | null; invoice_status?: string | null; invoice_total?: string | null; /* [commission-override 2026-06-27] */ commission_override_pct?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
 interface Employee { id: number; name: string; role: string; is_trainee?: boolean; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: string | null; time_off_unit?: 'full_day' | 'morning' | 'afternoon' | 'custom' | null; time_off_color?: string | null; time_off_label?: string | null; /* [time-block 2026-07-08] designated window ("HH:MM") when unit='custom' — the band tints only this span */ time_off_start?: string | null; time_off_end?: string | null; commission_rate?: number | null; avatar_url?: string | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
 
@@ -6408,6 +6408,154 @@ function timeOffBand(unit: string | null | undefined, start?: string | null, end
 // overlap visually even when their logical durations don't.
 const CHIP_H = ROW_H - 20;       // 52 — single-chip height, unchanged
 const SUBLANE_GAP = 8;
+
+// ─── OFFICE EVENTS (meetings / trainings / 1-1s) ─────────────────────────────
+// [office-events 2026-07-13] Events are jobs rows with job_kind !== 'cleaning'.
+// They ride the same timeline + clock as jobs but carry no client, price, or
+// commission. EVENT_TYPES drives the New Event dropdown; job_kind stores the slug.
+const EVENT_TYPES: { slug: string; label: string }[] = [
+  { slug: "quarterly_1_1", label: "Quarterly 1-1" },
+  { slug: "company_meeting", label: "Company Meeting" },
+  { slug: "team_meeting", label: "Team Meeting" },
+  { slug: "training", label: "Training" },
+];
+const EVENT_LABELS: Record<string, string> = {
+  ...Object.fromEntries(EVENT_TYPES.map(t => [t.slug, t.label])),
+  office_event: "Event", meeting: "Meeting",
+};
+const isEventJob = (j: DispatchJob): boolean => !!j.job_kind && j.job_kind !== "cleaning";
+const eventLabel = (kind?: string): string => EVENT_LABELS[kind || ""] || "Event";
+
+function EventChip({ job, top, onClick }: { job: DispatchJob; top: number; onClick: (j: DispatchJob) => void }) {
+  const left = ((timeToMins(job.scheduled_time) - DAY_START) / 30) * SLOT_W;
+  const width = Math.max(SLOT_W, ((job.duration_minutes ?? 60) / 30) * SLOT_W);
+  const label = eventLabel(job.job_kind);
+  const hasTitle = !!(job.notes && job.notes.trim());
+  const main = hasTitle ? job.notes!.trim() : label;
+  const done = job.status === "complete";
+  const clockedIn = !!job.clock_entry?.clock_in_at && !job.clock_entry?.clock_out_at;
+  return (
+    <div onClick={() => onClick(job)} title={`${label}${hasTitle ? " — " + job.notes!.trim() : ""}`}
+      style={{ position: "absolute", left, top, width, height: CHIP_H, cursor: "pointer", zIndex: 2,
+        background: "#EEF0FB", border: "1px solid #C7CDF0", borderLeft: "3px solid #4F46E5", borderRadius: 8,
+        padding: "5px 8px", overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "center", gap: 1, opacity: done ? 0.7 : 1 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+        <Users size={10} style={{ color: "#4F46E5", flexShrink: 0 }} />
+        <span style={{ fontSize: 11, fontWeight: 800, color: "#312E81", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", minWidth: 0 }}>{main}</span>
+        {clockedIn && <span style={{ marginLeft: "auto", width: 7, height: 7, borderRadius: "50%", background: "#22C55E", flexShrink: 0 }} title="Clocked in" />}
+      </div>
+      {width >= 96 && (
+        <div style={{ fontSize: 9, color: "#6366F1", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {hasTitle ? label : "Office event"}{done ? " · done" : ""}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function NewEventModal({ open, onClose, onCreated, employees, date }: {
+  open: boolean; onClose: () => void; onCreated: () => void; employees: Employee[]; date: string;
+}) {
+  const token = useAuthStore(s => s.token)!;
+  const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const [type, setType] = useState("company_meeting");
+  const [title, setTitle] = useState("");
+  const [evDate, setEvDate] = useState(date);
+  const [time, setTime] = useState("09:00");
+  const [hours, setHours] = useState("1");
+  const [mode, setMode] = useState<"company" | "specific">("company");
+  const [picked, setPicked] = useState<Set<number>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => { if (open) { setEvDate(date); setErr(""); } }, [open, date]);
+  if (!open) return null;
+
+  const toggle = (id: number) => setPicked(p => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const attendees = mode === "company" ? employees.map(e => e.id) : [...picked];
+  const lbl = { fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.04em", marginBottom: 5, display: "block" };
+  const inp = { width: "100%", fontSize: 14, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, outline: "none", color: "#1A1917", fontFamily: "inherit", boxSizing: "border-box" as const, background: "#fff" };
+
+  async function save() {
+    setErr("");
+    if (mode === "specific" && attendees.length === 0) { setErr("Pick at least one tech, or choose company-wide."); return; }
+    const dur = Math.max(0.25, parseFloat(hours) || 1);
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/jobs`, {
+        method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          job_kind: type, service_type: "office_event", scheduled_date: evDate,
+          scheduled_time: time.length === 5 ? `${time}:00` : time,
+          allowed_hours: dur.toFixed(2), frequency: "on_demand", base_fee: "0",
+          notes: title.trim() || null, team_user_ids: attendees, notify_client_via: "none",
+        }),
+      });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Couldn't create the event");
+      onCreated();
+    } catch (e: any) { setErr(e.message || "Couldn't create the event"); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", zIndex: 200, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "6vh 16px", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, width: "100%", maxWidth: 520, boxShadow: "0 20px 60px rgba(10,14,26,0.3)", maxHeight: "88vh", overflow: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "18px 22px", borderBottom: "1px solid #EEECE7" }}>
+          <div style={{ width: 34, height: 34, borderRadius: 9, background: "#EEF0FB", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Users size={17} color="#4F46E5" /></div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color: "#1A1917" }}>New Event</div>
+            <div style={{ fontSize: 12.5, color: "#9A968E" }}>A meeting, training, or 1-1 your techs can clock into.</div>
+          </div>
+          <button onClick={onClose} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={20} /></button>
+        </div>
+        <div style={{ padding: "18px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
+          <div>
+            <label style={lbl}>Event type</label>
+            <select value={type} onChange={e => setType(e.target.value)} style={{ ...inp, cursor: "pointer" }}>
+              {EVENT_TYPES.map(t => <option key={t.slug} value={t.slug}>{t.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={lbl}>Title <span style={{ textTransform: "none", color: "#B7B3AB", fontWeight: 600 }}>(optional)</span></label>
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Q3 All-Hands" style={inp} />
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 0.9fr", gap: 10 }}>
+            <div><label style={lbl}>Date</label><input type="date" value={evDate} onChange={e => setEvDate(e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>Start</label><input type="time" value={time} onChange={e => setTime(e.target.value)} style={inp} /></div>
+            <div><label style={lbl}>Hours</label><input type="number" min="0.25" step="0.25" value={hours} onChange={e => setHours(e.target.value)} style={inp} /></div>
+          </div>
+          <div>
+            <label style={lbl}>Who's on it</label>
+            <div style={{ display: "flex", gap: 8, marginBottom: mode === "specific" ? 10 : 0 }}>
+              {(["company", "specific"] as const).map(m => (
+                <button key={m} onClick={() => setMode(m)} style={{ flex: 1, padding: "9px 10px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 700, fontFamily: "inherit",
+                  border: `1.5px solid ${mode === m ? "#4F46E5" : "#E5E2DC"}`, background: mode === m ? "#EEF0FB" : "#fff", color: mode === m ? "#312E81" : "#6B6860" }}>
+                  {m === "company" ? `Company-wide (${employees.length})` : "Specific techs"}
+                </button>
+              ))}
+            </div>
+            {mode === "specific" && (
+              <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, maxHeight: 190, overflow: "auto" }}>
+                {employees.map(e => (
+                  <label key={e.id} style={{ display: "flex", alignItems: "center", gap: 9, padding: "8px 12px", cursor: "pointer", borderBottom: "1px solid #F3F1EC", fontSize: 13.5, color: "#1A1917" }}>
+                    <input type="checkbox" checked={picked.has(e.id)} onChange={() => toggle(e.id)} style={{ width: 16, height: 16, accentColor: "#4F46E5" }} />
+                    {e.name}
+                  </label>
+                ))}
+                {employees.length === 0 && <div style={{ padding: 12, fontSize: 12, color: "#9A968E" }}>No techs on the board for this day.</div>}
+              </div>
+            )}
+          </div>
+          {err && <div style={{ background: "#FBEBEB", border: "1px solid #F1C9C9", color: "#B91C1C", borderRadius: 10, padding: "9px 12px", fontSize: 13, fontWeight: 600 }}>{err}</div>}
+        </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", padding: "14px 22px", borderTop: "1px solid #EEECE7" }}>
+          <button onClick={onClose} style={{ padding: "10px 18px", borderRadius: 9, border: "1px solid #E5E2DC", background: "#fff", color: "#6B6860", fontWeight: 700, fontSize: 13.5, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+          <button onClick={save} disabled={saving} style={{ padding: "10px 20px", borderRadius: 9, border: "none", background: "#0A0E1A", color: "#fff", fontWeight: 800, fontSize: 13.5, cursor: saving ? "default" : "pointer", opacity: saving ? 0.6 : 1, fontFamily: "inherit" }}>{saving ? "Creating…" : "Create event"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function packLanes(jobs: DispatchJob[]): { topById: Map<number, number>; rowHeight: number } {
   const topById = new Map<number, number>();
   if (jobs.length === 0) return { topById, rowHeight: ROW_H };
@@ -6433,13 +6581,17 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
   const { setNodeRef, isOver } = useDroppable({ id: `row-${employee.id}` });
   const [, navigate] = useLocation();
   const initials = employee.name.split(" ").map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
+  // [office-events 2026-07-13] Office events ride this tech's lane but aren't
+  // cleaning jobs — keep them out of the day badges (job count / hours / revenue
+  // / pay) so a meeting doesn't read as billable work. They still render as tiles.
+  const cleaningJobs = employee.jobs.filter(j => !isEventJob(j));
   // [grid-hours 2026-07-10] The per-tech day total must match the job card's Hours
   // tile. duration_minutes falls back to a flat 120 min on the server whenever a job
   // has no allowed_hours, so summing it undercounted jobs that only carry
   // estimated_hours (Maribel: card reads 3.1h, grid read 2.0h). est_hours_per_tech
   // is the server's per-tech figure (allowed|estimated ÷ techs) — use it, and only
   // fall back to the calendar block when it's absent.
-  const totalMins = employee.jobs.reduce((s: number, j: DispatchJob) => {
+  const totalMins = cleaningJobs.reduce((s: number, j: DispatchJob) => {
     const perTechHrs = j.est_hours_per_tech ?? (j.duration_minutes != null ? j.duration_minutes / 60 : 0);
     return s + perTechHrs * 60;
   }, 0);
@@ -6447,7 +6599,7 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
   // when present so shared jobs (multi-tech) don't inflate both rows
   // to the full job amount. Falls back to j.amount for solo jobs and
   // for payloads from older server builds where revenue_share isn't set.
-  const revenue = employee.jobs.reduce(
+  const revenue = cleaningJobs.reduce(
     (s: number, j: DispatchJob) => s + (j.revenue_share ?? j.amount ?? 0),
     0,
   );
@@ -6461,7 +6613,7 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
   // commission breakdown by construction. Falls back to the
   // commission_rate × revenue formula when the API hasn't been
   // re-deployed yet (so old payloads still show something).
-  const payFromJobs = employee.jobs.reduce(
+  const payFromJobs = cleaningJobs.reduce(
     (s: number, j: DispatchJob) => s + (j.est_pay_per_tech ?? 0),
     0
   );
@@ -6545,7 +6697,7 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
               Line 2 = what the TECH earns that day (commission/pay), mint +
               labeled so it's never confused with the billed revenue. */}
           <div style={{ fontSize: 10, color: "#6B6860", marginTop: 1, whiteSpace: "nowrap" }}>
-            {employee.jobs.length}j · {(totalMins / 60).toFixed(1)}h · {fmtUSD(revenue)}
+            {cleaningJobs.length}j · {(totalMins / 60).toFixed(1)}h · {fmtUSD(revenue)}
           </div>
           <div style={{ fontSize: 10, color: "#2D9B83", fontWeight: 700, marginTop: 1, display: "flex", alignItems: "baseline", gap: 4 }}>
             {fmtUSD(pay)}
@@ -6567,7 +6719,9 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
           return <div style={{ position: "absolute", left: band.left, width: band.width, top: 0, bottom: 0, backgroundColor: timeOffBg, zIndex: 0, pointerEvents: "none" }} />;
         })()}
         {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
-        {employee.jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} assignedName={employee.name} top={topById.get(j.id) ?? 10} />)}
+        {employee.jobs.map(j => isEventJob(j)
+          ? <EventChip key={j.id} job={j} onClick={onChipClick} top={topById.get(j.id) ?? 10} />
+          : <JobChip key={j.id} job={j} onClick={onChipClick} assignedName={employee.name} top={topById.get(j.id) ?? 10} />)}
         {employee.jobs.length === 0 && (
           // [2026-06-02] Was centered horizontally on a full-width row,
           // which made the label visually land around the 11:30–12:30
@@ -7274,9 +7428,16 @@ export default function JobsPage() {
       sp.delete("new"); sp.delete("account_id"); sp.delete("property_id");
       const rest = sp.toString();
       navigate(`${window.location.pathname}${rest ? `?${rest}` : ""}`, { replace: true });
+    } else if (sp.get("newEvent") === "1") {
+      // [office-events 2026-07-13] "New → Event" from the global menu.
+      setShowEventModal(true);
+      sp.delete("newEvent");
+      const rest = sp.toString();
+      navigate(`${window.location.pathname}${rest ? `?${rest}` : ""}`, { replace: true });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeSearch]);
+  const [showEventModal, setShowEventModal] = useState(false);
   const [data, setData] = useState<DispatchData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<DispatchJob | null>(null);
@@ -8254,6 +8415,7 @@ export default function JobsPage() {
           <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile />
         )}
         <JobWizard open={showWizard} onClose={() => { setShowWizard(false); setWizardPreset(null); }} onCreated={() => { setShowWizard(false); setWizardPreset(null); load(); }} preselectedAccountId={wizardPreset?.accountId} preselectedPropertyId={wizardPreset?.propertyId} presetDate={wizardPreset?.date} />
+        <NewEventModal open={showEventModal} onClose={() => setShowEventModal(false)} onCreated={() => { setShowEventModal(false); load(); }} employees={data?.employees ?? []} date={dateKey(selectedDate)} />
         <LegendPopover open={legendOpen} onClose={() => setLegendOpen(false)} mobile={isMobile} anchorRect={legendAnchor} />
         <MobileDateSheet open={dateSheetOpen} selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setDateSheetOpen(false)} />
       </DashboardLayout>

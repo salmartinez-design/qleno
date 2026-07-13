@@ -313,6 +313,11 @@ router.get("/overtime-check", requireAuth, requireRole("owner", "admin", "office
           eq(jobsTable.status, "complete"),
           gte(jobsTable.scheduled_date, from as string),
           lte(jobsTable.scheduled_date, to as string),
+          // [office-events 2026-07-13] Only real cleaning visits earn commission.
+          // Office events (meetings/trainings) are jobs rows with a non-cleaning
+          // job_kind; exclude them so a clocked/completed meeting can't produce a
+          // $0 (or any) commission row. Their pay is the hourly event line (slice 2).
+          eq(jobsTable.job_kind, "cleaning"),
         ));
 
       // Per-job final_pay overrides (one query for the whole range).
