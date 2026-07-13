@@ -333,6 +333,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     // [commercial-cadence 2026-06-23] Nth-weekday recurring ("3rd Wednesday",
     // "last Friday"): frequency='monthly_weekday' + week_of_month (1..4, 5=last).
     { label: "recurring_frequency += monthly_weekday", stmt: "ALTER TYPE recurring_frequency ADD VALUE IF NOT EXISTS 'monthly_weekday'" },
+    // [office-events 2026-07-13] Placeholder service_type for non-cleaning office
+    // events (meetings/trainings/1-1s). service_type is NOT NULL; the real
+    // event discriminator is jobs.job_kind='office_event'.
+    { label: "service_type += office_event", stmt: "ALTER TYPE service_type ADD VALUE IF NOT EXISTS 'office_event'" },
     { label: "recurring_schedules.week_of_month", stmt: "ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS week_of_month INTEGER" },
     { label: "addons.parking+manual → both", stmt: "UPDATE pricing_addons SET applies_to='both' WHERE company_id=1 AND applies_to='residential' AND (name ILIKE 'Parking Fee' OR name ILIKE 'Manual Adjustment')" },
     { label: "addons.commercial adjustment → commercial", stmt: "UPDATE pricing_addons SET applies_to='commercial' WHERE company_id=1 AND applies_to='residential' AND name ILIKE 'Commercial Adjustment'" },

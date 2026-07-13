@@ -26,6 +26,12 @@ export const serviceTypeEnum = pgEnum("service_type", [
   // specialty in service_types (per-company row); historical jobs keep
   // their stored slug. Companion DB ALTER applied directly on prod.
   "carpet_cleaning",
+  // [office-events 2026-07-13] Placeholder service_type for non-cleaning office
+  // events (meetings, trainings, 1-1s). service_type is NOT NULL, so an event
+  // job needs a value; this one is self-documenting and is never treated as a
+  // billable/commissionable service — the real discriminator is job_kind
+  // ('office_event'), which every pay/commission/invoice path already skips.
+  "office_event",
 ]);
 
 export const frequencyEnum = pgEnum("frequency", [

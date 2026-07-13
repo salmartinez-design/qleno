@@ -499,6 +499,11 @@ router.post("/", requireAuth, async (req, res) => {
       frequency, base_fee, allowed_hours, notes,
       account_id, account_property_id, billing_method, hourly_rate, estimated_hours,
       branch_id, add_ons, team_user_ids, days_of_week,
+      // [office-events 2026-07-13] job_kind separates real cleaning visits from
+      // office events (meetings, trainings, 1-1s). Events are jobs rows with
+      // job_kind='office_event' + service_type='office_event' — no client, no
+      // commission, no invoice; every pay path skips them on this flag.
+      job_kind,
     } = req.body;
 
     // [multi-tech-create 2026-06-04] The wizard's tech picker is multi-select.
@@ -520,6 +525,7 @@ router.post("/", requireAuth, async (req, res) => {
         client_id: client_id || null,
         assigned_user_id: primaryTechId,
         service_type,
+        job_kind: (job_kind && String(job_kind).trim()) ? String(job_kind).trim() : "cleaning",
         scheduled_date,
         scheduled_time,
         frequency,
