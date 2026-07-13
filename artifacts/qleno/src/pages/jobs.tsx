@@ -2587,6 +2587,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             </div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 5, flexWrap: "wrap", paddingLeft: job.zone_color ? 19 : 0 }}>
               <span style={{ display: "inline-block", fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", padding: "2px 8px", borderRadius: 4, backgroundColor: "var(--brand-dim)", color: "var(--brand)" }}>{fmtSvc(job.service_type)}</span>
+              {/* [job-number 2026-07-13] The job's id, so the office can identify a
+                  specific job (e.g. spot a duplicate) and cross-reference it in the
+                  activity/audit tab. Maribel's request. */}
+              <span title="Job number — use this to identify the job in the activity tab" style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", fontVariantNumeric: "tabular-nums" }}>#{job.id}</span>
               {job.zone_name && <span style={{ fontSize: 11, fontWeight: 700, color: job.zone_color ?? "#6B6860" }}>{job.zone_name}</span>}
             </div>
           </div>
@@ -5010,6 +5014,9 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2, flexWrap: "wrap" }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: "#1A1917", textDecoration: visual.strikethrough ? "line-through" : "none" }}>{job.display_name ?? job.client_name}</div>
+            {/* [job-number 2026-07-13] Job id on the card so the office can identify
+                a specific job / duplicate and match it in the activity tab. */}
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", fontVariantNumeric: "tabular-nums" }}>#{job.id}</span>
             {isCommercial && (
               <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "var(--brand-dim, #EBF4FF)", color: "var(--brand, #00C9A0)" }}>
                 <Building2 size={9}/> Comm.
