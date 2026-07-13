@@ -93,6 +93,15 @@ function fmtApptDate(dateStr: any): string {
 
 function labelService(raw: string | null): string {
   if (!raw) return "Cleaning service";
+  // Client-facing overrides where the title-cased slug reads wrong. move_out is
+  // PHES's combined "Move In / Move Out" product (see jobs.tsx scopeLabel).
+  const OVERRIDES: Record<string, string> = {
+    move_out: "Move In / Move Out",
+    move_in: "Move In",
+    standard_clean: "Standard Clean",
+    deep_clean: "Deep Clean",
+  };
+  if (OVERRIDES[raw]) return OVERRIDES[raw];
   return raw.split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 

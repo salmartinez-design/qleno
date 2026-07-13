@@ -71,6 +71,11 @@ export const jobsTable = pgTable("jobs", {
   // query builder can read them. time_change_from holds the prior "HH:MM".
   time_change_pending: boolean("time_change_pending").notNull().default(false),
   time_change_from: text("time_change_from"),
+  // [auto-promo-suppress] When the office removes an AUTO_ promo from this job,
+  // this flag records the intent so the self-healing chokepoint
+  // (ensureAutoPromosForJob) stops re-stamping it. Cleared by the re-apply
+  // endpoint. Column added at boot by runAutoPromosMigration.
+  auto_promos_suppressed: boolean("auto_promos_suppressed").notNull().default(false),
   frequency: frequencyEnum("frequency").notNull().default("on_demand"),
   base_fee: numeric("base_fee", { precision: 10, scale: 2 }).notNull(),
   fee_split_pct: numeric("fee_split_pct", { precision: 5, scale: 2 }),

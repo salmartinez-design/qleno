@@ -8,6 +8,7 @@ import { getBranchByZip } from "../lib/branchRouter";
 import { randomBytes } from "crypto";
 import { generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
 import { persistJobAddOns } from "./jobs.js";
+import { resolveServiceType } from "../lib/serviceType.js";
 
 const router = Router();
 
@@ -492,7 +493,11 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     if (q.scope_id) {
       const scopeResult = await db.execute(sql`SELECT name FROM pricing_scopes WHERE id = ${q.scope_id} LIMIT 1`);
       const scopeName = ((scopeResult.rows[0] as any)?.name || "").toLowerCase().trim();
-      serviceType = SCOPE_TO_ENUM[scopeName] || "standard_clean";
+      // Strict table first (preserves exact commercial mappings), then a robust
+      // keyword resolver so punctuation/spacing variants of hourly scopes
+      // (e.g. "Hourly Move-In / Move-Out") resolve to the right enum instead of
+      // silently collapsing to standard_clean. See lib/serviceType.ts.
+      serviceType = SCOPE_TO_ENUM[scopeName] || resolveServiceType(scopeName);
     }
 
     // [multi-frequency] Book the customer's CHOSEN tier. Override precedence:

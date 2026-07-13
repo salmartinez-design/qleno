@@ -180,6 +180,28 @@ function normalizeTimeStr(t: string | null | undefined): string {
   return `${m[1].padStart(2, "0")}:${m[2]}`;
 }
 
+// Client mirror of api-server/src/lib/serviceType.ts resolveServiceType. Keep in
+// sync — used when the operator changes the residential Service Type dropdown so
+// the job's service_type persists (see save payload). Values line up with the
+// service_type enum in lib/db/src/schema/jobs.ts.
+function scopeNameToServiceType(scopeName: string | null | undefined): string {
+  const n = (scopeName || "").toLowerCase().trim();
+  if (!n) return "standard_clean";
+  if (n.includes("move out") || n.includes("move-out") || (n.includes("move in") && n.includes("out"))) return "move_out";
+  if (n.includes("move in") || n.includes("move-in")) return "move_in";
+  if (n.includes("post construction") || n.includes("post-construction")) return "post_construction";
+  if (n.includes("post event") || n.includes("post-event")) return "post_event";
+  if (n.includes("deep")) return "deep_clean";
+  if (n.includes("carpet")) return "carpet_cleaning";
+  if (n.includes("ppm") && n.includes("turnover")) return "ppm_turnover";
+  if (n.includes("common area")) return "common_areas";
+  if (n.includes("recurring")) return "recurring";
+  if (n.includes("retail")) return "retail_store";
+  if (n.includes("medical")) return "medical_office";
+  if (n.includes("office") || n.includes("commercial")) return "office_cleaning";
+  return "standard_clean";
+}
+
 const FREQUENCIES_STANDARD: Array<{ value: string; label: string }> = [
   { value: "on_demand", label: "One-time" },
   { value: "weekly", label: "Weekly" },
@@ -262,6 +284,11 @@ export default function EditJobModal({
   // ── Form state ─────────────────────────────────────────────────────────
   const [scopeId, setScopeId] = useState<number | null>(null);
   const [scopes, setScopes] = useState<PricingScope[]>([]);
+  // The scopeId chosen on open is only a best-effort guess (the job doesn't
+  // store scope_id). We record it so save/dirty logic can tell an intentional
+  // Service Type change from the default guess, and never clobber a correct
+  // stored service_type on an unrelated save.
+  const initialScopeIdRef = useRef<number | null>(null);
   const [scopesLoading, setScopesLoading] = useState(true);
 
   const [frequency, setFrequency] = useState(job.frequency || "on_demand");
@@ -351,14 +378,25 @@ export default function EditJobModal({
   const [discReason, setDiscReason] = useState("");
   const [discCode, setDiscCode] = useState<string | null>(null);
   const [discBusy, setDiscBusy] = useState(false);
+  // [auto-promo-suppress] True when the office has removed the auto-promo from
+  // this job. Drives the "re-apply" affordance so the removal is undoable.
+  const [autoPromoSuppressed, setAutoPromoSuppressed] = useState(false);
   const discountTotal = jobDiscounts.reduce((s, d) => s + (d.amount || 0), 0);
 
   const reloadDiscounts = async () => {
     if (!job?.id) return;
     try {
       const r = await fetch(`${API}/api/jobs/${job.id}/discounts`, { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) { const d = await r.json(); setJobDiscounts(d.data ?? []); }
+      if (r.ok) { const d = await r.json(); setJobDiscounts(d.data ?? []); setAutoPromoSuppressed(!!d.auto_promo_suppressed); }
     } catch { /* non-fatal */ }
+  };
+  const reapplyAutoPromo = async () => {
+    if (!job?.id) return;
+    setDiscBusy(true);
+    try {
+      await fetch(`${API}/api/jobs/${job.id}/discounts/reapply-auto`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      await reloadDiscounts();
+    } catch { /* non-fatal */ } finally { setDiscBusy(false); }
   };
   useEffect(() => {
     reloadDiscounts();
@@ -764,8 +802,9 @@ export default function EditJobModal({
           s.name.toLowerCase().replace(/[^a-z0-9]+/g, "_").includes(job.service_type)
           || job.service_type.includes(s.name.toLowerCase().replace(/[^a-z0-9]+/g, "_"))
         );
-        if (guess) setScopeId(guess.id);
-        else if (list[0]) setScopeId(list[0].id);
+        const chosen = guess?.id ?? list[0]?.id ?? null;
+        if (chosen != null) setScopeId(chosen);
+        initialScopeIdRef.current = chosen;
       } catch {
         if (!cancelled) toast({ title: "Could not load pricing scopes", variant: "destructive" });
       } finally {
@@ -969,6 +1008,10 @@ export default function EditJobModal({
       const prevRate = job.hourly_rate != null ? Number(job.hourly_rate) : 0;
       if (Math.abs(hourlyRate - prevRate) > 0.001) return true;
     }
+    // [service-type fix] Residential Service Type change (scope dropdown).
+    // scopeId is a best-effort guess on open, so compare to the captured initial.
+    if (!isCommercial && scopeId != null && initialScopeIdRef.current != null
+        && scopeId !== initialScopeIdRef.current) return true;
     // [AI] Multi-day picker — frequency change to daily/weekdays/custom_days
     // already counts as dirty via the frequency check; days_of_week change
     // (when staying in custom_days) is also dirty.
@@ -1244,6 +1287,14 @@ export default function EditJobModal({
         if (commercialServiceType !== "") payload.service_type = commercialServiceType;
         // Don't overwrite a real hourly_rate with 0 on a manual-price save.
         if (hourlyRate > 0) payload.hourly_rate = hourlyRate;
+      } else if (scopeId != null && scopeId !== initialScopeIdRef.current) {
+        // [service-type fix] Residential: persist service_type when the operator
+        // actually changes the Service Type dropdown. Only fires on a real change
+        // (scopeId is a guess on open) so unrelated saves never clobber the stored
+        // value. Maps the selected scope's name to the enum with the same keyword
+        // logic as the server's convert path (api-server/lib/serviceType.ts).
+        const scopeName = scopes.find(s => s.id === scopeId)?.name;
+        payload.service_type = scopeNameToServiceType(scopeName);
       }
       // [AI] Multi-day fields. days_of_week is only meaningful when frequency
       // is one of the multi-day values; PATCH endpoint validates exclusivity.
@@ -2287,6 +2338,17 @@ export default function EditJobModal({
                   style={{ fontSize: 12, color: "#00936F", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 700, padding: 0 }}>
                   + Add discount
                 </button>
+              )}
+              {/* [auto-promo-suppress] Undo affordance — shown once the office has
+                  removed the auto-promo so the opt-out is reversible. */}
+              {autoPromoSuppressed && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                  <span>Auto-promo removed for this job.</span>
+                  <button onClick={reapplyAutoPromo} disabled={discBusy}
+                    style={{ fontSize: 12, color: "#00936F", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 700, padding: 0 }}>
+                    Re-apply
+                  </button>
+                </div>
               )}
               {discOpen && (
                 <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>

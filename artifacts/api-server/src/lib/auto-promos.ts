@@ -103,7 +103,7 @@ export async function ensureAutoPromosForJob(
   let job: any;
   try {
     [job] = (await exec.execute(sql`
-      SELECT service_type, base_fee, billed_amount, recurring_schedule_id, account_id
+      SELECT service_type, base_fee, billed_amount, recurring_schedule_id, account_id, auto_promos_suppressed
         FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `)).rows as any[];
   } catch {
@@ -124,6 +124,11 @@ export async function ensureAutoPromosForJob(
     // rather than risk a partial state.
     return null;
   }
+
+  // [auto-promo-suppress] The office removed the auto-promo from THIS job. Honor
+  // it: the prior AUTO_ rows are already cleared above, so we just stop before
+  // re-stamping. Re-apply endpoint clears the flag to bring the promo back.
+  if (job.auto_promos_suppressed) return null;
 
   if (!active.length) return null;
 
@@ -207,6 +212,13 @@ export async function runAutoPromosMigration(seedCompanyIds: number[] = [1, 4]):
     await db.execute(sql`
       CREATE UNIQUE INDEX IF NOT EXISTS auto_promos_company_kind_active_uidx
         ON auto_promos (company_id, kind) WHERE is_active = true
+    `);
+    // [auto-promo-suppress] Per-job opt-out. When the office removes an AUTO_
+    // promo line from a job, this flag records the intent so the self-healing
+    // chokepoint (ensureAutoPromosForJob) stops re-stamping it. Cleared by the
+    // re-apply endpoint. Idempotent — safe on every cold start.
+    await db.execute(sql`
+      ALTER TABLE jobs ADD COLUMN IF NOT EXISTS auto_promos_suppressed boolean NOT NULL DEFAULT false
     `);
     for (const cid of seedCompanyIds) {
       // Only seed if the company exists and has no active row for the kind.
