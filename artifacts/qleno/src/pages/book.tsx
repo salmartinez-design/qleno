@@ -573,38 +573,6 @@ export default function BookPage() {
     return () => clearTimeout(t);
   }, [step]);
 
-  // ── Booking-complete conversion signal to the phes.io parent page ──────────
-  // [booking-conversion 2026-07-13] The Google Ads / GA4 conversion is fired by
-  // the parent page (phes.io) that embeds this widget in an iframe. The old setup
-  // had NO dedicated completion event — the parent had to infer "booking done"
-  // from the generic scroll message (type "qleno-booking-scroll-top", step===5)
-  // which carried no booking id and no price. That's fragile, and it silently
-  // stopped counting conversions ~Jun 26 (real bookings kept completing; the
-  // parent just couldn't see them). This fires ONE explicit event when a booking
-  // truly completes (confirmation screen reached with a real result), carrying
-  // the booking id + amount + currency so the parent can fire a proper revenue
-  // conversion. Posts to "*" so it works regardless of which phes.io domain
-  // embeds it; the parent should validate event.origin on its side. Guarded so it
-  // fires exactly once per booking.
-  const conversionFiredRef = useRef(false);
-  useEffect(() => {
-    if (step !== 5 || !bookResult || conversionFiredRef.current) return;
-    conversionFiredRef.current = true;
-    const value = Number(
-      bookResult?.firstVisitTotal ??
-      (calcResult ? effectiveTotal(calcResult) * conditionMultiplier : 0),
-    ) || 0;
-    try {
-      window.parent?.postMessage({
-        type: "qleno-booking-complete",
-        bookingId: bookResult?.jobId ?? null,
-        clientId: bookResult?.clientId ?? null,
-        value,
-        currency: "USD",
-      }, "*");
-    } catch { /* not embedded */ }
-  }, [step, bookResult, calcResult, conditionMultiplier]);
-
   // ── Wire autocomplete after Maps is ready AND input is in the DOM ──────────
   useEffect(() => {
     if (!mapsReady || !inputMounted || !addressInputRef.current) return;
