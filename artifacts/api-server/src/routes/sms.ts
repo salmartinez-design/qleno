@@ -111,7 +111,12 @@ router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), asyn
       }
       if (dripLeadId) {
         const touches = await db.execute(sql`
-          SELECT ml.id, ml.body, ml.channel::text AS channel, ml.sent_at,
+          SELECT ml.id, ml.body, ml.channel::text AS channel,
+                 -- [drip-in-thread 2026-07-12] sent_at is timestamptz; return it as
+                 -- a clean UTC ISO string ("…T…Z") so the thread's time formatter
+                 -- renders "8:36 PM" like every other bubble instead of the raw
+                 -- "2026-07-13 01:36:13.246233+00" Postgres text.
+                 to_char(ml.sent_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS sent_at,
                  COALESCE(fs.name, fs.sequence_type::text) AS campaign, ml.step_number
             FROM message_log ml
             JOIN follow_up_enrollments fe ON fe.id = ml.enrollment_id
