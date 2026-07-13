@@ -23,12 +23,16 @@ interface Convo {
   last_inbound_drip?: boolean;
 }
 interface Msg {
-  id: number; direction: string; body: string; from_number: string | null;
+  id: number | string; direction: string; body: string; from_number: string | null;
   to_number: string | null; status: string; read_at: string | null; created_at: string;
   media_urls?: string[] | null; sent_by_name?: string | null;
   // [drip-reply-tag 2026-07-12] Set on inbound replies that arrived within 5 days
   // after a drip touch to the same lead, so the office sees WHY they texted.
   drip_related?: boolean; drip_campaign?: string | null; drip_step?: number | null;
+  // [drip-in-thread 2026-07-12] source==="drip" is an automated drip SMS touch
+  // folded into the thread (from message_log) so the office sees what the
+  // customer is replying to. Labeled so it doesn't read as a person's text.
+  source?: string;
 }
 interface ScheduledMsg {
   id: number; message: string; media_urls?: string[] | null;
@@ -713,19 +717,32 @@ export default function MessagesPage() {
                     {/* Sent/received messages */}
                     {thread.map(m => {
                       const inbound = m.direction === "inbound";
+                      const isDrip = !inbound && m.source === "drip";
                       const mediaKeys = Array.isArray(m.media_urls) ? m.media_urls : [];
                       return (
-                        <div key={m.id} style={{ display: "flex", flexDirection: "column", alignItems: inbound ? "flex-start" : "flex-end" }}>
-                          {!inbound && m.sent_by_name && (
+                        <div key={`${m.source || "s"}-${m.id}`} style={{ display: "flex", flexDirection: "column", alignItems: inbound ? "flex-start" : "flex-end" }}>
+                          {/* [drip-in-thread 2026-07-12] Automated drip touch, labeled so
+                              it doesn't read as an office reply. */}
+                          {isDrip ? (
+                            <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, paddingRight: 4 }}>
+                              <Zap size={10} color="#7C3AED" />
+                              <span style={{ fontSize: 10, color: "#7C3AED", fontWeight: 700 }}>
+                                Drip{m.drip_campaign ? ` · ${prettyCampaign(m.drip_campaign)}` : ""}{m.drip_step ? ` · touch ${m.drip_step}` : ""}
+                              </span>
+                            </div>
+                          ) : (!inbound && m.sent_by_name && (
                             <div style={{ fontSize: 10, color: MUTE, fontWeight: 600, marginBottom: 2, paddingRight: 4 }}>{m.sent_by_name}</div>
-                          )}
-                          <div style={{ maxWidth: "75%", padding: "9px 12px", borderRadius: 12, background: inbound ? "#F1F0EC" : BRAND, color: inbound ? INK : "#04241d",
+                          ))}
+                          <div style={{ maxWidth: "75%", padding: "9px 12px", borderRadius: 12,
+                            background: inbound ? "#F1F0EC" : isDrip ? "#F3F0FD" : BRAND,
+                            color: inbound ? INK : isDrip ? "#2E1065" : "#04241d",
+                            border: isDrip ? "1px solid #E4DBFB" : "none",
                             borderBottomLeftRadius: inbound ? 3 : 12, borderBottomRightRadius: inbound ? 12 : 3 }}>
                             {m.body && (
                               <div style={{ fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.body}</div>
                             )}
                             {mediaKeys.map((key, idx) => (
-                              <AuthMedia key={idx} msgId={m.id} idx={idx} mediaKey={key} />
+                              <AuthMedia key={idx} msgId={m.id as number} idx={idx} mediaKey={key} />
                             ))}
                             <div style={{ fontSize: 10, marginTop: 4, opacity: 0.7, textAlign: "right" }}>
                               {fmtTime(m.created_at)}{!inbound && m.status && m.status !== "sent" ? ` · ${m.status}` : ""}

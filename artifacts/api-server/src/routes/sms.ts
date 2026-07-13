@@ -90,15 +90,18 @@ router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), asyn
     const phone = req.query.phone ? String(req.query.phone) : null;
     const clientId = req.query.client_id ? parseInt(String(req.query.client_id)) : null;
     const leadId = req.query.lead_id ? parseInt(String(req.query.lead_id)) : null;
-    const messages = await getThread(companyId, { clientId, leadId, phone });
+    let messages = await getThread(companyId, { clientId, leadId, phone }) as any[];
     const cp = phone10(phone || (messages[0] as any)?.contact_phone || "");
 
-    // [drip-reply-tag 2026-07-12] Flag inbound replies that arrived in response to
-    // a lead drip, so the office sees WHY someone texted (e.g. STOP) without
-    // opening the lead. A reply is drip-related when a drip touch (message_log)
-    // went to the same lead within 5 days before it. Read-only; no schema change.
+    // [drip-in-thread 2026-07-12] (1) Flag inbound replies that arrived in
+    // response to a lead drip, and (2) fold the actual drip SMS touches INTO the
+    // thread so the office sees WHAT the customer is replying to — not just that
+    // it's a drip reply — without opening the lead (Sal, on Mildred Spears'
+    // "Yes"). Drip sends live in message_log, never in sms_messages, so this is a
+    // read-only merge. SMS only: email touches stay on the lead (they're HTML and
+    // the office said they'll open the lead for those).
     try {
-      let dripLeadId = leadId ?? (messages as any[]).find(m => m.lead_id)?.lead_id ?? null;
+      let dripLeadId = leadId ?? messages.find(m => m.lead_id)?.lead_id ?? null;
       if (!dripLeadId && cp) {
         const lr = await db.execute(sql`
           SELECT id FROM leads WHERE company_id = ${companyId}
@@ -108,7 +111,8 @@ router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), asyn
       }
       if (dripLeadId) {
         const touches = await db.execute(sql`
-          SELECT ml.sent_at, COALESCE(fs.name, fs.sequence_type::text) AS campaign, ml.step_number
+          SELECT ml.id, ml.body, ml.channel::text AS channel, ml.sent_at,
+                 COALESCE(fs.name, fs.sequence_type::text) AS campaign, ml.step_number
             FROM message_log ml
             JOIN follow_up_enrollments fe ON fe.id = ml.enrollment_id
             LEFT JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
@@ -117,7 +121,8 @@ router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), asyn
         const trows = touches.rows as any[];
         if (trows.length) {
           const WINDOW = 5 * 24 * 3600 * 1000;
-          for (const m of messages as any[]) {
+          // (1) tag inbound replies with the drip that prompted them
+          for (const m of messages) {
             if (m.direction !== "inbound" || !m.created_at) continue;
             const t = new Date(m.created_at).getTime();
             let best: any = null;
@@ -127,9 +132,29 @@ router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), asyn
             }
             if (best) { m.drip_related = true; m.drip_campaign = best.campaign; m.drip_step = best.step_number; }
           }
+          // (2) fold drip SMS touches into the thread as outbound messages.
+          // Skip any already present in sms_messages (same body, minute-level) so
+          // a future recording path can't double them.
+          const seen = new Set(
+            messages.filter(m => m.direction === "outbound")
+              .map(m => `${String(m.body || "").trim()}|${m.created_at ? new Date(m.created_at).toISOString().slice(0, 16) : ""}`));
+          const dripMsgs = trows
+            .filter(tr => String(tr.channel).toLowerCase() === "sms")
+            .filter(tr => !seen.has(`${String(tr.body || "").trim()}|${tr.sent_at ? new Date(tr.sent_at).toISOString().slice(0, 16) : ""}`))
+            .map(tr => ({
+              id: `drip-${tr.id}`, source: "drip", direction: "outbound",
+              body: tr.body, from_number: null, to_number: cp || null,
+              status: "sent", read_at: null, created_at: tr.sent_at,
+              media_urls: null, sent_by_name: null,
+              drip_step: tr.step_number, drip_campaign: tr.campaign,
+            }));
+          if (dripMsgs.length) {
+            messages = [...messages, ...dripMsgs].sort(
+              (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+          }
         }
       }
-    } catch (e) { console.warn("[sms/thread] drip-tag skipped:", (e as any)?.message ?? e); }
+    } catch (e) { console.warn("[sms/thread] drip-merge skipped:", (e as any)?.message ?? e); }
 
     return res.json({ contact_phone: cp, messages });
   } catch (err) {
