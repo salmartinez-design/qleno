@@ -573,6 +573,45 @@ export default function BookPage() {
     return () => clearTimeout(t);
   }, [step]);
 
+  // ── Booking-complete conversion signal to the phes.io parent page ──────────
+  // [booking-conversion 2026-07-13] The Google Ads / GA4 conversion is fired by
+  // the parent page (phes.io) that embeds this widget. There was no dedicated
+  // completion event — the parent inferred it from the generic scroll message
+  // above (step===5), which is fragile and stopped counting ~Jun 26. This fires
+  // ONE explicit, additional event on completion with the booking id + quote id +
+  // amount + currency. The scroll message above is left untouched.
+  //
+  // TDZ NOTE (the #1050/#1051 outage): the first version put calcResult /
+  // conditionMultiplier in this effect's deps. conditionMultiplier is a `const`
+  // declared ~600 lines BELOW this point; the deps array is evaluated during
+  // render, so it threw "Cannot access before initialization" and crashed the
+  // widget on mount. The fix: the amount comes straight from the API response
+  // (bookResult) — this effect references ONLY early-declared state (step,
+  // bookResult), so it stays safely up here among the other hooks.
+  //
+  // targetOrigin: phes.io serves from BOTH https://phes.io AND https://www.phes.io
+  // (distinct origins). postMessage takes one targetOrigin, so post to each.
+  // Never "*" for a payload with a booking id + price.
+  const conversionFiredRef = useRef(false);
+  useEffect(() => {
+    if (step !== 5 || !bookResult || conversionFiredRef.current) return;
+    conversionFiredRef.current = true;
+    const PARENT_ORIGINS = ["https://phes.io", "https://www.phes.io"];
+    const value = Number(
+      bookResult?.firstVisitTotal ?? bookResult?.pricing?.final_total ?? 0,
+    ) || 0;
+    const payload = {
+      type: "qleno-booking-complete",
+      bookingId: bookResult?.jobId ?? bookResult?.job_id ?? null,
+      quoteId: bookResult?.quoteId ?? null,
+      value,
+      currency: "USD",
+    };
+    try {
+      PARENT_ORIGINS.forEach(o => window.parent?.postMessage(payload, o));
+    } catch { /* not embedded */ }
+  }, [step, bookResult]);
+
   // ── Wire autocomplete after Maps is ready AND input is in the DOM ──────────
   useEffect(() => {
     if (!mapsReady || !inputMounted || !addressInputRef.current) return;
