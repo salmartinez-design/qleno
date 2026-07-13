@@ -378,14 +378,25 @@ export default function EditJobModal({
   const [discReason, setDiscReason] = useState("");
   const [discCode, setDiscCode] = useState<string | null>(null);
   const [discBusy, setDiscBusy] = useState(false);
+  // [auto-promo-suppress] True when the office has removed the auto-promo from
+  // this job. Drives the "re-apply" affordance so the removal is undoable.
+  const [autoPromoSuppressed, setAutoPromoSuppressed] = useState(false);
   const discountTotal = jobDiscounts.reduce((s, d) => s + (d.amount || 0), 0);
 
   const reloadDiscounts = async () => {
     if (!job?.id) return;
     try {
       const r = await fetch(`${API}/api/jobs/${job.id}/discounts`, { headers: { Authorization: `Bearer ${token}` } });
-      if (r.ok) { const d = await r.json(); setJobDiscounts(d.data ?? []); }
+      if (r.ok) { const d = await r.json(); setJobDiscounts(d.data ?? []); setAutoPromoSuppressed(!!d.auto_promo_suppressed); }
     } catch { /* non-fatal */ }
+  };
+  const reapplyAutoPromo = async () => {
+    if (!job?.id) return;
+    setDiscBusy(true);
+    try {
+      await fetch(`${API}/api/jobs/${job.id}/discounts/reapply-auto`, { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      await reloadDiscounts();
+    } catch { /* non-fatal */ } finally { setDiscBusy(false); }
   };
   useEffect(() => {
     reloadDiscounts();
@@ -2327,6 +2338,17 @@ export default function EditJobModal({
                   style={{ fontSize: 12, color: "#00936F", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 700, padding: 0 }}>
                   + Add discount
                 </button>
+              )}
+              {/* [auto-promo-suppress] Undo affordance — shown once the office has
+                  removed the auto-promo so the opt-out is reversible. */}
+              {autoPromoSuppressed && (
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6, fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                  <span>Auto-promo removed for this job.</span>
+                  <button onClick={reapplyAutoPromo} disabled={discBusy}
+                    style={{ fontSize: 12, color: "#00936F", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 700, padding: 0 }}>
+                    Re-apply
+                  </button>
+                </div>
               )}
               {discOpen && (
                 <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 6 }}>

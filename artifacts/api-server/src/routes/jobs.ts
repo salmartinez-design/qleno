@@ -4751,7 +4751,16 @@ router.get("/:id/discounts", requireAuth, async (req, res) => {
     const rows = await db.select().from(jobDiscountsTable)
       .where(and(eq(jobDiscountsTable.job_id, jobId), eq(jobDiscountsTable.company_id, req.auth!.companyId!)))
       .orderBy(desc(jobDiscountsTable.created_at));
-    return res.json({ data: rows.map(r => ({ ...r, value: Number(r.value), amount: Number(r.amount) })) });
+    // [auto-promo-suppress] Surface the per-job opt-out so the UI can offer a
+    // "re-apply" affordance when the office has removed the auto-promo.
+    const [j] = await db.select({ suppressed: jobsTable.auto_promos_suppressed })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId!)))
+      .limit(1);
+    return res.json({
+      data: rows.map(r => ({ ...r, value: Number(r.value), amount: Number(r.amount) })),
+      auto_promo_suppressed: !!j?.suppressed,
+    });
   } catch (e) { console.error("list job discounts:", e); return res.status(500).json({ error: "Internal Server Error" }); }
 });
 
@@ -4787,15 +4796,44 @@ router.delete("/:id/discounts/:discountId", requireAuth, async (req, res) => {
   try {
     const jobId = parseInt(req.params.id);
     const discountId = parseInt(req.params.discountId);
+    // [auto-promo-suppress] If the office is removing an AUTO_ promo, record the
+    // intent BEFORE the invoice re-sync so the self-healing chokepoint
+    // (ensureAutoPromosForJob) doesn't re-stamp it right back in this same
+    // request. Without this the delete "works" for a beat and reappears.
+    const [target] = await db.select({ code: jobDiscountsTable.code })
+      .from(jobDiscountsTable)
+      .where(and(
+        eq(jobDiscountsTable.id, discountId),
+        eq(jobDiscountsTable.job_id, jobId),
+        eq(jobDiscountsTable.company_id, req.auth!.companyId!),
+      )).limit(1);
+    if (target?.code && target.code.startsWith("AUTO_")) {
+      await db.update(jobsTable).set({ auto_promos_suppressed: true })
+        .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId!)));
+    }
     await db.delete(jobDiscountsTable).where(and(
       eq(jobDiscountsTable.id, discountId),
       eq(jobDiscountsTable.job_id, jobId),
       eq(jobDiscountsTable.company_id, req.auth!.companyId!),
     ));
-    try { await logAudit(req, "job_discount.remove", "job", jobId, null, { discount_id: discountId }); } catch {}
+    try { await logAudit(req, "job_discount.remove", "job", jobId, null, { discount_id: discountId, code: target?.code ?? null }); } catch {}
     await syncJobInvoiceDraft(jobId, req.auth!.companyId!);
     return res.json({ ok: true });
   } catch (e) { console.error("delete job discount:", e); return res.status(500).json({ error: "Internal Server Error" }); }
+});
+
+// [auto-promo-suppress] Undo: re-enable auto-promos for a job the office
+// previously opted out. Clearing the flag lets the chokepoint re-stamp the
+// promo the job is entitled to on the next invoice build (triggered here).
+router.post("/:id/discounts/reapply-auto", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    await db.update(jobsTable).set({ auto_promos_suppressed: false })
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId!)));
+    try { await logAudit(req, "job_discount.reapply_auto", "job", jobId, null, {}); } catch {}
+    await syncJobInvoiceDraft(jobId, req.auth!.companyId!);
+    return res.json({ ok: true });
+  } catch (e) { console.error("reapply auto promo:", e); return res.status(500).json({ error: "Internal Server Error" }); }
 });
 
 router.delete("/:id/technicians/:techId", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
