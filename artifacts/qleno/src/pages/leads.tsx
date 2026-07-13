@@ -163,11 +163,19 @@ function KpiStrip({ counts, filter, onFilter }: {
   filter: string;
   onFilter: (f: string) => void;
 }) {
+  // [pipeline-clarity 2026-07-12] "Lost" collects the terminal statuses
+  // (no_response / not_interested / closed) behind their own tab so they stop
+  // sitting on the active board as a peer column to Booked — the thing that made
+  // the board read as two competing end-states. They're one click away, never
+  // deleted. The API's status filter accepts this comma list as-is.
+  const LOST_KEY = "no_response,not_interested,closed";
+  const lostN = (counts.no_response || 0) + (counts.not_interested || 0) + (counts.closed || 0);
   const tiles = [
     { key: "all",             label: "All leads",     n: counts.all || 0,             urgent: false },
     { key: "needs_contacted", label: "Needs contact", n: counts.needs_contacted || 0, urgent: true },
     { key: "quoted",          label: "Quoted",        n: counts.quoted || 0,          urgent: false },
     { key: "booked",          label: "Booked",        n: counts.booked || 0,          urgent: false },
+    { key: LOST_KEY,          label: "Lost",          n: lostN,                        urgent: false },
   ];
   return (
     <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "0 20px", display: "flex", gap: 0, flexShrink: 0 }}>
@@ -1713,21 +1721,22 @@ function cardStatus(l: any): { text: string; color: string; bold?: boolean } {
 // New → Contacted → Quoted → Booked. Each card carries price + Website/Office +
 // (for booked) "drip stopped". Clicking a card opens the same detail panel.
 function BoardView({ leads, selectedId, onSelect }: { leads: Lead[]; selectedId: number | null; onSelect: (l: Lead) => void }) {
-  // [no-response-column 2026-07-09] A 5th "Closed" column captures the terminal
-  // statuses (no_response / not_interested / closed). Without it those leads
-  // matched NO column and rendered nowhere — the office set a lead to
-  // "No Response" and it appeared to vanish (Francisco). They're never lost,
-  // just parked here where they can still be reopened.
+  // [pipeline-clarity 2026-07-12] The board is the ACTIVE pipeline only — one
+  // clean left-to-right funnel: New → Contacted → Quoted → Booked. The old 5th
+  // "Closed" column read like a second end-state competing with Booked and made
+  // the board hard to follow at a glance. Terminal leads (no_response /
+  // not_interested / closed) no longer render here; they live behind the "Lost"
+  // tab in the KPI strip (still reachable, never deleted — preserves the
+  // [no-response-column 2026-07-09] Francisco fix, just moved off the funnel).
   const COLS = [
-    { key: "needs", label: "Needs contact", color: "#B91C1C", match: (s: string) => !["contacted", "quoted", "booked", "no_response", "not_interested", "closed"].includes(s) },
+    { key: "needs", label: "New", color: "#B91C1C", match: (s: string) => !["contacted", "quoted", "booked", "no_response", "not_interested", "closed"].includes(s) },
     { key: "contacted", label: "Contacted", color: "#C2410C", match: (s: string) => s === "contacted" },
     { key: "quoted", label: "Quoted", color: "#1D4ED8", match: (s: string) => s === "quoted" },
     { key: "booked", label: "Booked", color: "#0F6E56", match: (s: string) => s === "booked" },
-    { key: "closed", label: "Closed", color: "#6B7280", match: (s: string) => ["no_response", "not_interested", "closed"].includes(s) },
   ];
   return (
     <div style={{ flex: 1, overflow: "auto", padding: 12, background: "#F7F6F3" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(180px,1fr))", gap: 10, minWidth: 980, height: "100%" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(200px,1fr))", gap: 10, minWidth: 820, height: "100%" }}>
         {COLS.map(col => {
           const items = leads.filter(l => col.match(String(l.status || "")));
           return (
@@ -1791,6 +1800,10 @@ export default function LeadsPage() {
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const { toast } = useToast();
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // [pipeline-clarity 2026-07-12] Lost leads only make sense as a flat list, not
+  // as a funnel stage — so the "Lost" tab always renders the list, whatever the
+  // Board/List toggle says.
+  const isLostFilter = filter === "no_response,not_interested,closed";
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -1933,11 +1946,20 @@ export default function LeadsPage() {
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
           <KpiStrip counts={counts} filter={filter} onFilter={handleFilter} />
 
+          {/* [pipeline-clarity 2026-07-12] One-line legend so the board explains
+              itself — a lead moves left → right; Booked is the win, Lost is its
+              own tab above. */}
+          {!isLostFilter && view === "board" && (
+            <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "7px 20px", fontSize: 11.5, color: "#8A8780", fontFamily: FF }}>
+              A lead moves <b style={{ color: "#6B6860" }}>left → right</b> as you work it: New → Contacted → Quoted → <b style={{ color: "#0F6E56" }}>Booked</b> (won). Leads that didn't move forward sit under <b style={{ color: "#6B6860" }}>Lost</b>.
+            </div>
+          )}
+
           <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-            {view === "board" && (
+            {!isLostFilter && view === "board" && (
               <BoardView leads={leads} selectedId={selectedLead?.id ?? null} onSelect={l => { setSelectedLead(l); setCheckedIds(new Set()); }} />
             )}
-            {view === "list" && (
+            {(isLostFilter || view === "list") && (
             <div style={{ width: 300, flexShrink: 0, borderRight: "1px solid #E8E5E0", background: "#fff", display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <div style={{ padding: "10px 14px", borderBottom: "0.5px solid #E8E5E0" }}>
                 <div style={{ position: "relative" }}>
