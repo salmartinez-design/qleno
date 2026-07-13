@@ -323,6 +323,11 @@ export default function MessagesPage() {
   const [scheduleTime, setScheduleTime] = useState("");
   const [scheduling, setScheduling] = useState(false);
   const threadEndRef = useRef<HTMLDivElement>(null);
+  const threadScrollRef = useRef<HTMLDivElement>(null);
+  // [thread-scroll 2026-07-13] Remembers which conversation + last message we
+  // last auto-scrolled for, so the 15s poll refetch doesn't yank the reader back
+  // to the newest text while they're scrolled up reading history.
+  const scrollStateRef = useRef<{ contact: string | null; lastId: string | null }>({ contact: null, lastId: null });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const replyRef = useRef<HTMLTextAreaElement>(null);
 
@@ -416,7 +421,29 @@ export default function MessagesPage() {
     }, 15000);
     return () => clearInterval(t);
   }, [loadConvos, loadThread, loadScheduled, active]);
-  useEffect(() => { threadEndRef.current?.scrollIntoView({ behavior: "smooth" }); }, [thread]);
+  // [thread-scroll 2026-07-13] The old version scrolled to the newest message on
+  // EVERY `thread` change — and the 15s poll re-sets `thread` each tick, so the
+  // office got dragged back to the bottom mid-read (Maribel + Francisco reported
+  // it). Now: jump to newest only when a conversation is OPENED, or when a
+  // genuinely new message arrives AND the reader is already near the bottom.
+  // A poll that returns the same messages scrolls nothing.
+  useEffect(() => {
+    const contact = active?.contact_phone ?? null;
+    const lastId = thread.length ? String(thread[thread.length - 1].id) : null;
+    const prev = scrollStateRef.current;
+    if (contact !== prev.contact) {
+      // Opened a different conversation → land on the newest message.
+      requestAnimationFrame(() => threadEndRef.current?.scrollIntoView({ behavior: "auto" }));
+    } else if (lastId && lastId !== prev.lastId) {
+      // New message in the same conversation → follow it down only if the reader
+      // hasn't scrolled up (within ~140px of the bottom).
+      const el = threadScrollRef.current;
+      const nearBottom = !el || el.scrollHeight - el.scrollTop - el.clientHeight < 140;
+      if (nearBottom) threadEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
+    scrollStateRef.current = { contact, lastId };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [thread]);
 
   function openConvo(c: Convo) {
     setActive(c); loadThread(c); loadScheduled(c);
@@ -692,7 +719,7 @@ export default function MessagesPage() {
                   </div>
 
                   {/* Thread messages */}
-                  <div style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 8, background: "#FAFAF9" }}>
+                  <div ref={threadScrollRef} style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 8, background: "#FAFAF9" }}>
 
                     {/* Scheduled messages (pending) shown at top with indicator */}
                     {scheduled.map(s => (
