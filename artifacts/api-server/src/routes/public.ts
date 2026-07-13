@@ -1269,7 +1269,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       }
     }
 
-    await db.execute(
+    const bookingQuoteRes = await db.execute(
       drizzleSql`
         INSERT INTO quotes (
           company_id, client_id, scope_id, sqft, frequency,
@@ -1283,9 +1283,12 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           ${bedrooms || null}, ${bathrooms || null}, ${pets || null},
           ${`Online booking: ${scopeName}, ${sqft} sqft, ${frequency}`},
           NOW()
-        )
+        ) RETURNING id
       `
     );
+    // [booking-conversion 2026-07-13] quote id handed back in the confirm response
+    // so the parent-page conversion event can include quoteId.
+    const bookingQuoteId = (bookingQuoteRes.rows[0] as any)?.id ?? null;
 
     // ── Create/advance lead record (booking_widget source) ────────────────────
     try {
@@ -1408,6 +1411,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       sqft: sqft ? parseInt(String(sqft)) : null,
       branchConfig,
       jobId,
+      quoteId: bookingQuoteId,
       clientId,
       stripeCustomerId: stripe_customer_id || null,
       stripePaymentMethodId: payment_method_id || null,
