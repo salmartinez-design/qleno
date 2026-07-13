@@ -385,6 +385,26 @@ router.post("/action", requireAuth, async (req, res) => {
                notes = ${appendedNotes}
          WHERE id = ${body.job_id} AND company_id = ${companyId}
       `);
+      // [recurring-dup-fix 2026-07-13] Tombstone a single-occurrence SKIP on the
+      // schedule (mirrors the DELETE tombstone at jobs.ts:3694) so the engine can
+      // never regenerate it — this is the "skip a service and it reappears" half
+      // of the bug. The cancelled row already fills the slot for the
+      // schedule-scoped dedup, but if that row is an orphan (occurrence_date NULL)
+      // or is later deleted, skipped_dates keeps the skip permanent. Cancel-service
+      // (affects_future_jobs) deactivates the whole schedule below, so a per-date
+      // skip is moot there — only record it for a lone-occurrence skip.
+      if (!policy.affects_future_jobs && row.recurring_schedule_id != null) {
+        const skipDate = row.occurrence_date ?? row.scheduled_date;
+        if (skipDate) {
+          await tx.execute(sql`
+            UPDATE recurring_schedules
+            SET skipped_dates = ARRAY(
+              SELECT DISTINCT unnest(COALESCE(skipped_dates, '{}'::date[]) || ARRAY[${skipDate}::date])
+            )
+            WHERE id = ${row.recurring_schedule_id} AND company_id = ${companyId}
+          `);
+        }
+      }
     }
 
     // Cancel Service — terminate this occurrence's FUTURE siblings on the same
