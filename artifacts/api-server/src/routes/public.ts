@@ -1237,6 +1237,11 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
               INSERT INTO jobs (
                 company_id, client_id, service_type, status,
                 scheduled_date, frequency, base_fee,
+                -- [recurring-dup-fix 2026-07-13] Link Job 2 to the schedule we just
+                -- created and stamp its occurrence slot. Without these the job was
+                -- an orphan (rs=NULL, occ=NULL) the engine couldn't see, so it
+                -- regenerated a DUPLICATE first visit onto the same date.
+                recurring_schedule_id, occurrence_date,
                 upsell_shown, upsell_accepted, upsell_cadence_selected,
                 arrival_window,
                 booking_location,
@@ -1246,6 +1251,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
               ) VALUES (
                 ${company_id}, ${clientId}, ${"recurring"}, ${"scheduled"},
                 ${recurringDateVal}::date, ${normalizedRecurFreq}, ${firstVisitRate},
+                ${scheduleId}, ${recurringDateVal}::date,
                 false, false, ${upsellCadenceVal},
                 ${arrivalWindowVal},
                 ${bookLocVal},

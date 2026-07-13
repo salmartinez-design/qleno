@@ -786,7 +786,12 @@ router.post("/", requireAuth, async (req, res) => {
           .returning();
 
         // Link THIS job as the first occurrence so the generator dedupe skips it.
-        await db.update(jobsTable).set({ recurring_schedule_id: sched.id }).where(eq(jobsTable.id, jobId));
+        // [recurring-dup-fix 2026-07-13] Also stamp occurrence_date (= its own
+        // scheduled_date). Without it the anchor had occ=NULL, so if the office
+        // later MOVED this job the dedup's COALESCE(occurrence_date, scheduled_date)
+        // followed it to the new day and freed the original slot — the engine then
+        // regenerated a DUPLICATE on the original date.
+        await db.execute(sql`UPDATE jobs SET recurring_schedule_id = ${sched.id}, occurrence_date = scheduled_date WHERE id = ${jobId} AND company_id = ${req.auth!.companyId}`);
 
         // Carry the wizard's add-ons onto the schedule template so future
         // occurrences inherit them (the generator only stamps parking itself).
