@@ -4,7 +4,7 @@
 // Complete. Everything here is gated to the owner both in the UI (the tab only
 // renders for isOwner) and on the server (every /api/one-on-ones route is
 // requireRole("owner")). No SMS/email ever fires.
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { MessageSquare, Plus, ChevronLeft, Trash2, Check, ChevronRight } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
@@ -45,6 +45,11 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // [autosave 2026-07-14] Answers persist automatically ~700ms after you stop
+  // typing, so a live 1-on-1 can never lose a note. dirtyRef guards against
+  // firing on the initial load (openRecord hydrates responses/notes directly).
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const dirtyRef = useRef(false);
 
   const loadList = useCallback(async () => {
     setLoading(true);
@@ -66,10 +71,44 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
       setDetail(d);
       setResponses(d.responses ?? {});
       setNotes(d.notes ?? "");
+      dirtyRef.current = false;   // hydration, not a user edit — don't autosave
+      setSaveState("idle");
     } catch (e: any) {
       setError(e?.message || "Could not open this 1-on-1.");
     } finally { setOpeningId(null); }
   }, [API]);
+
+  // [autosave 2026-07-14] Debounced silent save of responses + notes. Reschedules
+  // on every edit (cleanup clears the pending timer), so it fires ~700ms after
+  // the last keystroke with the latest values. dirtyRef ensures it only runs
+  // after a real user edit, never on load. Completion still goes through save().
+  useEffect(() => {
+    if (!detail || !dirtyRef.current) return;
+    const t = setTimeout(async () => {
+      setSaveState("saving");
+      try {
+        const r = await fetch(`${API}/api/one-on-ones/${detail.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json", ...authHeaders() },
+          body: JSON.stringify({ responses, notes }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        dirtyRef.current = false;
+        setSaveState("saved");
+      } catch {
+        setSaveState("error"); // stays dirty; the visible banner tells the owner
+      }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [responses, notes, detail, API]);
+
+  // Backstop: warn before leaving with an unsaved edit still pending.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (dirtyRef.current) { e.preventDefault(); e.returnValue = ""; }
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
 
   const schedule = useCallback(async () => {
     setBusy(true); setError(null);
@@ -100,6 +139,8 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const updated = await r.json();
       setDetail(d => (d ? { ...d, ...updated } : d));
+      dirtyRef.current = false;
+      setSaveState("saved");
       await loadList();
     } catch (e: any) {
       setError(e?.message || "Could not save.");
@@ -169,7 +210,7 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
             {q.hint && <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 6 }}>{q.hint}</div>}
             <textarea
               value={responses[q.id] ?? ""}
-              onChange={e => setResponses(r => ({ ...r, [q.id]: e.target.value }))}
+              onChange={e => { dirtyRef.current = true; setResponses(r => ({ ...r, [q.id]: e.target.value })); }}
               placeholder="Capture what they shared…"
               style={{ width: "100%", minHeight: 68, resize: "vertical", padding: "10px 12px", borderRadius: 10, border: "1px solid #E5E2DC", fontSize: 14, fontFamily: FF, color: "#1A1917", boxSizing: "border-box" }}
             />
@@ -181,21 +222,30 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
           <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: "#9E9B94", marginBottom: 4 }}>Private notes / follow-ups</div>
           <textarea
             value={notes}
-            onChange={e => setNotes(e.target.value)}
+            onChange={e => { dirtyRef.current = true; setNotes(e.target.value); }}
             placeholder="Your own notes — never shared."
             style={{ width: "100%", minHeight: 80, resize: "vertical", padding: "10px 12px", borderRadius: 10, border: "1px solid #E5E2DC", fontSize: 14, fontFamily: FF, color: "#1A1917", boxSizing: "border-box" }}
           />
         </div>
 
         {error && <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>}
+        {saveState === "error" && !error && (
+          <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <span>Couldn't save your last edit — don't close this yet.</span>
+            <button onClick={() => save(false)} style={{ border: "1px solid #FECACA", background: "#FFFFFF", color: "#B91C1C", borderRadius: 8, padding: "5px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Retry</button>
+          </div>
+        )}
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <button onClick={() => save(false)} disabled={busy} style={{ padding: "11px 20px", borderRadius: 10, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#1A1917", fontWeight: 700, fontSize: 14, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
-            {busy ? "Saving…" : "Save"}
-          </button>
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
           <button onClick={() => save(true)} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 6, padding: "11px 22px", borderRadius: 10, border: "none", background: BRAND, color: "#0A0E1A", fontWeight: 800, fontSize: 14, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
             <Check size={15} /> {isComplete ? "Save & keep completed" : "Complete 1-on-1"}
           </button>
+          <span style={{ fontSize: 12.5, color: saveState === "error" ? "#B91C1C" : "#9E9B94", display: "flex", alignItems: "center", gap: 5 }}>
+            {saveState === "saving" ? "Saving…"
+              : saveState === "saved" ? (<><Check size={13} style={{ color: "#16A34A" }} /> All changes saved automatically</>)
+              : saveState === "error" ? "Save failed"
+              : "Answers save automatically as you type"}
+          </span>
         </div>
       </div>
     );
