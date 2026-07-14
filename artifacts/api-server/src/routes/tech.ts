@@ -334,6 +334,22 @@ router.get("/scorecard", requireAuth, async (req, res) => {
         source: scorecardEntriesTable.source,
         notes: scorecardEntriesTable.notes,
         job_id: scorecardEntriesTable.job_id,
+        // [tech-scorecard 2026-07-14] Who left the rating — resolve the client
+        // via the entry's job (client, or account name for commercial), falling
+        // back to the linked survey's customer. Null for MC-imported rows with
+        // no job/survey link.
+        client_name: sql<string | null>`COALESCE(
+          (SELECT CASE WHEN j.account_id IS NOT NULL THEN a.account_name
+                       ELSE NULLIF(btrim(concat(c.first_name, ' ', c.last_name)), '') END
+             FROM jobs j
+             LEFT JOIN clients c ON c.id = j.client_id
+             LEFT JOIN accounts a ON a.id = j.account_id
+            WHERE j.id = ${scorecardEntriesTable.job_id}),
+          (SELECT NULLIF(btrim(concat(c.first_name, ' ', c.last_name)), '')
+             FROM satisfaction_surveys ss
+             JOIN clients c ON c.id = ss.customer_id
+            WHERE ss.id = ${scorecardEntriesTable.survey_id})
+        )`,
       })
       .from(scorecardEntriesTable)
       .where(and(
