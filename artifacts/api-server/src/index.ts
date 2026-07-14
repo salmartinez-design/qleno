@@ -390,6 +390,37 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] addInvoiceColumns — non-fatal:", err?.message ?? err);
   }
+  // [dispatch-events 2026-07-14] Non-job board entries (tech blocks, company-day
+  // markers, non-job client visits) created from + New → Event. Additive table,
+  // no FK touches existing rows, so this is safe on every cold start. Idempotent.
+  try {
+    await withBootTimeout("ensureDispatchEventsSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS dispatch_events (
+          id serial PRIMARY KEY,
+          company_id integer NOT NULL REFERENCES companies(id),
+          branch_id integer REFERENCES branches(id),
+          kind text NOT NULL DEFAULT 'tech_block',
+          title text NOT NULL,
+          assigned_user_id integer REFERENCES users(id),
+          client_id integer REFERENCES clients(id),
+          event_date date NOT NULL,
+          start_time time,
+          end_time time,
+          all_day boolean NOT NULL DEFAULT false,
+          notes text,
+          color text,
+          created_by_user_id integer REFERENCES users(id),
+          created_at timestamp NOT NULL DEFAULT now()
+        )
+      `);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_dispatch_events_company_date ON dispatch_events(company_id, event_date)`);
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureDispatchEventsSchema — non-fatal:", err?.message ?? err);
+  }
   try {
     await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());
   } catch (err: any) {

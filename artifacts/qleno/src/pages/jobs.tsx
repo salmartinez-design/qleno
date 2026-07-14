@@ -7,6 +7,7 @@ import { useBranch } from "@/contexts/branch-context";
 import { useToast } from "@/hooks/use-toast";
 import { mapsDirectionsUrl } from "@/lib/format-address";
 import { JobWizard } from "@/components/job-wizard";
+import { EventModal } from "@/components/event-modal";
 import EditJobModal from "@/components/edit-job-modal";
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, useSensor, useSensors,
@@ -81,6 +82,26 @@ interface JobAddOn { name: string; quantity: number; unit_price: number; subtota
 interface DispatchJob { id: number; client_id: number; client_name: string; /* [scheduling-engine 2026-04-29] display_name = "Company - Contact" for commercial clients with company_name set; falls back to client_name otherwise. Use this on every chip/header/hover surface so the composition rule lives server-side. */ display_name?: string; client_company_name?: string | null; client_phone?: string | null; client_zip?: string | null; client_notes?: string | null; client_payment_method?: string | null; /* [tile redesign] residential or commercial badge; commercial when account_id is set OR client_type === 'commercial' */ client_type?: "residential" | "commercial" | null; address: string | null; /* [inline-edit] raw fields for address editor mode detection */ job_address_street?: string | null; job_address_city?: string | null; job_address_state?: string | null; job_address_zip?: string | null; client_address?: string | null; client_city?: string | null; client_state?: string | null; client_address_zip?: string | null; assigned_user_id: number | null; assigned_user_name?: string; job_lat?: number | null; job_lng?: number | null; service_type: string; status: string; scheduled_date: string; scheduled_time: string | null; /* [time-change-notice] same-day time bump raises a manual "notify the client of the new arrival time" note on the card; time_change_from is the prior "HH:MM" */ time_change_pending?: boolean; time_change_from?: string | null; frequency: string; amount: number; duration_minutes: number; notes: string | null; office_notes?: string | null; office_notes_updated_at?: string | null; office_notes_updated_by_name?: string | null; before_photo_count: number; after_photo_count: number; clock_entry: ClockEntry | null; zone_id?: number | null; zone_color?: string | null; zone_name?: string | null; branch_id?: number | null; branch_name?: string | null; last_service_date?: string | null; account_id?: number | null; account_name?: string | null; billing_method?: string | null; hourly_rate?: number | null; estimated_hours?: number | null; actual_hours?: number | null; billed_hours?: number | null; billed_amount?: number | null; /* [flat-addon-itemize] all-in service+add-ons amount BEFORE adjustments; the pricing card's base line = base_fee − add-ons so a rate-mod never shifts it */ base_fee?: number | null; /* [commercial-revenue 2026-06-04] allowed_hours drives the "$50/hr × 8h" card display; manual_rate_override distinguishes a flat pinned price from rate×hours billing */ allowed_hours?: number | null; manual_rate_override?: boolean | null; charge_failed_at?: string | null; charge_succeeded_at?: string | null; property_access_notes?: string | null; booking_location?: string | null; technicians?: JobTechCommission[]; est_hours_per_tech?: number | null; est_pay_per_tech?: number | null; company_res_pct?: number | null; /* [AI.7.4] Commission routing — 'commercial_hourly' or 'residential_pool' */ commission_basis?: "commercial_hourly" | "residential_pool" | null; commercial_hourly_rate?: number | null; /* [AF] completion lock state */ locked_at?: string | null; /* [lockout-visibility 2026-06-17] 'cancel'|'lockout' when this completed job is a charged cancellation/lockout (fee billed, not a visit); drives the charged_cancel visual + fee badge */ cancel_action?: string | null; actual_end_time?: string | null; completed_by_user_id?: number | null; /* [job-card-redesign] Add-ons drive the +N pill on the chip and the full list in the popover. is_new_client = first-ever residential job (no prior completed). en_route_at scaffolds the "On My Way" status; column doesn't exist yet, so the field is always undefined until the SMS engine lands. */ add_ons?: JobAddOn[]; is_new_client?: boolean; en_route_at?: string | null; /* [phes-lifecycle 2026-04-29] Manual no-show flag set by the field app's "No Show" button. Drives the NO_SHOW visual state via getJobVisualStatus. Until the field-app button ships, both fields stay null. */ no_show_marked_by_tech?: string | null; no_show_marked_by_user_id?: number | null; /* [dispatch-invoice 2026-06-27] Live invoice for this job — null until the job completes and the engine fires. */ invoice_id?: number | null; invoice_status?: string | null; invoice_total?: string | null; /* [commission-override 2026-06-27] */ commission_override_pct?: number | null; /* [BUG-3F2 / 2026-06-02] Multi-tech fan-out fields. team_role identifies whether this card renders for the primary or a team member, so the FE can style team-member cards differently. revenue_share is the per-tech weighted share of the job amount; the badge sums revenue_share (when present) instead of amount so per-row totals don't double-count shared jobs across the company. */ team_role?: "primary" | "team"; revenue_share?: number; }
 interface Employee { id: number; name: string; role: string; is_trainee?: boolean; jobs: DispatchJob[]; zone?: { zone_id: number; zone_color: string; zone_name: string } | null; time_off?: string | null; time_off_unit?: 'full_day' | 'morning' | 'afternoon' | 'custom' | null; time_off_color?: string | null; time_off_label?: string | null; /* [time-block 2026-07-08] designated window ("HH:MM") when unit='custom' — the band tints only this span */ time_off_start?: string | null; time_off_end?: string | null; commission_rate?: number | null; avatar_url?: string | null; }
 interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; }
+
+// [dispatch-events 2026-07-14] A non-job board entry (see routes/dispatch-events.ts).
+// kind drives where it renders: tech_block / client_visit → a chip on the tech's
+// row (assigned_user_id set); company_day → a banner lane across the top.
+interface DispatchEvent {
+  id: number;
+  kind: "tech_block" | "company_day" | "client_visit";
+  title: string;
+  branch_id: number | null;
+  assigned_user_id: number | null;
+  assigned_user_name: string | null;
+  client_id: number | null;
+  client_name: string | null;
+  event_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  all_day: boolean;
+  notes: string | null;
+  color: string | null;
+}
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 // [tz-fix 2026-07-02] LOCAL calendar date, never UTC. `toISOString()` returns
@@ -506,6 +527,23 @@ async function fetchDispatch(date: string, token: string, branchId?: number | "a
     throw new Error(msg);
   }
   return r.json();
+}
+
+// [dispatch-events 2026-07-14] Board events for one day. Best-effort and fully
+// isolated from fetchDispatch — a failure here returns [] so the board still
+// renders its jobs. Never throws to the caller.
+async function fetchEvents(date: string, token: string, branchId?: number | "all"): Promise<DispatchEvent[]> {
+  const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const params = new URLSearchParams({ date });
+  if (branchId && branchId !== "all") params.set("branch_id", String(branchId));
+  try {
+    const r = await fetch(`${API}/api/dispatch-events?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!r.ok) return [];
+    const rows = await r.json();
+    return Array.isArray(rows) ? rows : [];
+  } catch {
+    return [];
+  }
 }
 
 // Module-level dispatch cache — keyed by "YYYY-MM-DD:branchId".
@@ -6429,7 +6467,108 @@ function packLanes(jobs: DispatchJob[]): { topById: Map<number, number>; rowHeig
   return { topById, rowHeight };
 }
 
-function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; onChipClick: (j: DispatchJob) => void; nowLine: number }) {
+// ─── DISPATCH EVENTS (non-job board entries) ─────────────────────────────────
+// [dispatch-events 2026-07-14] Events render as their own compact chips —
+// visually distinct from colorful job chips (warm-gray, dashed) so nobody reads
+// a "Team meeting" block as a cleaning job. tech_block / client_visit sit on the
+// tech's row (below their job lanes); company_day renders as a top banner lane.
+const EVENT_H = 28;
+const EVENT_GAP = 4;
+
+// Minutes window for an event, defaulting a missing end to +60 and clamping to
+// the visible grid so a chip can never render off-canvas.
+function eventWindowMins(ev: DispatchEvent): { start: number; end: number } {
+  const start = ev.start_time ? timeToMins(ev.start_time) : DAY_START;
+  const end = ev.end_time ? timeToMins(ev.end_time) : start + 60;
+  return { start, end: Math.max(end, start + 30) };
+}
+
+// Lane-pack events by time overlap, same idea as packLanes.
+function packEvents(evs: DispatchEvent[]): { laneById: Map<number, number>; laneCount: number } {
+  const laneById = new Map<number, number>();
+  if (evs.length === 0) return { laneById, laneCount: 0 };
+  const sorted = [...evs].sort((a, b) => {
+    const wa = eventWindowMins(a), wb = eventWindowMins(b);
+    return wa.start !== wb.start ? wa.start - wb.start : a.id - b.id;
+  });
+  const laneEnds: number[] = [];
+  for (const ev of sorted) {
+    const { start, end } = eventWindowMins(ev);
+    let lane = laneEnds.findIndex(e => e <= start);
+    if (lane === -1) { lane = laneEnds.length; laneEnds.push(end); }
+    else laneEnds[lane] = end;
+    laneById.set(ev.id, lane);
+  }
+  return { laneById, laneCount: laneEnds.length };
+}
+
+function EventChip({ ev, top, onDelete }: { ev: DispatchEvent; top: number; onDelete: (ev: DispatchEvent) => void }) {
+  const { start, end } = eventWindowMins(ev);
+  const left = Math.max(0, ((start - DAY_START) / 30) * SLOT_W);
+  const width = Math.max(SLOT_W * 0.9, ((end - start) / 30) * SLOT_W);
+  const timeLabel = ev.start_time ? `${fmtTime(ev.start_time)}${ev.end_time ? `–${fmtTime(ev.end_time)}` : ""}` : "";
+  const sub = ev.kind === "client_visit" ? (ev.client_name || "Client visit") : timeLabel;
+  const title = `${ev.title}${timeLabel ? ` · ${timeLabel}` : ""}${ev.notes ? `\n${ev.notes}` : ""}`;
+  return (
+    <div
+      title={title}
+      style={{
+        position: "absolute", top, left, width, height: EVENT_H, zIndex: 2,
+        boxSizing: "border-box", borderRadius: 7, padding: "3px 8px",
+        background: "#F1EFEA", border: "1px dashed #B8B2A6", color: "#44413B",
+        display: "flex", alignItems: "center", gap: 6, overflow: "hidden", fontFamily: FF,
+      }}
+    >
+      <Clock size={11} style={{ flexShrink: 0, color: "#8A8578" }} />
+      <span style={{ minWidth: 0, flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", fontSize: 11, fontWeight: 700 }}>
+        {ev.title}
+        {sub && <span style={{ fontWeight: 600, color: "#8A8578" }}>{`  ·  ${sub}`}</span>}
+      </span>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete(ev); }}
+        title="Remove event"
+        aria-label="Remove event"
+        style={{ flexShrink: 0, border: "none", background: "none", padding: 0, cursor: "pointer", color: "#A39D90", display: "flex", alignItems: "center" }}
+        onMouseEnter={(e) => (e.currentTarget.style.color = "#B91C1C")}
+        onMouseLeave={(e) => (e.currentTarget.style.color = "#A39D90")}
+      >
+        <X size={12} />
+      </button>
+    </div>
+  );
+}
+
+// Company-day banner — a full-width lane above the tech rows. Not tied to a
+// technician; one row per company_day event for the day.
+function CompanyDayBanner({ events, onDelete }: { events: DispatchEvent[]; onDelete: (ev: DispatchEvent) => void }) {
+  if (events.length === 0) return null;
+  return (
+    <div style={{ borderBottom: "1px solid #EEECE7", background: "#FBFAF7" }}>
+      {events.map(ev => {
+        const timeLabel = ev.all_day ? "All day" : (ev.start_time ? `${fmtTime(ev.start_time)}${ev.end_time ? `–${fmtTime(ev.end_time)}` : ""}` : "");
+        return (
+          <div key={ev.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 16px", fontFamily: FF }}>
+            <span style={{ fontSize: 9, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: "#8A6D3B", background: "#FCF3E3", border: "1px solid #ECD9B5", borderRadius: 5, padding: "2px 7px", flexShrink: 0 }}>Company</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis" }}>{ev.title}</span>
+            {timeLabel && <span style={{ fontSize: 12, color: "#9E9B94", flexShrink: 0 }}>{timeLabel}</span>}
+            <button
+              onClick={() => onDelete(ev)}
+              title="Remove event"
+              aria-label="Remove event"
+              style={{ marginLeft: "auto", border: "none", background: "none", padding: 4, cursor: "pointer", color: "#A39D90", display: "flex", alignItems: "center", flexShrink: 0 }}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#B91C1C")}
+              onMouseLeave={(e) => (e.currentTarget.style.color = "#A39D90")}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EmployeeRow({ employee, onChipClick, nowLine, events = [], onDeleteEvent }: { employee: Employee; onChipClick: (j: DispatchJob) => void; nowLine: number; events?: DispatchEvent[]; onDeleteEvent?: (ev: DispatchEvent) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: `row-${employee.id}` });
   const [, navigate] = useLocation();
   const initials = employee.name.split(" ").map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
@@ -6496,7 +6635,16 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
     : null;
   // [overlap-stacking] Stack time-overlapping chips into sub-lanes so none
   // hides another; row grows to fit. One sub-lane → unchanged 72px row.
-  const { topById, rowHeight } = packLanes(employee.jobs);
+  const { topById, rowHeight: jobsHeight } = packLanes(employee.jobs);
+  // [dispatch-events 2026-07-14] Pack this tech's events into lanes below the
+  // job lanes and grow the row to fit them. Events start just under the last
+  // job lane (or near the top when the tech has no jobs).
+  const { laneById: eventLaneById, laneCount: eventLaneCount } = packEvents(events);
+  const eventBaseTop = employee.jobs.length > 0 ? jobsHeight - 6 : 8;
+  const eventTop = (lane: number) => eventBaseTop + lane * (EVENT_H + EVENT_GAP);
+  const rowHeight = eventLaneCount > 0
+    ? Math.max(jobsHeight, eventTop(eventLaneCount - 1) + EVENT_H + 8)
+    : jobsHeight;
   return (
     <div style={{ display: "flex", borderBottom: "1px solid #EEECE7", height: rowHeight }}>
       <div style={{ position: "sticky", left: 0, zIndex: 5, width: COL_W, flexShrink: 0, backgroundColor: timeOffBg || "#FFFFFF", borderRight: "1px solid #E5E2DC", display: "flex", alignItems: "center", padding: "0 12px", gap: 9 }}>
@@ -6568,7 +6716,8 @@ function EmployeeRow({ employee, onChipClick, nowLine }: { employee: Employee; o
         })()}
         {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
         {employee.jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} assignedName={employee.name} top={topById.get(j.id) ?? 10} />)}
-        {employee.jobs.length === 0 && (
+        {events.map(ev => <EventChip key={`ev-${ev.id}`} ev={ev} top={eventTop(eventLaneById.get(ev.id) ?? 0)} onDelete={(e) => onDeleteEvent?.(e)} />)}
+        {employee.jobs.length === 0 && events.length === 0 && (
           // [2026-06-02] Was centered horizontally on a full-width row,
           // which made the label visually land around the 11:30–12:30
           // time column and read like "no techs working from 11:30–12:30"
@@ -7275,12 +7424,26 @@ export default function JobsPage() {
       const rest = sp.toString();
       navigate(`${window.location.pathname}${rest ? `?${rest}` : ""}`, { replace: true });
     }
+    // [dispatch-events 2026-07-14] "+ New → Event" arrives as ?newEvent=1 from
+    // any screen. Same reactive-search pattern as ?new=1 so it fires even when
+    // already on /dispatch. Opens the EventModal on the current board day.
+    if (sp.get("newEvent") === "1") {
+      setShowEventModal(true);
+      sp.delete("newEvent");
+      const rest = sp.toString();
+      navigate(`${window.location.pathname}${rest ? `?${rest}` : ""}`, { replace: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeSearch]);
   const [data, setData] = useState<DispatchData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedJob, setSelectedJob] = useState<DispatchJob | null>(null);
   const [showWizard, setShowWizard] = useState(false);
+  // [dispatch-events 2026-07-14] EventModal open state + the day's events.
+  // Events live in their OWN state (fetched in parallel with the dispatch
+  // payload) so they never touch the fragile dispatch data/cache pipeline.
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [events, setEvents] = useState<DispatchEvent[]>([]);
   // Account/property/date context carried in from an account-calendar
   // "+ New job" deep link; null for a plain New → Job open.
   const [wizardPreset, setWizardPreset] = useState<{ accountId: number | null; propertyId: number | null; date: string | null } | null>(null);
@@ -7379,10 +7542,17 @@ export default function JobsPage() {
       setLoading(true);
     }
     try {
-      const d = await fetchDispatch(dateKey(selectedDate), token, activeBranchId);
+      // [dispatch-events 2026-07-14] Events fetched alongside the dispatch
+      // payload. fetchEvents never throws (returns [] on error), so a board
+      // event hiccup can't take down the jobs board.
+      const [d, evs] = await Promise.all([
+        fetchDispatch(dateKey(selectedDate), token, activeBranchId),
+        fetchEvents(dateKey(selectedDate), token, activeBranchId),
+      ]);
       if (id !== refreshRef.current) return;
       _dispatchCache.set(cacheKey, d);
       setData(d);
+      setEvents(evs);
       // [cancel-ghost-job-diagnostics 2026-06-01] Expose the freshest
       // dispatch payload to window so the JobPanel cancelJob() handler can
       // snapshot it before+after a cancellation and surface any ghost job
@@ -7416,6 +7586,33 @@ export default function JobsPage() {
   }, [selectedDate, token, activeBranchId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // [dispatch-events 2026-07-14] Split the day's events for the board:
+  // company_day → top banner lane; tech_block / client_visit → their tech's row
+  // (keyed by assigned_user_id). Derived-only; never mutates the dispatch data.
+  const companyEvents = useMemo(() => events.filter(e => e.kind === "company_day"), [events]);
+  const eventsByUser = useMemo(() => {
+    const m = new Map<number, DispatchEvent[]>();
+    for (const ev of events) {
+      if (ev.kind === "company_day" || ev.assigned_user_id == null) continue;
+      const arr = m.get(ev.assigned_user_id) ?? [];
+      arr.push(ev);
+      m.set(ev.assigned_user_id, arr);
+    }
+    return m;
+  }, [events]);
+  const deleteEvent = useCallback(async (ev: DispatchEvent) => {
+    if (!window.confirm(`Remove "${ev.title}" from the board?`)) return;
+    setEvents(prev => prev.filter(e => e.id !== ev.id)); // optimistic
+    try {
+      const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+      const r = await fetch(`${API}/api/dispatch-events/${ev.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch (err) {
+      toast({ title: "Could not remove event", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+      load(); // resync from server so the chip comes back if the delete failed
+    }
+  }, [token, load, toast]);
 
   // [account-calendar 2026-07-07] Deep-link a specific job's drawer: ?job=<id>
   // (paired with ?date= so the right day is loaded). The account calendar's
@@ -8254,6 +8451,7 @@ export default function JobsPage() {
           <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile />
         )}
         <JobWizard open={showWizard} onClose={() => { setShowWizard(false); setWizardPreset(null); }} onCreated={() => { setShowWizard(false); setWizardPreset(null); load(); }} preselectedAccountId={wizardPreset?.accountId} preselectedPropertyId={wizardPreset?.propertyId} presetDate={wizardPreset?.date} />
+        <EventModal open={showEventModal} onClose={() => setShowEventModal(false)} onCreated={() => { setShowEventModal(false); load(); }} techs={(data?.employees ?? []).map(e => ({ id: e.id, name: e.name }))} presetDate={dateKey(selectedDate)} branchId={typeof activeBranchId === "number" ? activeBranchId : null} />
         <LegendPopover open={legendOpen} onClose={() => setLegendOpen(false)} mobile={isMobile} anchorRect={legendAnchor} />
         <MobileDateSheet open={dateSheetOpen} selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setDateSheetOpen(false)} />
       </DashboardLayout>
@@ -8522,7 +8720,7 @@ export default function JobsPage() {
                     </div>
                   ))}
                 </div>
-                {filteredData && filteredData.employees.every(e => e.jobs.length === 0) && filteredData.unassigned_jobs.length === 0 ? (
+                {filteredData && filteredData.employees.every(e => e.jobs.length === 0) && filteredData.unassigned_jobs.length === 0 && events.length === 0 ? (
                   <div style={{ padding: 60, textAlign: "center" }}>
                     <Calendar size={40} style={{ color: "#D0CEC9", marginBottom: 14 }} />
                     <div style={{ fontSize: 16, fontWeight: 700, color: "#6B7280", marginBottom: 6 }}>No jobs scheduled {isToday ? "today" : "this day"}{selectedZoneFilter !== null ? ` in this zone` : ""}</div>
@@ -8530,6 +8728,7 @@ export default function JobsPage() {
                   </div>
                 ) : (
                   filteredData && <>
+                    <CompanyDayBanner events={companyEvents} onDelete={deleteEvent} />
                     {filteredData.unassigned_jobs.length > 0 && (
                       <UnassignedGanttRow jobs={filteredData.unassigned_jobs} onChipClick={setSelectedJob} nowLine={nowLine} />
                     )}
@@ -8560,7 +8759,7 @@ export default function JobsPage() {
                         return earliest(a) - earliest(b);
                       }
                       return a.name.localeCompare(b.name);
-                    }).map(e => <EmployeeRow key={e.id} employee={e} onChipClick={setSelectedJob} nowLine={nowLine} />)}
+                    }).map(e => <EmployeeRow key={e.id} employee={e} onChipClick={setSelectedJob} nowLine={nowLine} events={eventsByUser.get(e.id)} onDeleteEvent={deleteEvent} />)}
                   </>
                 )}
               </div>
@@ -8650,6 +8849,7 @@ export default function JobsPage() {
         <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile={false} />
       )}
       <JobWizard open={showWizard} onClose={() => { setShowWizard(false); setWizardPreset(null); }} onCreated={() => { setShowWizard(false); setWizardPreset(null); load(); }} preselectedAccountId={wizardPreset?.accountId} preselectedPropertyId={wizardPreset?.propertyId} presetDate={wizardPreset?.date} />
+      <EventModal open={showEventModal} onClose={() => setShowEventModal(false)} onCreated={() => { setShowEventModal(false); load(); }} techs={(data?.employees ?? []).map(e => ({ id: e.id, name: e.name }))} presetDate={dateKey(selectedDate)} branchId={typeof activeBranchId === "number" ? activeBranchId : null} />
 
       {/* Cutover 3B — Attendance overlay drawer. Mounted at the same
           level as JobPanel so it can sit on top of dispatch without

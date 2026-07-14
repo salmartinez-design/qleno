@@ -779,6 +779,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                   {([
                     { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new' },
                     { label: 'Job',    desc: 'Schedule a job',      Icon: Briefcase, href: '/dispatch?new=1' },
+                    { label: 'Event',  desc: 'Block time or add a visit', Icon: CalendarClock, href: '/dispatch?newEvent=1' },
                     { label: 'Client', desc: 'Add a customer',      Icon: UserPlus,  href: '/customers' },
                   ] as const).map((item) => (
                     <button
@@ -957,6 +958,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
                   {([
                     { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new' },
                     { label: 'Job',    desc: 'Schedule a job',      Icon: Briefcase, href: '/dispatch?new=1' },
+                    { label: 'Event',  desc: 'Block time or add a visit', Icon: CalendarClock, href: '/dispatch?newEvent=1' },
                     { label: 'Client', desc: 'Add a customer',      Icon: UserPlus,  href: '/customers' },
                   ] as const).map((item) => (
                     <button
