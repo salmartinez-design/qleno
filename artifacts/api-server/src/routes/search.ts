@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
-import { clientsTable, jobsTable, usersTable, invoicesTable } from "@workspace/db/schema";
+import { clientsTable, jobsTable, usersTable, invoicesTable, leadsTable } from "@workspace/db/schema";
 import { eq, and, or, ilike, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 
@@ -9,12 +9,12 @@ const router = Router();
 router.get("/", requireAuth, async (req, res) => {
   try {
     const { q } = req.query as { q: string };
-    if (!q || q.trim().length < 2) return res.json({ clients: [], jobs: [], employees: [], invoices: [] });
+    if (!q || q.trim().length < 2) return res.json({ clients: [], leads: [], jobs: [], employees: [], invoices: [] });
 
     const term = `%${q.trim()}%`;
     const companyId = req.auth!.companyId!;
 
-    const [clients, jobs, employees, invoices] = await Promise.all([
+    const [clients, leads, jobs, employees, invoices] = await Promise.all([
       db.select({
         id: clientsTable.id,
         first_name: clientsTable.first_name,
@@ -39,6 +39,32 @@ router.get("/", requireAuth, async (req, res) => {
             ilike(clientsTable.address, term),
           )
         ))
+        .limit(5),
+
+      // [global-search-leads 2026-07-14] Leads were missing from global search —
+      // searching a lead's name returned nothing (Francisco: "Gambill" found no
+      // results even though Georgann Gambill sits in the Quoted column). Match on
+      // name / email / phone; the FE opens the record via /leads?lead=<id>.
+      db.select({
+        id: leadsTable.id,
+        first_name: leadsTable.first_name,
+        last_name: leadsTable.last_name,
+        email: leadsTable.email,
+        phone: leadsTable.phone,
+        status: leadsTable.status,
+      })
+        .from(leadsTable)
+        .where(and(
+          eq(leadsTable.company_id, companyId),
+          or(
+            ilike(leadsTable.first_name, term),
+            ilike(leadsTable.last_name, term),
+            ilike(sql`trim(coalesce(${leadsTable.first_name},'')) || ' ' || trim(coalesce(${leadsTable.last_name},''))`, term),
+            ilike(leadsTable.email, term),
+            ilike(leadsTable.phone, term),
+          )
+        ))
+        .orderBy(sql`${leadsTable.id} DESC`)
         .limit(5),
 
       db.select({
@@ -103,7 +129,7 @@ router.get("/", requireAuth, async (req, res) => {
         .limit(5),
     ]);
 
-    return res.json({ clients, jobs, employees, invoices });
+    return res.json({ clients, leads, jobs, employees, invoices });
   } catch (err) {
     console.error("Search error:", err);
     return res.status(500).json({ error: "Internal Server Error" });

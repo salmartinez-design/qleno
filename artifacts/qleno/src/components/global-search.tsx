@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Search, User, Briefcase, FileText, X, Mic } from "lucide-react";
+import { Search, User, UserPlus, Briefcase, FileText, X, Mic } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { formatInvoiceNumber } from "@/lib/invoice-number";
 
@@ -14,10 +14,21 @@ const SERVICE_LABELS: Record<string, string> = {
 
 interface SearchResults {
   clients: any[];
+  leads: any[];
   jobs: any[];
   employees: any[];
   invoices: any[];
 }
+
+// Lead pipeline stage → short label + chip colors for the search row badge.
+const LEAD_STATUS: Record<string, { label: string; bg: string; color: string }> = {
+  needs_contacted: { label: 'New', bg: '#F3F4F6', color: '#6B7280' },
+  contacted: { label: 'Contacted', bg: '#DBEAFE', color: '#1D4ED8' },
+  quoted: { label: 'Quoted', bg: '#FEF3C7', color: '#92400E' },
+  booked: { label: 'Booked', bg: '#DCFCE7', color: '#166534' },
+  closed: { label: 'Lost', bg: '#FEE2E2', color: '#B91C1C' },
+  lost: { label: 'Lost', bg: '#FEE2E2', color: '#B91C1C' },
+};
 
 interface Props {
   onClose: () => void;
@@ -86,6 +97,7 @@ export function GlobalSearch({ onClose }: Props) {
   // Build flat list of navigable items from results
   const items: { path: string }[] = results ? [
     ...results.clients.map(c => ({ path: `/customers/${c.id}` })),
+    ...(results.leads ?? []).map(l => ({ path: `/leads?lead=${l.id}` })),
     ...results.employees.map(e => ({ path: `/employees/${e.id}` })),
     ...results.jobs.map(j => ({ path: `/customers/${j.client_id}` })),
     ...results.invoices.map(i => ({ path: `/invoices` })),
@@ -100,7 +112,7 @@ export function GlobalSearch({ onClose }: Props) {
   };
 
   let itemIndex = 0;
-  const totalResults = results ? results.clients.length + results.jobs.length + results.employees.length + results.invoices.length : 0;
+  const totalResults = results ? results.clients.length + (results.leads?.length ?? 0) + results.jobs.length + results.employees.length + results.invoices.length : 0;
 
   return (
     <div style={{ position:'fixed', inset:0, zIndex:9999, display:'flex', alignItems:'flex-start', justifyContent:'center', paddingTop:80 }}
@@ -113,7 +125,7 @@ export function GlobalSearch({ onClose }: Props) {
           <Search size={18} color="#9E9B94" style={{ flexShrink:0 }}/>
           <input ref={inputRef} value={query} onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search clients, jobs, employees, invoices…"
+            placeholder="Search clients, leads, jobs, employees, invoices…"
             style={{ flex:1, border:'none', outline:'none', fontSize:15, color:'#1A1917', fontFamily:"'Plus Jakarta Sans', sans-serif", background:'transparent' }}/>
           {query && <button onClick={() => setQuery('')} style={{ background:'none', border:'none', cursor:'pointer', padding:2, color:'#9E9B94' }}><X size={16}/></button>}
           {voiceSupported && (
@@ -152,6 +164,31 @@ export function GlobalSearch({ onClose }: Props) {
                       <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{c.first_name} {c.last_name}</p>
                       <p style={{ fontSize:11, color:'#9E9B94', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.address || c.email || c.phone}{c.zone_name ? ` · ${c.zone_name}` : ''}</p>
                     </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {!loading && results && (results.leads?.length ?? 0) > 0 && (
+            <div>
+              <p style={{ fontSize:10, fontWeight:700, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.08em', padding:'12px 16px 6px', margin:0 }}>Leads</p>
+              {results.leads.map(l => {
+                const idx = itemIndex++;
+                const active = idx === highlighted;
+                const st = LEAD_STATUS[l.status] || { label: l.status || '—', bg:'#F3F4F6', color:'#6B7280' };
+                const name = `${l.first_name || ''} ${l.last_name || ''}`.trim() || l.email || l.phone || `Lead #${l.id}`;
+                return (
+                  <button key={l.id} onClick={() => go(`/leads?lead=${l.id}`)}
+                    style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: active ? '#F5F4F1' : 'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
+                    <div style={{ width:32, height:32, borderRadius:8, background:'#F5F3FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <UserPlus size={15} color="#7C3AED"/>
+                    </div>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</p>
+                      <p style={{ fontSize:11, color:'#9E9B94', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{l.email || l.phone || 'Lead'}</p>
+                    </div>
+                    <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:10, background: st.bg, color: st.color, flexShrink:0 }}>{st.label}</span>
                   </button>
                 );
               })}
