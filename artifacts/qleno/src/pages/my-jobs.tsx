@@ -1102,9 +1102,17 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       {job.add_ons && (
         <div style={{ backgroundColor: "#ECFDF8", border: "1px solid #99E9D3", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: "#047857", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Services this visit</p>
-          <p style={{ fontSize: 13, color: "#065F46", margin: 0, lineHeight: 1.5, fontWeight: 600 }}>
-            {formatServiceType(job.service_type)} · {job.add_ons}
-          </p>
+          {/* [services-translate 2026-07-14] This scope comes from the quote and
+              was English-only — Spanish-first techs couldn't read what work was
+              sold (Maribel). Route it through the same "Ver en español" translate
+              toggle the notes use so they see the full scope in Spanish. */}
+          <TranslatableNote
+            text={`${formatServiceType(job.service_type)} · ${job.add_ons}`}
+            color="#065F46"
+            linkColor="#047857"
+            fontSize={13}
+            fontWeight={600}
+          />
         </div>
       )}
 
