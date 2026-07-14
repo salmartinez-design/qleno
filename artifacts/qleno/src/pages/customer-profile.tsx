@@ -220,6 +220,23 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
           {client.company_name && <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#6B7280" }}>{client.company_name}</p>}
           <p style={{ margin: "4px 0 0", fontSize: "11px", color: "#9E9B94" }}>CL-{String(client.id).padStart(4, "0")}</p>
 
+          {/* [client-address-header 2026-07-14] Full service address up front so
+              the office can verify it at a glance without opening a job
+              (Francisco). Canonical formatAddress → zip always shown; tap to
+              open in Maps. */}
+          {client.address && (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formatAddress(client.address, client.city, client.state, client.zip))}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ margin: "10px 0 0", fontSize: "12px", color: "#4B5563", lineHeight: 1.45, display: "flex", alignItems: "flex-start", gap: 5, textDecoration: "none" }}
+              title="Open in Google Maps"
+            >
+              <MapPin size={13} style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }} />
+              <span>{formatAddress(client.address, client.city, client.state, client.zip)}</span>
+            </a>
+          )}
+
           <div style={{ display: "flex", gap: "6px", marginTop: "10px", flexWrap: "wrap" }}>
             {client.frequency && (
               <span style={{ background: "var(--brand-dim)", color: "var(--brand)", padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>
