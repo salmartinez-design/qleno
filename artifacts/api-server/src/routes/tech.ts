@@ -371,6 +371,10 @@ router.get("/scorecard", requireAuth, async (req, res) => {
       satisfaction: composite?.satisfaction ?? null,
       attendance: composite?.attendance ?? null,
       complaint_free: composite?.complaint_free ?? null,
+      // [tech-scorecard-breakdown 2026-07-14] Weights + counts so the tech screen
+      // mirrors the office Performance Score breakdown (Sal).
+      weights: composite?.weights ?? null,
+      counts: composite?.counts ?? null,
       window: composite?.window ?? null,
       rating_count: entries.length,
       name: u ? `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() : null,
