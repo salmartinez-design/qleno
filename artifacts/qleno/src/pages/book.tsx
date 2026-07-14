@@ -355,6 +355,8 @@ export default function BookPage() {
   const [email, setEmail] = useState("");
   const [zip, setZip] = useState("");
   const [referral, setReferral] = useState("");
+  // Set once the post-booking "How did you hear about us?" answer is persisted.
+  const [referralSaved, setReferralSaved] = useState(false);
   const [referralSources, setReferralSources] = useState<Array<{ name: string; slug: string }>>([
     { name: "Google", slug: "google" },
     { name: "Facebook", slug: "facebook" },
@@ -851,6 +853,42 @@ export default function BookPage() {
     if (!termsConsent) errs.terms = "You must agree to the terms";
     setErrors(errs);
     return Object.keys(errs).length === 0;
+  }
+
+  // ── Post-booking "How did you hear about us?" — FAIL-SAFE BY DESIGN ───────
+  // The referral question was moved off Step 1 (critical path) to the
+  // confirmation screen. This runs AFTER the booking is confirmed and the
+  // customer may already have been charged, so it must NEVER surface an error,
+  // block, or break the confirmation screen. EVERY failure mode — network
+  // error, 404/500, validation, enum mismatch, missing client_id, non-JSON
+  // body — is swallowed. Losing one referral answer is acceptable; breaking a
+  // post-payment screen is not.
+  function saveReferralSource(val: string) {
+    // Reflect the choice in the dropdown regardless of whether the save lands.
+    setReferral(val);
+    setReferralSaved(false);
+    // Not enough context to persist — bail quietly, show nothing.
+    if (!val || !company?.id || !bookResult?.client_id) return;
+    // Fire-and-forget, double-wrapped so no rejection can ever reach React:
+    // (1) inner try/catch swallows pubFetch throws (non-2xx, network, parse);
+    // (2) .catch() on the promise is a belt-and-suspenders net;
+    // (3) `void` discards the promise so onChange never sees a rejection.
+    void (async () => {
+      try {
+        await pubFetch("/api/public/referral-source", {
+          method: "POST",
+          body: JSON.stringify({
+            company_id: company.id,
+            client_id: bookResult.client_id,
+            referral_source: val,
+          }),
+        });
+        setReferralSaved(true);
+      } catch {
+        // Swallow everything. Do NOT touch bookError, do NOT re-throw, do NOT
+        // block. referralSaved stays false → no "thanks" and no error render.
+      }
+    })().catch(() => { /* unreachable second net */ });
   }
 
   // ── Stripe setup: called when entering Step 4 ─────────────────────────────
@@ -1734,17 +1772,12 @@ export default function BookPage() {
                   <input style={s.input} value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" type="email" />
                 </FieldWrap>
               </div>
-              <div className="bw-grid2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0 16px" }}>
-                <FieldWrap label="Zip Code" error={errors.zip}>
-                  <input style={s.input} value={zip} onChange={e => setZip(e.target.value)} placeholder="60453" maxLength={5} />
-                </FieldWrap>
-                <FieldWrap label="How did you hear about us?">
-                  <select style={{ ...s.input, width: "100%" }} value={referral} onChange={e => setReferral(e.target.value)}>
-                    <option value="">Select...</option>
-                    {referralSources.map(src => <option key={src.slug} value={src.slug}>{src.name}</option>)}
-                  </select>
-                </FieldWrap>
-              </div>
+              {/* "How did you hear about us?" moved OFF the critical path to the
+                  post-booking confirmation screen — it serves internal reporting,
+                  not the customer's booking, so it shouldn't add friction here. */}
+              <FieldWrap label="Zip Code" error={errors.zip}>
+                <input style={s.input} value={zip} onChange={e => setZip(e.target.value)} placeholder="60453" maxLength={5} />
+              </FieldWrap>
 
               <FieldWrap label="Service Address" error={errors.address}>
                 <div style={{ position: "relative" }}>
@@ -3323,6 +3356,24 @@ export default function BookPage() {
                   {selectedDate && <Row label="Walkthrough Date" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} bold />}
                 </div>
               </div>
+
+              {/* "How did you hear about us?" — moved here from Step 1 (internal
+                  reporting only). Persisted post-booking, fail-safe. */}
+              <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: 24 }}>
+                <FieldWrap label="How did you hear about us?">
+                  <select
+                    style={{ ...s.input, width: "100%" }}
+                    value={referral}
+                    onChange={e => saveReferralSource(e.target.value)}
+                  >
+                    <option value="">Select...</option>
+                    {referralSources.map(src => <option key={src.slug} value={src.slug}>{src.name}</option>)}
+                  </select>
+                </FieldWrap>
+                {referralSaved && (
+                  <p style={{ margin: "-4px 0 0", fontSize: 13, color: "#2D6A4F", fontWeight: 500 }}>Thanks — that helps us a lot.</p>
+                )}
+              </div>
             </div>
           )}
 
@@ -3381,6 +3432,24 @@ export default function BookPage() {
               {/* Cancellation policy notice */}
               <div style={{ background: "#FEF9EC", border: "1px solid #F59E0B30", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#92400E", lineHeight: 1.6 }}>
                 <strong>Cancellation:</strong> Please provide at least 48 hours notice to cancel or reschedule. Cancellations within 24 hours may be subject to a fee. Reply STOP to SMS to opt out of reminders.
+              </div>
+
+              {/* "How did you hear about us?" — moved here from Step 1 so it never
+                  adds friction on the critical path. Persisted post-booking, fail-safe. */}
+              <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginBottom: 24 }}>
+                <FieldWrap label="How did you hear about us?">
+                  <select
+                    style={{ ...s.input, width: "100%" }}
+                    value={referral}
+                    onChange={e => saveReferralSource(e.target.value)}
+                  >
+                    <option value="">Select...</option>
+                    {referralSources.map(src => <option key={src.slug} value={src.slug}>{src.name}</option>)}
+                  </select>
+                </FieldWrap>
+                {referralSaved && (
+                  <p style={{ margin: "-4px 0 0", fontSize: 13, color: "#2D6A4F", fontWeight: 500 }}>Thanks — that helps us a lot.</p>
+                )}
               </div>
 
               {/* Referral section — Give $25, get $25 */}

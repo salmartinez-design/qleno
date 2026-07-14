@@ -507,6 +507,27 @@ router.get("/referral-sources/:slug", rateLimit, async (req, res) => {
   }
 });
 
+// ── POST /api/public/referral-source ────────────────────────────────────────
+// Persist the "How did you hear about us?" answer AFTER booking. The question
+// was moved off the critical-path Step 1 to the confirmation screen (internal
+// reporting only), so it's set here against the client the booking created.
+// Best-effort: scoped by company_id, normalized to the production enum.
+router.post("/referral-source", rateLimit, async (req, res) => {
+  const { sql: drSql } = await import("drizzle-orm");
+  try {
+    const { company_id, client_id, referral_source } = req.body ?? {};
+    if (!company_id || !client_id) {
+      return res.status(400).json({ error: "company_id and client_id required" });
+    }
+    await db.execute(drSql`
+      UPDATE clients SET referral_source = ${normalizeReferral(referral_source)}
+       WHERE id = ${Number(client_id)} AND company_id = ${Number(company_id)}`);
+    return res.json({ ok: true });
+  } catch {
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── GET /api/public/booking-settings/:slug ──────────────────────────────────
 router.get("/booking-settings/:slug", rateLimit, async (req, res) => {
   const { sql: drSql } = await import("drizzle-orm");
