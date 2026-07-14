@@ -1698,18 +1698,12 @@ export default function MyJobsPage() {
               <button
                 type="button"
                 onClick={() => { setShowScorecard(s => !s); setShowPay(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                style={{ flex: 1, textAlign: "left", background: showScorecard ? "rgba(0,201,160,0.14)" : "rgba(255,255,255,0.06)", border: `1px solid ${showScorecard ? "rgba(0,201,160,0.5)" : "rgba(255,255,255,0.10)"}`, borderRadius: 10, padding: "9px 11px", cursor: "pointer", fontFamily: "inherit" }}
+                style={{ flex: 1, background: showScorecard ? "rgba(0,201,160,0.14)" : "rgba(255,255,255,0.06)", border: `1px solid ${showScorecard ? "rgba(0,201,160,0.5)" : "rgba(255,255,255,0.10)"}`, borderRadius: 10, padding: "9px 11px", cursor: "pointer", fontFamily: "inherit", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 6, minHeight: 62 }}
               >
-                <p style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#A7AAB5", margin: "0 0 3px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span>Quality</span>
-                  <span style={{ color: "#9DEFD9", fontWeight: 800 }}>My score ›</span>
-                </p>
-                <p style={{ fontSize: 21, fontWeight: 800, margin: 0, lineHeight: 1.05, color: quality ? "#FFD75E" : "#C9CCD6" }}>
-                  {quality ? quality.avg.toFixed(1) : "—"}
-                </p>
-                <p style={{ fontSize: 9.5, fontWeight: 600, color: "#C9CCD6", margin: "2px 0 0" }}>
-                  {quality ? `avg · ${quality.count} visit${quality.count === 1 ? "" : "s"} · tap for feedback` : "tap to see your ratings"}
-                </p>
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 16, fontWeight: 800, color: "#fff" }}>
+                  <Star size={16} style={{ color: "#FFD75E", fill: "#FFD75E" }} /> My Score
+                </span>
+                <span style={{ fontSize: 10.5, fontWeight: 700, color: "#9DEFD9" }}>Tap to view ›</span>
               </button>
             </div>
             <div style={{ marginTop: 11, height: 6, background: "rgba(255,255,255,0.10)", borderRadius: 4, overflow: "hidden" }}>
