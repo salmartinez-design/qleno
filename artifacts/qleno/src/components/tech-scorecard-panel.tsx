@@ -22,7 +22,15 @@ const cleanComment = (n?: string | null) =>
   (n ?? "").replace(/^\s*text response:\s*\d+(\.\d+)?\s*[-–—]?\s*/i, "").trim();
 
 interface Entry { id: number; entry_date: string; score_value: string | number; max_value: string | number; source: string; notes: string | null; job_id: number | null; client_name: string | null }
-interface Scorecard { score_pct: number | null; rating_count: number; entries: Entry[] }
+interface Weights { satisfaction: number; attendance: number; complaint_free: number }
+interface Counts { survey_responses: number; scheduled_days: number; attendance_violations: number; valid_complaints: number; completed_jobs: number }
+interface Scorecard {
+  score_pct: number | null; rating_count: number; entries: Entry[];
+  satisfaction: number | null; attendance: number | null; complaint_free: number | null;
+  weights: Weights | null; counts: Counts | null;
+}
+
+const pctText = (v: number | null | undefined) => (v == null ? "—" : `${Math.round(v)}%`);
 
 export function TechScorecardPanel({ employeeId }: { employeeId?: number }) {
   const qs = employeeId ? `?employee_id=${employeeId}` : "";
@@ -48,9 +56,30 @@ export function TechScorecardPanel({ employeeId }: { employeeId?: number }) {
               {pct == null ? "—" : `${Math.round(pct)}%`}
             </div>
             <div style={{ fontSize: 12.5, color: "#9E9B94", marginTop: 6 }}>
-              {sc && sc.rating_count > 0 ? `Your score · based on ${sc.rating_count} rating${sc.rating_count > 1 ? "s" : ""}` : "No ratings yet"}
+              Your score · rolling, trailing 90 days
             </div>
           </div>
+
+          {/* [tech-scorecard-breakdown 2026-07-14] Same three components the office
+              Performance Score tab shows (Sal: "it has to be broken down"). */}
+          {sc && (sc.satisfaction != null || sc.attendance != null || sc.complaint_free != null) && (
+            <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "6px 14px 8px", marginBottom: 16 }}>
+              <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: "0.05em", textTransform: "uppercase", color: "#9E9B94", padding: "12px 0 4px" }}>Score breakdown · trailing 90 days</div>
+              {[
+                { label: "Customer satisfaction", v: sc.satisfaction, w: sc.weights?.satisfaction, sub: sc.counts ? `${sc.counts.survey_responses} survey${sc.counts.survey_responses === 1 ? "" : "s"}` : "" },
+                { label: "Attendance", v: sc.attendance, w: sc.weights?.attendance, sub: sc.counts ? `${sc.counts.attendance_violations} issue${sc.counts.attendance_violations === 1 ? "" : "s"} · ${sc.counts.scheduled_days} days` : "" },
+                { label: "Complaint-free", v: sc.complaint_free, w: sc.weights?.complaint_free, sub: sc.counts ? `${sc.counts.valid_complaints} complaint${sc.counts.valid_complaints === 1 ? "" : "s"} · ${sc.counts.completed_jobs} jobs` : "" },
+              ].map((row, i) => (
+                <div key={row.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 0", borderTop: i ? "1px solid #F0EEE9" : "none" }}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{row.label}</div>
+                    <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2 }}>{row.w != null ? `${row.w}% weight` : ""}{row.sub ? `${row.w != null ? " · " : ""}${row.sub}` : ""}</div>
+                  </div>
+                  <div style={{ fontSize: 19, fontWeight: 800, color: row.v == null ? "#C9CCD6" : "#1A1917", flexShrink: 0 }}>{pctText(row.v)}</div>
+                </div>
+              ))}
+            </div>
+          )}
 
           {/* Rating history — who left it + the comment, positive and negative */}
           {sc && sc.entries.length > 0 ? (
