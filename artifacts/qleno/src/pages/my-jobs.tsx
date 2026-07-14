@@ -3,9 +3,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
+import { TechScorecardPanel } from "@/components/tech-scorecard-panel";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera } from "lucide-react";
+import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera, Star } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { ChangePasswordModal } from "@/components/change-password-modal";
 import { NotificationBell } from "@/components/notification-bell";
@@ -1355,6 +1356,8 @@ export default function MyJobsPage() {
   const qc = useQueryClient();
   const [empPos, setEmpPos] = useState<{ lat: number; lng: number } | null>(null);
   const [showPay, setShowPay] = useState(false);
+  // [tech-scorecard 2026-07-14] Scorecard + job-history panel toggle.
+  const [showScorecard, setShowScorecard] = useState(false);
 
   // [tech-experience 2026-06-17] Account menu on the mobile My Jobs header —
   // the avatar is now tappable (was a dead circle) and carries Time Off,
@@ -1562,7 +1565,11 @@ export default function MyJobsPage() {
             <WeatherChip lat={wxLat} lng={wxLng} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <button onClick={() => setShowPay(p => !p)}
+            <button onClick={() => { setShowScorecard(p => !p); setShowPay(false); }}
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: showScorecard ? 'var(--brand)' : 'var(--brand-dim)', color: showScorecard ? '#fff' : 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              <Star size={13}/> Score
+            </button>
+            <button onClick={() => { setShowPay(p => !p); setShowScorecard(false); }}
               style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: showPay ? 'var(--brand)' : 'var(--brand-dim)', color: showPay ? '#fff' : 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
               <DollarSign size={13}/> Pay
             </button>
@@ -1728,6 +1735,12 @@ export default function MyJobsPage() {
               style={{ fontSize: 12, fontWeight: 700, color: "var(--brand, #00C9A0)", background: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
               Exit
             </button>
+          </div>
+        )}
+
+        {showScorecard && (
+          <div style={{ padding: "16px 14px", borderBottom: "1px solid #E5E2DC", background: "#FBFAF8" }}>
+            <TechScorecardPanel employeeId={employeeView?.employeeId} />
           </div>
         )}
 

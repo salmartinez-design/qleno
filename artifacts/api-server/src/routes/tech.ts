@@ -21,13 +21,29 @@ import {
   serviceTypesTable,
   serviceZonesTable,
   timeclockTable,
+  scorecardEntriesTable,
+  usersTable,
 } from "@workspace/db/schema";
-import { and, asc, eq, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
+import { computeCompositeForEmployee } from "../lib/scorecard-composite.js";
 
 const router = Router();
 
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// [tech-scorecard 2026-07-14] Resolve which employee's data to return. A tech
+// only ever sees their OWN (req.auth.userId). owner/admin/office can pass
+// ?employee_id= to preview a tech's screen — the SAME "viewing as" override the
+// /api/jobs/my-jobs day view uses, so the scorecard/history panels follow the
+// impersonation banner. A regular tech's override is ignored.
+function resolveViewedUserId(req: any): number {
+  const self = Number(req.auth!.userId);
+  const role = req.auth!.role;
+  const canViewAsOther = role === "owner" || role === "admin" || role === "office" || role === "super_admin";
+  const override = req.query.employee_id != null ? parseInt(String(req.query.employee_id), 10) : NaN;
+  return canViewAsOther && Number.isFinite(override) ? override : self;
+}
 
 type GroupingHint = "done" | "current" | "next" | "later";
 
@@ -280,5 +296,120 @@ function serializeItem(
     clock_out_at: clock.clock_out_at ? new Date(clock.clock_out_at).toISOString() : null,
   };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [tech-scorecard 2026-07-14] GET /api/tech/scorecard
+// The tech's OWN scorecard for their My Jobs home: headline score + the rolling
+// 90-day composite sub-scores + the full rating history (customer comments,
+// positive AND negative — Sal). Self-scoped via resolveViewedUserId.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/scorecard", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (companyId == null) return res.status(400).json({ error: "Bad Request", message: "User has no company assignment" });
+    const userId = resolveViewedUserId(req);
+
+    let composite: any = null;
+    try { composite = await computeCompositeForEmployee(companyId, userId); }
+    catch (e) { console.error("tech scorecard composite failed (non-fatal):", e); }
+
+    const [u] = await db
+      .select({
+        scorecard_pct: usersTable.scorecard_pct,
+        composite_90d: usersTable.scorecard_composite_90d,
+        first_name: usersTable.first_name,
+        last_name: usersTable.last_name,
+      })
+      .from(usersTable)
+      .where(and(eq(usersTable.id, userId), eq(usersTable.company_id, companyId)))
+      .limit(1);
+
+    // Full rating history — non-excluded rows, newest first, all comments.
+    const entries = await db
+      .select({
+        id: scorecardEntriesTable.id,
+        entry_date: scorecardEntriesTable.entry_date,
+        score_value: scorecardEntriesTable.score_value,
+        max_value: scorecardEntriesTable.max_value,
+        source: scorecardEntriesTable.source,
+        notes: scorecardEntriesTable.notes,
+        job_id: scorecardEntriesTable.job_id,
+      })
+      .from(scorecardEntriesTable)
+      .where(and(
+        eq(scorecardEntriesTable.company_id, companyId),
+        eq(scorecardEntriesTable.employee_id, userId),
+        eq(scorecardEntriesTable.excluded, false),
+      ))
+      .orderBy(desc(scorecardEntriesTable.entry_date), desc(scorecardEntriesTable.id))
+      .limit(100);
+
+    const headline =
+      composite?.composite ??
+      (u?.composite_90d != null ? Number(u.composite_90d) : null) ??
+      (u?.scorecard_pct != null ? Number(u.scorecard_pct) : null);
+
+    return res.json({
+      score_pct: headline,
+      composite: composite?.composite ?? null,
+      satisfaction: composite?.satisfaction ?? null,
+      attendance: composite?.attendance ?? null,
+      complaint_free: composite?.complaint_free ?? null,
+      window: composite?.window ?? null,
+      rating_count: entries.length,
+      name: u ? `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() : null,
+      entries,
+    });
+  } catch (err) {
+    console.error("tech scorecard error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [tech-scorecard 2026-07-14] GET /api/tech/job-history?limit=&offset=
+// The tech's OWN completed-job history (beyond just today). Matches primary
+// (jobs.assigned_user_id) AND team-member (job_technicians) jobs — same OR
+// clause the day view uses. Newest first, paged. Self-scoped.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/job-history", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (companyId == null) return res.status(400).json({ error: "Bad Request", message: "User has no company assignment" });
+    const userId = resolveViewedUserId(req);
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? "30"), 10) || 30, 1), 100);
+    const offset = Math.max(parseInt(String(req.query.offset ?? "0"), 10) || 0, 0);
+
+    const rows = await db
+      .select({
+        id: jobsTable.id,
+        scheduled_date: jobsTable.scheduled_date,
+        service_type: jobsTable.service_type,
+        base_fee: jobsTable.base_fee,
+        client_name: sql<string>`CASE WHEN ${jobsTable.account_id} IS NOT NULL THEN ${accountsTable.account_name} ELSE btrim(concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name})) END`,
+        rating: sql<number | null>`(SELECT AVG(sc.score)::float FROM scorecards sc WHERE sc.job_id = ${jobsTable.id} AND sc.user_id = ${userId} AND sc.excluded = false)`,
+      })
+      .from(jobsTable)
+      .leftJoin(clientsTable, eq(jobsTable.client_id, clientsTable.id))
+      .leftJoin(accountsTable, eq(jobsTable.account_id, accountsTable.id))
+      .where(and(
+        eq(jobsTable.company_id, companyId),
+        eq(jobsTable.status, "complete"),
+        or(
+          eq(jobsTable.assigned_user_id, userId),
+          sql`EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = ${jobsTable.id} AND jt.user_id = ${userId})`,
+        ),
+      ))
+      .orderBy(desc(jobsTable.scheduled_date), desc(jobsTable.id))
+      .limit(limit + 1)
+      .offset(offset);
+
+    const has_more = rows.length > limit;
+    return res.json({ jobs: rows.slice(0, limit), has_more });
+  } catch (err) {
+    console.error("tech job-history error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
 
 export default router;
