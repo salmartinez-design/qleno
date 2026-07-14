@@ -739,6 +739,9 @@ export async function runScheduledJobMessages(): Promise<void> {
               await logNotification(job.company_id, job.email || "", "email", sched.key, "suppressed", emailSkip, { job_id: String(job.id) });
               continue;
             }
+            // Atomic claim — only the winner sends (see claimJobMessageSend).
+            const emailClaimId = await claimJobMessageSend(job, sched.key, "email", job.email);
+            if (emailClaimId == null) { _ledgerSkipped++; continue; }
             try {
               const htmlBody = /<[a-z][\s\S]*>/i.test(tpl.body) ? tpl.body : tpl.body.replace(/\n/g, "<br>");
               let emailHtml = wrapEmailHtml(htmlBody, { logoUrl: emailLogoUrl(job.company_logo), companyName: job.company_name });
@@ -756,10 +759,11 @@ export async function runScheduledJobMessages(): Promise<void> {
                 html: emailHtml,
                 ...(Object.keys(headers).length ? { headers } : {}),
               });
-              await recordJobMessageSend(job, sched.key, "email", "sent", job.email);
+              await markJobMessageSent(emailClaimId);
               await logNotification(job.company_id, job.email, "email", sched.key, "sent", null, { job_id: String(job.id), subject: tpl.subject || sched.label, body: tpl.body, html: emailHtml });
             } catch (e) {
               console.error(`[scheduled-messages] email failed key=${sched.key} job=${job.id}:`, e);
+              await releaseJobMessageClaim(emailClaimId); // send failed — let it retry next hour
             }
           } else {
             // [reminder-send-fix 2026-06-29] Resolve Twilio creds the SAME way
@@ -778,6 +782,9 @@ export async function runScheduledJobMessages(): Promise<void> {
               await logNotification(job.company_id, job.phone || "", "sms", sched.key, "suppressed", smsSkip, { job_id: String(job.id) });
               continue;
             }
+            // Atomic claim — only the winner sends (see claimJobMessageSend).
+            const smsClaimId = await claimJobMessageSend(job, sched.key, "sms", job.phone);
+            if (smsClaimId == null) { _ledgerSkipped++; continue; }
             const fromNumber = branchConfig.twilioFrom || sender.from_number!;
             try {
               const smsRes = await fetch(
@@ -792,16 +799,18 @@ export async function runScheduledJobMessages(): Promise<void> {
                 }
               );
               if (smsRes.ok) {
-                await recordJobMessageSend(job, sched.key, "sms", "sent", job.phone);
+                await markJobMessageSent(smsClaimId);
                 await logNotification(job.company_id, job.phone, "sms", sched.key, "sent", null, { job_id: String(job.id), body: tpl.body });
               } else {
                 const errText = (await smsRes.text()).slice(0, 200);
                 console.error(`[scheduled-messages] twilio failed key=${sched.key} job=${job.id}:`, errText);
                 await logNotification(job.company_id, job.phone, "sms", sched.key, "failed", errText, { job_id: String(job.id) });
+                await releaseJobMessageClaim(smsClaimId); // send failed — let it retry next hour
               }
             } catch (e) {
               console.error(`[scheduled-messages] sms error key=${sched.key} job=${job.id}:`, e);
               await logNotification(job.company_id, job.phone, "sms", sched.key, "failed", String((e as any)?.message ?? e).slice(0, 200), { job_id: String(job.id) });
+              await releaseJobMessageClaim(smsClaimId); // send failed — let it retry next hour
             }
           }
         }
@@ -813,23 +822,48 @@ export async function runScheduledJobMessages(): Promise<void> {
   }
 }
 
-// Ledger writer — the row that both prevents a re-send and feeds the customer
-// audit trail. ON CONFLICT keeps it idempotent under concurrent ticks.
-async function recordJobMessageSend(
+// [dup-send-fix 2026-07-14] CLAIM BEFORE SEND — the atomic idempotency gate.
+// The old flow was check-then-send-then-record: it SELECTed the ledger, sent,
+// then INSERTed. The ON CONFLICT only stopped a duplicate ledger ROW — the send
+// already happened first. So two server processes running the same cron hour
+// (a deploy overlap: old instance draining while the new one boots, or >1
+// Railway replica) both passed the SELECT and BOTH sent before either recorded
+// (Sarah Boersma got 2 SMS + 2 emails). Now we INSERT the ledger row FIRST with
+// the DB's UNIQUE(job_id,schedule_key,channel); only the process whose insert
+// RETURNS a row won the claim and may send. A concurrent tick gets no row and
+// skips. On send failure the winner releases the claim so it retries next hour.
+async function claimJobMessageSend(
   job: { id: number; company_id: number; client_id: number | null },
   scheduleKey: string,
   channel: string,
-  status: string,
   recipient: string,
-): Promise<void> {
+): Promise<number | null> {
   try {
-    await db.execute(sql`
+    const r = await db.execute(sql`
       INSERT INTO job_message_sends (company_id, job_id, client_id, schedule_key, channel, status, recipient, sent_at)
-      VALUES (${job.company_id}, ${job.id}, ${job.client_id ?? null}, ${scheduleKey}, ${channel}, ${status}, ${recipient}, NOW())
-      ON CONFLICT (job_id, schedule_key, channel) DO NOTHING`);
+      VALUES (${job.company_id}, ${job.id}, ${job.client_id ?? null}, ${scheduleKey}, ${channel}, 'sending', ${recipient}, NOW())
+      ON CONFLICT (job_id, schedule_key, channel) DO NOTHING
+      RETURNING id`);
+    const rows = (r as any).rows ?? [];
+    return rows.length ? Number(rows[0].id) : null; // null = lost the race / already sent
   } catch (err) {
-    console.error(`[scheduled-messages] ledger write failed job=${job.id} key=${scheduleKey}:`, err);
+    // On a DB hiccup, don't send — safer to under-send-and-retry than double-send.
+    console.error(`[scheduled-messages] claim failed job=${job.id} key=${scheduleKey} ch=${channel}:`, err);
+    return null;
   }
+}
+
+// Mark a won claim as delivered.
+async function markJobMessageSent(id: number): Promise<void> {
+  try { await db.execute(sql`UPDATE job_message_sends SET status = 'sent', sent_at = NOW() WHERE id = ${id}`); }
+  catch (err) { console.error(`[scheduled-messages] mark-sent failed id=${id}:`, err); }
+}
+
+// Release a claim whose send failed, so the next hourly tick can retry it. Only
+// deletes a still-'sending' row (never a peer's completed 'sent' row).
+async function releaseJobMessageClaim(id: number): Promise<void> {
+  try { await db.execute(sql`DELETE FROM job_message_sends WHERE id = ${id} AND status = 'sending'`); }
+  catch (err) { console.error(`[scheduled-messages] claim-release failed id=${id}:`, err); }
 }
 
 // ── Review request cron ──────────────────────────────────────────────────────
