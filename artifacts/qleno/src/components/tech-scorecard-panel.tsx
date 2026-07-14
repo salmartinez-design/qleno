@@ -31,7 +31,7 @@ const money = (v: any) => `$${(parseFloat(String(v ?? 0)) || 0).toFixed(2)}`;
 const cleanComment = (n?: string | null) =>
   (n ?? "").replace(/^\s*text response:\s*\d+(\.\d+)?\s*[-–—]?\s*/i, "").trim();
 
-interface Entry { id: number; entry_date: string; score_value: string | number; max_value: string | number; source: string; notes: string | null; job_id: number | null }
+interface Entry { id: number; entry_date: string; score_value: string | number; max_value: string | number; source: string; notes: string | null; job_id: number | null; client_name: string | null }
 interface Scorecard { score_pct: number | null; rating_count: number; entries: Entry[] }
 interface HistJob { id: number; scheduled_date: string; service_type: string; base_fee: string | number; client_name: string | null; rating: number | null }
 
@@ -104,7 +104,10 @@ export function TechScorecardPanel({ employeeId }: { employeeId?: number }) {
                         </span>
                         <span style={{ fontSize: 11.5, color: "#9E9B94" }}>{fmtDate(e.entry_date)}</span>
                       </div>
-                      {comment && <div style={{ fontSize: 13, color: "#44413B", marginTop: 7, lineHeight: 1.45 }}>{comment}</div>}
+                      <div style={{ fontSize: 12.5, fontWeight: 700, color: "#1A1917", marginTop: 4 }}>
+                        {e.client_name || "Client"}
+                      </div>
+                      {comment && <div style={{ fontSize: 13, color: "#44413B", marginTop: 5, lineHeight: 1.45 }}>{comment}</div>}
                     </div>
                   );
                 })}
