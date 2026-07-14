@@ -1007,8 +1007,10 @@ export default function BookPage() {
             overage_rate: (lastCleanedOverride && overageAcknowledged) ? getOverageRate(frequencyStr) : null,
             upsell_shown: isDeepCleanScope,
             upsell_accepted: upsellAccepted,
-            upsell_declined: upsellDeclined && !upsellAccepted,
-            upsell_deferred: upsellDeclined && !upsellAccepted,
+            upsell_declined: upsellDeclined && !upsellAccepted,        // explicit "No thanks"
+            // Upsell no longer gates Continue — leaving it unanswered defaults to
+            // "no thanks" (deferred). Records the implicit default for reporting.
+            upsell_deferred: !upsellAccepted && !upsellDeclined,
             upsell_cadence_selected: upsellAccepted ? upsellCadence : null,
             upsell_locked_rate: upsellAccepted && upsellPriceResult ? upsellPriceResult.recurringRate : null,
             upsell_first_visit_rate: upsellAccepted && upsellPriceResult ? upsellPriceResult.firstVisitRate : null,
@@ -2234,11 +2236,19 @@ export default function BookPage() {
                       </div>
                     ))}
                   </div>
-                  {(bedrooms < 1 || bathrooms < 1) && (
-                    <p style={{ fontSize: 12, color: "#D97706", margin: "0 0 14px", fontWeight: 500 }}>
-                      Please enter the number of bedrooms and bathrooms to continue.
-                    </p>
-                  )}
+                  {/* Always rendered (visibility toggled, not mounted) so the row
+                      reserves its space and content below never reflows when a
+                      stepper crosses the bed/bath threshold. Fixes the mobile
+                      "aimed for 2 baths, got 1 — the row jumped" bug. */}
+                  <p
+                    aria-hidden={!(bedrooms < 1 || bathrooms < 1)}
+                    style={{
+                      fontSize: 12, color: "#D97706", margin: "0 0 14px", fontWeight: 500,
+                      visibility: (bedrooms < 1 || bathrooms < 1) ? "visible" : "hidden",
+                    }}
+                  >
+                    Please enter the number of bedrooms and bathrooms to continue.
+                  </p>
 
                   {showCleanlinessQ && !showStandardAdvisory && (
                     <div style={{ marginBottom: 16 }}>
@@ -2247,9 +2257,12 @@ export default function BookPage() {
                       </label>
                       <div className="bw-cleanliness-row" style={{ display: "flex", gap: 8 }}>
                         {([
-                          [1, "1 — Very Clean"],
-                          [2, "2 — Moderately Clean"],
-                          [3, "3 — Very Dirty"],
+                          // Labels only — stored values stay 1/2/3 so the pricing/
+                          // condition-multiplier formula is unaffected. Softer wording
+                          // (nobody wants to call their home "Very Dirty").
+                          [1, "Light"],
+                          [2, "Standard"],
+                          [3, "Heavy"],
                         ] as [number, string][]).map(([v, label]) => (
                           <button
                             className="bw-cleanliness-pill"
@@ -2570,10 +2583,13 @@ export default function BookPage() {
                     if (!scopeId || !sqft) return 0.5;
                     if (showStandardAdvisory) return 0.5;
                     if (isMoveInOut && !moveInAck) return 0.5;
-                    if (isMoveInOut && (!upsellAccepted && !upsellDeclined)) return 0.5;
+                    // Upsell is non-blocking in all three contexts (deep clean,
+                    // one-time standard, move in/out) — the recurring offer must NOT
+                    // gate the funnel. Unanswered defaults to "no thanks" (offer stays
+                    // visible). Legal Move In/Out ack + cleanliness (pricing input) still gate.
                     if (showVeryDirtyCard) return 0.5;
-                    if (isDeepCleanScope && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return 0.5;
-                    if (isOneTimeStandard && standardDismissed && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return 0.5;
+                    if (isDeepCleanScope && cleanliness === 0) return 0.5;
+                    if (isOneTimeStandard && standardDismissed && cleanliness === 0) return 0.5;
                     if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return 0.5;
                     return 1;
                   })() }}
@@ -2583,10 +2599,10 @@ export default function BookPage() {
                     if (!isCommercial && (bedrooms < 1 || bathrooms < 1)) return true;
                     if (showStandardAdvisory) return true;
                     if (isMoveInOut && !moveInAck) return true;
-                    if (isMoveInOut && (!upsellAccepted && !upsellDeclined)) return true;
+                    // Upsell is non-blocking in all three contexts (see opacity note). No upsell gate.
                     if (showVeryDirtyCard) return true;
-                    if (isDeepCleanScope && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return true;
-                    if (isOneTimeStandard && standardDismissed && (cleanliness === 0 || (!upsellAccepted && !upsellDeclined))) return true;
+                    if (isDeepCleanScope && cleanliness === 0) return true;
+                    if (isOneTimeStandard && standardDismissed && cleanliness === 0) return true;
                     if (isRecurringScope && (!lastCleanedResponse || (["1_3_months", "over_3_months"].includes(lastCleanedResponse) && (!lastCleanedOverride || !overageAcknowledged)) || cleanliness === 0)) return true;
                     return false;
                   })()}
