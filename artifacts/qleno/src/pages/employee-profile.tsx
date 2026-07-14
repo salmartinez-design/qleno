@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { EarningsPanel } from "@/components/earnings-panel";
+import { OneOnOnesPanel } from "@/components/one-on-ones-panel";
 import { HRAttendanceTab, LeaveBalanceTab, DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
 import { parseLeaveNote, leaveBucketLabel, KIND_TONE_STYLE } from "@/lib/leave-note-format";
 
@@ -641,6 +642,19 @@ export default function EmployeeProfilePage() {
   const [activeTab, setActiveTab] = useState('Information');
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
+
+  // [one-on-ones 2026-07-14] Owner-only "1-on-1s" tab, slotted after Performance
+  // Score. Hidden entirely for non-owners (Maribel/Pancho never see it).
+  const visibleTabs = isOwner
+    ? (() => { const t = [...TABS]; const i = t.indexOf('Performance Score'); t.splice(i >= 0 ? i + 1 : t.length, 0, '1-on-1s'); return t; })()
+    : TABS;
+  // Deep-link support: the dispatch board's 1-on-1 block navigates here with
+  // ?tab=one-on-ones. Open that tab on mount (owner only).
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get('tab');
+    if (t === 'one-on-ones' && isOwner) setActiveTab('1-on-1s');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isOwner]);
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
@@ -1531,7 +1545,7 @@ export default function EmployeeProfilePage() {
             mobile keeps the compact horizontal scroll. */}
         <div style={{ background:'#FFFFFF', borderLeft:'1px solid #E5E2DC', borderRight:'1px solid #E5E2DC', borderBottom:'1px solid #E5E2DC', overflowX: isMobile ? 'auto' : 'visible', marginBottom:20 }}>
           <div style={{ display:'flex', flexWrap: isMobile ? 'nowrap' : 'wrap', borderBottom:'1px solid #E5E2DC', whiteSpace:'nowrap' }}>
-            {TABS.map(tab => (
+            {visibleTabs.map(tab => (
               <button key={tab}
                 onClick={() => setActiveTab(tab)}
                 style={{
@@ -2569,6 +2583,11 @@ export default function EmployeeProfilePage() {
                 </table>
               </div>
             </div>
+          )}
+
+          {/* ── 1-ON-1s TAB (owner only) ── */}
+          {activeTab === '1-on-1s' && isOwner && (
+            <OneOnOnesPanel userId={userId} employeeName={`${user?.first_name ?? ''} ${user?.last_name ?? ''}`.trim() || 'this employee'} />
           )}
 
           {/* ── PAY CONFIGURATION TAB (4-cell matrix) ── */}

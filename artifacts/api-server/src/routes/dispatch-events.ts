@@ -19,7 +19,11 @@ const router = Router();
 
 const officeGate = requireRole("owner", "admin", "office", "super_admin");
 
-const KINDS = new Set(["tech_block", "company_day", "client_visit"]);
+// one_on_one is the board-visible block for an owner 1-on-1 (see
+// routes/one-on-ones.ts). It behaves like a tech_block here (sits on a tech's
+// row, no client); the private record lives in the one_on_ones table. Office
+// staff can create/see the block but never the linked record's content.
+const KINDS = new Set(["tech_block", "company_day", "client_visit", "one_on_one"]);
 
 // Normalize a "HH:MM" or "HH:MM:SS" string to "HH:MM:SS" for the time column.
 // Returns null for empty/invalid input so all-day / missing times stay null.
@@ -106,8 +110,8 @@ router.post("/", requireAuth, officeGate, async (req, res) => {
 
     // Kind-specific requirements — a tech block / client visit has to land on a
     // tech's row; a company-day marker must NOT carry a tech (it's board-wide).
-    if ((kind === "tech_block" || kind === "client_visit") && !assignedUserId) {
-      return res.status(400).json({ error: "assigned_user_id is required for a tech block or client visit" });
+    if ((kind === "tech_block" || kind === "client_visit" || kind === "one_on_one") && !assignedUserId) {
+      return res.status(400).json({ error: "assigned_user_id is required for a tech block, client visit, or 1-on-1" });
     }
     if (kind === "client_visit" && !clientId) {
       return res.status(400).json({ error: "client_id is required for a client visit" });

@@ -421,6 +421,38 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] ensureDispatchEventsSchema — non-fatal:", err?.message ?? err);
   }
+  // [one-on-ones 2026-07-14] Owner-only quarterly 1-on-1 records. Additive table
+  // (depends on dispatch_events above for the optional block link). Idempotent.
+  try {
+    await withBootTimeout("ensureOneOnOnesSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS one_on_ones (
+          id serial PRIMARY KEY,
+          company_id integer NOT NULL REFERENCES companies(id),
+          employee_id integer NOT NULL REFERENCES users(id),
+          manager_id integer REFERENCES users(id),
+          period_label text NOT NULL,
+          event_date date NOT NULL,
+          dispatch_event_id integer REFERENCES dispatch_events(id),
+          scorecard_pct numeric,
+          scorecard_snapshot jsonb,
+          questions jsonb,
+          responses jsonb,
+          notes text,
+          status text NOT NULL DEFAULT 'scheduled',
+          created_by_user_id integer REFERENCES users(id),
+          created_at timestamp NOT NULL DEFAULT now(),
+          completed_at timestamp
+        )
+      `);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_one_on_ones_company_emp ON one_on_ones(company_id, employee_id)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_one_on_ones_company_period ON one_on_ones(company_id, period_label)`);
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureOneOnOnesSchema — non-fatal:", err?.message ?? err);
+  }
   try {
     await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());
   } catch (err: any) {
