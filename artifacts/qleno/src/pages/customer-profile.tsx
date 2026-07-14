@@ -6160,6 +6160,15 @@ export default function CustomerProfilePage() {
               <DL2 label="Last Name" value={profile.last_name} />
               {profile.phone && <DL2 label="Phone" value={<a href={`tel:${profile.phone}`} style={{ color: "var(--brand)", textDecoration: "none" }}>{profile.phone}</a>} />}
               {profile.email && <DL2 label="Email" value={<a href={`mailto:${profile.email}`} style={{ color: "var(--brand)", textDecoration: "none", wordBreak: "break-all" as const }}>{profile.email}</a>} />}
+              {/* [client-address-header 2026-07-14] Full service address on the
+                  Client tab so the office verifies it without opening a job
+                  (Francisco). Canonical formatAddress → zip always shown; tap to
+                  open in Maps. */}
+              {profile.address && <DL2 label="Service Address" value={
+                <a href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formatAddress(profile.address, profile.city, profile.state, profile.zip))}`} target="_blank" rel="noopener noreferrer" style={{ color: "var(--brand)", textDecoration: "none" }}>
+                  {formatAddress(profile.address, profile.city, profile.state, profile.zip)}
+                </a>
+              } />}
               {profile.client_since && <DL2 label="Client Since" value={fmtDate(profile.client_since)} />}
               {profile.referral_source && <DL2 label="Acquisition Source" value={SOURCE_LABELS[profile.referral_source] || String(profile.referral_source).replace(/_/g, " ")} />}
               {profile.company_name && <DL2 label="Company" value={profile.company_name} />}
