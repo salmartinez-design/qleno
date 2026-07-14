@@ -781,37 +781,47 @@ router.delete("/usage/:id", adminWriteGate, async (req, res) => {
     const row = rows[0];
     if (!row) return notFound(res, "Usage entry not found");
 
-    // Resolve which bucket the entry belongs to from its note tag (same
-    // mapping the profile UI uses: …/pto, …/plawa, …/unpaid).
-    const note = String(row.notes ?? "").toLowerCase();
-    const shortTag = note.includes("/plawa") ? "plawa" : note.includes("/pto") ? "pto" : note.includes("/unpaid") ? "unpaid" : null;
-    let adjustedBucket: string | null = null;
-    if (shortTag) {
-      const buckets = await db
-        .select()
-        .from(leaveTypesTable)
-        .where(and(eq(leaveTypesTable.company_id, companyId), eq(leaveTypesTable.active, true)));
-      const bucket = buckets.find((b) => b.slug.toLowerCase().includes(shortTag));
-      if (bucket) {
-        const bal = await ensureBalanceRow(companyId, row.employee_id, bucket.id);
-        const newUsed = Math.max(0, Number(bal.used_hours) - Number(row.hours));
-        await db
-          .update(employeeLeaveBalancesTable)
-          .set({ used_hours: newUsed.toFixed(2), updated_at: new Date() })
-          .where(eq(employeeLeaveBalancesTable.id, bal.id));
-        adjustedBucket = bucket.slug;
-        try {
-          await logAudit(req, "leave_balance_set", "employee_leave_balance", String(bal.id), {
-            granted_hours: bal.granted_hours, used_hours: bal.used_hours,
-          }, {
-            user_id: row.employee_id, leave_type_id: bucket.id, slug: bucket.slug,
-            granted_hours: Number(bal.granted_hours), used_hours: newUsed,
-            source: "usage_entry_deleted",
-          });
-        } catch { /* audit best-effort */ }
-      }
-    }
+    // [delete-robustness 2026-07-14] Delete the ledger row FIRST — the primary
+    // action must never be blocked by the downstream balance-restore or pay
+    // void. Previously the balance-restore ran before the delete and was
+    // unwrapped, so any hiccup there 500'd the whole request and the entry
+    // wouldn't delete (Maribel: "Could not remove the entry — try again").
     await db.delete(employeeLeaveUsageTable).where(eq(employeeLeaveUsageTable.id, id));
+
+    // Restore the hours to the bucket (non-fatal). Resolve the bucket from the
+    // note tag (same mapping the profile UI uses: …/pto, …/plawa, …/unpaid).
+    let adjustedBucket: string | null = null;
+    try {
+      const note = String(row.notes ?? "").toLowerCase();
+      const shortTag = note.includes("/plawa") ? "plawa" : note.includes("/pto") ? "pto" : note.includes("/unpaid") ? "unpaid" : null;
+      if (shortTag) {
+        const buckets = await db
+          .select()
+          .from(leaveTypesTable)
+          .where(and(eq(leaveTypesTable.company_id, companyId), eq(leaveTypesTable.active, true)));
+        const bucket = buckets.find((b) => b.slug.toLowerCase().includes(shortTag));
+        if (bucket) {
+          const bal = await ensureBalanceRow(companyId, row.employee_id, bucket.id);
+          const newUsed = Math.max(0, Number(bal.used_hours) - Number(row.hours));
+          await db
+            .update(employeeLeaveBalancesTable)
+            .set({ used_hours: newUsed.toFixed(2), updated_at: new Date() })
+            .where(eq(employeeLeaveBalancesTable.id, bal.id));
+          adjustedBucket = bucket.slug;
+          try {
+            await logAudit(req, "leave_balance_set", "employee_leave_balance", String(bal.id), {
+              granted_hours: bal.granted_hours, used_hours: bal.used_hours,
+            }, {
+              user_id: row.employee_id, leave_type_id: bucket.id, slug: bucket.slug,
+              granted_hours: Number(bal.granted_hours), used_hours: newUsed,
+              source: "usage_entry_deleted",
+            });
+          } catch { /* audit best-effort */ }
+        }
+      }
+    } catch (balErr) {
+      console.error("leave usage delete balance restore failed (non-fatal):", balErr);
+    }
     // [leave-pay-cascade 2026-07-11] Void any auto-pay this usage row generated
     // (paid buckets only; no-op otherwise) so removing a deduction also pulls
     // its pay back — symmetric with the create path.
@@ -826,6 +836,94 @@ router.delete("/usage/:id", adminWriteGate, async (req, res) => {
   } catch (err) {
     console.error("leave usage delete error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to delete usage entry" });
+  }
+});
+
+// [leave-usage-edit 2026-07-14] Edit a leave entry's hours (and date) in place —
+// previously the office could only DELETE and re-add (Maribel). Adjusts the
+// bucket balance by the hours delta and RESYNCS the linked additional_pay so the
+// payment matches the new hours (paid buckets: PLAWA → sick_pay, PTO → pto).
+// Balance + pay steps are non-fatal so the edit can't 500 on a downstream hiccup.
+router.patch("/usage/:id", adminWriteGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id)) return bad(res, "Invalid id");
+    const body = req.body as { hours?: number | string; date?: string };
+
+    const rows = await db
+      .select()
+      .from(employeeLeaveUsageTable)
+      .where(and(eq(employeeLeaveUsageTable.id, id), eq(employeeLeaveUsageTable.company_id, companyId)))
+      .limit(1);
+    const row = rows[0];
+    if (!row) return notFound(res, "Usage entry not found");
+
+    const oldHours = Number(row.hours);
+    const newHours = body.hours != null ? Number(body.hours) : oldHours;
+    if (!Number.isFinite(newHours) || newHours <= 0 || newHours > 24) return bad(res, "hours must be between 0 and 24");
+    const newDate = body.date != null && ISO_DATE_RE.test(String(body.date)) ? String(body.date) : String(row.date_used).slice(0, 10);
+    const delta = Math.round((newHours - oldHours) * 100) / 100;
+
+    // Update the ledger row (the source of truth the calendar, history, and pay
+    // resync all read). Keep the existing notes tag so the bucket mapping holds.
+    await db
+      .update(employeeLeaveUsageTable)
+      .set({ hours: newHours.toFixed(2), date_used: newDate })
+      .where(and(eq(employeeLeaveUsageTable.id, id), eq(employeeLeaveUsageTable.company_id, companyId)));
+
+    // Adjust the bucket's used_hours by the delta (non-fatal). Resolve the
+    // bucket from leave_type_id, falling back to the note tag for older rows.
+    let bucketSlug: string | null = null;
+    try {
+      let bucket = row.leave_type_id != null ? await findBucket(companyId, row.leave_type_id) : null;
+      if (!bucket) {
+        const note = String(row.notes ?? "").toLowerCase();
+        const shortTag = note.includes("/plawa") ? "plawa" : note.includes("/pto") ? "pto" : note.includes("/unpaid") ? "unpaid" : null;
+        if (shortTag) {
+          const buckets = await db
+            .select()
+            .from(leaveTypesTable)
+            .where(and(eq(leaveTypesTable.company_id, companyId), eq(leaveTypesTable.active, true)));
+          bucket = buckets.find((b) => b.slug.toLowerCase().includes(shortTag)) ?? null;
+        }
+      }
+      if (bucket) {
+        bucketSlug = bucket.slug;
+        const bal = await ensureBalanceRow(companyId, row.employee_id, bucket.id);
+        const newUsed = Math.max(0, Math.round((Number(bal.used_hours) + delta) * 100) / 100);
+        await db
+          .update(employeeLeaveBalancesTable)
+          .set({ used_hours: newUsed.toFixed(2), updated_at: new Date() })
+          .where(eq(employeeLeaveBalancesTable.id, bal.id));
+      }
+    } catch (balErr) {
+      console.error("leave usage edit balance adjust failed (non-fatal):", balErr);
+    }
+
+    // Resync the linked pay: void the old auto-pay then rewrite it at the new
+    // hours (writeUsageLeavePay reads the row we just updated). No-op for unpaid
+    // buckets / rows without a paid leave_type. Non-fatal.
+    try {
+      await voidUsageLeavePay(companyId, id, req.auth!.userId!);
+      await writeUsageLeavePay(companyId, id);
+    } catch (payErr) {
+      console.error("leave usage edit pay resync failed (non-fatal):", payErr);
+    }
+
+    try {
+      await logAudit(req, "leave_usage_edited", "employee_leave_usage", String(id), {
+        hours: oldHours, date_used: String(row.date_used).slice(0, 10),
+      }, {
+        hours: newHours, date_used: newDate, hours_delta: delta, slug: bucketSlug,
+      });
+    } catch { /* audit best-effort */ }
+
+    const data = await buildBalancesForUser(companyId, row.employee_id);
+    return res.json({ ok: true, data, hours: newHours, date_used: newDate });
+  } catch (err) {
+    console.error("leave usage edit error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to edit usage entry" });
   }
 });
 

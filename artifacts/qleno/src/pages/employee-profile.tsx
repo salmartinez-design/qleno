@@ -983,6 +983,40 @@ export default function EmployeeProfilePage() {
       setEntryDelBusy(null);
     }
   };
+  // [leave-usage-edit 2026-07-14] Edit a leave entry in place instead of
+  // delete-and-re-add. PATCH /leave/usage/:id adjusts the bucket balance by the
+  // hours delta AND resyncs the linked additional_pay so the payment matches the
+  // new hours (Maribel: "when we edit it it should edit the payment").
+  const [editEntry, setEditEntry] = useState<any | null>(null);
+  const [editHours, setEditHours] = useState('');
+  const [editDate, setEditDate] = useState('');
+  const [editBusy, setEditBusy] = useState(false);
+  const [editErr, setEditErr] = useState<string | null>(null);
+  const openEditEntry = (u: any) => {
+    setEditErr(null);
+    setEditEntry(u);
+    setEditHours(String(Number(u.hours)));
+    setEditDate(String(u.date_used).slice(0, 10));
+  };
+  const saveEntryEdit = async () => {
+    if (!editEntry) return;
+    const hrs = Number(editHours);
+    if (editHours.trim() === '' || !Number.isFinite(hrs) || hrs <= 0 || hrs > 24) { setEditErr('Hours must be between 0 and 24'); return; }
+    if (!editDate) { setEditErr('Pick the date the hours were taken'); return; }
+    setEditBusy(true);
+    try {
+      await apiFetch(`/leave/usage/${editEntry.id}`, { method: 'PATCH', body: JSON.stringify({ hours: hrs, date: editDate }) });
+      qc.invalidateQueries({ queryKey: ['leave-usage', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balances', userId] });
+      qc.invalidateQueries({ queryKey: ['leave-balance-log', userId] });
+      qc.invalidateQueries({ queryKey: ['attendance-summary', userId] });
+      setEditEntry(null);
+    } catch (e: any) {
+      setEditErr(e?.message === '403' ? 'Only owners and admins can edit entries' : 'Could not save — try again');
+    } finally {
+      setEditBusy(false);
+    }
+  };
   // Provenance feed for the "Balance changes" section of View History —
   // office sets + engine grants with their trigger (deploy/nightly/apply).
   const { data: balanceLogResp } = useQuery({
@@ -2129,6 +2163,13 @@ export default function EmployeeProfilePage() {
                               <span style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{Number(u.hours).toFixed(2)} h</span>
                               {canEditBalance && u.id != null && (
                                 <button
+                                  onClick={() => openEditEntry(u)}
+                                  title="Edit the hours or date — the bucket balance and the pay update to match"
+                                  style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#1A1917',cursor:'pointer',fontFamily:'inherit' }}
+                                >Edit</button>
+                              )}
+                              {canEditBalance && u.id != null && (
+                                <button
                                   onClick={() => deleteEntry('usage', u.id)}
                                   disabled={entryDelBusy === `usage:${u.id}`}
                                   title="Remove this entry — the hours go back to the bucket"
@@ -2270,6 +2311,32 @@ export default function EmployeeProfilePage() {
                     <p style={{ fontSize:11, color:'#9E9B94', margin:'8px 0 0 0' }}>Loading…</p>
                   )}
                 </div>
+
+                {/* [leave-usage-edit 2026-07-14] Edit a leave entry (hours + date).
+                    Sits above the history modal (zIndex 1100). Saving PATCHes
+                    /leave/usage/:id — the balance and linked pay resync. */}
+                {editEntry && (
+                  <div onClick={() => !editBusy && setEditEntry(null)} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.45)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1100,padding:16 }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background:'#FFFFFF',borderRadius:12,padding:24,width:420,maxWidth:'92vw',boxShadow:'0 20px 60px rgba(0,0,0,0.2)',fontFamily:'inherit' }}>
+                      <div style={{ display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6 }}>
+                        <h3 style={{ margin:0,fontSize:16,fontWeight:700,color:'#1A1917' }}>Edit leave entry</h3>
+                        <button onClick={() => setEditEntry(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
+                      </div>
+                      <p style={{ margin:'0 0 16px 0',fontSize:12.5,color:'#9E9B94' }}>The bucket balance and the auto-created pay update to match the new hours.</p>
+                      <label style={{ display:'block',fontSize:12,fontWeight:700,color:'#6B7280',marginBottom:5 }}>Hours</label>
+                      <input type="number" min="0" max="24" step="0.25" value={editHours} onChange={e => setEditHours(e.target.value)}
+                        style={{ width:'100%',padding:'10px 12px',borderRadius:10,border:'1px solid #E5E2DC',fontSize:14,fontFamily:'inherit',color:'#1A1917',boxSizing:'border-box',marginBottom:14 }} />
+                      <label style={{ display:'block',fontSize:12,fontWeight:700,color:'#6B7280',marginBottom:5 }}>Date</label>
+                      <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
+                        style={{ width:'100%',padding:'10px 12px',borderRadius:10,border:'1px solid #E5E2DC',fontSize:14,fontFamily:'inherit',color:'#1A1917',boxSizing:'border-box' }} />
+                      {editErr && <div style={{ marginTop:12,padding:'9px 12px',borderRadius:10,background:'#FEF2F2',border:'1px solid #FECACA',color:'#B91C1C',fontSize:13 }}>{editErr}</div>}
+                      <div style={{ display:'flex',justifyContent:'flex-end',gap:10,marginTop:20 }}>
+                        <button onClick={() => setEditEntry(null)} disabled={editBusy} style={{ padding:'10px 18px',borderRadius:10,border:'1px solid #E5E2DC',background:'#FFFFFF',color:'#1A1917',fontWeight:700,fontSize:14,cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
+                        <button onClick={saveEntryEdit} disabled={editBusy} style={{ padding:'10px 20px',borderRadius:10,border:'none',background:'var(--brand, #00C9A0)',color:'#0A0E1A',fontWeight:800,fontSize:14,cursor: editBusy ? 'default' : 'pointer',fontFamily:'inherit' }}>{editBusy ? 'Saving…' : 'Save changes'}</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {/* [Phase 2] Stat-tile day-level drill-down (date + reason) */}
                 {statDrill && (
