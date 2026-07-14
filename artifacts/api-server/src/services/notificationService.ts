@@ -629,6 +629,7 @@ export async function runScheduledJobMessages(): Promise<void> {
               SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
                      j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
                      j.address_street, j.address_city, j.address_state, j.address_zip,
+                     c.address AS client_address, c.city AS client_city, c.state AS client_state,
                      c.first_name, c.last_name, c.email, c.phone, c.zip,
                      c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
                 FROM jobs j
@@ -644,6 +645,7 @@ export async function runScheduledJobMessages(): Promise<void> {
               SELECT j.id, j.company_id, j.client_id, co.name AS company_name, co.logo_url AS company_logo, co.arrival_window_minutes,
                      j.scheduled_date::date AS sdate, j.scheduled_time, j.service_type, j.arrival_window,
                      j.address_street, j.address_city, j.address_state, j.address_zip,
+                     c.address AS client_address, c.city AS client_city, c.state AS client_state,
                      c.first_name, c.last_name, c.email, c.phone, c.zip,
                      c.sms_opt_out_at, c.email_opt_out_at, c.email_unsub_token
                 FROM jobs j
@@ -682,7 +684,15 @@ export async function runScheduledJobMessages(): Promise<void> {
         const jobZip = job.address_zip || job.zip || "";
         const branchConfig = getBranchByZip(jobZip);
         const stateZip = [job.address_state, job.address_zip].filter(Boolean).join(" ");
-        const serviceAddress = [job.address_street, job.address_city, stateZip].filter(Boolean).join(", ") || "On file";
+        // [address-fallback 2026-07-14] Job-level address, then CLIENT-level
+        // fallback, then "On file". The reminder read only the job's address_*
+        // fields, so a job created without them stamped rendered the literal
+        // "On file" — customers saw "your cleaning with Phes at On file is …"
+        // (Sarah Boersma). Mirrors the dispatch address rule (job preferred,
+        // client fallback) so the real service address shows.
+        const clientStateZip = [job.client_state, job.zip].filter(Boolean).join(" ");
+        const clientAddress = [job.client_address, job.client_city, clientStateZip].filter(Boolean).join(", ");
+        const serviceAddress = ([job.address_street, job.address_city, stateZip].filter(Boolean).join(", ") || clientAddress) || "On file";
         const arrivalWindowLabel = computeArrivalWindow(job.scheduled_time, job.arrival_window, Number(job.arrival_window_minutes) || ARRIVAL_WINDOW_MINUTES);
         const vars: Record<string, string> = {
           first_name: job.first_name || "there",
