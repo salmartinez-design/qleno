@@ -6,13 +6,13 @@
 // Deliberately NOT a job: no service/pricing/comms. Posts to
 // POST /api/dispatch-events; the board reloads its events on success.
 import { useEffect, useRef, useState } from "react";
-import { CalendarClock, CalendarDays, MapPin, X, Check } from "lucide-react";
+import { CalendarClock, CalendarDays, MapPin, MessageSquare, X, Check } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const BRAND = "var(--brand, #00C9A0)";
 
-type Kind = "tech_block" | "company_day" | "client_visit";
+type Kind = "tech_block" | "company_day" | "client_visit" | "one_on_one";
 
 export interface EventModalProps {
   open: boolean;
@@ -21,14 +21,16 @@ export interface EventModalProps {
   techs: { id: number; name: string }[];
   presetDate: string; // YYYY-MM-DD — the board's current day
   branchId?: number | null;
+  isOwner?: boolean; // gates the owner-only "1-on-1" kind
 }
 
 interface ClientHit { id: number; name: string; }
 
-const KIND_OPTIONS: { value: Kind; label: string; desc: string; Icon: typeof CalendarClock }[] = [
+const KIND_OPTIONS: { value: Kind; label: string; desc: string; Icon: typeof CalendarClock; ownerOnly?: boolean }[] = [
   { value: "tech_block", label: "Block a tech", desc: "Hold time on one technician's row", Icon: CalendarClock },
   { value: "company_day", label: "Company day", desc: "Holiday or all-hands across the board", Icon: CalendarDays },
   { value: "client_visit", label: "Client visit", desc: "Non-job appointment for a client", Icon: MapPin },
+  { value: "one_on_one", label: "1-on-1", desc: "Private quarterly check-in with a tech", Icon: MessageSquare, ownerOnly: true },
 ];
 
 const inputStyle: React.CSSProperties = {
@@ -39,8 +41,9 @@ const labelStyle: React.CSSProperties = {
   display: "block", fontSize: 12, fontWeight: 700, color: "#6B7280", marginBottom: 6, fontFamily: FF,
 };
 
-export function EventModal({ open, onClose, onCreated, techs, presetDate, branchId }: EventModalProps) {
+export function EventModal({ open, onClose, onCreated, techs, presetDate, branchId, isOwner }: EventModalProps) {
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const kindOptions = KIND_OPTIONS.filter(o => !o.ownerOnly || isOwner);
   const [kind, setKind] = useState<Kind>("tech_block");
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(presetDate);
@@ -91,12 +94,14 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
 
   if (!open) return null;
 
-  const needsTech = kind === "tech_block" || kind === "client_visit";
+  const isOneOnOne = kind === "one_on_one";
+  const needsTech = kind === "tech_block" || kind === "client_visit" || isOneOnOne;
   const needsClient = kind === "client_visit";
+  const needsTitle = !isOneOnOne; // 1-on-1 has a fixed title, set server-side
   const showTimes = !(kind === "company_day" && allDay);
 
   const canSave =
-    title.trim().length > 0 &&
+    (!needsTitle || title.trim().length > 0) &&
     /^\d{4}-\d{2}-\d{2}$/.test(date) &&
     (!needsTech || techId !== "") &&
     (!needsClient || client !== null) &&
@@ -107,6 +112,23 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
     if (!canSave) return;
     setSubmitting(true);
     try {
+      // A 1-on-1 posts to the owner-only endpoint, which creates BOTH the
+      // private record and the board block. Everything else is a plain event.
+      if (isOneOnOne) {
+        const r = await fetch(`${API}/api/one-on-ones`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(getAuthHeaders() as Record<string, string>) },
+          body: JSON.stringify({ employee_id: techId, event_date: date, start_time: startTime, end_time: endTime }),
+        });
+        if (!r.ok) {
+          const txt = await r.text().catch(() => "");
+          let msg = `HTTP ${r.status}`;
+          try { const j = JSON.parse(txt); msg = j.error || j.message || msg; } catch { /* not json */ }
+          throw new Error(msg);
+        }
+        onCreated();
+        return;
+      }
       const body: Record<string, unknown> = {
         kind,
         title: title.trim(),
@@ -162,8 +184,8 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
 
         <div style={{ padding: 20 }}>
           {/* Kind picker */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 18 }}>
-            {KIND_OPTIONS.map(opt => {
+          <div style={{ display: "grid", gridTemplateColumns: kindOptions.length >= 4 ? "1fr 1fr" : "1fr 1fr 1fr", gap: 8, marginBottom: 18 }}>
+            {kindOptions.map(opt => {
               const sel = kind === opt.value;
               return (
                 <button
@@ -184,17 +206,26 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
             })}
           </div>
 
-          {/* Title */}
-          <div style={{ marginBottom: 14 }}>
-            <label style={labelStyle}>Title</label>
-            <input
-              style={inputStyle}
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              placeholder={kind === "company_day" ? "e.g. Company holiday" : kind === "client_visit" ? "e.g. Estimate walkthrough" : "e.g. Team meeting"}
-              autoFocus
-            />
-          </div>
+          {/* Title (not for 1-on-1 — it has a fixed neutral label) */}
+          {needsTitle && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Title</label>
+              <input
+                style={inputStyle}
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder={kind === "company_day" ? "e.g. Company holiday" : kind === "client_visit" ? "e.g. Estimate walkthrough" : "e.g. Team meeting"}
+                autoFocus
+              />
+            </div>
+          )}
+
+          {/* 1-on-1 privacy note */}
+          {isOneOnOne && (
+            <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 10, background: "rgba(0,201,160,0.06)", border: "1px solid #CDEDE5", fontSize: 12.5, color: "#3A6B60", lineHeight: 1.4 }}>
+              Creates a private 1-on-1 on this tech's profile — the questions, answers, and notes are <strong>owner-only</strong>. The board shows a neutral "1-on-1" block so the office schedules around it.
+            </div>
+          )}
 
           {/* Tech */}
           {needsTech && (
@@ -268,11 +299,13 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
             </div>
           )}
 
-          {/* Notes */}
-          <div style={{ marginBottom: 6 }}>
-            <label style={labelStyle}>Notes (optional)</label>
-            <textarea style={{ ...inputStyle, minHeight: 64, resize: "vertical" }} value={notes} onChange={e => setNotes(e.target.value)} />
-          </div>
+          {/* Notes (not for 1-on-1 — private notes are captured on the record) */}
+          {!isOneOnOne && (
+            <div style={{ marginBottom: 6 }}>
+              <label style={labelStyle}>Notes (optional)</label>
+              <textarea style={{ ...inputStyle, minHeight: 64, resize: "vertical" }} value={notes} onChange={e => setNotes(e.target.value)} />
+            </div>
+          )}
 
           {error && (
             <div style={{ marginTop: 12, padding: "9px 12px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>
@@ -292,7 +325,7 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
             disabled={!canSave}
             style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: canSave ? BRAND : "#CDEDE5", color: "#0A0E1A", fontWeight: 800, fontSize: 14, cursor: canSave ? "pointer" : "not-allowed", fontFamily: FF }}
           >
-            {submitting ? "Creating…" : "Create event"}
+            {submitting ? (isOneOnOne ? "Scheduling…" : "Creating…") : (isOneOnOne ? "Schedule 1-on-1" : "Create event")}
           </button>
         </div>
       </div>

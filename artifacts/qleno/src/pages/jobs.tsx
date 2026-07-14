@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useLayoutEffect, useMemo, Fra
 import { useSearch, useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { EmployeeAvatar } from "@/components/employee-avatar";
-import { getAuthHeaders, useAuthStore } from "@/lib/auth";
+import { getAuthHeaders, useAuthStore, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { useToast } from "@/hooks/use-toast";
 import { mapsDirectionsUrl } from "@/lib/format-address";
@@ -88,7 +88,7 @@ interface DispatchData { employees: Employee[]; unassigned_jobs: DispatchJob[]; 
 // row (assigned_user_id set); company_day → a banner lane across the top.
 interface DispatchEvent {
   id: number;
-  kind: "tech_block" | "company_day" | "client_visit";
+  kind: "tech_block" | "company_day" | "client_visit" | "one_on_one";
   title: string;
   branch_id: number | null;
   assigned_user_id: number | null;
@@ -6502,38 +6502,52 @@ function packEvents(evs: DispatchEvent[]): { laneById: Map<number, number>; lane
   return { laneById, laneCount: laneEnds.length };
 }
 
-function EventChip({ ev, top, onDelete }: { ev: DispatchEvent; top: number; onDelete: (ev: DispatchEvent) => void }) {
+function EventChip({ ev, top, onDelete, onOpen }: { ev: DispatchEvent; top: number; onDelete: (ev: DispatchEvent) => void; onOpen?: (ev: DispatchEvent) => void }) {
   const { start, end } = eventWindowMins(ev);
   const left = Math.max(0, ((start - DAY_START) / 30) * SLOT_W);
   const width = Math.max(SLOT_W * 0.9, ((end - start) / 30) * SLOT_W);
   const timeLabel = ev.start_time ? `${fmtTime(ev.start_time)}${ev.end_time ? `–${fmtTime(ev.end_time)}` : ""}` : "";
+  const isOneOnOne = ev.kind === "one_on_one";
   const sub = ev.kind === "client_visit" ? (ev.client_name || "Client visit") : timeLabel;
-  const title = `${ev.title}${timeLabel ? ` · ${timeLabel}` : ""}${ev.notes ? `\n${ev.notes}` : ""}`;
+  // A 1-on-1 block's delete is blocked here — removing it would orphan the
+  // private record. It's opened/removed from the owner's profile tab instead.
+  const deletable = !isOneOnOne;
+  const clickable = isOneOnOne && !!onOpen;
+  const title = isOneOnOne
+    ? `1-on-1${timeLabel ? ` · ${timeLabel}` : ""}${onOpen ? " — click to open (owner only)" : ""}`
+    : `${ev.title}${timeLabel ? ` · ${timeLabel}` : ""}${ev.notes ? `\n${ev.notes}` : ""}`;
+  const Icon = isOneOnOne ? MessageSquare : Clock;
   return (
     <div
       title={title}
+      onClick={clickable ? () => onOpen!(ev) : undefined}
       style={{
         position: "absolute", top, left, width, height: EVENT_H, zIndex: 2,
         boxSizing: "border-box", borderRadius: 7, padding: "3px 8px",
-        background: "#F1EFEA", border: "1px dashed #B8B2A6", color: "#44413B",
+        background: isOneOnOne ? "#EEF1F4" : "#F1EFEA",
+        border: `1px dashed ${isOneOnOne ? "#A9B4C0" : "#B8B2A6"}`,
+        color: isOneOnOne ? "#3E4A57" : "#44413B",
+        cursor: clickable ? "pointer" : "default",
         display: "flex", alignItems: "center", gap: 6, overflow: "hidden", fontFamily: FF,
       }}
     >
-      <Clock size={11} style={{ flexShrink: 0, color: "#8A8578" }} />
+      <Icon size={11} style={{ flexShrink: 0, color: isOneOnOne ? "#71808F" : "#8A8578" }} />
       <span style={{ minWidth: 0, flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", fontSize: 11, fontWeight: 700 }}>
-        {ev.title}
-        {sub && <span style={{ fontWeight: 600, color: "#8A8578" }}>{`  ·  ${sub}`}</span>}
+        {isOneOnOne ? "1-on-1" : ev.title}
+        {sub && <span style={{ fontWeight: 600, color: isOneOnOne ? "#71808F" : "#8A8578" }}>{`  ·  ${sub}`}</span>}
       </span>
-      <button
-        onClick={(e) => { e.stopPropagation(); onDelete(ev); }}
-        title="Remove event"
-        aria-label="Remove event"
-        style={{ flexShrink: 0, border: "none", background: "none", padding: 0, cursor: "pointer", color: "#A39D90", display: "flex", alignItems: "center" }}
-        onMouseEnter={(e) => (e.currentTarget.style.color = "#B91C1C")}
-        onMouseLeave={(e) => (e.currentTarget.style.color = "#A39D90")}
-      >
-        <X size={12} />
-      </button>
+      {deletable && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onDelete(ev); }}
+          title="Remove event"
+          aria-label="Remove event"
+          style={{ flexShrink: 0, border: "none", background: "none", padding: 0, cursor: "pointer", color: "#A39D90", display: "flex", alignItems: "center" }}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "#B91C1C")}
+          onMouseLeave={(e) => (e.currentTarget.style.color = "#A39D90")}
+        >
+          <X size={12} />
+        </button>
+      )}
     </div>
   );
 }
@@ -6568,7 +6582,7 @@ function CompanyDayBanner({ events, onDelete }: { events: DispatchEvent[]; onDel
   );
 }
 
-function EmployeeRow({ employee, onChipClick, nowLine, events = [], onDeleteEvent }: { employee: Employee; onChipClick: (j: DispatchJob) => void; nowLine: number; events?: DispatchEvent[]; onDeleteEvent?: (ev: DispatchEvent) => void }) {
+function EmployeeRow({ employee, onChipClick, nowLine, events = [], onDeleteEvent, onOpenEvent }: { employee: Employee; onChipClick: (j: DispatchJob) => void; nowLine: number; events?: DispatchEvent[]; onDeleteEvent?: (ev: DispatchEvent) => void; onOpenEvent?: (ev: DispatchEvent) => void }) {
   const { setNodeRef, isOver } = useDroppable({ id: `row-${employee.id}` });
   const [, navigate] = useLocation();
   const initials = employee.name.split(" ").map((p: string) => p[0]).join("").toUpperCase().slice(0, 2);
@@ -6716,7 +6730,7 @@ function EmployeeRow({ employee, onChipClick, nowLine, events = [], onDeleteEven
         })()}
         {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
         {employee.jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} assignedName={employee.name} top={topById.get(j.id) ?? 10} />)}
-        {events.map(ev => <EventChip key={`ev-${ev.id}`} ev={ev} top={eventTop(eventLaneById.get(ev.id) ?? 0)} onDelete={(e) => onDeleteEvent?.(e)} />)}
+        {events.map(ev => <EventChip key={`ev-${ev.id}`} ev={ev} top={eventTop(eventLaneById.get(ev.id) ?? 0)} onDelete={(e) => onDeleteEvent?.(e)} onOpen={onOpenEvent} />)}
         {employee.jobs.length === 0 && events.length === 0 && (
           // [2026-06-02] Was centered horizontally on a full-width row,
           // which made the label visually land around the 11:30–12:30
@@ -7444,6 +7458,9 @@ export default function JobsPage() {
   // payload) so they never touch the fragile dispatch data/cache pipeline.
   const [showEventModal, setShowEventModal] = useState(false);
   const [events, setEvents] = useState<DispatchEvent[]>([]);
+  // [one-on-ones 2026-07-14] Owner-only surfaces: the "1-on-1" event kind and
+  // opening a 1-on-1 block route to the owner-gated profile tab.
+  const isOwner = getTokenRole() === "owner";
   // Account/property/date context carried in from an account-calendar
   // "+ New job" deep link; null for a plain New → Job open.
   const [wizardPreset, setWizardPreset] = useState<{ accountId: number | null; propertyId: number | null; date: string | null } | null>(null);
@@ -7613,6 +7630,12 @@ export default function JobsPage() {
       load(); // resync from server so the chip comes back if the delete failed
     }
   }, [token, load, toast]);
+  // [one-on-ones 2026-07-14] Clicking a 1-on-1 board block opens the owner-only
+  // 1-on-1s tab on that tech's profile. Only wired for the owner.
+  const openOneOnOne = useCallback((ev: DispatchEvent) => {
+    if (ev.assigned_user_id == null) return;
+    navigate(`/employees/${ev.assigned_user_id}?tab=one-on-ones`);
+  }, [navigate]);
 
   // [account-calendar 2026-07-07] Deep-link a specific job's drawer: ?job=<id>
   // (paired with ?date= so the right day is loaded). The account calendar's
@@ -8451,7 +8474,7 @@ export default function JobsPage() {
           <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile />
         )}
         <JobWizard open={showWizard} onClose={() => { setShowWizard(false); setWizardPreset(null); }} onCreated={() => { setShowWizard(false); setWizardPreset(null); load(); }} preselectedAccountId={wizardPreset?.accountId} preselectedPropertyId={wizardPreset?.propertyId} presetDate={wizardPreset?.date} />
-        <EventModal open={showEventModal} onClose={() => setShowEventModal(false)} onCreated={() => { setShowEventModal(false); load(); }} techs={(data?.employees ?? []).map(e => ({ id: e.id, name: e.name }))} presetDate={dateKey(selectedDate)} branchId={typeof activeBranchId === "number" ? activeBranchId : null} />
+        <EventModal open={showEventModal} onClose={() => setShowEventModal(false)} onCreated={() => { setShowEventModal(false); load(); }} techs={(data?.employees ?? []).map(e => ({ id: e.id, name: e.name }))} presetDate={dateKey(selectedDate)} branchId={typeof activeBranchId === "number" ? activeBranchId : null} isOwner={isOwner} />
         <LegendPopover open={legendOpen} onClose={() => setLegendOpen(false)} mobile={isMobile} anchorRect={legendAnchor} />
         <MobileDateSheet open={dateSheetOpen} selectedDate={selectedDate} onSelect={setSelectedDate} onClose={() => setDateSheetOpen(false)} />
       </DashboardLayout>
@@ -8759,7 +8782,7 @@ export default function JobsPage() {
                         return earliest(a) - earliest(b);
                       }
                       return a.name.localeCompare(b.name);
-                    }).map(e => <EmployeeRow key={e.id} employee={e} onChipClick={setSelectedJob} nowLine={nowLine} events={eventsByUser.get(e.id)} onDeleteEvent={deleteEvent} />)}
+                    }).map(e => <EmployeeRow key={e.id} employee={e} onChipClick={setSelectedJob} nowLine={nowLine} events={eventsByUser.get(e.id)} onDeleteEvent={deleteEvent} onOpenEvent={isOwner ? openOneOnOne : undefined} />)}
                   </>
                 )}
               </div>
@@ -8849,7 +8872,7 @@ export default function JobsPage() {
         <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile={false} />
       )}
       <JobWizard open={showWizard} onClose={() => { setShowWizard(false); setWizardPreset(null); }} onCreated={() => { setShowWizard(false); setWizardPreset(null); load(); }} preselectedAccountId={wizardPreset?.accountId} preselectedPropertyId={wizardPreset?.propertyId} presetDate={wizardPreset?.date} />
-      <EventModal open={showEventModal} onClose={() => setShowEventModal(false)} onCreated={() => { setShowEventModal(false); load(); }} techs={(data?.employees ?? []).map(e => ({ id: e.id, name: e.name }))} presetDate={dateKey(selectedDate)} branchId={typeof activeBranchId === "number" ? activeBranchId : null} />
+      <EventModal open={showEventModal} onClose={() => setShowEventModal(false)} onCreated={() => { setShowEventModal(false); load(); }} techs={(data?.employees ?? []).map(e => ({ id: e.id, name: e.name }))} presetDate={dateKey(selectedDate)} branchId={typeof activeBranchId === "number" ? activeBranchId : null} isOwner={isOwner} />
 
       {/* Cutover 3B — Attendance overlay drawer. Mounted at the same
           level as JobPanel so it can sit on top of dispatch without

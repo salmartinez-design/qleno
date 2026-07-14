@@ -8,6 +8,7 @@ import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { useBranch } from "@/contexts/branch-context";
 import { Plus, Search, Mail, ExternalLink, Check, Eye, Copy } from "lucide-react";
 import { useEmployeeView } from "@/contexts/employee-view-context";
+import { OneOnOneCoverageCard } from "@/components/one-on-ones-panel";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -349,6 +350,9 @@ export default function EmployeesPage() {
           </table>
         </div>
         )}{/* end desktop table ternary */}
+
+        {/* 1-on-1 coverage — owner only; who still needs their quarterly check-in */}
+        {isOwner && <OneOnOneCoverageCard />}
 
         {/* Time off & leave requests — pending requests the office acts on */}
         <TimeOffRequestsSection />
