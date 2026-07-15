@@ -66,6 +66,7 @@ router.get("/", requireAuth, officeGate, async (req, res) => {
         start_time: dispatchEventsTable.start_time,
         end_time: dispatchEventsTable.end_time,
         all_day: dispatchEventsTable.all_day,
+        address: dispatchEventsTable.address,
         notes: dispatchEventsTable.notes,
         color: dispatchEventsTable.color,
       })
@@ -136,6 +137,7 @@ router.post("/", requireAuth, officeGate, async (req, res) => {
         start_time: startTime,
         end_time: endTime,
         all_day: allDay,
+        address: typeof b.address === "string" && b.address.trim() ? b.address.trim() : null,
         notes: typeof b.notes === "string" && b.notes.trim() ? b.notes.trim() : null,
         color: typeof b.color === "string" && b.color.trim() ? b.color.trim() : null,
         created_by_user_id: req.auth!.userId ?? null,

@@ -529,6 +529,7 @@ router.get("/events", requireAuth, async (req, res) => {
         event_date: dispatchEventsTable.event_date,
         start_time: dispatchEventsTable.start_time,
         end_time: dispatchEventsTable.end_time,
+        address: dispatchEventsTable.address,
       })
       .from(dispatchEventsTable)
       .where(and(

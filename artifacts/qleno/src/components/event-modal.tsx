@@ -11,6 +11,9 @@ import { getAuthHeaders } from "@/lib/auth";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const BRAND = "var(--brand, #00C9A0)";
+// [event-address 2026-07-15] Events default to the Phes office; the office can
+// edit it per event (Sal). Editable freeform string.
+const OFFICE_ADDRESS = "9850 S Cicero Ave, Oak Lawn, IL 60453";
 
 type Kind = "tech_block" | "company_day" | "client_visit" | "one_on_one";
 
@@ -85,6 +88,7 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
   const [allDay, setAllDay] = useState(false);
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("11:00");
+  const [address, setAddress] = useState(OFFICE_ADDRESS);
   const [notes, setNotes] = useState("");
 
   // Client typeahead (client_visit only).
@@ -100,7 +104,7 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
   useEffect(() => {
     if (!open) return;
     setKind("tech_block"); setTitle(""); setDate(presetDate); setTechId("");
-    setAllDay(false); setStartTime("09:00"); setEndTime("11:00"); setNotes("");
+    setAllDay(false); setStartTime("09:00"); setEndTime("11:00"); setAddress(OFFICE_ADDRESS); setNotes("");
     setClientQuery(""); setClientHits([]); setClient(null);
     setSubmitting(false); setError(null);
   }, [open, presetDate]);
@@ -152,7 +156,7 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
         const r = await fetch(`${API}/api/one-on-ones`, {
           method: "POST",
           headers: { "Content-Type": "application/json", ...(getAuthHeaders() as Record<string, string>) },
-          body: JSON.stringify({ employee_id: techId, event_date: date, start_time: startTime, end_time: endTime }),
+          body: JSON.stringify({ employee_id: techId, event_date: date, start_time: startTime, end_time: endTime, address: address.trim() || null }),
         });
         if (!r.ok) {
           const txt = await r.text().catch(() => "");
@@ -167,6 +171,7 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
         kind,
         title: title.trim(),
         event_date: date,
+        address: address.trim() || undefined,
         notes: notes.trim() || undefined,
         branch_id: typeof branchId === "number" ? branchId : undefined,
       };
@@ -330,6 +335,21 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
                 <label style={labelStyle}>End</label>
                 <TimeSelect ariaLabel="End time" value={endTime} onChange={setEndTime} />
               </div>
+            </div>
+          )}
+
+          {/* Address — defaults to the office, editable. Skipped for an all-day
+              company day (no location needed). */}
+          {!(kind === "company_day" && allDay) && (
+            <div style={{ marginBottom: 14 }}>
+              <label style={labelStyle}>Address</label>
+              <input
+                style={inputStyle}
+                value={address}
+                onChange={e => setAddress(e.target.value)}
+                placeholder="Where is this happening?"
+              />
+              <div style={{ fontSize: 11.5, color: "#9E9B94", marginTop: 5 }}>Defaults to the office — edit for an off-site event.</div>
             </div>
           )}
 

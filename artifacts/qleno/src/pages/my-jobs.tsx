@@ -439,7 +439,7 @@ function ClockInfoRow({ clockInAt, budgetHours }: { clockInAt: string; budgetHou
 // in/out here pays them for the time (hours × rate → payroll) — Sal wanted
 // techs to be paid for meetings/training/1-on-1s they attend.
 type TechEventEntry = { id: number; clock_in_at: string; clock_out_at: string | null; paid_hours: string | null; paid_rate: string | null };
-type TechEvent = { id: number; kind: string; title: string; label: string; event_date: string; start_time: string | null; end_time: string | null; time_clock_entry: TechEventEntry | null };
+type TechEvent = { id: number; kind: string; title: string; label: string; event_date: string; start_time: string | null; end_time: string | null; address: string | null; time_clock_entry: TechEventEntry | null };
 
 function EventClockCard({ ev, onRefresh, actingForUserId }: { ev: TechEvent; onRefresh: () => void; actingForUserId: number | null }) {
   const [busy, setBusy] = useState(false);
@@ -470,6 +470,13 @@ function EventClockCard({ ev, onRefresh, actingForUserId }: { ev: TechEvent; onR
         <div style={{ minWidth: 0, flex: 1 }}>
           <p style={{ fontSize: 11, fontWeight: 800, color: "#00A588", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 2px" }}>{ev.label}</p>
           <p style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", margin: 0 }}>{timeLabel || "Today"}</p>
+          {ev.address && (
+            <a href={`https://maps.google.com/?q=${encodeURIComponent(ev.address)}`} target="_blank" rel="noreferrer"
+              onClick={e => e.stopPropagation()}
+              style={{ fontSize: 12, color: "#6B6860", margin: "3px 0 0", display: "flex", alignItems: "center", gap: 4, textDecoration: "none" }}>
+              <MapPin size={12} style={{ flexShrink: 0 }} /> {ev.address}
+            </a>
+          )}
         </div>
         {!isDone && !isOpen && (
           <button onClick={() => post("clock-in")} disabled={busy}

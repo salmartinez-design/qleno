@@ -190,6 +190,7 @@ router.post("/", requireAuth, ownerOnly, async (req, res) => {
     const endTime = typeof b.end_time === "string" && /^\d{1,2}:\d{2}/.test(b.end_time) ? (b.end_time.length === 5 ? `${b.end_time}:00` : b.end_time) : null;
 
     // Board block — office-visible, no content. Neutral "1-on-1" label.
+    const blockAddress = typeof b.address === "string" && b.address.trim() ? b.address.trim() : null;
     const [block] = await db.insert(dispatchEventsTable).values({
       company_id: companyId,
       kind: "one_on_one",
@@ -199,6 +200,7 @@ router.post("/", requireAuth, ownerOnly, async (req, res) => {
       start_time: startTime,
       end_time: endTime,
       all_day: false,
+      address: blockAddress,
       created_by_user_id: ownerId,
     }).returning({ id: dispatchEventsTable.id });
 
