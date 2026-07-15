@@ -233,6 +233,14 @@ async function runBookingSchemaGuard(): Promise<void> {
     { label: "jobs.office_notes_updated_at", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS office_notes_updated_at TIMESTAMP" },
     { label: "companies.flag_missing_gps", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS flag_missing_gps BOOLEAN NOT NULL DEFAULT true" },
     { label: "companies.require_after_photo_for_clockout", stmt: "ALTER TABLE companies ADD COLUMN IF NOT EXISTS require_after_photo_for_clockout BOOLEAN NOT NULL DEFAULT false" },
+    // [fee-rule-tech-comp 2026-07-15] pricing_fee_rules gained office-editable
+    // tech compensation (mode + value). The Fee Rules settings UI and the
+    // PATCH /pricing/fee-rules route already referenced these columns, but they
+    // were never created — so the grid rendered "$NaN" and any save 500'd.
+    // Default Flat $60 matches the section's subtitle; existing rows inherit it
+    // via the NOT NULL DEFAULT.
+    { label: "pricing_fee_rules.tech_comp_mode",  stmt: "ALTER TABLE pricing_fee_rules ADD COLUMN IF NOT EXISTS tech_comp_mode TEXT NOT NULL DEFAULT 'flat'" },
+    { label: "pricing_fee_rules.tech_comp_value", stmt: "ALTER TABLE pricing_fee_rules ADD COLUMN IF NOT EXISTS tech_comp_value NUMERIC(10,2) NOT NULL DEFAULT 60" },
     { label: "jobs.last_cleaned_response", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_cleaned_response TEXT" },
     { label: "jobs.last_cleaned_flag",     stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS last_cleaned_flag TEXT" },
     { label: "jobs.overage_disclaimer_acknowledged", stmt: "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS overage_disclaimer_acknowledged BOOLEAN DEFAULT false" },
@@ -2224,11 +2232,11 @@ async function runAddonFix(): Promise<void> {
   `);
   // Correct prices for the 5 customer-facing add-ons
   await db.execute(sql`
-    UPDATE pricing_addons SET price_value = 50, price_type = 'flat'
+    UPDATE pricing_addons SET price_value = 60, price_type = 'flat'
     WHERE company_id = ${PHES} AND name ILIKE '%oven%' AND name NOT ILIKE '%hourly%'
   `);
   await db.execute(sql`
-    UPDATE pricing_addons SET price_value = 50, price_type = 'flat'
+    UPDATE pricing_addons SET price_value = 60, price_type = 'flat'
     WHERE company_id = ${PHES} AND name ILIKE '%refrigerator%' AND name NOT ILIKE '%hourly%'
   `);
   await db.execute(sql`
@@ -5087,7 +5095,7 @@ export async function runPhesDataMigration(): Promise<void> {
           name: "Oven Cleaning",
           addon_type: "cleaning_extras",
           scope_ids: [D, MIO, S, R].filter(Boolean),
-          price_type: "flat", price_value: 50,
+          price_type: "flat", price_value: 60,
           time_minutes: 45, time_unit: "each",
           is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 10,
         },
@@ -5103,7 +5111,7 @@ export async function runPhesDataMigration(): Promise<void> {
           name: "Refrigerator Cleaning",
           addon_type: "cleaning_extras",
           scope_ids: [D, MIO, S, R].filter(Boolean),
-          price_type: "flat", price_value: 50,
+          price_type: "flat", price_value: 60,
           time_minutes: 45, time_unit: "each",
           is_itemized: true, show_office: true, show_online: true, show_portal: true, sort_order: 20,
         },
@@ -5910,7 +5918,7 @@ async function runTop10AddonsAndBundleMigration() {
 
     // ── Oven + Refrigerator combo bundle (ACTIVE) ─────────────────────
     // Pulls the canonical Oven Cleaning + Refrigerator Cleaning add-ons
-    // by name. $15 off when both are on the quote. Bundle stays disabled
+    // by name. $20 off when both are on the quote. Bundle stays disabled
     // automatically if either constituent add-on is inactive.
     const bundleName = "Oven + Refrigerator Combo";
     const bundleExists = await db.execute(sql`
@@ -5918,7 +5926,16 @@ async function runTop10AddonsAndBundleMigration() {
        WHERE company_id = ${PHES} AND lower(name) = lower(${bundleName}) LIMIT 1
     `);
     if (((bundleExists as any).rows ?? []).length > 0) {
-      console.log("[top10-addons] Bundle already present — skipping.");
+      // Idempotently sync the discount on the existing prod bundle — the
+      // insert below only runs on first seed, so a value change (e.g. $15→$20)
+      // must be forced here or prod keeps the stale amount.
+      await db.execute(sql`
+        UPDATE addon_bundles
+           SET discount_type = 'flat_total', discount_value = 20,
+               description = 'Save $20 when both Oven and Refrigerator cleaning are added.'
+         WHERE company_id = ${PHES} AND lower(name) = lower(${bundleName})
+      `);
+      console.log("[top10-addons] Bundle already present — synced discount to $20.");
       return;
     }
 
@@ -5939,8 +5956,8 @@ async function runTop10AddonsAndBundleMigration() {
 
     const bundleInsert = await db.execute(sql`
       INSERT INTO addon_bundles (company_id, name, description, discount_type, discount_value, active)
-      VALUES (${PHES}, ${bundleName}, 'Save $15 when both Oven and Refrigerator cleaning are added.',
-              'flat_total', 15, true)
+      VALUES (${PHES}, ${bundleName}, 'Save $20 when both Oven and Refrigerator cleaning are added.',
+              'flat_total', 20, true)
       RETURNING id
     `);
     const bundleId = ((bundleInsert as any).rows ?? [])[0]?.id;
