@@ -1,5 +1,5 @@
 /**
- * Bundle Discount Integration Tests — "Appliance Combo" (Oven + Refrigerator)
+ * Bundle Discount Integration Tests — "Oven + Refrigerator Combo"
  *
  * Coverage:
  *   - /api/public/calculate  (unauthenticated, used by booking widget)
@@ -15,9 +15,9 @@
  *
  * Data constants:
  *   company_id = 1  (PHES Cleaning)
- *   Addon 8  = Oven Cleaning   ($50 flat)
- *   Addon 10 = Refrigerator Cleaning ($50 flat)
- *   Bundle "Appliance Combo" → flat_per_item $10 × 2 addons = $20 discount
+ *   Addon 8  = Oven Cleaning   ($60 flat)
+ *   Addon 10 = Refrigerator Cleaning ($60 flat)
+ *   Bundle "Oven + Refrigerator Combo" → flat_total $20 discount
  */
 import { describe, it, before } from "node:test";
 import assert from "node:assert/strict";
@@ -66,8 +66,8 @@ function assertBundleApplied(result: Record<string, unknown>, label: string): vo
   const breakdown = result.bundle_breakdown as Array<{ name: string; discount: number }>;
   assert.ok(Array.isArray(breakdown) && breakdown.length > 0, `${label}: bundle_breakdown must be non-empty`);
   assert.ok(
-    breakdown.some((b) => b.name === "Appliance Combo" && b.discount === EXPECTED_BUNDLE_DISCOUNT),
-    `${label}: bundle_breakdown must include Appliance Combo with discount=20`
+    breakdown.some((b) => b.name === "Oven + Refrigerator Combo" && b.discount === EXPECTED_BUNDLE_DISCOUNT),
+    `${label}: bundle_breakdown must include Oven + Refrigerator Combo with discount=20`
   );
 }
 

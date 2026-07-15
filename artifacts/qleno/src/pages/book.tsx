@@ -2795,6 +2795,20 @@ export default function BookPage() {
                 const applianceActive  = ovenSel && fridgeSel;
                 const bundleDisc = parseFloat(activeBundle?.discount_value ?? "0");
 
+                // Per-appliance prices + the combo discount, both read from the
+                // DB (addon.price / bundle.discount_value) so the upsell copy can
+                // never drift out of sync with what actually gets applied.
+                const ovenPrice   = Number(ovenDb?.price ?? 60);
+                const fridgePrice = Number(fridgeDb?.price ?? 60);
+                const applianceBundle = bundles.find(b => {
+                  const ids = (b.items as { addon_id: number }[]).map(it => Number(it.addon_id));
+                  return !!ovenDb && !!fridgeDb && ids.length === 2 && ids.includes(ovenDb.id) && ids.includes(fridgeDb.id);
+                });
+                const comboDisc = applianceBundle ? Number(applianceBundle.discount_value) : 20;
+                const bothPrice = ovenPrice + fridgePrice;
+                const bundledPrice = bothPrice - comboDisc;
+                const money = (n: number) => Number.isInteger(n) ? `$${n}` : `$${n.toFixed(2)}`;
+
                 // Show oven nudge on oven card if ONLY fridge is selected
                 const showOvenNudge   = fridgeSel && !ovenSel;
                 // Show fridge nudge on fridge card if ONLY oven is selected
@@ -2883,10 +2897,10 @@ export default function BookPage() {
                 return hasAnyCard ? (
                   <div style={{ marginBottom: 16 }}>
                     <span style={s.label}>Add-ons (optional)</span>
-                    {showFlatCards && !applianceActive && bundleDisc > 0 && (
+                    {showFlatCards && !applianceActive && applianceBundle && comboDisc > 0 && (
                       <div style={{ margin: "8px 0 10px", padding: "8px 14px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
                         <span style={{ fontSize: 12, color: "#166534", fontWeight: 600, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                          Add both appliances and save ${bundleDisc.toFixed(0)} — pay ${(100 - bundleDisc).toFixed(0)} instead of $100.
+                          Add both appliances and save {money(comboDisc)} — pay {money(bundledPrice)} instead of {money(bothPrice)}.
                         </span>
                       </div>
                     )}
@@ -2911,11 +2925,11 @@ export default function BookPage() {
                               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                 <div style={checkStyle(ovenSel)}>{ovenSel && <CheckCircle2 size={14} color="#fff" />}</div>
                                 <div style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 14, color: "#1A1917" }}>Oven Cleaning</div>
-                                {ovenSel ? addedChip : <div style={{ fontWeight: 600, fontSize: 13, color: "#1A1917", flexShrink: 0 }}>{flatPriceNode(50, applianceActive)}</div>}
+                                {ovenSel ? addedChip : <div style={{ fontWeight: 600, fontSize: 13, color: "#1A1917", flexShrink: 0 }}>{flatPriceNode(ovenPrice, applianceActive)}</div>}
                               </div>
                             </div>
                           </div>
-                          {showOvenNudge && amberNudge("Add Oven Cleaning to unlock the bundle — save $20 total")}
+                          {showOvenNudge && amberNudge(`Add Oven Cleaning to unlock the bundle — save ${money(comboDisc)} total`)}
                         </div>
                       )}
 
@@ -2936,11 +2950,11 @@ export default function BookPage() {
                               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                                 <div style={checkStyle(fridgeSel)}>{fridgeSel && <CheckCircle2 size={14} color="#fff" />}</div>
                                 <div style={{ flex: 1, minWidth: 0, fontWeight: 600, fontSize: 14, color: "#1A1917" }}>Refrigerator Cleaning</div>
-                                {fridgeSel ? addedChip : <div style={{ fontWeight: 600, fontSize: 13, color: "#1A1917", flexShrink: 0 }}>{flatPriceNode(50, applianceActive)}</div>}
+                                {fridgeSel ? addedChip : <div style={{ fontWeight: 600, fontSize: 13, color: "#1A1917", flexShrink: 0 }}>{flatPriceNode(fridgePrice, applianceActive)}</div>}
                               </div>
                             </div>
                           </div>
-                          {showFridgeNudge && amberNudge("Add Refrigerator Cleaning to unlock the bundle — save $20 total")}
+                          {showFridgeNudge && amberNudge(`Add Refrigerator Cleaning to unlock the bundle — save ${money(comboDisc)} total`)}
                         </div>
                       )}
 
@@ -3061,7 +3075,7 @@ export default function BookPage() {
                         background: "#2D6A4F", borderRadius: 20,
                       }}>
                         <span style={{ fontSize: 13, fontWeight: 600, color: "#fff", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                          Appliance Bundle applied — you're saving ${bundleDisc.toFixed(2)}
+                          Appliance Bundle applied — you're saving {money(comboDisc)}
                         </span>
                       </div>
                     )}

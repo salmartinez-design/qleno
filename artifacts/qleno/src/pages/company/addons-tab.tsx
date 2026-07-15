@@ -183,6 +183,26 @@ type FeeRule = {
 
 const EMPTY_ADDON = { name: "", price_type: "flat", price_value: "0", scope_ids: [] as number[], show_online: true, show_office: true };
 
+// Bundle discount types. `flat` and `flat_total` are treated identically by the
+// pricing engine (routes/pricing.ts) — we canonicalize on `flat_total` here.
+const BUNDLE_DISCOUNT_TYPES = [
+  { value: "flat_total", label: "Flat total ($)" },
+  { value: "flat_per_item", label: "Per item ($)" },
+  { value: "percentage", label: "Percent of base (%)" },
+];
+
+type BundleForm = { id: number | null; name: string; discount_type: string; discount_value: string; addon_ids: number[] };
+const EMPTY_BUNDLE: BundleForm = { id: null, name: "", discount_type: "flat_total", discount_value: "0", addon_ids: [] };
+
+// Render the discount the way the pricing engine actually applies it — the old
+// UI hardcoded "/ item" for every bundle even when it was a flat_total or %.
+function bundleDiscountLabel(discount_type: string, discount_value: string | number): string {
+  const v = Number(discount_value);
+  if (discount_type === "percentage") return `${Number.isInteger(v) ? v : v.toFixed(2)}% off`;
+  if (discount_type === "flat" || discount_type === "flat_total") return `$${v.toFixed(2)} total`;
+  return `$${v.toFixed(2)} / item`;
+}
+
 function AddonTimeMethodCard() {
   const { toast } = useToast();
   const FF = "'Plus Jakarta Sans', sans-serif";
@@ -310,6 +330,18 @@ export function AddonsTab() {
     onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
   });
 
+  const createBundle = useMutation({
+    mutationFn: (data: Record<string, any>) => apiFetch("/api/bundles", { method: "POST", body: JSON.stringify(data) }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["bundles"] }); setShowBundleModal(false); toast({ title: "Bundle created" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
+  const deleteBundle = useMutation({
+    mutationFn: (id: number) => apiFetch(`/api/bundles/${id}`, { method: "DELETE" }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["bundles"] }); toast({ title: "Bundle deleted" }); },
+    onError: (e: any) => toast({ title: "Error", description: e.message, variant: "destructive" }),
+  });
+
   const patchFeeRule = useMutation({
     mutationFn: ({ id, updates }: { id: number; updates: Record<string, any> }) =>
       apiFetch(`/api/pricing/fee-rules/${id}`, { method: "PATCH", body: JSON.stringify(updates) }),
@@ -326,8 +358,50 @@ export function AddonsTab() {
   const [newAddon, setNewAddon] = useState({ ...EMPTY_ADDON });
   const [newAddonScopes, setNewAddonScopes] = useState<number[]>([]);
 
-  const [editBundleDiscount, setEditBundleDiscount] = useState<Record<number, string>>({});
+  const [showBundleModal, setShowBundleModal] = useState(false);
+  const [bundleForm, setBundleForm] = useState<BundleForm>({ ...EMPTY_BUNDLE });
   const [editFeeRule, setEditFeeRule] = useState<Record<number, Partial<FeeRule>>>({});
+
+  // Flat-priced add-ons are the only ones eligible for a bundle (mirrors the
+  // backend's /api/bundles/flat-addons filter). We derive from the already-
+  // fetched list to avoid a second request; inactive flats stay pickable so an
+  // existing bundle's items always render.
+  const bundleAddonOptions = addons.filter(a => a.price_type === "flat");
+
+  function openNewBundle() {
+    setBundleForm({ ...EMPTY_BUNDLE });
+    setShowBundleModal(true);
+  }
+
+  function openEditBundle(b: Bundle) {
+    setBundleForm({
+      id: b.id,
+      name: b.name,
+      discount_type: b.discount_type === "flat" ? "flat_total" : b.discount_type,
+      discount_value: String(b.discount_value),
+      addon_ids: (b.items ?? []).map(it => it.addon_id),
+    });
+    setShowBundleModal(true);
+  }
+
+  const bundleValid = bundleForm.name.trim().length > 0
+    && bundleForm.addon_ids.length >= 2
+    && bundleForm.discount_value !== "" && !isNaN(Number(bundleForm.discount_value));
+
+  function saveBundle() {
+    if (!bundleValid) return;
+    const payload = {
+      name: bundleForm.name.trim(),
+      discount_type: bundleForm.discount_type,
+      discount_value: bundleForm.discount_value,
+      addon_ids: bundleForm.addon_ids,
+    };
+    if (bundleForm.id == null) {
+      createBundle.mutate({ ...payload, active: true });
+    } else {
+      patchBundle.mutate({ id: bundleForm.id, updates: payload }, { onSuccess: () => setShowBundleModal(false) });
+    }
+  }
 
   function parseScopeIds(raw: number[] | string): number[] {
     if (Array.isArray(raw)) return raw.map(Number);
@@ -569,6 +643,9 @@ export function AddonsTab() {
             </tr>
           </thead>
           <tbody>
+            {bundles.length === 0 && (
+              <tr><td style={{ ...td, color: "#9E9B94" }} colSpan={5}>No bundles yet. Create one to offer a combo discount.</td></tr>
+            )}
             {bundles.map(bundle => (
               <tr key={bundle.id}>
                 <td style={{ ...td, fontWeight: 500 }}>{bundle.name}</td>
@@ -578,35 +655,103 @@ export function AddonsTab() {
                   </span>
                 </td>
                 <td style={td}>
-                  {editBundleDiscount[bundle.id] !== undefined ? (
-                    <div style={{ display: "flex", gap: 4 }}>
-                      <input style={{ ...inputStyle, width: 80 }} type="number" step="0.01" value={editBundleDiscount[bundle.id]}
-                        onChange={e => setEditBundleDiscount(p => ({ ...p, [bundle.id]: e.target.value }))} />
-                      <button style={{ ...btnGhost, color: "var(--brand)", borderColor: "var(--brand)" }}
-                        onClick={() => {
-                          patchBundle.mutate({ id: bundle.id, updates: { discount_value: editBundleDiscount[bundle.id], discount_type: bundle.discount_type } });
-                          setEditBundleDiscount(p => { const n = { ...p }; delete n[bundle.id]; return n; });
-                        }}>
-                        <Check size={13} />
-                      </button>
-                      <button style={btnGhost} onClick={() => setEditBundleDiscount(p => { const n = { ...p }; delete n[bundle.id]; return n; })}><X size={13} /></button>
-                    </div>
-                  ) : (
-                    <span
-                      style={{ fontWeight: 600, cursor: "pointer", borderBottom: "1px dashed #D1CEC9" }}
-                      onClick={() => setEditBundleDiscount(p => ({ ...p, [bundle.id]: bundle.discount_value }))}>
-                      ${Number(bundle.discount_value).toFixed(2)} / item
-                    </span>
-                  )}
+                  <span style={{ fontWeight: 600 }}>{bundleDiscountLabel(bundle.discount_type, bundle.discount_value)}</span>
                 </td>
                 <td style={{ ...td, textAlign: "center" as const }}>
                   <Toggle value={bundle.active} onChange={() => toggleBundle.mutate(bundle.id)} />
                 </td>
-                <td style={td}></td>
+                <td style={{ ...td, whiteSpace: "nowrap" as const }}>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button style={btnGhost} onClick={() => openEditBundle(bundle)}><Edit2 size={12} /> Edit</button>
+                    <button
+                      style={{ ...btnGhost, color: "#B91C1C", borderColor: "#E5C4C0" }}
+                      onClick={() => { if (confirm(`Delete the "${bundle.name}" bundle? This can't be undone.`)) deleteBundle.mutate(bundle.id); }}>
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+
+        <button style={{ ...btnPrimary, marginTop: 14 }} onClick={openNewBundle}>
+          <Plus size={14} /> Add Bundle
+        </button>
+
+        {/* New / edit bundle modal */}
+        {showBundleModal && (
+          <>
+            <div onClick={() => setShowBundleModal(false)} style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 200 }} />
+            <div style={{
+              position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)",
+              zIndex: 201, backgroundColor: "#FFFFFF", borderRadius: 12, width: 480, maxWidth: "calc(100vw - 32px)",
+              maxHeight: "calc(100vh - 48px)", overflowY: "auto" as const,
+              boxShadow: "0 16px 48px rgba(0,0,0,0.18)", padding: "28px 28px 24px", display: "flex", flexDirection: "column", gap: 18,
+            }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <h3 style={{ margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: 17, color: "#1A1917" }}>
+                  {bundleForm.id == null ? "New Bundle" : "Edit Bundle"}
+                </h3>
+                <button onClick={() => setShowBundleModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4, display: "flex" }}>
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Name <span style={{ color: "#EF4444" }}>*</span></label>
+                <input style={inputStyle} value={bundleForm.name} placeholder="Oven + Refrigerator Combo"
+                  onChange={e => setBundleForm(p => ({ ...p, name: e.target.value }))} />
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Included add-ons <span style={{ color: "#EF4444" }}>*</span> <span style={{ fontWeight: 400, color: "#9E9B94" }}>(pick at least 2)</span></label>
+                <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
+                  {bundleAddonOptions.map(a => {
+                    const on = bundleForm.addon_ids.includes(a.id);
+                    return (
+                      <button key={a.id} type="button"
+                        onClick={() => setBundleForm(p => ({ ...p, addon_ids: on ? p.addon_ids.filter(x => x !== a.id) : [...p.addon_ids, a.id] }))}
+                        style={{ fontSize: 12, padding: "5px 10px", borderRadius: 6, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif",
+                          border: `1px solid ${on ? "var(--brand)" : "#E5E2DC"}`, background: on ? "var(--brand)15" : "#fff", color: on ? "var(--brand)" : "#6B6860" }}>
+                        {a.name}
+                      </button>
+                    );
+                  })}
+                  {bundleAddonOptions.length === 0 && <span style={{ fontSize: 12, color: "#9E9B94" }}>No flat-priced add-ons available.</span>}
+                </div>
+              </div>
+
+              <div style={{ display: "flex", gap: 12 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Discount type</label>
+                  <select style={selectStyle} value={bundleForm.discount_type}
+                    onChange={e => setBundleForm(p => ({ ...p, discount_type: e.target.value }))}>
+                    {BUNDLE_DISCOUNT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, width: 130 }}>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Amount <span style={{ color: "#EF4444" }}>*</span></label>
+                  <input style={inputStyle} type="number" step="0.01" min="0" value={bundleForm.discount_value}
+                    onChange={e => setBundleForm(p => ({ ...p, discount_value: e.target.value }))} />
+                </div>
+              </div>
+
+              <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>
+                Applied as <strong>{bundleDiscountLabel(bundleForm.discount_type, bundleForm.discount_value || 0)}</strong> when all included add-ons are on the quote.
+              </p>
+
+              <div style={{ display: "flex", gap: 10, paddingTop: 4 }}>
+                <button style={{ ...btnPrimary, flex: 1, justifyContent: "center", opacity: bundleValid ? 1 : 0.5 }}
+                  onClick={saveBundle}
+                  disabled={!bundleValid || createBundle.isPending || patchBundle.isPending}>
+                  <Check size={14} /> {(createBundle.isPending || patchBundle.isPending) ? "Saving..." : bundleForm.id == null ? "Create Bundle" : "Save Bundle"}
+                </button>
+                <button style={{ ...btnGhost, padding: "8px 18px" }} onClick={() => setShowBundleModal(false)}>Cancel</button>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* ── Fee Rules ─────────────────────────────────────────────────── */}
@@ -639,23 +784,25 @@ export function AddonsTab() {
                   </td>
                   <td style={td}>
                     {editing ? (
-                      <select style={{ ...selectStyle, width: 110 }} value={String(editing.tech_comp_mode ?? rule.tech_comp_mode)}
+                      <select style={{ ...selectStyle, width: 110 }} value={String(editing.tech_comp_mode ?? rule.tech_comp_mode ?? "flat")}
                         onChange={e => setEditFeeRule(p => ({ ...p, [rule.id]: { ...p[rule.id], tech_comp_mode: e.target.value as any } }))}>
                         <option value="flat">Flat ($)</option>
                         <option value="percentage">Percentage (%)</option>
                         <option value="hourly">Hourly ($/hr)</option>
                       </select>
-                    ) : <span style={{ fontSize: 12, background: "#F4F3F0", borderRadius: 4, padding: "2px 6px", textTransform: "capitalize" as const }}>{rule.tech_comp_mode}</span>}
+                    ) : <span style={{ fontSize: 12, background: "#F4F3F0", borderRadius: 4, padding: "2px 6px", textTransform: "capitalize" as const }}>{rule.tech_comp_mode || "flat"}</span>}
                   </td>
                   <td style={td}>
                     {editing ? (
-                      <input style={{ ...inputStyle, width: 80 }} type="number" step="0.01" value={String(editing.tech_comp_value ?? rule.tech_comp_value)}
+                      <input style={{ ...inputStyle, width: 80 }} type="number" step="0.01" value={String(editing.tech_comp_value ?? rule.tech_comp_value ?? 60)}
                         onChange={e => setEditFeeRule(p => ({ ...p, [rule.id]: { ...p[rule.id], tech_comp_value: e.target.value as any } }))} />
                     ) : (
                       <span style={{ fontWeight: 600 }}>
-                        {(editing?.tech_comp_mode ?? rule.tech_comp_mode) === 'percentage'
-                          ? `${Number(rule.tech_comp_value).toFixed(0)}%`
-                          : `$${Number(rule.tech_comp_value).toFixed(0)}`}
+                        {(() => {
+                          const v = Number(rule.tech_comp_value);
+                          if (!Number.isFinite(v)) return "—";
+                          return (editing?.tech_comp_mode ?? rule.tech_comp_mode) === "percentage" ? `${v.toFixed(0)}%` : `$${v.toFixed(0)}`;
+                        })()}
                       </span>
                     )}
                   </td>
