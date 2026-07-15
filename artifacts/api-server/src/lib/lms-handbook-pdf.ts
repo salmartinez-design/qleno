@@ -5,8 +5,9 @@
  * PDFs (drug_alcohol, code_of_conduct, etc., each handled by
  * generateSignedDocumentPdf), this one combines:
  *
- *   1. Cover page: tenant logo placeholder, employee legal name,
- *      version date, version hash.
+ *   1. Cover page: the real Phes JPEG logo + "PHES CLEANING SERVICES"
+ *      wordmark under a thin red rule (top-left), the Qleno mark
+ *      (top-right), employee legal name, version date, version hash.
  *   2. Handbook contents summary: key policies + compliance items the
  *      employee read in the LMS, referenced by section. The full module
  *      content lives in artifacts/qleno/src/lib/training/curriculum.ts
@@ -56,6 +57,8 @@ const COLORS = {
   success: rgb(0.06, 0.46, 0.43),
   mint: rgb(0.0, 0.79, 0.63),
   watermark: rgb(0.9, 0.9, 0.94),
+  // Phes brand red — used for the "PHES CLEANING SERVICES" header rule.
+  phesRed: rgb(0.79, 0.12, 0.15),
 } as const;
 
 const PAGE_WIDTH = 612; // US Letter portrait
@@ -185,10 +188,24 @@ function drawCover(
   // dual-brand mark before any text.
   const logoH = 44;
   const logoY = PAGE_HEIGHT - 70;
+  let phesLockupRight = MARGIN;
   if (logos.phes) {
     const w = logos.phes.width * (logoH / logos.phes.height);
     page.drawImage(logos.phes, { x: MARGIN, y: logoY, width: w, height: logoH });
+    phesLockupRight = MARGIN + w;
   }
+  // "PHES CLEANING SERVICES" wordmark beside the logo, vertically centered
+  // on the logo band. Kept in the header locale-independently (a brand
+  // name, not translated).
+  const phesNameSize = 13;
+  page.drawText("PHES CLEANING SERVICES", {
+    x: phesLockupRight + 12,
+    y: logoY + logoH / 2 - phesNameSize / 2 + 1,
+    size: phesNameSize,
+    font: fontBold,
+    color: COLORS.navy,
+  });
+
   const qlenoW = measureQlenoLockup(fontBold, logoH, { withWordmark: true });
   drawQlenoMark(
     page,
@@ -198,6 +215,15 @@ function drawCover(
     logoH,
     { withWordmark: true },
   );
+
+  // Thin red rule beneath the header band, spanning the content width.
+  page.drawRectangle({
+    x: MARGIN,
+    y: logoY - 12,
+    width: PAGE_WIDTH - MARGIN * 2,
+    height: 1.5,
+    color: COLORS.phesRed,
+  });
 
   const isEn = input.locale === "en";
   const title = isEn
@@ -688,6 +714,26 @@ function drawSectionHeader(page: PDFPage, title: string, fontBold: PDFFont): voi
     width: PAGE_WIDTH,
     height: 6,
     color: COLORS.mint,
+  });
+  // Compact Phes brand label top-right (matches the cover header), with a
+  // thin red rule beneath it. Right-aligned so it never collides with the
+  // left-aligned section title below.
+  const brandSize = 9;
+  const brandText = "PHES CLEANING SERVICES";
+  const brandW = fontBold.widthOfTextAtSize(brandText, brandSize);
+  page.drawText(brandText, {
+    x: PAGE_WIDTH - MARGIN - brandW,
+    y: PAGE_HEIGHT - 34,
+    size: brandSize,
+    font: fontBold,
+    color: COLORS.navy,
+  });
+  page.drawRectangle({
+    x: PAGE_WIDTH - MARGIN - brandW,
+    y: PAGE_HEIGHT - 40,
+    width: brandW,
+    height: 1,
+    color: COLORS.phesRed,
   });
   page.drawText(title, {
     x: MARGIN,
