@@ -115,19 +115,13 @@ const PRICE_TYPES = [
   { value: "manual_adj", label: "Manual Adj" },
 ];
 
-const SCOPE_OPTIONS = [
-  { id: 1, name: "Deep Clean" },
-  { id: 2, name: "Standard Clean" },
-  { id: 3, name: "One-Time Standard Clean" },
-  { id: 4, name: "Recurring Weekly" },
-  { id: 5, name: "Hourly Deep Clean" },
-  { id: 6, name: "Hourly Standard" },
-  { id: 7, name: "Commercial" },
-  { id: 8, name: "PPM Turnover" },
-  { id: 9, name: "Recurring Every 2 Weeks" },
-  { id: 10, name: "Recurring Every 4 Weeks" },
-  { id: 12, name: "Move In / Move Out" },
-];
+// Scopes come from GET /api/pricing/scopes (live data), NOT a hardcoded list.
+// The old hardcoded SCOPE_OPTIONS drifted from the DB — it mapped id 1 to
+// "Deep Clean" (actually the deactivated legacy scope) and was missing the real
+// Deep Clean (id 11), so the add-ons table rendered a raw "11" and collapsed the
+// three distinct recurring cadences to a single "Recurring". Worse, the scope
+// picker built off it could drop the real scope on save.
+type ScopeRow = { id: number; name: string; is_active: boolean };
 
 function Toggle({ value, onChange }: { value: boolean; onChange: () => void }) {
   return (
@@ -137,8 +131,12 @@ function Toggle({ value, onChange }: { value: boolean; onChange: () => void }) {
   );
 }
 
-function ScopeIds({ ids }: { ids: number[] }) {
-  const names = ids.map(id => SCOPE_OPTIONS.find(s => s.id === id)?.name?.split(" ")[0] ?? String(id));
+function ScopeIds({ ids, scopes }: { ids: number[]; scopes: ScopeRow[] }) {
+  // Show real, distinct scope names for the ACTIVE scopes this add-on applies
+  // to. Inactive/legacy scope memberships are hidden (they can't be acted on),
+  // which also drops the stale legacy scope from view without touching data.
+  const activeById = new Map(scopes.filter(s => s.is_active).map(s => [s.id, s.name] as const));
+  const names = ids.map(id => activeById.get(id)).filter((n): n is string => !!n);
   if (!names.length) return <span style={{ color: "#9E9B94", fontSize: 12 }}>None</span>;
   return (
     <span style={{ fontSize: 11, color: "#6B6860" }}>
@@ -293,6 +291,13 @@ export function AddonsTab() {
     queryKey: ["pricing-addons-all"],
     queryFn: () => apiFetch("/api/pricing/addons?all=true"),
   });
+
+  const { data: scopes = [] } = useQuery<ScopeRow[]>({
+    queryKey: ["pricing-scopes"],
+    queryFn: () => apiFetch("/api/pricing/scopes"),
+  });
+  // Scopes a user can assign an add-on to — active only, in the API's sort order.
+  const assignableScopes = scopes.filter(s => s.is_active);
 
   const { data: bundles = [] } = useQuery<Bundle[]>({
     queryKey: ["bundles"],
@@ -494,16 +499,16 @@ export function AddonsTab() {
                       {isEditing ? (
                         <div>
                           <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4, marginBottom: 4 }}>
-                            {SCOPE_OPTIONS.map(s => (
+                            {assignableScopes.map(s => (
                               <button key={s.id} onClick={() => toggleScopeInEdit(s.id, editScopeIds, setEditScopeIds)}
                                 style={{ fontSize: 11, padding: "2px 7px", borderRadius: 4, border: `1px solid ${editScopeIds.includes(s.id) ? "var(--brand)" : "#E5E2DC"}`, background: editScopeIds.includes(s.id) ? `var(--brand)15` : "#fff", color: editScopeIds.includes(s.id) ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: "inherit" }}>
-                                {s.name.split(" ")[0]}
+                                {s.name}
                               </button>
                             ))}
                           </div>
                         </div>
                       ) : (
-                        <ScopeIds ids={scopeIds} />
+                        <ScopeIds ids={scopeIds} scopes={scopes} />
                       )}
                     </td>
                     <td style={{ ...td, textAlign: "center" as const }}>
@@ -581,7 +586,7 @@ export function AddonsTab() {
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
                 <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Applies to Scopes</label>
                 <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 4 }}>
-                  {SCOPE_OPTIONS.map(s => (
+                  {assignableScopes.map(s => (
                     <button key={s.id} onClick={() => toggleScopeInEdit(s.id, newAddonScopes, setNewAddonScopes)}
                       style={{ fontSize: 11, padding: "4px 10px", borderRadius: 6, border: `1px solid ${newAddonScopes.includes(s.id) ? "var(--brand)" : "#E5E2DC"}`, background: newAddonScopes.includes(s.id) ? "var(--brand)" : "#fff", color: newAddonScopes.includes(s.id) ? "#fff" : "#6B6860", cursor: "pointer", fontFamily: "inherit", fontWeight: newAddonScopes.includes(s.id) ? 600 : 400 }}>
                       {s.name}
