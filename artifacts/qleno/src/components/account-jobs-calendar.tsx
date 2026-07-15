@@ -101,6 +101,13 @@ function fmtMoney(v: string | null) {
   return isNaN(n) ? "" : `$${n.toFixed(0)}`;
 }
 
+function fmtShortDate(d: string) {
+  const parts = (d || "").slice(0, 10).split("-").map(Number);
+  if (parts.length !== 3 || !parts[0]) return d;
+  const dt = new Date(parts[0], parts[1] - 1, parts[2]);
+  return `${WEEKDAYS[dt.getDay()].charAt(0) + WEEKDAYS[dt.getDay()].slice(1).toLowerCase()} ${MONTHS[parts[1] - 1].slice(0, 3)} ${parts[2]}`;
+}
+
 export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountId: number | string; initialPropertyId?: number | null }) {
   const today = new Date();
   const [year, setYear] = useState(today.getFullYear());
@@ -115,6 +122,10 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
   const [moveDate, setMoveDate] = useState("");
   const [moving, setMoving] = useState(false);
   const [reloadTick, setReloadTick] = useState(0);
+  // [account-calendar-v2 2026-07-14] Month vs a chronological List view — the
+  // dispatch board has a Timeline/List toggle; the account calendar was
+  // month-only (Maribel: "the accounts one sucks vs the jobs calendar").
+  const [view, setView] = useState<"month" | "list">("month");
   // [calendar-dnd 2026-07-07] Drag-and-drop reschedule (Maribel: "drag and
   // drop, edit, schedule, all that"). Each day cell renders per-visit chips;
   // dragging a chip onto another day quick-reschedules it (same PUT the Move
@@ -162,6 +173,24 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
   const visibleJobs = useMemo(
     () => propFilter === "all" ? jobs : jobs.filter(j => j.account_property_id === propFilter),
     [jobs, propFilter],
+  );
+
+  // [account-calendar-v2 2026-07-14] Month summary KPIs — mirrors the dispatch
+  // board's stat strip so the account calendar shows totals at a glance.
+  const kpis = useMemo(() => ({
+    count: visibleJobs.length,
+    revenue: visibleJobs.reduce((s, j) => s + (parseFloat(j.base_fee || "0") || 0), 0),
+    done: visibleJobs.filter(j => j.status === "complete").length,
+    unassigned: visibleJobs.filter(j => !j.tech_first_name).length,
+  }), [visibleJobs]);
+
+  const listJobs = useMemo(
+    () => [...visibleJobs].sort((a, b) => {
+      const da = (a.scheduled_date || "").slice(0, 10), db = (b.scheduled_date || "").slice(0, 10);
+      if (da !== db) return da < db ? -1 : 1;
+      return (a.scheduled_time || "").localeCompare(b.scheduled_time || "");
+    }),
+    [visibleJobs],
   );
 
   // Bucket jobs by scheduled_date (string key, no timezone math).
@@ -269,12 +298,33 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
               ))}
             </select>
           )}
+          <div className="inline-flex rounded-md border border-[#E5E2DC] overflow-hidden">
+            <button onClick={() => setView("month")} className={`text-xs font-semibold px-2.5 py-1 ${view === "month" ? "bg-[#00C9A0] text-white" : "text-[#1A1917] hover:bg-[#F7F6F3]"}`}>Month</button>
+            <button onClick={() => setView("list")} className={`text-xs font-semibold px-2.5 py-1 border-l border-[#E5E2DC] ${view === "list" ? "bg-[#00C9A0] text-white" : "text-[#1A1917] hover:bg-[#F7F6F3]"}`}>List</button>
+          </div>
           <button onClick={goToday} className="text-xs font-semibold text-[#1A1917] border border-[#E5E2DC] rounded-md px-2.5 py-1 hover:bg-[#F7F6F3]">Today</button>
           <button onClick={() => shiftMonth(-1)} aria-label="Previous month" className="p-1.5 rounded-md hover:bg-[#F7F6F3] text-gray-500"><ChevronLeft size={16} /></button>
           <button onClick={() => shiftMonth(1)} aria-label="Next month" className="p-1.5 rounded-md hover:bg-[#F7F6F3] text-gray-500"><ChevronRight size={16} /></button>
         </div>
       </div>
 
+      {/* [account-calendar-v2 2026-07-14] Month summary strip — visits, revenue,
+          completed, unassigned for this month (respecting the property filter). */}
+      <div className="grid grid-cols-4 gap-2 mb-4">
+        {[
+          { label: "Visits", value: String(kpis.count) },
+          { label: "Revenue", value: `$${kpis.revenue.toFixed(0)}` },
+          { label: "Completed", value: String(kpis.done) },
+          { label: "Unassigned", value: String(kpis.unassigned), warn: kpis.unassigned > 0 },
+        ].map(k => (
+          <div key={k.label} className="rounded-lg border border-[#E5E2DC] bg-[#FAFAF9] px-3 py-2">
+            <div className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{k.label}</div>
+            <div className={`text-lg font-extrabold ${(k as any).warn ? "text-[#B45309]" : "text-[#1A1917]"}`}>{k.value}</div>
+          </div>
+        ))}
+      </div>
+
+      {view === "month" && (<>
       <div className="grid grid-cols-7 gap-1 mb-1">
         {WEEKDAYS.map(w => (
           <div key={w} className="text-[10px] font-bold text-gray-400 text-center tracking-wide py-1">{w}</div>
@@ -289,10 +339,11 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
           const isToday = key === todayKey;
           const isOpen = openDay === key;
           const isDropTarget = dragJob != null && dropDay === key && (dragJob.scheduled_date || "").slice(0, 10) !== key;
-          // Per-visit chips (drag handles) — first two visible, rest behind a
-          // "+N more" pill that opens the day popover.
-          const visibleChips = dayJobs.slice(0, 2);
-          const extra = dayJobs.length - visibleChips.length;
+          // [account-calendar-v2 2026-07-14] Show EVERY visit (Maribel: a busy
+          // day hid all but 2 behind "+N more"). The chip list scrolls inside
+          // the cell so a heavy day (PPM: many buildings) is fully visible.
+          const visibleChips = dayJobs;
+          const extra = 0;
           return (
             <div
               key={key}
@@ -317,7 +368,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
               <div className={`text-[11px] font-semibold ${isToday ? "text-[#00897B]" : "text-gray-500"}`}>{dayNum}</div>
 
               {dayJobs.length > 0 && (
-                <div className="mt-1 flex flex-col gap-0.5">
+                <div className="mt-1 flex flex-col gap-0.5 max-h-[104px] overflow-y-auto">
                   {visibleChips.map(j => (
                     <div
                       key={j.id}
@@ -443,6 +494,40 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
           );
         })}
       </div>
+      </>)}
+
+      {/* [account-calendar-v2 2026-07-14] List view — a chronological, scannable
+          list of the month's visits the office can work down (dispatch has the
+          same Timeline/List toggle). */}
+      {view === "list" && (
+        listJobs.length === 0 ? (
+          <div className="text-center text-xs text-gray-400 py-10 border border-dashed border-[#E5E2DC] rounded-lg">No visits this month.</div>
+        ) : (
+          <div className="flex flex-col gap-1.5">
+            {listJobs.map(j => (
+              <div key={j.id} className="flex items-center gap-3 rounded-lg border border-[#E5E2DC] bg-white px-3 py-2">
+                <div className="w-[86px] flex-shrink-0">
+                  <div className="text-[11px] font-bold text-[#1A1917]">{fmtShortDate(j.scheduled_date)}</div>
+                  <div className="text-[10px] text-gray-500">{fmtTime(j.scheduled_time) || "—"}</div>
+                </div>
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: STATUS_COLOR[j.status] || "#9CA3AF" }} title={j.status} />
+                <div className="flex-1 min-w-0">
+                  <div className="text-[12px] font-semibold text-[#1A1917] truncate">{jobPlaceLabel(j)}</div>
+                  <div className="text-[10px] text-gray-500 truncate">{fmtSvc(j.service_type)} · {j.tech_first_name ? `${j.tech_first_name} ${j.tech_last_name ?? ""}`.trim() : "Unassigned"}</div>
+                </div>
+                <span className="text-[12px] font-bold text-[#065F46] flex-shrink-0">{fmtMoney(j.base_fee)}</span>
+                <button
+                  onClick={() => openJobInDispatch(j)}
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-[#065F46] bg-[#ECFDF5] border border-[#A7F3D0] rounded-md px-2 py-1 cursor-pointer flex-shrink-0"
+                  title="Open this job's editor"
+                >
+                  <ExternalLink size={10} /> Open
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+      )}
 
       <div className="flex flex-wrap gap-3 mt-3 pt-3 border-t border-[#E5E2DC]">
         {[["scheduled", "Scheduled"], ["in_progress", "In progress"], ["complete", "Complete"], ["cancelled", "Cancelled"]].map(([s, label]) => (
