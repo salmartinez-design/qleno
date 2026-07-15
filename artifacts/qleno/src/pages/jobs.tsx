@@ -6524,17 +6524,21 @@ function EventChip({ ev, top, onDelete, onOpen }: { ev: DispatchEvent; top: numb
       style={{
         position: "absolute", top, left, width, height: EVENT_H, zIndex: 2,
         boxSizing: "border-box", borderRadius: 7, padding: "3px 8px",
-        background: isOneOnOne ? "#EEF1F4" : "#F1EFEA",
-        border: `1px dashed ${isOneOnOne ? "#A9B4C0" : "#B8B2A6"}`,
-        color: isOneOnOne ? "#3E4A57" : "#44413B",
+        // 1-on-1 is a deliberate standout: solid Qleno Night fill + Electric
+        // Mint border/icon so it reads as a special owner event, not a
+        // pale hold like tech_block / client_visit.
+        background: isOneOnOne ? "#0A0E1A" : "#F1EFEA",
+        border: isOneOnOne ? "1px solid #00C9A0" : "1px dashed #B8B2A6",
+        boxShadow: isOneOnOne ? "0 1px 6px rgba(0,201,160,0.35)" : "none",
+        color: isOneOnOne ? "#FFFFFF" : "#44413B",
         cursor: clickable ? "pointer" : "default",
         display: "flex", alignItems: "center", gap: 6, overflow: "hidden", fontFamily: FF,
       }}
     >
-      <Icon size={11} style={{ flexShrink: 0, color: isOneOnOne ? "#71808F" : "#8A8578" }} />
-      <span style={{ minWidth: 0, flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", fontSize: 11, fontWeight: 700 }}>
+      <Icon size={11} style={{ flexShrink: 0, color: isOneOnOne ? "#00C9A0" : "#8A8578" }} />
+      <span style={{ minWidth: 0, flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", fontSize: 11, fontWeight: isOneOnOne ? 800 : 700, letterSpacing: isOneOnOne ? "0.02em" : undefined }}>
         {isOneOnOne ? "1-on-1" : ev.title}
-        {sub && <span style={{ fontWeight: 600, color: isOneOnOne ? "#71808F" : "#8A8578" }}>{`  ·  ${sub}`}</span>}
+        {sub && <span style={{ fontWeight: 600, color: isOneOnOne ? "#5EE6C7" : "#8A8578" }}>{`  ·  ${sub}`}</span>}
       </span>
       {deletable && (
         <button

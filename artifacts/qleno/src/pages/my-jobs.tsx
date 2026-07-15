@@ -6,7 +6,7 @@ import { EarningsPanel } from "@/components/earnings-panel";
 import { TechScorecardPanel } from "@/components/tech-scorecard-panel";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera, Star } from "lucide-react";
+import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera, Star, MessageSquare } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { ChangePasswordModal } from "@/components/change-password-modal";
 import { NotificationBell } from "@/components/notification-bell";
@@ -177,6 +177,25 @@ function formatTime(t: string | null | undefined) {
 
 function formatServiceType(s: string) {
   return s.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
+}
+
+// [one-on-one-visibility 2026-07-14] The tech's own upcoming 1-on-1
+// appointment — the board block (who + when) only, never the owner-only
+// content.
+type OneOnOneAppt = {
+  id: number;
+  event_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  with_name: string | null;
+};
+
+// "Mon, Jul 21" from a YYYY-MM-DD string, parsed as a local calendar date
+// (no timezone shift — the date is the appointment day as scheduled).
+function formatApptDate(d: string) {
+  const [y, m, day] = d.split("-").map(Number);
+  if (!y || !m || !day) return d;
+  return new Date(y, m - 1, day).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
 // Cadence labels, MaidCentral-style ("Every Two Weeks"), keyed by the
@@ -1478,6 +1497,21 @@ export default function MyJobsPage() {
   });
   const myScorePct: number | null = scoreQ.data?.score_pct ?? null;
 
+  // [one-on-one-visibility 2026-07-14] The tech's own upcoming 1-on-1
+  // appointment(s). Appointment ONLY (who + when) — the owner-only 1-on-1
+  // content never comes down this endpoint. Rendered as a standout card at the
+  // top of the schedule so the tech knows a check-in is coming up.
+  const oneOnOneQ = useQuery({
+    queryKey: ["tech-one-on-ones", employeeView?.employeeId ?? "self"],
+    queryFn: async () => {
+      const res = await apiFetch(`/tech/one-on-ones${employeeView ? `?employee_id=${employeeView.employeeId}` : ""}`);
+      return res.ok ? res.json() : null;
+    },
+    staleTime: 60_000,
+    enabled: !!token,
+  });
+  const upcomingOneOnOnes: OneOnOneAppt[] = oneOnOneQ.data?.one_on_ones ?? [];
+
   const jobs: Job[] = data?.data || [];
   const requireAfterPhoto: boolean = data?.require_after_photo_for_clockout ?? false;
   const activeJobs = jobs.filter(j => j.status !== "cancelled" && (!j.time_clock_entry || !j.time_clock_entry.clock_out_at || j.status !== "complete"));
@@ -1822,6 +1856,26 @@ export default function MyJobsPage() {
                   </p>
                 </div>
               )}
+              {/* [one-on-one-visibility 2026-07-14] The tech's own upcoming
+                  1-on-1(s) — a mint-on-night standout so a check-in with the
+                  owner never gets missed. Appointment only (who + when); the
+                  private 1-on-1 content stays owner-only. */}
+              {upcomingOneOnOnes.map(o => (
+                <div key={`ono-${o.id}`}
+                  style={{ backgroundColor: "#0A0E1A", border: "1px solid #00C9A0", borderRadius: 12, padding: 16, marginBottom: 12, boxShadow: "0 2px 12px rgba(0,201,160,0.28)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(0,201,160,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <MessageSquare size={18} color="#00C9A0" />
+                    </div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ fontSize: 11, fontWeight: 800, color: "#5EE6C7", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 2px" }}>1-on-1{o.with_name ? ` with ${o.with_name}` : ""}</p>
+                      <p style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", margin: 0 }}>
+                        {formatApptDate(o.event_date)}{o.start_time ? ` · ${formatTime(o.start_time)}${o.end_time ? `–${formatTime(o.end_time)}` : ""}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
               {activeJobs.map((job, i) => (
                 <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView}
                   actingForUserId={employeeView ? employeeView.employeeId : null}
