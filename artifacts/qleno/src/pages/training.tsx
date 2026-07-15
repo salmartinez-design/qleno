@@ -3069,6 +3069,36 @@ function Block({ block: b, locale }: { block: ContentBlock; locale: Locale }) {
       </div>
     );
   }
+  if (b.type === "image") {
+    return (
+      <figure style={{ margin: "16px 0" }}>
+        <img
+          src={b.src}
+          alt={b.alt[locale]}
+          loading="lazy"
+          style={{
+            display: "block",
+            maxWidth: "100%",
+            height: "auto",
+            borderRadius: 8,
+            border: `1px solid ${LINE}`,
+          }}
+        />
+        {b.caption ? (
+          <figcaption
+            style={{
+              fontSize: 12.5,
+              color: INK_MUTE,
+              lineHeight: 1.5,
+              margin: "6px 2px 0",
+            }}
+          >
+            {b.caption[locale]}
+          </figcaption>
+        ) : null}
+      </figure>
+    );
+  }
   return null;
 }
 

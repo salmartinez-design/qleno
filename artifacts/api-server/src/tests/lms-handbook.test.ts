@@ -74,7 +74,7 @@ const BASE_INPUT: ComprehensiveHandbookInput = {
     "phes-policies": "Phes Policies & Procedures",
     "compensation": "Compensation",
     "cleaning-best-practices": "Cleaning Best Practices",
-    "maidcentral": "MaidCentral",
+    "maidcentral": "Qleno",
     "products-tools": "Products & Tools",
     "il-sexual-harassment": "Illinois Sexual Harassment",
     "drug-alcohol": "Drug & Alcohol",
