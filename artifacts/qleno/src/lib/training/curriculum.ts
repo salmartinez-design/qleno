@@ -233,6 +233,15 @@ const BASE_MODULES: Module[] = [
         ],
       },
 
+      { type: "h", text: { en: "Payroll & Direct Deposit Policy", es: "Política de Nómina y Depósito Directo" } },
+      {
+        type: "p",
+        text: {
+          en: "Pay cycle: weekly. The payroll workweek runs Sunday through Saturday. Each completed workweek is deposited or issued the following Friday. Payment is made via direct deposit. If you prefer to receive your wages via a physical paper check, please notify the office team to set up this option.",
+          es: "Ciclo de pago: semanal. La semana laboral de nómina va de domingo a sábado. Cada semana laboral completa se deposita o se emite el viernes siguiente. El pago se realiza mediante depósito directo. Si usted prefiere recibir su salario mediante un cheque físico en papel, notifique al equipo de la oficina para configurar esta opción.",
+        },
+      },
+
       // ═══════════════════════════════════════════════════════════════════════
       // SECTION 3 — ATTENDANCE POLICY
       // ═══════════════════════════════════════════════════════════════════════
@@ -1061,8 +1070,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "All company property must be returned upon separation. A required separation meeting takes place in the office on the last day or within 3 business days. Property includes the supply kit ($500+ value), uniforms, keys, access cards, and company app access. The final paycheck (including unused PTO payout) is issued at the separation meeting or by the next regular payday, whichever is earlier, per the Illinois Wage Payment and Collection Act. If the employee cannot come to the office, the final paycheck is mailed.",
-          es: "Toda la propiedad de la compañía debe ser devuelta al separarse. Se realiza una reunión obligatoria de separación en la oficina el último día o dentro de 3 días hábiles. La propiedad incluye el kit de suministros (valor de $500+), uniformes, llaves, tarjetas de acceso y acceso a la app de la compañía. El cheque final (incluyendo el pago de PTO no usado) se entrega en la reunión de separación o para el siguiente día de pago regular, lo que ocurra primero, conforme a la Ley de Pago y Cobranza de Salarios de Illinois. Si el empleado no puede ir a la oficina, el cheque final se envía por correo.",
+          en: "All company property must be returned upon separation. A required separation meeting takes place in the office on the last day or within 3 business days. Property includes the supply kit ($500+ value), uniforms, keys, access cards, and company app access. The final paycheck (including unused PTO payout) is issued at the separation meeting or by the next regular payday, whichever is earlier, per the Illinois Wage Payment and Collection Act. If the employee requested physical paper checks, the final paycheck is prepared as a physical check. If the employee cannot come to the office, the final paycheck is mailed.",
+          es: "Toda la propiedad de la compañía debe ser devuelta al separarse. Se realiza una reunión obligatoria de separación en la oficina el último día o dentro de 3 días hábiles. La propiedad incluye el kit de suministros (valor de $500+), uniformes, llaves, tarjetas de acceso y acceso a la app de la compañía. El cheque final (incluyendo el pago de PTO no usado) se entrega en la reunión de separación o para el siguiente día de pago regular, lo que ocurra primero, conforme a la Ley de Pago y Cobranza de Salarios de Illinois. Si el empleado solicitó cheques físicos en papel, el cheque final se prepara como un cheque físico. Si el empleado no puede ir a la oficina, el cheque final se envía por correo.",
         },
       },
 
