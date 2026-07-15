@@ -8528,7 +8528,15 @@ export default function JobsPage() {
               </div>
 
               <button onClick={() => setSelectedDate(d => addDays(d, 1))} style={{ border: "1px solid #E5E2DC", background: "#FAFAF9", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", color: "#6B7280" }}><ChevronRight size={14} /></button>
-              {!isToday && <button onClick={() => { const t = new Date(); t.setHours(0,0,0,0); setSelectedDate(t); }} style={{ border: "1px solid var(--brand)", background: "var(--brand-dim)", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700, color: "var(--brand)" }}>Today</button>}
+              {/* [today-btn-slot 2026-07-15] The "Today" button only shows off-today,
+                  but it MUST NOT shift the ‹ › arrows when it appears — otherwise the
+                  newly-appeared Today button lands exactly where the › arrow just was,
+                  so a second click bounces the user back to today (reported field bug).
+                  Reserve a fixed-width slot always so the arrows never move; the button
+                  fills the slot only when off-today. */}
+              <div style={{ width: 62, flexShrink: 0, display: "flex" }}>
+                {!isToday && <button onClick={() => { const t = new Date(); t.setHours(0,0,0,0); setSelectedDate(t); }} style={{ border: "1px solid var(--brand)", background: "var(--brand-dim)", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700, color: "var(--brand)" }}>Today</button>}
+              </div>
             </div>
 
             <div style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center", flexWrap: "nowrap" }}>
