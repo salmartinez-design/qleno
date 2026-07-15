@@ -23,6 +23,7 @@ import {
   timeclockTable,
   scorecardEntriesTable,
   usersTable,
+  dispatchEventsTable,
 } from "@workspace/db/schema";
 import { and, asc, desc, eq, or, sql } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
@@ -428,6 +429,48 @@ router.get("/job-history", requireAuth, async (req, res) => {
     return res.json({ jobs: rows.slice(0, limit), has_more });
   } catch (err) {
     console.error("tech job-history error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [one-on-one-visibility 2026-07-14] GET /api/tech/one-on-ones
+// The tech's OWN upcoming 1-on-1 appointment(s) for their My Jobs schedule.
+//
+// PRIVACY: this reads ONLY the board block (dispatch_events kind='one_on_one')
+// — who + when — never the owner-only one_on_ones content (scorecard, notes,
+// questions, responses). A tech seeing "1-on-1 with Sal, Mon 8:00 AM" is the
+// appointment, not the private record, so this stays within the owner-only
+// rule for the conversation itself. Self-scoped via resolveViewedUserId, so an
+// office "view as" preview matches; a regular tech is locked to themselves.
+router.get("/one-on-ones", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (companyId == null) return res.status(400).json({ error: "Bad Request", message: "User has no company assignment" });
+    const userId = resolveViewedUserId(req);
+    const today = new Date();
+    const todayStr = `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, "0")}-${String(today.getUTCDate()).padStart(2, "0")}`;
+
+    const rows = await db
+      .select({
+        id: dispatchEventsTable.id,
+        event_date: dispatchEventsTable.event_date,
+        start_time: dispatchEventsTable.start_time,
+        end_time: dispatchEventsTable.end_time,
+        with_name: sql<string | null>`(SELECT NULLIF(btrim(concat(u.first_name, ' ', u.last_name)), '') FROM users u WHERE u.id = ${dispatchEventsTable.created_by_user_id})`,
+      })
+      .from(dispatchEventsTable)
+      .where(and(
+        eq(dispatchEventsTable.company_id, companyId),
+        eq(dispatchEventsTable.kind, "one_on_one"),
+        eq(dispatchEventsTable.assigned_user_id, userId),
+        sql`${dispatchEventsTable.event_date} >= ${todayStr}`,
+      ))
+      .orderBy(asc(dispatchEventsTable.event_date), asc(dispatchEventsTable.start_time))
+      .limit(5);
+
+    return res.json({ one_on_ones: rows });
+  } catch (err) {
+    console.error("tech one-on-ones error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

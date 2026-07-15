@@ -4,11 +4,16 @@
 // PRIVACY — OWNER ONLY. Every route here gates to role 'owner' via requireRole
 // ("owner") with NO "admin" in the list, so the office-parity elevation in
 // requireRole does NOT apply — admin/office (Maribel, Pancho) get 403 on all of
-// it, including their own records. No SMS/email ever fires from this route.
+// it, including their own records. No customer SMS/email ever fires from here.
 //
 // The board block is a separate dispatch_events row (kind='one_on_one') that the
 // office CAN see/schedule around; it carries who+when but none of the content
 // below. Creating a 1-on-1 here creates that block and links it.
+//
+// The scheduled employee gets a single INTERNAL in-app bell notification (the
+// appointment — who + when — never the content). It uses an unmapped notify
+// type, so it delivers in-app ONLY and never emails/SMS the tech, leaving the
+// COMMS_ENABLED gate untouched. The private conversation stays owner-only.
 
 import { Router } from "express";
 import { db } from "@workspace/db";
@@ -16,6 +21,7 @@ import { oneOnOnesTable, dispatchEventsTable, usersTable } from "@workspace/db/s
 import { eq, and, desc, sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { resolveWindow } from "../lib/report-periods.js";
+import { notifyUser } from "../lib/notify.js";
 
 const router = Router();
 // Strict owner gate — office/admin are NOT elevated in here (no "admin" role in
@@ -210,6 +216,28 @@ router.post("/", requireAuth, ownerOnly, async (req, res) => {
       status: "scheduled",
       created_by_user_id: ownerId,
     }).returning();
+
+    // Internal in-app bell to the employee — appointment only (who + when),
+    // never the content. Unmapped notify type => in-app ONLY, no email/SMS, so
+    // the COMMS_ENABLED gate is untouched. Best-effort; never blocks the create.
+    try {
+      const [mgr] = await db.select({ name: empName }).from(usersTable).where(eq(usersTable.id, ownerId)).limit(1);
+      const [yy, mm, dd] = eventDate.split("-").map(Number);
+      const prettyDate = new Date(yy, mm - 1, dd).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+      let prettyTime = "";
+      if (startTime) {
+        const [h, m] = startTime.split(":").map(Number);
+        prettyTime = ` at ${(h % 12) || 12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+      }
+      await notifyUser({
+        companyId,
+        userId: employeeId,
+        type: "one_on_one_scheduled",
+        title: "1-on-1 scheduled",
+        body: `${mgr?.name ? `${mgr.name} ` : ""}scheduled a 1-on-1 with you on ${prettyDate}${prettyTime}.`,
+        link: "/my-jobs",
+      });
+    } catch (e) { console.error("one-on-one notify failed:", e); }
 
     return res.status(201).json({ ...rec, employee_name: emp.name });
   } catch (err) {
