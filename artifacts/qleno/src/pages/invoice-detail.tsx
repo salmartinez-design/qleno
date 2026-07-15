@@ -725,6 +725,12 @@ export default function InvoiceDetailPage() {
                 style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 Record payment…
               </button>
+              {/* [invoice-resend 2026-07-14] Re-email a sent invoice (PDF attached) */}
+              <button onClick={handleSendInvoice} disabled={sendingInvoice}
+                title="Email this invoice again — the PDF is attached and the send is logged"
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "var(--brand)", border: "1px solid var(--brand)", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                <Send size={14} /> {sendingInvoice ? "Sending..." : "Email invoice"}
+              </button>
               {effectiveStatus === "overdue" && (
                 <button onClick={handleSendReminder} disabled={sendingReminder}
                   style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
@@ -741,6 +747,13 @@ export default function InvoiceDetailPage() {
           )}
           {invoice.status === "paid" && (
             <>
+              {/* [invoice-resend 2026-07-14] Email a PAID invoice/receipt — send
+                  stays 'paid' (backend keeps the status), PDF attached, logged. */}
+              <button onClick={handleSendInvoice} disabled={sendingInvoice}
+                title="Email this paid invoice again — the PDF is attached and it stays marked paid"
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "var(--brand)", border: "1px solid var(--brand)", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                <Send size={14} /> {sendingInvoice ? "Sending..." : "Email invoice"}
+              </button>
               {(invoice.refunded_amount ?? 0) < invoice.total && (
                 <button onClick={() => setShowRefund(true)}
                   style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#7C3AED", border: "1px solid #DDD6FE", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
