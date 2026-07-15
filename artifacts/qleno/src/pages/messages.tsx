@@ -698,10 +698,18 @@ export default function MessagesPage() {
                   <div style={{ padding: "12px 14px", borderBottom: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 10 }}>
                     {isMobile && <button onClick={() => setActive(null)} style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0 }}><ChevronLeft size={20} color={INK} /></button>}
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      {active.client_id ? (
+                      {(active.client_id || active.lead_id) ? (
                         <button
-                          onClick={() => window.open(`${import.meta.env.BASE_URL.replace(/\/$/, "")}/customers/${active.client_id}`, "_blank")}
-                          title="Open profile"
+                          // [msg-name-link 2026-07-14] Name → profile. Clients go
+                          // to /customers/:id; LEADS now open the lead in the
+                          // pipeline (/leads?lead=:id) instead of being dead text
+                          // (Sal: "from her name I should go to her profile").
+                          onClick={() => window.open(
+                            active.client_id
+                              ? `${import.meta.env.BASE_URL.replace(/\/$/, "")}/customers/${active.client_id}`
+                              : `${import.meta.env.BASE_URL.replace(/\/$/, "")}/leads?lead=${active.lead_id}`,
+                            "_blank")}
+                          title={active.client_id ? "Open client profile" : "Open lead"}
                           style={{ fontSize: 15, fontWeight: 700, color: INK, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                           {active.name || fmtPhone(active.contact_phone)}
                         </button>
