@@ -91,6 +91,11 @@ export const pricingFeeRulesTable = pgTable("pricing_fee_rules", {
   label: text("label").notNull(),
   charge_percent: numeric("charge_percent", { precision: 6, scale: 2 }).notNull().default("100"),
   tech_split_percent: numeric("tech_split_percent", { precision: 6, scale: 2 }).notNull().default("0"),
+  // Office-editable tech compensation for the fee (Skip / Lockout). mode ∈
+  // flat | percentage | hourly; value is $ for flat/hourly, % for percentage.
+  // Default Flat $60. Surfaced + edited on Settings → Pricing → Fee Rules.
+  tech_comp_mode: text("tech_comp_mode").notNull().default("flat"),
+  tech_comp_value: numeric("tech_comp_value", { precision: 10, scale: 2 }).notNull().default("60"),
   window_hours: integer("window_hours"),
   is_active: boolean("is_active").notNull().default(true),
 });
