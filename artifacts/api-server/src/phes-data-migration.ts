@@ -394,6 +394,13 @@ async function runBookingSchemaGuard(): Promise<void> {
         renewal_alert_days        INTEGER DEFAULT 30
       )
     ` },
+    // ── offer_settings: pet fee columns (optional pets surcharge, ships DISABLED) ──
+    { label: "ALTER offer_settings ADD pet_fee columns", stmt: `
+      ALTER TABLE offer_settings
+        ADD COLUMN IF NOT EXISTS pet_fee_enabled BOOLEAN DEFAULT false,
+        ADD COLUMN IF NOT EXISTS pet_fee_type    TEXT DEFAULT 'flat',
+        ADD COLUMN IF NOT EXISTS pet_fee_amount  NUMERIC(10,2) DEFAULT 0
+    ` },
     // ── booking_settings table ──────────────────────────────────────────────
     { label: "CREATE booking_settings", stmt: `
       CREATE TABLE IF NOT EXISTS booking_settings (
