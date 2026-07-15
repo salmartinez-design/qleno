@@ -6472,7 +6472,9 @@ function packLanes(jobs: DispatchJob[]): { topById: Map<number, number>; rowHeig
 // visually distinct from colorful job chips (warm-gray, dashed) so nobody reads
 // a "Team meeting" block as a cleaning job. tech_block / client_visit sit on the
 // tech's row (below their job lanes); company_day renders as a top banner lane.
-const EVENT_H = 28;
+// [2026-07-15] Events (incl. 1-on-1) render at the SAME height as a job chip
+// so they read as first-class bars on the board, not thin slivers (Sal).
+const EVENT_H = CHIP_H;
 const EVENT_GAP = 4;
 
 // Minutes window for an event, defaulting a missing end to +60 and clamping to
