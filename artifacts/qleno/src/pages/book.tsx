@@ -2883,10 +2883,10 @@ export default function BookPage() {
                 return hasAnyCard ? (
                   <div style={{ marginBottom: 16 }}>
                     <span style={s.label}>Add-ons (optional)</span>
-                    {showFlatCards && !applianceActive && (
+                    {showFlatCards && !applianceActive && bundleDisc > 0 && (
                       <div style={{ margin: "8px 0 10px", padding: "8px 14px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
                         <span style={{ fontSize: 12, color: "#166534", fontWeight: 600, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                          Add both appliances and save $20 — pay $80 instead of $100.
+                          Add both appliances and save ${bundleDisc.toFixed(0)} — pay ${(100 - bundleDisc).toFixed(0)} instead of $100.
                         </span>
                       </div>
                     )}
@@ -3061,7 +3061,7 @@ export default function BookPage() {
                         background: "#2D6A4F", borderRadius: 20,
                       }}>
                         <span style={{ fontSize: 13, fontWeight: 600, color: "#fff", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-                          Appliance Bundle applied — you're saving $20.00
+                          Appliance Bundle applied — you're saving ${bundleDisc.toFixed(2)}
                         </span>
                       </div>
                     )}
