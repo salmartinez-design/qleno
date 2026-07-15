@@ -7586,8 +7586,14 @@ export default function JobsPage() {
         allJobs.forEach((j: DispatchJob) => next.add(j.scheduled_date));
         return next;
       });
-      // Background prefetch ±1 days so adjacent navigation is instant
-      for (const offset of [-1, 1]) {
+      // [prefetch-window 2026-07-15] Background-prefetch a WIDE window around the
+      // focal day so scrubbing several days at once stays instant. A ±1 window
+      // was too narrow: clicking › a few times fast outran the cache and every
+      // new day hit a cold (~2.5s) dispatch fetch. Favor forward (the common
+      // direction) — +1..+3 ahead, -1..-2 behind — since load() re-runs on each
+      // day change, the window slides with you and only the newest edge day
+      // actually fetches per click (the rest are already cached).
+      for (const offset of [1, 2, 3, -1, -2]) {
         const adjDate = _adjacentDateKey(selectedDate, offset);
         const adjKey = _dispatchCacheKey(adjDate, activeBranchId);
         if (!_dispatchCache.has(adjKey)) {
