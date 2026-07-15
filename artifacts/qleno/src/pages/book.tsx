@@ -79,6 +79,20 @@ function effectiveTotal(c: CalcResult): number {
   return c.final_total;
 }
 
+// Square-footage ranges for customers who don't know their exact sqft.
+// Each maps to the UPPER bound of its range so the quote is conservative
+// (never underquotes) and flows through the same tier engine unchanged — the
+// engine already buckets sqft into tiers, so this just picks a safe bucket.
+const SQFT_RANGES: { label: string; sqft: number }[] = [
+  { label: "Under 1,000 sq ft", sqft: 999 },
+  { label: "1,000 – 1,500 sq ft", sqft: 1499 },
+  { label: "1,500 – 2,000 sq ft", sqft: 1999 },
+  { label: "2,000 – 2,500 sq ft", sqft: 2499 },
+  { label: "2,500 – 3,000 sq ft", sqft: 2999 },
+  { label: "3,000 – 3,500 sq ft", sqft: 3499 },
+  { label: "3,500 – 4,000 sq ft", sqft: 3999 },
+];
+
 // ── Stepper counter component ────────────────────────────────────────────────
 function Stepper({ value, onChange, min = 0, max = 20 }: { value: number; onChange: (v: number) => void; min?: number; max?: number }) {
   return (
@@ -371,6 +385,7 @@ export default function BookPage() {
   // Step 1: Scope + Home Details
   const [scopeId, setScopeId] = useState<number | null>(null);
   const [sqft, setSqft] = useState(0);
+  const [sqftMode, setSqftMode] = useState<"exact" | "range">("exact");
   const [bedrooms, setBedrooms] = useState(0);
   const [bathrooms, setBathrooms] = useState(0);
   const [halfBaths, setHalfBaths] = useState(0);
@@ -2244,14 +2259,52 @@ export default function BookPage() {
                   <p style={{ fontWeight: 700, fontSize: 15, color: "#1A1917", marginBottom: 16 }}>Home Details</p>
 
                   <FieldWrap label="Square Footage">
-                    <input
-                      style={s.input}
-                      type="number"
-                      value={sqft || ""}
-                      onChange={e => setSqft(parseInt(e.target.value) || 0)}
-                      onBlur={() => runCalc()}
-                      placeholder="e.g. 2000"
-                    />
+                    {sqftMode === "exact" ? (
+                      <>
+                        <input
+                          style={s.input}
+                          type="number"
+                          value={sqft || ""}
+                          onChange={e => setSqft(parseInt(e.target.value) || 0)}
+                          onBlur={() => runCalc()}
+                          placeholder="e.g. 2000"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setSqftMode("range")}
+                          style={{ background: "none", border: "none", padding: "8px 0 0", margin: 0, cursor: "pointer", fontSize: 13, fontWeight: 600, color: brand, fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                        >
+                          Not sure? Choose a range
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <select
+                          style={{ ...s.input, appearance: "none" as const }}
+                          value={SQFT_RANGES.some(r => r.sqft === sqft) ? String(sqft) : ""}
+                          onChange={e => {
+                            if (e.target.value === "over") { setSqftMode("exact"); setSqft(0); return; }
+                            setSqft(parseInt(e.target.value) || 0);
+                          }}
+                        >
+                          <option value="">Select a range…</option>
+                          {SQFT_RANGES.map(r => (
+                            <option key={r.sqft} value={r.sqft}>{r.label}</option>
+                          ))}
+                          <option value="over">Over 4,000 sq ft — enter exact</option>
+                        </select>
+                        <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6B6860", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                          We&apos;ll base your estimate on this range and confirm the exact price on-site.
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => setSqftMode("exact")}
+                          style={{ background: "none", border: "none", padding: "6px 0 0", margin: 0, cursor: "pointer", fontSize: 13, fontWeight: 600, color: brand, fontFamily: "'Plus Jakarta Sans', sans-serif" }}
+                        >
+                          I know my square footage
+                        </button>
+                      </>
+                    )}
                   </FieldWrap>
 
                   <div className="bw-grid2" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 8 }}>
