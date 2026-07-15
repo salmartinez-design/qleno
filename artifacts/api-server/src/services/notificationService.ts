@@ -106,6 +106,10 @@ export async function sendNotification(
   // behavior — no gate. Callers for the six customer messages pass it; every
   // other caller (transactional, invoice, payment, welcome) leaves it undefined.
   prefClientId?: number | null,
+  // [invoice-pdf-attach 2026-07-14] ADDITIVE, opt-in (email only): file
+  // attachments handed straight to Resend (e.g. the invoice PDF). Undefined for
+  // every existing caller, so their sends are byte-for-byte unchanged.
+  attachments?: Array<{ filename: string; content: Buffer | string }>,
   // Returns true only when the message was actually handed to the provider —
   // false for every skip/suppress/failure. Lets callers (e.g. satisfaction/send
   // and the one-completion-email rule) know whether this channel really
@@ -244,6 +248,7 @@ export async function sendNotification(
         subject,
         html:     wrapped,
         ...(Object.keys(emailHeaders).length ? { headers: emailHeaders } : {}),
+        ...(attachments?.length ? { attachments } : {}),
       });
       // The Resend SDK returns { error } instead of throwing — surface it so a
       // rejected send isn't logged as success.

@@ -807,6 +807,101 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
 //      communication_log row (client- or account-keyed, delivery_status
 //      sent/suppressed) and the response tells the office exactly what
 //      happened so the UI can say so.
+// [invoice-pdf-attach 2026-07-14] Build the invoice PDF buffer for emailing
+// (Maribel: "sending should generate a pdf file along with the email"). Mirrors
+// the GET /:id/pdf render exactly — keep the two in sync. Returns null if the
+// invoice isn't found; the caller treats a null / thrown result as "email
+// without an attachment" so a PDF hiccup never blocks the send.
+async function buildInvoicePdfBuffer(companyId: number, invoiceId: number): Promise<{ buffer: Buffer; filename: string } | null> {
+  const [inv] = await db
+    .select({
+      invoice_number: invoicesTable.invoice_number,
+      status: invoicesTable.status,
+      line_items: invoicesTable.line_items,
+      subtotal: invoicesTable.subtotal,
+      tips: invoicesTable.tips,
+      total: invoicesTable.total,
+      due_date: invoicesTable.due_date,
+      created_at: invoicesTable.created_at,
+      paid_at: invoicesTable.paid_at,
+      first_name: clientsTable.first_name,
+      last_name: clientsTable.last_name,
+      email: clientsTable.email,
+      phone: clientsTable.phone,
+      address: clientsTable.address,
+      city: clientsTable.city,
+      state: clientsTable.state,
+      zip: clientsTable.zip,
+      account_name: sql<string | null>`(SELECT a.account_name FROM accounts a WHERE a.id = ${invoicesTable.account_id})`,
+      bill_to_name: invoicesTable.bill_to_name,
+      service_date: sql<string | null>`COALESCE(
+        ${invoicesTable.service_date},
+        (SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}),
+        (SELECT MIN(j2.scheduled_date) FROM jobs j2 WHERE j2.id IN (
+          SELECT (li->>'job_id')::int FROM jsonb_array_elements(${invoicesTable.line_items}) li WHERE li->>'job_id' IS NOT NULL
+        ))
+      )`,
+    })
+    .from(invoicesTable)
+    .leftJoin(clientsTable, eq(invoicesTable.client_id, clientsTable.id))
+    .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)))
+    .limit(1);
+  if (!inv) return null;
+
+  const co = await db.execute(sql`SELECT name, logo_url, phone, email, address,
+      invoice_business_name, invoice_tagline, invoice_address, invoice_footer_message,
+      invoice_payment_instructions, invoice_guarantee, invoice_terms
+    FROM companies WHERE id = ${companyId} LIMIT 1`);
+  const company: any = (co as any).rows[0] ?? {};
+  let logo: Buffer | null = null;
+  if (company.logo_url) {
+    try {
+      const abs = /^https?:\/\//i.test(company.logo_url) ? company.logo_url : `${appBaseUrl()}${company.logo_url}`;
+      const r = await fetch(abs);
+      if (r.ok && /image\/(png|jpe?g)/i.test(r.headers.get("content-type") || "")) logo = Buffer.from(await r.arrayBuffer());
+    } catch { logo = null; }
+  }
+  const rawItems = Array.isArray(inv.line_items) ? inv.line_items : [];
+  const items = (rawItems as any[]).map((it: any) => ({
+    description: it.description ?? it.name ?? "Service",
+    quantity: it.quantity ?? 1,
+    unit_price: it.unit_price ?? it.unit_rate ?? it.total ?? 0,
+    total: it.total ?? it.amount ?? 0,
+  }));
+  const billName = inv.bill_to_name || [inv.first_name, inv.last_name].filter(Boolean).join(" ") || inv.account_name || "Customer";
+  const billAddr = [inv.address, [inv.city, inv.state].filter(Boolean).join(", "), inv.zip].filter(Boolean).join(", ");
+  const bizName = company.invoice_business_name || company.name || "Invoice";
+  const contactLine = [company.phone, company.email].filter(Boolean).join(" · ");
+  const { renderInvoicePdf } = await import("../lib/invoice-pdf.js");
+  const pdf = await renderInvoicePdf({
+    companyName: bizName,
+    logo,
+    tagline: company.invoice_tagline || null,
+    businessAddress: company.invoice_address || company.address || null,
+    contactLine: contactLine || null,
+    footerMessage: company.invoice_footer_message || `Thank you for choosing ${bizName}.`,
+    paymentInstructions: company.invoice_payment_instructions
+      || `Pay securely online using the link on this invoice.${contactLine ? ` Questions? Contact us at ${contactLine}.` : ""}`,
+    guaranteeText: company.invoice_guarantee || null,
+    termsText: company.invoice_terms || null,
+    invoiceNumber: inv.invoice_number || generateInvoiceNumber(invoiceId),
+    status: inv.status || "sent",
+    billToName: billName,
+    billToAddress: billAddr || null,
+    billToEmail: inv.email || null,
+    billToPhone: inv.phone || null,
+    serviceDate: inv.service_date ? String(inv.service_date) : null,
+    issuedDate: inv.created_at ? String(inv.created_at) : null,
+    dueDate: inv.due_date ? String(inv.due_date) : null,
+    items,
+    subtotal: inv.subtotal ?? inv.total ?? 0,
+    tips: inv.tips ?? 0,
+    total: inv.total ?? 0,
+    paid: !!inv.paid_at,
+  });
+  return { buffer: pdf, filename: `${inv.invoice_number || `invoice-${invoiceId}`}.pdf` };
+}
+
 router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const invoiceId = parseInt(req.params.id);
@@ -816,7 +911,8 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
                 job_id: invoicesTable.job_id, total: invoicesTable.total,
                 invoice_number: invoicesTable.invoice_number, due_date: invoicesTable.due_date,
                 billing_contact_name: invoicesTable.billing_contact_name,
-                billing_contact_email: invoicesTable.billing_contact_email })
+                billing_contact_email: invoicesTable.billing_contact_email,
+                status: invoicesTable.status })
       .from(invoicesTable)
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .limit(1);
@@ -867,8 +963,13 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
       invoice_link:     invLink,
       service_address:  [client?.address, client?.city].filter(Boolean).join(", "),
     };
+    // [invoice-pdf-attach 2026-07-14] Attach the invoice PDF to the email so the
+    // customer gets a real file, not just the info in the body (Maribel).
+    // Best-effort — a PDF render failure still sends the email, just without it.
+    const pdfOut = recipientEmail ? await buildInvoicePdfBuffer(companyId as number, invoiceId).catch(() => null) : null;
     const emailSent = recipientEmail
-      ? await sendNotification("invoice_sent", "email", companyId, recipientEmail, null, mergeVars).catch(() => false)
+      ? await sendNotification("invoice_sent", "email", companyId, recipientEmail, null, mergeVars, false, undefined, null,
+          pdfOut ? [{ filename: pdfOut.filename, content: pdfOut.buffer }] : undefined).catch(() => false)
       : false;
     const smsSent = client?.phone
       ? await sendNotification("invoice_sent", "sms", companyId, null, client.phone, mergeVars).catch(() => false)
@@ -929,9 +1030,14 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
       return res.status(422).json({ error: "Not Sent", message: `Invoice was NOT sent: ${human}.`, reason: failReason });
     }
 
+    // [invoice-resend 2026-07-14] Sending records sent_at, but must NOT downgrade
+    // a settled invoice — re-emailing a PAID (or void/refunded/partial) invoice
+    // keeps that status (Maribel: "email invoices before AND after marked paid").
+    // Only a not-yet-sent (draft) invoice flips to 'sent'.
+    const keepStatus = ["paid", "void", "refunded", "partial"].includes(invoice.status || "");
     const [updated] = await db
       .update(invoicesTable)
-      .set({ status: "sent", sent_at: new Date() })
+      .set({ ...(keepStatus ? {} : { status: "sent" }), sent_at: new Date() })
       .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, req.auth!.companyId)))
       .returning();
 
