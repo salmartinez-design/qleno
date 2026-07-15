@@ -1463,6 +1463,21 @@ export default function MyJobsPage() {
     refetchInterval: 30000,
   });
 
+  // [tech-scorecard 2026-07-14] The trailing-90-day composite score for the My
+  // Score tile — SAME source + query key as the scorecard panel, so the tile
+  // number matches the panel headline exactly (Sal: the tile must show the
+  // actual score, wired to trailing-90-days).
+  const scoreQ = useQuery({
+    queryKey: ["tech-scorecard", employeeView?.employeeId ?? "self"],
+    queryFn: async () => {
+      const res = await apiFetch(`/tech/scorecard${employeeView ? `?employee_id=${employeeView.employeeId}` : ""}`);
+      return res.ok ? res.json() : null;
+    },
+    staleTime: 60_000,
+    enabled: !!token,
+  });
+  const myScorePct: number | null = scoreQ.data?.score_pct ?? null;
+
   const jobs: Job[] = data?.data || [];
   const requireAfterPhoto: boolean = data?.require_after_photo_for_clockout ?? false;
   const activeJobs = jobs.filter(j => j.status !== "cancelled" && (!j.time_clock_entry || !j.time_clock_entry.clock_out_at || j.status !== "complete"));
@@ -1698,12 +1713,16 @@ export default function MyJobsPage() {
               <button
                 type="button"
                 onClick={() => { setShowScorecard(s => !s); setShowPay(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                style={{ flex: 1, background: showScorecard ? "rgba(0,201,160,0.14)" : "rgba(255,255,255,0.06)", border: `1px solid ${showScorecard ? "rgba(0,201,160,0.5)" : "rgba(255,255,255,0.10)"}`, borderRadius: 10, padding: "9px 11px", cursor: "pointer", fontFamily: "inherit", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 6, minHeight: 62 }}
+                style={{ flex: 1, textAlign: "left", background: showScorecard ? "rgba(0,201,160,0.14)" : "rgba(255,255,255,0.06)", border: `1px solid ${showScorecard ? "rgba(0,201,160,0.5)" : "rgba(255,255,255,0.10)"}`, borderRadius: 10, padding: "9px 11px", cursor: "pointer", fontFamily: "inherit" }}
               >
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 7, fontSize: 16, fontWeight: 800, color: "#fff" }}>
-                  <Star size={16} style={{ color: "#FFD75E", fill: "#FFD75E" }} /> My Score
-                </span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: "#9DEFD9" }}>Tap to view ›</span>
+                <p style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#A7AAB5", margin: "0 0 3px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Star size={9} style={{ color: "#FFD75E", fill: "#FFD75E" }} /> My Score</span>
+                  <span style={{ color: "#9DEFD9", fontWeight: 800 }}>View ›</span>
+                </p>
+                <p style={{ fontSize: 21, fontWeight: 800, margin: 0, lineHeight: 1.05, color: myScorePct == null ? "#C9CCD6" : myScorePct >= 90 ? "#34E3B6" : myScorePct >= 75 ? "#FBBF55" : "#F87171" }}>
+                  {myScorePct == null ? "—" : `${Math.round(myScorePct)}%`}
+                </p>
+                <p style={{ fontSize: 9.5, fontWeight: 600, color: "#C9CCD6", margin: "2px 0 0" }}>trailing 90 days · tap ›</p>
               </button>
             </div>
             <div style={{ marginTop: 11, height: 6, background: "rgba(255,255,255,0.10)", borderRadius: 4, overflow: "hidden" }}>
