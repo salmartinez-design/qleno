@@ -74,6 +74,8 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pp-44-plawa-increment": 0,
   // E3: PLAWA day-1 grant (2026-07-15)
   "q-pp-plawa-grant": 1,
+  // K: meal break entitlement (2026-07-15)
+  "q-pp-meal-break": 2,
 
   // ── Module 2: compensation (16, alignment 2026-05-21) ────────────────────
   // Mirror of curriculum ANSWER_KEY. Drift-sync test verifies they match.

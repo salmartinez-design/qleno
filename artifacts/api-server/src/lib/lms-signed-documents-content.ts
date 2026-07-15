@@ -480,7 +480,13 @@ const NON_SOLICITATION_EN: SignedDocumentLocaleContent = {
     "15. ELECTRONIC SIGNATURE CONSENT.",
     "I consent to sign this Agreement electronically. I understand that my electronic signature has the same legal effect as a handwritten signature, in accordance with the federal Electronic Signatures in Global and National Commerce Act (E-SIGN) and the Illinois Uniform Electronic Transactions Act (UETA).",
     "",
-    "By typing or drawing my signature below and clicking the I Agree button, I affirm that I have read, understood, and accept this Non-Solicitation Agreement.",
+    "16. EARNINGS THRESHOLD (WHEN THIS AGREEMENT DOES NOT APPLY).",
+    "Consistent with the Illinois Freedom to Work Act (820 ILCS 90), the restriction in Section 1 does not apply to, and is not enforced against, any employee whose actual or expected annualized earnings are at or below the statutory earnings threshold (currently $45,000 per year, as that amount is adjusted by law over time). While my earnings are at or below that threshold, the Section 1 covenant is void and unenforceable as to me. If my earnings later rise above the threshold, the Section 1 covenant applies prospectively, subject to the reasonableness and consideration requirements of this Agreement.",
+    "",
+    "17. RIGHT TO REVIEW; ADVICE OF COUNSEL.",
+    "As required by the Illinois Freedom to Work Act, Phes advises me in writing to consult with an attorney before signing this Agreement, and Phes has provided me with at least fourteen (14) calendar days to review this Agreement before signing. I understand that I may sign before the end of the 14-day period if I voluntarily choose to do so, but I am not required to. By signing below I acknowledge that (a) I received this written advice to consult an attorney, and (b) I was given at least 14 calendar days to review this Agreement.",
+    "",
+    "By typing or drawing my signature below and clicking the I Agree button, I affirm that I have read, understood, and accept this Non-Solicitation Agreement, that I received written advice to consult an attorney before signing, and that I was given at least 14 calendar days to review it.",
   ].join("\n"),
   notes:
     "Phase 6 PR #7 — Phes non-solicitation agreement. 12 months, " +
@@ -546,7 +552,13 @@ const NON_SOLICITATION_ES: SignedDocumentLocaleContent = {
     "15. CONSENTIMIENTO DE FIRMA ELECTRÓNICA.",
     "Doy mi consentimiento para firmar este Acuerdo electrónicamente. Entiendo que mi firma electrónica tiene el mismo efecto legal que una firma manuscrita, conforme a la Ley federal de Firmas Electrónicas en el Comercio Global y Nacional (E-SIGN) y a la Ley Uniforme de Transacciones Electrónicas de Illinois (UETA).",
     "",
-    "Al escribir o dibujar mi firma a continuación y hacer clic en el botón Acepto, afirmo que he leído, entendido y aceptado este Acuerdo de No Solicitación.",
+    "16. UMBRAL DE INGRESOS (CUÁNDO NO APLICA ESTE ACUERDO).",
+    "Conforme a la Ley de Libertad para Trabajar de Illinois (820 ILCS 90), la restricción de la Sección 1 no aplica ni se hace cumplir contra ningún empleado cuyos ingresos anualizados reales o esperados estén en o por debajo del umbral de ingresos establecido por ley (actualmente $45,000 por año, según ese monto sea ajustado por la ley con el tiempo). Mientras mis ingresos estén en o por debajo de ese umbral, el acuerdo de la Sección 1 es nulo e inexigible respecto a mí. Si mis ingresos luego suben por encima del umbral, el acuerdo de la Sección 1 aplica hacia adelante, sujeto a los requisitos de razonabilidad y consideración de este Acuerdo.",
+    "",
+    "17. DERECHO A REVISAR; ASESORÍA DE UN ABOGADO.",
+    "Como lo requiere la Ley de Libertad para Trabajar de Illinois, Phes me aconseja por escrito consultar con un abogado antes de firmar este Acuerdo, y Phes me ha otorgado al menos catorce (14) días calendario para revisar este Acuerdo antes de firmar. Entiendo que puedo firmar antes del fin del periodo de 14 días si elijo hacerlo voluntariamente, pero no estoy obligado a hacerlo. Al firmar a continuación reconozco que (a) recibí este consejo por escrito de consultar a un abogado, y (b) se me otorgaron al menos 14 días calendario para revisar este Acuerdo.",
+    "",
+    "Al escribir o dibujar mi firma a continuación y hacer clic en el botón Acepto, afirmo que he leído, entendido y aceptado este Acuerdo de No Solicitación, que recibí el consejo por escrito de consultar a un abogado antes de firmar, y que se me otorgaron al menos 14 días calendario para revisarlo.",
   ].join("\n"),
   notes:
     "PENDING PROFESSIONAL TRANSLATION REVIEW. Initial AI translation. " +
