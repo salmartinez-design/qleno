@@ -417,6 +417,8 @@ async function runStartupMigrations() {
         )
       `);
       await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_dispatch_events_company_date ON dispatch_events(company_id, event_date)`);
+      // [event-address 2026-07-15] Additive column on the existing table.
+      await db.execute(sql`ALTER TABLE dispatch_events ADD COLUMN IF NOT EXISTS address text`);
     });
   } catch (err: any) {
     console.error("[startup] ensureDispatchEventsSchema — non-fatal:", err?.message ?? err);

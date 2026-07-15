@@ -34,6 +34,9 @@ export const dispatchEventsTable = pgTable("dispatch_events", {
   start_time: time("start_time"), // "HH:MM:SS" — null when all_day
   end_time: time("end_time"),
   all_day: boolean("all_day").notNull().default(false),
+  // [event-address 2026-07-15] Freeform location for the event (defaults to the
+  // office in the create modal; editable). Shown to the assigned tech.
+  address: text("address"),
   notes: text("notes"),
   color: text("color"),
   created_by_user_id: integer("created_by_user_id").references(() => usersTable.id),
