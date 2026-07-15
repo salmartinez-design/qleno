@@ -6,7 +6,7 @@ import { EarningsPanel } from "@/components/earnings-panel";
 import { TechScorecardPanel } from "@/components/tech-scorecard-panel";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera, Star, MessageSquare } from "lucide-react";
+import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera, Star, MessageSquare, Clock } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { ChangePasswordModal } from "@/components/change-password-modal";
 import { NotificationBell } from "@/components/notification-bell";
@@ -432,6 +432,74 @@ function ClockInfoRow({ clockInAt, budgetHours }: { clockInAt: string; budgetHou
     <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 12px" }}>
       Clocked in {wallTimeLabel(clockInAt)}{budgetPart ? <> · {budgetPart}</> : null}
     </p>
+  );
+}
+
+// [event-clock 2026-07-15] A clockable dispatch event on the tech's day. Clock
+// in/out here pays them for the time (hours × rate → payroll) — Sal wanted
+// techs to be paid for meetings/training/1-on-1s they attend.
+type TechEventEntry = { id: number; clock_in_at: string; clock_out_at: string | null; paid_hours: string | null; paid_rate: string | null };
+type TechEvent = { id: number; kind: string; title: string; label: string; event_date: string; start_time: string | null; end_time: string | null; time_clock_entry: TechEventEntry | null };
+
+function EventClockCard({ ev, onRefresh, actingForUserId }: { ev: TechEvent; onRefresh: () => void; actingForUserId: number | null }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const entry = ev.time_clock_entry;
+  const isOpen = !!entry?.clock_in_at && !entry?.clock_out_at;
+  const isDone = !!entry?.clock_out_at;
+  const q = actingForUserId ? `?employee_id=${actingForUserId}` : "";
+  const post = async (action: "clock-in" | "clock-out") => {
+    setBusy(true); setErr(null);
+    try {
+      const r = await apiFetch(`/tech/events/${ev.id}/${action}${q}`, { method: "POST" });
+      if (!r.ok) throw new Error((await r.json().catch(() => ({} as any)))?.error || "Something went wrong");
+      onRefresh();
+    } catch (e: any) { setErr(e?.message || "Could not update the clock"); } finally { setBusy(false); }
+  };
+  const isOneOnOne = ev.kind === "one_on_one";
+  const timeLabel = ev.start_time ? `${formatTime(ev.start_time)}${ev.end_time ? ` – ${formatTime(ev.end_time)}` : ""}` : "";
+  const paidHours = entry?.paid_hours ? Number(entry.paid_hours) : null;
+  const paidRate = entry?.paid_rate ? Number(entry.paid_rate) : null;
+  const accent = isOpen ? "#F59E0B" : "#00C9A0";
+  return (
+    <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: `4px solid ${accent}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(0,201,160,0.10)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          {isOneOnOne ? <MessageSquare size={17} color="#00A588" /> : <Clock size={17} color="#00A588" />}
+        </div>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <p style={{ fontSize: 11, fontWeight: 800, color: "#00A588", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 2px" }}>{ev.label}</p>
+          <p style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", margin: 0 }}>{timeLabel || "Today"}</p>
+        </div>
+        {!isDone && !isOpen && (
+          <button onClick={() => post("clock-in")} disabled={busy}
+            style={{ flexShrink: 0, border: "none", background: "#00C9A0", color: "#0A0E1A", fontWeight: 800, fontSize: 13.5, padding: "10px 18px", borderRadius: 10, cursor: busy ? "default" : "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            {busy ? "…" : "Clock in"}
+          </button>
+        )}
+        {isOpen && (
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#B45309" }}><ElapsedTimer clockInAt={entry!.clock_in_at} /></span>
+            <button onClick={() => post("clock-out")} disabled={busy}
+              style={{ border: "none", background: "#0A0E1A", color: "#FFFFFF", fontWeight: 800, fontSize: 13.5, padding: "10px 18px", borderRadius: 10, cursor: busy ? "default" : "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              {busy ? "…" : "Clock out"}
+            </button>
+          </div>
+        )}
+        {isDone && (
+          <div style={{ flexShrink: 0, textAlign: "right" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#166534", display: "flex", alignItems: "center", gap: 5, justifyContent: "flex-end" }}><Check size={14} /> Clocked out</div>
+            {paidHours != null && paidRate != null && (
+              <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>{paidHours.toFixed(2)}h @ ${paidRate.toFixed(2)}/hr</div>
+            )}
+          </div>
+        )}
+      </div>
+      {!isDone && (
+        <p style={{ fontSize: 11.5, color: "#9E9B94", margin: "10px 0 0" }}>You're paid for this time — it goes straight to your pay when you clock out.</p>
+      )}
+      {err && <p style={{ fontSize: 12, color: "#B91C1C", margin: "8px 0 0" }}>{err}</p>}
+    </div>
   );
 }
 
@@ -1525,6 +1593,22 @@ export default function MyJobsPage() {
   });
   const upcomingOneOnOnes: OneOnOneAppt[] = oneOnOneQ.data?.one_on_ones ?? [];
 
+  // [event-clock 2026-07-15] The tech's clockable events for the selected day
+  // (meetings/training/client visits/1-on-1s). Each renders with a clock in/out
+  // control; clocking out pays them for the time.
+  const eventsQ = useQuery({
+    queryKey: ["tech-events", employeeView?.employeeId ?? "self", selectedDate],
+    queryFn: async () => {
+      const p = new URLSearchParams({ date: selectedDate });
+      if (employeeView) p.set("employee_id", String(employeeView.employeeId));
+      const res = await apiFetch(`/tech/events?${p.toString()}`);
+      return res.ok ? res.json() : null;
+    },
+    refetchInterval: 30000,
+    enabled: !!token,
+  });
+  const dayEvents: TechEvent[] = eventsQ.data?.events ?? [];
+
   const jobs: Job[] = data?.data || [];
   const requireAfterPhoto: boolean = data?.require_after_photo_for_clockout ?? false;
   const activeJobs = jobs.filter(j => j.status !== "cancelled" && (!j.time_clock_entry || !j.time_clock_entry.clock_out_at || j.status !== "complete"));
@@ -1869,11 +1953,18 @@ export default function MyJobsPage() {
                   </p>
                 </div>
               )}
+              {/* [event-clock 2026-07-15] Clockable events for THIS day — clock
+                  in/out pays the tech for the time. Sits at the top of the day. */}
+              {dayEvents.map(ev => (
+                <EventClockCard key={`evt-${ev.id}`} ev={ev} onRefresh={eventsQ.refetch}
+                  actingForUserId={employeeView ? employeeView.employeeId : null} />
+              ))}
               {/* [one-on-one-visibility 2026-07-14] The tech's own upcoming
                   1-on-1(s) — a mint-on-night standout so a check-in with the
                   owner never gets missed. Appointment only (who + when); the
-                  private 1-on-1 content stays owner-only. */}
-              {upcomingOneOnOnes.map(o => (
+                  private 1-on-1 content stays owner-only. A 1-on-1 on the day
+                  being viewed shows as a clockable card above instead. */}
+              {upcomingOneOnOnes.filter(o => o.event_date !== selectedDate).map(o => (
                 <div key={`ono-${o.id}`}
                   style={{ backgroundColor: "#0A0E1A", border: "1px solid #00C9A0", borderRadius: 12, padding: 16, marginBottom: 12, boxShadow: "0 2px 12px rgba(0,201,160,0.28)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
