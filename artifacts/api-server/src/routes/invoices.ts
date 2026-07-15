@@ -890,15 +890,34 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
       } catch { /* reason stays null */ }
     }
 
+    // [invoice-log-building 2026-07-14] For an ACCOUNT invoice, resolve WHICH
+    // building/property it was for (via the invoice's job → account_property,
+    // falling back to the job's own street) so the account's Communication Log
+    // ties the send to that address (Maribel: an account has many buildings —
+    // the log must say which one). Best-effort; null for merged/no-job invoices.
+    let buildingLabel: string | null = null;
+    if (invoice.account_id && invoice.job_id) {
+      try {
+        const br = await db.execute(sql`
+          SELECT COALESCE(NULLIF(btrim(ap.property_name), ''), NULLIF(btrim(ap.address), ''), NULLIF(btrim(j.address_street), '')) AS label
+            FROM jobs j
+            LEFT JOIN account_properties ap ON ap.id = j.account_property_id
+           WHERE j.id = ${invoice.job_id} AND j.company_id = ${companyId}
+           LIMIT 1`);
+        buildingLabel = ((br.rows[0] as any)?.label as string | null) || null;
+      } catch { /* label stays null */ }
+    }
+    const bldg = buildingLabel ? ` · ${buildingLabel}` : "";
+
     // Trace row for the client/account communications + activity feeds —
     // written for suppressed attempts too, so "did the invoice go out?" has
-    // a visible answer either way.
+    // a visible answer either way. Account entries carry the building address.
     try {
       await db.execute(sql`
         INSERT INTO communication_log (company_id, customer_id, account_id, job_id, direction, channel, summary, subject, recipient, delivery_status, source, logged_by)
         VALUES (${companyId}, ${invoice.client_id ?? null}, ${invoice.account_id ?? null}, ${invoice.job_id ?? null}, 'outbound', 'email',
-                ${delivered ? `Invoice ${invNum} emailed` : `Invoice ${invNum} email NOT sent${failReason ? ` — ${failReason}` : ""}`},
-                ${`Invoice ${invNum}`}, ${recipientEmail ?? client?.phone ?? "unknown"},
+                ${delivered ? `Invoice ${invNum} emailed${bldg}` : `Invoice ${invNum} email NOT sent${bldg}${failReason ? ` — ${failReason}` : ""}`},
+                ${`Invoice ${invNum}${bldg}`}, ${recipientEmail ?? client?.phone ?? "unknown"},
                 ${delivered ? "sent" : "suppressed"}, 'system', ${req.auth!.userId})`);
     } catch (e) { console.error("[invoice-send] comm-log trace non-fatal:", (e as any)?.message); }
 
