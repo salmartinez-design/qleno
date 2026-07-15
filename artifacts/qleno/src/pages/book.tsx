@@ -1775,10 +1775,6 @@ export default function BookPage() {
               {/* "How did you hear about us?" moved OFF the critical path to the
                   post-booking confirmation screen — it serves internal reporting,
                   not the customer's booking, so it shouldn't add friction here. */}
-              <FieldWrap label="Zip Code" error={errors.zip}>
-                <input style={s.input} value={zip} onChange={e => setZip(e.target.value)} placeholder="60453" maxLength={5} />
-              </FieldWrap>
-
               <FieldWrap label="Service Address" error={errors.address}>
                 <div style={{ position: "relative" }}>
                   <input
@@ -1817,6 +1813,10 @@ export default function BookPage() {
                     We don't currently service this area. Call (773) 706-6000 to confirm.
                   </p>
                 )}
+              </FieldWrap>
+
+              <FieldWrap label="Zip Code" error={errors.zip}>
+                <input style={s.input} value={zip} onChange={e => setZip(e.target.value)} placeholder="60453" maxLength={5} />
               </FieldWrap>
 
               <FieldWrap label="Unit, Suite, or Additional Access Instructions" error={undefined}>
