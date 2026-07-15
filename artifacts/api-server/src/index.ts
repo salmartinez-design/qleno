@@ -453,6 +453,33 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] ensureOneOnOnesSchema — non-fatal:", err?.message ?? err);
   }
+  // [event-clock 2026-07-15] A tech's clock-in/out on a dispatch event (paid
+  // hourly, separate from the job timeclock). Additive; depends on
+  // dispatch_events above. Idempotent.
+  try {
+    await withBootTimeout("ensureEventTimeclockSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS event_timeclock (
+          id serial PRIMARY KEY,
+          company_id integer NOT NULL REFERENCES companies(id),
+          dispatch_event_id integer NOT NULL REFERENCES dispatch_events(id),
+          user_id integer NOT NULL REFERENCES users(id),
+          clock_in_at timestamptz NOT NULL DEFAULT now(),
+          clock_out_at timestamptz,
+          paid_hours numeric(6,2),
+          paid_rate numeric(10,2),
+          pay_adjustment_id integer,
+          created_at timestamptz NOT NULL DEFAULT now()
+        )
+      `);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS event_timeclock_event_user_idx ON event_timeclock(dispatch_event_id, user_id)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS event_timeclock_company_user_idx ON event_timeclock(company_id, user_id)`);
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureEventTimeclockSchema — non-fatal:", err?.message ?? err);
+  }
   try {
     await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());
   } catch (err: any) {

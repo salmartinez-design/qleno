@@ -24,8 +24,10 @@ import {
   scorecardEntriesTable,
   usersTable,
   dispatchEventsTable,
+  eventTimeclockTable,
+  payAdjustmentsTable,
 } from "@workspace/db/schema";
-import { and, asc, desc, eq, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, or, sql, inArray, isNull } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { computeCompositeForEmployee } from "../lib/scorecard-composite.js";
 
@@ -471,6 +473,193 @@ router.get("/one-on-ones", requireAuth, async (req, res) => {
     return res.json({ one_on_ones: rows });
   } catch (err) {
     console.error("tech one-on-ones error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// [event-clock 2026-07-15] Clock into a dispatch EVENT and get paid.
+// A tech can clock in/out of a non-job event on their row (meeting/training
+// block, client visit, or 1-on-1). Pay flows AUTOMATICALLY on clock-out: we
+// compute hours × rate and write a `pay_adjustments` row (adjustment_type
+// 'event_pay'), which folds into /payroll/detail for the period by created_at.
+// This is a deliberate, owner-chosen exception to the commission-only comp
+// model, kept in its OWN table so it never contaminates job/commission queries.
+// ─────────────────────────────────────────────────────────────────────────────
+const CLOCKABLE_EVENT_KINDS = ["tech_block", "client_visit", "one_on_one"] as const;
+
+// Hourly rate for event/meeting time: the tech's dated rate first
+// (employee_pay_rates), else the company default (payroll_settings.training_pay_rate),
+// else $20. Never hardcoded at the call site — mirrors the rate-source rule.
+async function resolveEventHourlyRate(companyId: number, userId: number, dateStr: string): Promise<number> {
+  try {
+    const r = await db.execute(sql`
+      SELECT hourly_rate FROM employee_pay_rates
+      WHERE company_id = ${companyId} AND user_id = ${userId}
+        AND effective_date <= ${dateStr}
+        AND (end_date IS NULL OR end_date >= ${dateStr})
+      ORDER BY effective_date DESC LIMIT 1`);
+    const hr = (r.rows[0] as any)?.hourly_rate;
+    if (hr != null && !Number.isNaN(parseFloat(String(hr)))) return parseFloat(String(hr));
+  } catch { /* fall through to company default */ }
+  try {
+    const s = await db.execute(sql`SELECT training_pay_rate FROM payroll_settings WHERE company_id = ${companyId} LIMIT 1`);
+    const tr = (s.rows[0] as any)?.training_pay_rate;
+    if (tr != null && !Number.isNaN(parseFloat(String(tr)))) return parseFloat(String(tr));
+  } catch { /* fall through to default */ }
+  return 20;
+}
+
+// GET /api/tech/events?date=YYYY-MM-DD — the tech's clockable events for the day
+// + any clock entry, so My Jobs can render a clock-in/out control per event.
+router.get("/events", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (companyId == null) return res.status(400).json({ error: "Bad Request", message: "User has no company assignment" });
+    const userId = resolveViewedUserId(req);
+    const dateRaw = String(req.query.date ?? "");
+    const today = new Date();
+    const date = ISO_DATE_RE.test(dateRaw) ? dateRaw : `${today.getUTCFullYear()}-${String(today.getUTCMonth() + 1).padStart(2, "0")}-${String(today.getUTCDate()).padStart(2, "0")}`;
+
+    const rows = await db
+      .select({
+        id: dispatchEventsTable.id,
+        kind: dispatchEventsTable.kind,
+        title: dispatchEventsTable.title,
+        event_date: dispatchEventsTable.event_date,
+        start_time: dispatchEventsTable.start_time,
+        end_time: dispatchEventsTable.end_time,
+      })
+      .from(dispatchEventsTable)
+      .where(and(
+        eq(dispatchEventsTable.company_id, companyId),
+        eq(dispatchEventsTable.event_date, date),
+        eq(dispatchEventsTable.assigned_user_id, userId),
+        inArray(dispatchEventsTable.kind, CLOCKABLE_EVENT_KINDS as unknown as string[]),
+      ))
+      .orderBy(asc(dispatchEventsTable.start_time), asc(dispatchEventsTable.id));
+
+    const eventIds = rows.map(r => r.id);
+    const entryByEvent = new Map<number, any>();
+    if (eventIds.length) {
+      const ents = await db
+        .select()
+        .from(eventTimeclockTable)
+        .where(and(
+          eq(eventTimeclockTable.company_id, companyId),
+          eq(eventTimeclockTable.user_id, userId),
+          inArray(eventTimeclockTable.dispatch_event_id, eventIds),
+        ))
+        .orderBy(asc(eventTimeclockTable.id));
+      // Latest entry per event wins (open entry, or the last closed/paid one).
+      for (const e of ents) entryByEvent.set(e.dispatch_event_id, e);
+    }
+
+    const events = rows.map(r => ({
+      ...r,
+      label: r.kind === "one_on_one" ? "1-on-1" : r.title,
+      time_clock_entry: entryByEvent.get(r.id) ?? null,
+    }));
+    return res.json({ events });
+  } catch (err) {
+    console.error("tech events error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Resolve + authorize the event for a clock write. The event must belong to the
+// company, be a clockable kind, and be assigned to the acting tech.
+async function loadClockableEvent(companyId: number, userId: number, eventId: number) {
+  const [ev] = await db
+    .select({ id: dispatchEventsTable.id, kind: dispatchEventsTable.kind, title: dispatchEventsTable.title, event_date: dispatchEventsTable.event_date, assigned_user_id: dispatchEventsTable.assigned_user_id })
+    .from(dispatchEventsTable)
+    .where(and(eq(dispatchEventsTable.id, eventId), eq(dispatchEventsTable.company_id, companyId)))
+    .limit(1);
+  return ev ?? null;
+}
+
+// POST /api/tech/events/:eventId/clock-in — open a clock entry for this event.
+router.post("/events/:eventId/clock-in", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (companyId == null) return res.status(400).json({ error: "Bad Request", message: "User has no company assignment" });
+    const userId = resolveViewedUserId(req);
+    const eventId = parseInt(String(req.params.eventId), 10);
+    if (!Number.isFinite(eventId)) return res.status(400).json({ error: "invalid event id" });
+
+    const ev = await loadClockableEvent(companyId, userId, eventId);
+    if (!ev) return res.status(404).json({ error: "event not found" });
+    if (!(CLOCKABLE_EVENT_KINDS as readonly string[]).includes(ev.kind)) return res.status(400).json({ error: "this event is not clockable" });
+    if (ev.assigned_user_id !== userId) return res.status(403).json({ error: "this event is not assigned to you" });
+
+    // Idempotent — if there's already an open punch, return it.
+    const [open] = await db.select().from(eventTimeclockTable)
+      .where(and(eq(eventTimeclockTable.dispatch_event_id, eventId), eq(eventTimeclockTable.user_id, userId), isNull(eventTimeclockTable.clock_out_at)))
+      .limit(1);
+    if (open) return res.json({ entry: open });
+
+    const [entry] = await db.insert(eventTimeclockTable).values({
+      company_id: companyId,
+      dispatch_event_id: eventId,
+      user_id: userId,
+      clock_in_at: new Date(),
+    }).returning();
+    return res.status(201).json({ entry });
+  } catch (err) {
+    console.error("tech event clock-in error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// POST /api/tech/events/:eventId/clock-out — close the punch and AUTO-write the
+// event pay line (hours × rate) so it flows straight into payroll (Sal's call).
+router.post("/events/:eventId/clock-out", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (companyId == null) return res.status(400).json({ error: "Bad Request", message: "User has no company assignment" });
+    const userId = resolveViewedUserId(req);
+    const eventId = parseInt(String(req.params.eventId), 10);
+    if (!Number.isFinite(eventId)) return res.status(400).json({ error: "invalid event id" });
+
+    const [open] = await db.select().from(eventTimeclockTable)
+      .where(and(eq(eventTimeclockTable.dispatch_event_id, eventId), eq(eventTimeclockTable.user_id, userId), isNull(eventTimeclockTable.clock_out_at)))
+      .orderBy(desc(eventTimeclockTable.id))
+      .limit(1);
+    if (!open) return res.status(404).json({ error: "not clocked in" });
+
+    const ev = await loadClockableEvent(companyId, userId, eventId);
+    const now = new Date();
+    const hours = Math.max(0, (now.getTime() - new Date(open.clock_in_at).getTime()) / 3_600_000);
+    const roundedHours = Math.round(hours * 100) / 100;
+    const rate = await resolveEventHourlyRate(companyId, userId, ev?.event_date ?? `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-${String(now.getUTCDate()).padStart(2, "0")}`);
+    const amount = Math.round(roundedHours * rate * 100) / 100;
+
+    // Auto pay line — created only when there's time worked. It lands in the pay
+    // period by created_at (=now), so clocking out today pays this period.
+    let payAdjustmentId: number | null = null;
+    if (amount > 0) {
+      const label = ev?.kind === "one_on_one" ? "1-on-1" : (ev?.title || "Event");
+      const [adj] = await db.insert(payAdjustmentsTable).values({
+        company_id: companyId,
+        user_id: userId,
+        adjustment_type: "event_pay",
+        amount: amount.toFixed(2),
+        note: `${label} · ${ev?.event_date ?? ""} · ${roundedHours.toFixed(2)}h @ $${rate.toFixed(2)}/hr`,
+        created_by_user_id: Number(req.auth!.userId),
+      }).returning({ id: payAdjustmentsTable.id });
+      payAdjustmentId = adj?.id ?? null;
+    }
+
+    const [entry] = await db.update(eventTimeclockTable).set({
+      clock_out_at: now,
+      paid_hours: roundedHours.toFixed(2),
+      paid_rate: rate.toFixed(2),
+      pay_adjustment_id: payAdjustmentId,
+    }).where(eq(eventTimeclockTable.id, open.id)).returning();
+
+    return res.json({ entry, paid_amount: amount, paid_hours: roundedHours, rate });
+  } catch (err) {
+    console.error("tech event clock-out error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
