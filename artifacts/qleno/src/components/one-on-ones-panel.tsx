@@ -275,10 +275,15 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {list.map(rec => (
-            <button
+            // Row is a div (not a button) so the Delete button can nest without
+            // invalid button-in-button markup. Clicking the row opens it;
+            // clicking the trash deletes it (record + board block) right here.
+            <div
               key={rec.id}
-              onClick={() => openRecord(rec.id)}
-              disabled={openingId === rec.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => { if (openingId !== rec.id) openRecord(rec.id); }}
+              onKeyDown={e => { if ((e.key === "Enter" || e.key === " ") && openingId !== rec.id) { e.preventDefault(); openRecord(rec.id); } }}
               style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 14px", borderRadius: 11, border: "1px solid #E5E2DC", background: "#FFFFFF", cursor: "pointer", textAlign: "left", fontFamily: FF }}
               onMouseEnter={e => (e.currentTarget.style.borderColor = "#CFCAC1")}
               onMouseLeave={e => (e.currentTarget.style.borderColor = "#E5E2DC")}
@@ -294,7 +299,18 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
                   ? { color: "#166534", background: "#DCFCE7", border: "1px solid #BBF7D0" }
                   : { color: "#8A6D3B", background: "#FCF3E3", border: "1px solid #ECD9B5" }),
               }}>{rec.status === "completed" ? "Completed" : "Scheduled"}</span>
-            </button>
+              <button
+                onClick={e => { e.stopPropagation(); remove(rec.id); }}
+                disabled={busy}
+                title="Delete this 1-on-1"
+                aria-label="Delete this 1-on-1"
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#B91C1C", borderRadius: 8, padding: "6px 8px", cursor: busy ? "default" : "pointer" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#FEF2F2")}
+                onMouseLeave={e => (e.currentTarget.style.background = "#FFFFFF")}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           ))}
         </div>
       )}
