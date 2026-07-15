@@ -1960,33 +1960,6 @@ export default function MyJobsPage() {
                   </p>
                 </div>
               )}
-              {/* [event-clock 2026-07-15] Clockable events for THIS day — clock
-                  in/out pays the tech for the time. Sits at the top of the day. */}
-              {dayEvents.map(ev => (
-                <EventClockCard key={`evt-${ev.id}`} ev={ev} onRefresh={eventsQ.refetch}
-                  actingForUserId={employeeView ? employeeView.employeeId : null} />
-              ))}
-              {/* [one-on-one-visibility 2026-07-14] The tech's own upcoming
-                  1-on-1(s) — a mint-on-night standout so a check-in with the
-                  owner never gets missed. Appointment only (who + when); the
-                  private 1-on-1 content stays owner-only. A 1-on-1 on the day
-                  being viewed shows as a clockable card above instead. */}
-              {upcomingOneOnOnes.filter(o => o.event_date !== selectedDate).map(o => (
-                <div key={`ono-${o.id}`}
-                  style={{ backgroundColor: "#0A0E1A", border: "1px solid #00C9A0", borderRadius: 12, padding: 16, marginBottom: 12, boxShadow: "0 2px 12px rgba(0,201,160,0.28)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(0,201,160,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <MessageSquare size={18} color="#00C9A0" />
-                    </div>
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <p style={{ fontSize: 11, fontWeight: 800, color: "#5EE6C7", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 2px" }}>1-on-1{o.with_name ? ` with ${o.with_name}` : ""}</p>
-                      <p style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", margin: 0 }}>
-                        {formatApptDate(o.event_date)}{o.start_time ? ` · ${formatTime(o.start_time)}${o.end_time ? `–${formatTime(o.end_time)}` : ""}` : ""}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ))}
               {activeJobs.map((job, i) => (
                 <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView}
                   actingForUserId={employeeView ? employeeView.employeeId : null}
@@ -2037,6 +2010,30 @@ export default function MyJobsPage() {
                   })}
                 </div>
               )}
+              {/* [event-clock 2026-07-15] Clockable events + upcoming 1-on-1
+                  reminder, rendered at the BOTTOM of the day below the jobs
+                  (Sal: move the event to the bottom of the list). Clock in/out
+                  pays the tech for the time. */}
+              {dayEvents.map(ev => (
+                <EventClockCard key={`evt-${ev.id}`} ev={ev} onRefresh={eventsQ.refetch}
+                  actingForUserId={employeeView ? employeeView.employeeId : null} />
+              ))}
+              {upcomingOneOnOnes.filter(o => o.event_date !== selectedDate).map(o => (
+                <div key={`ono-${o.id}`}
+                  style={{ backgroundColor: "#0A0E1A", border: "1px solid #00C9A0", borderRadius: 12, padding: 16, marginTop: 12, boxShadow: "0 2px 12px rgba(0,201,160,0.28)" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(0,201,160,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <MessageSquare size={18} color="#00C9A0" />
+                    </div>
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p style={{ fontSize: 11, fontWeight: 800, color: "#5EE6C7", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 2px" }}>1-on-1{o.with_name ? ` with ${o.with_name}` : ""}</p>
+                      <p style={{ fontSize: 15, fontWeight: 700, color: "#FFFFFF", margin: 0 }}>
+                        {formatApptDate(o.event_date)}{o.start_time ? ` · ${formatTime(o.start_time)}${o.end_time ? `–${formatTime(o.end_time)}` : ""}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </>
           )}
         </div>

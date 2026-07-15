@@ -11,6 +11,7 @@ import { unionHoursByKey } from "../lib/timeclock-hours.js";
 import type { CommissionInputJob } from "../lib/commission-compute.js";
 import { sendNotification, labelServiceType } from "../services/notificationService.js";
 import { notifyOfficeUsers } from "../lib/notify.js";
+import { LATE_THRESHOLD_MINUTES } from "../lib/job-status-constants.js";
 
 // [geofence-ticket 2026-07-03] Raise an office "employee ticket" (in-app office
 // broadcast) whenever a punch is RECORDED outside the job geofence — the office's
@@ -73,6 +74,23 @@ function centralWallClock(instant: Date): Date {
   const g = (t: string) => parts.find(p => p.type === t)!.value;
   let hh = g("hour"); if (hh === "24") hh = "00"; // Intl can emit 24 at midnight
   return new Date(`${g("year")}-${g("month")}-${g("day")}T${hh}:${g("minute")}:${g("second")}Z`);
+}
+
+// [late-fix 2026-07-15] The job's ACTUAL scheduled start, in the SAME frame as
+// centralWallClock (a Date whose UTC components equal the Central wall digits).
+// Building it this way makes the lateness math server-timezone-proof, since
+// clockInAt is also a centralWallClock Date. Parses "HH:MM[:SS]" 24h or 12h AM/PM.
+function scheduledStartWallClock(dateStr: string | null, timeStr: string | null): Date | null {
+  if (!dateStr || !timeStr) return null;
+  const m = /^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?/i.exec(String(timeStr).trim());
+  if (!m) return null;
+  let hh = parseInt(m[1], 10);
+  const mm = parseInt(m[2], 10);
+  const ap = m[3]?.toUpperCase();
+  if (ap === "PM" && hh < 12) hh += 12;
+  if (ap === "AM" && hh === 12) hh = 0;
+  const d = new Date(`${dateStr}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00Z`);
+  return Number.isFinite(d.getTime()) ? d : null;
 }
 
 function calculateDistanceFt(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -403,23 +421,27 @@ router.post("/clock-in", requireAuth, async (req, res) => {
     });
 
     // ── Late clock-in notification ───────────────────────────────────────────
+    // [late-fix 2026-07-15] Measure lateness against the job's ACTUAL
+    // scheduled_time (Sal: the rule is 20 min, but this was firing at 8 min).
+    // The old code compared to the generic arrival window — hardcoded 8:00 AM
+    // for "morning" — so ANY clock-in after 8:20 AM was flagged late regardless
+    // of the job's real time. Now: real scheduled start + the shared
+    // LATE_THRESHOLD_MINUTES (20), same rule as the dispatch late count.
     try {
       const scheduledDate = jobRow.scheduled_date ? String(jobRow.scheduled_date).slice(0, 10) : null;
-      if (scheduledDate) {
-        const arrivalWindow = (jobRow as any).arrival_window || "morning";
-        const startHour = arrivalWindow === "afternoon" ? 13 : 8;
-        const scheduledStart = new Date(`${scheduledDate}T${String(startHour).padStart(2, '0')}:00:00-06:00`);
-        const lateThreshold = new Date(scheduledStart.getTime() + 20 * 60 * 1000);
-        if (new Date() > lateThreshold) {
+      const scheduledStart = scheduledStartWallClock(scheduledDate, (jobRow as any).scheduled_time ?? null);
+      if (scheduledStart) {
+        const lateByMin = Math.floor((clockInAt.getTime() - scheduledStart.getTime()) / 60000);
+        if (lateByMin >= LATE_THRESHOLD_MINUTES) {
           const techRow = await db.select({ first_name: usersTable.first_name, last_name: usersTable.last_name })
             .from(usersTable).where(eq(usersTable.id, effectiveUserId)).limit(1);
           const techName = techRow[0] ? `${techRow[0].first_name} ${techRow[0].last_name}` : "A technician";
           const clientName = job[0].clients ? `${(job[0].clients as any).first_name} ${(job[0].clients as any).last_name}` : "a client";
           const notifTitle = `Late Clock-In — ${techName}`;
-          const notifBody = `${techName} clocked in late for ${clientName}'s job (scheduled ${arrivalWindow}).`;
+          const notifBody = `${techName} clocked in ${lateByMin} min late for ${clientName}'s job.`;
           await db.execute(
             sql`INSERT INTO notifications (company_id, type, title, body, link, meta)
-              VALUES (${req.auth!.companyId}, 'late_clockin', ${notifTitle}, ${notifBody}, ${`/dispatch`}, ${JSON.stringify({ job_id, user_id: effectiveUserId, tech_name: techName })}::jsonb)`
+              VALUES (${req.auth!.companyId}, 'late_clockin', ${notifTitle}, ${notifBody}, ${`/dispatch`}, ${JSON.stringify({ job_id, user_id: effectiveUserId, tech_name: techName, late_by_min: lateByMin })}::jsonb)`
           );
         }
       }
