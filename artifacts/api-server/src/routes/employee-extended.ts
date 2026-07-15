@@ -97,7 +97,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
   }
 });
 
-router.get("/:id/availability", requireAuth, async (req, res) => {
+router.get("/:id/availability", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const rows = await db
@@ -144,7 +144,7 @@ router.put("/:id/availability", requireAuth, requireRole("owner", "admin", "offi
   }
 });
 
-router.get("/:id/contact-tickets", requireAuth, async (req, res) => {
+router.get("/:id/contact-tickets", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const tickets = await db
@@ -189,7 +189,7 @@ router.post("/:id/contact-tickets", requireAuth, requireRole("owner", "admin", "
   }
 });
 
-router.get("/:id/notes", requireAuth, async (req, res) => {
+router.get("/:id/notes", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const notes = await db
@@ -233,7 +233,7 @@ router.post("/:id/notes", requireAuth, requireRole("owner", "admin", "office"), 
   }
 });
 
-router.get("/:id/jobs", requireAuth, async (req, res) => {
+router.get("/:id/jobs", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const userId = parseInt(req.params.id);
     const { page = "1", limit = "25", status, from, to } = req.query;
@@ -413,7 +413,7 @@ router.post("/invite/:token/accept", async (req, res) => {
   }
 });
 
-router.get("/available", requireAuth, async (req, res) => {
+router.get("/available", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const { date, time } = req.query;
     const companyId = req.auth!.companyId;

@@ -1290,7 +1290,7 @@ router.post("/suggest-tech", requireAuth, async (req, res) => {
   }
 });
 
-router.get("/availability", requireAuth, async (req, res) => {
+router.get("/availability", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const { date } = req.query;
     if (!date) return res.status(400).json({ error: "date required" });
@@ -1322,7 +1322,7 @@ router.get("/availability", requireAuth, async (req, res) => {
 });
 
 // ── GET /api/jobs/ready-to-charge ─── Daily Stripe charge queue ──────────────
-router.get("/ready-to-charge", requireAuth, async (req, res) => {
+router.get("/ready-to-charge", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -5895,7 +5895,7 @@ function buildJobWhereClause(query: any, companyId: number, cursorId?: number | 
 const JOBS_V2_FROM = sql`FROM jobs j LEFT JOIN clients c ON j.client_id = c.id LEFT JOIN users u ON j.assigned_user_id = u.id LEFT JOIN service_zones sz ON j.zone_id = sz.id LEFT JOIN branches b ON j.branch_id = b.id`;
 
 // GET /api/jobs/v2/kpi
-router.get("/v2/kpi", requireAuth, async (req, res) => {
+router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const where = buildJobWhereClause(req.query, companyId);
@@ -5930,7 +5930,7 @@ router.get("/v2/kpi", requireAuth, async (req, res) => {
 });
 
 // GET /api/jobs/v2/list — cursor-paginated
-router.get("/v2/list", requireAuth, async (req, res) => {
+router.get("/v2/list", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const limit = Math.min(Math.max(1, parseInt(req.query.limit as string) || 50), 200);
@@ -5989,7 +5989,7 @@ router.get("/v2/list", requireAuth, async (req, res) => {
 });
 
 // POST /api/jobs/v2/bulk — bulk actions
-router.post("/v2/bulk", requireAuth, async (req, res) => {
+router.post("/v2/bulk", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const { action, job_ids, payload } = req.body;
@@ -6176,7 +6176,7 @@ router.put("/v2/columns", requireAuth, async (req, res) => {
 
 // ── Export ────────────────────────────────────────────────────────────────────
 
-router.get("/v2/export", requireAuth, async (req, res) => {
+router.get("/v2/export", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const format = (req.query.format as string) || "csv";
