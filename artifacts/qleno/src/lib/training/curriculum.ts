@@ -3628,12 +3628,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "phes-policies",
     prompt: { en: "What kind of employee are Phes technicians?", es: "¿Qué tipo de empleado son los técnicos de Phes?" },
     options: [
-      { en: "Independent 1099 contractors paid by the job, no taxes withheld.", es: "Contratistas 1099 independientes pagados por trabajo, sin retenciones." },
       { en: "W-2 employees with steady scheduled work and benefits package.", es: "Empleados W-2 con trabajo programado constante y paquete de beneficios." },
+      { en: "Independent 1099 contractors paid by the job, no taxes withheld.", es: "Contratistas 1099 independientes pagados por trabajo, sin retenciones." },
       { en: "Day laborers paid in cash at the end of each individual shift.", es: "Jornaleros pagados en efectivo al final de cada turno individual." },
       { en: "Unpaid volunteers earning only a small weekly stipend from Phes.", es: "Voluntarios no pagados que ganan solo un pequeño estipendio semanal de Phes." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-pp-02-guarantee",
@@ -3642,10 +3642,10 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "Nothing — once the job is marked complete the visit is closed out for good.", es: "Nada — una vez que el trabajo se marca como completo, queda cerrado para siempre." },
       { en: "The client immediately gets a full refund and we move on to the next job.", es: "El cliente recibe inmediatamente un reembolso completo y seguimos al próximo trabajo." },
-      { en: "Phes invokes the Fix-It guarantee — office sends a Shortfall Report and schedules return.", es: "Phes invoca la garantía Fix-It — la oficina envía un Reporte de Deficiencia y programa el regreso." },
       { en: "The client can rebook a free clean at any point during the following month.", es: "El cliente puede reservar una limpieza gratis en cualquier momento del mes siguiente." },
+      { en: "Phes invokes the Fix-It guarantee — office sends a Shortfall Report and schedules return.", es: "Phes invoca la garantía Fix-It — la oficina envía un Reporte de Deficiencia y programa el regreso." },
     ],
-    correctIndex: 2,
+    correctIndex: 3,
   },
   {
     id: "q-pp-03-scope-oven",
@@ -3655,12 +3655,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Durante la limpieza, el cliente le pide limpiar por dentro del horno. La Hoja de Trabajo no lo incluye. ¿Qué hace?",
     },
     options: [
-      { en: "Clean it as a courtesy — the customer is always right in residential service.", es: "Límpielo por cortesía — el cliente siempre tiene la razón en servicio residencial." },
       { en: "Call the office to confirm pricing; decline politely if you are tight on time.", es: "Llame a la oficina para confirmar precio; decline cortésmente si tiene poco tiempo." },
+      { en: "Clean it as a courtesy — the customer is always right in residential service.", es: "Límpielo por cortesía — el cliente siempre tiene la razón en servicio residencial." },
       { en: "Clean it on the spot but charge them in cash directly off the books to save time.", es: "Límpielo en el momento pero cobre en efectivo directamente fuera de los libros." },
       { en: "Refuse and walk out — it is not on today's Worksheet so it does not count at all.", es: "Niéguese y váyase — no está en la Hoja de Trabajo de hoy así que no cuenta para nada." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-pp-04-bodily-fluids",
@@ -3680,11 +3680,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "A client hands you $20 in cash as a tip at the end of the job. What's the right thing to do?", es: "Un cliente le da $20 en efectivo como propina al final. ¿Qué es correcto?" },
     options: [
       { en: "Refuse — Phes does not allow techs to accept tips from any client.", es: "Rechácela — Phes no permite que los técnicos acepten propinas de ningún cliente." },
-      { en: "Take it and keep all of it — tips are 100% yours, no kickback owed.", es: "Tómela y quédese con todo — las propinas son 100% suyas, sin porcentaje." },
       { en: "Take it but turn it in to the office to be redistributed across the team.", es: "Tómela pero entréguela a la oficina para redistribuirla entre el equipo." },
+      { en: "Take it and keep all of it — tips are 100% yours, no kickback owed.", es: "Tómela y quédese con todo — las propinas son 100% suyas, sin porcentaje." },
       { en: "Take it and report it to the office as additional revenue from the job.", es: "Tómela y repórtela a la oficina como ingreso adicional del trabajo." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-pp-06-running-late",
@@ -3693,22 +3693,22 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "Drive faster to make up time", es: "Maneja más rápido para recuperar tiempo" },
       { en: "Don't worry about it — 30 minutes is within the grace period", es: "No se preocupa — 30 minutos están dentro del periodo de gracia" },
-      { en: "Call or text the office immediately so the client can be notified", es: "Llama o envía mensaje a la oficina inmediatamente para que el cliente sea notificado" },
       { en: "Just show up when you get there — they'll figure it out", es: "Solo llega cuando pueda — ya lo entenderán" },
+      { en: "Call or text the office immediately so the client can be notified", es: "Llama o envía mensaje a la oficina inmediatamente para que el cliente sea notificado" },
     ],
-    correctIndex: 2,
+    correctIndex: 3,
   },
   {
     id: "q-pp-07-grace-window",
     moduleId: "phes-policies",
     prompt: { en: "What is the grace window after your scheduled clock-in time before a visit is recorded as tardy?", es: "¿Cuál es el periodo de gracia después de la hora programada antes de registrarse como tardanza?" },
     options: [
+      { en: "20 minutes", es: "20 minutos" },
       { en: "5 minutes", es: "5 minutos" },
       { en: "10 minutes", es: "10 minutos" },
-      { en: "20 minutes", es: "20 minutos" },
       { en: "60 minutes", es: "60 minutos" },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-pp-08-tardy-progression",
@@ -3716,11 +3716,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "After how many tardy occurrences does the policy reach 'Final warning'?", es: "¿Después de cuántas tardanzas la política llega a 'Última advertencia'?" },
     options: [
       { en: "2nd", es: "2ª" },
-      { en: "3rd", es: "3ª" },
       { en: "4th", es: "4ª" },
+      { en: "3rd", es: "3ª" },
       { en: "5th", es: "5ª" },
     ],
-    correctIndex: 2,
+    correctIndex: 1,
   },
   {
     id: "q-pp-09-sick-tomorrow",
@@ -3728,11 +3728,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You wake up sick and won't work today. How do you report it?", es: "Despierta enfermo y no trabajará hoy. ¿Cómo lo reporta?" },
     options: [
       { en: "Text a co-worker so they can pass the message along to the office team.", es: "Envíe mensaje a un compañero para que pase el aviso al equipo de la oficina." },
-      { en: "Make the 20-minute grace-window call to the office — no doctor's note required.", es: "Haga la llamada de gracia de 20 minutos a la oficina — no se requiere nota médica." },
       { en: "Call the office in the morning at the time you should already be on the job.", es: "Llame a la oficina en la mañana a la hora que ya debería estar en el trabajo." },
+      { en: "Make the 20-minute grace-window call to the office — no doctor's note required.", es: "Haga la llamada de gracia de 20 minutos a la oficina — no se requiere nota médica." },
       { en: "Just do not show up — the office and dispatch will eventually figure it out.", es: "Simplemente no se presente — la oficina y despacho lo descifrarán eventualmente." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-pp-10-pto-request",
@@ -3740,23 +3740,23 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You want PTO for next Friday (nine days from now). What do you do?", es: "Quiere PTO para el próximo viernes (a nueve días de hoy). ¿Qué hace?" },
     options: [
       { en: "Text your direct manager privately to let them know you need the day off.", es: "Envíe mensaje directo al gerente privadamente para avisar que necesita el día." },
-      { en: "Submit PTO through Qleno AND confirm with the office 7 days out.", es: "Envíe PTO por Qleno Y confirme con la oficina con 7 días de anticipación." },
       { en: "Call the office Friday morning when you are supposed to be at the first job.", es: "Llame a la oficina el viernes en la mañana cuando deba estar en el primer trabajo." },
       { en: "Tell a teammate to relay the request to the office team for you that week.", es: "Pídale a un compañero que pase la solicitud al equipo de la oficina por usted." },
+      { en: "Submit PTO through Qleno AND confirm with the office 7 days out.", es: "Envíe PTO por Qleno Y confirme con la oficina con 7 días de anticipación." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-pp-11-unexcused-fourth",
     moduleId: "phes-policies",
     prompt: { en: "Your PLAWA bank is exhausted, so absences now count on the discipline scale. What does the SECOND unexcused occurrence in your benefit year trigger?", es: "Su banco de PLAWA está agotado, así que las ausencias ahora cuentan en la escala de disciplina. ¿Qué activa la SEGUNDA ocurrencia injustificada en su año de beneficios?" },
     options: [
+      { en: "A final written warning is issued.", es: "Se emite una advertencia final por escrito." },
       { en: "A recorded note with no further action.", es: "Una nota registrada sin acción adicional." },
       { en: "A first written warning and coaching.", es: "Una primera advertencia por escrito y orientación." },
-      { en: "A final written warning is issued.", es: "Se emite una advertencia final por escrito." },
       { en: "An automatic termination that same day.", es: "Una terminación automática ese mismo día." },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-pp-12-pto-plawa-distinct",
@@ -3764,11 +3764,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "Which of the following is TRUE about PTO and PLAWA?", es: "¿Cuál de los siguientes es VERDADERO sobre el PTO y PLAWA?" },
     options: [
       { en: "PTO and PLAWA share a single 40-hour bank you can draw from for any reason.", es: "El PTO y PLAWA comparten un solo banco de 40 horas del que dispone por cualquier razón." },
-      { en: "PLAWA fully replaces PTO once you reach your 2-year service anniversary at Phes.", es: "PLAWA reemplaza al PTO por completo al llegar a su aniversario de 2 años en Phes." },
       { en: "Two SEPARATE benefits — PLAWA covers same-day call-offs; PTO needs 7-day notice.", es: "Dos beneficios SEPARADOS — PLAWA cubre llamadas el mismo día; PTO requiere 7 días aviso." },
+      { en: "PLAWA fully replaces PTO once you reach your 2-year service anniversary at Phes.", es: "PLAWA reemplaza al PTO por completo al llegar a su aniversario de 2 años en Phes." },
       { en: "You must exhaust all your PTO hours before you are allowed to touch any PLAWA.", es: "Debe agotar todas las horas de PTO antes de poder tocar PLAWA." },
     ],
-    correctIndex: 2,
+    correctIndex: 1,
   },
   {
     id: "q-pp-13-emergency-911",
@@ -3791,11 +3791,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Answer it in place quickly, then return to cleaning.", es: "Contéstela en el lugar rápidamente, luego regrese a limpiar." },
-      { en: "Step outside the home entirely, notify your teammate before stepping away, take the call briefly, then return.", es: "Salga completamente del hogar, avise a su compañero de equipo antes de salir, tome la llamada brevemente y luego regrese." },
       { en: "Move to a different room (laundry, bathroom) so the client doesn't see, then answer.", es: "Muévase a otra habitación (lavandería, baño) para que el cliente no vea, luego conteste." },
       { en: "Ignore the call. Personal calls are never allowed during a job.", es: "Ignore la llamada. Las llamadas personales nunca están permitidas durante un trabajo." },
+      { en: "Step outside the home entirely, notify your teammate before stepping away, take the call briefly, then return.", es: "Salga completamente del hogar, avise a su compañero de equipo antes de salir, tome la llamada brevemente y luego regrese." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-pp-15-photos",
@@ -3805,12 +3805,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Termina una limpieza profunda y quiere publicar un antes/después en su Instagram personal para mostrar su trabajo. ¿Está bien?",
     },
     options: [
+      { en: "No — only photos in the company app for work documentation are allowed.", es: "No — solo se permiten fotos en la app de la compañía para documentar trabajo." },
       { en: "Yes — post whatever you want from the job on your own personal account.", es: "Sí — publique lo que quiera del trabajo en su propia cuenta personal." },
       { en: "Yes, as long as the client's face is not clearly visible in the photo frame.", es: "Sí, mientras no se vea claramente la cara del cliente en la foto." },
-      { en: "No — only photos in the company app for work documentation are allowed.", es: "No — solo se permiten fotos en la app de la compañía para documentar trabajo." },
       { en: "Yes, but blur the location pin and avoid tagging the neighborhood publicly.", es: "Sí, pero difumine la ubicación y no etiquete el vecindario públicamente." },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-pp-16-dishes-beds",
@@ -3850,12 +3850,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Su padre fallece. ¿Cuál es la política de duelo de Phes?",
     },
     options: [
-      { en: "Up to 3 UNPAID scheduled workdays for immediate family; PLAWA can cover the pay.", es: "Hasta 3 días programados NO PAGADOS para familia inmediata; PLAWA puede cubrir el pago." },
       { en: "Up to 3 fully PAID scheduled workdays at your regular hourly rate of pay.", es: "Hasta 3 días programados completamente PAGADOS a su tarifa regular por hora." },
       { en: "Up to 5 paid bereavement days plus paid travel time for out-of-state services.", es: "Hasta 5 días pagados por duelo más tiempo de viaje para servicios fuera del estado." },
       { en: "Phes does not offer bereavement leave at all — use PTO or unpaid time off instead.", es: "Phes no ofrece licencia por duelo — use PTO o tiempo no pagado en su lugar." },
+      { en: "Up to 3 UNPAID scheduled workdays for immediate family; PLAWA can cover the pay.", es: "Hasta 3 días programados NO PAGADOS para familia inmediata; PLAWA puede cubrir el pago." },
     ],
-    correctIndex: 0,
+    correctIndex: 3,
   },
   {
     id: "q-pp-19-jury-duty",
@@ -3865,12 +3865,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Recibe una citación de jurado para el próximo miércoles. ¿Cómo maneja Phes el tiempo y el pago?",
     },
     options: [
-      { en: "Phes pays your regular wage on jury days as long as you bring the summons in.", es: "Phes paga su salario regular en días de jurado si trae la citación a la oficina." },
       { en: "Jury leave is UNPAID by Phes; your job is protected and you keep the court pay.", es: "El servicio de jurado NO se paga por Phes; su empleo está protegido y conserva el pago de la corte." },
+      { en: "Phes pays your regular wage on jury days as long as you bring the summons in.", es: "Phes paga su salario regular en días de jurado si trae la citación a la oficina." },
       { en: "You must use accumulated PTO to cover all of your scheduled jury duty days.", es: "Debe usar PTO acumulado para cubrir todos sus días de servicio de jurado." },
       { en: "Ignore the summons entirely — Phes will write a letter excusing you to the court.", es: "Ignore la citación — Phes escribirá una carta excusándolo ante la corte." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-pp-20-lactation",
@@ -3896,11 +3896,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "100 hours — the 20 carried over from year one plus the new 80 you just earned.", es: "100 horas — las 20 acumuladas del año uno más las 80 nuevas que ganó." },
-      { en: "80 hours — Phes tops your bank up to the 80-hour cap; PTO never exceeds that.", es: "80 horas — Phes rellena su banco hasta el tope de 80; PTO nunca excede eso." },
       { en: "60 hours — your remaining 20 plus a fresh 40 for the second year on top.", es: "60 horas — sus 20 restantes más 40 frescas por el segundo año." },
+      { en: "80 hours — Phes tops your bank up to the 80-hour cap; PTO never exceeds that.", es: "80 horas — Phes rellena su banco hasta el tope de 80; PTO nunca excede eso." },
       { en: "40 hours — only the second-year accrual; year-one carryover is forfeited.", es: "40 horas — solo la acumulación del año dos; el carryover del año uno se pierde." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-pp-22-separation-payout",
@@ -3911,11 +3911,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Both — all unused leave is cashed out.", es: "Ambas — toda la licencia sin usar se paga." },
-      { en: "PTO only (20 hours). PLAWA has no cash value and is not paid out.", es: "Solo PTO (20 horas). PLAWA no tiene valor en efectivo y no se paga." },
       { en: "PLAWA only — PTO is forfeited at separation.", es: "Solo PLAWA — el PTO se pierde al separarse." },
       { en: "Neither — Phes does not pay out unused leave.", es: "Ninguna — Phes no paga licencia sin usar." },
+      { en: "PTO only (20 hours). PLAWA has no cash value and is not paid out.", es: "Solo PTO (20 horas). PLAWA no tiene valor en efectivo y no se paga." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-pp-23-holiday-90day",
@@ -3925,12 +3925,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Fue contratado el 1 de noviembre y Acción de Gracias cae 3 semanas después. ¿Cómo funciona el pago por feriado para usted en Acción de Gracias?",
     },
     options: [
-      { en: "Full 8-hour holiday top-up applies because Phes observes Thanksgiving for everyone.", es: "Aplica el pago adicional completo de 8 horas porque Phes observa Acción de Gracias." },
       { en: "No 8-hour top-up — eligibility starts AFTER 90 days; regular pay for time worked.", es: "Sin pago adicional de 8 horas — comienza DESPUÉS de 90 días; pago regular por trabajo." },
+      { en: "Full 8-hour holiday top-up applies because Phes observes Thanksgiving for everyone.", es: "Aplica el pago adicional completo de 8 horas porque Phes observa Acción de Gracias." },
       { en: "Half the 8-hour holiday top-up during the first 90 days, full top-up after that.", es: "La mitad del pago adicional durante los primeros 90 días, completo después de eso." },
       { en: "Only if the client cancels the visit and you would have been scheduled that day.", es: "Solo si el cliente cancela la visita y usted habría estado programado ese día." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   // q-pp-24 slot repurposed (2026-05-20): the old q-pp-24-plawa-foreseeable
   // was an orphan id removed in the 2026-05-19 cleanup. Re-using the slot
@@ -3959,16 +3959,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Phes auto-covers with the next bucket — PTO, then UPL; not unexcused if any remain.", es: "Phes cubre con la siguiente cubeta — PTO, luego UPL; no injustificada si quedan." },
-      // LEGAL-REVIEW-PENDING (2026-05-20): predicate for "unexcused after PLAWA exhausted" disciplinary action.
-      // Carve-out list intentionally omits FMLA + FBLA because Phes has <50 employees (both have 50-employee
-      // employer threshold). "Any other federal, state, or local leave law that applies" catches anything we
-      // haven't enumerated. Have an IL employment attorney bless this language before it becomes the basis
-      // for any actual termination.
-      { en: "Unexcused — PTO and Unpaid Personal Leave both need 7-day notice; protected leave excuses.", es: "Injustificada — PTO y UPL requieren 7 días de aviso; la licencia protegida excusa." },
       { en: "PTO is automatically deducted instead, but if PTO is also exhausted you are unexcused.", es: "Se deduce PTO automáticamente, pero si PTO también está agotado, queda injustificada." },
+      { en: "Unexcused — PTO and Unpaid Personal Leave both need 7-day notice; protected leave excuses.", es: "Injustificada — PTO y UPL requieren 7 días de aviso; la licencia protegida excusa." },
       { en: "Phes terminates you immediately for going over your PLAWA balance in any case.", es: "Phes lo termina inmediatamente por exceder su saldo de PLAWA en cualquier caso." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-pp-26-unpaid-personal",
@@ -3979,11 +3974,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "None — you are out of leave entirely so the day becomes an unexcused absence.", es: "Ninguna — está sin licencia por completo así que el día queda injustificado." },
-      { en: "Unpaid Personal Leave (bucket #3) — up to 40 hrs/yr, day-one, needs 7-day notice.", es: "Licencia Personal No Pagada (cubeta #3) — hasta 40 hr/año, día uno, 7 días aviso." },
       { en: "Borrow PTO directly from a coworker who has unused hours left in their bank.", es: "Pídale prestado PTO directamente a un compañero que tenga horas sin usar." },
       { en: "Auto-promotion to next week's overtime hours to cover the time you missed.", es: "Promoción automática a horas extra de la próxima semana para cubrir el tiempo." },
+      { en: "Unpaid Personal Leave (bucket #3) — up to 40 hrs/yr, day-one, needs 7-day notice.", es: "Licencia Personal No Pagada (cubeta #3) — hasta 40 hr/año, día uno, 7 días aviso." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-pp-27-bucket-order",
@@ -3993,13 +3988,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Phes usa tres cubetas de licencia para cubrir ausencias. ¿En qué orden se usan?",
     },
     options: [
-      { en: "PTO first → then PLAWA → then Unpaid Personal Leave for every absence type.", es: "PTO primero → luego PLAWA → luego UPL para todo tipo de ausencia." },
-      // LEGAL-REVIEW-PENDING (2026-05-20): teaches the cascade order distinguishing planned vs same-day.
       { en: "Planned: PLAWA → PTO → Unpaid Personal Leave. Same-day call-off: only PLAWA covers.", es: "Planeada: PLAWA → PTO → UPL. Llamada el mismo día: solo PLAWA cubre." },
+      { en: "PTO first → then PLAWA → then Unpaid Personal Leave for every absence type.", es: "PTO primero → luego PLAWA → luego UPL para todo tipo de ausencia." },
       { en: "Whichever bucket the office picks each time based on team coverage needs.", es: "La cubeta que la oficina escoja según las necesidades de cobertura del equipo." },
       { en: "Unpaid Personal Leave first to preserve PTO; paid buckets are drawn down last.", es: "Licencia Personal No Pagada primero para preservar PTO; las pagadas al final." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-pp-28-unexcused-definition",
@@ -4026,11 +4020,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — PLAWA follows the same first-come and max-2-off rules as PTO does.", es: "Sí — PLAWA sigue las mismas reglas que el PTO (primero en llegar, máx 2 libres)." },
-      { en: "No — PLAWA cannot be denied for business needs; max-2-off applies to PTO/UPL only.", es: "No — PLAWA no se puede negar por el negocio; máx-2-libres aplica solo a PTO/UPL." },
       { en: "Only if you are still inside your initial 90-day probationary employment period.", es: "Solo si está dentro de su periodo probatorio inicial de 90 días de empleo." },
+      { en: "No — PLAWA cannot be denied for business needs; max-2-off applies to PTO/UPL only.", es: "No — PLAWA no se puede negar por el negocio; máx-2-libres aplica solo a PTO/UPL." },
       { en: "Yes, but only for same-day sick calls landing on Saturdays or Sundays each week.", es: "Sí, pero solo para llamadas por enfermedad que caigan en sábados o domingos." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-pp-30-move-in-empty",
@@ -4041,11 +4035,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Start cleaning around the furniture and stacked boxes as best you possibly can.", es: "Comience a limpiar alrededor de los muebles y cajas lo mejor que pueda." },
-      { en: "STOP — call the office BEFORE starting; Move-Out cleans assume an empty home.", es: "DETÉNGASE — llame a la oficina ANTES de empezar; Mudanza asume casa vacía." },
       { en: "Move the furniture and the boxes yourself so you can clean the spots underneath.", es: "Mueva los muebles y las cajas usted mismo para limpiar los lugares debajo." },
       { en: "Reschedule the visit and leave the home without contacting the office about it.", es: "Reprograme la visita y váyase sin contactar a la oficina al respecto." },
+      { en: "STOP — call the office BEFORE starting; Move-Out cleans assume an empty home.", es: "DETÉNGASE — llame a la oficina ANTES de empezar; Mudanza asume casa vacía." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-pp-31-plawa-default",
@@ -4055,12 +4049,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Llama por enfermedad y tiene horas en AMBOS PLAWA y PTO. ¿Cuál cubeta se usa?",
     },
     options: [
-      { en: "PTO — it is the bigger bank and the office prefers to drain it down first.", es: "PTO — es el banco más grande y la oficina prefiere drenarlo primero." },
       { en: "PLAWA — used by default for any same-day call-off; PTO/UPL need 7-day notice.", es: "PLAWA — usado por defecto para llamadas el mismo día; PTO/UPL requieren 7 días." },
+      { en: "PTO — it is the bigger bank and the office prefers to drain it down first.", es: "PTO — es el banco más grande y la oficina prefiere drenarlo primero." },
       { en: "Whichever bank currently has the larger number of unused hours remaining in it.", es: "Cualquier banco que tenga el mayor número de horas sin usar restantes en él." },
       { en: "Whichever bucket the office decides to charge against on that particular day.", es: "Cualquier cubeta que la oficina decida cobrar en ese día en particular." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-pp-32-notice-by-bucket",
@@ -4086,11 +4080,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — you must give a specific reason (flu, doctor visit, family illness, etc.).", es: "Sí — debe dar razón específica (gripe, cita médica, enfermedad familiar, etc.)." },
-      { en: "No — you NEVER have to give a reason or documentation; the grace call is enough.", es: "No — NUNCA tiene que dar razón ni documentación; la llamada de gracia es suficiente." },
       { en: "Only if the PLAWA absence runs longer than one full scheduled workday in a row.", es: "Solo si la ausencia de PLAWA dura más de un día programado completo seguido." },
+      { en: "No — you NEVER have to give a reason or documentation; the grace call is enough.", es: "No — NUNCA tiene que dar razón ni documentación; la llamada de gracia es suficiente." },
       { en: "Yes, and the reason has to be put in writing and emailed to the office team.", es: "Sí, y la razón tiene que ponerse por escrito y enviarse por correo a la oficina." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-pp-34-protected-still-excused",
@@ -4101,11 +4095,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — all three buckets are gone, so any further absence counts against you.", es: "Sí — las tres cubetas se agotaron, así que cualquier ausencia nueva cuenta." },
-      { en: "No — jury duty is PROTECTED under Illinois law and is never counted as unexcused.", es: "No — el jurado es PROTEGIDO bajo la ley de Illinois y nunca cuenta como injustificada." },
       { en: "Only if you bring a signed doctor's note from the courthouse on Monday morning.", es: "Solo si trae una nota médica firmada desde el juzgado el lunes en la mañana." },
       { en: "It depends on whether two or more other cleaners are also off that same day.", es: "Depende de si dos o más otros cleaners también están libres ese mismo día." },
+      { en: "No — jury duty is PROTECTED under Illinois law and is never counted as unexcused.", es: "No — el jurado es PROTEGIDO bajo la ley de Illinois y nunca cuenta como injustificada." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-pp-35-deep-clean-includes",
@@ -4115,12 +4109,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Está en una Limpieza Profunda. ¿Cuál de estos está INCLUIDO en el alcance (sin cobro de add-on)?",
     },
     options: [
-      { en: "Cleaning inside the refrigerator along with the rest of the kitchen surfaces.", es: "Limpiar dentro del refrigerador junto con el resto de las superficies de la cocina." },
       { en: "Baseboards, ceiling fans, doorknobs, patio doors, vent covers + Standard scope.", es: "Zócalos, ventiladores, pomos, puertas patio, tapas de ventilación + Estándar." },
+      { en: "Cleaning inside the refrigerator along with the rest of the kitchen surfaces.", es: "Limpiar dentro del refrigerador junto con el resto de las superficies de la cocina." },
       { en: "Cleaning inside the oven including the racks, glass door, and broiler tray underneath.", es: "Limpiar dentro del horno incluyendo rejillas, puerta de vidrio y bandeja del asador." },
       { en: "Cleaning inside the kitchen cabinets and pulling everything out to wipe the shelves.", es: "Limpiar dentro de los gabinetes y sacar todo para limpiar los estantes." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-pp-36-deep-clean-excludes",
@@ -4145,12 +4139,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "El add-on de 'Ventanas Interiores' cubre exactamente qué?",
     },
     options: [
-      { en: "Interior glass only — EXCLUDES tracks and exterior panes. Price varies.", es: "Solo vidrio interior — EXCLUYE rieles y vidrios exteriores. El precio varía." },
       { en: "Interior, exterior, AND tracks — one flat $50 charge.", es: "Interior, exterior Y rieles — un cargo fijo de $50." },
       { en: "All windows in the home, no exclusions.", es: "Todas las ventanas, sin exclusiones." },
+      { en: "Interior glass only — EXCLUDES tracks and exterior panes. Price varies.", es: "Solo vidrio interior — EXCLUYE rieles y vidrios exteriores. El precio varía." },
       { en: "Window tracks only.", es: "Solo los rieles." },
     ],
-    correctIndex: 0,
+    correctIndex: 2,
   },
   {
     id: "q-pp-38-heavy-furniture-25lb",
@@ -4161,11 +4155,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Move the dresser carefully — the customer is always right in residential work.", es: "Mueva la cómoda con cuidado — el cliente siempre tiene la razón en residencial." },
-      { en: "Decline politely — Phes does not lift over 25 lbs; clean around, document in app.", es: "Decline cortésmente — Phes no levanta más de 25 lb; limpie alrededor, documente en app." },
       { en: "Ask the client to move the dresser themselves while you politely wait nearby.", es: "Pídale al cliente que mueva la cómoda él mismo mientras usted espera cerca." },
       { en: "Move the dresser yourself if you think you can do it alone without an injury.", es: "Mueva la cómoda usted mismo si cree que puede solo sin sufrir una lesión." },
+      { en: "Decline politely — Phes does not lift over 25 lbs; clean around, document in app.", es: "Decline cortésmente — Phes no levanta más de 25 lb; limpie alrededor, documente en app." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-pp-39-trash-bag-limit",
@@ -4175,12 +4169,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "El hogar de un cliente ha acumulado basura extra y usted llena 7 bolsas durante la limpieza de hoy. ¿Qué dice la política de Phes?",
     },
     options: [
-      { en: "Take all 7 bags out — leaving any trash behind is unprofessional for Phes work.", es: "Saque las 7 bolsas — dejar basura atrás es poco profesional para Phes." },
       { en: "Take 5 bags (the per-visit max); document the extra in the app and tell office.", es: "Saque 5 bolsas (el máximo por visita); documente lo extra en la app y avise." },
+      { en: "Take all 7 bags out — leaving any trash behind is unprofessional for Phes work.", es: "Saque las 7 bolsas — dejar basura atrás es poco profesional para Phes." },
       { en: "Charge the client on the spot in cash for the extra bag-hauling beyond five bags.", es: "Cobre al cliente en efectivo en el sitio por las bolsas extras más allá de cinco." },
       { en: "Leave all 7 bags behind — clients are responsible for their own trash removal.", es: "Deje las 7 bolsas — los clientes son responsables de su propia eliminación de basura." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-pp-40-no-price-discussion",
@@ -4206,11 +4200,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Phes reimburses you only after you submit a paper meter receipt within seven days.", es: "Phes le reembolsa solo después de que envíe un recibo de medidor en papel dentro de siete días." },
-      { en: "Use Phes-funded ParkChicago for meters and SpotHero for lots; personal use is prohibited.", es: "Use ParkChicago financiado por Phes para medidores y SpotHero para lotes; uso personal prohibido." },
       { en: "Parking is fully on the tech — find free street parking or pay completely out of pocket.", es: "El estacionamiento es 100% del técnico — busque parqueo gratis o pague de su propio bolsillo." },
+      { en: "Use Phes-funded ParkChicago for meters and SpotHero for lots; personal use is prohibited.", es: "Use ParkChicago financiado por Phes para medidores y SpotHero para lotes; uso personal prohibido." },
       { en: "Phes pays it, and you may also use the ParkChicago app for personal weekend errands.", es: "Phes lo paga, y también puede usar la app ParkChicago para diligencias personales los fines de semana." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-pp-42-supply-maintenance",
@@ -4221,11 +4215,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Nothing, as long as I eventually pick up supplies, there is no consequence.", es: "Nada, mientras eventualmente recoja los suministros, no hay consecuencia." },
-      { en: "Repeated supply gaps may result in coaching, written warning, or discipline up to and including termination.", es: "Las faltas repetidas pueden resultar en coaching, advertencia por escrito o disciplina hasta e incluyendo la terminación." },
       { en: "The office will start delivering supplies to me to prevent the issue.", es: "La oficina comenzará a entregarme suministros para prevenir el problema." },
       { en: "I receive an automatic pay deduction for each missed supply pickup.", es: "Recibo una deducción automática de pago por cada recogida no realizada." },
+      { en: "Repeated supply gaps may result in coaching, written warning, or discipline up to and including termination.", es: "Las faltas repetidas pueden resultar en coaching, advertencia por escrito o disciplina hasta e incluyendo la terminación." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   // PLAWA compliance additions (2026-07-11): NCNS weight + minimum increment.
   {
@@ -4236,12 +4230,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Un cleaner nunca contacta a la oficina y pierde el turno por completo. ¿Cómo se califica en la escala de asistencia?",
     },
     options: [
+      { en: "A no-call/no-show — grounds for immediate termination, absent a protected reason or verified emergency.", es: "Un no llamó/no se presentó — motivo de terminación inmediata, salvo una razón protegida o emergencia verificada." },
       { en: "One occurrence on the scale, like any other call-off.", es: "Una ocurrencia en la escala, como cualquier otra ausencia." },
       { en: "No occurrence at all while you still have PLAWA hours.", es: "Ninguna ocurrencia mientras usted aún tenga horas de PLAWA." },
-      { en: "A no-call/no-show — grounds for immediate termination, absent a protected reason or verified emergency.", es: "Un no llamó/no se presentó — motivo de terminación inmediata, salvo una razón protegida o emergencia verificada." },
       { en: "Two occurrences on the scale for the broken notice rule.", es: "Dos ocurrencias en la escala por la regla de aviso incumplida." },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-pp-44-plawa-increment",
@@ -4251,12 +4245,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Un empleado usa PLAWA por una llegada tarde de una hora en un turno completo. ¿Cuánto sale de su banco?",
     },
     options: [
-      { en: "Two hours, the PLAWA minimum increment.", es: "Dos horas, el incremento mínimo de PLAWA." },
       { en: "One hour, matching the time missed.", es: "Una hora, igual al tiempo perdido." },
+      { en: "Two hours, the PLAWA minimum increment.", es: "Dos horas, el incremento mínimo de PLAWA." },
       { en: "Four hours, rounded to a half shift.", es: "Cuatro horas, redondeado a medio turno." },
       { en: "No hours, since lateness never draws leave.", es: "Ninguna hora, la tardanza nunca usa licencia." },
     ],
-    correctIndex: 0,
+    correctIndex: 1,
   },
   // ── E3: PLAWA day-1 grant (2026-07-15) ─────────────────────────────────────
   {
@@ -4268,11 +4262,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Granted and usable only after your 90th day of employment.", es: "Otorgadas y usables solo después de su día 90 de empleo." },
-      { en: "Granted on your first day (and each Benefit Year); usable after your 90th day.", es: "Otorgadas en su primer día (y cada Año de Beneficios); usables después de su día 90." },
       { en: "Granted and usable on your very first day of employment.", es: "Otorgadas y usables en su primer día de empleo." },
+      { en: "Granted on your first day (and each Benefit Year); usable after your 90th day.", es: "Otorgadas en su primer día (y cada Año de Beneficios); usables después de su día 90." },
       { en: "You accrue them one hour at a time as you work.", es: "Las acumula una hora a la vez a medida que trabaja." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   // ── K: Meal break entitlement (2026-07-15) ─────────────────────────────────
   {
@@ -4285,10 +4279,10 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "No break is required on a single-day cleaning schedule.", es: "No se requiere pausa en un horario de limpieza de un solo día." },
       { en: "A paid 30-minute lunch that counts as working time.", es: "Un almuerzo pagado de 30 minutos que cuenta como tiempo de trabajo." },
-      { en: "An uninterrupted 20-minute meal break, taken between jobs, relieved of duties.", es: "Una pausa para comer ininterrumpida de 20 minutos, tomada entre trabajos, relevado de deberes." },
       { en: "Two 10-minute rest breaks, but no dedicated meal break.", es: "Dos pausas de descanso de 10 minutos, pero sin pausa dedicada para comer." },
+      { en: "An uninterrupted 20-minute meal break, taken between jobs, relieved of duties.", es: "Una pausa para comer ininterrumpida de 20 minutos, tomada entre trabajos, relevado de deberes." },
     ],
-    correctIndex: 2,
+    correctIndex: 3,
   },
 
   // q-pp-42-w2-tip-reporting, q-pp-43-abandonment-window,
@@ -4304,12 +4298,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "compensation",
     prompt: { en: "What's the training pay rate for new techs during their first cleanings?", es: "¿Cuál es la tarifa de pago de entrenamiento para nuevos técnicos en sus primeras limpiezas?" },
     options: [
-      { en: "$15.00 per hour", es: "$15.00 por hora" },
       { en: "$20.00 per hour", es: "$20.00 por hora" },
+      { en: "$15.00 per hour", es: "$15.00 por hora" },
       { en: "$25.00 per hour", es: "$25.00 por hora" },
       { en: "Commission from day one", es: "Comisión desde el primer día" },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-cm-02-standard-rate",
@@ -4329,23 +4323,23 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You're assigned a Deep Clean job. What is the commission rate?", es: "Le asignan una Limpieza Profunda. ¿Cuál es la tarifa de comisión?" },
     options: [
       { en: "35% — same as a Standard residential cleaning visit at the regular client rate.", es: "35% — igual que una limpieza Estándar residencial a tarifa regular." },
-      { en: "32% — Phes bills the client at $80/hr on Deep Cleans for the higher difficulty.", es: "32% — Phes factura $80/hr al cliente en Limpiezas Profundas por la dificultad." },
       { en: "20% — same flat commercial rate that applies to office buildings and store fronts.", es: "20% — la misma tarifa comercial plana que aplica a oficinas y locales comerciales." },
       { en: "40% — a premium commission rate paid out for any harder physical labor on a clean.", es: "40% — una tarifa premium de comisión pagada por cualquier trabajo físico más duro." },
+      { en: "32% — Phes bills the client at $80/hr on Deep Cleans for the higher difficulty.", es: "32% — Phes factura $80/hr al cliente en Limpiezas Profundas por la dificultad." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-cm-05-comm-split-200",
     moduleId: "compensation",
     prompt: { en: "You and a partner complete a $200 Standard Clean together with the same check-in time. How much commission does each of you earn?", es: "Tú y un compañero completan una Limpieza Estándar de $200 juntos con el mismo tiempo de Check In. ¿Cuánta comisión gana cada uno?" },
     options: [
-      { en: "$70 each (35% each)", es: "$70 c/u (35% c/u)" },
+      { en: "$35 each", es: "$35 c/u" },
+      { en: "$70 each", es: "$70 c/u" },
       { en: "$50 each", es: "$50 c/u" },
-      { en: "$35 each (35% pool split two ways)", es: "$35 c/u (el 35% dividido en dos)" },
-      { en: "Whichever the office decides", es: "Lo que decida la oficina" },
+      { en: "Whatever the office decides", es: "Lo que decida la oficina" },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-cm-07-clock-in-difference",
@@ -4365,11 +4359,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You're an hour into a 3-hour hourly job and you can already tell you won't finish in time. What do you do?", es: "Lleva una hora en un trabajo por hora de 3 horas y ya ve que no terminará a tiempo. ¿Qué hace?" },
     options: [
       { en: "Wait until you are in the last assigned hour, then call the office to ask for more time.", es: "Espere hasta la última hora asignada, luego llame a la oficina para pedir más tiempo." },
-      { en: "Call the office right away — early, while there is still time to talk to the client.", es: "Llame a la oficina inmediatamente — temprano, mientras aún hay tiempo de hablar al cliente." },
       { en: "Skip the easier and faster rooms entirely to fit the harder ones into the allotted time.", es: "Sáltese las habitaciones más fáciles y rápidas para meter las difíciles en el tiempo asignado." },
+      { en: "Call the office right away — early, while there is still time to talk to the client.", es: "Llame a la oficina inmediatamente — temprano, mientras aún hay tiempo de hablar al cliente." },
       { en: "Just leave the job incomplete when time runs out — the office will figure it out later.", es: "Solo deje el trabajo incompleto cuando se acabe el tiempo — la oficina lo resolverá después." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-cm-09-commercial-rate",
@@ -4378,10 +4372,10 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "32% commission of job total", es: "32% de comisión del total" },
       { en: "35% commission of job total", es: "35% de comisión del total" },
-      { en: "$20/hr × allowed hours assigned", es: "$20/hr × horas asignadas" },
       { en: "Same as residential — depends on service type", es: "Igual que residencial — depende del tipo de servicio" },
+      { en: "$20/hr × allowed hours assigned", es: "$20/hr × horas asignadas" },
     ],
-    correctIndex: 2,
+    correctIndex: 3,
   },
   {
     id: "q-cm-11-fixit",
@@ -4413,11 +4407,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You're on Quality Probation. What's your pay structure during the 30 days?", es: "Está en Periodo de Prueba. ¿Cuál es su estructura de pago durante los 30 días?" },
     options: [
       { en: "Normal residential commission rate stays in effect — you just don't earn client tips.", es: "La tarifa normal de comisión residencial sigue vigente — solo no gana propinas de clientes." },
-      { en: "$20/hr training rate, no commission, while riding along with senior team members.", es: "Tarifa de entrenamiento $20/hr, sin comisión, acompañando a miembros senior del equipo." },
       { en: "Half commission rate for all jobs during the 30-day quality probation window period.", es: "Media tarifa de comisión para todos los trabajos durante los 30 días de periodo de prueba." },
+      { en: "$20/hr training rate, no commission, while riding along with senior team members.", es: "Tarifa de entrenamiento $20/hr, sin comisión, acompañando a miembros senior del equipo." },
       { en: "No pay at all from Phes until you complete the full 30-day quality probation window.", es: "Sin pago alguno de Phes hasta que complete los 30 días completos del periodo de prueba." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-cm-14-mileage",
@@ -4427,12 +4421,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "¿Cuál de los siguientes manejos SÍ es reembolsado por Phes bajo la política actual de millaje?",
     },
     options: [
-      { en: "Driving from Client A's home directly to Client B's home on the same workday.", es: "Manejar de la casa del Cliente A directamente a la casa del Cliente B el mismo día laboral." },
       { en: "Driving from your personal home to your first scheduled job of the day in the morning.", es: "Manejar de su casa personal a su primer trabajo programado del día en la mañana." },
       { en: "Driving from your last scheduled job of the day back to your own personal home address.", es: "Manejar de su último trabajo programado del día de regreso a su propia casa personal." },
       { en: "Driving to the Phes office to pick up supplies before your first scheduled client job.", es: "Manejar a la oficina de Phes a recoger suministros antes de su primer trabajo programado." },
+      { en: "Driving from Client A's home directly to Client B's home on the same workday.", es: "Manejar de la casa del Cliente A directamente a la casa del Cliente B el mismo día laboral." },
     ],
-    correctIndex: 0,
+    correctIndex: 3,
   },
   {
     id: "q-cm-15-payroll-cycle",
@@ -4470,11 +4464,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "$15.00 — paid for the 45 actual on-site minutes at the $20/hour recovery-tech rate.", es: "$15.00 — pagado por los 45 minutos reales en sitio a la tarifa de $20/hora." },
-      { en: "$60.00 — $20.00 per hour with a 3-hour minimum, regardless of how quick the fix was.", es: "$60.00 — $20.00 por hora con un mínimo de 3 horas, sin importar cuán rápida fue la corrección." },
       { en: "The standard 35% residential commission applied to the original job's full billed total.", es: "La comisión residencial estándar del 35% aplicada al total facturado del trabajo original." },
+      { en: "$60.00 — $20.00 per hour with a 3-hour minimum, regardless of how quick the fix was.", es: "$60.00 — $20.00 por hora con un mínimo de 3 horas, sin importar cuán rápida fue la corrección." },
       { en: "Nothing — re-cleans are unpaid as part of Phes quality standards under the Fix-It rule.", es: "Nada — las re-limpiezas no se pagan como parte de los estándares de calidad bajo Fix-It." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-cm-18-valid-quality-complaint",
@@ -4485,11 +4479,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Any client complaint received within 30 days, regardless of cause.", es: "Cualquier queja del cliente recibida dentro de 30 días, sin importar la causa." },
-      { en: "A client complaint documented by the office with specific quality issues identified and photographic or written evidence, within a rolling 30-day window.", es: "Una queja del cliente documentada por la oficina con problemas específicos de calidad identificados y evidencia fotográfica o escrita, dentro de una ventana de 30 días móviles." },
       { en: "A client complaint about an item documented as exceeding the 25-pound lifting limit (correctly refused by the tech).", es: "Una queja del cliente sobre un artículo documentado como exceder el límite de levantamiento de 25 libras (correctamente rechazado por el técnico)." },
       { en: "A client complaint about office scheduling errors where the tech was not at fault.", es: "Una queja del cliente sobre errores de programación de la oficina donde el técnico no tuvo la culpa." },
+      { en: "A client complaint documented by the office with specific quality issues identified and photographic or written evidence, within a rolling 30-day window.", es: "Una queja del cliente documentada por la oficina con problemas específicos de calidad identificados y evidencia fotográfica o escrita, dentro de una ventana de 30 días móviles." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-cm-19-refused-reclean-eighteen",
@@ -4499,12 +4493,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Un cliente llama dentro de 24 horas inconforme con su trabajo. Usted rechaza regresar para la re-limpieza sin una razón legal. ¿Qué pasa con su pago por el trabajo original?",
     },
     options: [
-      { en: "You keep your full commission because the job was technically completed.", es: "Mantiene su comisión completa porque el trabajo técnicamente se completó." },
       { en: "Quality Verification fails — the commission is not earned, and your $20.00/hour base rate applies for hours actually worked.", es: "La Verificación de Calidad falla — la comisión no se gana, y aplica su tarifa base de $20.00/hora por las horas efectivamente trabajadas." },
+      { en: "You keep your full commission because the job was technically completed.", es: "Mantiene su comisión completa porque el trabajo técnicamente se completó." },
       { en: "Your commission is reduced by 50% as a flat quality penalty on the job.", es: "Su comisión se reduce 50% como una penalidad fija de calidad sobre el trabajo." },
       { en: "You receive no pay at all for the original job that the client complained about.", es: "No recibe pago alguno por el trabajo original sobre el que el cliente se quejó." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-cm-20-training-redo-paid",
@@ -4529,12 +4523,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Termina un trabajo en la casa del Cliente A y luego maneja directamente a la casa del Cliente B para una llamada Fix-It programada. ¿Es reembolsable el millaje?",
     },
     options: [
-      { en: "Yes. The drive from Client A's home to Client B's home is between two client locations on the same workday, so it qualifies for mileage reimbursement at $0.725 per mile.", es: "Sí. El manejo de la casa del Cliente A a la del Cliente B es entre dos ubicaciones de clientes el mismo día laboral, así que califica para reembolso de millaje a $0.725 por milla." },
       { en: "No. Fix-It re-clean visits are never reimbursable for mileage no matter where the original job was located or when the visit got scheduled by the office.", es: "No. Las visitas Fix-It de re-limpieza nunca son reembolsables por millaje sin importar dónde estuviera el trabajo original o cuándo la oficina programó la visita." },
       { en: "Yes, but only at half of the standard mileage rate because Fix-It calls fall under a separate Quality Verification compensation category at Phes.", es: "Sí, pero solo a la mitad de la tarifa estándar de millaje porque las llamadas Fix-It caen en una categoría separada de Verificación de Calidad en Phes." },
+      { en: "Yes. The drive from Client A's home to Client B's home is between two client locations on the same workday, so it qualifies for mileage reimbursement at $0.725 per mile.", es: "Sí. El manejo de la casa del Cliente A a la del Cliente B es entre dos ubicaciones de clientes el mismo día laboral, así que califica para reembolso de millaje a $0.725 por milla." },
       { en: "No. Phes mileage reimbursement only covers original scheduled visits, not Fix-It re-clean visits, which are part of the original commission already earned on that job.", es: "No. El reembolso de millaje de Phes solo cubre las visitas programadas originales, no las visitas Fix-It de re-limpieza, que son parte de la comisión original ya ganada." },
     ],
-    correctIndex: 0,
+    correctIndex: 2,
   },
   // ── E2: paper-check option (2026-07-15) ────────────────────────────────────
   {
@@ -4543,11 +4537,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "How are you paid at Phes?", es: "¿Cómo se le paga en Phes?" },
     options: [
       { en: "Cash handed out at the end of each shift.", es: "Efectivo entregado al final de cada turno." },
-      { en: "Direct deposit by default; a paper check on request.", es: "Depósito directo por defecto; un cheque de papel si lo solicita." },
       { en: "Paper check only — no direct deposit offered.", es: "Solo cheque de papel — no se ofrece depósito directo." },
       { en: "Direct deposit only, with no exceptions allowed.", es: "Solo depósito directo, sin excepciones permitidas." },
+      { en: "Direct deposit by default; a paper check on request.", es: "Depósito directo por defecto; un cheque de papel si lo solicita." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -4558,12 +4552,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "cleaning-best-practices",
     prompt: { en: "You arrive at a client's home for a standard clean. Which room do you start in?", es: "Llega al hogar de un cliente para una limpieza estándar. ¿En qué habitación empieza?" },
     options: [
-      { en: "The kitchen — it's the dirtiest", es: "La cocina — es la más sucia" },
       { en: "The room farthest from the entrance, working back toward the door", es: "La habitación más lejana de la entrada, trabajando hacia la puerta" },
+      { en: "The kitchen — it's the dirtiest", es: "La cocina — es la más sucia" },
       { en: "Whichever room the client is not currently in", es: "La habitación donde el cliente no esté en ese momento" },
       { en: "The bathroom — to give chemicals time to sit", es: "El baño — para que los químicos tengan tiempo de actuar" },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-cb-02-room-order",
@@ -4583,23 +4577,23 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You're cleaning a bathroom. What does 'top to bottom, left to right' mean in practice?", es: "Está limpiando un baño. ¿Qué significa 'de arriba hacia abajo, de izquierda a derecha' en la práctica?" },
     options: [
       { en: "Clean wherever the bathroom looks dirtiest first, then circle back for everything else.", es: "Limpie donde el baño se vea más sucio primero, luego regrese por todo lo demás." },
-      { en: "Start at the highest point and move in one consistent direction; never re-contaminate.", es: "Empiece en el punto más alto y muévase en una dirección consistente; nunca re-contamine." },
       { en: "Floors come first to clear the room, then the mirrors and glass, then the walls last.", es: "Pisos primero para despejar la habitación, luego espejos y vidrio, luego paredes al final." },
       { en: "Move in whichever direction your dominant hand prefers — speed matters more than order.", es: "Muévase en la dirección que prefiera su mano dominante — la velocidad importa más que el orden." },
+      { en: "Start at the highest point and move in one consistent direction; never re-contaminate.", es: "Empiece en el punto más alto y muévase en una dirección consistente; nunca re-contamine." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-cb-04-dwell",
     moduleId: "cleaning-best-practices",
     prompt: { en: "Why do we spray a surface and then move to another task in the same room before wiping?", es: "¿Por qué rociamos una superficie y pasamos a otra tarea en la misma habitación antes de limpiar?" },
     options: [
-      { en: "To stretch the job out so it fills the entire assigned time window allotted for it.", es: "Para estirar el trabajo y llenar la ventana de tiempo asignada por completo." },
       { en: "To let the cleaning product dwell and do its work — it wipes off faster on return.", es: "Para que el producto repose y haga su trabajo — al regresar se limpia más rápido." },
+      { en: "To stretch the job out so it fills the entire assigned time window allotted for it.", es: "Para estirar el trabajo y llenar la ventana de tiempo asignada por completo." },
       { en: "Because the cleaning chemical actually needs UV sunlight to activate and break down dirt.", es: "Porque el químico necesita luz solar UV para activarse y descomponer la suciedad." },
       { en: "To avoid breathing in the spray fumes that come off of the product right after application.", es: "Para evitar respirar los vapores del rociador inmediatamente después de aplicarlo." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-cb-05-load-caddy",
@@ -4618,9 +4612,9 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "cleaning-best-practices",
     prompt: { en: "What's the correct wiping pattern for mirrors and glass?", es: "¿Cuál es el patrón correcto para limpiar espejos y vidrio?" },
     options: [
-      { en: "Tight circular motions — they cover the most surface", es: "Movimientos circulares apretados — cubren más superficie" },
-      { en: "Up-and-down only", es: "Solo de arriba hacia abajo" },
-      { en: "S-pattern — circular motions leave streaks; the S-pattern lifts dirt cleanly", es: "Patrón en S — los círculos dejan rayas; la S levanta la suciedad limpiamente" },
+      { en: "Tight overlapping circular motions", es: "Movimientos circulares apretados y superpuestos" },
+      { en: "Straight up-and-down strokes only", es: "Solo trazos rectos de arriba hacia abajo" },
+      { en: "An overlapping S-pattern", es: "Un patrón en S superpuesto" },
       { en: "Whatever pattern feels natural", es: "Cualquier patrón que se sienta natural" },
     ],
     correctIndex: 2,
@@ -4631,23 +4625,23 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You just finished mopping the kitchen floor. How do you leave the room?", es: "Acaba de terminar de trapear el piso de la cocina. ¿Cómo sale de la habitación?" },
     options: [
       { en: "Walk straight out the same way you came in — it is the most direct route to the door.", es: "Salga caminando derecho por donde entró — es la ruta más directa a la puerta." },
-      { en: "Back out from the room — never walk on a freshly mopped floor or you leave footprints.", es: "Salga de espaldas — nunca camine sobre piso recién trapeado o dejará huellas." },
       { en: "Wait inside the kitchen until the floor fully dries before stepping over it to exit.", es: "Espere dentro de la cocina hasta que el piso seque totalmente antes de salir." },
       { en: "Open a kitchen window first to speed up drying, then walk out across the wet floor.", es: "Abra una ventana primero para acelerar el secado, luego salga por el piso mojado." },
+      { en: "Back out from the room — never walk on a freshly mopped floor or you leave footprints.", es: "Salga de espaldas — nunca camine sobre piso recién trapeado o dejará huellas." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-cb-08-standard-not-time",
     moduleId: "cleaning-best-practices",
     prompt: { en: "What does 'clean to a standard, not to a time' mean?", es: "¿Qué significa 'limpiar a un estándar, no a un tiempo'?" },
     options: [
-      { en: "Take as long as you want on the job — the actual time spent does not really matter at all.", es: "Tómese el tiempo que quiera — el tiempo gastado no importa realmente en absoluto." },
       { en: "Don't rush — finish the job correctly; efficiency comes from technique, not corners cut.", es: "No se apresure — termine correctamente; la eficiencia viene de la técnica, no de atajos." },
+      { en: "Take as long as you want on the job — the actual time spent does not really matter at all.", es: "Tómese el tiempo que quiera — el tiempo gastado no importa realmente en absoluto." },
       { en: "Clean only the visibly dirty spots in the home; skip everything that already looks fine.", es: "Limpie solo las manchas visiblemente sucias; sáltese todo lo que ya se vea bien." },
       { en: "Skip any surface that already looks clean and only attend to the items that need attention.", es: "Sáltese cualquier superficie que ya se vea limpia y atienda solo los puntos que la necesitan." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-cb-09-vacuum-before-mop",
@@ -4667,11 +4661,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You arrive at a client's home five minutes before your partner. The client has given you the door code. What do you do?", es: "Llega al hogar del cliente cinco minutos antes que su compañero. El cliente le dio el código de la puerta. ¿Qué hace?" },
     options: [
       { en: "Go in and start working — get a head start", es: "Entra y empieza a trabajar — adelantar trabajo" },
-      { en: "Wait outside for your partner — you enter together as a team", es: "Esperar afuera a su compañero — entran juntos como equipo" },
       { en: "Knock once, then enter alone if no one answers", es: "Tocar una vez, luego entrar solo" },
+      { en: "Wait outside for your partner — you enter together as a team", es: "Esperar afuera a su compañero — entran juntos como equipo" },
       { en: "Call the office to ask permission to enter alone", es: "Llamar a la oficina para pedir permiso de entrar solo" },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-cb-11-supplies-left",
@@ -4679,11 +4673,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You arrive at your second job and realize you left your supply bag at the previous client's home. What do you do?", es: "Llega a su segundo trabajo y se da cuenta que dejó la bolsa de suministros en la casa anterior. ¿Qué hace?" },
     options: [
       { en: "Use the client's own products — they'll understand", es: "Usar los productos del cliente — entenderán" },
-      { en: "Call the office immediately — do not proceed without supplies", es: "Llamar a la oficina inmediatamente — no proceder sin suministros" },
       { en: "Skip the job and drive home", es: "Saltarse el trabajo y manejar a casa" },
       { en: "Try to clean by hand without supplies", es: "Intentar limpiar a mano sin suministros" },
+      { en: "Call the office immediately — do not proceed without supplies", es: "Llamar a la oficina inmediatamente — no proceder sin suministros" },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-cb-12-color-cloths",
@@ -4702,10 +4696,10 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "cleaning-best-practices",
     prompt: { en: "What does 'two-hand technique' mean while cleaning?", es: "¿Qué significa la 'técnica de dos manos' al limpiar?" },
     options: [
-      { en: "Using two cloths in one hand to cover more area", es: "Usar dos paños en una mano para cubrir más" },
-      { en: "Wet cloth in one hand, dry cloth or spray bottle in the other — both hands working at once", es: "Paño húmedo en una mano, paño seco o atomizador en la otra — ambas manos trabajando a la vez" },
-      { en: "Trading off cleaning duties with your partner every 5 minutes", es: "Intercambiar tareas con su compañero cada 5 minutos" },
-      { en: "Always carrying the supply bag with both hands", es: "Siempre cargar la bolsa con ambas manos" },
+      { en: "Two cloths in one hand to cover more area at once", es: "Dos paños en una mano para cubrir más a la vez" },
+      { en: "Wet cloth in one hand, dry cloth or spray in the other", es: "Paño húmedo en una mano, paño seco o atomizador en la otra" },
+      { en: "Trading cleaning duties with your partner every few minutes", es: "Intercambiar tareas con su compañero cada pocos minutos" },
+      { en: "Always carrying the supply bag with both of your hands", es: "Siempre cargar la bolsa de suministros con ambas manos" },
     ],
     correctIndex: 1,
   },
@@ -4715,11 +4709,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You finished cleaning the upper cabinets, then notice a smudge while cleaning lower cabinets. What's the right move?", es: "Terminó los gabinetes superiores, luego nota una mancha al limpiar los inferiores. ¿Cuál es la acción correcta?" },
     options: [
       { en: "Stop work on the lower cabinet, go back to the upper, fix the smudge, then return to lower.", es: "Pare en el inferior, regrese al superior, corrija la mancha, luego vuelva al inferior." },
-      { en: "Finish the lower cabinet first, then go back; backtracking adds time and breaks flow.", es: "Termine el inferior primero, luego regrese; regresar añade tiempo y rompe el flujo." },
       { en: "Skip the smudge entirely — you already finished that cabinet, so it can stay as it is now.", es: "Sáltese la mancha — ya terminó ese gabinete, así que puede quedarse como está ahora." },
+      { en: "Finish the lower cabinet first, then go back; backtracking adds time and breaks flow.", es: "Termine el inferior primero, luego regrese; regresar añade tiempo y rompe el flujo." },
       { en: "Ask your partner to handle the upper cabinet smudge while you finish on the lower ones.", es: "Pídale a su compañero que atienda la mancha del superior mientras termina los inferiores." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-cb-15-conflict-worksheet-note",
@@ -4728,10 +4722,10 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "Vacuum every rug in the home — the standard contracted scope always wins on conflicts.", es: "Aspire cada alfombra del hogar — el alcance contratado estándar siempre gana en conflictos." },
       { en: "Skip vacuuming entirely on the visit — the two sets of instructions are in direct conflict.", es: "Sáltese aspirar por completo en la visita — los dos juegos de instrucciones se contradicen." },
-      { en: "Follow the client note — leave the dining-table rug alone, vacuum all the other rugs.", es: "Siga la nota del cliente — deje la alfombra del comedor, aspire todas las demás alfombras." },
       { en: "Ask the client mid-clean which set of instructions they would prefer you actually follow.", es: "Pregunte al cliente durante la limpieza qué instrucción prefieren que usted siga realmente." },
+      { en: "Follow the client note — leave the dining-table rug alone, vacuum all the other rugs.", es: "Siga la nota del cliente — deje la alfombra del comedor, aspire todas las demás alfombras." },
     ],
-    correctIndex: 2,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -4742,12 +4736,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "maidcentral",
     prompt: { en: "What is your scheduled workday at Phes?", es: "¿Cuál es su jornada laboral programada en Phes?" },
     options: [
-      { en: "Only the hours of pre-scheduled jobs; I am free between them.", es: "Solo las horas de los trabajos pre-programados; entre ellos estoy libre." },
       { en: "9:00 AM to 6:00 PM on my scheduled workdays, completing assigned jobs including same-day additions.", es: "9:00 AM a 6:00 PM en mis días laborales programados, completando trabajos asignados incluyendo agregados del mismo día." },
+      { en: "Only the hours of pre-scheduled jobs; I am free between them.", es: "Solo las horas de los trabajos pre-programados; entre ellos estoy libre." },
       { en: "Whatever hours I choose each day based on my personal availability.", es: "Las horas que yo elija cada día según mi disponibilidad personal." },
       { en: "On call 9 AM to 6 PM, whether or not the office actually assigns work.", es: "De guardia de 9 AM a 6 PM, asigne o no la oficina trabajo." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-mc-02-arrive-first-job",
@@ -4779,23 +4773,23 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You're about to Check In, but you're still in your car parked two blocks away. What should you do?", es: "Está por hacer Check In, pero aún está en su auto a dos cuadras. ¿Qué debe hacer?" },
     options: [
       { en: "Check In right now from the parked car — two blocks is close enough for GPS.", es: "Haga Check In ya desde el auto estacionado — dos cuadras es suficiente para el GPS." },
-      { en: "Drive to the property and walk to the door — Check In only when physically on site.", es: "Maneje a la propiedad y camine a la puerta — Check In solo cuando esté en sitio." },
       { en: "Skip Check In entirely on this visit — GPS doesn't actually verify your location.", es: "Sáltese el Check In en esta visita — el GPS no verifica realmente su ubicación." },
       { en: "Wait until tomorrow morning and Check In retroactively from home for today's visit.", es: "Espere hasta mañana y haga Check In retroactivo desde casa por la visita de hoy." },
+      { en: "Drive to the property and walk to the door — Check In only when physically on site.", es: "Maneje a la propiedad y camine a la puerta — Check In solo cuando esté en sitio." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-mc-05-600-feet",
     moduleId: "maidcentral",
     prompt: { en: "Approximately how close to the property must you be for Qleno to allow Check In?", es: "¿Aproximadamente qué tan cerca debe estar de la propiedad para que Qleno permita el Check In?" },
     options: [
+      { en: "Within 600 feet", es: "Dentro de 600 pies" },
       { en: "5 miles", es: "5 millas" },
       { en: "1 mile", es: "1 milla" },
-      { en: "Within 600 feet", es: "Dentro de 600 pies" },
       { en: "Anywhere — there's no GPS check", es: "Cualquier lugar — no hay revisión de GPS" },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-mc-06-efficiency",
@@ -4828,22 +4822,22 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "Text your direct manager privately with the missed time and the job that you finished.", es: "Envíe mensaje privado a su gerente con el tiempo perdido y el trabajo terminado." },
       { en: "DM the Phes office team on Slack with the missed Check Out time and the job details.", es: "Envíe DM al equipo de Phes en Slack con el tiempo perdido y los detalles." },
-      { en: "Submit a Clock/Job Change Request in Qleno — the office reviews and approves it.", es: "Envíe un Clock/Job Change Request en Qleno — la oficina revisa y aprueba." },
       { en: "Don't worry about it — payroll will figure it out automatically from the GPS data.", es: "No se preocupe — la nómina lo resolverá automáticamente desde los datos del GPS." },
+      { en: "Submit a Clock/Job Change Request in Qleno — the office reviews and approves it.", es: "Envíe un Clock/Job Change Request en Qleno — la oficina revisa y aprueba." },
     ],
-    correctIndex: 2,
+    correctIndex: 3,
   },
   {
     id: "q-mc-09-travel-pay",
     moduleId: "maidcentral",
     prompt: { en: "Which of the following drives is reimbursed by Phes under the mileage policy?", es: "¿Cuál de los siguientes manejos es reembolsado por Phes bajo la política de millaje?" },
     options: [
-      { en: "Driving from your home to your first job of the day.", es: "Manejar de su casa a su primer trabajo del día." },
       { en: "Driving from Client A's home directly to Client B's home on the same workday at the IRS standard mileage rate.", es: "Manejar de la casa del Cliente A directamente a la casa del Cliente B en el mismo día laboral a la tarifa estándar de millaje del IRS." },
+      { en: "Driving from your home to your first job of the day.", es: "Manejar de su casa a su primer trabajo del día." },
       { en: "Driving from your last job of the day back to your home.", es: "Manejar de su último trabajo del día de regreso a su casa." },
       { en: "Driving to the Phes office to pick up supplies before your first job.", es: "Manejar a la oficina de Phes para recoger suministros antes de su primer trabajo." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-mc-10-commute-not-paid",
@@ -4863,11 +4857,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You are at the client's front door but Qleno rejects your Check In with a GPS warning. What do you do?", es: "Está en la puerta del cliente pero Qleno rechaza el Check In con advertencia de GPS. ¿Qué hace?" },
     options: [
       { en: "Skip the Check In and enter the arrival time later from memory.", es: "Sáltese el Check In e ingrese la hora después de memoria." },
-      { en: "Take a timestamped door photo and call the office for manual approval.", es: "Tome una foto de la puerta con hora y llame a la oficina para aprobación manual." },
       { en: "Drive around the block and retry until the GPS check accepts it.", es: "Maneje alrededor de la cuadra y reintente hasta que el GPS lo acepte." },
+      { en: "Take a timestamped door photo and call the office for manual approval.", es: "Tome una foto de la puerta con hora y llame a la oficina para aprobación manual." },
       { en: "Tell the client there is a system problem and reschedule the visit.", es: "Dígale al cliente que hay un problema del sistema y reprograme la visita." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-mc-12-conflict-note",
@@ -4875,23 +4869,23 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "The Worksheet and a client note give different instructions for the same item. Who wins?", es: "La Hoja de Trabajo y una nota del cliente dan instrucciones diferentes. ¿Cuál gana?" },
     options: [
       { en: "Worksheet always wins on every conflict — it is the standard contracted scope.", es: "La Hoja siempre gana en cada conflicto — es el alcance estándar contratado." },
-      { en: "Client note wins on the specific item; the rest of the Worksheet still applies.", es: "La nota del cliente gana en lo específico; el resto de la Hoja sigue aplicando." },
       { en: "Whichever document you happen to read first when you walk into the home today.", es: "Cualquier documento que lea primero cuando entre al hogar el día de hoy." },
       { en: "Ask the client during the clean to clarify which instruction they actually want followed.", es: "Pregunte al cliente durante la limpieza qué instrucción quieren que se siga." },
+      { en: "Client note wins on the specific item; the rest of the Worksheet still applies.", es: "La nota del cliente gana en lo específico; el resto de la Hoja sigue aplicando." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-mc-13-commercial-finished-early",
     moduleId: "maidcentral",
     prompt: { en: "Your commercial job is assigned 3 hours. You finish in 1.5 hours. What do you do BEFORE uploading completion photos?", es: "Su trabajo comercial tiene 3 horas asignadas. Termina en 1.5 horas. ¿Qué hace ANTES de subir fotos?" },
     options: [
-      { en: "Upload the completion photos right away — finishing the job early is generally good.", es: "Suba las fotos de completado de inmediato — terminar temprano generalmente es bueno." },
       { en: "Call the office before closing out early so the visit can be verified — you're still paid the allotted hours.", es: "Llame a la oficina antes de cerrar temprano para que la visita se verifique — se le pagan las horas asignadas de todos modos." },
+      { en: "Upload the completion photos right away — finishing the job early is generally good.", es: "Suba las fotos de completado de inmediato — terminar temprano generalmente es bueno." },
       { en: "Just Clock Out for the entire day immediately since you have finished all your work.", es: "Solo haga Clock Out del día completo ya que terminó todo su trabajo asignado." },
       { en: "Sit in the parking lot for an extra 1.5 hours until the 3-hour window has passed.", es: "Quédese en el estacionamiento 1.5 horas extras hasta que pase la ventana de 3 horas." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-mc-14-qleno-coming",
@@ -4911,11 +4905,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You finish your assigned job. What is the correct Qleno action the moment the job is complete?", es: "Termina su trabajo asignado. ¿Cuál es la acción correcta en Qleno al momento que el trabajo esté completo?" },
     options: [
       { en: "Stay clocked in until you arrive at the next assigned job.", es: "Permanezca con Clock In hasta llegar al siguiente trabajo asignado." },
-      { en: "Clock Out and Check Out together at the moment of completion.", es: "Haga Clock Out y Check Out juntos al momento de finalizar." },
       { en: "Only Clock Out; Check Out happens automatically at the next job.", es: "Solo Clock Out; el Check Out se hace automáticamente en el siguiente trabajo." },
+      { en: "Clock Out and Check Out together at the moment of completion.", es: "Haga Clock Out y Check Out juntos al momento de finalizar." },
       { en: "Wait for the client to sign completion, then Clock Out from your car.", es: "Espere a que el cliente firme la finalización, luego haga Clock Out desde el auto." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   // ── E1: Qleno rebrand additions (2026-07-15) ───────────────────────────────
   {
@@ -4925,22 +4919,22 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "MaidCentral, a third-party app.", es: "MaidCentral, una app de terceros." },
       { en: "A personal paper timesheet you keep.", es: "Una hoja de tiempo de papel personal que usted lleva." },
-      { en: "Qleno, the company's own app.", es: "Qleno, la app propia de la compañía." },
       { en: "Text messages sent to the office.", es: "Mensajes de texto enviados a la oficina." },
+      { en: "Qleno, the company's own app.", es: "Qleno, la app propia de la compañía." },
     ],
-    correctIndex: 2,
+    correctIndex: 3,
   },
   {
     id: "q-mc-qleno-arrival",
     moduleId: "maidcentral",
     prompt: { en: "You arrive at an assigned job. What is the correct Qleno action?", es: "Llega a un trabajo asignado. ¿Cuál es la acción correcta en Qleno?" },
     options: [
-      { en: "Only Check In, and skip the Clock In.", es: "Solo hacer Check In, y omitir el Clock In." },
       { en: "Clock In and Check In together at the moment of arrival.", es: "Hacer Clock In y Check In juntos al momento de llegar." },
+      { en: "Only Check In, and skip the Clock In.", es: "Solo hacer Check In, y omitir el Clock In." },
       { en: "Clock in from your car before you arrive.", es: "Hacer clock in desde su auto antes de llegar." },
       { en: "Wait for the client to sign you in.", es: "Esperar a que el cliente lo registre." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-mc-qleno-gps",
@@ -4948,11 +4942,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "Qleno won't let you Check In from your car two blocks away. Why?", es: "Qleno no le permite hacer Check In desde su auto a dos cuadras. ¿Por qué?" },
     options: [
       { en: "The app is malfunctioning at the moment.", es: "La aplicación está fallando en este momento." },
+      { en: "The 600-foot GPS rule — you're not close enough yet.", es: "La regla GPS de 600 pies — aún no está lo bastante cerca." },
       { en: "You need manager approval for every check-in.", es: "Necesita aprobación del gerente para cada check-in." },
       { en: "GPS check-in only applies to commercial jobs.", es: "El check-in por GPS solo aplica a trabajos comerciales." },
-      { en: "The 600-foot GPS rule — you're not close enough yet.", es: "La regla GPS de 600 pies — aún no está lo bastante cerca." },
     ],
-    correctIndex: 3,
+    correctIndex: 1,
   },
   {
     id: "q-mc-qleno-down",
@@ -4971,12 +4965,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "maidcentral",
     prompt: { en: "You forgot to Check Out two hours ago. How do you fix it?", es: "Olvidó hacer Check Out hace dos horas. ¿Cómo lo corrige?" },
     options: [
-      { en: "Submit a Clock/Job Change Request in Qleno.", es: "Envíe un Clock/Job Change Request en Qleno." },
       { en: "Text a manager about it privately.", es: "Envíe un mensaje privado a un gerente." },
       { en: "Let payroll guess the correct time.", es: "Deje que la nómina adivine la hora correcta." },
       { en: "Nothing — it corrects itself automatically.", es: "Nada — se corrige solo automáticamente." },
+      { en: "Submit a Clock/Job Change Request in Qleno.", es: "Envíe un Clock/Job Change Request en Qleno." },
     ],
-    correctIndex: 0,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -4987,12 +4981,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "products-tools",
     prompt: { en: "You're about to wipe a granite kitchen countertop. Which product should you NEVER use on it?", es: "Está por limpiar un mostrador de granito. ¿Qué producto NUNCA debe usar?" },
     options: [
+      { en: "Bar Keepers Friend Liquid", es: "Bar Keepers Friend Líquido" },
       { en: "Mr. Clean with Febreze on a yellow cloth", es: "Mr. Clean con Febreze en paño amarillo" },
       { en: "A damp microfiber cloth with water", es: "Paño de microfibra húmedo con agua" },
-      { en: "Bar Keepers Friend Liquid", es: "Bar Keepers Friend Líquido" },
       { en: "Diluted Simple Green at 1:30", es: "Simple Green diluido a 1:30" },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-pt-02-mop",
@@ -5000,11 +4994,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You're about to mop a hardwood floor with the OCedar Deep Clean Mop. What do you do first?", es: "Está por trapear un piso de madera con el OCedar Deep Clean Mop. ¿Qué hace primero?" },
     options: [
       { en: "Soak the mop fully so it cleans deeper", es: "Empapar el trapeador para limpiar más profundo" },
-      { en: "Wring the mop thoroughly so it's damp, not soaked", es: "Escurrir bien para que esté húmedo, no empapado" },
       { en: "Spray the cleaner directly on the floor", es: "Rociar el limpiador directamente al piso" },
+      { en: "Wring the mop thoroughly so it's damp, not soaked", es: "Escurrir bien para que esté húmedo, no empapado" },
       { en: "Use the mop dry — water can warp wood", es: "Usar el trapeador seco — el agua deforma la madera" },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-pt-03-glass",
@@ -5013,22 +5007,22 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "Directly on the mirror, then wipe in circles", es: "Directamente al espejo, luego en círculos" },
       { en: "On a yellow cloth, then wipe", es: "En paño amarillo, luego limpiar" },
-      { en: "On a green microfiber cloth, then wipe in S-pattern", es: "En paño de microfibra verde, luego patrón en S" },
       { en: "On the floor first, so it doesn't drip", es: "Al piso primero, para que no gotee" },
+      { en: "On a green microfiber cloth, then wipe in S-pattern", es: "En paño de microfibra verde, luego patrón en S" },
     ],
-    correctIndex: 2,
+    correctIndex: 3,
   },
   {
     id: "q-pt-04-simplegreen",
     moduleId: "products-tools",
     prompt: { en: "You're prepping Simple Green for light surface cleaning. What's the right dilution?", es: "Está preparando Simple Green para limpieza ligera. ¿Cuál es la dilución correcta?" },
     options: [
-      { en: "Full strength — Simple Green is always full strength", es: "Fuerza total — Simple Green siempre va a fuerza total" },
-      { en: "1:10", es: "1:10" },
       { en: "1:30", es: "1:30" },
+      { en: "Full strength, never diluted", es: "Fuerza total, sin diluir" },
+      { en: "1:10", es: "1:10" },
       { en: "1:100", es: "1:100" },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-pt-05-zep-bleach",
@@ -5036,11 +5030,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You're using Zep Mold & Mildew Stain Remover in a bathroom. Which product MUST you NOT mix it with?", es: "Está usando Zep Mold & Mildew Stain Remover en un baño. ¿Con qué producto NUNCA debe mezclarlo?" },
     options: [
       { en: "Soap and water diluted in a clean spray bottle for general light cleaning use.", es: "Jabón y agua diluidos en una botella limpia para limpieza ligera general." },
-      { en: "Bar Keepers Friend powder applied with a damp non-abrasive sponge to the area.", es: "Polvo Bar Keepers Friend aplicado con una esponja no abrasiva húmeda al área." },
       { en: "Ammonia-based products like Windex — mixing the two creates toxic chloramine vapors.", es: "Productos con amoníaco como Windex — mezclar ambos crea vapores tóxicos de cloramina." },
+      { en: "Bar Keepers Friend powder applied with a damp non-abrasive sponge to the area.", es: "Polvo Bar Keepers Friend aplicado con una esponja no abrasiva húmeda al área." },
       { en: "Pumice stone used dry directly on the dampened bathroom surface being treated.", es: "Piedra pómez usada seca directamente sobre la superficie del baño humedecida." },
     ],
-    correctIndex: 2,
+    correctIndex: 1,
   },
   {
     id: "q-pt-06-zep-fabric",
@@ -5048,11 +5042,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You're spraying Zep Mold & Mildew on shower caulk. The client's blue bath mat is a few feet away. What's the risk?", es: "Está rociando Zep Mold & Mildew en el sellador de la ducha. El tapete azul del cliente está a pocos pies. ¿Cuál es el riesgo?" },
     options: [
       { en: "No risk at all — Zep Mold & Mildew is safe to overspray on colored bath fabrics.", es: "Sin riesgo — Zep Mold & Mildew es seguro para rociar sobre telas de baño de color." },
-      { en: "Zep contains bleach — overspray permanently bleaches the colored mat; move it first.", es: "Zep contiene cloro — la sobreaspersión decolora permanentemente el tapete de color." },
       { en: "Zep will only visibly stain dark fabrics; light colors like blue are not affected.", es: "Zep solo manchará visiblemente telas oscuras; los colores claros como azul no se afectan." },
+      { en: "Zep contains bleach — overspray permanently bleaches the colored mat; move it first.", es: "Zep contiene cloro — la sobreaspersión decolora permanentemente el tapete de color." },
       { en: "Zep evaporates completely before any droplets can drift over to reach the bath mat.", es: "Zep se evapora completamente antes de que las gotas lleguen al tapete del baño." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-pt-07-magic-eraser-paint",
@@ -5060,35 +5054,35 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "The client asks you to remove a small scuff from a matte-painted living room wall. What do you do?", es: "El cliente le pide remover una marca pequeña de una pared de sala con pintura mate. ¿Qué hace?" },
     options: [
       { en: "Use a Magic Eraser with firm pressure to fully remove the scuff from the wall surface.", es: "Use el Borrador Mágico con presión firme para remover por completo la marca de la pared." },
-      { en: "Test the Magic Eraser hidden first; matte paint can DULL — sometimes leave the scuff alone.", es: "Pruebe el Borrador Mágico oculto; en pintura mate puede DAÑAR — a veces deje la marca." },
       { en: "Use #0000 extra-fine steel wool with a light circular motion to lift the wall scuff off.", es: "Use lana de acero #0000 extra fina con movimiento circular ligero para levantar la marca." },
       { en: "Wipe the scuff away with Bar Keepers Friend powder and a damp non-abrasive sponge today.", es: "Limpie la marca con polvo Bar Keepers Friend y esponja no abrasiva húmeda hoy." },
+      { en: "Test the Magic Eraser hidden first; matte paint can DULL — sometimes leave the scuff alone.", es: "Pruebe el Borrador Mágico oculto; en pintura mate puede DAÑAR — a veces deje la marca." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-pt-08-magic-eraser-glass",
     moduleId: "products-tools",
     prompt: { en: "Where IS a Magic Eraser a great tool to use?", es: "¿Dónde SÍ es buena herramienta el Borrador Mágico?" },
     options: [
+      { en: "Soap scum on glass shower doors and scuff marks on white painted baseboards.", es: "Sarro en puertas de ducha de vidrio y marcas en rodapiés pintados de blanco." },
       { en: "Polished marble kitchen countertops with mild soap scum and dried fingerprints on top.", es: "Mostradores de mármol pulido con sarro suave y huellas digitales secas encima." },
       { en: "Brushed stainless-steel appliance fronts marked by fingerprints and minor water spots.", es: "Frentes de acero inoxidable cepillado con huellas digitales y manchas menores de agua." },
-      { en: "Soap scum on glass shower doors and scuff marks on white painted baseboards.", es: "Sarro en puertas de ducha de vidrio y marcas en rodapiés pintados de blanco." },
       { en: "Chrome bathroom faucets with stuck mineral deposits and hard-water spotting overall.", es: "Llaves cromadas con depósitos minerales pegados y manchas de agua dura por todas partes." },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-pt-09-pumice-where",
     moduleId: "products-tools",
     prompt: { en: "Where is the ONLY surface where pumice stone is appropriate?", es: "¿Cuál es la ÚNICA superficie apropiada para la piedra pómez?" },
     options: [
-      { en: "Inside an unsealed white porcelain toilet bowl, on stubborn hard-water rings.", es: "Dentro de un inodoro de porcelana blanca sin sellar, en anillos de agua dura." },
       { en: "On fiberglass tub surfaces to scrub away built-up soap scum on the walls and floor.", es: "En superficies de tina de fibra de vidrio para tallar el sarro acumulado en paredes y piso." },
+      { en: "Inside an unsealed white porcelain toilet bowl, on stubborn hard-water rings.", es: "Dentro de un inodoro de porcelana blanca sin sellar, en anillos de agua dura." },
       { en: "On chrome bathroom faucets where stuck mineral deposits won't come off with cleaner.", es: "En llaves cromadas donde los depósitos minerales pegados no salen con limpiador." },
       { en: "On smooth glass cooktops with cooked-on food residue that other tools cannot remove.", es: "En estufas de vidrio liso con residuos de comida cocidos que otros productos no pueden." },
     ],
-    correctIndex: 0,
+    correctIndex: 1,
   },
   {
     id: "q-pt-10-pumice-wet",
@@ -5107,10 +5101,10 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "products-tools",
     prompt: { en: "Phes stocks several steel-wool grades. Which grade is approved for use in client homes?", es: "Phes tiene varios grados de lana de acero. ¿Cuál grado se permite en hogares de clientes?" },
     options: [
-      { en: "#0 — coarse, removes anything", es: "#0 — gruesa, remueve cualquier cosa" },
+      { en: "#0 — coarse", es: "#0 — gruesa" },
       { en: "#00 — medium", es: "#00 — media" },
       { en: "#000 — fine", es: "#000 — fina" },
-      { en: "#0000 — extra fine; coarser grades scratch", es: "#0000 — extra fina; grados más gruesos rayan" },
+      { en: "#0000 — extra fine", es: "#0000 — extra fina" },
     ],
     correctIndex: 3,
   },
@@ -5119,12 +5113,12 @@ const BASE_QUIZ: QuizQuestion[] = [
     moduleId: "products-tools",
     prompt: { en: "There's a hard mineral deposit on a chrome faucet. Should you use #0000 steel wool to remove it?", es: "Hay un depósito mineral en una llave cromada. ¿Debe usar lana de acero #0000 para removerlo?" },
     options: [
-      { en: "Yes — #0000 grade steel wool is fully safe to use on all bathroom metal fixtures.", es: "Sí — la lana de acero grado #0000 es segura en todos los herrajes metálicos del baño." },
       { en: "No — even #0000 dulls chrome on first pass; use Bar Keepers Friend with soft cloth.", es: "No — incluso #0000 daña el cromo al primer pase; use Bar Keepers Friend con paño suave." },
+      { en: "Yes — #0000 grade steel wool is fully safe to use on all bathroom metal fixtures.", es: "Sí — la lana de acero grado #0000 es segura en todos los herrajes metálicos del baño." },
       { en: "Yes — but only when used with plain water and absolutely no separate cleaning product.", es: "Sí — pero solo cuando se usa con agua pura y sin ningún producto limpiador separado." },
       { en: "Yes — chrome is actually the recommended surface for steel-wool scrubbing on this kit.", es: "Sí — el cromo es la superficie recomendada para tallar con lana de acero en este kit." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-pt-13-cloth-cross",
@@ -5144,11 +5138,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "Before using the company step stool, what's the 3-point check?", es: "Antes de usar el banquito de la compañía, ¿cuál es la revisión de 3 puntos?" },
     options: [
       { en: "Color of the rubber feet, manufacturer brand, and approximate age of the step stool.", es: "Color de las patas de goma, marca del fabricante y edad aproximada del banquito." },
-      { en: "Rubber feet present (not worn), hinges fully locked open, platform clean and dry.", es: "Patas de goma presentes (no lisas), bisagras totalmente abiertas, plataforma limpia y seca." },
       { en: "Maximum weight rating, total height from floor, and date of original manufacture label.", es: "Peso máximo, altura total del piso y fecha de fabricación original en la etiqueta." },
+      { en: "Rubber feet present (not worn), hinges fully locked open, platform clean and dry.", es: "Patas de goma presentes (no lisas), bisagras totalmente abiertas, plataforma limpia y seca." },
       { en: "It honestly does not matter much — just unfold the step stool quickly and use it as is.", es: "Honestamente no importa mucho — solo desdoble el banquito rápidamente y úselo así." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-pt-15-furniture-stand",
@@ -5157,10 +5151,10 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "Stand on a sturdy dining-room chair just for a quick moment to reach the high shelf.", es: "Párese en una silla firme del comedor un momento rápido para alcanzar el estante alto." },
       { en: "Climb onto the kitchen counter and stand on it briefly to reach the high shelf today.", es: "Súbase al mostrador de cocina y párese brevemente para alcanzar el estante alto hoy." },
-      { en: "Leave a note for the office and skip the surface — never stand on client furniture.", es: "Deje nota para la oficina y sáltese la superficie — nunca se pare en muebles del cliente." },
       { en: "Stand carefully on the very top step of the step stool to reach a couple more inches up.", es: "Párese con cuidado en el escalón superior del banquito para alcanzar unas pulgadas más." },
+      { en: "Leave a note for the office and skip the surface — never stand on client furniture.", es: "Deje nota para la oficina y sáltese la superficie — nunca se pare en muebles del cliente." },
     ],
-    correctIndex: 2,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -5174,12 +5168,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Bajo la Ley de Derechos Humanos de Illinois, ¿cuál de los siguientes ES acoso sexual?",
     },
     options: [
-      { en: "Only a direct supervisor making physical contact with a subordinate employee.", es: "Solo un supervisor directo haciendo contacto físico con un empleado subordinado." },
       { en: "Any unwelcome sexual conduct that creates a hostile workplace OR ties to a decision.", es: "Cualquier conducta sexual no deseada que cree ambiente hostil O se ligue a una decisión." },
+      { en: "Only a direct supervisor making physical contact with a subordinate employee.", es: "Solo un supervisor directo haciendo contacto físico con un empleado subordinado." },
       { en: "Only conduct that actually happens during scheduled paid working hours at a job.", es: "Solo conducta que ocurre durante horas laborales pagadas y programadas en el trabajo." },
       { en: "Only behavior that the target verbally and clearly objects to at the time it happens.", es: "Solo conducta que el objetivo objete verbal y claramente en el momento que ocurre." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-il-02-quid-pro-quo",
@@ -5190,11 +5184,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "A coworker tells off-color jokes one time loudly in the break room at lunch.", es: "Un compañero cuenta chistes subidos de tono una vez en el descanso del almuerzo." },
-      { en: "A supervisor tells you that you'll get better routes if you go out on a date.", es: "Un supervisor le dice que tendrá mejores rutas si sale en una cita con él/ella." },
       { en: "A client at one of your scheduled jobs sincerely compliments your hair today.", es: "Un cliente en uno de sus trabajos programados elogia sinceramente su cabello hoy." },
+      { en: "A supervisor tells you that you'll get better routes if you go out on a date.", es: "Un supervisor le dice que tendrá mejores rutas si sale en una cita con él/ella." },
       { en: "A coworker repeatedly asks you out for coffee after work and you said yes each time.", es: "Un compañero le pide salir a tomar café varias veces y usted aceptó cada vez." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-il-03-hostile-environment",
@@ -5204,12 +5198,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "¿Cuál es un ejemplo de un AMBIENTE LABORAL HOSTIL?",
     },
     options: [
-      { en: "One-time inappropriate comment that was immediately corrected and never repeated.", es: "Un comentario inapropiado único que se corrigió inmediatamente y nunca se repitió." },
-      { en: "A coworker repeatedly shares sexual memes in the WhatsApp work thread despite people asking them to stop.", es: "Un compañero comparte memes sexuales repetidamente en el hilo de WhatsApp del trabajo a pesar de que la gente le pide que pare." },
-      { en: "A supervisor disagrees with your cleaning method.", es: "Un supervisor no está de acuerdo con su método de limpieza." },
-      { en: "A client doesn't tip well.", es: "Un cliente no da buena propina." },
+      { en: "A single off-color joke that was corrected on the spot and never repeated.", es: "Una sola broma de mal gusto que se corrigió en el momento y nunca se repitió." },
+      { en: "A supervisor disagrees with how you clean a particular room.", es: "Un supervisor no está de acuerdo con cómo limpia una habitación en particular." },
+      { en: "A client leaves a smaller tip than you had expected this week.", es: "Un cliente deja una propina más pequeña de la que esperaba esta semana." },
+      { en: "A coworker keeps posting sexual memes in the work chat after being asked to stop.", es: "Un compañero sigue publicando memes sexuales en el chat del trabajo tras pedirle que pare." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-il-04-not-limited-by-sex",
@@ -5219,12 +5213,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "¿Puede ocurrir acoso sexual entre personas del mismo sexo, o basarse en identidad de género / orientación sexual?",
     },
     options: [
-      { en: "No — Illinois law protects only between people of opposite sexes from each other.", es: "No — la ley de Illinois protege solo entre personas de sexos opuestos entre sí." },
       { en: "Yes — Illinois law protects regardless of sex, gender identity, expression, or orientation.", es: "Sí — la ley de Illinois protege sin importar sexo, identidad de género, expresión u orientación." },
+      { en: "No — Illinois law protects only between people of opposite sexes from each other.", es: "No — la ley de Illinois protege solo entre personas de sexos opuestos entre sí." },
       { en: "Only if both parties happen to identify as LGBTQ at the time of the incident.", es: "Solo si ambas partes se identifican como LGBTQ al momento del incidente." },
       { en: "Only in private-sector workplaces — public employers operate under different rules.", es: "Solo en lugares de trabajo privados — los empleadores públicos siguen reglas distintas." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-il-05-third-party",
@@ -5250,11 +5244,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Only directly to Sal the owner in person — no other channel is accepted at all.", es: "Solo directamente al dueño Sal en persona — ningún otro canal se acepta en absoluto." },
-      { en: "Internally: office team or owner directly. Externally: Illinois IDHR or the federal EEOC.", es: "Internamente: equipo de oficina o dueño directamente. Externamente: IDHR de Illinois o EEOC federal." },
       { en: "You must use the company app for all reports — verbal reports are not accepted.", es: "Debe usar la app de la compañía para todos los reportes — los reportes verbales no se aceptan." },
+      { en: "Internally: office team or owner directly. Externally: Illinois IDHR or the federal EEOC.", es: "Internamente: equipo de oficina o dueño directamente. Externamente: IDHR de Illinois o EEOC federal." },
       { en: "Only a licensed attorney is allowed to file a sexual harassment report on your behalf.", es: "Solo un abogado licenciado puede presentar un reporte de acoso sexual en su nombre." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-il-07-retaliation",
@@ -5265,11 +5259,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — schedules and route assignments are fully at the management's discretion.", es: "Sí — los horarios y asignaciones de rutas son totalmente a discreción de la gerencia." },
-      { en: "No — federal and Illinois law strictly prohibit retaliation for good-faith reports.", es: "No — la ley federal y de Illinois prohíben estrictamente las represalias por reportes de buena fe." },
       { en: "Only if the supervisor openly admits that the schedule cut was a retaliation move.", es: "Solo si el supervisor admite abiertamente que el recorte fue una represalia." },
       { en: "Only if you mentioned the supervisor by name within the original harassment report.", es: "Solo si mencionó al supervisor por nombre dentro del reporte original de acoso." },
+      { en: "No — federal and Illinois law strictly prohibit retaliation for good-faith reports.", es: "No — la ley federal y de Illinois prohíben estrictamente las represalias por reportes de buena fe." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-il-08-bystander-duty",
@@ -5279,12 +5273,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Escucha por casualidad a un compañero haciendo comentarios sexuales no deseados a otro técnico. Usted no es el objetivo. ¿Puede reportarlo?",
     },
     options: [
-      { en: "No — only the person directly targeted by the conduct is allowed to make a report.", es: "No — solo la persona directamente objetivo de la conducta puede hacer un reporte." },
       { en: "Yes — bystanders can and should report; same protections as direct reports apply.", es: "Sí — los testigos pueden y deben reportar; aplican las mismas protecciones que directos." },
+      { en: "No — only the person directly targeted by the conduct is allowed to make a report.", es: "No — solo la persona directamente objetivo de la conducta puede hacer un reporte." },
       { en: "Only if you secretly recorded the conversation with audio or video evidence first.", es: "Solo si grabó secretamente la conversación con evidencia de audio o video primero." },
       { en: "Only if the actual target of the conduct explicitly asks you to file the report.", es: "Solo si el objetivo real de la conducta le pide explícitamente que presente el reporte." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-il-09-idhr-deadline",
@@ -5295,11 +5289,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "30 days.", es: "30 días." },
-      { en: "180 days.", es: "180 días." },
       { en: "300 days.", es: "300 días." },
+      { en: "180 days.", es: "180 días." },
       { en: "5 years.", es: "5 años." },
     ],
-    correctIndex: 2,
+    correctIndex: 1,
   },
   {
     id: "q-il-10-eeoc-deadline",
@@ -5325,11 +5319,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Once at the time of hire, then never again for the duration of employment.", es: "Una vez al momento de contratar, luego nunca más durante el empleo." },
-      { en: "Every calendar year — every employee, every January (Phes refreshes annually).", es: "Cada año calendario — cada empleado, cada enero (Phes actualiza anualmente)." },
       { en: "Every five years on a rolling cycle from the original hire date of the employee.", es: "Cada cinco años en un ciclo rotativo desde la fecha original de contratación del empleado." },
       { en: "Only when there is a formally reported incident that requires retraining of the team.", es: "Solo cuando hay un incidente reportado formalmente que requiere recapacitación del equipo." },
+      { en: "Every calendar year — every employee, every January (Phes refreshes annually).", es: "Cada año calendario — cada empleado, cada enero (Phes actualiza anualmente)." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-il-12-severe-or-pervasive",
@@ -5339,12 +5333,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "¿La conducta tiene que ocurrir varias veces antes de poder ser acoso sexual?",
     },
     options: [
-      { en: "Yes — a single isolated incident is never legally considered sexual harassment.", es: "Sí — un solo incidente aislado nunca se considera legalmente acoso sexual." },
       { en: "No — one severe incident is enough; otherwise must be severe or pervasive overall.", es: "No — un incidente severo es suficiente; si no, debe ser severo o generalizado." },
+      { en: "Yes — a single isolated incident is never legally considered sexual harassment.", es: "Sí — un solo incidente aislado nunca se considera legalmente acoso sexual." },
       { en: "Only after at least three separately documented incidents involving the same person.", es: "Solo después de al menos tres incidentes documentados con la misma persona." },
       { en: "Only if the conduct happens during your scheduled paid working hours on a job.", es: "Solo si la conducta ocurre durante sus horas laborales pagadas y programadas." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-il-13-consent-withdrawn",
@@ -5370,11 +5364,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Nothing — Phes is not legally obligated to act on the report or open any investigation.", es: "Nada — Phes no está legalmente obligado a actuar sobre el reporte ni investigar." },
-      { en: "Prompt documented investigation, confidentiality, no forced confrontation, outcome update.", es: "Investigación documentada rápida, confidencialidad, sin confrontación forzada, actualización." },
       { en: "A mandatory public meeting between you and the accused harasser to resolve the issue.", es: "Una reunión pública obligatoria entre usted y el acusado para resolver el asunto." },
+      { en: "Prompt documented investigation, confidentiality, no forced confrontation, outcome update.", es: "Investigación documentada rápida, confidencialidad, sin confrontación forzada, actualización." },
       { en: "An immediate same-day decision with no investigation and no documented findings at all.", es: "Una decisión inmediata el mismo día sin investigación ni hallazgos documentados." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-il-15-good-faith-protection",
@@ -5385,11 +5379,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "No — only reports that the investigation ultimately substantiates are protected.", es: "No — solo los reportes que la investigación finalmente comprueba están protegidos." },
-      { en: "Yes — good faith means you believed the report was true; protection is outcome-independent.", es: "Sí — buena fe significa que lo creyó verdadero; la protección es independiente del resultado." },
       { en: "Only if you originally submitted the report in writing rather than verbally to office.", es: "Solo si presentó originalmente el reporte por escrito en lugar de verbalmente a oficina." },
       { en: "Only if the accused person eventually agrees in writing that you reported in good faith.", es: "Solo si la persona acusada eventualmente acepta por escrito que usted reportó de buena fe." },
+      { en: "Yes — good faith means you believed the report was true; protection is outcome-independent.", es: "Sí — buena fe significa que lo creyó verdadero; la protección es independiente del resultado." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -5403,12 +5397,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "¿Phes exige una prueba de drogas antes del empleo?",
     },
     options: [
-      { en: "Yes. Every new hire is drug-tested before their first scheduled shift.", es: "Sí. Cada nuevo empleado pasa prueba de drogas antes de su primer turno." },
       { en: "No. Phes does not require pre-employment drug testing for any role at hire.", es: "No. Phes no exige prueba de drogas antes del empleo para ningún rol." },
+      { en: "Yes. Every new hire is drug-tested before their first scheduled shift.", es: "Sí. Cada nuevo empleado pasa prueba de drogas antes de su primer turno." },
       { en: "Only for techs over 25 because of insurance-rate considerations.", es: "Solo para técnicos mayores de 25 años por razones de seguros." },
       { en: "Only for techs whose role requires regular driving between client jobs.", es: "Solo para técnicos cuyo rol requiere conducir entre trabajos de clientes." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-da-02-impairment-not-cannabis-use",
@@ -5419,11 +5413,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes. Any cannabis use is a violation, even off-duty and lawful at home.", es: "Sí. Cualquier uso de cannabis es una violación, incluso fuera del trabajo." },
-      { en: "No. The policy applies only to observable impairment at work, not lawful use.", es: "No. La política aplica solo a intoxicación observable en el trabajo, no al uso legal." },
       { en: "Yes if you happened to test positive on a random screen the next week.", es: "Sí, si dio positivo en una prueba al azar la semana siguiente." },
       { en: "Yes only if the client smelled cannabis on you during the home visit.", es: "Sí, solo si el cliente olió cannabis en usted durante la visita al hogar." },
+      { en: "No. The policy applies only to observable impairment at work, not lawful use.", es: "No. La política aplica solo a intoxicación observable en el trabajo, no al uso legal." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-da-03-impairment-signs",
@@ -5433,12 +5427,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "¿Cuál de los siguientes NO es, por sí solo, un signo de intoxicación sobre el que Phes puede actuar?",
     },
     options: [
+      { en: "A positive drug test alone, with no observable signs at the job site.", es: "Una prueba positiva sola, sin signos observables en el lugar de trabajo." },
       { en: "Slurred speech combined with unsteady walking observed at the job site.", es: "Habla arrastrada combinada con caminar inestable en el lugar de trabajo." },
       { en: "Bloodshot eyes plus the smell of cannabis on your breath at the site.", es: "Ojos rojos más olor a cannabis en su aliento en el sitio del trabajo." },
-      { en: "A positive drug test alone, with no observable signs at the job site.", es: "Una prueba positiva sola, sin signos observables en el lugar de trabajo." },
       { en: "Falling asleep on the job during normal scheduled work hours.", es: "Quedarse dormido en el trabajo durante las horas regulares programadas." },
     ],
-    correctIndex: 2,
+    correctIndex: 0,
   },
   {
     id: "q-da-04-reasonable-suspicion-process",
@@ -5464,11 +5458,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes. Any property damage at a client site automatically triggers a test.", es: "Sí. Cualquier daño a la propiedad en un sitio activa una prueba automáticamente." },
-      { en: "No. Testing triggers on physical injury OR property damage of $500 or more.", es: "No. Se activa por lesión física O daño a propiedad de $500 o más." },
       { en: "Yes, but only if a supervisor personally saw the accident happen on site.", es: "Sí, pero solo si un supervisor vio personalmente ocurrir el accidente en sitio." },
+      { en: "No. Testing triggers on physical injury OR property damage of $500 or more.", es: "No. Se activa por lesión física O daño a propiedad de $500 o más." },
       { en: "Yes, but only if the client formally asks for testing after the incident.", es: "Sí, pero solo si el cliente solicita formalmente la prueba después del incidente." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-da-06-prescription-meds",
@@ -5479,11 +5473,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Tell the office your full diagnosis and the medication name before starting.", es: "Decir a la oficina su diagnóstico completo y el nombre del medicamento." },
-      { en: "Inform the office BEFORE starting it that a prescribed med may impair safety.", es: "Informar a la oficina ANTES de empezar que un medicamento recetado puede afectar." },
       { en: "Stop taking the medication on workdays so it does not affect your shifts.", es: "Dejar de tomar el medicamento los días de trabajo para no afectar sus turnos." },
       { en: "Nothing — prescription medication is your private business under HIPAA law.", es: "Nada — los medicamentos recetados son su asunto privado bajo la ley HIPAA." },
+      { en: "Inform the office BEFORE starting it that a prescribed med may impair safety.", es: "Informar a la oficina ANTES de empezar que un medicamento recetado puede afectar." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-da-07-refusal-to-test",
@@ -5493,12 +5487,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "La oficina lo envía a una prueba de drogas por sospecha razonable basada en signos observables documentados. Usted se rehúsa. ¿Cuál es la consecuencia bajo la política de Phes?",
     },
     options: [
-      { en: "A written warning is issued and you continue working your normal schedule.", es: "Se emite una advertencia escrita y sigue trabajando su horario normal." },
       { en: "Immediate termination — refusal is treated the same as a positive test.", es: "Terminación inmediata — la negativa se trata igual que un positivo." },
+      { en: "A written warning is issued and you continue working your normal schedule.", es: "Se emite una advertencia escrita y sigue trabajando su horario normal." },
       { en: "You may delay and take the test the following day at the same lab instead.", es: "Puede retrasar y hacer la prueba al día siguiente en el mismo laboratorio." },
       { en: "Nothing — refusing a workplace drug test is your protected legal right.", es: "Nada — rehusarse a una prueba laboral es su derecho legal protegido." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-da-08-discipline-scale",
@@ -5524,11 +5518,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "At your next quarterly performance review meeting with the office.", es: "En su próxima evaluación trimestral de desempeño con la oficina." },
-      { en: "Within 72 hours — Phes carries non-owned auto insurance tied to your license.", es: "Dentro de 72 horas — Phes tiene seguro no propio ligado a su licencia." },
       { en: "Only if a client formally complains about your driving while on the job.", es: "Solo si un cliente se queja formalmente sobre su conducción en el trabajo." },
+      { en: "Within 72 hours — Phes carries non-owned auto insurance tied to your license.", es: "Dentro de 72 horas — Phes tiene seguro no propio ligado a su licencia." },
       { en: "Never — DUIs in your personal vehicle are private off-duty legal matters.", es: "Nunca — los DUIs en vehículo personal son asuntos legales privados fuera del trabajo." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-da-10-license-suspension-disclosure",
@@ -5539,11 +5533,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "No — only DUI-related suspensions need to be reported to the office.", es: "No — solo las suspensiones por DUI deben reportarse a la oficina." },
-      { en: "Yes — any suspension or revocation must be reported within 72 hours.", es: "Sí — cualquier suspensión o revocación debe reportarse dentro de 72 horas." },
       { en: "Only if the office asks to see your motor vehicle record first.", es: "Solo si la oficina pide ver su récord de vehículos motorizados primero." },
       { en: "Only if a client happens to see the suspension notice in your vehicle.", es: "Solo si un cliente ve por casualidad el aviso de suspensión en su vehículo." },
+      { en: "Yes — any suspension or revocation must be reported within 72 hours.", es: "Sí — cualquier suspensión o revocación debe reportarse dentro de 72 horas." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -5557,12 +5551,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Termina su último trabajo 15 minutos antes de lo esperado. Está cansado y quiere irse a casa. ¿Qué dice el Código de Conducta sobre marcar la salida?",
     },
     options: [
-      { en: "Clock out at the originally scheduled end time so the week's hours look consistent.", es: "Marcar salida a la hora programada para que la semana se vea consistente." },
       { en: "Clock out when you actually leave the job site — the clock must match reality.", es: "Marcar salida cuando realmente salga — el reloj debe coincidir con la realidad." },
+      { en: "Clock out at the originally scheduled end time so the week's hours look consistent.", es: "Marcar salida a la hora programada para que la semana se vea consistente." },
       { en: "Clock out 15 minutes early now and add the difference to your next scheduled shift.", es: "Marcar salida 15 min antes ahora y agregar la diferencia al siguiente turno." },
       { en: "Ask a teammate to clock you out from their phone after you get back home.", es: "Pedirle a un compañero que marque su salida desde su teléfono al llegar a casa." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-coc-02-confidentiality",
@@ -5573,11 +5567,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes, as long as you do not name the client by their first or last name.", es: "Sí, siempre que no nombre al cliente por su nombre o apellido completo." },
-      { en: "No. What you see in a client home stays there — even private talk with coworkers.", es: "No. Lo que ve en un hogar se queda allí — incluso con compañeros en privado." },
       { en: "Only if what you saw is something genuinely concerning for the client's safety.", es: "Solo si lo que vio es algo realmente preocupante para la seguridad del cliente." },
       { en: "Yes, if you are discussing it for a legitimate workplace safety reason only.", es: "Sí, si lo discute por una razón legítima de seguridad laboral solamente." },
+      { en: "No. What you see in a client home stays there — even private talk with coworkers.", es: "No. Lo que ve en un hogar se queda allí — incluso con compañeros en privado." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-coc-03-theft-zero-tolerance",
@@ -5587,12 +5581,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Está limpiando una cocina y encuentra $2 en monedas sobre el mostrador. El cliente se fue a trabajar y no está en casa. El Código de Conducta dice que debe:",
     },
     options: [
-      { en: "Pocket the coins — two dollars is small enough that no one will ever notice.", es: "Guarde las monedas — dos dólares es lo suficientemente pequeño que nadie se dé cuenta." },
       { en: "Leave the coins where they are — any taken item is theft with zero tolerance.", es: "Deje las monedas donde están — tomar cualquier objeto es robo con cero tolerancia." },
+      { en: "Pocket the coins — two dollars is small enough that no one will ever notice.", es: "Guarde las monedas — dos dólares es lo suficientemente pequeño que nadie se dé cuenta." },
       { en: "Use them to buy yourself a quick soda since the client left them out anyway.", es: "Úselas para comprarse una soda rápida ya que el cliente las dejó afuera de todas formas." },
       { en: "Pocket them and split the find evenly with your teammate on the same shift.", es: "Guárdelas y compártalas equitativamente con su compañero del mismo turno." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-coc-04-harassment-reporting",
@@ -5618,11 +5612,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Whether an employee owns a personal vehicle for commuting to scheduled jobs.", es: "Si un empleado tiene un vehículo personal para ir a los trabajos programados." },
-      { en: "Sexual orientation, gender identity, pregnancy, and disability are protected.", es: "Orientación sexual, identidad de género, embarazo y discapacidad están protegidos." },
       { en: "An employee's favorite sports team and weekend recreational hobbies overall.", es: "El equipo deportivo favorito y los pasatiempos de fin de semana del empleado." },
+      { en: "Sexual orientation, gender identity, pregnancy, and disability are protected.", es: "Orientación sexual, identidad de género, embarazo y discapacidad están protegidos." },
       { en: "How many scheduled hours an employee says they want to work each week.", es: "Cuántas horas programadas un empleado dice que quiere trabajar cada semana." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-coc-06-retaliation-good-faith",
@@ -5633,11 +5627,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "No — only reports that the investigation eventually substantiates are protected.", es: "No — solo los reportes que la investigación eventualmente comprueba están protegidos." },
-      { en: "Yes — good-faith reports are protected regardless of the investigation outcome.", es: "Sí — el reporte de buena fe está protegido sin importar el resultado de la investigación." },
       { en: "Only if you submitted your report in writing rather than verbally to a supervisor.", es: "Solo si presentó su reporte por escrito en lugar de verbalmente a un supervisor." },
       { en: "Only if the accused person eventually agrees that you reported in good faith.", es: "Solo si la persona acusada eventualmente acepta que usted reportó de buena fe." },
+      { en: "Yes — good-faith reports are protected regardless of the investigation outcome.", es: "Sí — el reporte de buena fe está protegido sin importar el resultado de la investigación." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-coc-07-conflict-of-interest",
@@ -5647,12 +5641,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Al final de una limpieza, el cliente le pregunta si puede regresar el próximo sábado para limpiar para ellos en privado, pagado en efectivo. ¿Qué dice el Código de Conducta?",
     },
     options: [
-      { en: "Accept it — the client likes your work and Saturday happens to be your day off.", es: "Acéptelo — al cliente le gusta su trabajo y el sábado es su día libre." },
       { en: "Decline — refer the client back to the office to book through Phes channels.", es: "Rehúselo — refiera al cliente a la oficina para reservar a través de Phes." },
+      { en: "Accept it — the client likes your work and Saturday happens to be your day off.", es: "Acéptelo — al cliente le gusta su trabajo y el sábado es su día libre." },
       { en: "Accept it, but only if you charge less than the standard Phes hourly rate.", es: "Acéptelo, pero solo si cobra menos que la tarifa estándar por hora de Phes." },
       { en: "Accept it and tell the office about the side cleaning job afterward.", es: "Acéptelo y avísele a la oficina sobre el trabajo paralelo de limpieza después." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-coc-08-key-handling",
@@ -5678,11 +5672,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Stay quiet — it was not your shift and not your business to involve yourself.", es: "Quedarse callado — no fue su turno ni su asunto involucrarse en el caso." },
-      { en: "Cooperate truthfully — share relevant info with the office investigators.", es: "Cooperar veridicamente — comparta la información relevante con los investigadores." },
       { en: "Tell the coworker to lie to the office to protect them from any discipline.", es: "Decirle al compañero que mienta a la oficina para protegerlo de la disciplina." },
+      { en: "Cooperate truthfully — share relevant info with the office investigators.", es: "Cooperar veridicamente — comparta la información relevante con los investigadores." },
       { en: "Discuss the open investigation publicly so the truth comes out faster overall.", es: "Discutir la investigación abierta públicamente para que la verdad salga más rápido." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-coc-10-reporting-channels",
@@ -5693,11 +5687,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Only the office team — there are no other reporting paths available at Phes.", es: "Solo el equipo de la oficina — no hay otras vías de reporte disponibles en Phes." },
-      { en: "The owner directly, the Illinois IDHR, or the federal EEOC are all options.", es: "El dueño directamente, el IDHR de Illinois o la EEOC federal son opciones." },
       { en: "You must first report the concern to the accused person before going elsewhere.", es: "Debe primero reportar la preocupación a la persona acusada antes de ir a otro lugar." },
       { en: "You may post about the concern on social media so other employees can see it.", es: "Puede publicar sobre la preocupación en redes sociales para que otros empleados la vean." },
+      { en: "The owner directly, the Illinois IDHR, or the federal EEOC are all options.", es: "El dueño directamente, el IDHR de Illinois o la EEOC federal son opciones." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -5712,11 +5706,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "You can be terminated for refusing to sign the Video & Photo Release.", es: "Pueden despedirlo por negarse a firmar la Autorización de Video y Foto." },
-      { en: "Nothing happens — signing is voluntary and Phes will not photograph you.", es: "Nada pasa — firmar es voluntario y Phes no lo fotografiará." },
       { en: "Your scheduled weekly hours are reduced as a consequence of declining.", es: "Se reducen sus horas semanales programadas como consecuencia de la negativa." },
       { en: "You lose eligibility for your next annual cost-of-living wage raise.", es: "Pierde elegibilidad para su próximo aumento anual por costo de vida." },
+      { en: "Nothing happens — signing is voluntary and Phes will not photograph you.", es: "Nada pasa — firmar es voluntario y Phes no lo fotografiará." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-vpr-02-5-year-limit",
@@ -5726,12 +5720,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Firma la autorización. Dos años después se va de Phes. ¿Qué puede hacer Phes con las fotos y videos existentes suyos?",
     },
     options: [
-      { en: "Use them forever with no post-separation time limit on continued usage.", es: "Usarlos para siempre sin límite de tiempo después de la separación." },
       { en: "Continue active distribution but no NEW uses past 5 years from your last day.", es: "Continuar la distribución activa pero sin NUEVOS usos pasados 5 años." },
+      { en: "Use them forever with no post-separation time limit on continued usage.", es: "Usarlos para siempre sin límite de tiempo después de la separación." },
       { en: "Phes must remove all content featuring you immediately on your last day.", es: "Phes debe retirar todo el contenido suyo inmediatamente en su último día." },
       { en: "Phes must pay you a residual fee for any continued use after separation.", es: "Phes debe pagarle una tarifa residual por uso continuado tras la separación." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-vpr-03-ai-carve-out",
@@ -5757,11 +5751,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Phes is not obligated to do anything — consent under the release is permanent.", es: "Phes no está obligado a hacer nada — el consentimiento es permanente." },
-      { en: "Phes will remove content from Phes-controlled channels within 30 days written.", es: "Phes retirará el contenido de los canales controlados por Phes en 30 días." },
       { en: "Phes must pay you a buy-out fee to release the content into the public domain.", es: "Phes debe pagarle una tarifa para liberar el contenido al dominio público." },
+      { en: "Phes will remove content from Phes-controlled channels within 30 days written.", es: "Phes retirará el contenido de los canales controlados por Phes en 30 días." },
       { en: "Phes must remove all content within 24 hours of your written withdrawal request.", es: "Phes debe retirar todo el contenido en 24 horas de su solicitud escrita." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-vpr-05-third-party-limits",
@@ -5772,11 +5766,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — Phes has full control over any copy of content it originally produced.", es: "Sí — Phes tiene control total sobre cualquier copia del contenido producido." },
-      { en: "No — Phes cannot recall content already distributed by third-party accounts.", es: "No — Phes no puede recuperar contenido ya distribuido por cuentas de terceros." },
       { en: "Only if Phes obtains a specific court order targeting that third-party account.", es: "Solo si Phes obtiene una orden judicial específica contra esa cuenta de tercero." },
       { en: "Only if the third party is charging money or running paid ads with the repost.", es: "Solo si el tercero cobra dinero o publica anuncios pagados con la republicación." },
+      { en: "No — Phes cannot recall content already distributed by third-party accounts.", es: "No — Phes no puede recuperar contenido ya distribuido por cuentas de terceros." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-vpr-06-il-right-of-publicity",
@@ -5786,12 +5780,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "¿Qué ley de Illinois requiere que Phes obtenga su CONSENTIMIENTO AFIRMATIVO POR ESCRITO antes de usar su identidad para propósitos comerciales?",
     },
     options: [
-      { en: "Illinois Cannabis Regulation and Tax Act (410 ILCS 705), enacted in 2019.", es: "Ley de Regulación e Impuestos del Cannabis de Illinois (410 ILCS 705), de 2019." },
       { en: "Illinois Right of Publicity Act, 765 ILCS 1075, governing commercial use.", es: "Ley del Derecho de Publicidad de Illinois, 765 ILCS 1075, sobre uso comercial." },
+      { en: "Illinois Cannabis Regulation and Tax Act (410 ILCS 705), enacted in 2019.", es: "Ley de Regulación e Impuestos del Cannabis de Illinois (410 ILCS 705), de 2019." },
       { en: "Illinois Workplace Transparency Act (820 ILCS 96), restricting NDAs broadly.", es: "Ley de Transparencia Laboral de Illinois (820 ILCS 96), que restringe los NDAs." },
       { en: "Illinois Paid Leave for All Workers Act (820 ILCS 192), in effect since 2024.", es: "Ley de Licencia Pagada para Todos los Trabajadores de Illinois (820 ILCS 192)." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-vpr-07-co-signature",
@@ -5817,11 +5811,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — pre-publication approval is required for every photo and video Phes uses.", es: "Sí — la aprobación previa es requerida para cada foto y video que Phes usa." },
-      { en: "No — courtesy preview where feasible, not a veto or hard approval requirement.", es: "No — vista previa de cortesía cuando sea factible, no es un veto ni aprobación requerida." },
       { en: "Yes, but only for video content, not still photographs from a recorded shoot.", es: "Sí, pero solo para contenido en video, no fotografías fijas de una sesión grabada." },
+      { en: "No — courtesy preview where feasible, not a veto or hard approval requirement.", es: "No — vista previa de cortesía cuando sea factible, no es un veto ni aprobación requerida." },
       { en: "No — you have no input or notice of any kind before content is published.", es: "No — no tiene ninguna participación ni aviso antes de que el contenido se publique." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-vpr-09-active-distribution",
@@ -5832,11 +5826,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "No — Phes must take down all content featuring you on or before your last day.", es: "No — Phes debe retirar todo el contenido suyo en o antes de su último día." },
-      { en: "Yes — content already in ACTIVE DISTRIBUTION at separation may continue running.", es: "Sí — el contenido ya en DISTRIBUCIÓN ACTIVA al momento de la separación puede continuar." },
       { en: "Only if Phes pays you a continued-use fee for each month after your last day.", es: "Solo si Phes le paga una tarifa por uso continuado por cada mes después de su último día." },
       { en: "Yes, but only for one full year past your formal separation date from Phes.", es: "Sí, pero solo por un año completo pasada su fecha formal de separación de Phes." },
+      { en: "Yes — content already in ACTIVE DISTRIBUTION at separation may continue running.", es: "Sí — el contenido ya en DISTRIBUCIÓN ACTIVA al momento de la separación puede continuar." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -5851,11 +5845,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — the agreement broadly covers both Phes clients and Phes coworkers equally.", es: "Sí — el acuerdo cubre ampliamente tanto a clientes como a compañeros de Phes." },
-      { en: "No — the agreement restricts soliciting CLIENTS only; coworker recruiting is free.", es: "No — el acuerdo restringe solicitar solo CLIENTES; reclutar compañeros es libre." },
       { en: "Only if the coworker happens to be a primary tech on a recurring client account.", es: "Solo si el compañero es técnico principal en una cuenta de cliente recurrente." },
       { en: "Only if you give the Phes office at least 30 days of advance notice before recruiting.", es: "Solo si da a la oficina de Phes al menos 30 días de aviso antes de reclutar." },
+      { en: "No — the agreement restricts soliciting CLIENTS only; coworker recruiting is free.", es: "No — el acuerdo restringe solicitar solo CLIENTES; reclutar compañeros es libre." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-ns-02-12-month-duration",
@@ -5865,12 +5859,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Se va de Phes hoy. ¿Por cuánto tiempo le restringe el Acuerdo de No Solicitación solicitar a clientes de Phes?",
     },
     options: [
-      { en: "Forever — the restriction never expires for any former Phes client under the deal.", es: "Para siempre — la restricción nunca vence para ningún antiguo cliente de Phes." },
       { en: "12 months from your last day at Phes — after that, no restriction on past clients.", es: "12 meses desde su último día en Phes — después, sin restricción a clientes pasados." },
+      { en: "Forever — the restriction never expires for any former Phes client under the deal.", es: "Para siempre — la restricción nunca vence para ningún antiguo cliente de Phes." },
       { en: "5 years from your last day, after which any former Phes client is fair game again.", es: "5 años desde su último día, tras los cuales cualquier antiguo cliente es libre." },
       { en: "10 years from your last day at Phes before the restriction lifts on past clients.", es: "10 años desde su último día en Phes antes de que la restricción se levante." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-ns-03-what-counts-as-solicit",
@@ -5896,11 +5890,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — any cleaning work with a former Phes client within 12 months is forbidden.", es: "Sí — cualquier trabajo de limpieza con antiguo cliente de Phes en 12 meses está prohibido." },
-      { en: "No — general advertising is not solicitation; inbound-contact carve-out applies here.", es: "No — la publicidad general no es solicitación; aplica la exclusión de contacto entrante." },
       { en: "Only if you happen to charge less than the standard Phes hourly rate for the work.", es: "Solo si por casualidad cobra menos que la tarifa estándar por hora de Phes." },
+      { en: "No — general advertising is not solicitation; inbound-contact carve-out applies here.", es: "No — la publicidad general no es solicitación; aplica la exclusión de contacto entrante." },
       { en: "Only if you previously took unauthorized photos of any Phes job sites for portfolio.", es: "Solo si previamente tomó fotos no autorizadas de lugares de trabajo de Phes." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-ns-05-il-freedom-to-work",
@@ -5911,11 +5905,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Illinois Cannabis Regulation and Tax Act.", es: "Ley de Regulación e Impuestos del Cannabis de Illinois." },
-      { en: "Illinois Freedom to Work Act, 820 ILCS 90.", es: "Ley de Libertad para Trabajar de Illinois, 820 ILCS 90." },
       { en: "Illinois Right of Publicity Act.", es: "Ley del Derecho de Publicidad de Illinois." },
       { en: "Illinois Paid Leave for All Workers Act.", es: "Ley de Licencia Pagada para Todos los Trabajadores de Illinois." },
+      { en: "Illinois Freedom to Work Act, 820 ILCS 90.", es: "Ley de Libertad para Trabajar de Illinois, 820 ILCS 90." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-ns-06-during-employment-too",
@@ -5925,12 +5919,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Actualmente está empleado en Phes. Un cliente de Phes le pregunta si podría limpiar su casa este sábado por su cuenta, pagado en efectivo. El acuerdo dice:",
     },
     options: [
-      { en: "You may accept the side job because the agreement is only effective post-employment.", es: "Puede aceptar el trabajo paralelo porque el acuerdo es solo después del empleo." },
       { en: "Restriction applies DURING employment AND 12 months after — decline and refer to office.", es: "Aplica DURANTE el empleo Y 12 meses después — rechace y refiera a la oficina." },
+      { en: "You may accept the side job because the agreement is only effective post-employment.", es: "Puede aceptar el trabajo paralelo porque el acuerdo es solo después del empleo." },
       { en: "You may accept if you happen to charge less than the standard Phes rate per hour.", es: "Puede aceptar si por casualidad cobra menos que la tarifa estándar de Phes por hora." },
       { en: "You may accept if the client repeatedly insists they want you specifically to come.", es: "Puede aceptar si el cliente insiste repetidamente que quiere que usted específicamente venga." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-ns-07-consideration",
@@ -5956,11 +5950,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "A flat $50,000 liquidated-damages penalty per violation as written in the contract.", es: "Una penalización fija de $50,000 por cada violación tal como está escrito en el contrato." },
-      { en: "Injunctive relief (court order to stop), documented damages, and reasonable attorney fees.", es: "Alivio por orden judicial (orden de detener), daños documentados, y honorarios razonables." },
       { en: "Phes immediately reports the violation to the local police as a criminal matter.", es: "Phes reporta la violación inmediatamente a la policía local como un asunto criminal." },
+      { en: "Injunctive relief (court order to stop), documented damages, and reasonable attorney fees.", es: "Alivio por orden judicial (orden de detener), daños documentados, y honorarios razonables." },
       { en: "Phes garnishes a portion of your wages directly from your next employer's payroll.", es: "Phes embarga una porción de sus salarios directamente del próximo empleador." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-ns-09-co-signature",
@@ -5971,11 +5965,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Because the office wants more total employee signatures archived in the personnel file.", es: "Porque la oficina quiere más firmas archivadas totales en el expediente personal." },
-      { en: "Because the agreement is a TWO-WAY commitment with specific consideration from Phes.", es: "Porque el acuerdo es un compromiso DE DOS VÍAS con consideración específica de Phes." },
       { en: "Because Illinois state law actually requires two signatures on every non-solicit document.", es: "Porque la ley estatal de Illinois exige dos firmas en cada documento de no solicitación." },
       { en: "Because two signatures make the agreement document harder to forge or repudiate later.", es: "Porque dos firmas hacen el documento más difícil de falsificar o repudiar después." },
+      { en: "Because the agreement is a TWO-WAY commitment with specific consideration from Phes.", es: "Porque el acuerdo es un compromiso DE DOS VÍAS con consideración específica de Phes." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-ns-10-inbound-clients-exception",
@@ -5985,12 +5979,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Se fue de Phes hace tres meses. Un antiguo cliente de Phes encontró su Instagram personal (que no tiene nada que ver con limpieza) y le envió un mensaje preguntando si hace trabajo de limpieza. Usted no lo contactó ni invitó. Bajo el acuerdo, ¿puede tomar el trabajo?",
     },
     options: [
-      { en: "No — any work with a former Phes client within the 12-month window is fully forbidden.", es: "No — cualquier trabajo con antiguo cliente en la ventana de 12 meses está prohibido." },
       { en: "Yes — the inbound-contact carve-out applies because the client contacted you first.", es: "Sí — aplica la exclusión de contacto entrante porque el cliente lo contactó a usted primero." },
+      { en: "No — any work with a former Phes client within the 12-month window is fully forbidden.", es: "No — cualquier trabajo con antiguo cliente en la ventana de 12 meses está prohibido." },
       { en: "Only if you happen to charge a lower rate than the standard Phes rate per hour today.", es: "Solo si por casualidad cobra una tarifa más baja que la estándar de Phes por hora." },
       { en: "Only after first consulting with an employment attorney about the agreement's scope.", es: "Solo después de consultar con un abogado laboral sobre el alcance del acuerdo." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-ns-11-direct-payment-prohibition",
@@ -6016,11 +6010,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "No — you no longer work at Phes so any disclosure is fine after the 12-month window.", es: "No — ya no trabaja en Phes así que cualquier divulgación está bien tras los 12 meses." },
-      { en: "Yes — Phes pricing rules are trade secrets under IL 765 ILCS 1065; confidentiality is indefinite.", es: "Sí — las reglas de precios son secretos comerciales bajo IL 765 ILCS 1065; indefinida." },
       { en: "Only if the blog post actually names a specific Phes client by full name and address.", es: "Solo si el artículo nombra a un cliente de Phes con nombre completo y dirección." },
+      { en: "Yes — Phes pricing rules are trade secrets under IL 765 ILCS 1065; confidentiality is indefinite.", es: "Sí — las reglas de precios son secretos comerciales bajo IL 765 ILCS 1065; indefinida." },
       { en: "Only if Phes paid for the hosting of your personal blog site at the time of publishing.", es: "Solo si Phes pagó el alojamiento de su blog personal al momento de publicar." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-ns-13-trade-secret-vs-section-7",
@@ -6031,11 +6025,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — anything about Phes operations is confidential forever after you leave the company.", es: "Sí — cualquier cosa sobre las operaciones de Phes es confidencial para siempre." },
-      { en: "No — confidentiality is scoped to trade secrets; NLRA Section 7 protects pay discussion.", es: "No — la confidencialidad cubre secretos comerciales; NLRA Sección 7 protege discusión de pago." },
       { en: "Yes — because you tagged former coworkers in the tweet, the post is now considered closed.", es: "Sí — porque etiquetó a antiguos compañeros, la publicación se considera cerrada." },
       { en: "Only if a currently-employed Phes employee likes or shares the tweet on social media first.", es: "Solo si un empleado actual de Phes da like o comparte el tuit en redes sociales primero." },
+      { en: "No — confidentiality is scoped to trade secrets; NLRA Section 7 protects pay discussion.", es: "No — la confidencialidad cubre secretos comerciales; NLRA Sección 7 protege discusión de pago." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -6049,12 +6043,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Después de un turno de limpieza, toma una foto rápida de usted frente al librero del cliente y la publica en su Instagram privado con la leyenda 'Día largo, casa hermosa!' El nombre completo y la dirección del cliente no están en la publicación. ¿Es una violación de la política?",
     },
     options: [
-      { en: "No — the client's full name is not visible anywhere in the post or caption.", es: "No — el nombre completo del cliente no es visible en la publicación ni el pie." },
       { en: "Yes — photos of or inside a client home are prohibited, named or not.", es: "Sí — las fotos de o dentro del hogar del cliente están prohibidas, con o sin nombre." },
+      { en: "No — the client's full name is not visible anywhere in the post or caption.", es: "No — el nombre completo del cliente no es visible en la publicación ni el pie." },
       { en: "No — the account is private so the post is not a true public violation here.", es: "No — la cuenta es privada así que la publicación no es una violación pública aquí." },
       { en: "Yes, but only if the client sees the post and formally complains to the office.", es: "Sí, pero solo si el cliente ve la publicación y se queja formalmente a la oficina." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-sm-02-nlra-section-7",
@@ -6065,11 +6059,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — discussing pay publicly violates Phes confidentiality terms in the handbook.", es: "Sí — discutir el pago públicamente viola los términos de confidencialidad de Phes." },
-      { en: "No — pay discussion is protected under Section 7 of the federal NLRA.", es: "No — la discusión del pago está protegida por la Sección 7 de la NLRA federal." },
       { en: "Yes — pay discussion is only allowed if you also tag the official office account.", es: "Sí — la discusión del pago solo se permite si también etiqueta la cuenta oficial." },
       { en: "Yes — pay discussion is allowed only when posted from a fully anonymous account.", es: "Sí — la discusión del pago se permite solo cuando se publica desde una cuenta anónima." },
+      { en: "No — pay discussion is protected under Section 7 of the federal NLRA.", es: "No — la discusión del pago está protegida por la Sección 7 de la NLRA federal." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-sm-03-off-duty-private",
@@ -6079,12 +6073,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Phes le pide la contraseña de su Instagram personal para que la oficina pueda verificar lo que publica. Bajo la ley de Illinois, ¿tiene Phes el derecho de exigir esto?",
     },
     options: [
-      { en: "Yes — the Phes social-media policy grants Phes that direct monitoring authority.", es: "Sí — la política de redes sociales de Phes le da a Phes esa autoridad de monitoreo directo." },
       { en: "No — Illinois 820 ILCS 55 prohibits employers from demanding personal account access.", es: "No — la ley 820 ILCS 55 de Illinois prohíbe a los empleadores exigir acceso a cuentas personales." },
+      { en: "Yes — the Phes social-media policy grants Phes that direct monitoring authority.", es: "Sí — la política de redes sociales de Phes le da a Phes esa autoridad de monitoreo directo." },
       { en: "Yes, but only after two full weeks of written notice from the Phes office team.", es: "Sí, pero solo después de dos semanas completas de aviso escrito por la oficina." },
       { en: "Yes, but only if a personal post specifically involves alcohol use while in uniform.", es: "Sí, pero solo si una publicación involucra específicamente uso de alcohol en uniforme." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-sm-04-uniform-misuse",
@@ -6110,11 +6104,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "The Drug & Alcohol Policy and the Code of Conduct conflict-of-interest section.", es: "La Política de Drogas y Alcohol y la sección de conflicto de interés del Código de Conducta." },
-      { en: "The Non-Solicitation Agreement and the Social Media Policy DM restriction.", es: "El Acuerdo de No Solicitación y la restricción de DM de la Política de Redes Sociales." },
       { en: "The Video & Photo Release and the Compensation policy on bonus eligibility rules.", es: "La Autorización de Video y Foto y la política de Compensación sobre reglas de bonos." },
+      { en: "The Non-Solicitation Agreement and the Social Media Policy DM restriction.", es: "El Acuerdo de No Solicitación y la restricción de DM de la Política de Redes Sociales." },
       { en: "None — you are no longer employed at Phes so no policy continues to apply.", es: "Ninguna — ya no está empleado en Phes así que ninguna política continúa aplicando." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-sm-06-disparagement",
@@ -6125,11 +6119,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "No — the client's full name is not visible anywhere in the Facebook post itself.", es: "No — el nombre completo de la cliente no es visible en la publicación de Facebook." },
-      { en: "Yes — identifiable client disparagement is prohibited even without using a name.", es: "Sí — el menosprecio de un cliente identificable está prohibido incluso sin usar un nombre." },
       { en: "No, because complaining about clients is a private personal feeling, not policy.", es: "No, porque quejarse de los clientes es un sentimiento personal privado, no política." },
       { en: "Yes, but only if the client herself eventually sees the post directly online.", es: "Sí, pero solo si la cliente eventualmente ve la publicación directamente en línea." },
+      { en: "Yes — identifiable client disparagement is prohibited even without using a name.", es: "Sí — el menosprecio de un cliente identificable está prohibido incluso sin usar un nombre." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-sm-07-impersonation",
@@ -6139,12 +6133,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Crea una nueva página de Facebook llamada 'Phes Cleaning Oak Lawn' para compartir consejos de limpieza. Cree que sería útil para la comunidad. La oficina no lo aprobó. ¿Está permitido?",
     },
     options: [
-      { en: "Yes — cleaning tips are harmless community content under the social-media policy.", es: "Sí — los consejos de limpieza son contenido comunitario inofensivo bajo la política." },
       { en: "No — you may not create a Phes-branded page without prior office authorization.", es: "No — no puede crear una página con marca de Phes sin autorización previa de la oficina." },
+      { en: "Yes — cleaning tips are harmless community content under the social-media policy.", es: "Sí — los consejos de limpieza son contenido comunitario inofensivo bajo la política." },
       { en: "Yes, as long as you carefully avoid posting about Phes pay, hours, or schedules.", es: "Sí, mientras evite cuidadosamente publicar sobre pago, horas u horarios de Phes." },
       { en: "Yes, but only if you charge a paid membership fee for tip-content access.", es: "Sí, pero solo si cobra una tarifa de membresía pagada por acceso al contenido de tips." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-sm-08-protected-concerted",
@@ -6170,11 +6164,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Stay out of it — social media interactions are private personal speech overall.", es: "Manténgase al margen — las interacciones en redes son habla personal privada." },
-      { en: "Report it through Code of Conduct channels — the same protections apply online.", es: "Reportarlo a través de las vías del Código de Conducta — las mismas protecciones aplican." },
       { en: "Reply publicly on Facebook defending the targeted coworker out loud yourself.", es: "Responder públicamente en Facebook defendiendo al compañero objetivo en voz alta." },
+      { en: "Report it through Code of Conduct channels — the same protections apply online.", es: "Reportarlo a través de las vías del Código de Conducta — las mismas protecciones aplican." },
       { en: "Screenshot the offending comment and post it to your own personal account.", es: "Tomar captura del comentario ofensivo y publicarlo en su cuenta personal." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-sm-10-client-photos",
@@ -6185,11 +6179,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Yes — the graphic depicts a client home interior posted to social media.", es: "Sí — el gráfico muestra el interior de un hogar de cliente en redes sociales." },
-      { en: "No — official Phes channels are governed by the Video & Photo Release instead.", es: "No — los canales oficiales de Phes se rigen por la Autorización de Video y Foto." },
       { en: "Yes, but only if a client themselves is shown in the photo of the kitchen.", es: "Sí, pero solo si el cliente mismo aparece mostrado en la foto de la cocina." },
       { en: "Yes — interior kitchen photography is restricted as inherently private space.", es: "Sí — la fotografía interior de cocinas está restringida como espacio inherentemente privado." },
+      { en: "No — official Phes channels are governed by the Video & Photo Release instead.", es: "No — los canales oficiales de Phes se rigen por la Autorización de Video y Foto." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -6203,12 +6197,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "¿Cuándo se vuelve elegible un empleado para participar en el Plan 401(k) de Phes?",
     },
     options: [
-      { en: "On their very first scheduled day of paid employment with the company.", es: "En su primer día programado y pagado de empleo con la compañía." },
       { en: "After turning age 18 AND completing 3 months of service, by next entry date.", es: "Al cumplir 18 años Y completar 3 meses de servicio, en la próxima entrada." },
+      { en: "On their very first scheduled day of paid employment with the company.", es: "En su primer día programado y pagado de empleo con la compañía." },
       { en: "After completing one full year of continuous active employment with Phes.", es: "Después de completar un año completo continuo de empleo activo con Phes." },
       { en: "After they successfully pass the mandatory three-week training period.", es: "Después de pasar exitosamente el periodo obligatorio de tres semanas de capacitación." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-401-02-auto-enroll-pct",
@@ -6219,11 +6213,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "1 percent of pay, deducted pre-tax into the Plan default investment fund.", es: "1 por ciento del pago, deducido antes de impuestos al fondo predeterminado." },
-      { en: "3 percent of pay, deducted pre-tax into the Plan default fund; change anytime.", es: "3 por ciento del pago, deducido antes de impuestos al fondo predeterminado." },
       { en: "5 percent of pay, deducted pre-tax into the Plan default investment fund.", es: "5 por ciento del pago, deducido antes de impuestos al fondo predeterminado." },
       { en: "10 percent of pay, deducted pre-tax into the Plan default investment fund.", es: "10 por ciento del pago, deducido antes de impuestos al fondo predeterminado." },
+      { en: "3 percent of pay, deducted pre-tax into the Plan default fund; change anytime.", es: "3 por ciento del pago, deducido antes de impuestos al fondo predeterminado." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-401-03-safe-harbor-formula",
@@ -6249,11 +6243,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "2 percent of pay — half of your 5 percent matched at a flat partial rate.", es: "2 por ciento del pago — la mitad de su 5 por ciento igualado a tarifa parcial." },
-      { en: "3 percent of pay — only the first 3 percent tier of the safe-harbor formula.", es: "3 por ciento del pago — solo el primer 3 por ciento del nivel de safe-harbor." },
       { en: "4 percent of pay — 3 percent match on first 3 plus 1 percent on next 2.", es: "4 por ciento del pago — 3 por ciento sobre el primer 3 más 1 por ciento sobre el siguiente 2." },
+      { en: "3 percent of pay — only the first 3 percent tier of the safe-harbor formula.", es: "3 por ciento del pago — solo el primer 3 por ciento del nivel de safe-harbor." },
       { en: "5 percent of pay — Phes fully matches your contribution dollar for dollar.", es: "5 por ciento del pago — Phes iguala su contribución dólar por dólar." },
     ],
-    correctIndex: 2,
+    correctIndex: 1,
   },
   {
     id: "q-401-05-vesting-immediate",
@@ -6263,12 +6257,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "¿Sus propias contribuciones y la contribución Safe Harbor son 100 por ciento suyas desde el primer día?",
     },
     options: [
-      { en: "Yes — employee contributions and the Safe Harbor match are 100% vested immediately.", es: "Sí — sus contribuciones y la igualación Safe Harbor están 100% adquiridas de inmediato." },
       { en: "No — they vest gradually over a 6-year graded vesting schedule from hire.", es: "No — se adquieren gradualmente sobre un calendario de adquisición de 6 años." },
       { en: "Only after you complete 5 years of continuous active service with Phes Cleaning.", es: "Solo después de completar 5 años de servicio activo continuo con Phes Cleaning." },
+      { en: "Yes — employee contributions and the Safe Harbor match are 100% vested immediately.", es: "Sí — sus contribuciones y la igualación Safe Harbor están 100% adquiridas de inmediato." },
       { en: "Only when you actually retire and take a qualified distribution from the plan.", es: "Solo cuando se jubile y tome una distribución calificada del plan." },
     ],
-    correctIndex: 0,
+    correctIndex: 2,
   },
   {
     id: "q-401-06-enrollment-paths",
@@ -6279,11 +6273,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Wait for the Phes office to formally enroll you on your next eligibility date.", es: "Espere a que la oficina de Phes lo inscriba en su próxima fecha de elegibilidad." },
-      { en: "Text 'Enroll Now' to 72408, visit My.ADP.com, use the app, or call 1-800-695-7526.", es: "Envíe 'Enroll Now' al 72408, visite My.ADP.com, use la app o llame 1-800-695-7526." },
       { en: "Fill out a paper election form and mail it to the ADP retirement services center.", es: "Llene un formulario en papel y envíelo por correo al centro de servicios de ADP." },
       { en: "Wait until your 1-year anniversary at Phes to make any 401(k) election changes.", es: "Espere hasta su aniversario de 1 año en Phes para hacer cambios al 401(k)." },
+      { en: "Text 'Enroll Now' to 72408, visit My.ADP.com, use the app, or call 1-800-695-7526.", es: "Envíe 'Enroll Now' al 72408, visite My.ADP.com, use la app o llame 1-800-695-7526." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-401-07-catch-up-50-plus",
@@ -6293,12 +6287,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Cumplirá 52 antes de fin de año. ¿Puede contribuir más del límite anual estándar de $24,500?",
     },
     options: [
-      { en: "No — the standard $24,500 annual limit applies equally to every participant.", es: "No — el límite estándar anual de $24,500 aplica igualmente a cada participante." },
       { en: "Yes — standard catch-up (age 50+ by Dec 31) allows an extra $8,000 per year on top.", es: "Sí — recuperación estándar (50+ al 31 de diciembre) permite $8,000 extra al año." },
+      { en: "No — the standard $24,500 annual limit applies equally to every participant.", es: "No — el límite estándar anual de $24,500 aplica igualmente a cada participante." },
       { en: "Yes — there is no upper contribution limit at all for participants who are older.", es: "Sí — no hay límite superior de contribución para participantes mayores." },
       { en: "Only if your spouse formally co-signs the election form acknowledging the increase.", es: "Solo si su cónyuge co-firma formalmente la elección reconociendo el aumento." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-401-08-early-withdrawal-penalty",
@@ -6324,11 +6318,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "It is required by federal law to be designated and updated every single year.", es: "Es requerido por ley federal designar y actualizarlo cada año sin falta." },
-      { en: "Your account passes to the beneficiary you designate if you die holding the balance.", es: "Su cuenta pasa al beneficiario que designe si fallece manteniendo el saldo." },
       { en: "It automatically increases your contribution rate by 1 percent each plan year.", es: "Aumenta automáticamente su tasa de contribución 1 por ciento cada año del plan." },
+      { en: "Your account passes to the beneficiary you designate if you die holding the balance.", es: "Su cuenta pasa al beneficiario que designe si fallece manteniendo el saldo." },
       { en: "It changes your default investment strategy to a more aggressive growth allocation.", es: "Cambia su estrategia de inversión predeterminada a una asignación más agresiva." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-401-10-opt-out-paths",
@@ -6339,11 +6333,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "No — once you are auto-enrolled in the plan you cannot opt back out at all.", es: "No — una vez auto-inscrito en el plan no puede cancelar la inscripción." },
-      { en: "Yes — opt out anytime via My.ADP.com, the mobile app, or the Voice-Response System.", es: "Sí — cancele en cualquier momento por My.ADP.com, la app móvil o el sistema de voz." },
       { en: "Only during the first calendar month immediately following your auto-enrollment date.", es: "Solo durante el primer mes calendario después de su fecha de inscripción automática." },
       { en: "Only if you are under age 21 at the time you request opt-out from the plan.", es: "Solo si tiene menos de 21 años cuando solicita cancelar la inscripción del plan." },
+      { en: "Yes — opt out anytime via My.ADP.com, the mobile app, or the Voice-Response System.", es: "Sí — cancele en cualquier momento por My.ADP.com, la app móvil o el sistema de voz." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -6357,12 +6351,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "¿Quién es dueño de los artículos de su kit de suministros de Phes (caddy, aspiradora, productos en botellas con marca de Phes, uniforme, llaves, teléfono de Phes)?",
     },
     options: [
-      { en: "You own them outright once you start using them regularly on your Phes shifts.", es: "Usted los posee directamente una vez que empiece a usarlos regularmente en sus turnos de Phes." },
       { en: "Phes owns all of it — the kit is loaned for the duration of your employment.", es: "Phes es dueña de todo — el kit se le presta durante el tiempo de su empleo." },
+      { en: "You own them outright once you start using them regularly on your Phes shifts.", es: "Usted los posee directamente una vez que empiece a usarlos regularmente en sus turnos de Phes." },
       { en: "You and Phes own them jointly under a written shared-property arrangement.", es: "Usted y Phes son propietarios conjuntos bajo un arreglo escrito de propiedad compartida." },
       { en: "Whoever is assigned the recurring route owns the kit while on that route.", es: "Quien tenga asignada la ruta recurrente posee el kit mientras esté en esa ruta." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-sk-02-supply-pickup-responsibility",
@@ -6388,11 +6382,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Try to hide the damage and hope no one at the office notices the crack later.", es: "Tratar de ocultar el daño y esperar que nadie en la oficina note la grieta después." },
-      { en: "Report the damage to the office BEFORE your next scheduled shift starts.", es: "Reportar el daño a la oficina ANTES de que empiece su siguiente turno programado." },
       { en: "Take a quick photo of the broken vacuum housing and post it on your Instagram.", es: "Tomar una foto rápida de la carcasa rota de la aspiradora y publicarla en su Instagram." },
+      { en: "Report the damage to the office BEFORE your next scheduled shift starts.", es: "Reportar el daño a la oficina ANTES de que empiece su siguiente turno programado." },
       { en: "Buy a replacement vacuum out of pocket and quietly swap it into the kit bag.", es: "Comprar una aspiradora de reemplazo de su bolsillo y cambiarla discretamente en el kit." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-sk-04-lost-key-procedure",
@@ -6403,11 +6397,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Wait until your shift ends, then casually mention it to the office team after.", es: "Esperar a que termine el turno y luego mencionarlo casualmente a la oficina." },
-      { en: "Call the office IMMEDIATELY — Phes coordinates the rekey or code change and pays.", es: "Llamar a la oficina INMEDIATAMENTE — Phes coordina el rekey o cambio de código y lo paga." },
       { en: "Have your spouse swing by the client's home and return the lost key on their way.", es: "Que su cónyuge pase por el hogar del cliente y devuelva la llave perdida de camino." },
       { en: "Make a duplicate key from a spare and continue using that copy on the next visit.", es: "Hacer una llave duplicada de una de repuesto y seguir usando esa copia la próxima visita." },
+      { en: "Call the office IMMEDIATELY — Phes coordinates the rekey or code change and pays.", es: "Llamar a la oficina INMEDIATAMENTE — Phes coordina el rekey o cambio de código y lo paga." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-sk-05-supply-pickup-out-of-supplies",
@@ -6417,12 +6411,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Se da cuenta la noche antes de un trabajo que está sin un suministro clave y no puede recogerlo en la oficina a tiempo. ¿Qué hace Phes?",
     },
     options: [
-      { en: "Phes ships me the supplies overnight at the company's expense.", es: "Phes me envía los suministros de un día para otro a cuenta de la compañía." },
       { en: "Phes will not pay for emergency shipping or retail-store time. I am responsible for solving the gap on my own time and at my own expense.", es: "Phes no paga envío urgente ni tiempo en tiendas. Yo soy responsable de resolver la falta en mi tiempo y a mi costo." },
+      { en: "Phes ships me the supplies overnight at the company's expense.", es: "Phes me envía los suministros de un día para otro a cuenta de la compañía." },
       { en: "Phes pays me for the time and mileage to drive to a retail store to buy the supplies.", es: "Phes me paga el tiempo y millaje para ir a una tienda minorista a comprar los suministros." },
       { en: "Phes excuses me from the job and the client is rescheduled at no fault to me.", es: "Phes me excusa del trabajo y el cliente se reagenda sin culpa para mí." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-sk-06-no-automatic-deduction",
@@ -6448,11 +6442,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Only during my scheduled workday between assigned jobs.", es: "Solo durante mi jornada laboral, entre trabajos asignados." },
-      { en: "Any time during office hours, including before my workday, after my workday, or on my days off.", es: "En cualquier momento del horario de oficina, incluyendo antes y después de mi jornada o en mis días libres." },
       { en: "Only on my scheduled days off, never during the workweek.", es: "Solo en mis días libres programados, nunca durante la semana laboral." },
+      { en: "Any time during office hours, including before my workday, after my workday, or on my days off.", es: "En cualquier momento del horario de oficina, incluyendo antes y después de mi jornada o en mis días libres." },
       { en: "I must come to the office every morning before my first job.", es: "Debo venir a la oficina cada mañana antes de mi primer trabajo." },
     ],
-    correctIndex: 1,
+    correctIndex: 2,
   },
   {
     id: "q-sk-08-supply-pickup-not-compensated",
@@ -6463,11 +6457,11 @@ const BASE_QUIZ: QuizQuestion[] = [
     },
     options: [
       { en: "Every stop at the office to get supplies is always fully paid.", es: "Cada parada en la oficina para obtener suministros siempre se paga por completo." },
-      { en: "Convenience pickups aren't paid, but a required special trip is paid and its office-to-first-job mileage reimbursed.", es: "Las recogidas por conveniencia no se pagan, pero un viaje especial requerido se paga y su millaje de la oficina al primer trabajo se reembolsa." },
       { en: "Stops at the office for supplies are never paid, under any circumstance.", es: "Las paradas en la oficina por suministros nunca se pagan, bajo ninguna circunstancia." },
       { en: "Only the mileage for a supply stop is paid, never the time.", es: "Solo el millaje de una parada por suministros se paga, nunca el tiempo." },
+      { en: "Convenience pickups aren't paid, but a required special trip is paid and its office-to-first-job mileage reimbursed.", es: "Las recogidas por conveniencia no se pagan, pero un viaje especial requerido se paga y su millaje de la oficina al primer trabajo se reembolsa." },
     ],
-    correctIndex: 1,
+    correctIndex: 3,
   },
   {
     id: "q-sk-09-supply-pickup-planning",
@@ -6477,12 +6471,12 @@ const BASE_QUIZ: QuizQuestion[] = [
       es: "Termina un trabajo a 2 millas de la oficina de Phes. Su kit de suministros está bajo. ¿Cuál es la mejor práctica?",
     },
     options: [
-      { en: "Continue to my next destination and come back to the office tomorrow during my scheduled workday.", es: "Continuar a mi próximo destino y volver a la oficina mañana durante mi jornada laboral." },
       { en: "Stop at the office to restock supplies, since I am already in the area. Plan pickups around existing travel patterns.", es: "Pasar a la oficina a reabastecer, ya que estoy en el área. Planifico recogidas según mis patrones de viaje." },
+      { en: "Continue to my next destination and come back to the office tomorrow during my scheduled workday.", es: "Continuar a mi próximo destino y volver a la oficina mañana durante mi jornada laboral." },
       { en: "Wait until I run out of supplies and then come to the office for an emergency pickup.", es: "Esperar a que se me acaben los suministros y luego ir a la oficina por una recogida de emergencia." },
       { en: "Ask the office to ship supplies to my home tonight rather than stopping, even though I'm two miles away.", es: "Pedir a la oficina que envíe suministros a mi casa esta noche en lugar de pasar, aunque estoy a dos millas." },
     ],
-    correctIndex: 1,
+    correctIndex: 0,
   },
   {
     id: "q-sk-10-replacement-process",

@@ -203,8 +203,8 @@ describe("scoreQuiz", () => {
   });
 
   it("scores 100% when every answer matches the bank", () => {
-    const qids = ["q-cb-01-room-flow", "q-cb-02-room-order"]; // bank says 1, 2
-    const r = scoreQuiz([1, 2], qids);
+    const qids = ["q-cb-01-room-flow", "q-cb-02-room-order"];
+    const r = scoreQuiz(qids.map((q) => ANSWER_KEY[q]), qids);
     assert.equal(r.score, 100);
     assert.equal(r.passed, true);
     assert.equal(r.correctCount, 2);
@@ -214,7 +214,7 @@ describe("scoreQuiz", () => {
 
   it("scores 0% when every answer is wrong", () => {
     const qids = ["q-cb-01-room-flow", "q-cb-02-room-order"];
-    const r = scoreQuiz([0, 0], qids);
+    const r = scoreQuiz(qids.map((q) => (ANSWER_KEY[q] + 1) % 4), qids);
     assert.equal(r.score, 0);
     assert.equal(r.passed, false);
     assert.equal(r.correctCount, 0);
@@ -229,8 +229,9 @@ describe("scoreQuiz", () => {
   });
 
   it("treats unknown question ids as incorrect (defensive against drift)", () => {
-    const r = scoreQuiz([0, 1], ["q-cb-01-room-flow", "q-does-not-exist"]);
-    // q-cb-01-room-flow correct=1; got 0 → wrong. q-does-not-exist → unknown → wrong.
+    // First answer is deliberately wrong; second id is unknown → both wrong.
+    const wrong = (ANSWER_KEY["q-cb-01-room-flow"] + 1) % 4;
+    const r = scoreQuiz([wrong, 1], ["q-cb-01-room-flow", "q-does-not-exist"]);
     assert.equal(r.correctCount, 0);
     assert.equal(r.score, 0);
   });
@@ -269,8 +270,8 @@ describe("scoreQuiz", () => {
 
   it("perQuestion array marks correctness positionally", () => {
     const qids = ["q-cb-01-room-flow", "q-cb-02-room-order", "q-cb-11-supplies-left"];
-    // bank: 1, 2, 1 → answer 1, 99, 1
-    const r = scoreQuiz([1, 99, 1], qids);
+    // first + third correct, middle deliberately wrong (99)
+    const r = scoreQuiz([ANSWER_KEY[qids[0]], 99, ANSWER_KEY[qids[2]]], qids);
     assert.deepEqual(r.perQuestion, [true, false, true]);
   });
 
@@ -288,8 +289,8 @@ describe("scoreQuiz", () => {
 
   it("clamps when answers array is shorter than questionIds (rest treated as null)", () => {
     const qids = ["q-cb-01-room-flow", "q-cb-02-room-order"];
-    const r = scoreQuiz([1], qids); // only first answered
-    assert.equal(r.correctCount, 1); // first matches bank=1
+    const r = scoreQuiz([ANSWER_KEY[qids[0]]], qids); // only first answered, correctly
+    assert.equal(r.correctCount, 1);
     assert.equal(r.totalCount, 2);
     assert.equal(r.score, 50);
     assert.equal(r.passed, false);
@@ -297,7 +298,7 @@ describe("scoreQuiz", () => {
 
   it("clamps when answers array is longer than questionIds (extras ignored)", () => {
     const qids = ["q-cb-01-room-flow"];
-    const r = scoreQuiz([1, 99, 99], qids);
+    const r = scoreQuiz([ANSWER_KEY[qids[0]], 99, 99], qids);
     assert.equal(r.correctCount, 1);
     assert.equal(r.totalCount, 1);
     assert.equal(r.score, 100);
