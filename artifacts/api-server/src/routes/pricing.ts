@@ -764,7 +764,7 @@ router.get("/offer-settings", requireAuth, async (req, res) => {
   try {
     const result = await db.execute(dsql`SELECT * FROM offer_settings WHERE company_id = ${companyId} LIMIT 1`);
     if (!result.rows.length) {
-      return res.json({ upsell_enabled: true, upsell_discount_percent: 15, rate_lock_enabled: true, rate_lock_duration_months: 24, overrun_threshold_percent: 20, overrun_jobs_trigger: 2, service_gap_days: 60, renewal_alert_days: 30 });
+      return res.json({ upsell_enabled: true, upsell_discount_percent: 15, rate_lock_enabled: true, rate_lock_duration_months: 24, overrun_threshold_percent: 20, overrun_jobs_trigger: 2, service_gap_days: 60, renewal_alert_days: 30, pet_fee_enabled: false, pet_fee_type: "flat", pet_fee_amount: 0 });
     }
     return res.json(result.rows[0]);
   } catch (err) {
@@ -776,12 +776,13 @@ router.get("/offer-settings", requireAuth, async (req, res) => {
 router.put("/offer-settings", requireAuth, async (req, res) => {
   const companyId = (req as any).user?.company_id;
   const { sql: dsql } = await import("drizzle-orm");
-  const { upsell_enabled, upsell_discount_percent, rate_lock_enabled, rate_lock_duration_months, overrun_threshold_percent, overrun_jobs_trigger, service_gap_days, renewal_alert_days } = req.body;
+  const { upsell_enabled, upsell_discount_percent, rate_lock_enabled, rate_lock_duration_months, overrun_threshold_percent, overrun_jobs_trigger, service_gap_days, renewal_alert_days, pet_fee_enabled, pet_fee_type, pet_fee_amount } = req.body;
+  const petType = pet_fee_type === "percent" ? "percent" : "flat";
   try {
     await db.execute(
       dsql`
-        INSERT INTO offer_settings (company_id, upsell_enabled, upsell_discount_percent, rate_lock_enabled, rate_lock_duration_months, overrun_threshold_percent, overrun_jobs_trigger, service_gap_days, renewal_alert_days, updated_at)
-        VALUES (${companyId}, ${upsell_enabled}, ${upsell_discount_percent}, ${rate_lock_enabled}, ${rate_lock_duration_months}, ${overrun_threshold_percent}, ${overrun_jobs_trigger}, ${service_gap_days}, ${renewal_alert_days ?? 30}, NOW())
+        INSERT INTO offer_settings (company_id, upsell_enabled, upsell_discount_percent, rate_lock_enabled, rate_lock_duration_months, overrun_threshold_percent, overrun_jobs_trigger, service_gap_days, renewal_alert_days, pet_fee_enabled, pet_fee_type, pet_fee_amount, updated_at)
+        VALUES (${companyId}, ${upsell_enabled}, ${upsell_discount_percent}, ${rate_lock_enabled}, ${rate_lock_duration_months}, ${overrun_threshold_percent}, ${overrun_jobs_trigger}, ${service_gap_days}, ${renewal_alert_days ?? 30}, ${pet_fee_enabled ?? false}, ${petType}, ${pet_fee_amount ?? 0}, NOW())
         ON CONFLICT (company_id) DO UPDATE SET
           upsell_enabled = EXCLUDED.upsell_enabled,
           upsell_discount_percent = EXCLUDED.upsell_discount_percent,
@@ -791,6 +792,9 @@ router.put("/offer-settings", requireAuth, async (req, res) => {
           overrun_jobs_trigger = EXCLUDED.overrun_jobs_trigger,
           service_gap_days = EXCLUDED.service_gap_days,
           renewal_alert_days = EXCLUDED.renewal_alert_days,
+          pet_fee_enabled = EXCLUDED.pet_fee_enabled,
+          pet_fee_type = EXCLUDED.pet_fee_type,
+          pet_fee_amount = EXCLUDED.pet_fee_amount,
           updated_at = NOW()
       `
     );

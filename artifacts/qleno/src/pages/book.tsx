@@ -63,6 +63,8 @@ interface CalcResult {
   addon_breakdown: Array<{ id: number; name: string; amount: number }>;
   bundle_discount: number;
   bundle_breakdown: Array<{ name: string; discount: number }>;
+  pet_fee?: number;
+  pet_fee_type?: string | null;
   subtotal: number;
   discount_amount: number;
   discount_valid?: boolean;
@@ -784,12 +786,13 @@ export default function BookPage() {
           sqft,
           frequency: effectiveFreq,
           addon_ids: selectedAddonIds,
+          pets,
         }),
       });
       setCalcResult(result);
     } catch { /* silent */ }
     finally { setCalcLoading(false); }
-  }, [company, scopeId, sqft, frequencyStr, frequencies, selectedAddonIds, recurringFreqScopeMap]);
+  }, [company, scopeId, sqft, frequencyStr, frequencies, selectedAddonIds, recurringFreqScopeMap, pets]);
 
   useEffect(() => {
     // Only auto-calculate on step 2+ (add-ons step). On step 1 (home details),
@@ -798,7 +801,7 @@ export default function BookPage() {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(runCalc, 200);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [scopeId, sqft, frequencyStr, frequencies, selectedAddonIds, step]);
+  }, [scopeId, sqft, frequencyStr, frequencies, selectedAddonIds, step, pets]);
 
   // [capture-via-effect 2026-07-06] Abandoned-quote capture — the SINGLE source of
   // truth for turning an online quote into a Lead Pipeline lead + office alert +
@@ -1475,6 +1478,9 @@ export default function BookPage() {
       {calcResult.bundle_discount > 0 && calcResult.bundle_breakdown.map((b, i) => (
         <Row key={i} label={`${b.name} Discount`} value={`-$${b.discount.toFixed(2)}`} green />
       ))}
+      {(calcResult.pet_fee ?? 0) > 0 && (
+        <Row label="Pet Fee" value={`+$${(calcResult.pet_fee ?? 0).toFixed(2)}`} />
+      )}
       {calcResult.discount_amount > 0 && (
         <Row label="Discount code applied" value={`-$${calcResult.discount_amount.toFixed(2)}`} green />
       )}

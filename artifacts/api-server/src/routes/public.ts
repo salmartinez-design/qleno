@@ -10,6 +10,7 @@ import {
 import { companiesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getBranchByZip } from "../lib/branchRouter";
+import { computePetFee, petFeeConfigFromRow } from "../lib/pet-fee";
 import { buildClientConfirmationEmail, buildOfficeNotificationEmail } from "../lib/emailTemplates";
 import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
 import { geocodeWithComponents } from "../lib/geocode";
@@ -654,9 +655,10 @@ export async function runCalculate(params: {
   addon_ids?: number[];
   discount_code?: string;
   company_id: number;
+  pets?: number;
   public_only?: boolean;
 }) {
-  const { scope_id, sqft, frequency, addon_ids, discount_code, company_id, public_only } = params;
+  const { scope_id, sqft, frequency, addon_ids, discount_code, company_id, pets, public_only } = params;
 
   const [scope] = await db
     .select()
@@ -794,7 +796,28 @@ export async function runCalculate(params: {
   }
   addons_total -= bundle_discount;
 
-  let subtotal = base_price + addons_total;
+  // ── Pet fee (optional, per-company on offer_settings; ships DISABLED) ───────
+  // Applied to base_price only, when the company has enabled it AND the home has
+  // pets. Wrapped defensively so a missing column / read error can never break a
+  // quote — it just yields no fee (fail-safe, matching the disabled default).
+  let pet_fee = 0;
+  let pet_fee_type: string | null = null;
+  if (pets && pets > 0) {
+    try {
+      const { sql: petSql } = await import("drizzle-orm");
+      const osRes = await db.execute(petSql`
+        SELECT pet_fee_enabled, pet_fee_type, pet_fee_amount
+          FROM offer_settings WHERE company_id = ${company_id} LIMIT 1
+      `);
+      const cfg = petFeeConfigFromRow((osRes as any).rows?.[0] ?? {});
+      pet_fee = computePetFee(cfg, pets, base_price);
+      if (pet_fee > 0) pet_fee_type = cfg.type;
+    } catch (e) {
+      pet_fee = 0;
+    }
+  }
+
+  let subtotal = base_price + addons_total + pet_fee;
   let discount_amount = 0;
   let final_total = subtotal;
   let discount_valid = false;
@@ -837,6 +860,8 @@ export async function runCalculate(params: {
     addon_breakdown,
     bundle_discount: Math.round(bundle_discount * 100) / 100,
     bundle_breakdown,
+    pet_fee: Math.round(pet_fee * 100) / 100,
+    pet_fee_type,
     subtotal: Math.round(subtotal * 100) / 100,
     discount_amount: Math.round(discount_amount * 100) / 100,
     discount_valid: discount_code ? discount_valid : undefined,
@@ -847,11 +872,11 @@ export async function runCalculate(params: {
 // ── POST /api/public/calculate ───────────────────────────────────────────────
 router.post("/calculate", rateLimit, async (req, res) => {
   try {
-    const { scope_id, sqft, frequency, addon_ids, discount_code, company_id } = req.body;
+    const { scope_id, sqft, frequency, addon_ids, discount_code, company_id, pets } = req.body;
     if (!scope_id || !sqft || !frequency || !company_id) {
       return res.status(400).json({ error: "scope_id, sqft, frequency, and company_id are required" });
     }
-    const result = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, public_only: true });
+    const result = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, pets, public_only: true });
     return res.json(result);
   } catch (err: any) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
@@ -1006,7 +1031,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       });
     }
 
-    const pricing = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, public_only: true });
+    const pricing = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, pets, public_only: true });
     const { sql: drizzleSql } = await import("drizzle-orm");
 
     // Find or create client
@@ -1555,7 +1580,7 @@ router.post("/book", rateLimit, async (req, res) => {
       return res.status(400).json({ error: "Card verification required. Please use the booking widget." });
     }
 
-    const pricing = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, public_only: true });
+    const pricing = await runCalculate({ scope_id, sqft, frequency, addon_ids, discount_code, company_id, pets, public_only: true });
     const { sql: drizzleSql } = await import("drizzle-orm");
 
     const existingClients = await db.execute(
