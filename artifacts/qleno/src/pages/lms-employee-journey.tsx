@@ -97,7 +97,7 @@ const MODULE_DISPLAY_TITLES: Record<string, string> = {
   "phes-policies": "Phes Policies & Procedures",
   "compensation": "Compensation",
   "cleaning-best-practices": "Cleaning Best Practices",
-  "maidcentral": "MaidCentral",
+  "maidcentral": "Qleno",
   "products-tools": "Products & Tools",
   "il-sexual-harassment": "Illinois Sexual Harassment Prevention",
   "drug-alcohol": "Drug & Alcohol",

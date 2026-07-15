@@ -16,7 +16,8 @@
  *                                     commercial $20/hr, Fix-It, probation
  *   3. Cleaning Best Practices      — Speed-Cleaning Method (13 rules,
  *                                     name-stripped from former branded ref)
- *   4. MaidCentral                  — Two-clock system + Qleno coming-next
+ *   4. Qleno                         — One-clock-per-job workflow + GPS check-in
+ *                                     (rebranded from MaidCentral 2026-07-15)
  *   5. Products & Tools             — Existing 10 products + Zep Mold &
  *                                     Mildew, Magic Eraser, Pumice Stone,
  *                                     #0000 Steel Wool with safety + don'ts
@@ -33,7 +34,14 @@ export type ContentBlock =
   | { type: "h"; text: { en: string; es: string } }
   | { type: "bullets"; items: { en: string; es: string }[] }
   | { type: "callout"; tone: "info" | "warning" | "success"; text: { en: string; es: string } }
-  | { type: "table"; head: { en: string[]; es: string[] }; rows: { en: string[]; es: string[] }[] };
+  | { type: "table"; head: { en: string[]; es: string[] }; rows: { en: string[]; es: string[] }[] }
+  | {
+      type: "image";
+      /** Public path or absolute URL to the asset (LMS asset folder convention). */
+      src: string;
+      alt: { en: string; es: string };
+      caption?: { en: string; es: string };
+    };
 
 export type IconKind =
   | "house"        // phes-policies
@@ -358,8 +366,8 @@ const BASE_MODULES: Module[] = [
           es: ["#", "Cubeta", "Horas", "Elegible", "Aviso", "¿Puede negarse?", "¿Se paga al salir?"],
         },
         rows: [
-          { en: ["1", "Any Reason Leave (PLAWA)", "40 / year", "After 90 days", "Grace call only", "No. Protected.", "No"],
-            es: ["1", "Licencia por Cualquier Razón (PLAWA)", "40 / año", "Después de 90 días", "Solo llamada de gracia", "No. Protegida.", "No"] },
+          { en: ["1", "Any Reason Leave (PLAWA)", "40 / year", "Granted day 1; usable at 90 days", "Grace call only", "No. Protected.", "No"],
+            es: ["1", "Licencia por Cualquier Razón (PLAWA)", "40 / año", "Otorgada día 1; usable a los 90 días", "Solo llamada de gracia", "No. Protegida.", "No"] },
           { en: ["2", "PTO", "40 (yr 1) / 80 (yr 2+)", "After 1 year", "7 days advance", "Yes. Business needs.", "Yes"],
             es: ["2", "PTO", "40 (año 1) / 80 (año 2+)", "Después de 1 año", "7 días anticipados", "Sí. Necesidades del negocio.", "Sí"] },
           { en: ["3", "Unpaid Personal Leave", "40 / year (5 days)", "Day one", "7 days advance", "Yes. Business needs.", "No"],
@@ -380,7 +388,7 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "40 paid hours per Benefit Year, front-loaded after 90 days of employment.", es: "40 horas pagadas por Año de Beneficios, otorgadas por adelantado después de 90 días de empleo." },
+          { en: "40 paid hours per Benefit Year, front-loaded and available in your account on your FIRST DAY of employment (and on the first day of each Benefit Year). Under the Illinois Paid Leave for All Workers Act the hours are granted on day one; you may begin USING them after your 90th day of employment. Only the use is time-restricted, not the grant.", es: "40 horas pagadas por Año de Beneficios, otorgadas por adelantado y disponibles en su cuenta en su PRIMER DÍA de empleo (y el primer día de cada Año de Beneficios). Bajo la Ley de Licencia Pagada para Todos los Trabajadores de Illinois, las horas se otorgan desde el primer día; puede comenzar a USARLAS después de su día 90 de empleo. Solo el uso está restringido en el tiempo, no el otorgamiento." },
           { en: "Use it for ANY reason. Examples: your illness, family illness, mental health day, medical appointment, flat tire, or no reason given. The law does not require you to explain.", es: "Úsela por CUALQUIER razón. Ejemplos: su enfermedad, enfermedad familiar, día de salud mental, cita médica, llanta ponchada o sin razón dada. La ley no exige que explique." },
           { en: "Phes NEVER requires documentation, regardless of absence length. This is Phes's policy choice and is stricter than what the law requires.", es: "Phes NUNCA exige documentación, sin importar la duración de la ausencia. Esta es la política de Phes y es más estricta que lo que exige la ley." },
           { en: "Notice: the 20-minute grace call only. No advance approval required.", es: "Aviso: solo la llamada de gracia de 20 minutos. No se requiere aprobación previa." },
@@ -604,7 +612,7 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "STEP 1. Submit through MaidCentral / Qleno. This is what dispatch sees and what triggers client notifications.", es: "PASO 1. Envíe por MaidCentral / Qleno. Esto es lo que ve el despacho y lo que activa las notificaciones al cliente." },
+          { en: "STEP 1. Submit through Qleno. This is what dispatch sees and what triggers client notifications.", es: "PASO 1. Envíe por Qleno. Esto es lo que ve el despacho y lo que activa las notificaciones al cliente." },
           { en: "STEP 2. Contact the office team directly (text or call) to confirm receipt. Either step alone is not enough.", es: "PASO 2. Contacte directamente al equipo de la oficina (mensaje o llamada) para confirmar la recepción. Un paso solo no es suficiente." },
         ],
       },
@@ -1029,40 +1037,41 @@ const BASE_MODULES: Module[] = [
         },
       },
 
-      { type: "h", text: { en: "Supply Pickup and Maintenance Responsibility", es: "Responsabilidad de Recoger y Mantener los Suministros" } },
+      { type: "h", text: { en: "Supply Pickup (Your Choice)", es: "Recoger Suministros (Su Elección)" } },
       {
         type: "p",
         text: {
-          en: "It is your responsibility as a Phes technician to maintain your supply kit and ensure you have the supplies you need to perform your assigned work. Phes provides supplies at the office. You are responsible for picking them up.",
-          es: "Es su responsabilidad como técnico de Phes mantener su kit de suministros y asegurarse de tener los suministros que necesita para realizar el trabajo asignado. Phes provee los suministros en la oficina. Usted es responsable de recogerlos.",
+          en: "You are responsible for keeping your supply kit stocked so you have what you need for your assigned work. Phes makes sure you have the supplies you need — you do not have to come to the office to stay stocked. You have options:",
+          es: "Usted es responsable de mantener su kit de suministros abastecido para tener lo que necesita para su trabajo asignado. Phes se asegura de que tenga los suministros que necesita — no tiene que venir a la oficina para mantenerse abastecido. Tiene opciones:",
+        },
+      },
+      {
+        type: "bullets",
+        items: [
+          { en: "We deliver. Phes will ship supplies to you (Amazon) or place a pre-paid store pickup order for you (for example, a Home Depot drive-up), so you can restock without a special trip.", es: "Nosotros entregamos. Phes le enviará suministros (Amazon) o hará un pedido de recogida prepagado en una tienda por usted (por ejemplo, un drive-up de Home Depot), para que se reabastezca sin un viaje especial." },
+          { en: "You pick up when it's convenient. You're welcome to grab supplies at the office when you're already working nearby — most techs do this every week or two. Picking up this way is optional and is not a required part of your workday.", es: "Usted recoge cuando le conviene. Puede tomar suministros en la oficina cuando ya está trabajando cerca — la mayoría de los técnicos lo hacen cada una o dos semanas. Recoger de esta forma es opcional y no es una parte requerida de su jornada laboral." },
+          { en: "Last-minute needs. If you unexpectedly run short, contact the office and we'll get supplies to you the fastest way — delivery, a pre-paid pickup, or a quick office stop.", es: "Necesidades de último minuto. Si inesperadamente se queda corto, contacte a la oficina y le haremos llegar los suministros de la forma más rápida — entrega, una recogida prepagada o una parada rápida en la oficina." },
+        ],
+      },
+      {
+        type: "p",
+        text: {
+          en: "Keep office stops quick: grab what you need and head out. If Phes ever asks you to make a special trip to the office just to pick up supplies — one you wouldn't otherwise be making — that time is paid, and the mileage from the office to your first job that day is reimbursed. Log it in Qleno so it lands on your paycheck.",
+          es: "Mantenga breves las paradas en la oficina: tome lo que necesita y salga. Si Phes alguna vez le pide hacer un viaje especial a la oficina solo para recoger suministros — uno que de otro modo no haría — ese tiempo se paga, y el millaje de la oficina a su primer trabajo ese día se reembolsa. Regístrelo en Qleno para que llegue a su pago.",
         },
       },
       {
         type: "p",
         text: {
-          en: "Supply pickup is flexible. You may come to the office at any time during office hours, including before your scheduled workday, after your scheduled workday, or on your scheduled days off. Phes does not require daily check-ins at the office. We provide flexibility, and we expect you to plan your supply pickups responsibly.",
-          es: "Recoger suministros es flexible. Puede venir a la oficina en cualquier momento durante el horario de oficina, incluyendo antes de su jornada laboral, después de su jornada laboral, o en sus días libres programados. Phes no requiere visitas diarias a la oficina. Le damos flexibilidad y esperamos que planifique sus recogidas de suministros con responsabilidad.",
+          en: "Ordinary travel from home to your first job, and from your last job back home, is regular commuting and is not paid — the same as any job.",
+          es: "El viaje ordinario de su casa a su primer trabajo, y de su último trabajo de regreso a casa, es trayecto regular y no se paga — igual que en cualquier trabajo.",
         },
       },
       {
         type: "p",
         text: {
-          en: "Supply pickup is a preparatory activity. It is not part of your scheduled workday. Travel time to and from the office for supply pickup is not compensated, and mileage to the office for supply pickup is not reimbursed.",
-          es: "Recoger suministros es una actividad preparatoria. No es parte de su jornada laboral programada. El tiempo de viaje hacia y desde la oficina para recoger suministros no se compensa, y el millaje hacia la oficina para recoger suministros no se reembolsa.",
-        },
-      },
-      {
-        type: "p",
-        text: {
-          en: "If you run out of supplies because you failed to pick them up in advance, you are responsible for solving the gap on your own time and at your own expense. Phes will not ship supplies to your home, will not deliver supplies to job sites for supply gaps caused by poor planning, and will not pay you for time spent running to retail stores in those circumstances.",
-          es: "Si se queda sin suministros porque no los recogió con anticipación, usted es responsable de resolver la falta en su propio tiempo y a su propio costo. Phes no enviará suministros a su casa, no entregará suministros en los sitios de trabajo por faltas causadas por mala planificación, y no le pagará por el tiempo dedicado a ir a tiendas minoristas en esas circunstancias.",
-        },
-      },
-      {
-        type: "p",
-        text: {
-          en: "Repeatedly running out of supplies or failing to maintain your supply kit may result in discipline up to and including termination. See the Supply Kit Responsibility module (Module 13) for full details on supply planning, office pickup hours, and supply management best practices.",
-          es: "Quedarse sin suministros repetidamente o no mantener su kit de suministros puede resultar en disciplina hasta e incluyendo la terminación. Vea el módulo de Responsabilidad del Kit de Suministros (Módulo 13) para todos los detalles sobre planificación de suministros, horarios de recogida en oficina y mejores prácticas de gestión de suministros.",
+          en: "Repeatedly letting your kit run empty through poor planning may result in discipline up to and including termination, and avoidable emergency retail runs caused by poor planning are not reimbursed. See the Supply Kit Responsibility module (Module 13) for supply planning and office pickup details.",
+          es: "Dejar que su kit se quede vacío repetidamente por mala planificación puede resultar en disciplina hasta e incluyendo la terminación, y las carreras de emergencia evitables a tiendas causadas por mala planificación no se reembolsan. Vea el módulo de Responsabilidad del Kit de Suministros (Módulo 13) para detalles de planificación de suministros y recogida en la oficina.",
         },
       },
 
@@ -1423,7 +1432,7 @@ const BASE_MODULES: Module[] = [
         type: "bullets",
         items: [
           { en: "Pay cycle: weekly. The payroll workweek runs Sunday through Saturday. Each completed workweek is deposited the following Friday (so work done this Sunday through Saturday hits your account next Friday).", es: "Ciclo de pago: semanal. La semana de nómina va de domingo a sábado. Cada semana completa se deposita el viernes siguiente (el trabajo hecho de domingo a sábado se deposita el siguiente viernes)." },
-          { en: "Direct deposit only. No paper checks.", es: "Solo depósito directo. Sin cheques de papel." },
+          { en: "Payment is made via direct deposit. If you prefer to receive your wages by physical paper check, notify the office team to set it up.", es: "El pago se realiza mediante depósito directo. Si prefiere recibir su salario por cheque de papel físico, avise al equipo de la oficina para configurarlo." },
           { en: "Tips paid through the booking system are deposited the same week as the work that earned them.", es: "Las propinas pagadas a través del sistema de reservas se depositan en la misma semana del trabajo que las generó." },
           { en: "Tips received through the booking system are reported on your W-2 and subject to standard payroll tax withholding (federal income tax, FICA, Medicare, and applicable state taxes). Cash tips are 100% yours to keep and are your responsibility to report to the IRS per Section 6053 tip reporting rules.", es: "Las propinas recibidas a través del sistema de reservas se reportan en su W-2 y están sujetas a la retención estándar de impuestos sobre la nómina (impuesto federal sobre la renta, FICA, Medicare y los impuestos estatales aplicables). Las propinas en efectivo son 100% suyas para quedárselas y es su responsabilidad reportarlas al IRS de acuerdo con las reglas de reporte de propinas de la Sección 6053." },
           { en: "Mileage is paid the week after the request is approved.", es: "El millaje se paga la semana siguiente a la aprobación de la solicitud." },
@@ -1524,16 +1533,16 @@ const BASE_MODULES: Module[] = [
   },
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 4. MAIDCENTRAL (with Qleno coming-next callout)
+  // 4. QLENO (one-clock-per-job workflow; rebranded from MaidCentral 2026-07-15)
   // ═══════════════════════════════════════════════════════════════════════════
   {
     id: "maidcentral",
     number: 4,
     iconKind: "pin",
-    title: { en: "MaidCentral", es: "MaidCentral" },
+    title: { en: "Qleno", es: "Qleno" },
     subtitle: {
-      en: "Your scheduled workday, assigned jobs, the one-clock-per-job workflow, GPS check-in, the 600-foot rule, mileage between jobs, and time-correction requests.",
-      es: "Su jornada laboral programada, trabajos asignados, el flujo de un reloj por trabajo, Check In por GPS, la regla de 600 pies, millaje entre trabajos y solicitudes de corrección.",
+      en: "Your scheduled workday, assigned jobs, the one-clock-per-job workflow, GPS check-in, the 600-foot rule, mileage between jobs, and time-correction requests — in Qleno.",
+      es: "Su jornada laboral programada, trabajos asignados, el flujo de un reloj por trabajo, Check In por GPS, la regla de 600 pies, millaje entre trabajos y solicitudes de corrección — en Qleno.",
     },
     estimatedMinutes: 10,
     blocks: [
@@ -1560,14 +1569,38 @@ const BASE_MODULES: Module[] = [
           es: "Se le paga comisión sobre cada trabajo completado a las tarifas descritas en el módulo de Compensación. Su comisión se calcula con base en el valor total de cada trabajo, no con base en el tiempo que le toma. Esto significa que puede ganar una tarifa efectiva por hora que aumenta con su eficiencia. La tarifa efectiva mediana actual del equipo de Phes es aproximadamente $25 por hora, muy por encima del salario mínimo de Illinois de $15 por hora. La estructura de compensación de Phes produce tarifas efectivas por hora que cumplen o superan todos los requisitos de salario mínimo federal, estatal de Illinois y de la ciudad de Chicago aplicables.",
         },
       },
+      {
+        type: "image",
+        src: "/guides/lms-qleno/qleno-day-view.png",
+        alt: {
+          en: "The Qleno day view showing a technician's list of assigned jobs for the day.",
+          es: "La vista de día de Qleno mostrando la lista de trabajos asignados de un técnico para el día.",
+        },
+        caption: {
+          en: "Your Qleno day view: every job assigned to you today, in order.",
+          es: "Su vista de día de Qleno: cada trabajo que se le asignó hoy, en orden.",
+        },
+      },
 
       // ── Section 2: How the Clock Works at Phes ─────────────────────────
       { type: "h", text: { en: "How the Clock Works at Phes", es: "Cómo Funciona el Reloj en Phes" } },
       {
         type: "p",
         text: {
-          en: "Phes uses MaidCentral to record your time at each assigned job. At each job, you Clock In and Check In together at the same time when you arrive at the client's property. When the job is complete, you Clock Out and Check Out together at the same time.",
-          es: "Phes usa MaidCentral para registrar su tiempo en cada trabajo asignado. En cada trabajo, hace Clock In y Check In juntos al mismo tiempo cuando llega a la propiedad del cliente. Cuando el trabajo está completo, hace Clock Out y Check Out juntos al mismo tiempo.",
+          en: "Phes uses Qleno to record your time at each assigned job. At each job, you Clock In and Check In together at the same time when you arrive at the client's property. When the job is complete, you Clock Out and Check Out together at the same time.",
+          es: "Phes usa Qleno para registrar su tiempo en cada trabajo asignado. En cada trabajo, hace Clock In y Check In juntos al mismo tiempo cuando llega a la propiedad del cliente. Cuando el trabajo está completo, hace Clock Out y Check Out juntos al mismo tiempo.",
+        },
+      },
+      {
+        type: "image",
+        src: "/guides/lms-qleno/qleno-clock-in.png",
+        alt: {
+          en: "The Qleno Clock In and Check In screen shown at the moment of arrival at a job.",
+          es: "La pantalla de Clock In y Check In de Qleno mostrada al momento de llegar a un trabajo.",
+        },
+        caption: {
+          en: "At arrival, Clock In and Check In together in Qleno.",
+          es: "Al llegar, haga Clock In y Check In juntos en Qleno.",
         },
       },
       {
@@ -1591,8 +1624,20 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "MaidCentral verifies your physical location at Check In. You must be within 600 feet of the property to Check In successfully. If you try to Check In from your car parked two blocks away, the app will reject the check-in. Walk to the door first, then Check In.",
-          es: "MaidCentral verifica su ubicación física al hacer Check In. Debe estar a 600 pies o menos de la propiedad para hacer Check In exitosamente. Si intenta hacer Check In desde su auto estacionado a dos cuadras, la aplicación rechazará el Check In. Camine hasta la puerta primero, luego haga Check In.",
+          en: "Qleno verifies your physical location at Check In. You must be within 600 feet of the property to Check In successfully. If you try to Check In from your car parked two blocks away, the app will reject the check-in. Walk to the door first, then Check In.",
+          es: "Qleno verifica su ubicación física al hacer Check In. Debe estar a 600 pies o menos de la propiedad para hacer Check In exitosamente. Si intenta hacer Check In desde su auto estacionado a dos cuadras, la aplicación rechazará el Check In. Camine hasta la puerta primero, luego haga Check In.",
+        },
+      },
+      {
+        type: "image",
+        src: "/guides/lms-qleno/qleno-gps-checkin.png",
+        alt: {
+          en: "The Qleno GPS check-in screen showing an in-range state where Check In is allowed.",
+          es: "La pantalla de Check In por GPS de Qleno mostrando el estado dentro del rango donde se permite el Check In.",
+        },
+        caption: {
+          en: "In range: Qleno confirms you are within 600 feet and lets you Check In.",
+          es: "Dentro del rango: Qleno confirma que está a menos de 600 pies y le permite hacer Check In.",
         },
       },
       {
@@ -1608,8 +1653,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Every tech checks in individually, even when working as a team on a multi-tech job. If two techs arrive at 9:00 AM but one waits in the car until 9:20, MaidCentral records the actual check-in time for each tech. Commission split on multi-tech jobs is calculated by actual minutes on site for each individual.",
-          es: "Cada técnico hace Check In individualmente, incluso cuando trabaja en equipo en un trabajo de varios técnicos. Si dos técnicos llegan a las 9:00 AM pero uno espera en el auto hasta las 9:20, MaidCentral registra el tiempo real de check-in para cada técnico. La división de comisión en trabajos de varios técnicos se calcula por los minutos reales en sitio de cada individuo.",
+          en: "Every tech checks in individually, even when working as a team on a multi-tech job. If two techs arrive at 9:00 AM but one waits in the car until 9:20, Qleno records the actual check-in time for each tech. Commission split on multi-tech jobs is calculated by actual minutes on site for each individual.",
+          es: "Cada técnico hace Check In individualmente, incluso cuando trabaja en equipo en un trabajo de varios técnicos. Si dos técnicos llegan a las 9:00 AM pero uno espera en el auto hasta las 9:20, Qleno registra el tiempo real de check-in para cada técnico. La división de comisión en trabajos de varios técnicos se calcula por los minutos reales en sitio de cada individuo.",
         },
       },
 
@@ -1625,8 +1670,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Your job assignments are communicated to you through MaidCentral and through direct contact from the office (text or call). Same-day job assignments are a regular and expected part of your scheduled workday, not a separate request for your time. Phes commission rates and the structure of the workday are designed to compensate you for completing assigned work efficiently.",
-          es: "Sus asignaciones de trabajo se le comunican a través de MaidCentral y mediante contacto directo de la oficina (mensaje de texto o llamada). Las asignaciones de trabajo del mismo día son una parte regular y esperada de su jornada laboral programada, no una solicitud separada de su tiempo. Las tarifas de comisión de Phes y la estructura de la jornada están diseñadas para compensarle por completar el trabajo asignado de manera eficiente.",
+          en: "Your job assignments are communicated to you through Qleno and through direct contact from the office (text or call). Same-day job assignments are a regular and expected part of your scheduled workday, not a separate request for your time. Phes commission rates and the structure of the workday are designed to compensate you for completing assigned work efficiently.",
+          es: "Sus asignaciones de trabajo se le comunican a través de Qleno y mediante contacto directo de la oficina (mensaje de texto o llamada). Las asignaciones de trabajo del mismo día son una parte regular y esperada de su jornada laboral programada, no una solicitud separada de su tiempo. Las tarifas de comisión de Phes y la estructura de la jornada están diseñadas para compensarle por completar el trabajo asignado de manera eficiente.",
         },
       },
       {
@@ -1685,8 +1730,20 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "If you forgot to Check Out, missed a Check In, or have any clock-time error, submit a Clock/Job Change Request through MaidCentral. The office reviews and approves the change. Do not text managers, do not DM the office, do not hope payroll figures it out. Only the system creates the audit trail that lands on your paycheck correctly.",
-          es: "Si olvidó hacer Check Out, no hizo Check In, o tiene cualquier error de tiempo, envíe una Clock/Job Change Request en MaidCentral. La oficina revisa y aprueba el cambio. No envíe mensaje a los gerentes, no envíe DM a la oficina, no espere que la nómina lo resuelva. Solo el sistema crea el registro de auditoría que llega correctamente a su pago.",
+          en: "If you forgot to Check Out, missed a Check In, or have any clock-time error, submit a Clock/Job Change Request through Qleno. The office reviews and approves the change. Do not text managers, do not DM the office, do not hope payroll figures it out. Only the system creates the audit trail that lands on your paycheck correctly.",
+          es: "Si olvidó hacer Check Out, no hizo Check In, o tiene cualquier error de tiempo, envíe una Clock/Job Change Request en Qleno. La oficina revisa y aprueba el cambio. No envíe mensaje a los gerentes, no envíe DM a la oficina, no espere que la nómina lo resuelva. Solo el sistema crea el registro de auditoría que llega correctamente a su pago.",
+        },
+      },
+      {
+        type: "image",
+        src: "/guides/lms-qleno/qleno-time-correction.png",
+        alt: {
+          en: "The Qleno Clock/Job Change Request form used to correct a missed or wrong clock time.",
+          es: "El formulario de Clock/Job Change Request de Qleno usado para corregir un tiempo de reloj olvidado o incorrecto.",
+        },
+        caption: {
+          en: "The Clock/Job Change Request form in Qleno — the office reviews and approves it.",
+          es: "El formulario de Clock/Job Change Request en Qleno — la oficina lo revisa y aprueba.",
         },
       },
 
@@ -1700,13 +1757,13 @@ const BASE_MODULES: Module[] = [
         },
       },
 
-      // ── Section 10: If MaidCentral Goes Down ───────────────────────────
-      { type: "h", text: { en: "If MaidCentral Goes Down", es: "Si MaidCentral Deja de Funcionar" } },
+      // ── Section 10: If Qleno Goes Down ─────────────────────────────────
+      { type: "h", text: { en: "If Qleno Goes Down", es: "Si Qleno Deja de Funcionar" } },
       {
         type: "p",
         text: {
-          en: "If MaidCentral is unavailable (app down, server outage, your phone offline), document your arrival and departure times manually with a timestamped photo of your phone clock at the client's address. Call the office immediately to log a manual time entry. The office submits a Clock/Job Change Request retroactively when the system is restored.",
-          es: "Si MaidCentral no está disponible (aplicación caída, falla del servidor, su teléfono sin conexión), documente manualmente sus tiempos de llegada y salida con una foto con marca de tiempo del reloj de su teléfono en la dirección del cliente. Llame a la oficina inmediatamente para registrar una entrada de tiempo manual. La oficina envía una Clock/Job Change Request retroactivamente cuando el sistema se restaura.",
+          en: "If Qleno is unavailable (app down, server outage, your phone offline), document your arrival and departure times manually with a timestamped photo of your phone clock at the client's address. Call the office immediately to log a manual time entry. The office submits a Clock/Job Change Request retroactively when the system is restored.",
+          es: "Si Qleno no está disponible (aplicación caída, falla del servidor, su teléfono sin conexión), documente manualmente sus tiempos de llegada y salida con una foto con marca de tiempo del reloj de su teléfono en la dirección del cliente. Llame a la oficina inmediatamente para registrar una entrada de tiempo manual. La oficina envía una Clock/Job Change Request retroactivamente cuando el sistema se restaura.",
         },
       },
       {
@@ -1714,17 +1771,6 @@ const BASE_MODULES: Module[] = [
         text: {
           en: "Keep your phone charged and your data plan active. Your phone is the primary tool for Check In, Check Out, photos, and client notes. If your phone dies mid-day, call the office immediately from a coworker's phone, a client's phone (with permission), or your car. The office logs a manual time entry until your phone is back online.",
           es: "Mantenga su teléfono cargado y su plan de datos activo. Su teléfono es la herramienta principal para Check In, Check Out, fotos y notas del cliente. Si su teléfono se descarga durante el día, llame a la oficina inmediatamente desde el teléfono de un compañero, el teléfono de un cliente (con permiso) o su auto. La oficina registra una entrada de tiempo manual hasta que su teléfono vuelva a estar en línea.",
-        },
-      },
-
-      // ── Section 11: Coming Next: Qleno ─────────────────────────────────
-      { type: "h", text: { en: "Coming Next: Qleno", es: "Próximamente: Qleno" } },
-      {
-        type: "callout",
-        tone: "info",
-        text: {
-          en: "Phes is migrating from MaidCentral to Qleno over the next several months. Qleno is the company's own platform with the same one-clock-per-job model, same GPS check-in, same Worksheet review process, and a faster mobile app with offline support, simpler day view, and integrated quotes and invoices. You will be trained on Qleno before the cutover. Until then, MaidCentral is the system of record and the workflow described in this module applies.",
-          es: "Phes está migrando de MaidCentral a Qleno en los próximos meses. Qleno es la plataforma propia de la compañía con el mismo modelo de un reloj por trabajo, el mismo Check In por GPS, el mismo proceso de revisión de Hoja de Trabajo, y una aplicación móvil más rápida con soporte sin conexión, vista de día más simple y cotizaciones y facturas integradas. Se le entrenará en Qleno antes del cambio. Hasta entonces, MaidCentral es el sistema oficial y el flujo descrito en este módulo aplica.",
         },
       },
     ],
@@ -2388,7 +2434,7 @@ const BASE_MODULES: Module[] = [
       {
         type: "bullets",
         items: [
-          { en: "Do not photograph or video a client's home for any reason other than documenting a Phes-related issue (damage, completed work, before-and-after) authorized by the office. Such photos are uploaded directly to MaidCentral and not stored on your personal device.", es: "No fotografíe ni grabe el hogar de un cliente por ningún motivo que no sea documentar un asunto relacionado con Phes (daño, trabajo terminado, antes y después) autorizado por la oficina. Esas fotos se cargan directamente a MaidCentral y no se guardan en su dispositivo personal." },
+          { en: "Do not photograph or video a client's home for any reason other than documenting a Phes-related issue (damage, completed work, before-and-after) authorized by the office. Such photos are uploaded directly to Qleno and not stored on your personal device.", es: "No fotografíe ni grabe el hogar de un cliente por ningún motivo que no sea documentar un asunto relacionado con Phes (daño, trabajo terminado, antes y después) autorizado por la oficina. Esas fotos se cargan directamente a Qleno y no se guardan en su dispositivo personal." },
           { en: "Do not share details about a client's home with anyone outside Phes. This includes friends, family, social media, and other clients.", es: "No comparta detalles sobre el hogar de un cliente con nadie fuera de Phes. Esto incluye amigos, familiares, redes sociales y otros clientes." },
           { en: "Do not access closed rooms, locked closets, or drawers unless the Worksheet specifically lists them. Closed doors are private space.", es: "No acceda a habitaciones cerradas, armarios o cajones cerrados a menos que la Hoja de Trabajo los indique específicamente. Las puertas cerradas son espacio privado." },
           { en: "Do not look through mail, documents, or personal items. If you see something that requires Phes attention (water damage, unsafe condition), photograph only what you need to document it and notify the office.", es: "No revise correspondencia, documentos u objetos personales. Si ve algo que requiere atención de Phes (daño por agua, condición insegura), fotografíe solo lo necesario para documentarlo y notifique a la oficina." },
@@ -3295,8 +3341,8 @@ const BASE_MODULES: Module[] = [
       {
         type: "p",
         text: {
-          en: "Supplies are available for pickup at the office during office hours. You may come to the office whenever it is convenient for you, including before your scheduled workday, after your scheduled workday, or on your scheduled days off. Phes does not require you to come to the office daily or at any specific time for supply pickup. We give you the flexibility to manage your supply pickup as it works with your schedule and travel patterns.",
-          es: "Los suministros están disponibles para recoger en la oficina durante el horario de oficina. Puede venir a la oficina cuando sea conveniente para usted, incluyendo antes de su jornada laboral, después de su jornada laboral, o en sus días libres programados. Phes no requiere que venga a la oficina diariamente ni en un horario específico para recoger suministros. Le damos la flexibilidad para manejar la recogida de suministros como funcione con su horario y patrones de viaje.",
+          en: "You do not have to come to the office to stay stocked. Phes can ship supplies to you (Amazon) or set up a pre-paid store pickup (for example, a Home Depot drive-up) so you can restock without a special trip. Supplies are also available at the office during office hours, and you're welcome to grab them when you're already working nearby — most techs do this every week or two. Phes does not require daily office check-ins. We give you the flexibility to manage restocking as it works with your schedule and travel patterns.",
+          es: "No tiene que venir a la oficina para mantenerse abastecido. Phes puede enviarle suministros (Amazon) o hacer un pedido de recogida prepagado en una tienda (por ejemplo, un drive-up de Home Depot) para que se reabastezca sin un viaje especial. Los suministros también están disponibles en la oficina durante el horario de oficina, y puede tomarlos cuando ya está trabajando cerca — la mayoría de los técnicos lo hacen cada una o dos semanas. Phes no requiere visitas diarias a la oficina. Le damos la flexibilidad para manejar el reabastecimiento como funcione con su horario y patrones de viaje.",
         },
       },
       {
@@ -3322,8 +3368,8 @@ const BASE_MODULES: Module[] = [
         type: "callout",
         tone: "warning",
         text: {
-          en: "Phes will not pay for emergency supply shipping, will not deliver supplies to your home, and will not pay you for time spent running to retail stores because you ran out of supplies you should have picked up at the office. If you fail to pick up supplies in advance and run out before a job, you are responsible for solving the supply gap on your own time and at your own expense. This may mean coming to the office to pick up supplies even on a day you did not plan to, or purchasing supplies from a retail store at your own cost.",
-          es: "Phes no pagará por envío urgente de suministros, no entregará suministros en su casa, y no le pagará por el tiempo dedicado a ir a tiendas minoristas porque se quedó sin suministros que debió haber recogido en la oficina. Si no recoge los suministros con anticipación y se queda sin ellos antes de un trabajo, usted es responsable de resolver la falta en su propio tiempo y a su propio costo. Esto puede significar venir a la oficina a recoger suministros incluso en un día en el que no planeaba hacerlo, o comprar suministros en una tienda minorista a su propio costo.",
+          en: "If you unexpectedly run short, contact the office and we'll get supplies to you the fastest way — delivery, a pre-paid pickup, or a quick office stop. What Phes will not cover is an avoidable emergency retail run caused by poor planning: if you let your kit run empty when you had time to restock, solving that gap yourself — for example buying supplies at a store — is on your own time and at your own expense, and that retail run is not reimbursed. Plan ahead so a last-minute scramble is never necessary.",
+          es: "Si inesperadamente se queda corto, contacte a la oficina y le haremos llegar los suministros de la forma más rápida — entrega, una recogida prepagada o una parada rápida en la oficina. Lo que Phes no cubre es una carrera de emergencia evitable a una tienda causada por mala planificación: si deja que su kit se quede vacío cuando tuvo tiempo de reabastecerse, resolver esa falta usted mismo — por ejemplo comprando suministros en una tienda — es en su propio tiempo y a su propio costo, y esa carrera a la tienda no se reembolsa. Planifique con anticipación para que un apuro de último minuto nunca sea necesario.",
         },
       },
       {
@@ -3334,12 +3380,12 @@ const BASE_MODULES: Module[] = [
         },
       },
 
-      { type: "h", text: { en: "Supply Pickup is Not Part of Your Scheduled Workday", es: "Recoger Suministros No Es Parte de Su Jornada Laboral" } },
+      { type: "h", text: { en: "When Supply Pickup Is Paid", es: "Cuándo se Paga Recoger Suministros" } },
       {
         type: "p",
         text: {
-          en: "Supply pickup is a preparatory activity. It is not part of your scheduled workday. Travel to and from the office for supply pickup is not compensated, and mileage to the office for supply pickup is not reimbursed because it is considered personal travel similar to your home-to-first-job commute.",
-          es: "Recoger suministros es una actividad preparatoria. No es parte de su jornada laboral programada. El viaje hacia y desde la oficina para recoger suministros no se compensa, y el millaje hacia la oficina para recoger suministros no se reembolsa porque se considera viaje personal similar a su recorrido de casa al primer trabajo.",
+          en: "A convenience pickup on your own time — when you're already nearby, or coming in before or after work — is not part of your paid workday, the same as your ordinary home-to-first-job commute. But if Phes asks you to make a special trip to the office just to pick up supplies — one you wouldn't otherwise be making — that time is paid, and the mileage from the office to your first job that day is reimbursed. Log it in Qleno so it lands on your paycheck.",
+          es: "Una recogida por conveniencia en su propio tiempo — cuando ya está cerca, o viene antes o después del trabajo — no es parte de su jornada pagada, igual que su trayecto ordinario de casa al primer trabajo. Pero si Phes le pide hacer un viaje especial a la oficina solo para recoger suministros — uno que de otro modo no haría — ese tiempo se paga, y el millaje de la oficina a su primer trabajo ese día se reembolsa. Regístrelo en Qleno para que llegue a su pago.",
         },
       },
       {
@@ -3392,7 +3438,7 @@ const BASE_MODULES: Module[] = [
           { en: "Cleaning caddy, color-coded microfiber cloths, mop and bucket, vacuum (or vacuum allocation if assigned to a team vehicle), step stool.", es: "Caddy de limpieza, paños de microfibra codificados por color, trapeador y cubeta, aspiradora (o asignación de aspiradora si está asignado a un vehículo de equipo), banquito." },
           { en: "Cleaning chemicals issued in their Phes-branded refillable bottles. Refills come from the office stock room.", es: "Productos químicos de limpieza entregados en sus botellas recargables con marca de Phes. Las recargas vienen del cuarto de suministros de la oficina." },
           { en: "Phes-branded uniform (shirt, apron, name badge) and shoe covers.", es: "Uniforme con marca de Phes (camisa, delantal, gafete) y cubre-zapatos." },
-          { en: "Phes phone or tablet (if assigned for MaidCentral / Qleno access), keys, key cards, or alarm-code cards for recurring-visit clients.", es: "Teléfono o tableta de Phes (si se le asigna para acceso a MaidCentral / Qleno), llaves, tarjetas de acceso o tarjetas de códigos de alarma para clientes recurrentes." },
+          { en: "Phes phone or tablet (if assigned for Qleno access), keys, key cards, or alarm-code cards for recurring-visit clients.", es: "Teléfono o tableta de Phes (si se le asigna para acceso a Qleno), llaves, tarjetas de acceso o tarjetas de códigos de alarma para clientes recurrentes." },
         ],
       },
 
@@ -3650,7 +3696,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You want PTO for next Friday (nine days from now). What do you do?", es: "Quiere PTO para el próximo viernes (a nueve días de hoy). ¿Qué hace?" },
     options: [
       { en: "Text your direct manager privately to let them know you need the day off.", es: "Envíe mensaje directo al gerente privadamente para avisar que necesita el día." },
-      { en: "Submit PTO through MaidCentral/Qleno AND confirm with the office 7 days out.", es: "Envíe PTO por MaidCentral/Qleno Y confirme con la oficina con 7 días de anticipación." },
+      { en: "Submit PTO through Qleno AND confirm with the office 7 days out.", es: "Envíe PTO por Qleno Y confirme con la oficina con 7 días de anticipación." },
       { en: "Call the office Friday morning when you are supposed to be at the first job.", es: "Llame a la oficina el viernes en la mañana cuando deba estar en el primer trabajo." },
       { en: "Tell a teammate to relay the request to the office team for you that week.", es: "Pídale a un compañero que pase la solicitud al equipo de la oficina por usted." },
     ],
@@ -4168,6 +4214,22 @@ const BASE_QUIZ: QuizQuestion[] = [
     ],
     correctIndex: 0,
   },
+  // ── E3: PLAWA day-1 grant (2026-07-15) ─────────────────────────────────────
+  {
+    id: "q-pp-plawa-grant",
+    moduleId: "phes-policies",
+    prompt: {
+      en: "When are your 40 PLAWA hours granted, and when can you use them?",
+      es: "¿Cuándo se otorgan sus 40 horas de PLAWA, y cuándo puede usarlas?",
+    },
+    options: [
+      { en: "Granted and usable only after your 90th day of employment.", es: "Otorgadas y usables solo después de su día 90 de empleo." },
+      { en: "Granted on your first day (and each Benefit Year); usable after your 90th day.", es: "Otorgadas en su primer día (y cada Año de Beneficios); usables después de su día 90." },
+      { en: "Granted and usable on your very first day of employment.", es: "Otorgadas y usables en su primer día de empleo." },
+      { en: "You accrue them one hour at a time as you work.", es: "Las acumula una hora a la vez a medida que trabaja." },
+    ],
+    correctIndex: 1,
+  },
 
   // q-pp-42-w2-tip-reporting, q-pp-43-abandonment-window,
   // q-pp-44-move-in-empty-home removed in audit batch 2 (2026-05-19): all
@@ -4414,6 +4476,19 @@ const BASE_QUIZ: QuizQuestion[] = [
     ],
     correctIndex: 0,
   },
+  // ── E2: paper-check option (2026-07-15) ────────────────────────────────────
+  {
+    id: "q-cm-paycheck-method",
+    moduleId: "compensation",
+    prompt: { en: "How are you paid at Phes?", es: "¿Cómo se le paga en Phes?" },
+    options: [
+      { en: "Cash handed out at the end of each shift.", es: "Efectivo entregado al final de cada turno." },
+      { en: "Direct deposit by default; a paper check on request.", es: "Depósito directo por defecto; un cheque de papel si lo solicita." },
+      { en: "Paper check only — no direct deposit offered.", es: "Solo cheque de papel — no se ofrece depósito directo." },
+      { en: "Direct deposit only, with no exceptions allowed.", es: "Solo depósito directo, sin excepciones permitidas." },
+    ],
+    correctIndex: 1,
+  },
 
   // ═════════════════════════════════════════════════════════════════════════════
   // Module 3: CLEANING BEST PRACTICES (15 questions)
@@ -4600,7 +4675,7 @@ const BASE_QUIZ: QuizQuestion[] = [
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
-  // Module 4: MAIDCENTRAL (15 questions)
+  // Module 4: QLENO (20 questions; id stays "maidcentral")
   // ═════════════════════════════════════════════════════════════════════════════
   {
     id: "q-mc-01-clock-vs-check",
@@ -4632,7 +4707,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     prompt: { en: "You both arrive at a job at 9:00 AM. You Check In immediately. Your partner stays in the car and doesn't Check In until 9:20 AM. How is pay calculated?", es: "Ambos llegan a las 9:00 AM. Usted hace Check In de inmediato. Su compañero se queda en el auto hasta las 9:20 AM. ¿Cómo se calcula el pago?" },
     options: [
       { en: "Split 50/50 — same job, same scheduled visit, same total pay for both techs.", es: "Se divide 50/50 — mismo trabajo, misma visita programada, mismo pago." },
-      { en: "MaidCentral automatically averages your individual Job Clock times together.", es: "MaidCentral promedia automáticamente sus tiempos individuales del Reloj de Trabajo." },
+      { en: "Qleno automatically averages your individual Job Clock times together.", es: "Qleno promedia automáticamente sus tiempos individuales del Reloj de Trabajo." },
       { en: "Your Job Clock shows more on-site minutes, so you receive a larger commission share.", es: "Su Reloj de Trabajo muestra más minutos en sitio, recibe mayor parte de la comisión." },
       { en: "Whoever Checks Out from the job first ends up earning a higher commission split.", es: "Quien haga Check Out del trabajo primero termina ganando una comisión mayor." },
     ],
@@ -4653,7 +4728,7 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-mc-05-600-feet",
     moduleId: "maidcentral",
-    prompt: { en: "Approximately how close to the property must you be for MaidCentral to allow Check In?", es: "¿Aproximadamente qué tan cerca debe estar de la propiedad para que MaidCentral permita el Check In?" },
+    prompt: { en: "Approximately how close to the property must you be for Qleno to allow Check In?", es: "¿Aproximadamente qué tan cerca debe estar de la propiedad para que Qleno permita el Check In?" },
     options: [
       { en: "5 miles", es: "5 millas" },
       { en: "1 mile", es: "1 milla" },
@@ -4669,7 +4744,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "Only injuries that prevent me from driving safely to the job.", es: "Solo lesiones que me impidan conducir con seguridad al trabajo." },
       { en: "Any reason protected by federal, state, or local law (medical, PLAWA, safety, etc.).", es: "Cualquier razón protegida por la ley federal, estatal o local (médica, PLAWA, seguridad, etc.)." },
-      { en: "Any reason I document in MaidCentral before I decline.", es: "Cualquier razón que documente en MaidCentral antes de declinar." },
+      { en: "Any reason I document in Qleno before I decline.", es: "Cualquier razón que documente en Qleno antes de declinar." },
       { en: "Only the specific categories listed in the Phes handbook.", es: "Solo las categorías específicas listadas en el manual de Phes." },
     ],
     correctIndex: 1,
@@ -4693,7 +4768,7 @@ const BASE_QUIZ: QuizQuestion[] = [
     options: [
       { en: "Text your direct manager privately with the missed time and the job that you finished.", es: "Envíe mensaje privado a su gerente con el tiempo perdido y el trabajo terminado." },
       { en: "DM the Phes office team on Slack with the missed Check Out time and the job details.", es: "Envíe DM al equipo de Phes en Slack con el tiempo perdido y los detalles." },
-      { en: "Submit a Clock/Job Change Request in MaidCentral — the office reviews and approves it.", es: "Envíe un Clock/Job Change Request en MaidCentral — la oficina revisa y aprueba." },
+      { en: "Submit a Clock/Job Change Request in Qleno — the office reviews and approves it.", es: "Envíe un Clock/Job Change Request en Qleno — la oficina revisa y aprueba." },
       { en: "Don't worry about it — payroll will figure it out automatically from the GPS data.", es: "No se preocupe — la nómina lo resolverá automáticamente desde los datos del GPS." },
     ],
     correctIndex: 2,
@@ -4713,7 +4788,7 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-mc-10-commute-not-paid",
     moduleId: "maidcentral",
-    prompt: { en: "You arrive at your assigned client's property. What is the correct MaidCentral action at the moment of arrival?", es: "Llega a la propiedad de su cliente asignado. ¿Cuál es la acción correcta en MaidCentral al momento de llegar?" },
+    prompt: { en: "You arrive at your assigned client's property. What is the correct Qleno action at the moment of arrival?", es: "Llega a la propiedad de su cliente asignado. ¿Cuál es la acción correcta en Qleno al momento de llegar?" },
     options: [
       { en: "Clock In first, then wait 5 minutes before Check In to make sure GPS picks up the location.", es: "Hacer Clock In primero, luego esperar 5 minutos antes de Check In para que el GPS detecte la ubicación." },
       { en: "Clock In and Check In together at the moment of arrival. Repeat at every assigned job throughout the workday.", es: "Hacer Clock In y Check In juntos al momento de llegar. Repita en cada trabajo asignado durante toda la jornada laboral." },
@@ -4725,7 +4800,7 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-mc-11-end-of-day",
     moduleId: "maidcentral",
-    prompt: { en: "You are at the client's front door but MaidCentral rejects your Check In with a GPS warning. What do you do?", es: "Está en la puerta del cliente pero MaidCentral rechaza el Check In con advertencia de GPS. ¿Qué hace?" },
+    prompt: { en: "You are at the client's front door but Qleno rejects your Check In with a GPS warning. What do you do?", es: "Está en la puerta del cliente pero Qleno rechaza el Check In con advertencia de GPS. ¿Qué hace?" },
     options: [
       { en: "Skip the Check In and enter the arrival time later from memory.", es: "Sáltese el Check In e ingrese la hora después de memoria." },
       { en: "Take a timestamped door photo and call the office for manual approval.", es: "Tome una foto de la puerta con hora y llame a la oficina para aprobación manual." },
@@ -4761,19 +4836,19 @@ const BASE_QUIZ: QuizQuestion[] = [
   {
     id: "q-mc-14-qleno-coming",
     moduleId: "maidcentral",
-    prompt: { en: "What is Qleno's relationship to MaidCentral at Phes?", es: "¿Cuál es la relación de Qleno con MaidCentral en Phes?" },
+    prompt: { en: "What is Qleno at Phes?", es: "¿Qué es Qleno en Phes?" },
     options: [
-      { en: "Qleno is an entirely separate company that has no operational relationship to Phes.", es: "Qleno es una compañía totalmente aparte sin relación operativa con Phes." },
-      { en: "Qleno is the company's own platform that will replace MaidCentral in coming months.", es: "Qleno es la plataforma propia de la compañía que reemplazará MaidCentral en meses." },
-      { en: "Qleno is a backup app that only gets used in emergencies when MaidCentral is offline.", es: "Qleno es una app de respaldo que solo se usa en emergencias cuando MaidCentral está caído." },
-      { en: "Qleno is purely a customer-facing booking website with no internal tech-side function.", es: "Qleno es puramente un sitio de reservas para clientes sin función interna para técnicos." },
+      { en: "A third-party app run by another company, unrelated to Phes.", es: "Una app de terceros operada por otra compañía, sin relación con Phes." },
+      { en: "Phes's own platform — the system of record for your schedule, clock, and pay.", es: "La plataforma propia de Phes — el sistema oficial de su horario, reloj y pago." },
+      { en: "A backup app used only when the office phone line is down.", es: "Una app de respaldo usada solo cuando la línea de la oficina no funciona." },
+      { en: "A customer-facing booking website with no function for technicians.", es: "Un sitio de reservas para clientes sin ninguna función para los técnicos." },
     ],
     correctIndex: 1,
   },
   {
     id: "q-mc-15-day-clock-running",
     moduleId: "maidcentral",
-    prompt: { en: "You finish your assigned job. What is the correct MaidCentral action the moment the job is complete?", es: "Termina su trabajo asignado. ¿Cuál es la acción correcta en MaidCentral al momento que el trabajo esté completo?" },
+    prompt: { en: "You finish your assigned job. What is the correct Qleno action the moment the job is complete?", es: "Termina su trabajo asignado. ¿Cuál es la acción correcta en Qleno al momento que el trabajo esté completo?" },
     options: [
       { en: "Stay clocked in until you arrive at the next assigned job.", es: "Permanezca con Clock In hasta llegar al siguiente trabajo asignado." },
       { en: "Clock Out and Check Out together at the moment of completion.", es: "Haga Clock Out y Check Out juntos al momento de finalizar." },
@@ -4781,6 +4856,67 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Wait for the client to sign completion, then Clock Out from your car.", es: "Espere a que el cliente firme la finalización, luego haga Clock Out desde el auto." },
     ],
     correctIndex: 1,
+  },
+  // ── E1: Qleno rebrand additions (2026-07-15) ───────────────────────────────
+  {
+    id: "q-mc-qleno-system",
+    moduleId: "maidcentral",
+    prompt: { en: "What app does Phes use to clock in, check in at jobs, and record your time?", es: "¿Qué app usa Phes para hacer clock in, check in en los trabajos y registrar su tiempo?" },
+    options: [
+      { en: "MaidCentral, a third-party app.", es: "MaidCentral, una app de terceros." },
+      { en: "A personal paper timesheet you keep.", es: "Una hoja de tiempo de papel personal que usted lleva." },
+      { en: "Qleno, the company's own app.", es: "Qleno, la app propia de la compañía." },
+      { en: "Text messages sent to the office.", es: "Mensajes de texto enviados a la oficina." },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-mc-qleno-arrival",
+    moduleId: "maidcentral",
+    prompt: { en: "You arrive at an assigned job. What is the correct Qleno action?", es: "Llega a un trabajo asignado. ¿Cuál es la acción correcta en Qleno?" },
+    options: [
+      { en: "Only Check In, and skip the Clock In.", es: "Solo hacer Check In, y omitir el Clock In." },
+      { en: "Clock In and Check In together at the moment of arrival.", es: "Hacer Clock In y Check In juntos al momento de llegar." },
+      { en: "Clock in from your car before you arrive.", es: "Hacer clock in desde su auto antes de llegar." },
+      { en: "Wait for the client to sign you in.", es: "Esperar a que el cliente lo registre." },
+    ],
+    correctIndex: 1,
+  },
+  {
+    id: "q-mc-qleno-gps",
+    moduleId: "maidcentral",
+    prompt: { en: "Qleno won't let you Check In from your car two blocks away. Why?", es: "Qleno no le permite hacer Check In desde su auto a dos cuadras. ¿Por qué?" },
+    options: [
+      { en: "The app is malfunctioning at the moment.", es: "La aplicación está fallando en este momento." },
+      { en: "You need manager approval for every check-in.", es: "Necesita aprobación del gerente para cada check-in." },
+      { en: "GPS check-in only applies to commercial jobs.", es: "El check-in por GPS solo aplica a trabajos comerciales." },
+      { en: "The 600-foot GPS rule — you're not close enough yet.", es: "La regla GPS de 600 pies — aún no está lo bastante cerca." },
+    ],
+    correctIndex: 3,
+  },
+  {
+    id: "q-mc-qleno-down",
+    moduleId: "maidcentral",
+    prompt: { en: "Qleno is down mid-shift. What do you do?", es: "Qleno deja de funcionar a mitad del turno. ¿Qué hace?" },
+    options: [
+      { en: "Skip the job and move on to the next.", es: "Sáltese el trabajo y pase al siguiente." },
+      { en: "Guess your times and enter them later.", es: "Adivine sus tiempos e ingréselos después." },
+      { en: "Photo your arrival time and call the office.", es: "Fotografíe su hora de llegada y llame a la oficina." },
+      { en: "Wait for the app before doing anything.", es: "Espere a que la app funcione antes de hacer nada." },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-mc-qleno-fix",
+    moduleId: "maidcentral",
+    prompt: { en: "You forgot to Check Out two hours ago. How do you fix it?", es: "Olvidó hacer Check Out hace dos horas. ¿Cómo lo corrige?" },
+    options: [
+      { en: "Submit a Clock/Job Change Request in Qleno.", es: "Envíe un Clock/Job Change Request en Qleno." },
+      { en: "Text a manager about it privately.", es: "Envíe un mensaje privado a un gerente." },
+      { en: "Let payroll guess the correct time.", es: "Deje que la nómina adivine la hora correcta." },
+      { en: "Nothing — it corrects itself automatically.", es: "Nada — se corrige solo automáticamente." },
+    ],
+    correctIndex: 0,
   },
 
   // ═════════════════════════════════════════════════════════════════════════════
@@ -6262,14 +6398,14 @@ const BASE_QUIZ: QuizQuestion[] = [
     id: "q-sk-08-supply-pickup-not-compensated",
     moduleId: "supply-kit",
     prompt: {
-      en: "When you travel to the office to pick up supplies, are you compensated for the time and mileage?",
-      es: "Cuando viaja a la oficina a recoger suministros, ¿se le compensa el tiempo y el millaje?",
+      en: "When you stop at the office for supplies, are you paid?",
+      es: "Cuando pasa a la oficina por suministros, ¿se le paga?",
     },
     options: [
-      { en: "Yes, time and mileage are both fully compensated when picking up supplies.", es: "Sí, tanto el tiempo como el millaje se compensan totalmente al recoger suministros." },
-      { en: "No. Supply pickup is preparatory. Travel time is not compensated and mileage is not reimbursed.", es: "No. Recoger suministros es preparatorio. El tiempo de viaje no se compensa y el millaje no se reembolsa." },
-      { en: "Only the mileage is reimbursed at the standard rate, but not the time.", es: "Solo el millaje se reembolsa a la tarifa estándar, pero no el tiempo." },
-      { en: "Only the time is compensated as part of my scheduled workday, but not the mileage.", es: "Solo el tiempo se compensa como parte de mi jornada laboral, pero no el millaje." },
+      { en: "Every stop at the office to get supplies is always fully paid.", es: "Cada parada en la oficina para obtener suministros siempre se paga por completo." },
+      { en: "Convenience pickups aren't paid, but a required special trip is paid and its office-to-first-job mileage reimbursed.", es: "Las recogidas por conveniencia no se pagan, pero un viaje especial requerido se paga y su millaje de la oficina al primer trabajo se reembolsa." },
+      { en: "Stops at the office for supplies are never paid, under any circumstance.", es: "Las paradas en la oficina por suministros nunca se pagan, bajo ninguna circunstancia." },
+      { en: "Only the mileage for a supply stop is paid, never the time.", es: "Solo el millaje de una parada por suministros se paga, nunca el tiempo." },
     ],
     correctIndex: 1,
   },
@@ -6284,7 +6420,7 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "Continue to my next destination and come back to the office tomorrow during my scheduled workday.", es: "Continuar a mi próximo destino y volver a la oficina mañana durante mi jornada laboral." },
       { en: "Stop at the office to restock supplies, since I am already in the area. Plan pickups around existing travel patterns.", es: "Pasar a la oficina a reabastecer, ya que estoy en el área. Planifico recogidas según mis patrones de viaje." },
       { en: "Wait until I run out of supplies and then come to the office for an emergency pickup.", es: "Esperar a que se me acaben los suministros y luego ir a la oficina por una recogida de emergencia." },
-      { en: "Ask the office to deliver supplies to my next location since I am close by.", es: "Pedir a la oficina que entregue suministros en mi próxima ubicación ya que estoy cerca." },
+      { en: "Ask the office to ship supplies to my home tonight rather than stopping, even though I'm two miles away.", es: "Pedir a la oficina que envíe suministros a mi casa esta noche en lugar de pasar, aunque estoy a dos millas." },
     ],
     correctIndex: 1,
   },
@@ -6302,6 +6438,37 @@ const BASE_QUIZ: QuizQuestion[] = [
       { en: "The Phes office immediately files a small-claims court case against you locally.", es: "La oficina de Phes presenta inmediatamente una demanda en corte de reclamos menores." },
     ],
     correctIndex: 1,
+  },
+  // ── E4: supply-pickup options + paid special trip (2026-07-15) ─────────────
+  {
+    id: "q-sk-supply-options",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "You live far from the office. How do you get supplies?",
+      es: "Vive lejos de la oficina. ¿Cómo obtiene los suministros?",
+    },
+    options: [
+      { en: "You must drive in weekly on your own time to restock.", es: "Debe venir en auto cada semana en su propio tiempo para reabastecerse." },
+      { en: "You buy them yourself and hope to be reimbursed later.", es: "Los compra usted mismo y espera que se lo reembolsen después." },
+      { en: "Phes ships them or sets up a pre-paid pickup — no special trip.", es: "Phes los envía o hace una recogida prepagada — sin viaje especial." },
+      { en: "You go without them until your next visit to the office.", es: "Se queda sin ellos hasta su próxima visita a la oficina." },
+    ],
+    correctIndex: 2,
+  },
+  {
+    id: "q-sk-required-trip-pay",
+    moduleId: "supply-kit",
+    prompt: {
+      en: "Phes asks you to make a special trip to the office just to pick up supplies. Are you paid?",
+      es: "Phes le pide hacer un viaje especial a la oficina solo para recoger suministros. ¿Se le paga?",
+    },
+    options: [
+      { en: "No — supply trips are never paid at any time.", es: "No — los viajes por suministros nunca se pagan en ningún momento." },
+      { en: "Only if the special trip takes more than one hour.", es: "Solo si el viaje especial toma más de una hora." },
+      { en: "Only the mileage is paid for the trip, never the time.", es: "Solo se paga el millaje del viaje, nunca el tiempo." },
+      { en: "Yes — that time is paid and the office-to-first-job mileage reimbursed.", es: "Sí — ese tiempo se paga y el millaje de la oficina al primer trabajo se reembolsa." },
+    ],
+    correctIndex: 3,
   },
 ];
 

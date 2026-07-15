@@ -36,9 +36,11 @@ const MODULE_TITLES: Record<string, BilingualTitle> = {
     en: "Cleaning Best Practices",
     es: "Mejores Prácticas de Limpieza",
   },
+  // Module id stays "maidcentral" for progress/cert continuity; the
+  // display title was rebranded to "Qleno" on 2026-07-15.
   maidcentral: {
-    en: "MaidCentral",
-    es: "MaidCentral",
+    en: "Qleno",
+    es: "Qleno",
   },
   "products-tools": {
     en: "Products & Tools",

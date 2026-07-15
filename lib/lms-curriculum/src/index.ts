@@ -307,6 +307,8 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-pp-42-supply-maintenance": 1,
   "q-pp-43-ncns": 2,
   "q-pp-44-plawa-increment": 0,
+  // E3: PLAWA day-1 grant (2026-07-15)
+  "q-pp-plawa-grant": 1,
 
   // ── Module 2: compensation (16, alignment with handbook hardening 2026-05-21) ───
   // Dropped q-cm-04/06/10 (duplicates + non-legal); added q-cm-17/18/19
@@ -329,6 +331,8 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-cm-17-recovery-tech-three-hour": 1,
   "q-cm-18-valid-quality-complaint": 1,
   "q-cm-19-refused-reclean-eighteen": 1,
+  // E2: paper-check option (2026-07-15)
+  "q-cm-paycheck-method": 1,
   "q-cm-20-training-redo-paid": 1,
   "q-cm-21-fix-it-mileage": 0,
 
@@ -365,6 +369,12 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-mc-13-commercial-finished-early": 1,
   "q-mc-14-qleno-coming": 1,
   "q-mc-15-day-clock-running": 1,
+  // E1: Qleno rebrand additions (2026-07-15)
+  "q-mc-qleno-system": 2,
+  "q-mc-qleno-arrival": 1,
+  "q-mc-qleno-gps": 3,
+  "q-mc-qleno-down": 2,
+  "q-mc-qleno-fix": 0,
 
   // ── Module 5: products-tools (15) ────────────────────────────────────────
   "q-pt-01-granite": 2,
@@ -540,6 +550,9 @@ export const ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze({
   "q-sk-08-supply-pickup-not-compensated": 1,
   "q-sk-09-supply-pickup-planning": 1,
   "q-sk-10-replacement-process": 1,
+  // E4: supply-pickup options + paid special trip (2026-07-15)
+  "q-sk-supply-options": 2,
+  "q-sk-required-trip-pay": 3,
 });
 
 /**
@@ -575,6 +588,8 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-pp-42-supply-maintenance",
       // PLAWA compliance: NCNS weight + minimum increment (2026-07-11)
       "q-pp-43-ncns", "q-pp-44-plawa-increment",
+      // PLAWA day-1 grant (E3, 2026-07-15)
+      "q-pp-plawa-grant",
     ],
     compensation: [
       "q-cm-01-training-pay", "q-cm-02-standard-rate", "q-cm-03-deep-clean-rate",
@@ -589,6 +604,8 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-cm-20-training-redo-paid",
       // Mileage disambiguation + Fix-It mileage (2026-05-22)
       "q-cm-21-fix-it-mileage",
+      // Paper-check option (E2, 2026-07-15)
+      "q-cm-paycheck-method",
     ],
     "cleaning-best-practices": [
       "q-cb-01-room-flow", "q-cb-02-room-order", "q-cb-03-direction",
@@ -603,6 +620,9 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-mc-07-efficiency-target", "q-mc-08-forgot-checkout", "q-mc-09-travel-pay",
       "q-mc-10-commute-not-paid", "q-mc-11-end-of-day", "q-mc-12-conflict-note",
       "q-mc-13-commercial-finished-early", "q-mc-14-qleno-coming", "q-mc-15-day-clock-running",
+      // Qleno rebrand additions (E1, 2026-07-15)
+      "q-mc-qleno-system", "q-mc-qleno-arrival", "q-mc-qleno-gps",
+      "q-mc-qleno-down", "q-mc-qleno-fix",
     ],
     "products-tools": [
       "q-pt-01-granite", "q-pt-02-mop", "q-pt-03-glass",
@@ -669,6 +689,8 @@ export const QUESTIONS_BY_MODULE: Readonly<Record<QuizModuleId, readonly string[
       "q-sk-05-supply-pickup-out-of-supplies", "q-sk-06-no-automatic-deduction",
       "q-sk-07-supply-pickup-office-hours", "q-sk-08-supply-pickup-not-compensated",
       "q-sk-09-supply-pickup-planning", "q-sk-10-replacement-process",
+      // Supply-pickup options + paid special trip (E4, 2026-07-15)
+      "q-sk-supply-options", "q-sk-required-trip-pay",
     ],
   });
 

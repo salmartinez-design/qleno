@@ -72,6 +72,8 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-pp-42-supply-maintenance": 1,
   "q-pp-43-ncns": 2,
   "q-pp-44-plawa-increment": 0,
+  // E3: PLAWA day-1 grant (2026-07-15)
+  "q-pp-plawa-grant": 1,
 
   // ── Module 2: compensation (16, alignment 2026-05-21) ────────────────────
   // Mirror of curriculum ANSWER_KEY. Drift-sync test verifies they match.
@@ -93,6 +95,8 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-cm-19-refused-reclean-eighteen": 1,
   "q-cm-20-training-redo-paid": 1,
   "q-cm-21-fix-it-mileage": 0,
+  // E2: paper-check option (2026-07-15)
+  "q-cm-paycheck-method": 1,
 
   // ── Module 3: cleaning-best-practices ────────────────────────────────────
   "q-cb-01-room-flow": 1,
@@ -127,6 +131,12 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-mc-13-commercial-finished-early": 1,
   "q-mc-14-qleno-coming": 1,
   "q-mc-15-day-clock-running": 1,
+  // E1: Qleno rebrand additions (2026-07-15)
+  "q-mc-qleno-system": 2,
+  "q-mc-qleno-arrival": 1,
+  "q-mc-qleno-gps": 3,
+  "q-mc-qleno-down": 2,
+  "q-mc-qleno-fix": 0,
 
   // ── Module 5: products-tools ─────────────────────────────────────────────
   "q-pt-01-granite": 2,
@@ -248,6 +258,9 @@ export const SERVER_ANSWER_KEY: Readonly<Record<string, number>> = Object.freeze
   "q-sk-08-supply-pickup-not-compensated": 1,
   "q-sk-09-supply-pickup-planning": 1,
   "q-sk-10-replacement-process": 1,
+  // E4: supply-pickup options + paid special trip (2026-07-15)
+  "q-sk-supply-options": 2,
+  "q-sk-required-trip-pay": 3,
 });
 
 /**

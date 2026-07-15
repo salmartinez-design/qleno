@@ -91,38 +91,38 @@ describe("LMS curriculum — constants & catalog shape", () => {
     assert.equal(FINAL_TEST_SIZE, 30);
   });
 
-  it("phes-policies has 44 questions (42 + PLAWA ncns + minimum-increment 2026-07-11)", () => {
+  it("phes-policies has 45 questions (44 + PLAWA day-1 grant 2026-07-15)", () => {
     assert.equal(
       QUESTIONS_BY_MODULE["phes-policies"].length,
-      44,
-      `phes-policies should have 44 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
+      45,
+      `phes-policies should have 45 questions; has ${QUESTIONS_BY_MODULE["phes-policies"].length}`,
     );
   });
 
   it("each non-policies module has its specified question count", () => {
-    // phes-policies: 44 (42 + PLAWA ncns + minimum-increment 2026-07-11)
-    // compensation: 18 (17 + fix-it-mileage 2026-05-22)
+    // phes-policies: 45 (44 + PLAWA day-1 grant 2026-07-15)
+    // compensation: 19 (18 + paper-check method 2026-07-15)
     // drug-alcohol: 10 (Phase 3 spec, legally-important concepts only)
     // code-of-conduct: 10 (Phase 4 spec, behavior-comprehension)
     // video-photo-release: 9 (Phase 5 spec, release-rights comprehension)
     // non-solicitation: 13 (Phase 6 + 6.5 amendment)
     // social-media: 10 (Phase 7 spec, NLRA Section 7 + carve-out comprehension)
     // phes-401k: 10 (Phase 8 spec, 401(k) plan-features comprehension)
-    // supply-kit: 10 (Phase 9 spec — 2026-05-24 swapped 5 lower-value
-    //   property-care questions for supply-pickup; total still 10)
+    // supply-kit: 12 (10 + supply-options + required-trip-pay 2026-07-15)
+    // maidcentral: 20 (15 + 5 Qleno rebrand additions 2026-07-15)
     // all others: 15 (per original Phes spec)
     const expected: Record<string, number> = {
-      "phes-policies": 44,
+      "phes-policies": 45,
       "drug-alcohol": 10,
       "code-of-conduct": 10,
       "video-photo-release": 9,
       "non-solicitation": 13,
       "social-media": 10,
       "phes-401k": 10,
-      "supply-kit": 10,
-      compensation: 18,
+      "supply-kit": 12,
+      compensation: 19,
       "cleaning-best-practices": 15,
-      maidcentral: 15,
+      maidcentral: 20,
       "products-tools": 15,
       "il-sexual-harassment": 15,
     };
@@ -135,8 +135,8 @@ describe("LMS curriculum — constants & catalog shape", () => {
     }
   });
 
-  it("ALL_QUESTION_IDS is 194 total (44 + 18 + 15*4 + 10 + 10 + 9 + 13 + 10 + 10 + 10)", () => {
-    assert.equal(ALL_QUESTION_IDS.length, 194);
+  it("ALL_QUESTION_IDS is 203 total (45 + 19 + 15 + 20 + 15 + 15 + 10 + 10 + 9 + 13 + 10 + 10 + 12)", () => {
+    assert.equal(ALL_QUESTION_IDS.length, 203);
   });
 
   it("ANSWER_KEY has exactly the keys enumerated by ALL_QUESTION_IDS", () => {
