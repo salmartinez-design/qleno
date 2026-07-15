@@ -83,13 +83,20 @@ function effectiveTotal(c: CalcResult): number {
 
 // Square-footage ranges for customers who don't know their exact sqft.
 // Each maps to the UPPER bound of its range so the quote is conservative
-// (never underquotes) and flows through the same tier engine unchanged — the
-// engine already buckets sqft into tiers, so this just picks a safe bucket.
+// (never underquotes) and flows through the same tier engine unchanged.
+// Hybrid width: 250-wide through the dense 1,000–2,500 zone so each option
+// lands on exactly ONE 250-wide price tier (no straddle, no overquote — the
+// engine's pricing_tiers step every 250 sqft); 500-wide for the sparse,
+// less price-sensitive 2,500–4,000 homes. Above 4,000 the customer enters
+// an exact value.
 const SQFT_RANGES: { label: string; sqft: number }[] = [
   { label: "Under 1,000 sq ft", sqft: 999 },
-  { label: "1,000 – 1,500 sq ft", sqft: 1499 },
-  { label: "1,500 – 2,000 sq ft", sqft: 1999 },
-  { label: "2,000 – 2,500 sq ft", sqft: 2499 },
+  { label: "1,000 – 1,250 sq ft", sqft: 1249 },
+  { label: "1,250 – 1,500 sq ft", sqft: 1499 },
+  { label: "1,500 – 1,750 sq ft", sqft: 1749 },
+  { label: "1,750 – 2,000 sq ft", sqft: 1999 },
+  { label: "2,000 – 2,250 sq ft", sqft: 2249 },
+  { label: "2,250 – 2,500 sq ft", sqft: 2499 },
   { label: "2,500 – 3,000 sq ft", sqft: 2999 },
   { label: "3,000 – 3,500 sq ft", sqft: 3499 },
   { label: "3,500 – 4,000 sq ft", sqft: 3999 },
