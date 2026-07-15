@@ -884,17 +884,27 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
     );
   };
 
-  // [clock-gps 2026-07-09] Location must NEVER fully block a tech from punching.
-  // Previously ANY geolocation failure (permission denied, timeout, weak signal)
-  // showed "Please enable location in your browser settings" and refused to clock
-  // in/out — so a tech whose GPS merely timed out (indoors, low-power mode, older
-  // phone) was locked out and the office had to key her hours by hand. Now:
-  //   • only a real PERMISSION_DENIED (or a browser with no geolocation) shows the
-  //     "allow location" message and stops — the user must grant access;
-  //   • a timeout / position-unavailable proceeds WITHOUT coords. The backend
-  //     records a null-coord "no GPS" punch (flagged on the board + reconcile
-  //     screen for office review) — the same state the office already produces
-  //     when it clocks a tech in on their behalf.
+  // [clock-gps 2026-07-09 · rev 2026-07-15] Location must NEVER block a punch —
+  // NO exceptions. Originally ANY geolocation failure refused to clock in/out;
+  // 2026-07-09 loosened that so timeouts/weak-signal fall through, but a real
+  // PERMISSION_DENIED still showed a dead-end "allow location" wall and recorded
+  // nothing. That one exception was the recurring field lockout: once a tech taps
+  // "Don't Allow" once — or opens the job link from an in-app browser (WhatsApp,
+  // Instagram) that denies location by default — the browser returns
+  // PERMISSION_DENIED on EVERY future punch, and she's stuck behind the wall until
+  // she fixes browser settings (which most never do). Now permission-denied is
+  // treated like every other GPS failure:
+  //   • EVERY failure mode (permission denied, timeout, position-unavailable, or a
+  //     browser with no geolocation at all) proceeds WITHOUT coords. The backend
+  //     records a null-coord "no GPS" punch, flagged on the board + reconcile
+  //     screen for office review — the same state the office already produces when
+  //     it clocks a tech in on their behalf.
+  //   • the tech sees a non-blocking toast (distinct copy for "location is off"
+  //     vs "weak signal") so she knows the punch went through and why GPS is
+  //     missing — she is never trapped.
+  // Anti-gaming is unchanged: a deliberately-denied punch lands in the office's
+  // no-GPS review queue exactly like a weak-signal one, so it can't be used to
+  // silently dodge the geofence.
   // Options loosened too: accept a recent cached fix (maximumAge) so a punch
   // doesn't force a fresh high-accuracy lock every time.
   const getLocation = (cb: (lat?: number, lng?: number, accuracy?: number) => void) => {
@@ -913,8 +923,11 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       (err) => {
         setGeoLoading(false);
         if (err && err.code === err.PERMISSION_DENIED) {
-          // Genuine permission problem — the one case where the tech must act.
-          toast({ variant: "destructive", title: "Location access required", description: "Allow location for this site in your browser settings, then tap again." });
+          // Location is turned off for this site (a past "Don't Allow", or an
+          // in-app browser that blocks location). Do NOT lock her out — punch
+          // without GPS, flagged for the office, and nudge her to re-enable.
+          toast({ title: "Clocked in without GPS", description: "Location is off for this site — your punch is saved and flagged for the office. Turn on location in your browser to include GPS next time." });
+          cb();
           return;
         }
         // Timeout / position-unavailable — don't lock her out; punch without GPS.
