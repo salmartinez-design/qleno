@@ -41,6 +41,40 @@ const labelStyle: React.CSSProperties = {
   display: "block", fontSize: 12, fontWeight: 700, color: "#6B7280", marginBottom: 6, fontFamily: FF,
 };
 
+// [2026-07-15] The native <input type="time"> wheel is miserable to navigate
+// (Sal). A plain dropdown of 15-minute slots with readable 12-hour labels is
+// one tap and scannable. Value stays "HH:MM" (24h), same as before.
+const TIME_OPTIONS: { value: string; label: string }[] = (() => {
+  const out: { value: string; label: string }[] = [];
+  for (let mins = 5 * 60; mins <= 22 * 60; mins += 15) {
+    const h = Math.floor(mins / 60), m = mins % 60;
+    const value = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+    const hr12 = h % 12 || 12;
+    out.push({ value, label: `${hr12}:${String(m).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}` });
+  }
+  return out;
+})();
+
+function to12h(v: string): string {
+  const [h, m] = v.split(":").map(Number);
+  if (Number.isNaN(h)) return v;
+  const hr12 = h % 12 || 12;
+  return `${hr12}:${String(m ?? 0).padStart(2, "0")} ${h >= 12 ? "PM" : "AM"}`;
+}
+
+// A time picked from a 15-min dropdown. If the current value falls off the grid
+// (odd minute from earlier data), it's shown as a leading option so nothing is
+// silently lost.
+function TimeSelect({ value, onChange, ariaLabel }: { value: string; onChange: (v: string) => void; ariaLabel: string }) {
+  const inList = TIME_OPTIONS.some(o => o.value === value);
+  return (
+    <select aria-label={ariaLabel} style={inputStyle} value={value} onChange={e => onChange(e.target.value)}>
+      {!inList && value && <option value={value}>{to12h(value)}</option>}
+      {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
+
 export function EventModal({ open, onClose, onCreated, techs, presetDate, branchId, isOwner }: EventModalProps) {
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
   const kindOptions = KIND_OPTIONS.filter(o => !o.ownerOnly || isOwner);
@@ -290,11 +324,11 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
             <div style={{ display: "flex", gap: 12, marginBottom: 14 }}>
               <div style={{ flex: 1 }}>
                 <label style={labelStyle}>Start</label>
-                <input type="time" style={inputStyle} value={startTime} onChange={e => setStartTime(e.target.value)} />
+                <TimeSelect ariaLabel="Start time" value={startTime} onChange={setStartTime} />
               </div>
               <div style={{ flex: 1 }}>
                 <label style={labelStyle}>End</label>
-                <input type="time" style={inputStyle} value={endTime} onChange={e => setEndTime(e.target.value)} />
+                <TimeSelect ariaLabel="End time" value={endTime} onChange={setEndTime} />
               </div>
             </div>
           )}
