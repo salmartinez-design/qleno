@@ -2274,7 +2274,7 @@ export default function BookPage() {
                           onClick={() => setSqftMode("range")}
                           style={{ background: "none", border: "none", padding: "8px 0 0", margin: 0, cursor: "pointer", fontSize: 13, fontWeight: 600, color: brand, fontFamily: "'Plus Jakarta Sans', sans-serif" }}
                         >
-                          Not sure? Choose a range
+                          Don&apos;t know your square footage? Choose a range
                         </button>
                       </>
                     ) : (
