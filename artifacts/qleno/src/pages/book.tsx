@@ -102,6 +102,47 @@ const SQFT_RANGES: { label: string; sqft: number }[] = [
   { label: "3,500 – 4,000 sq ft", sqft: 3999 },
 ];
 
+// Online bookings can't be made inside this many hours — office feedback: the
+// hour arrival windows made scheduling harder, so clients now pick a specific
+// start time, but never one less than 72h out (the office confirms the exact
+// time). Supersedes the old date-only booking_lead_days for the widget.
+const MIN_LEAD_HOURS = 72;
+
+// Client-selectable start times, 9:00 AM–2:00 PM in 30-min steps. The 2:00 PM
+// cap leaves enough of the workday to finish the job. `label` is what we store
+// (arrival_window) + show everywhere; `minutes` drives the 72h slot filter.
+const TIME_SLOTS: { label: string; minutes: number }[] = (() => {
+  const out: { label: string; minutes: number }[] = [];
+  for (let m = 9 * 60; m <= 14 * 60; m += 30) {
+    const h24 = Math.floor(m / 60), mm = m % 60;
+    const h12 = ((h24 + 11) % 12) + 1;
+    const ampm = h24 < 12 ? "AM" : "PM";
+    out.push({ label: `${h12}:${String(mm).padStart(2, "0")} ${ampm}`, minutes: m });
+  }
+  return out;
+})();
+
+// Earliest bookable calendar date given the 72h floor. If the cutoff lands
+// after the last slot (2:00 PM), that day has no usable slots, so start the
+// next day — prevents a selectable date with nothing to pick.
+function computeMinBookDate(cutoffMs: number): string {
+  const cutoff = new Date(cutoffMs);
+  const cutoffMin = cutoff.getHours() * 60 + cutoff.getMinutes();
+  const d = new Date(cutoff);
+  d.setHours(0, 0, 0, 0);
+  if (cutoffMin > 14 * 60) d.setDate(d.getDate() + 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// A slot on `dateStr` is too soon if its datetime is before the 72h cutoff —
+// only ever true on the earliest bookable date; later dates keep every slot.
+function isSlotTooSoon(dateStr: string, minutes: number, cutoffMs: number): boolean {
+  if (!dateStr) return false;
+  const dt = new Date(dateStr + "T00:00:00");
+  dt.setHours(Math.floor(minutes / 60), minutes % 60, 0, 0);
+  return dt.getTime() < cutoffMs;
+}
+
 // ── Stepper counter component ────────────────────────────────────────────────
 function Stepper({ value, onChange, min = 0, max = 20 }: { value: number; onChange: (v: number) => void; min?: number; max?: number }) {
   return (
@@ -460,11 +501,17 @@ export default function BookPage() {
   const [upsellCadenceError, setUpsellCadenceError] = useState(false);
   const [recurringDate, setRecurringDate] = useState("");
 
-  // Step 3: Arrival window (time range)
-  const [arrivalWindow, setArrivalWindow] = useState<"morning" | "afternoon" | "">("");
-  const [recurringArrivalWindow, setRecurringArrivalWindow] = useState<"morning" | "afternoon" | "">("");
+  // Step 3: Preferred start time. Holds a specific time label (e.g. "10:00 AM")
+  // — replaced the old morning/afternoon window per office feedback. Stored in
+  // and sent as arrival_window for backward-compat.
+  const [arrivalWindow, setArrivalWindow] = useState<string>("");
+  const [recurringArrivalWindow, setRecurringArrivalWindow] = useState<string>("");
   const [contactMethod, setContactMethod] = useState<"sms" | "call" | "email" | "">("");
   const [contactMethodError, setContactMethodError] = useState(false);
+
+  // 72-hour booking floor: computed once on mount so it's stable across renders.
+  const [cutoffMs] = useState(() => Date.now() + MIN_LEAD_HOURS * 60 * 60 * 1000);
+  const minBookDateStr = computeMinBookDate(cutoffMs);
 
   // Step 0: Address line 2
   const [addressLine2, setAddressLine2] = useState("");
@@ -3149,7 +3196,7 @@ export default function BookPage() {
                 selected={selectedDate}
                 onSelect={(d) => { setSelectedDate(d); setRecurringDate(""); setArrivalWindow(""); setRecurringArrivalWindow(""); }}
                 brand={brand}
-                leadDays={bookingSettings?.booking_lead_days ?? 7}
+                minDateStr={minBookDateStr}
                 maxAdvanceDays={bookingSettings?.max_advance_days ?? 60}
                 availableDays={bookingSettings ? {
                   sun: bookingSettings.available_sun,
@@ -3162,33 +3209,31 @@ export default function BookPage() {
                 } : undefined}
               />
 
-              {/* FIX 11: Arrival window pills — shown after date selection */}
+              {/* Preferred start time — specific time, 72h-filtered on the earliest date */}
               {selectedDate && (
                 <div style={{ marginTop: 16 }}>
-                  <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Preferred Arrival Window</p>
-                  <div style={{ display: "flex", gap: 10 }}>
-                    {([
-                      { key: "morning",   label: "Morning",   sub: "9 AM – 12 PM" },
-                      { key: "afternoon", label: "Afternoon", sub: "12 PM – 2 PM" },
-                    ] as const).map(opt => (
-                      <button
-                        key={opt.key}
-                        disabled={false}
-                        onClick={() => setArrivalWindow(opt.key)}
-                        style={{
-                          flex: 1, padding: "10px 12px", borderRadius: 10,
-                          border: `2px solid ${arrivalWindow === opt.key ? brand : "#E5E2DC"}`,
-                          background: arrivalWindow === opt.key ? `${brand}12` : "#fff",
-                          cursor: "pointer", textAlign: "left" as const,
-                          fontFamily: "'Plus Jakarta Sans', sans-serif",
-                          transition: "all 0.15s", opacity: 1,
-                        }}
-                      >
-                        <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#1A1917" }}>{opt.label}</p>
-                        <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>{opt.sub}</p>
-                      </button>
-                    ))}
-                  </div>
+                  <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Preferred start time</p>
+                  <select
+                    value={arrivalWindow}
+                    onChange={e => setArrivalWindow(e.target.value)}
+                    style={{
+                      width: "100%", padding: "10px 12px", borderRadius: 10,
+                      border: `1.5px solid #E5E2DC`, background: "#fff",
+                      fontFamily: "'Plus Jakarta Sans', sans-serif",
+                      fontSize: 14, color: arrivalWindow ? "#1A1917" : "#9CA3AF",
+                      appearance: "auto", cursor: "pointer", outline: "none",
+                    }}
+                  >
+                    <option value="" disabled>Select a time…</option>
+                    {TIME_SLOTS.map(slot => {
+                      const tooSoon = isSlotTooSoon(selectedDate, slot.minutes, cutoffMs);
+                      return (
+                        <option key={slot.minutes} value={slot.label} disabled={tooSoon}>
+                          {slot.label}{tooSoon ? " — too soon" : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
                 </div>
               )}
 
@@ -3197,7 +3242,7 @@ export default function BookPage() {
                   <Calendar size={16} color={brand} />
                   <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>
                     {upsellAccepted ? "Deep Clean: " : "First Job: "}{new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-                    {" · "}{arrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"}
+                    {" · "}{arrivalWindow}
                   </span>
                 </div>
               )}
@@ -3229,32 +3274,31 @@ export default function BookPage() {
                     This is when your recurring service begins. You can start later if needed — your rate is locked either way.
                   </p>
 
-                  {/* FIX 1: Arrival window pills for recurring date */}
+                  {/* Preferred start time for the recurring start date */}
                   {recurringDate && (
                     <div style={{ marginTop: 16 }}>
-                      <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Preferred Arrival Window</p>
-                      <div style={{ display: "flex", gap: 10 }}>
-                        {([
-                          { key: "morning",   label: "Morning",   sub: "9 AM – 12 PM" },
-                          { key: "afternoon", label: "Afternoon", sub: "12 PM – 2 PM" },
-                        ] as const).map(opt => (
-                          <button
-                            key={opt.key}
-                            onClick={() => setRecurringArrivalWindow(opt.key)}
-                            style={{
-                              flex: 1, padding: "10px 12px", borderRadius: 10,
-                              border: `2px solid ${recurringArrivalWindow === opt.key ? brand : "#E5E2DC"}`,
-                              background: recurringArrivalWindow === opt.key ? `${brand}12` : "#fff",
-                              cursor: "pointer", textAlign: "left" as const,
-                              fontFamily: "'Plus Jakarta Sans', sans-serif",
-                              transition: "all 0.15s",
-                            }}
-                          >
-                            <p style={{ margin: 0, fontWeight: 700, fontSize: 14, color: "#1A1917" }}>{opt.label}</p>
-                            <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>{opt.sub}</p>
-                          </button>
-                        ))}
-                      </div>
+                      <p style={{ margin: "0 0 8px", fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Preferred start time</p>
+                      <select
+                        value={recurringArrivalWindow}
+                        onChange={e => setRecurringArrivalWindow(e.target.value)}
+                        style={{
+                          width: "100%", padding: "10px 12px", borderRadius: 10,
+                          border: `1.5px solid #E5E2DC`, background: "#fff",
+                          fontFamily: "'Plus Jakarta Sans', sans-serif",
+                          fontSize: 14, color: recurringArrivalWindow ? "#1A1917" : "#9CA3AF",
+                          appearance: "auto", cursor: "pointer", outline: "none",
+                        }}
+                      >
+                        <option value="" disabled>Select a time…</option>
+                        {TIME_SLOTS.map(slot => {
+                          const tooSoon = isSlotTooSoon(recurringDate, slot.minutes, cutoffMs);
+                          return (
+                            <option key={slot.minutes} value={slot.label} disabled={tooSoon}>
+                              {slot.label}{tooSoon ? " — too soon" : ""}
+                            </option>
+                          );
+                        })}
+                      </select>
                     </div>
                   )}
 
@@ -3263,7 +3307,7 @@ export default function BookPage() {
                       <Calendar size={16} color={brand} />
                       <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>
                         First Recurring: {new Date(recurringDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
-                        {" · "}{recurringArrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"}
+                        {" · "}{recurringArrivalWindow}
                       </span>
                     </div>
                   )}
@@ -3296,7 +3340,7 @@ export default function BookPage() {
                     <p style={{ margin: "4px 0 0", fontSize: 12, color: "#DC2626" }}>Please select a preferred contact method to continue.</p>
                   )}
                   <p style={{ margin: "8px 0 0", fontSize: 11, color: "#6B6860", lineHeight: 1.55 }}>
-                    Our office will reach out via your preferred method to confirm your exact appointment time within your selected arrival window. Appointment times are subject to availability and will be confirmed before your scheduled date.
+                    This is your requested start time — our office will reach out via your preferred method to confirm everything before your appointment. Times are subject to availability.
                   </p>
                 </div>
               )}
@@ -3378,8 +3422,8 @@ export default function BookPage() {
                   {upsellAccepted && recurringDate && (
                     <Row label="First Recurring Date" value={new Date(recurringDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} />
                   )}
-                  {arrivalWindow && <Row label="Arrival Window" value={arrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"} />}
-                  {upsellAccepted && recurringArrivalWindow && <Row label="Recurring Arrival Window" value={recurringArrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"} />}
+                  {arrivalWindow && <Row label="Preferred Start Time" value={arrivalWindow} />}
+                  {upsellAccepted && recurringArrivalWindow && <Row label="Recurring Start Time" value={recurringArrivalWindow} />}
                   {address && <Row label="Address" value={address} />}
                   {calcResult && calcResult.base_hours > 0 && <Row label="Estimated Time" value={`${(calcResult.total_hours ?? calcResult.base_hours).toFixed(1)} hrs`} />}
                   {/* FIX 4: "Total" relabeled to "First Visit Total" */}
@@ -3467,7 +3511,7 @@ export default function BookPage() {
                 <p style={{ margin: "0 0 6px", fontSize: 14, color: "#6B6860" }}>
                   Thank you, {firstName}. {selectedScope?.name} is scheduled
                   {selectedDate ? ` for ${new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}` : ""}
-                  {arrivalWindow ? ` with a ${arrivalWindow === "morning" ? "9 AM – 12 PM" : "12 PM – 2 PM"} arrival window` : ""}.
+                  {arrivalWindow ? ` at ${arrivalWindow}` : ""}.
                 </p>
                 <p style={{ margin: "0 0 6px", fontSize: 14, color: "#6B6860" }}>A confirmation email has been sent to <strong>{email}</strong>.</p>
                 <p style={{ margin: 0, fontSize: 14, color: "#6B6860" }}>
@@ -3493,8 +3537,8 @@ export default function BookPage() {
                   {upsellAccepted && <Row label="Frequency" value={wLabel(upsellCadence)} />}
                   {selectedDate && <Row label="First Date" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} bold />}
                   {upsellAccepted && recurringDate && <Row label="First Recurring Date" value={new Date(recurringDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} bold />}
-                  {arrivalWindow && <Row label="Arrival Window" value={arrivalWindow === "morning" ? "Morning (9 AM – 12 PM)" : "Afternoon (12 PM – 2 PM)"} />}
-                  {upsellAccepted && recurringArrivalWindow && <Row label="Recurring Arrival Window" value={recurringArrivalWindow === "morning" ? "Morning (9 AM – 12 PM)" : "Afternoon (12 PM – 2 PM)"} />}
+                  {arrivalWindow && <Row label="Preferred Start Time" value={arrivalWindow} />}
+                  {upsellAccepted && recurringArrivalWindow && <Row label="Recurring Start Time" value={recurringArrivalWindow} />}
                   {address && <Row label="Address" value={address} />}
                   {(bookResult.pricing?.base_hours ?? calcResult?.base_hours ?? 0) > 0 && (
                     <Row label="Estimated Time" value={`${(bookResult.pricing?.total_hours ?? bookResult.pricing?.base_hours ?? calcResult?.total_hours ?? calcResult?.base_hours ?? 0).toFixed(1)} hrs`} />

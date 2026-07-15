@@ -1125,7 +1125,13 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const upsellDeferredVal = upsell_deferred === true || upsell_deferred === "true" ? true : false;
     const upsellCadenceVal = upsell_cadence_selected || null;
     const propertyVacantVal = property_vacant === true || property_vacant === "true" ? true : false;
-    const arrivalWindowVal = (arrival_window === "morning" || arrival_window === "afternoon") ? arrival_window : null;
+    // [time-picker 2026-07-15] arrival_window now carries a specific requested
+    // start time (e.g. "10:00 AM") instead of the old morning/afternoon enum.
+    // Store the trimmed label as-is (cap length); legacy morning/afternoon rows
+    // still render via the display fallbacks below.
+    const arrivalWindowVal = (typeof arrival_window === "string" && arrival_window.trim())
+      ? arrival_window.trim().slice(0, 40)
+      : null;
 
     const bookLocVal = (booking_location === "oak_lawn" || booking_location === "schaumburg") ? booking_location : null;
     // [address-capture 2026-07-10] Use the resolved address (parsed or geocoded) so
@@ -1364,7 +1370,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const emailDateStr = preferred_date
       ? new Date(preferred_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })
       : "To be scheduled";
-    const emailWindowLabel = arrivalWindowVal === "morning" ? "9:00 AM – 12:00 PM" : arrivalWindowVal === "afternoon" ? "12:00 PM – 2:00 PM" : "To be confirmed";
+    const emailWindowLabel = arrivalWindowVal === "morning" ? "9:00 AM – 12:00 PM" : arrivalWindowVal === "afternoon" ? "12:00 PM – 2:00 PM" : (arrivalWindowVal || "To be confirmed");
     const emailAddonBreakdown: Array<{ name: string; amount: number }> = (pricing.addon_breakdown || []).map((a: any) => ({ name: a.name, amount: parseFloat(String(a.amount || 0)) }));
     const emailBundleDiscount = bundleDiscount ? Math.abs(parseFloat(String(bundleDiscount))) : 0;
 
@@ -1513,7 +1519,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
         const dateStr2 = preferred_date
           ? new Date(preferred_date + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" })
           : "TBD";
-        const windowLabel = arrivalWindowVal === "morning" ? "9AM–12PM" : arrivalWindowVal === "afternoon" ? "12PM–2PM" : "";
+        const windowLabel = arrivalWindowVal === "morning" ? "9AM–12PM" : arrivalWindowVal === "afternoon" ? "12PM–2PM" : (arrivalWindowVal || "");
         const smsBody = `📋 New Booking — ${first_name} ${last_name} | ${scopeName} | ${sqft} sqft | ${dateStr2}${windowLabel ? ` ${windowLabel}` : ""} | Job #${jobId}${recurringJobId ? ` + #${recurringJobId}` : ""}`;
         await sendSmsVia(sender, officeTo, smsBody);
       }

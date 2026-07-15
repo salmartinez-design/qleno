@@ -1006,5 +1006,8 @@ export function computeArrivalWindow(
   // Legacy fallback when no scheduled_time is stored on the job
   if (arrivalWindowStr === "morning") return "9:00 AM – 12:00 PM";
   if (arrivalWindowStr === "afternoon") return "12:00 PM – 2:00 PM";
+  // [time-picker 2026-07-15] arrival_window now holds a specific requested time
+  // (e.g. "10:00 AM") — surface it directly rather than the generic fallback.
+  if (arrivalWindowStr && arrivalWindowStr.trim()) return arrivalWindowStr.trim();
   return "scheduled window";
 }
