@@ -946,7 +946,16 @@ export default function QuoteBuilderPage() {
   async function save(status: string = "draft", thenConvert = false) {
     setSaving(true);
     try {
-      const payload = buildPayload(status);
+      // [edit-after-sent 2026-07-16] Plain "Save" (status="draft") on a quote that
+      // was ALREADY sent/viewed/accepted must NOT silently downgrade it back to
+      // draft — the office is just correcting a mistake. Preserve the existing
+      // status and skip re-sending. "Save & Send" (status="sent") still re-sends
+      // the corrected quote. Only applies when editing (not a convert flow).
+      const originalStatus = isEdit ? (existingQuote?.status as string | undefined) : undefined;
+      const preserveStatus = status === "draft" && !thenConvert && originalStatus
+        && originalStatus !== "draft";
+      const effectiveStatus = preserveStatus ? originalStatus! : status;
+      const payload = buildPayload(effectiveStatus);
       let result;
       const targetId = isEdit ? id : autoSavedIdRef.current;
       if (targetId) {
@@ -999,7 +1008,7 @@ export default function QuoteBuilderPage() {
         toast.success(isEdit ? "Quote sent" : "Quote created and sent.");
         navigate(`/quotes/${savedId}`);
       } else {
-        toast.success("Quote saved as draft");
+        toast.success(preserveStatus ? "Quote updated" : "Quote saved as draft");
         navigate(`/quotes/${savedId}`);
       }
     } catch (e: any) {

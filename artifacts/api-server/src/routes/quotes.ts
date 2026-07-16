@@ -432,6 +432,31 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
   }
 });
 
+// [quote-email-tracking 2026-07-16] Email delivery status for a quote — powers
+// the "Email status" card on the quote detail page (Maribel: "see if the email
+// was delivered, opened or if it bounced"). Reads communication_log rows the
+// quote-followup cadence wrote for this quote; the Resend webhook
+// (POST /api/comms/email/webhook) advances delivery_status/opened_at over time.
+// Returns newest-first so the frontend shows the latest send's status.
+router.get("/:id/email-status", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    const rows = await db.execute(sql`
+      SELECT id, subject, recipient, resend_email_id, delivery_status,
+             opened_at, clicked_at, logged_at
+        FROM communication_log
+       WHERE company_id = ${companyId} AND quote_id = ${id} AND channel = 'email'
+       ORDER BY COALESCE(logged_at, NOW()) DESC
+       LIMIT 10
+    `);
+    return res.json(rows.rows ?? []);
+  } catch (err) {
+    console.error("[quote email-status]", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post("/:id/accept", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const id = parseInt(req.params.id);

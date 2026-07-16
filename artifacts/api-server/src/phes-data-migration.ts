@@ -91,6 +91,13 @@ async function runBookingSchemaGuard(): Promise<void> {
     // whether invoices actually went out (Maribel).
     { label: "communication_log.account_id", stmt: "ALTER TABLE communication_log ADD COLUMN IF NOT EXISTS account_id INTEGER" },
     { label: "communication_log.customer_id nullable", stmt: "ALTER TABLE communication_log ALTER COLUMN customer_id DROP NOT NULL" },
+    // [quote-email-tracking 2026-07-16] Quote-delivery emails (quote_followup
+    // cadence touch 1) now write a communication_log row so the office can see
+    // delivered/opened/bounced (via the Resend webhook) AND the email shows in
+    // the comms log with its subject+body (Maribel). quote_id ties the row back
+    // to a specific quote for the quote-detail Email Status card.
+    { label: "communication_log.quote_id", stmt: "ALTER TABLE communication_log ADD COLUMN IF NOT EXISTS quote_id INTEGER" },
+    { label: "communication_log.quote_id idx", stmt: "CREATE INDEX IF NOT EXISTS idx_comm_log_quote ON communication_log (quote_id) WHERE quote_id IS NOT NULL" },
     // [building-notes-unfanout 2026-07-07] The property PATCH used to copy
     // building notes into every future job's per-visit note columns (see
     // accounts.ts). Clear the stale copies on FUTURE scheduled jobs — a job
