@@ -435,6 +435,46 @@ export default function QuoteBuilderPage() {
     })();
   }, [isEdit]);
 
+  // ── Pre-fill from ?lead_id= on mount (opened from a lead's "Build a quote") ──
+  // [lead-prefill 2026-07-16] The office-initiated quote-from-lead path had NO
+  // prefill: the lead button went to /quotes/new with no id and the builder only
+  // understood ?client_id=, so the lead's captured info came up blank
+  // (Francisco/Maribel: "when you create the quote from the lead the information
+  // is not populating"). Mirror the client path — fetch the lead and map its
+  // fields onto the form. A lead has no client_id yet (unless already converted),
+  // so the quote carries the lead's contact as lead_name/email/phone and lead-sync
+  // links it on send. Property fields fall back to the widget `details` JSON.
+  useEffect(() => {
+    if (isEdit || selectedClientId) return;
+    const params = new URLSearchParams(window.location.search);
+    const lid = parseInt(params.get("lead_id") || "");
+    if (!lid || isNaN(lid)) return;
+    (async () => {
+      try {
+        const lead = await apiFetch(`/api/leads/${lid}`);
+        if (!lead || !lead.id) return;
+        const wd: any = lead.details || {};
+        const num = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+        setLeadFirstName(lead.first_name || "");
+        setLeadLastName(lead.last_name || "");
+        setLeadEmail(lead.email || "");
+        setLeadPhone(lead.phone || "");
+        setAddress(lead.address || "");
+        setSqft(num(lead.sqft ?? wd.sqft));
+        setBedrooms(num(lead.bedrooms ?? wd.bedrooms));
+        setBathrooms(num(lead.bathrooms ?? wd.bathrooms));
+        if (lead.referral_source || wd.referral_source) setReferralSource(String(lead.referral_source || wd.referral_source));
+        if (lead.notes) setNotes(String(lead.notes));
+        // A lead that was already converted to a client → link the client record
+        // so pricing uses it, exactly like the ?client_id= path.
+        if (lead.client_id) {
+          setSelectedClientId(lead.client_id);
+          setClientSearch(`${lead.first_name || ""} ${lead.last_name || ""}`.trim());
+        }
+      } catch {}
+    })();
+  }, [isEdit]);
+
   // ── Restore existing quote ───────────────────────────────────────────────
   useEffect(() => {
     if (!existingQuote) return;
