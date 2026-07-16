@@ -120,6 +120,7 @@ type Row = {
   address?: string | null; client_id?: number | null; account_id?: number | null;
   entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null; flagged: boolean; minutes: number | null;
   allowed_hours?: number | null; estimated_hours?: number | null;
+  fee?: number | null; effective_pay_type?: "fee_split" | "allowed_hours" | "hourly";
   pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
   pay?: number | null; pay_kind?: "commission" | "cancellation"; cancel_action?: string | null;
@@ -159,6 +160,11 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
   }, [row.pay_type, row.hourly_rate, row.commission_pct, row.pay_deduction_flat]);
 
   const unit = payType === "fee_split" ? "%" : payType === "" ? "" : "$/hr";
+  // What the row ACTUALLY pays as: the explicit dropdown choice when set, else
+  // the job's smart default resolved server-side (correct for every client —
+  // commercial-by-account, by-client-type, or by-service-type all land right).
+  // Drives which verification chip shows so live edits reflect immediately.
+  const effectivePayType = payType !== "" ? payType : (row.effective_pay_type ?? "fee_split");
   async function savePay() {
     setBusy(true);
     try {
@@ -217,9 +223,28 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
           <span style={{ fontSize: 11, color: "#9E9B94" }}>{unit}</span>
         </div>
       )}
+      {/* Fee Split pays a % of the job's fee — show that fee so the office can
+          verify pay = fee × % inline (Sal: "I need to know what the client paid"
+          without opening the job). Gated on the RESOLVED pay type so it shows for
+          explicit Fee Split AND every residential Default, and never on a
+          commercial row (account, client-type, or service-type). */}
+      {effectivePayType === "fee_split" && (
+        row.fee != null && row.fee > 0 ? (
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#0A7C66", background: "#E6F7F1", borderRadius: 999, padding: "3px 9px" }}
+            title="What the client was billed for this job — the amount the fee-split pay is calculated from. Pay = billed × %, split by clocked hours when more than one tech is assigned.">
+            billed ${row.fee.toFixed(2)}
+          </span>
+        ) : (
+          <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 999, padding: "3px 9px" }}
+            title="No amount is billed on this job yet — the fee-split pay can't be computed until the job has a price.">
+            no billed amount
+          </span>
+        )
+      )}
       {/* Allowed Hours pays budget-hours × rate — show the budget so the office
-          sees WHAT drives the $ (was invisible: rate + total only). */}
-      {payType === "allowed_hours" && (
+          sees WHAT drives the $ (was invisible: rate + total only). Gated on the
+          resolved type so commercial Default rows show their budget too. */}
+      {effectivePayType === "allowed_hours" && (
         row.allowed_hours != null && row.allowed_hours > 0 ? (
           <span style={{ fontSize: 11, fontWeight: 700, color: "#0A7C66", background: "#E6F7F1", borderRadius: 999, padding: "3px 9px" }}
             title="The job's allowed-hours budget. Pay = allowed hours × rate (capped at budget). Set on the job.">

@@ -4,7 +4,7 @@ import { timeclockTable, usersTable, jobsTable, clientsTable, companiesTable, jo
 import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
-import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission-paytype.js";
+import { computePerTechCommissionRows, isCommercialJob, type JobTechRow } from "../lib/commission-paytype.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
 import { unionHoursByKey } from "../lib/timeclock-hours.js";
@@ -1194,6 +1194,15 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  // when allowed_hours isn't set. The meta line showed only the
                  // scheduled start ("sched 6:00 AM") with no end.
                  estimated_hours: number | null;
+                 // [fee-split-verify 2026-07-16] The client fee this row's pay is
+                 // computed from, so a Fee Split row can show `fee × pct = pay`
+                 // inline (Sal: "I need to know what the client paid" without
+                 // opening the job). Mirrors the commission engine's base:
+                 // commission_base ?? max(base_fee, billed_amount).
+                 fee: number | null;
+                 // The pay type this row resolves to (override or smart default),
+                 // so the UI shows the right verification chip for every client.
+                 effective_pay_type: "fee_split" | "allowed_hours" | "hourly";
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
                  pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null;
                  // pay_kind tells the UI whether `pay` is normal commission or
@@ -1222,6 +1231,31 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       const lat = j?.job_lat ?? j?.address_lat ?? j?.client_lat;
       const lng = j?.job_lng ?? j?.address_lng ?? j?.client_lng;
       return { job_lat: lat != null ? Number(lat) : null, job_lng: lng != null ? Number(lng) : null };
+    };
+    // [fee-split-verify 2026-07-16] The client fee the row's commission is based
+    // on — same resolution as lib/commission-paytype.ts (commission_base wins;
+    // else the larger of base_fee / billed_amount). Lets a Fee Split row display
+    // `fee × pct = pay` so the office can verify pay without opening the job.
+    const numOrNull = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+    const feeOf = (j: any): number | null => {
+      const cb = numOrNull(j?.commission_base);
+      if (cb != null) return cb;
+      const bf = numOrNull(j?.base_fee) ?? 0;
+      const ba = numOrNull(j?.billed_amount) ?? 0;
+      return Math.max(bf, ba);
+    };
+    // [fee-split-verify 2026-07-16] The pay type a row RESOLVES to — the per-tech
+    // override when set, else the job's smart default (commercial → allowed_hours,
+    // residential → fee_split). Mirrors lib/commission-paytype.ts exactly
+    // (defaultPayForJob + isCommercialJob), so the UI decides which chip to show
+    // from the same source that computed the pay — no client-side account_id
+    // guess that would misclassify commercial-by-service-type / client_type jobs.
+    const asPT = (v: any): "fee_split" | "allowed_hours" | "hourly" | null =>
+      v === "fee_split" || v === "allowed_hours" || v === "hourly" ? v : null;
+    const resolvedPayTypeOf = (j: any, rawPayType: any): "fee_split" | "allowed_hours" | "hourly" => {
+      const override = asPT(rawPayType);
+      if (override) return override;
+      return isCommercialJob(j?.account_id, j?.service_type, j?.client_type) ? "allowed_hours" : "fee_split";
     };
     const gpsOf = (e: any) => ({
       gps_in_ft: e?.clock_in_distance_ft != null ? Math.round(parseFloat(String(e.clock_in_distance_ft))) : null,
@@ -1296,6 +1330,8 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
           allowed_hours: j.allowed_hours != null ? Number(j.allowed_hours) : null,
           estimated_hours: j.estimated_hours != null ? Number(j.estimated_hours) : null,
+          fee: feeOf(j),
+          effective_pay_type: resolvedPayTypeOf(j, payByJobUser.get(`${jid}:${t.user_id}`)?.pay_type ?? null),
           ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), source: e?.source ?? null,
           ...gpsOf(e), ...coordsOf(j),
         });
@@ -1312,6 +1348,8 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
         allowed_hours: j?.allowed_hours != null ? Number(j.allowed_hours) : null,
         estimated_hours: j?.estimated_hours != null ? Number(j.estimated_hours) : null,
+        fee: feeOf(j),
+        effective_pay_type: resolvedPayTypeOf(j, payByJobUser.get(`${Number(e.job_id)}:${Number(e.user_id)}`)?.pay_type ?? null),
         ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
         ...gpsOf(e), ...coordsOf(j),
       });
