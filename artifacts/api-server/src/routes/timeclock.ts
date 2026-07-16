@@ -1172,6 +1172,12 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  // when allowed_hours isn't set. The meta line showed only the
                  // scheduled start ("sched 6:00 AM") with no end.
                  estimated_hours: number | null;
+                 // [fee-split-verify 2026-07-16] The client fee this row's pay is
+                 // computed from, so a Fee Split row can show `fee × pct = pay`
+                 // inline (Sal: "I need to know what the client paid" without
+                 // opening the job). Mirrors the commission engine's base:
+                 // commission_base ?? max(base_fee, billed_amount).
+                 fee: number | null;
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
                  pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null;
                  // pay_kind tells the UI whether `pay` is normal commission or
@@ -1200,6 +1206,18 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       const lat = j?.job_lat ?? j?.address_lat ?? j?.client_lat;
       const lng = j?.job_lng ?? j?.address_lng ?? j?.client_lng;
       return { job_lat: lat != null ? Number(lat) : null, job_lng: lng != null ? Number(lng) : null };
+    };
+    // [fee-split-verify 2026-07-16] The client fee the row's commission is based
+    // on — same resolution as lib/commission-paytype.ts (commission_base wins;
+    // else the larger of base_fee / billed_amount). Lets a Fee Split row display
+    // `fee × pct = pay` so the office can verify pay without opening the job.
+    const numOrNull = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+    const feeOf = (j: any): number | null => {
+      const cb = numOrNull(j?.commission_base);
+      if (cb != null) return cb;
+      const bf = numOrNull(j?.base_fee) ?? 0;
+      const ba = numOrNull(j?.billed_amount) ?? 0;
+      return Math.max(bf, ba);
     };
     const gpsOf = (e: any) => ({
       gps_in_ft: e?.clock_in_distance_ft != null ? Math.round(parseFloat(String(e.clock_in_distance_ft))) : null,
@@ -1274,6 +1292,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           flagged: !!e?.flagged, minutes: e ? minutesOf(e.clock_in_at, e.clock_out_at) : null,
           allowed_hours: j.allowed_hours != null ? Number(j.allowed_hours) : null,
           estimated_hours: j.estimated_hours != null ? Number(j.estimated_hours) : null,
+          fee: feeOf(j),
           ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), source: e?.source ?? null,
           ...gpsOf(e), ...coordsOf(j),
         });
@@ -1290,6 +1309,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         clock_out_at: e.clock_out_at ?? null, flagged: !!e.flagged, minutes: minutesOf(e.clock_in_at, e.clock_out_at),
         allowed_hours: j?.allowed_hours != null ? Number(j.allowed_hours) : null,
         estimated_hours: j?.estimated_hours != null ? Number(j.estimated_hours) : null,
+        fee: feeOf(j),
         ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
         ...gpsOf(e), ...coordsOf(j),
       });
