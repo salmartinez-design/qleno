@@ -983,6 +983,83 @@ router.put("/office/job/:jobId/tech/:userId/pay", requireAuth, requireRole("owne
 // by employee — so missing/short/extra punches are obvious and MC's exact times
 // can be keyed in. The create path is the existing /office/clock-in|out; these
 // add EDIT and DELETE. Every correction is audit-logged.
+// [addr-audit 2026-07-16] Read-only diagnostic: which jobs will render with NO
+// street (only a zip) because no source has one — after the full resolution
+// chain (job street → linked property → client address → account's single
+// property). These are genuine data gaps that need the real address entered;
+// we never guess one. Bucketed by root cause so the office can fix at the
+// source. GET /api/timeclock/address-audit?from=YYYY-MM-DD&to=YYYY-MM-DD
+// (defaults to the last 30 days through 30 days ahead).
+router.get("/address-audit", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const d = (n: number) => { const x = new Date(); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+    const from = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.from || "")) ? String(req.query.from) : d(-30);
+    const to   = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.to   || "")) ? String(req.query.to)   : d(30);
+    const rows = (await db.execute(sql`
+      SELECT j.id, j.scheduled_date::text AS date, j.account_id, j.client_id,
+             NULLIF(j.address_zip,'') AS zip,
+             CASE WHEN j.account_id IS NOT NULL THEN a.account_name
+                  ELSE NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '') END AS name,
+             NULLIF(TRIM(j.address_street),'')  AS job_street,
+             NULLIF(TRIM(ap.address),'')        AS linked_property,
+             NULLIF(TRIM(c.address),'')         AS client_address,
+             (SELECT MAX(NULLIF(TRIM(ap2.address),'')) FROM account_properties ap2
+               WHERE ap2.account_id = j.account_id HAVING COUNT(*) = 1) AS account_single_property,
+             (SELECT COUNT(*) FROM account_properties ap2 WHERE ap2.account_id = j.account_id) AS account_property_count
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+        LEFT JOIN accounts a ON a.id = j.account_id
+        LEFT JOIN account_properties ap ON ap.id = j.account_property_id
+       WHERE j.company_id = ${companyId}
+         AND j.scheduled_date::date BETWEEN ${from}::date AND ${to}::date
+         AND j.status IS DISTINCT FROM 'cancelled'
+       ORDER BY j.scheduled_date DESC, j.id
+    `)).rows as any[];
+
+    // A job "has a street somewhere" if any resolution source supplies one.
+    const hasStreet = (r: any) => !!(r.job_street || r.linked_property || r.client_address || r.account_single_property);
+    const gaps = rows.filter(r => !hasStreet(r));
+    const sample = (r: any) => ({ job_id: r.id, name: r.name || "(no name)", date: r.date, zip: r.zip || null });
+
+    // Root-cause buckets — where the real street should be entered.
+    const residentialNoClientAddr = gaps.filter(r => r.client_id && !r.account_id);
+    const commercialNoProperty    = gaps.filter(r => r.account_id && Number(r.account_property_count) === 0);
+    const commercialMultiPropUnlinked = gaps.filter(r => r.account_id && Number(r.account_property_count) > 1);
+    const other = gaps.filter(r =>
+      !(r.client_id && !r.account_id) &&
+      !(r.account_id && Number(r.account_property_count) === 0) &&
+      !(r.account_id && Number(r.account_property_count) > 1));
+
+    return res.json({
+      window: { from, to },
+      jobs_scanned: rows.length,
+      jobs_missing_street: gaps.length,
+      buckets: {
+        residential_no_client_address: {
+          count: residentialNoClientAddr.length,
+          fix: "Add the address on the client's profile (or the job).",
+          samples: residentialNoClientAddr.slice(0, 25).map(sample),
+        },
+        commercial_account_has_no_property: {
+          count: commercialNoProperty.length,
+          fix: "Add a property (with address) to the account, then link the job.",
+          samples: commercialNoProperty.slice(0, 25).map(sample),
+        },
+        commercial_multi_property_job_unlinked: {
+          count: commercialMultiPropUnlinked.length,
+          fix: "Link the job to the correct account property (account has several).",
+          samples: commercialMultiPropUnlinked.slice(0, 25).map(sample),
+        },
+        other: { count: other.length, fix: "Add the address on the job.", samples: other.slice(0, 25).map(sample) },
+      },
+    });
+  } catch (err) {
+    console.error("[address-audit]", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
@@ -1024,6 +1101,17 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  CASE WHEN NULLIF(ap.property_name,'') IS NOT NULL THEN ' (' || ap.property_name || ')' ELSE '' END
                ), ''),
                NULLIF(TRIM(c.address), ''),
+               -- [addr-fix-2 2026-07-16] Commercial job with no street and no
+               -- LINKED property: fall back to the account's property address, but
+               -- ONLY when the account has exactly one property (HAVING COUNT=1) —
+               -- so a multi-property account (e.g. PPM's many buildings) is never
+               -- shown a guessed/wrong building. Naturally skips residential jobs
+               -- (no account_id → no match).
+               (SELECT MAX(NULLIF(TRIM(ap2.address ||
+                   CASE WHEN NULLIF(ap2.property_name,'') IS NOT NULL THEN ' (' || ap2.property_name || ')' ELSE '' END), ''))
+                  FROM account_properties ap2
+                 WHERE ap2.account_id = j.account_id
+                HAVING COUNT(*) = 1),
                NULLIF(TRIM(
                  COALESCE(j.address_city,'') ||
                  CASE WHEN NULLIF(j.address_state,'') IS NOT NULL THEN ', ' || j.address_state ELSE '' END ||
