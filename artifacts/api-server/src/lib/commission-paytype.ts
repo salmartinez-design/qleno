@@ -583,13 +583,21 @@ export function computePerTechPayRowsDetailed(input: {
       const row = computeTechPay(ctx, resolved);
       let label: string;
       let paidHours = 0;
+      // [payroll-label-trim 2026-07-16] This label feeds ONLY the columnar
+      // payroll /detail screen, which already has BILLED, DONE/ALLOWED and PAY
+      // columns. The old verbose form ("35.00% of $150.00", "$20/hr × 1.5h
+      // (allowed)") re-printed the billed amount and the allowed hours that are
+      // already in those columns. Trim to just the pay BASIS + rate — the one
+      // datum with no column of its own. (The standalone paycheck label in
+      // payroll-compute.ts stays verbose on purpose: a paycheck has no columns,
+      // so "35% of $150" is the explanation there.)
       if (resolved.payType === "hourly") {
         paidHours = round2(clockedHours);
-        label = `$${resolved.hourlyRate.toFixed(2)}/hr × ${paidHours}h`;
+        label = `$${resolved.hourlyRate.toFixed(2).replace(/\.00$/, "")}/hr`;
       } else if (resolved.payType === "allowed_hours") {
-        label = `$${resolved.hourlyRate.toFixed(2)}/hr × ${row.effectiveHours}h (allowed)`;
+        label = `$${resolved.hourlyRate.toFixed(2).replace(/\.00$/, "")}/hr allowed`;
       } else {
-        label = `${(row.effectivePct * 100).toFixed(2)}% of $${ctx.baseFee.toFixed(2)}`;
+        label = `Fee split ${(row.effectivePct * 100).toFixed(2).replace(/\.?0+$/, "")}%`;
       }
       out.push({ ...base, amount: row.amount, payType: resolved.payType,
         basis: isCommercial ? "commercial_pool" : "residential_pool",
