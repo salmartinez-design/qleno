@@ -575,7 +575,7 @@ export default function TimeClockPage() {
   const efficiency = actualHours > 0 ? (allowedTotal / actualHours) * 100 : null;
 
   return (
-    <DashboardLayout>
+    <DashboardLayout hideTitle>
       <div style={{ fontFamily: FF }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6, flexWrap: "wrap", gap: 10 }}>

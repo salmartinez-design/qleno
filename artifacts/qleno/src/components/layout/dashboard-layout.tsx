@@ -34,6 +34,11 @@ interface DashboardLayoutProps {
   title?: string;
   fullBleed?: boolean;
   onNewJob?: () => void;
+  // [hide-header-title 2026-07-16] Suppress the page title in the top bar for
+  // pages that render their own prominent heading (e.g. Time Clock has an H1 +
+  // subtitle right below), so the name isn't printed twice. The browser-tab
+  // title (document.title) is unaffected.
+  hideTitle?: boolean;
 }
 
 // [tab-titles 2026-07-11] Route→title map + routeTitle() now live in
@@ -517,7 +522,7 @@ function UpdateBanner() {
   );
 }
 
-export function DashboardLayout({ children, title, fullBleed, onNewJob }: DashboardLayoutProps) {
+export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitle }: DashboardLayoutProps) {
   const { employeeView, exitView } = useEmployeeView();
   const token = useAuthStore(state => state.token);
   const setToken = useAuthStore(state => state.setToken);
@@ -721,7 +726,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
             <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: 'var(--brand)', flexShrink: 0 }} />
-            <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pageTitle}</span>
+            {!hideTitle && <span style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{pageTitle}</span>}
             <BranchSwitcher role={user?.role} compact />
             <CompanySwitcher compact />
           </div>
@@ -911,9 +916,11 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob }: Dashbo
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
         <header style={{ height: 56, backgroundColor: '#FFFFFF', borderBottom: '1px solid #EEECE7', padding: '0 28px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1917', letterSpacing: '-0.02em', lineHeight: 1, margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-              {pageTitle}
-            </h1>
+            {!hideTitle && (
+              <h1 style={{ fontSize: 22, fontWeight: 700, color: '#1A1917', letterSpacing: '-0.02em', lineHeight: 1, margin: 0, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                {pageTitle}
+              </h1>
+            )}
             <BranchSwitcher role={user?.role} />
             <CompanySwitcher />
           </div>
