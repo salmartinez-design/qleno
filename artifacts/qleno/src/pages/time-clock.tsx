@@ -231,13 +231,13 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
       {effectivePayType === "fee_split" && (
         row.fee != null && row.fee > 0 ? (
           <span style={{ fontSize: 11, fontWeight: 700, color: "#0A7C66", background: "#E6F7F1", borderRadius: 999, padding: "3px 9px" }}
-            title="The job fee this row's pay is calculated from. Pay = fee × %, split by clocked hours when more than one tech is assigned.">
-            fee ${row.fee.toFixed(2)}
+            title="What the client was billed for this job — the amount the fee-split pay is calculated from. Pay = billed × %, split by clocked hours when more than one tech is assigned.">
+            billed ${row.fee.toFixed(2)}
           </span>
         ) : (
           <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 999, padding: "3px 9px" }}
-            title="No fee is set on this job yet — the fee-split pay can't be computed until the job has a price.">
-            no fee set
+            title="No amount is billed on this job yet — the fee-split pay can't be computed until the job has a price.">
+            no billed amount
           </span>
         )
       )}
