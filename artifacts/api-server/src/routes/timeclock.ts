@@ -4,7 +4,7 @@ import { timeclockTable, usersTable, jobsTable, clientsTable, companiesTable, jo
 import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
-import { computePerTechCommissionRows, type JobTechRow } from "../lib/commission-paytype.js";
+import { computePerTechCommissionRows, isCommercialJob, type JobTechRow } from "../lib/commission-paytype.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
 import { unionHoursByKey } from "../lib/timeclock-hours.js";
@@ -1178,6 +1178,9 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  // opening the job). Mirrors the commission engine's base:
                  // commission_base ?? max(base_fee, billed_amount).
                  fee: number | null;
+                 // The pay type this row resolves to (override or smart default),
+                 // so the UI shows the right verification chip for every client.
+                 effective_pay_type: "fee_split" | "allowed_hours" | "hourly";
                  pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
                  pay_deduction_pct: string | null; pay_deduction_flat: string | null; pay: number | null;
                  // pay_kind tells the UI whether `pay` is normal commission or
@@ -1218,6 +1221,19 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
       const bf = numOrNull(j?.base_fee) ?? 0;
       const ba = numOrNull(j?.billed_amount) ?? 0;
       return Math.max(bf, ba);
+    };
+    // [fee-split-verify 2026-07-16] The pay type a row RESOLVES to — the per-tech
+    // override when set, else the job's smart default (commercial → allowed_hours,
+    // residential → fee_split). Mirrors lib/commission-paytype.ts exactly
+    // (defaultPayForJob + isCommercialJob), so the UI decides which chip to show
+    // from the same source that computed the pay — no client-side account_id
+    // guess that would misclassify commercial-by-service-type / client_type jobs.
+    const asPT = (v: any): "fee_split" | "allowed_hours" | "hourly" | null =>
+      v === "fee_split" || v === "allowed_hours" || v === "hourly" ? v : null;
+    const resolvedPayTypeOf = (j: any, rawPayType: any): "fee_split" | "allowed_hours" | "hourly" => {
+      const override = asPT(rawPayType);
+      if (override) return override;
+      return isCommercialJob(j?.account_id, j?.service_type, j?.client_type) ? "allowed_hours" : "fee_split";
     };
     const gpsOf = (e: any) => ({
       gps_in_ft: e?.clock_in_distance_ft != null ? Math.round(parseFloat(String(e.clock_in_distance_ft))) : null,
@@ -1293,6 +1309,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           allowed_hours: j.allowed_hours != null ? Number(j.allowed_hours) : null,
           estimated_hours: j.estimated_hours != null ? Number(j.estimated_hours) : null,
           fee: feeOf(j),
+          effective_pay_type: resolvedPayTypeOf(j, payByJobUser.get(`${jid}:${t.user_id}`)?.pay_type ?? null),
           ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), source: e?.source ?? null,
           ...gpsOf(e), ...coordsOf(j),
         });
@@ -1310,6 +1327,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         allowed_hours: j?.allowed_hours != null ? Number(j.allowed_hours) : null,
         estimated_hours: j?.estimated_hours != null ? Number(j.estimated_hours) : null,
         fee: feeOf(j),
+        effective_pay_type: resolvedPayTypeOf(j, payByJobUser.get(`${Number(e.job_id)}:${Number(e.user_id)}`)?.pay_type ?? null),
         ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
         ...gpsOf(e), ...coordsOf(j),
       });
