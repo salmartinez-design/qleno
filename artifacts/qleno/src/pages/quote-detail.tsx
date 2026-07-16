@@ -46,6 +46,63 @@ function fmtShort(d?: string | null) {
   try { return format(new Date(d), "MMM d, yyyy"); } catch { return d; }
 }
 
+// [quote-email-tracking] Delivery card for the quote email. `row` is the latest
+// communication_log row for the quote (delivery_status advanced by the Resend
+// webhook). Shows a Sent → Delivered → Opened progression, or a red
+// Bounced/Failed state.
+function EmailStatusCard({ row }: { row: any | null }) {
+  if (!row) return null;
+  const ds = String(row.delivery_status || "sent").toLowerCase();
+  const bounced = ds === "undelivered" || ds === "bounced";
+  const failed = ds === "failed";
+  const opened = Boolean(row.opened_at);
+  const delivered = opened || ds === "delivered";
+
+  const chip = (label: string, color: string, bg: string) => (
+    <span style={{ padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 700, color, background: bg, fontFamily: FF }}>{label}</span>
+  );
+
+  return (
+    <div className="bg-white border border-[#E5E2DC] rounded-lg p-5">
+      <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
+        <h2 className="text-sm font-semibold text-[#1A1917]">Email status</h2>
+        {bounced ? chip("Bounced", "#B91C1C", "#FEE2E2")
+          : failed ? chip("Failed", "#B91C1C", "#FEE2E2")
+          : opened ? chip("Opened", "#15803D", "#DCFCE7")
+          : delivered ? chip("Delivered", "#15803D", "#DCFCE7")
+          : chip("Sent", "#1D4ED8", "#DBEAFE")}
+      </div>
+      {row.recipient && (
+        <p className="text-xs text-[#6B7280] mb-3">To {row.recipient}</p>
+      )}
+      {bounced || failed ? (
+        <p className="text-sm text-[#B91C1C]">
+          {bounced ? "This email bounced — the address may be wrong or the inbox rejected it." : "Delivery failed — the recipient marked it as spam or the provider rejected it."}
+          {" "}Fix the address and use Resend.
+        </p>
+      ) : (
+        <div className="flex items-center gap-0">
+          {[
+            { label: "Sent", at: row.logged_at, done: true },
+            { label: "Delivered", at: null, done: delivered },
+            { label: "Opened", at: row.opened_at, done: opened },
+          ].map((s, i, arr) => (
+            <div key={s.label} className="flex items-center" style={{ flex: i < arr.length - 1 ? 1 : "0 0 auto" }}>
+              <div className="flex flex-col items-center" style={{ minWidth: 72 }}>
+                <div style={{ width: 12, height: 12, borderRadius: 999, background: s.done ? "#00C9A0" : "#E5E2DC" }} />
+                <span className="text-xs font-semibold mt-1.5" style={{ color: s.done ? "#1A1917" : "#9E9B94" }}>{s.label}</span>
+                <span className="text-[11px] text-[#9E9B94] mt-0.5">{s.at ? fmt(s.at) : (s.done ? "" : "—")}</span>
+              </div>
+              {i < arr.length - 1 && <div style={{ flex: 1, height: 2, background: arr[i + 1].done ? "#00C9A0" : "#E5E2DC", margin: "0 4px", marginBottom: 28 }} />}
+            </div>
+          ))}
+        </div>
+      )}
+      <p className="text-[11px] text-[#9E9B94] mt-3">Open tracking depends on the recipient loading images; a missing "Opened" doesn't always mean it wasn't read.</p>
+    </div>
+  );
+}
+
 export default function QuoteDetailPage() {
   const [, navigate] = useLocation();
   const [, params] = useRoute("/quotes/:id");
@@ -72,6 +129,17 @@ export default function QuoteDetailPage() {
     queryFn: () => apiFetch(`/api/quotes/${id}`),
     enabled: Boolean(id),
   });
+
+  // [quote-email-tracking] Delivered/opened/bounced status for the quote email.
+  // Populated once the cadence sends touch 1; the Resend webhook advances it, so
+  // poll periodically while the page is open.
+  const { data: emailStatusRows } = useQuery<any[]>({
+    queryKey: ["quote-email-status", id],
+    queryFn: () => apiFetch(`/api/quotes/${id}/email-status`),
+    enabled: Boolean(id) && Boolean(quote) && quote?.status !== "draft",
+    refetchInterval: 30000,
+  });
+  const emailStatus = Array.isArray(emailStatusRows) && emailStatusRows.length ? emailStatusRows[0] : null;
 
   const sendMutation = useMutation({
     mutationFn: () => apiFetch(`/api/quotes/${id}/send`, { method: "POST" }),
@@ -255,7 +323,7 @@ export default function QuoteDetailPage() {
                   Send to Client
                 </button>
               )}
-              {quote.status === "draft" && (
+              {(quote.status === "draft" || quote.status === "sent" || quote.status === "viewed") && (
                 <button
                   onClick={() => navigate(`/quotes/${id}/edit`)}
                   style={{ width: "100%", height: 52, background: "#FFF", color: "var(--brand)", border: "2px solid var(--brand)", borderRadius: 10, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
@@ -299,6 +367,9 @@ export default function QuoteDetailPage() {
                 </AlertDialogContent>
               </AlertDialog>
             </div>
+
+            {/* Email status (once sent) */}
+            {emailStatus && <EmailStatusCard row={emailStatus} />}
 
             {/* Notes collapsible */}
             {(quote.notes || quote.internal_memo) && (
@@ -460,7 +531,7 @@ export default function QuoteDetailPage() {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
-            {quote.status === "draft" && (
+            {(quote.status === "draft" || quote.status === "sent" || quote.status === "viewed") && (
               <Button size="sm" variant="outline" onClick={() => navigate(`/quotes/${id}/edit`)} className="gap-1.5">
                 <Pencil className="w-3.5 h-3.5" /> Edit
               </Button>
@@ -500,6 +571,9 @@ export default function QuoteDetailPage() {
             </AlertDialog>
           </div>
         </div>
+
+        {/* Email status (once sent) */}
+        {emailStatus && <EmailStatusCard row={emailStatus} />}
 
         {/* Timeline */}
         <div className="bg-white border border-[#E5E2DC] rounded-lg p-5">

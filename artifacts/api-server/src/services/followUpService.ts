@@ -154,12 +154,14 @@ ${unsub?.footerHtml ?? ""}
   return res?.data?.id ?? res?.id ?? null;
 }
 
-async function sendEmail(to: string, subject: string, body: string, fromAddress?: string, brand?: EmailBrand, unsub?: { headers: Record<string, string>; footerHtml: string }, cc?: string[]): Promise<void> {
+// Returns the Resend email ID (for delivery tracking / comms-log) or null when
+// suppressed. Existing callers that ignore the return value are unaffected.
+async function sendEmail(to: string, subject: string, body: string, fromAddress?: string, brand?: EmailBrand, unsub?: { headers: Record<string, string>; footerHtml: string }, cc?: string[]): Promise<string | null> {
   if (process.env.COMMS_ENABLED !== "true") {
     console.log("[COMMS BLOCKED] Follow-up email suppressed:", { to, subject });
-    return;
+    return null;
   }
-  await sendEmailRaw(to, subject, body, fromAddress, brand, unsub, cc);
+  return await sendEmailRaw(to, subject, body, fromAddress, brand, unsub, cc);
 }
 
 // Human label for a quote's frequency, used as the option heading when a lead
@@ -1058,6 +1060,9 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
 
   let sendStatus = "sent";
   let sendError  = "";
+  // [quote-email-tracking] Resend ID of the delivered quote email, captured so
+  // it can be logged to communication_log (comms log + delivery webhook).
+  let emailProviderId: string | null = null;
   // Resolve the per-branch sender once; gates BOTH channels on
   // global master (COMMS_ENABLED) AND company master AND the branch comms flag.
   const sender = await resolveSender(enr.company_id, branchId);
@@ -1111,7 +1116,7 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
           }
         } else {
           const unsub = await buildEmailUnsubData(enr.company_id, recipientEmail);
-          await sendEmail(recipientEmail, subject, body, fromAddr, emailBrand, unsub ?? undefined, ccEmails);
+          emailProviderId = await sendEmail(recipientEmail, subject, body, fromAddr, emailBrand, unsub ?? undefined, ccEmails);
         }
       }
     } else {
@@ -1135,6 +1140,29 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
        ${subject || null}, ${body}, ${sendStatus},
        ${enr.sequence_name}, ${step.step_number})
   `);
+
+  // [quote-email-tracking 2026-07-16] The quote-delivery email (cadence touch 1)
+  // also lands in communication_log so the office sees it in the comms log AND
+  // gets delivered/opened/bounced updates via the Resend webhook
+  // (POST /api/comms/email/webhook keys off resend_email_id). Only on a real
+  // send with a captured Resend ID — a blocked/suppressed touch writes nothing
+  // here (message_log above already records the attempt). Best-effort: a log
+  // failure must never break the cadence.
+  if (enr.quote_id && step.channel === "email" && sendStatus === "sent" && emailProviderId && recipientEmail) {
+    try {
+      await db.execute(sql`
+        INSERT INTO communication_log
+          (company_id, customer_id, quote_id, direction, channel, subject, body,
+           source, recipient, resend_email_id, delivery_status, logged_at)
+        VALUES
+          (${enr.company_id}, ${enr.client_id || null}, ${enr.quote_id}, 'outbound',
+           'email', ${subject || null}, ${body}, 'quote_email', ${recipientEmail},
+           ${emailProviderId}, 'sent', now())
+      `);
+    } catch (logErr: any) {
+      console.error(`[follow-up] comms-log insert failed (quote ${enr.quote_id}):`, logErr?.message || logErr);
+    }
+  }
 
   // [engagement-phase4] Fan the cadence send into the engagement timeline
   // (estimate enrollments only). sent → 'sent'; otherwise → 'failed' with reason.
@@ -1401,6 +1429,25 @@ export async function sendSingleEnrollmentTouch(
 
   if (logStatus === "failed") {
     return { sent: false, channel: step.channel, recipient, step: step.step_number, reason: "send_failed", error: logErr };
+  }
+
+  // [quote-email-tracking 2026-07-16] Mirror the processEnrollment path: a
+  // manually-fired quote-delivery email lands in communication_log too, so the
+  // comms log + delivery webhook work regardless of send route. Best-effort.
+  if (enr.quote_id && step.channel === "email" && providerId && recipientEmail) {
+    try {
+      await db.execute(sql`
+        INSERT INTO communication_log
+          (company_id, customer_id, quote_id, direction, channel, subject, body,
+           source, recipient, resend_email_id, delivery_status, logged_at)
+        VALUES
+          (${companyId}, ${enr.client_id || null}, ${enr.quote_id}, 'outbound',
+           'email', ${subject || null}, ${body}, 'quote_email', ${recipientEmail},
+           ${providerId}, 'sent', now())
+      `);
+    } catch (e: any) {
+      console.error(`[follow-up] comms-log insert failed (quote ${enr.quote_id}):`, e?.message || e);
+    }
   }
 
   // Advance ONLY when we sent the enrollment's CURRENT step (a stepOverride
