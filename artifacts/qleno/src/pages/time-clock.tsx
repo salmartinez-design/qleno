@@ -223,40 +223,35 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
           <span style={{ fontSize: 11, color: "#9E9B94" }}>{unit}</span>
         </div>
       )}
-      {/* Fee Split pays a % of the job's fee — show that fee so the office can
-          verify pay = fee × % inline (Sal: "I need to know what the client paid"
-          without opening the job). Gated on the RESOLVED pay type so it shows for
-          explicit Fee Split AND every residential Default, and never on a
-          commercial row (account, client-type, or service-type). */}
-      {effectivePayType === "fee_split" && (
-        row.fee != null && row.fee > 0 ? (
-          <span style={{ fontSize: 11, fontWeight: 700, color: "#0A7C66", background: "#E6F7F1", borderRadius: 999, padding: "3px 9px" }}
-            title="What the client was billed for this job — the amount the fee-split pay is calculated from. Pay = billed × %, split by clocked hours when more than one tech is assigned.">
-            billed ${row.fee.toFixed(2)}
-          </span>
-        ) : (
-          <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 999, padding: "3px 9px" }}
-            title="No amount is billed on this job yet — the fee-split pay can't be computed until the job has a price.">
-            no billed amount
-          </span>
-        )
+      {/* BILLED — shown on EVERY row, whatever the pay type (Sal: need the total
+          billed to verify pay, including on commercial/allowed-hours jobs —
+          allowed hours alone can't be checked against). "billed $X" = what the
+          client was charged for this job. */}
+      {row.fee != null && row.fee > 0 ? (
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#1A1917", background: "#F1EEE8", border: "1px solid #E5E2DC", borderRadius: 999, padding: "3px 9px" }}
+          title="Total billed to the client for this job. For fee split: pay = billed × %. For allowed hours: this is the revenue; pay = allowed hours × rate.">
+          billed ${row.fee.toFixed(2)}
+        </span>
+      ) : (
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 999, padding: "3px 9px" }}
+          title="No amount is billed on this job yet — set a price on the job so pay and revenue can be reconciled.">
+          no billed amount
+        </span>
       )}
-      {/* Allowed Hours pays budget-hours × rate — show the budget so the office
-          sees WHAT drives the $ (was invisible: rate + total only). Gated on the
-          resolved type so commercial Default rows show their budget too. */}
-      {effectivePayType === "allowed_hours" && (
-        row.allowed_hours != null && row.allowed_hours > 0 ? (
-          <span style={{ fontSize: 11, fontWeight: 700, color: "#0A7C66", background: "#E6F7F1", borderRadius: 999, padding: "3px 9px" }}
-            title="The job's allowed-hours budget. Pay = allowed hours × rate (capped at budget). Set on the job.">
-            {row.allowed_hours.toFixed(2)} allowed hrs
-          </span>
-        ) : (
-          <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 999, padding: "3px 9px" }}
-            title="No allowed-hours budget set on this job — pay falls back to actual clocked hours × rate until a budget is entered.">
-            no budget — paying actual
-          </span>
-        )
-      )}
+      {/* ALLOWED HOURS — shown on EVERY row that carries a budget (all jobs have
+          an allowed-hours assignment). For an allowed-hours pay type with NO
+          budget, warn that pay falls back to actual clocked hours. */}
+      {row.allowed_hours != null && row.allowed_hours > 0 ? (
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#0A7C66", background: "#E6F7F1", borderRadius: 999, padding: "3px 9px" }}
+          title="The job's allowed-hours budget. For allowed-hours pay: pay = allowed hours × rate. For fee split: drives the efficiency score (allowed ÷ actual).">
+          {row.allowed_hours.toFixed(2)} allowed hrs
+        </span>
+      ) : effectivePayType === "allowed_hours" ? (
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 999, padding: "3px 9px" }}
+          title="No allowed-hours budget set on this job — pay falls back to actual clocked hours × rate until a budget is entered.">
+          no budget — paying actual
+        </span>
+      ) : null}
       <span style={{ fontSize: 11, color: "#9E9B94", marginLeft: 4 }}>Breakage −$</span>
       <input value={ded} onChange={e => setDed(e.target.value)} placeholder="0" inputMode="decimal"
         style={{ width: 50, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, color: "#1A1917", padding: "0 7px", textAlign: "right" }} />

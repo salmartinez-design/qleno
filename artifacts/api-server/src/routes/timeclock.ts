@@ -1002,20 +1002,33 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
              c.client_type, c.lat AS client_lat, c.lng AS client_lng,
              -- Service address so the office can tell apart multiple jobs for the
              -- same client/account on one day (e.g. several PPM units) without
-             -- opening the schedule. Prefer the job's own address, then the
-             -- account property (with its unit/property name), then the client.
+             -- opening the schedule.
+             -- [addr-fix 2026-07-16] A job that carries ONLY a zip (no street —
+             -- common on MC-imported / recurring-child jobs) used to render as a
+             -- bare "60634" and, worse, SHADOW the fuller client/property address
+             -- (COALESCE picked the non-empty zip-only string first). Now the
+             -- job's own address is used only WHEN IT HAS A STREET; otherwise we
+             -- fall through to the account property, then the client address, and
+             -- only as a last resort show the job's city/state/zip so nothing is
+             -- fully blank. Commercial accounts have no address column of their
+             -- own — their street lives on account_properties (ap.address).
              COALESCE(
-               NULLIF(TRIM(
-                 COALESCE(j.address_street,'') ||
+               CASE WHEN NULLIF(TRIM(j.address_street),'') IS NOT NULL THEN NULLIF(TRIM(
+                 j.address_street ||
                  CASE WHEN NULLIF(j.address_city,'')  IS NOT NULL THEN ', ' || j.address_city  ELSE '' END ||
                  CASE WHEN NULLIF(j.address_state,'') IS NOT NULL THEN ', ' || j.address_state ELSE '' END ||
                  CASE WHEN NULLIF(j.address_zip,'')   IS NOT NULL THEN ' '  || j.address_zip   ELSE '' END
-               ), ''),
+               ), '') END,
                NULLIF(TRIM(
                  COALESCE(ap.address,'') ||
                  CASE WHEN NULLIF(ap.property_name,'') IS NOT NULL THEN ' (' || ap.property_name || ')' ELSE '' END
                ), ''),
-               NULLIF(TRIM(c.address), '')
+               NULLIF(TRIM(c.address), ''),
+               NULLIF(TRIM(
+                 COALESCE(j.address_city,'') ||
+                 CASE WHEN NULLIF(j.address_state,'') IS NOT NULL THEN ', ' || j.address_state ELSE '' END ||
+                 CASE WHEN NULLIF(j.address_zip,'')   IS NOT NULL THEN ' '  || j.address_zip   ELSE '' END
+               ), '')
              ) AS address,
              -- Commercial jobs carry their customer on account_id (client_id is
              -- NULL), so fall back to the account name — otherwise the row read
