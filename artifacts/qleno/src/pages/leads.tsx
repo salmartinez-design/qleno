@@ -1073,7 +1073,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
                   {qprice > 0 && <p style={{ fontSize: 20, fontWeight: 800, color: "#1A1917", fontFamily: FF, margin: "0 0 4px" }}>${qprice.toFixed(2)}</p>}
                   {qprice > 0 && <p style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, margin: "0 0 14px" }}>Online quote they saw on the website</p>}
                   <p style={{ fontSize: 13, fontFamily: FF, margin: "0 0 14px" }}>No office quote for this lead yet.</p>
-                  {btn("Build a quote", () => navigate("/quotes/new"), true)}
+                  {btn("Build a quote", () => navigate(`/quotes/new?lead_id=${lead.id}`), true)}
                 </div>
               )}
             </div>
