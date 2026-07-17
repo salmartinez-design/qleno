@@ -3573,7 +3573,7 @@ export default function BookPage() {
 
               {/* Cancellation policy notice */}
               <div style={{ background: "#FEF9EC", border: "1px solid #F59E0B30", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#92400E", lineHeight: 1.6 }}>
-                <strong>Cancellation:</strong> Please provide at least 48 hours notice to cancel or reschedule. Cancellations within 24 hours may be subject to a fee. Reply STOP to SMS to opt out of reminders.
+                <strong>Cancellation:</strong> Please provide at least 48 hours notice to cancel or reschedule. Cancellations within 48 hours or no-shows are charged the full service fee. Reply STOP to SMS to opt out of reminders.
               </div>
 
               {/* "How did you hear about us?" — moved here from Step 1 so it never
