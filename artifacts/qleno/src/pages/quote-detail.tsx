@@ -143,11 +143,28 @@ export default function QuoteDetailPage() {
 
   const sendMutation = useMutation({
     mutationFn: () => apiFetch(`/api/quotes/${id}/send`, { method: "POST" }),
-    onSuccess: () => {
-      toast.success("Quote sent to client.");
+    // [quote-send-now] The server now fires the quote email immediately and
+    // returns { email: { emailed, status, recipient, reason } }. Surface a FAILED
+    // email loudly (was a silent never-arrives) with the actual reason.
+    onSuccess: (data: any) => {
       setSendSheetOpen(false);
       qc.invalidateQueries({ queryKey: ["quote", id] });
       qc.invalidateQueries({ queryKey: ["quotes"] });
+      qc.invalidateQueries({ queryKey: ["quote-email-status", id] });
+      const em = data?.email;
+      if (!em || em.emailed || em.status === "sent" || /already_started/i.test(String(em.reason || ""))) {
+        toast.success(em?.recipient ? `Quote emailed to ${em.recipient}.` : "Quote sent to client.");
+        return;
+      }
+      const reason = String(em.reason || em.status || "");
+      const why =
+        /no_recipient|No recipient/i.test(reason) ? "no email address is on this quote — add one and resend"
+        : /opt_out/i.test(reason) ? "the client opted out of emails"
+        : /branch_comms|company_comms/i.test(reason) ? "email sending is off for this location (Company Settings → Customer Communications)"
+        : /not_enrolled/i.test(reason) ? "the Quote Follow-Up sequence is off (Leads → Sequences)"
+        : /resend|domain|verif|error/i.test(reason) ? `the email server rejected it — likely the sending domain isn't verified (${reason})`
+        : reason || "the email did not go out";
+      toast.error(`Quote saved, but the email didn't send: ${why}`, { duration: 9000 });
     },
     onError: () => toast.error("Failed to send quote"),
   });

@@ -1313,6 +1313,39 @@ export async function fireEstimateDay0(
   }
 }
 
+// [quote-send-now 2026-07-17] Fire the quote-followup Day-0 touch (the quote
+// email) IMMEDIATELY on Send, instead of waiting up to 30 min for the cron — and
+// RETURN the outcome so the office sees whether it actually went out. Same
+// send path (processEnrollment) as the cron, so gating/opt-out/logging are
+// identical; only the timing changes. Advances the step, so the cron won't
+// re-fire it. Mirror of fireEstimateDay0.
+export async function fireQuoteEmailNow(
+  companyId: number, quoteId: number,
+): Promise<{ emailed: boolean; status: string; channel?: string; recipient?: string | null; reason?: string }> {
+  try {
+    const rows = await db.execute(sql`
+      SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id,
+             fe.abandoned_booking_id, fe.estimate_id, fe.current_step,
+             fs.name AS sequence_name, fs.sequence_type
+      FROM follow_up_enrollments fe
+      JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+      WHERE fe.quote_id = ${quoteId} AND fe.company_id = ${companyId}
+        AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+      ORDER BY fe.id DESC LIMIT 1
+    `);
+    const enr = (rows as any).rows[0];
+    if (!enr) return { emailed: false, status: "not_enrolled", reason: "not_enrolled" };
+    // Only fire on the first (Day-0) step — never re-send a later touch.
+    if (Number(enr.current_step) !== 1) return { emailed: false, status: "already_started", reason: "already_started" };
+    const r = await processEnrollment(enr);
+    if (!r) return { emailed: false, status: "no_step", reason: "no_step" };
+    return { emailed: r.status === "sent" && r.channel === "email", status: r.status, channel: r.channel, recipient: r.recipient, reason: r.status !== "sent" ? r.status : undefined };
+  } catch (err: any) {
+    console.error("[quote-send-now] fireQuoteEmailNow error:", err?.message ?? err);
+    return { emailed: false, status: "error", reason: err?.message ?? "error" };
+  }
+}
+
 // ── Scoped one-off: send a SINGLE enrollment's current touch ────────────────────
 // Sends ONLY the named enrollment's current step. EMAIL goes via Resend directly
 // (does NOT depend on COMMS_ENABLED — this path is itself the scoped authorization,
