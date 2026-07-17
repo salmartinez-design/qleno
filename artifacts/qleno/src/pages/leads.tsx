@@ -14,6 +14,7 @@ import {
   PauseCircle, StopCircle, SkipForward,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "Plus Jakarta Sans, system-ui, sans-serif";
@@ -314,6 +315,79 @@ function EnrollDripPanel({ leadId, onEnrolled }: { leadId: number; onEnrolled: (
 
 // ── Drip Tab ──────────────────────────────────────────────────────────────────
 
+// One row in the drip's "all touches" timeline. Click to expand the FULL copy:
+// a SENT touch shows the actual rendered message the customer received
+// (merge-filled; email as real HTML in a sandboxed iframe), an UPCOMING touch
+// shows the template that will send. [drip-content 2026-07-17]
+function DripStepRow({ s, nextStep }: { s: any; nextStep: any }) {
+  const [open, setOpen] = useState(false);
+  const done = !!s.log_id;
+  const isNext = !done && s === nextStep;
+  const isEmail = String(s.channel || "").toLowerCase() === "email";
+  // Sent → the real rendered copy; upcoming → the template.
+  const content = (done && s.sent_body) ? s.sent_body : (s.message_template || "");
+  const isHtml = /<[a-z][\s\S]*>/i.test(content);
+  const plain = stripHtml(content);
+  return (
+    <div style={{ padding: "6px 0", borderTop: "0.5px solid #F2EFE9" }}>
+      <button onClick={() => setOpen(o => !o)}
+        style={{ width: "100%", display: "flex", gap: 8, alignItems: "flex-start", background: "none", border: "none", cursor: "pointer", padding: 0, textAlign: "left", fontFamily: FF }}>
+        <div style={{
+          width: 14, height: 14, borderRadius: "50%", flexShrink: 0, marginTop: 1,
+          display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 800, fontFamily: FF,
+          background: done ? "#D1FAE5" : isNext ? "#00C9A0" : "#F2EFE9",
+          color: done ? "#065F46" : isNext ? "#0A0E1A" : "#9E9B94",
+        }}>
+          {done ? "✓" : s.step_number}
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
+            <span style={{
+              fontSize: 8, fontWeight: 800, padding: "1px 4px", borderRadius: 2, fontFamily: FF,
+              background: s.channel === "sms" ? "#EDE9FE" : "#DBEAFE",
+              color: s.channel === "sms" ? "#5B21B6" : "#1E40AF",
+            }}>{(s.channel || "sms").toUpperCase()}</span>
+            {done ? <span style={{ fontSize: 8, fontWeight: 700, color: "#059669", fontFamily: FF }}>Sent</span>
+              : isNext ? <span style={{ fontSize: 8, fontWeight: 700, color: "#0A0E1A", fontFamily: FF }}>Next</span> : null}
+            <span style={{ fontSize: 9, color: "#9E9B94", fontFamily: FF, marginLeft: "auto" }}>
+              {done ? fmtDateTime(s.sent_at) : isNext ? "Next" : `+${s.delay_hours}h`}
+            </span>
+            <ChevronDown size={12} color="#9E9B94" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform .15s", flexShrink: 0 }} />
+          </div>
+          {!open && (
+            <div style={{ fontSize: 10, color: "#6B6860", lineHeight: 1.4, fontFamily: FF, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+              {plain.slice(0, 90)}{plain.length > 90 ? "…" : ""}
+            </div>
+          )}
+        </div>
+      </button>
+      {open && (
+        <div style={{ marginTop: 6, marginLeft: 22 }}>
+          {isEmail && s.subject && (
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#1A1917", marginBottom: 4, fontFamily: FF }}>Subject: {s.subject}</div>
+          )}
+          {isEmail && isHtml ? (
+            <iframe title={`Drip touch ${s.step_number}`} sandbox="" srcDoc={content}
+              style={{ width: "100%", height: 320, border: "0.5px solid #E5E2DC", borderRadius: 8, background: "#fff", display: "block" }} />
+          ) : (
+            <div style={{
+              fontSize: 11, color: "#1A1917", lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word", fontFamily: FF,
+              background: "#FAF9F6", border: "0.5px solid #F2EFE9", borderRadius: 8, padding: "8px 10px",
+            }}>
+              {content}
+            </div>
+          )}
+          {!done && (
+            <div style={{ fontSize: 9, color: "#9E9B94", marginTop: 4, fontStyle: "italic", fontFamily: FF }}>
+              Preview — the merge fields fill in with the lead's details when this touch sends.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
   const { toast } = useToast();
   const [drip, setDrip] = useState<{ enrollment: any; steps: any[] } | null>(null);
@@ -411,7 +485,7 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
                 {nextStep.channel.toUpperCase()}
               </span>
               <div style={{ fontSize: 11, color: "#1A1917", lineHeight: 1.5, marginBottom: 10, marginTop: 4, fontFamily: FF }}>
-                {nextStep.message_template?.slice(0, 160)}{(nextStep.message_template?.length || 0) > 160 ? "…" : ""}
+                {stripHtml(nextStep.message_template || "").slice(0, 160)}{stripHtml(nextStep.message_template || "").length > 160 ? "…" : ""}
               </div>
               <div style={{ display: "flex", gap: 5 }}>
                 <button onClick={() => action("send-now")} disabled={!!busy}
@@ -433,43 +507,16 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
           )}
 
           <button onClick={() => setExpanded(e => !e)}
-            style={{ width: "100%", textAlign: "center", fontSize: 10, color: "#9E9B94", background: "none", border: "none", cursor: "pointer", paddingTop: 8, fontFamily: FF }}>
-            {expanded ? "▲ Hide timeline" : "▾ Full timeline"}
+            style={{ width: "100%", textAlign: "center", fontSize: 11, fontWeight: 700, color: "#0A0E1A", background: "#F7F6F3", border: "0.5px solid #E5E2DC", borderRadius: 7, cursor: "pointer", padding: "8px 0", marginTop: 10, fontFamily: FF }}>
+            {expanded ? "▲ Hide all touches" : `▾ View all ${steps.length} touches + content`}
           </button>
 
           {expanded && (
-            <div style={{ marginTop: 4 }}>
-              {steps.map((s: any) => {
-                const done = !!s.log_id;
-                const isNext = !done && s === nextStep;
-                return (
-                  <div key={s.step_number} style={{ display: "flex", gap: 8, padding: "6px 0", borderTop: "0.5px solid #F2EFE9", alignItems: "flex-start" }}>
-                    <div style={{
-                      width: 14, height: 14, borderRadius: "50%", flexShrink: 0, marginTop: 1,
-                      display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 800, fontFamily: FF,
-                      background: done ? "#D1FAE5" : isNext ? "#00C9A0" : "#F2EFE9",
-                      color: done ? "#065F46" : isNext ? "#0A0E1A" : "#9E9B94",
-                    }}>
-                      {done ? "✓" : s.step_number}
-                    </div>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
-                        <span style={{
-                          fontSize: 8, fontWeight: 800, padding: "1px 4px", borderRadius: 2, fontFamily: FF,
-                          background: s.channel === "sms" ? "#EDE9FE" : "#DBEAFE",
-                          color: s.channel === "sms" ? "#5B21B6" : "#1E40AF",
-                        }}>{s.channel.toUpperCase()}</span>
-                        <span style={{ fontSize: 9, color: "#9E9B94", fontFamily: FF, marginLeft: "auto" }}>
-                          {done ? fmtDateTime(s.sent_at) : isNext ? "Next" : `+${s.delay_hours}h`}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 10, color: "#6B6860", lineHeight: 1.4, fontFamily: FF }}>
-                        {s.message_template?.slice(0, 120)}{(s.message_template?.length || 0) > 120 ? "…" : ""}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
+            <div style={{ marginTop: 8, background: "#FCFBF9", border: "0.5px solid #E8E5E0", borderRadius: 8, padding: "2px 12px 6px" }}>
+              <div style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: "#6B6860", padding: "8px 0 2px", fontFamily: FF }}>
+                Full sequence · {steps.length} touches
+              </div>
+              {steps.map((s: any) => <DripStepRow key={s.step_number} s={s} nextStep={nextStep} />)}
             </div>
           )}
 
@@ -496,9 +543,16 @@ function stripHtml(html: string): string {
 function LeadMessageRow({ m }: { m: any }) {
   const [open, setOpen] = useState(false);
   const isEmail = String(m.channel || "").toLowerCase() === "email";
+  const isOutbound = m.direction === "outbound";
+  // Who sent it: an automated cadence touch carries step_number; a manual reply
+  // carries sent_by_name (the teammate who typed it). Inbound = the customer.
+  // [sender-attribution 2026-07-17]
+  const senderLabel = m.step_number
+    ? `Automated · touch ${m.step_number}`
+    : (isOutbound && m.sent_by_name ? `— ${m.sent_by_name}` : null);
   const meta = (
-    <div style={{ fontSize: 9, color: "#9E9B94", textAlign: m.direction === "outbound" ? "right" : "left", marginBottom: 6, fontFamily: FF }}>
-      {m.step_number ? `Drip touch ${m.step_number} - ${(m.channel || "sms").toUpperCase()} - ` : ""}{fmtDateTime(m.created_at)}
+    <div style={{ fontSize: 9, color: "#9E9B94", textAlign: isOutbound ? "right" : "left", marginBottom: 6, fontFamily: FF }}>
+      {senderLabel ? `${senderLabel} · ` : ""}{fmtDateTime(m.created_at)}
     </div>
   );
   if (isEmail) {
@@ -1783,6 +1837,7 @@ function BoardView({ leads, selectedId, onSelect }: { leads: Lead[]; selectedId:
 
 export default function LeadsPage() {
   const [, navigate] = useLocation();
+  const isMobile = useIsMobile();
   const [mainView, setMainView] = useState<"pipeline" | "reports" | "sequences">("pipeline");
   const [view, setView] = useState<"board" | "list">("board");
   const [filter, setFilter] = useState("all");
@@ -2017,8 +2072,14 @@ export default function LeadsPage() {
 
             {/* Detail — beside the list, or a right drawer over the board.
                 In board mode it only opens once a card is selected. */}
-            {(view === "list" || selectedLead) && (
-            <div style={{ flex: view === "board" ? "0 0 460px" : 1, overflow: "hidden", display: "flex", flexDirection: "column", borderLeft: view === "board" ? "1px solid #E8E5E0" : "none" }}>
+            {((view === "list" && !isMobile) || selectedLead) && (
+            // [mobile-lead-panel 2026-07-17] On a phone the 460px side panel beside
+            // the board is unreachable, so the office couldn't Pause/Stop a drip from
+            // mobile. When a lead is selected on mobile, render the detail (with the
+            // Drip tab's Pause/Stop) as a full-screen overlay; the X returns to the board.
+            <div style={isMobile && selectedLead
+              ? { position: "fixed", inset: 0, zIndex: 60, background: "#fff", overflow: "hidden", display: "flex", flexDirection: "column" }
+              : { flex: view === "board" ? "0 0 460px" : 1, overflow: "hidden", display: "flex", flexDirection: "column", borderLeft: view === "board" ? "1px solid #E8E5E0" : "none" }}>
               {selectedLead ? (
                 <LeadDetailPanel
                   key={selectedLead.id}

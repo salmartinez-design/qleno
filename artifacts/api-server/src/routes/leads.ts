@@ -566,23 +566,30 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
     const [leadRow] = (await db.execute(sql`SELECT client_id FROM leads WHERE id = ${leadId} AND company_id = ${companyId} LIMIT 1`)).rows as any[];
     const clientId: number | null = leadRow?.client_id ?? null;
     const rows = await db.execute(sql`
-      SELECT id, direction, body, NULL AS channel, status, created_at, NULL AS step_number
-        FROM sms_messages
-       WHERE company_id = ${companyId} AND lead_id = ${leadId}
+      -- [sender-attribution 2026-07-17] Join the sending user so the office can
+      -- see WHO replied (sms_messages.sent_by, stamped on every manual send).
+      -- Automated touches (message_log drips) have no user — they carry
+      -- step_number instead, which the UI renders as "Web Lead Drip · touch N".
+      SELECT m.id, m.direction, m.body, NULL AS channel, m.status, m.created_at, NULL AS step_number,
+             NULLIF(trim(u.first_name || ' ' || coalesce(u.last_name, '')), '') AS sent_by_name
+        FROM sms_messages m
+        LEFT JOIN users u ON u.id = m.sent_by
+       WHERE m.company_id = ${companyId} AND m.lead_id = ${leadId}
       UNION ALL
       -- [lead-booked-wiring 2026-07-08] Was joining follow_up_steps/sequences
       -- on ml.step_id — a column that doesn't exist, so the WHOLE endpoint
       -- 500'd and every lead's Messages tab read blank. channel + step_number
       -- live directly on message_log; drop the broken joins.
       SELECT ml.id, 'outbound' AS direction, ml.body, ml.channel::text, ml.status, ml.sent_at AS created_at,
-             ml.step_number
+             ml.step_number, NULL AS sent_by_name
         FROM message_log ml
         JOIN follow_up_enrollments fe ON fe.id = ml.enrollment_id
        WHERE fe.company_id = ${companyId} AND fe.lead_id = ${leadId}
       ${clientId != null ? sql`
       UNION ALL
       SELECT com.id, com.direction::text, COALESCE(com.summary, com.subject, com.body) AS body,
-             com.channel::text, com.delivery_status AS status, com.logged_at AS created_at, NULL AS step_number
+             com.channel::text, com.delivery_status AS status, com.logged_at AS created_at, NULL AS step_number,
+             NULL AS sent_by_name
         FROM communication_log com
        WHERE com.company_id = ${companyId} AND com.customer_id = ${clientId}` : sql``}
        ORDER BY created_at ASC`);
@@ -876,7 +883,12 @@ router.get("/:id/drip", requireAuth, requireRole("owner", "admin", "office"), as
     const enr = enrollment.rows[0] as any;
     const steps = await db.execute(sql`
       SELECT fst.id, fst.step_number, fst.delay_hours, fst.channel, fst.subject, fst.message_template,
-             ml.id AS log_id, ml.sent_at, ml.status AS send_status
+             ml.id AS log_id, ml.sent_at, ml.status AS send_status,
+             -- [drip-content 2026-07-17] The ACTUAL rendered copy that went out
+             -- (merge fields filled, real email HTML) for a sent touch, so the
+             -- Drip tab can show exactly what the customer received rather than
+             -- the raw {{first_name}} template. NULL for upcoming touches.
+             ml.body AS sent_body
       FROM follow_up_steps fst
       LEFT JOIN message_log ml ON ml.enrollment_id = ${enr.id} AND ml.step_number = fst.step_number
       WHERE fst.sequence_id = ${enr.sequence_id}
