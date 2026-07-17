@@ -666,8 +666,9 @@ async function runStartupMigrations() {
     await withBootTimeout("sms Pass3 setup", SCHEMA_TIMEOUT_MS, async () => {
       const { ensureShortLinkTable } = await import("./lib/short-link.js");
       await ensureShortLinkTable();
-      const { upgradeCustomerSmsCopy } = await import("./lib/sms-copy.js");
+      const { upgradeCustomerSmsCopy, ensurePerPackageBookingSms } = await import("./lib/sms-copy.js");
       await upgradeCustomerSmsCopy();
+      await ensurePerPackageBookingSms();
     });
   } catch (err: any) {
     console.error("[startup] sms Pass3 setup — non-fatal:", err?.message ?? err);

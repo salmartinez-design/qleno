@@ -98,6 +98,11 @@ async function runBookingSchemaGuard(): Promise<void> {
     // to a specific quote for the quote-detail Email Status card.
     { label: "communication_log.quote_id", stmt: "ALTER TABLE communication_log ADD COLUMN IF NOT EXISTS quote_id INTEGER" },
     { label: "communication_log.quote_id idx", stmt: "CREATE INDEX IF NOT EXISTS idx_comm_log_quote ON communication_log (quote_id) WHERE quote_id IS NOT NULL" },
+    // [per-package-confirmation 2026-07-17] Per-service-type variant of a
+    // notification template (booking-confirmation SMS to start). NULL = the
+    // default used for every job; a slug (jobs.service_type) is a package
+    // override. The send path picks exact-match else the NULL default.
+    { label: "notification_templates.service_type", stmt: "ALTER TABLE notification_templates ADD COLUMN IF NOT EXISTS service_type TEXT" },
     // [building-notes-unfanout 2026-07-07] The property PATCH used to copy
     // building notes into every future job's per-visit note columns (see
     // accounts.ts). Clear the stale copies on FUTURE scheduled jobs — a job

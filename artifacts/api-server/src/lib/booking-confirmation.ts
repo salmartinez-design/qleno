@@ -256,7 +256,10 @@ export async function sendJobScheduledConfirmation(
 
     const { sendNotification } = await import("../services/notificationService.js");
     if (email && channels.includes("email")) await sendNotification("job_scheduled", "email", j.company_id, email, null, mv, false, renderEmail, j.client_id).catch(() => {});
-    if (phone && channels.includes("sms")) await sendNotification("job_scheduled", "sms", j.company_id, null, phone, mv, false, undefined, j.client_id).catch(() => {});
+    // [per-package-confirmation] Pass the raw service_type SLUG (not the display
+    // label) so sendNotification can pick this package's SMS variant, else the
+    // NULL default. Email intentionally omits it — it keeps its single template.
+    if (phone && channels.includes("sms")) await sendNotification("job_scheduled", "sms", j.company_id, null, phone, mv, false, undefined, j.client_id, undefined, j.service_type).catch(() => {});
   } catch (err) {
     console.error("[booking-confirmation] sendJobScheduledConfirmation failed:", err);
   }

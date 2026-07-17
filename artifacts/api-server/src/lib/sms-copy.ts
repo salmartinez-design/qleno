@@ -42,6 +42,47 @@ const OLD = {
     "Hi {{first_name}}, the {{company_name}} team would still love to help with your cleaning. Want me to hold a spot for you this week?",
 };
 
+// [per-package-confirmation 2026-07-17] Per-service-type booking-confirmation SMS
+// starters. Keyed by jobs.service_type slug; the send path prefers the exact
+// match, else the NULL default. Short (~2 segments) and package-specific, unlike
+// the one-size-fits-all default. Only slugs that jobs actually store — "hourly"
+// is a billing style, not a service_type, so it has no variant here.
+export const PACKAGE_BOOKING_SMS: Record<string, string> = {
+  deep_clean:
+    "Hi {{first_name}}! Your Deep Clean is booked for {{appointment_date}} at {{appointment_time}}. Please clear countertops and secure pets so we can reach every corner. Your full prep checklist is in your email. Questions? {{company_phone}}. Reply STOP to opt out.",
+  move_out:
+    "Hi {{first_name}}! Your Move In/Out clean is booked for {{appointment_date}} at {{appointment_time}}. The home should be empty (no furniture or boxes) with utilities on. Full checklist is in your email. Questions? {{company_phone}}. Reply STOP to opt out.",
+  standard_clean:
+    "Hi {{first_name}}! Your Standard Clean is booked for {{appointment_date}} at {{appointment_time}}. Please tidy loose clutter and secure pets before we arrive. Details are in your email. Questions? {{company_phone}}. Reply STOP to opt out.",
+};
+
+// Idempotent: seed a per-package booking-confirmation SMS variant for every
+// company that already has the default (NULL) job_scheduled SMS row, only when
+// that package variant doesn't exist yet. Never overwrites an existing row, so
+// office edits are preserved and re-running is a no-op.
+export async function ensurePerPackageBookingSms(): Promise<void> {
+  try {
+    for (const [slug, body] of Object.entries(PACKAGE_BOOKING_SMS)) {
+      await db.execute(sql`
+        INSERT INTO notification_templates
+          (company_id, trigger, channel, service_type, subject, body, body_html, body_text, is_active)
+        SELECT c.id, 'job_scheduled', 'sms'::notification_channel, ${slug}, NULL, '', NULL, ${body}, true
+        FROM companies c
+        WHERE EXISTS (
+                SELECT 1 FROM notification_templates d
+                 WHERE d.company_id = c.id AND d.trigger = 'job_scheduled'
+                   AND d.channel = 'sms' AND d.service_type IS NULL)
+          AND NOT EXISTS (
+                SELECT 1 FROM notification_templates v
+                 WHERE v.company_id = c.id AND v.trigger = 'job_scheduled'
+                   AND v.channel = 'sms' AND v.service_type = ${slug})`);
+    }
+    console.log("[sms-copy] per-package booking-confirmation SMS starters ensured (idempotent)");
+  } catch (err) {
+    console.error("[sms-copy] per-package seed error (non-fatal):", err);
+  }
+}
+
 // Idempotent startup upgrade: rewrite the customer-facing SMS copy across all
 // tenants, only where the row still holds the known default. Internal staff
 // alerts are untouched (none of these triggers/columns are staff-facing).
