@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRoute } from "wouter";
 import { Phone, Mail, Clock, MapPin, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Minus, Plus, Calendar, Tag } from "lucide-react";
 import { CalendarPopover } from "@/components/calendar-popover";
@@ -102,11 +102,15 @@ const SQFT_RANGES: { label: string; sqft: number }[] = [
   { label: "3,500 – 4,000 sq ft", sqft: 3999 },
 ];
 
-// Online bookings can't be made inside this many hours — office feedback: the
-// hour arrival windows made scheduling harder, so clients now pick a specific
-// start time, but never one less than 72h out (the office confirms the exact
-// time). Supersedes the old date-only booking_lead_days for the widget.
-const MIN_LEAD_HOURS = 72;
+// [lead-time-setting 2026-07-17] The minimum booking notice now comes FROM the
+// office setting (booking_settings.booking_lead_days), not a constant. #1097
+// hardcoded a 72h floor that "superseded" the setting — so Settings → Online
+// Booking showed "7 calendar days" while the widget silently enforced 72h, and
+// editing it did nothing (the value was fetched and thrown away). The UI stays
+// in calendar days; we convert to hours here (days x 24), so 3 days = the 72h
+// Phes needs to staff a clean. This fallback is used only while the settings
+// fetch is in flight / if it fails, and matches the previous 72h behavior.
+const DEFAULT_LEAD_DAYS = 3;
 
 // Client-selectable start times, 9:00 AM–2:00 PM in 30-min steps. The 2:00 PM
 // cap leaves enough of the workday to finish the job. `label` is what we store
@@ -122,15 +126,20 @@ const TIME_SLOTS: { label: string; minutes: number }[] = (() => {
   return out;
 })();
 
-// Earliest bookable calendar date given the 72h floor. If the cutoff lands
-// after the last slot (2:00 PM), that day has no usable slots, so start the
-// next day — prevents a selectable date with nothing to pick.
+// Earliest bookable calendar date, rounded UP to a FULL day: a day only opens
+// once its FIRST slot (9:00 AM — when Phes actually starts) is at/after the
+// cutoff. So the earliest bookable day never contains a "too soon" slot, and
+// 9:00 AM is always selectable on it. The old hour-precise cutoff greyed out
+// 9:00 AM on the earliest day (booking at 9:10 AM pushed the cutoff to 9:10 AM
+// three days later, just past the 9:00 slot) — the one slot Phes most wants to
+// sell. Rounding up also guarantees EVERY bookable slot clears the full lead.
 function computeMinBookDate(cutoffMs: number): string {
-  const cutoff = new Date(cutoffMs);
-  const cutoffMin = cutoff.getHours() * 60 + cutoff.getMinutes();
-  const d = new Date(cutoff);
+  const firstSlotMin = TIME_SLOTS[0]?.minutes ?? 9 * 60;
+  const d = new Date(cutoffMs);
   d.setHours(0, 0, 0, 0);
-  if (cutoffMin > 14 * 60) d.setDate(d.getDate() + 1);
+  const firstSlot = new Date(d);
+  firstSlot.setHours(Math.floor(firstSlotMin / 60), firstSlotMin % 60, 0, 0);
+  if (firstSlot.getTime() < cutoffMs) d.setDate(d.getDate() + 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
@@ -172,7 +181,6 @@ function SimpleCalendar({
   selected,
   onSelect,
   brand,
-  leadDays,
   maxAdvanceDays,
   availableDays,
   minDateStr,
@@ -180,12 +188,15 @@ function SimpleCalendar({
   selected: string;
   onSelect: (d: string) => void;
   brand: string;
-  leadDays?: number;
   maxAdvanceDays?: number;
   availableDays?: AvailableDays;
   minDateStr?: string;
 }) {
-  const effectiveLeadDays = leadDays ?? 7;
+  // [lead-time-setting 2026-07-17] The old `leadDays` prop (defaulting to 7) was
+  // DEAD — no caller ever passed it, and it only fed a fallback that `minDateStr`
+  // always pre-empted. It made the lead time look configurable while a hardcoded
+  // 72h actually ran the calendar. The lead now lives in ONE place: the caller
+  // derives minDateStr from booking_settings.booking_lead_days.
   const effectiveMaxAdvanceDays = maxAdvanceDays ?? 60;
   const effectiveAvail: AvailableDays = availableDays ?? { sun: false, mon: true, tue: true, wed: true, thu: true, fri: true, sat: false };
 
@@ -194,7 +205,7 @@ function SimpleCalendar({
 
   const minDate = minDateStr
     ? (() => { const d = new Date(minDateStr + "T12:00:00"); d.setHours(0,0,0,0); return d; })()
-    : (() => { const d = new Date(today); d.setDate(d.getDate() + effectiveLeadDays); return d; })();
+    : (() => { const d = new Date(today); d.setDate(d.getDate() + DEFAULT_LEAD_DAYS); return d; })();
 
   const maxDate = new Date(today);
   maxDate.setDate(maxDate.getDate() + effectiveMaxAdvanceDays);
@@ -509,10 +520,6 @@ export default function BookPage() {
   const [contactMethod, setContactMethod] = useState<"sms" | "call" | "email" | "">("");
   const [contactMethodError, setContactMethodError] = useState(false);
 
-  // 72-hour booking floor: computed once on mount so it's stable across renders.
-  const [cutoffMs] = useState(() => Date.now() + MIN_LEAD_HOURS * 60 * 60 * 1000);
-  const minBookDateStr = computeMinBookDate(cutoffMs);
-
   // Step 0: Address line 2
   const [addressLine2, setAddressLine2] = useState("");
 
@@ -537,6 +544,17 @@ export default function BookPage() {
     available_sun: boolean; available_mon: boolean; available_tue: boolean;
     available_wed: boolean; available_thu: boolean; available_fri: boolean; available_sat: boolean;
   } | null>(null);
+
+  // Booking floor: "now" is pinned on mount so it stays stable across renders,
+  // but the LEAD comes from the office setting, which arrives async — so the
+  // cutoff recomputes once booking settings load. (That's the fix: it used to be
+  // frozen on mount to a hardcoded 72h, before the settings ever came back.)
+  // Declared AFTER bookingSettings on purpose — reading it above would hit the
+  // temporal dead zone.
+  const [nowMs] = useState(() => Date.now());
+  const leadDays = bookingSettings?.booking_lead_days ?? DEFAULT_LEAD_DAYS;
+  const cutoffMs = useMemo(() => nowMs + leadDays * 24 * 60 * 60 * 1000, [nowMs, leadDays]);
+  const minBookDateStr = useMemo(() => computeMinBookDate(cutoffMs), [cutoffMs]);
 
   // Step 5: Booking result
   const [bookResult, setBookResult] = useState<any>(null);
