@@ -399,17 +399,26 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
       const { snapshotQuoteFrequencyOptions } = await import("../lib/quote-pricing.js");
       await snapshotQuoteFrequencyOptions(companyId!, id);
     } catch { /* non-fatal — page falls back to single total */ }
-    // Enroll in quote_followup sequence (non-blocking)
-    import("../services/followUpService.js").then(({ enrollForQuoteSent }) => {
-      enrollForQuoteSent(
+    // [quote-send-now 2026-07-17] Enroll in the quote_followup sequence AND fire
+    // the Day-0 quote email immediately (was cron-only, up to 30 min late). We
+    // AWAIT it so the response can carry the send outcome — if the email failed
+    // (unverified domain, comms gate, opt-out) the office finds out NOW instead
+    // of a silent never-arrives. Best-effort: a comms error never fails /send.
+    let emailResult: any = null;
+    try {
+      const { enrollForQuoteSent, fireQuoteEmailNow } = await import("../services/followUpService.js");
+      await enrollForQuoteSent(
         companyId,
         id,
         (q as any).client_id ?? null,
         (q as any).lead_name?.split(" ")[0] || "",
         (q as any).lead_email ?? null,
         (q as any).lead_phone ?? null,
-      ).catch(() => {});
-    });
+      );
+      emailResult = await fireQuoteEmailNow(companyId!, id);
+    } catch (e) {
+      console.error("[quote send-now] error:", e);
+    }
     // Quote→lead: advance the lead to Quoted + link the enrollment (non-blocking).
     import("../lib/lead-sync.js").then(async ({ upsertLeadForQuote, advanceLeadStage, linkEnrollmentToLead }) => {
       const leadId = await upsertLeadForQuote(companyId, q);
@@ -426,7 +435,7 @@ router.post("/:id/send", requireAuth, requireRole("owner", "admin", "office"), a
     // cadence touch 1. The cadence renders the link from sign_token via the
     // per-tenant sender (resolveSender), so this consolidates quote comms onto a
     // single correct path.
-    return res.json({ success: true, quote: q });
+    return res.json({ success: true, quote: q, email: emailResult });
   } catch (err) {
     return res.status(500).json({ error: "Internal Server Error" });
   }
