@@ -2058,6 +2058,30 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
     const { company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned = 2, stage, quote_amount, details: rawDetails } = req.body;
     if (!company_id) return res.status(400).json({ error: "company_id required" });
 
+    // [booked-guard 2026-07-17] If this contact ALREADY has a booked lead, they're
+    // a paying customer poking the widget again — not an abandoner. Skip the whole
+    // abandon flow: no "you didn't finish" office alert, no recovery-drip enroll,
+    // and don't merge stale abandoned details onto their booked card. (Surfaced by
+    // Sal testing with one email: a booked lead kept getting incomplete-booking
+    // alerts and its card showed "left before the price" over a real booking.)
+    {
+      const { sql: s } = await import("drizzle-orm");
+      const em = email ? String(email).toLowerCase().trim() : null;
+      const ph = (phone ?? "").replace(/[^0-9]/g, "").slice(-10) || null;
+      if (em || ph) {
+        const booked = await db.execute(s`
+          SELECT id FROM leads
+           WHERE company_id = ${company_id} AND status = 'booked'
+             AND (${em ? s`LOWER(email) = ${em}` : s`FALSE`}
+                  OR ${ph ? s`RIGHT(regexp_replace(COALESCE(phone,''), '[^0-9]', '', 'g'), 10) = ${ph}` : s`FALSE`})
+           LIMIT 1`);
+        if ((booked.rows as any[]).length) {
+          console.log("[abandon-track] skip — contact already booked:", { company_id, email: em, phone: ph });
+          return res.json({ ok: true, action: "skipped_already_booked" });
+        }
+      }
+    }
+
     // [quote-details-carry 2026-07-07] Sanitized snapshot of the widget form —
     // whitelisted keys only, strings capped, so a hostile payload can't stuff
     // the jsonb. This is what makes the office alert + Lead Pipeline show the
