@@ -174,6 +174,7 @@ function KpiStrip({ counts, filter, onFilter }: {
   const tiles = [
     { key: "all",             label: "All leads",     n: counts.all || 0,             urgent: false },
     { key: "needs_contacted", label: "Needs contact", n: counts.needs_contacted || 0, urgent: true },
+    { key: "contacted",       label: "Contacted",     n: counts.contacted || 0,       urgent: false },
     { key: "quoted",          label: "Quoted",        n: counts.quoted || 0,          urgent: false },
     { key: "booked",          label: "Booked",        n: counts.booked || 0,          urgent: false },
     { key: LOST_KEY,          label: "Lost",          n: lostN,                        urgent: false },
@@ -1775,7 +1776,37 @@ function cardStatus(l: any): { text: string; color: string; bold?: boolean } {
 // Kanban board grouping the loaded leads by stage so you watch them move
 // New → Contacted → Quoted → Booked. Each card carries price + Website/Office +
 // (for booked) "drip stopped". Clicking a card opens the same detail panel.
-function BoardView({ leads, selectedId, onSelect }: { leads: Lead[]; selectedId: number | null; onSelect: (l: Lead) => void }) {
+// Small round owner emblem for a lead card. [assignee-emblem 2026-07-17]
+// Auto-claim (first staff action) fills assigned_to; this shows who's on it at a
+// glance so two people don't work the same lead. Unassigned = faint dashed ring.
+function AssigneeEmblem({ first, last }: { first?: string | null; last?: string | null }) {
+  const name = [first, last].filter(Boolean).join(" ");
+  if (!name) return <span title="Unassigned" style={{ width: 18, height: 18, borderRadius: "50%", border: "1px dashed #C4C0B8", flexShrink: 0, display: "inline-block" }} />;
+  const initials = ((first?.[0] || "") + (last?.[0] || "")).toUpperCase();
+  const palette = ["#0A0E1A", "#1D4ED8", "#0F6E56", "#7C3AED", "#C2410C", "#B91C1C", "#0369A1", "#4D7C0F"];
+  const hue = palette[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length];
+  return (
+    <span title={name} style={{ width: 18, height: 18, borderRadius: "50%", background: hue, color: "#fff", fontSize: 8.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FF }}>
+      {initials}
+    </span>
+  );
+}
+
+// Compact lead age ("3d", "5h", "2w") so cold leads are visible at a glance.
+function shortAge(dateStr: string | null | undefined): string {
+  if (!dateStr) return "";
+  const ms = Date.now() - new Date(dateStr).getTime();
+  if (ms < 0 || isNaN(ms)) return "";
+  const m = Math.floor(ms / 60000);
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h`;
+  const d = Math.floor(h / 24);
+  if (d < 14) return `${d}d`;
+  return `${Math.floor(d / 7)}w`;
+}
+
+function BoardView({ leads, counts, selectedId, onSelect }: { leads: Lead[]; counts: Record<string, number>; selectedId: number | null; onSelect: (l: Lead) => void }) {
   // [pipeline-clarity 2026-07-12] The board is the ACTIVE pipeline only — one
   // clean left-to-right funnel: New → Contacted → Quoted → Booked. The old 5th
   // "Closed" column read like a second end-state competing with Booked and made
@@ -1783,11 +1814,15 @@ function BoardView({ leads, selectedId, onSelect }: { leads: Lead[]; selectedId:
   // not_interested / closed) no longer render here; they live behind the "Lost"
   // tab in the KPI strip (still reachable, never deleted — preserves the
   // [no-response-column 2026-07-09] Francisco fix, just moved off the funnel).
+  // total = the TRUE company-wide count for the stage (from status-counts), which
+  // can exceed the loaded cards (the board caps its load). Showing the real total
+  // on the badge — with a "showing N of M" note below — keeps the numbers honest
+  // instead of the badge disagreeing with the KPI strip. [board-counts 2026-07-17]
   const COLS = [
-    { key: "needs", label: "New", color: "#B91C1C", match: (s: string) => !["contacted", "quoted", "booked", "no_response", "not_interested", "closed"].includes(s) },
-    { key: "contacted", label: "Contacted", color: "#C2410C", match: (s: string) => s === "contacted" },
-    { key: "quoted", label: "Quoted", color: "#1D4ED8", match: (s: string) => s === "quoted" },
-    { key: "booked", label: "Booked", color: "#0F6E56", match: (s: string) => s === "booked" },
+    { key: "needs", label: "New", color: "#B91C1C", total: (counts.needs_contacted || 0) + (counts.new || 0), match: (s: string) => !["contacted", "quoted", "booked", "no_response", "not_interested", "closed"].includes(s) },
+    { key: "contacted", label: "Contacted", color: "#C2410C", total: counts.contacted || 0, match: (s: string) => s === "contacted" },
+    { key: "quoted", label: "Quoted", color: "#1D4ED8", total: counts.quoted || 0, match: (s: string) => s === "quoted" },
+    { key: "booked", label: "Booked", color: "#0F6E56", total: counts.booked || 0, match: (s: string) => s === "booked" },
   ];
   return (
     <div style={{ flex: 1, overflow: "auto", padding: 12, background: "#F7F6F3" }}>
@@ -1797,7 +1832,7 @@ function BoardView({ leads, selectedId, onSelect }: { leads: Lead[]; selectedId:
           return (
             <div key={col.key} style={{ background: "#F0EEE9", borderRadius: 10, padding: 8, display: "flex", flexDirection: "column", overflow: "hidden" }}>
               <div style={{ display: "flex", justifyContent: "space-between", padding: "3px 6px 8px", fontSize: 10, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF }}>
-                <span style={{ color: col.color }}>{col.label}</span><span style={{ color: "#9E9B94" }}>{items.length}</span>
+                <span style={{ color: col.color }}>{col.label}</span><span style={{ color: "#9E9B94" }}>{col.total}</span>
               </div>
               <div style={{ overflowY: "auto", flex: 1 }}>
                 {[...items].sort((a: any, b: any) => {
@@ -1822,10 +1857,19 @@ function BoardView({ leads, selectedId, onSelect }: { leads: Lead[]; selectedId:
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.scope || "—"}</span>
                         <span style={{ fontSize: 8.5, fontWeight: 800, padding: "1px 6px", borderRadius: 4, flexShrink: 0, background: ch === "Website" ? "#EDE9FE" : "#EEF1F4", color: ch === "Website" ? "#6D28D9" : "#475569" }}>{ch}</span>
                       </div>
-                      <div style={{ fontSize: 9.5, color: st.color, fontWeight: st.bold ? 700 : 400, fontFamily: FF }}>{st.text}</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
+                        <div style={{ fontSize: 9.5, color: st.color, fontWeight: st.bold ? 700 : 400, fontFamily: FF, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{st.text}</div>
+                        {shortAge((l as any).created_at) && <span title="Lead age" style={{ fontSize: 9, color: "#B4B2A9", fontFamily: FF, flexShrink: 0 }}>{shortAge((l as any).created_at)}</span>}
+                        <AssigneeEmblem first={l.assignee_first_name} last={l.assignee_last_name} />
+                      </div>
                     </div>
                   );
                 })}
+                {col.total > items.length && (
+                  <div style={{ fontSize: 9, color: "#9E9B94", textAlign: "center", padding: "6px 0 2px", fontFamily: FF }}>
+                    Showing {items.length} of {col.total}
+                  </div>
+                )}
                 {items.length === 0 && <div style={{ fontSize: 10, color: "#C4C0B8", textAlign: "center", padding: "14px 0", fontFamily: FF }}>—</div>}
               </div>
             </div>
@@ -1836,9 +1880,112 @@ function BoardView({ leads, selectedId, onSelect }: { leads: Lead[]; selectedId:
   );
 }
 
+// [board-breakdown 2026-07-17] Collapsible analytics panel below the board:
+// lead-source mix, booked-by-service, who-booked. Lazy-loads /leads/breakdown on
+// first open; open/closed state remembered per browser. Sits under the columns so
+// it never competes with the work surface.
+function BreakdownPanel() {
+  const [open, setOpen] = useState(() => { try { return localStorage.getItem("leadsBreakdownOpen") === "1"; } catch { return false; } });
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const toggle = () => { const next = !open; setOpen(next); try { localStorage.setItem("leadsBreakdownOpen", next ? "1" : "0"); } catch {} };
+  useEffect(() => {
+    if (!open || data) return;
+    setLoading(true);
+    fetch(`${API}/api/leads/breakdown`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null).then(d => setData(d)).finally(() => setLoading(false));
+  }, [open, data]);
+
+  const src = data?.source || { web: 0, office: 0 };
+  const srcTotal = (src.web || 0) + (src.office || 0);
+  const pct = (n: number) => srcTotal ? Math.round((n / srcTotal) * 100) : 0;
+  const svc: any[] = data?.by_service || [];
+  const bookedTotal = svc.reduce((s, r) => s + r.count, 0);
+  const svcMax = svc.reduce((m, r) => Math.max(m, r.count), 0) || 1;
+  const owners: any[] = data?.by_owner || [];
+  const money = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
+  const bucketColor: Record<string, string> = { "Deep Clean": "#0F6E56", "Move In/Out": "#1D4ED8", "Recurring": "#7C3AED", "Hourly": "#C2410C", "Commercial": "#0369A1", "Other": "#9E9B94" };
+  const palette = ["#0A0E1A", "#1D4ED8", "#0F6E56", "#7C3AED", "#C2410C", "#B91C1C", "#0369A1", "#4D7C0F"];
+
+  const card = (title: string, right: string, body: React.ReactNode) => (
+    <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "10px 12px", minWidth: 0 }}>
+      <div style={{ fontSize: 9.5, fontWeight: 800, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 8 }}>
+        {title}{right && <span style={{ color: "#0F6E56" }}> · {right}</span>}
+      </div>
+      {body}
+    </div>
+  );
+
+  return (
+    <div style={{ borderTop: "1px solid #E8E5E0", background: "#F7F6F3", flexShrink: 0 }}>
+      <button onClick={toggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
+        <span style={{ fontSize: 10, fontWeight: 800, color: "#0F6E56", background: "#ECFDF5", border: "0.5px solid #A7F3D0", padding: "2px 9px", borderRadius: 6 }}>{open ? "▾ Hide breakdown" : "▸ Breakdown"}</span>
+        {!open && <span style={{ fontSize: 10, color: "#B4B2A9" }}>source · booked by service · who booked</span>}
+      </button>
+      {open && (
+        <div style={{ padding: "0 14px 12px" }}>
+          {loading && !data ? (
+            <div style={{ padding: 16, textAlign: "center" }}><Loader2 size={16} className="animate-spin" color="#9E9B94" /></div>
+          ) : (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 8 }}>
+              {card("Lead source", "", (
+                <>
+                  <div style={{ display: "flex", height: 8, borderRadius: 4, overflow: "hidden", marginBottom: 9, background: "#F0EEE9" }}>
+                    <div style={{ width: `${pct(src.web)}%`, background: "#6D28D9" }} />
+                    <div style={{ width: `${pct(src.office)}%`, background: "#B4B2A9" }} />
+                  </div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 4 }}><span style={{ color: "#1A1917" }}>◾ Website</span><span style={{ fontWeight: 800 }}>{src.web} · {pct(src.web)}%</span></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11 }}><span style={{ color: "#8A8780" }}>◾ Office</span><span style={{ fontWeight: 800 }}>{src.office} · {pct(src.office)}%</span></div>
+                  <div style={{ fontSize: 9.5, color: "#9E9B94", marginTop: 9 }}>Of {srcTotal} leads.</div>
+                </>
+              ))}
+              {card("Booked by service", String(bookedTotal), (
+                <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
+                  {svc.length === 0 && <div style={{ fontSize: 10, color: "#C4C0B8" }}>No bookings yet.</div>}
+                  {svc.map(r => (
+                    <div key={r.bucket}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}><span>{r.bucket}</span><span style={{ fontWeight: 800 }}>{r.count}{r.revenue > 0 ? ` · ${money(r.revenue)}` : ""}</span></div>
+                      <div style={{ height: 6, background: "#F0EEE9", borderRadius: 3 }}><div style={{ width: `${Math.round((r.count / svcMax) * 100)}%`, height: 6, background: bucketColor[r.bucket] || "#9E9B94", borderRadius: 3 }} /></div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {card("Who booked", String(bookedTotal), (
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  {owners.length === 0 && <div style={{ fontSize: 10, color: "#C4C0B8" }}>No bookings yet.</div>}
+                  {owners.map((o, i) => {
+                    const online = o.key === "online", unassigned = o.key === "unassigned";
+                    const initials = online ? "web" : unassigned ? "" : o.label.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
+                    const hue = online ? "#EDE9FE" : palette[[...o.label].reduce((a: number, c: string) => a + c.charCodeAt(0), 0) % palette.length];
+                    return (
+                      <div key={o.key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                        {unassigned
+                          ? <span style={{ width: 18, height: 18, borderRadius: "50%", border: "1px dashed #C4C0B8", flexShrink: 0 }} />
+                          : <span style={{ width: 18, height: 18, borderRadius: "50%", background: hue, color: online ? "#6D28D9" : "#fff", fontSize: online ? 7 : 8.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{initials}</span>}
+                        <span style={{ flex: 1, fontSize: 11, color: unassigned ? "#8A8780" : "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.label}</span>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: unassigned ? "#8A8780" : "#1A1917" }}>{o.count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function LeadsPage() {
   const [, navigate] = useLocation();
   const isMobile = useIsMobile();
+  // [board-chrome 2026-07-17] The funnel legend orients new users but is dead
+  // space for veterans — let them dismiss it (remembered per browser).
+  const [legendHidden, setLegendHidden] = useState(() => {
+    try { return localStorage.getItem("leadsLegendHidden") === "1"; } catch { return false; }
+  });
+  const dismissLegend = () => { setLegendHidden(true); try { localStorage.setItem("leadsLegendHidden", "1"); } catch {} };
   const [mainView, setMainView] = useState<"pipeline" | "reports" | "sequences">("pipeline");
   const [view, setView] = useState<"board" | "list">("board");
   const [filter, setFilter] = useState("all");
@@ -1864,13 +2011,15 @@ export default function LeadsPage() {
   const loadLeads = useCallback(async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
+      // Board loads the whole pipeline (up to 300) so every column is complete;
+      // list view stays paginated at LIMIT. [board-loadall 2026-07-17]
+      const params = new URLSearchParams({ page: String(page), limit: String(view === "board" ? 300 : LIMIT) });
       if (filter !== "all") params.set("status", filter);
       if (search) params.set("search", search);
       const r = await fetch(`${API}/api/leads?${params}`, { headers: getAuthHeaders() });
       if (r.ok) { const d = await r.json(); setLeads(d.leads || []); setTotal(d.total || 0); }
     } finally { setLoading(false); }
-  }, [page, filter, search]);
+  }, [page, filter, search, view]);
 
   const loadCounts = useCallback(async () => {
     const r = await fetch(`${API}/api/leads/status-counts`, { headers: getAuthHeaders() });
@@ -2005,15 +2154,22 @@ export default function LeadsPage() {
           {/* [pipeline-clarity 2026-07-12] One-line legend so the board explains
               itself — a lead moves left → right; Booked is the win, Lost is its
               own tab above. */}
-          {!isLostFilter && view === "board" && (
-            <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "7px 20px", fontSize: 11.5, color: "#8A8780", fontFamily: FF }}>
-              A lead moves <b style={{ color: "#6B6860" }}>left → right</b> as you work it: New → Contacted → Quoted → <b style={{ color: "#0F6E56" }}>Booked</b> (won). Leads that didn't move forward sit under <b style={{ color: "#6B6860" }}>Lost</b>.
+          {!isLostFilter && view === "board" && !legendHidden && (
+            <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "7px 20px", fontSize: 11.5, color: "#8A8780", fontFamily: FF, display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ flex: 1 }}>A lead moves <b style={{ color: "#6B6860" }}>left → right</b> as you work it: New → Contacted → Quoted → <b style={{ color: "#0F6E56" }}>Booked</b> (won). Leads that didn't move forward sit under <b style={{ color: "#6B6860" }}>Lost</b>.</span>
+              <button onClick={dismissLegend} title="Hide this tip" style={{ background: "none", border: "none", cursor: "pointer", color: "#B4B2A9", padding: 2, flexShrink: 0, display: "flex" }}>
+                <X size={13} />
+              </button>
             </div>
           )}
 
-          <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          {/* position: relative so the board-mode detail can float as an absolute
+              drawer over the right edge WITHOUT resizing the columns. [board-reflow
+              2026-07-17] Previously the 460px in-flow panel squeezed the 4-col grid,
+              so opening/deleting a lead reflowed every card and lost your place. */}
+          <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
             {!isLostFilter && view === "board" && (
-              <BoardView leads={leads} selectedId={selectedLead?.id ?? null} onSelect={l => { setSelectedLead(l); setCheckedIds(new Set()); }} />
+              <BoardView leads={leads} counts={counts} selectedId={selectedLead?.id ?? null} onSelect={l => { setSelectedLead(l); setCheckedIds(new Set()); }} />
             )}
             {(isLostFilter || view === "list") && (
             <div style={{ width: 300, flexShrink: 0, borderRight: "1px solid #E8E5E0", background: "#fff", display: "flex", flexDirection: "column", overflow: "hidden" }}>
@@ -2080,7 +2236,12 @@ export default function LeadsPage() {
             // Drip tab's Pause/Stop) as a full-screen overlay; the X returns to the board.
             <div style={isMobile && selectedLead
               ? { position: "fixed", inset: 0, zIndex: 60, background: "#fff", overflow: "hidden", display: "flex", flexDirection: "column" }
-              : { flex: view === "board" ? "0 0 460px" : 1, overflow: "hidden", display: "flex", flexDirection: "column", borderLeft: view === "board" ? "1px solid #E8E5E0" : "none" }}>
+              : view === "board"
+              // Board mode: float as a drawer pinned to the right edge so the
+              // columns keep full width and never reflow when it opens/closes.
+              ? { position: "absolute", top: 0, right: 0, bottom: 0, width: 460, zIndex: 20, background: "#fff", overflow: "hidden", display: "flex", flexDirection: "column", borderLeft: "1px solid #E8E5E0", boxShadow: "-8px 0 20px rgba(10,14,26,0.08)" }
+              // List mode: in-flow beside the fixed 300px list (no multi-col reflow).
+              : { flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               {selectedLead ? (
                 <LeadDetailPanel
                   key={selectedLead.id}
@@ -2098,6 +2259,7 @@ export default function LeadsPage() {
             </div>
             )}
           </div>
+          {!isLostFilter && view === "board" && <BreakdownPanel />}
         </div>
       )}
 
