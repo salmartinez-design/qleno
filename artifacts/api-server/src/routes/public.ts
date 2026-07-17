@@ -362,6 +362,67 @@ router.get("/quote/:token", rateLimit, async (req, res) => {
   }
 });
 
+// [referral-program 2026-07-17] Customer-facing referral messages fired on a
+// referral submit. The referred FRIEND gets EMAIL ONLY (they never opted in — a
+// cold SMS would be a TCPA gray area; the office alert still lets staff call).
+// The REFERRER gets an SMS + email thank-you. Gate-respecting (COMMS_ENABLED +
+// per-tenant/branch) and opt-out-checked; best-effort, never blocks the submit.
+async function sendReferralComms(companyId: number, p: {
+  referrerFirst: string; referrerEmail: string; referrerPhone: string;
+  friendFirst: string; friendEmail: string;
+}): Promise<void> {
+  try {
+    const { sql: rSql } = await import("drizzle-orm");
+    const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
+    const { isEmailOptedOut, isSmsOptedOut } = await import("../lib/opt-out.js");
+    const { appBaseUrl } = await import("../lib/app-url.js");
+    const co: any = (await db.execute(rSql`SELECT name, phone, email_from_address FROM companies WHERE id = ${companyId} LIMIT 1`)).rows[0] || {};
+    const companyName = co.name || "Phes Cleaning";
+    const companyPhone = co.phone || "";
+    const bookLink = `${appBaseUrl()}/book`;
+    const sender: any = await resolveSender(companyId, null);
+    const emailGate = process.env.COMMS_ENABLED === "true" && sender.company_comms_enabled && sender.enabled && sender.branch_comms_enabled;
+    const resendKey = process.env.RESEND_API_KEY;
+    const fromAddr = co.email_from_address ? `${companyName} <${co.email_from_address}>` : "Phes Cleaning <noreply@phes.io>";
+    const esc = (v: string) => String(v ?? "").replace(/[<>&]/g, (ch) => (ch === "<" ? "&lt;" : ch === ">" ? "&gt;" : "&amp;"));
+    const wrap = (inner: string) => `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#F7F6F3;"><div style="background:#fff;border:1px solid #E5E2DC;border-radius:8px;padding:32px;">${inner}<p style="font-size:13px;color:#9E9B94;margin:20px 0 0;">${esc(companyName)}${companyPhone ? ` — ${esc(companyPhone)}` : ""}</p></div></div>`;
+    const sendMail = async (to: string, subject: string, inner: string) => {
+      if (!emailGate || !resendKey || !to) return;
+      if (await isEmailOptedOut(companyId, to)) return;
+      const { Resend } = await import("resend");
+      await new Resend(resendKey).emails.send({ from: fromAddr, to: [to], subject, html: wrap(inner) }).catch(() => {});
+    };
+    const para = (t: string) => `<p style="font-size:15px;color:#1A1917;line-height:1.7;margin:0 0 14px;">${t}</p>`;
+
+    // 1. Referred friend — EMAIL ONLY.
+    await sendMail(
+      p.friendEmail,
+      `${p.referrerFirst || "A friend"} thinks you'll love ${companyName} — $25 off your first clean`,
+      para(`Hi ${esc(p.friendFirst || "there")},`) +
+      para(`${esc(p.referrerFirst || "A friend")} recommended <strong>${esc(companyName)}</strong> for a cleaning — and gifted you <strong>$25 off</strong> your first visit.`) +
+      para(`Get an instant quote and book your first clean:`) +
+      `<p><a href="${bookLink}" style="display:inline-block;background:#00C9A0;color:#ffffff;text-decoration:none;font-weight:600;padding:12px 24px;border-radius:6px;">Book my clean</a></p>`,
+    );
+
+    // 2. Referrer — SMS thank-you.
+    if (p.referrerPhone && !sender.reason && !(await isSmsOptedOut(companyId, p.referrerPhone))) {
+      const smsBody = `Hi ${p.referrerFirst || "there"}! Thanks for referring ${p.friendFirst || "your friend"} to ${companyName}. Once their first cleaning is done, you'll get $25 off your next visit. Reply STOP to opt out.`;
+      await sendSmsVia(sender, p.referrerPhone, smsBody).catch(() => {});
+    }
+
+    // 3. Referrer — EMAIL thank-you.
+    await sendMail(
+      p.referrerEmail,
+      `Thanks for referring ${p.friendFirst || "a friend"} to ${companyName}`,
+      para(`Hi ${esc(p.referrerFirst || "there")},`) +
+      para(`Thanks for referring <strong>${esc(p.friendFirst || "your friend")}</strong> to ${esc(companyName)}! Once their first cleaning is complete, you'll get <strong>$25 off</strong> your next visit.`) +
+      para(`We appreciate you spreading the word.`),
+    );
+  } catch (e: any) {
+    console.error("[referral] customer comms error (non-fatal):", e?.message ?? e);
+  }
+}
+
 // ── POST /api/public/referral ────────────────────────────────────────────────
 // [referral-program] Give $25 / Get $25 — the confirmation-page "Refer a friend
 // or business" form. Creates (a) a Lead Pipeline lead for the referred person
@@ -452,6 +513,14 @@ router.post("/referral", rateLimit, async (req, res) => {
     } catch (e: any) {
       console.error("[referral] office alert failed:", e?.message ?? e);
     }
+
+    // [referral-program] Fire the customer-facing referral messages (friend email
+    // + referrer SMS/email). Fire-and-forget so a comms hiccup never fails the
+    // submit; gating + opt-out are enforced inside.
+    void sendReferralComms(companyId, {
+      referrerFirst, referrerEmail, referrerPhone,
+      friendFirst: referredFirst, friendEmail: referredEmail,
+    }).catch((e: any) => console.error("[referral] comms dispatch failed:", e?.message ?? e));
 
     return res.status(201).json({ ok: true });
   } catch (err) {
