@@ -799,6 +799,13 @@ async function runBookingSchemaGuard(): Promise<void> {
     // ── Jobs page columns (2026-04-16) ──────────────────────────────────────
     { label: "jobs.flagged", stmt: `ALTER TABLE jobs ADD COLUMN IF NOT EXISTS flagged BOOLEAN NOT NULL DEFAULT false` },
     { label: "idx_jobs_company_flagged", stmt: `CREATE INDEX IF NOT EXISTS idx_jobs_company_flagged ON jobs(company_id, flagged) WHERE flagged = true` },
+    // [dispatch-perf 2026-07-17] The dispatch board + Time Clock day-load filter
+    // jobs by (company_id, scheduled_date) on every read, but the only jobs index
+    // was the partial flagged one — so the day filter table-scanned, making the
+    // heavy per-row-subquery dispatch SELECT ~10s. This btree serves that WHERE
+    // directly (also helps timeclock/day + week-summary). CONCURRENTLY-free is
+    // fine here: IF NOT EXISTS is idempotent and the table isn't huge.
+    { label: "idx_jobs_company_scheduled", stmt: `CREATE INDEX IF NOT EXISTS idx_jobs_company_scheduled ON jobs(company_id, scheduled_date)` },
 
     // ── Pricing discounts scope support (2026-04-16) ────────────────────────
     { label: "pricing_discounts.scope_ids", stmt: `ALTER TABLE pricing_discounts ADD COLUMN IF NOT EXISTS scope_ids TEXT NOT NULL DEFAULT '[]'` },

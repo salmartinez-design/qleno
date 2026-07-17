@@ -7555,7 +7555,13 @@ export default function JobsPage() {
   // each and keep whichever earns its place. Generic — applies to every tenant.
   const [mobileViewMode, setMobileViewMode] = useState<"time" | "team" | "grid">("time");
 
-  const load = useCallback(async () => {
+  // [dispatch-perf 2026-07-17] `prefetch` defaults ON for day-scrubbing (warm the
+  // adjacent days so ‹ › is instant). After a WRITE (cancel/move via onUpdate)
+  // pass { prefetch: false }: the office is waiting on THIS day's refetch, and
+  // fan-firing 5 more copies of the heavy dispatch query alongside it saturated
+  // the DB and turned a ~2s refetch into the ~35s the office reported.
+  const load = useCallback(async (opts?: { prefetch?: boolean }) => {
+    const doPrefetch = opts?.prefetch !== false;
     const id = ++refreshRef.current;
     const cacheKey = _dispatchCacheKey(dateKey(selectedDate), activeBranchId);
     // Serve from cache immediately (no spinner) then revalidate in background
@@ -7596,13 +7602,15 @@ export default function JobsPage() {
       // direction) — +1..+3 ahead, -1..-2 behind — since load() re-runs on each
       // day change, the window slides with you and only the newest edge day
       // actually fetches per click (the rest are already cached).
-      for (const offset of [1, 2, 3, -1, -2]) {
-        const adjDate = _adjacentDateKey(selectedDate, offset);
-        const adjKey = _dispatchCacheKey(adjDate, activeBranchId);
-        if (!_dispatchCache.has(adjKey)) {
-          fetchDispatch(adjDate, token, activeBranchId)
-            .then(adj => _dispatchCache.set(adjKey, adj))
-            .catch(() => {}); // silent — prefetch is best-effort
+      if (doPrefetch) {
+        for (const offset of [1, 2, 3, -1, -2]) {
+          const adjDate = _adjacentDateKey(selectedDate, offset);
+          const adjKey = _dispatchCacheKey(adjDate, activeBranchId);
+          if (!_dispatchCache.has(adjKey)) {
+            fetchDispatch(adjDate, token, activeBranchId)
+              .then(adj => _dispatchCache.set(adjKey, adj))
+              .catch(() => {}); // silent — prefetch is best-effort
+          }
         }
       }
     } catch (err) {
@@ -8484,7 +8492,7 @@ export default function JobsPage() {
           // it React reuses the instance, so the note useState keeps the previous
           // job's text and the debounced auto-save writes it onto the new job
           // (the "every service shows Jirsa's notes" cross-client bleed).
-          <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile />
+          <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={() => load({ prefetch: false })} mobile />
         )}
         <JobWizard open={showWizard} onClose={() => { setShowWizard(false); setWizardPreset(null); }} onCreated={() => { setShowWizard(false); setWizardPreset(null); load(); }} preselectedAccountId={wizardPreset?.accountId} preselectedPropertyId={wizardPreset?.propertyId} presetDate={wizardPreset?.date} />
         <EventModal open={showEventModal} onClose={() => setShowEventModal(false)} onCreated={() => { setShowEventModal(false); load(); }} techs={(data?.employees ?? []).map(e => ({ id: e.id, name: e.name }))} presetDate={dateKey(selectedDate)} branchId={typeof activeBranchId === "number" ? activeBranchId : null} isOwner={isOwner} />
@@ -8889,7 +8897,7 @@ export default function JobsPage() {
 
       {selectedJob && !isMobile && (
         // key={selectedJob.id}: fresh panel per job — see note on the mobile mount.
-        <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={load} mobile={false} />
+        <JobPanel key={selectedJob.id} job={selectedJob} employees={data?.employees || []} onClose={() => setSelectedJob(null)} onUpdate={() => load({ prefetch: false })} mobile={false} />
       )}
       <JobWizard open={showWizard} onClose={() => { setShowWizard(false); setWizardPreset(null); }} onCreated={() => { setShowWizard(false); setWizardPreset(null); load(); }} preselectedAccountId={wizardPreset?.accountId} preselectedPropertyId={wizardPreset?.propertyId} presetDate={wizardPreset?.date} />
       <EventModal open={showEventModal} onClose={() => setShowEventModal(false)} onCreated={() => { setShowEventModal(false); load(); }} techs={(data?.employees ?? []).map(e => ({ id: e.id, name: e.name }))} presetDate={dateKey(selectedDate)} branchId={typeof activeBranchId === "number" ? activeBranchId : null} isOwner={isOwner} />
