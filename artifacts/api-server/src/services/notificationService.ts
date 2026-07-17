@@ -110,6 +110,11 @@ export async function sendNotification(
   // attachments handed straight to Resend (e.g. the invoice PDF). Undefined for
   // every existing caller, so their sends are byte-for-byte unchanged.
   attachments?: Array<{ filename: string; content: Buffer | string }>,
+  // [per-package-confirmation 2026-07-17] ADDITIVE, opt-in: the job's service_type
+  // slug. When provided, template selection prefers a row whose service_type
+  // matches (the package-specific variant), falling back to the NULL default.
+  // Omitting it (every existing caller) selects the NULL default exactly as before.
+  serviceType?: string | null,
   // Returns true only when the message was actually handed to the provider —
   // false for every skip/suppress/failure. Lets callers (e.g. satisfaction/send
   // and the one-completion-email rule) know whether this channel really
@@ -128,17 +133,22 @@ export async function sendNotification(
   let sentHtml: string | null = null;
 
   try {
-    // Fetch template
-    const [tpl] = await db
-      .select()
-      .from(notificationTemplatesTable)
-      .where(and(
-        eq(notificationTemplatesTable.company_id, companyId),
-        eq(notificationTemplatesTable.trigger, templateKey),
-        eq(notificationTemplatesTable.channel, channel as any),
-        eq(notificationTemplatesTable.is_active, true),
-      ))
-      .limit(1);
+    // Fetch template — [per-package-confirmation] pick the most-specific active
+    // row: an exact service_type variant if one exists, else the NULL default.
+    // `ORDER BY (service_type IS NULL) ASC` sorts the exact match (false=0)
+    // ahead of the default (true=1). When serviceType is null/undefined only the
+    // NULL default can match, so behavior is unchanged for every existing caller.
+    const tplRows = await db.execute(sql`
+      SELECT * FROM notification_templates
+       WHERE company_id = ${companyId}
+         AND trigger = ${templateKey}
+         AND channel = ${channel}::notification_channel
+         AND is_active = true
+         AND (service_type = ${serviceType ?? null} OR service_type IS NULL)
+       ORDER BY (service_type IS NULL) ASC
+       LIMIT 1
+    `);
+    const tpl: any = tplRows.rows[0];
 
     if (!tpl) {
       await logNotification(companyId, recipientEmail || recipientPhone || "unknown", channel, templateKey, "skipped", "Template not found or inactive", {});

@@ -10,6 +10,11 @@ export const notificationTemplatesTable = pgTable("notification_templates", {
   company_id: integer("company_id").references(() => companiesTable.id).notNull(),
   trigger: text("trigger").notNull(),
   channel: notificationChannelEnum("channel").notNull(),
+  // [per-package-confirmation 2026-07-17] Optional service-type variant. NULL is
+  // the default template used for every job; a non-null value (a jobs.service_type
+  // slug like 'deep_clean' / 'move_out') is a package-specific override. The send
+  // path picks the most-specific match (exact service_type, else the NULL default).
+  service_type: text("service_type"),
   subject: text("subject"),
   body: text("body").notNull().default(""),
   body_html: text("body_html"),
