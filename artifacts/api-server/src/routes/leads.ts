@@ -888,7 +888,9 @@ router.get("/:id/drip", requireAuth, requireRole("owner", "admin", "office"), as
              -- (merge fields filled, real email HTML) for a sent touch, so the
              -- Drip tab can show exactly what the customer received rather than
              -- the raw {{first_name}} template. NULL for upcoming touches.
-             ml.body AS sent_body
+             -- sent_subject is the rendered subject line ("...from Phes" not
+             -- "...from {{company_name}}"); the template subject stays for previews.
+             ml.body AS sent_body, ml.subject AS sent_subject
       FROM follow_up_steps fst
       LEFT JOIN message_log ml ON ml.enrollment_id = ${enr.id} AND ml.step_number = fst.step_number
       WHERE fst.sequence_id = ${enr.sequence_id}
