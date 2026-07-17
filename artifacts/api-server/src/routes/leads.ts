@@ -27,6 +27,27 @@ async function logActivity(
   );
 }
 
+// [auto-claim 2026-07-17] First-touch ownership: the first STAFF member to ACT on
+// an unassigned lead (send a message, add a note, change status) auto-claims it, so
+// their emblem shows on the card and two people don't work the same lead. Owner/
+// admin are excluded — they review leads without grabbing them (Sal's call). Only
+// claims when assigned_to IS NULL, so it never steals an already-owned lead.
+async function claimLeadOnAction(
+  companyId: number, leadId: number,
+  auth: { userId?: number | null; role?: string } | undefined,
+) {
+  if (!auth?.userId || ["owner", "admin", "super_admin"].includes(String(auth.role))) return;
+  try {
+    const r = await db.execute(sql`
+      UPDATE leads SET assigned_to = ${auth.userId}, updated_at = NOW()
+       WHERE id = ${leadId} AND company_id = ${companyId} AND assigned_to IS NULL
+      RETURNING id`);
+    if ((r.rows as any[]).length) {
+      await logActivity(leadId, companyId, "assigned", "Auto-claimed on first action", auth.userId).catch(() => {});
+    }
+  } catch (e) { console.error("[auto-claim] claimLeadOnAction", e); }
+}
+
 // ── GET /api/leads ─────────────────────────────────────────────────────────────
 router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
@@ -47,7 +68,10 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
     } = req.query as Record<string, string>;
 
     const pageNum = Math.max(1, parseInt(page) || 1);
-    const limitNum = Math.min(100, parseInt(limit) || 25);
+    // [board-loadall 2026-07-17] Cap raised to 300 so the board can load every
+    // column in full (a tenant's whole active pipeline) instead of a shared 50 —
+    // that shared cap was starving the biggest column (Booked showed 13 of 37).
+    const limitNum = Math.min(300, parseInt(limit) || 25);
     const offset = (pageNum - 1) * limitNum;
 
     const conditions: string[] = [`l.company_id = ${companyId}`];
@@ -159,6 +183,66 @@ router.get("/status-counts", requireAuth, requireRole("owner", "admin", "office"
     return res.json(counts);
   } catch (err) {
     console.error("GET /leads/status-counts:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── GET /api/leads/breakdown ────────────────────────────────────────────────────
+// [board-breakdown 2026-07-17] Powers the collapsible Breakdown panel below the
+// board: lead-source mix (web vs office), booked-by-service (5 buckets + Other),
+// and who-booked (each staffer + self-serve web + unassigned). Company-scoped.
+router.get("/breakdown", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    // Same "came through the web" rule the dashboard/summary uses.
+    const web = sql`(COALESCE(NULLIF(source,''), lead_source) IN ('web_quote','website','booking_widget') OR lead_source = 'web_quote')`;
+    // quote_amount is TEXT — cast only clean numeric strings so one junk row
+    // can't 500 the whole panel.
+    const amt = sql`(CASE WHEN quote_amount ~ '^[0-9]+(\\.[0-9]+)?$' THEN quote_amount::numeric ELSE 0 END)`;
+    // Messy scopes → 5 buckets. Hourly wins when present (covers all hourly
+    // sub-types like "Hourly Deep Clean or Move In/Out"); commercial first.
+    const bucket = sql`CASE
+      WHEN lower(coalesce(scope,'')) LIKE '%commercial%' THEN 'Commercial'
+      WHEN lower(coalesce(scope,'')) LIKE '%hourly%'     THEN 'Hourly'
+      WHEN lower(coalesce(scope,'')) LIKE '%recurring%' OR lower(coalesce(scope,'')) LIKE '%weekly%'
+        OR lower(coalesce(scope,'')) LIKE '%monthly%'   THEN 'Recurring'
+      WHEN lower(coalesce(scope,'')) LIKE '%move%'       THEN 'Move In/Out'
+      WHEN lower(coalesce(scope,'')) LIKE '%deep%'       THEN 'Deep Clean'
+      ELSE 'Other' END`;
+
+    const src = (await db.execute(sql`
+      SELECT COUNT(*) FILTER (WHERE ${web})       AS web,
+             COUNT(*) FILTER (WHERE NOT (${web})) AS office
+      FROM leads WHERE company_id = ${companyId}`)).rows[0] as any;
+
+    const byService = (await db.execute(sql`
+      SELECT ${bucket} AS bucket, COUNT(*)::int AS count, COALESCE(SUM(${amt}), 0) AS revenue
+      FROM leads WHERE company_id = ${companyId} AND status = 'booked'
+      GROUP BY 1 ORDER BY count DESC`)).rows;
+
+    const bookedRows = (await db.execute(sql`
+      SELECT l.assigned_to,
+             NULLIF(trim(u.first_name || ' ' || coalesce(u.last_name,'')), '') AS owner_name,
+             ${web} AS is_web
+      FROM leads l LEFT JOIN users u ON u.id = l.assigned_to
+      WHERE l.company_id = ${companyId} AND l.status = 'booked'`)).rows as any[];
+    const owners = new Map<string, { key: string; label: string; count: number }>();
+    for (const r of bookedRows) {
+      let key: string, label: string;
+      if (r.assigned_to != null) { key = `u:${r.assigned_to}`; label = r.owner_name || `User ${r.assigned_to}`; }
+      else if (r.is_web) { key = "online"; label = "Online (self-serve)"; }
+      else { key = "unassigned"; label = "Unassigned"; }
+      const cur = owners.get(key) || { key, label, count: 0 };
+      cur.count++; owners.set(key, cur);
+    }
+
+    return res.json({
+      source: { web: Number(src?.web || 0), office: Number(src?.office || 0) },
+      by_service: (byService as any[]).map(r => ({ bucket: r.bucket, count: Number(r.count), revenue: Number(r.revenue) })),
+      by_owner: [...owners.values()].sort((a, b) => b.count - a.count),
+    });
+  } catch (err) {
+    console.error("GET /leads/breakdown:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -337,6 +421,7 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
   try {
     const companyId = req.auth!.companyId!; const userId = req.auth!.userId;
     const leadId = parseInt(req.params.id);
+    await claimLeadOnAction(companyId, leadId, req.auth ?? undefined); // first-touch ownership
 
     const {
       first_name, last_name, email, phone,
@@ -529,6 +614,7 @@ router.post("/:id/activity", requireAuth, requireRole("owner", "admin", "office"
     const companyId = req.auth!.companyId!; const userId = req.auth!.userId;
     const leadId = parseInt(req.params.id);
     const { action_type = "note_added", note } = req.body;
+    await claimLeadOnAction(companyId, leadId, req.auth ?? undefined); // first-touch ownership
 
     await logActivity(leadId, companyId, action_type, note || null, userId);
 
@@ -608,6 +694,7 @@ router.post("/:id/communications/sms", requireAuth, requireRole("owner", "admin"
     const leadId = parseInt(req.params.id);
     const { message } = req.body;
     if (!message || typeof message !== "string") return res.status(400).json({ error: "message required" });
+    await claimLeadOnAction(companyId, leadId, req.auth ?? undefined); // first-touch ownership
     const [lead] = (await db.execute(sql`SELECT phone FROM leads WHERE id = ${leadId} AND company_id = ${companyId} LIMIT 1`)).rows as any[];
     if (!lead?.phone) return res.status(400).json({ error: "Lead has no phone number" });
 
