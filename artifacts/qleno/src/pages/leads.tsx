@@ -326,6 +326,7 @@ function DripStepRow({ s, nextStep }: { s: any; nextStep: any }) {
   const isEmail = String(s.channel || "").toLowerCase() === "email";
   // Sent → the real rendered copy; upcoming → the template.
   const content = (done && s.sent_body) ? s.sent_body : (s.message_template || "");
+  const subjectLine = (done && s.sent_subject) ? s.sent_subject : (s.subject || "");
   const isHtml = /<[a-z][\s\S]*>/i.test(content);
   const plain = stripHtml(content);
   return (
@@ -363,8 +364,8 @@ function DripStepRow({ s, nextStep }: { s: any; nextStep: any }) {
       </button>
       {open && (
         <div style={{ marginTop: 6, marginLeft: 22 }}>
-          {isEmail && s.subject && (
-            <div style={{ fontSize: 10, fontWeight: 700, color: "#1A1917", marginBottom: 4, fontFamily: FF }}>Subject: {s.subject}</div>
+          {isEmail && subjectLine && (
+            <div style={{ fontSize: 10, fontWeight: 700, color: "#1A1917", marginBottom: 4, fontFamily: FF }}>Subject: {subjectLine}</div>
           )}
           {isEmail && isHtml ? (
             <iframe title={`Drip touch ${s.step_number}`} sandbox="" srcDoc={content}
