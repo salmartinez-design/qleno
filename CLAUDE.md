@@ -42,17 +42,60 @@
 ## Code invariants
 - **Assignment mirror**: any code that writes to `job_technicians` MUST also
   mirror the primary tech onto `jobs.assigned_user_id`. The dispatch grid
-  reads `jobs.assigned_user_id`, NOT `job_technicians`. Failure to mirror
-  creates a split-brain (chip in Unassigned row even though a tech is
-  actually assigned). All four entry points enforce this:
+  reads `jobs.assigned_user_id` AND `job_technicians`; treats
+  `job_technicians.is_primary=true` as the source of truth when present,
+  with `jobs.assigned_user_id` as the fallback. Failure to mirror creates
+  a split-brain — the chip appears under the OLD tech on reload even after
+  the office moved it. All four entry points enforce this:
   - `PATCH /api/jobs/:id` (modal save) — mirrors team_user_ids[0]
   - `POST /api/jobs/:id/technicians` (drawer Add Team Member) — promotes
     new tech to primary on unassigned jobs and mirrors
   - `DELETE /api/jobs/:id/technicians/:techId` — promotes next remaining
     tech on primary removal and mirrors (NULL if none remain)
-  - `PUT /api/jobs/:id` (drag-and-drop quick-reschedule) — only writes
-    `assigned_user_id` directly; doesn't touch `job_technicians`. Acceptable
-    because PATCH is the canonical full-edit path.
+  - `PUT /api/jobs/:id` (drag-and-drop quick-reschedule) — *(PR #381,
+    2026-06-10)* now mirrors `job_technicians` too whenever
+    `assigned_user_id` is in the body. Demotes the existing primary row,
+    upserts the new tech as primary (ON CONFLICT DO UPDATE promotes an
+    existing helper). Helpers stay intact so multi-tech crews survive a
+    quick reschedule. The previous "PUT is the exception, doesn't touch
+    job_technicians" rule was wrong — unmirrored PUT writes flipped
+    back on reload (Maribel's "drag let you but it doesn't save" report).
+  Also enforced in the recurring engine (`generateJobsFromSchedule`),
+  quote→job conversion, job duplication, and the cascade-reschedule
+  future-occurrence paths. Audited 2026-06-10 — every write path that
+  touches one column touches the other.
+- **Schema columns require a runtime migration entry**. Production deploys
+  `node dist/index.mjs` directly — `drizzle-kit push` does NOT run at
+  startup. New columns in `lib/db/src/schema/*.ts` only reach prod when
+  an explicit `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` lands in
+  `artifacts/api-server/src/phes-data-migration.ts` (Phes-prod scope) or
+  `cutover-data-migration.ts` (multi-tenant scope). PR review must diff
+  the schema file against BOTH migration files. A column added to schema
+  without a matching migration entry is a latent prod 500 — the first
+  `.returning()` or `INSERT` hits "column X does not exist." This was the
+  Hilda Add Employee 500 root cause (#205); the discipline has been
+  followed on every column-add PR since (verified clean on the 2026-06-10
+  audit — all pay_type/hourly_rate/parking_fee/occurrence_date columns
+  have entries).
+- **Cascade defaults preselect the COMMON case, not the safe one**.
+  *(PR #382, 2026-06-10)* When the recurring-edit cascade picker
+  defaulted to "Just this visit," operators clicked Save without
+  changing it and the change only hit one occurrence — forcing
+  re-scheduling every week. The default now preselects "This and all
+  future visits"; the safety net is the existing two-click confirm on
+  series-wide scopes, not a sticky-default radio. Future multi-choice
+  prompts in office workflows follow the same rule: default to what the
+  office actually means, with a confirm-step for blast-radius — don't
+  bury intent under a "safe" preselect.
+- **Frontend `name || \`#${id}\`` fallbacks require server reliability**.
+  *(PR #383, 2026-06-10)* The dispatch payload omitted
+  `assigned_user_name`, so the JobPanel dropdown raced the
+  techs-with-status fetch and fell back to "Technician #32" in
+  Maribel's view. Any frontend fallback of the form `name || \`#${id}\``
+  / `name || "Unknown"` requires the corresponding GET response to
+  populate `name` reliably (via SQL join or computed column). Document
+  the source in a comment near the fallback. If the field is
+  fetch-optional, render a loading state — not the ugly placeholder.
 - **Tenant-managed commercial service types**: the dropdown in the
   edit-job modal's commercial branch reads from `commercial_service_types`
   (NOT a hardcoded constant). Each row has a `slug` matching a
@@ -429,8 +472,8 @@ take a look at neighbors and fix the same problem if you see it.
 ## Known Bugs — Fix Before May 12
 1. ~~Booking widget add-on ID mapping~~ — FIXED (dynamic lookup by name)
 2. ~~Zone check failing for valid zips (e.g. 60805)~~ — FIXED (branchRouter updated)
-3. Loyalty discount auto-applying with no code entered — OPEN (discount migration will fix)
-4. Recurring job anchor dates landing on Monday instead of correct day — OPEN (timezone bug in parseDate)
+3. Loyalty discount auto-applying with no code entered — DEFERRED (auto-apply path doesn't actually exist in current code; revisit if/when loyalty auto-apply is built. Re-verified 2026-06-10.)
+4. ~~Recurring job anchor dates landing on Monday instead of correct day~~ — FIXED (recurring-cadences.ts:34 `parseDate` builds a local-midnight Date from Y/M/D components, never a UTC parse. Verified 2026-06-10.)
 5. ~~"Cook County" prefix showing in address display~~ — FIXED (no such logic exists)
 6. ~~Callback button not clickable on Very Dirty flow~~ — FIXED (fully functional)
 7. ~~"onetime" showing instead of "One Time" in booking summary~~ — FIXED (wLabel mapper)
