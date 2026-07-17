@@ -196,9 +196,6 @@ router.get("/breakdown", requireAuth, requireRole("owner", "admin", "office"), a
     const companyId = req.auth!.companyId!;
     // Same "came through the web" rule the dashboard/summary uses.
     const web = sql`(COALESCE(NULLIF(source,''), lead_source) IN ('web_quote','website','booking_widget') OR lead_source = 'web_quote')`;
-    // quote_amount is TEXT — cast only clean numeric strings so one junk row
-    // can't 500 the whole panel.
-    const amt = sql`(CASE WHEN quote_amount ~ '^[0-9]+(\\.[0-9]+)?$' THEN quote_amount::numeric ELSE 0 END)`;
     // Messy scopes → 5 buckets. Hourly wins when present (covers all hourly
     // sub-types like "Hourly Deep Clean or Move In/Out"); commercial first.
     const bucket = sql`CASE
@@ -216,7 +213,7 @@ router.get("/breakdown", requireAuth, requireRole("owner", "admin", "office"), a
       FROM leads WHERE company_id = ${companyId}`)).rows[0] as any;
 
     const byService = (await db.execute(sql`
-      SELECT ${bucket} AS bucket, COUNT(*)::int AS count, COALESCE(SUM(${amt}), 0) AS revenue
+      SELECT ${bucket} AS bucket, COUNT(*)::int AS count, COALESCE(SUM(quote_amount), 0) AS revenue
       FROM leads WHERE company_id = ${companyId} AND status = 'booked'
       GROUP BY 1 ORDER BY count DESC`)).rows;
 
