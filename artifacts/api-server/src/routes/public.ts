@@ -1931,6 +1931,16 @@ async function sendQuoteLeadAlert(companyId: number, kind: "new" | "quoted", lea
     Number(d.step_reached) >= 2 ? "Entered contact + home details (left before seeing the price)" : null;
   const { appBaseUrl } = await import("../lib/app-url.js");
   const leadLink = `${appBaseUrl()}/leads${lead.leadId ? `?lead=${lead.leadId}` : ""}`;
+  // [addr-dup-zip 2026-07-17] The widget's `address` is the Google-formatted
+  // string, which ALREADY ends in the zip — appending `zip` again printed it
+  // twice ("IL 60805 60805"). Only append when the address doesn't already
+  // contain it (covers the rare street-only address), else show address as-is.
+  const addrLine = (() => {
+    const a = String(lead.address ?? "").trim();
+    const z = String(lead.zip ?? "").trim();
+    if (!a) return z || null;
+    return z && !a.includes(z) ? `${a} ${z}` : a;
+  })();
   const subject = kind === "quoted"
     ? `Quote Viewed${lead.quoteAmount != null ? ` ($${Number(lead.quoteAmount).toFixed(2)})` : ""} — ${fullName}`
     : `New Quote Request — ${fullName}`;
@@ -1953,7 +1963,7 @@ async function sendQuoteLeadAlert(companyId: number, kind: "new" | "quoted", lea
   ${row("Name", fullName)}
   ${row("Email", lead.email)}
   ${row("Phone", lead.phone)}
-  ${row("Address", lead.address ? `${lead.address}${lead.zip ? ` ${lead.zip}` : ""}` : null)}
+  ${row("Address", addrLine)}
   ${row("Service", lead.scope)}
   ${row("Frequency", d.frequency)}
   ${row("Bedrooms", d.bedrooms)}
