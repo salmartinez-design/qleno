@@ -1805,6 +1805,12 @@ function NotificationsTab() {
   const { activeBranchId } = useBranch();
   const [messages, setMessages] = useState<any[]>([]);
   const [mergeTags, setMergeTags] = useState<string[]>([]);
+  // [per-package-confirmation] Packages a booking message can be tailored to, and
+  // which variant of a channel is currently being viewed/edited: keyed by the
+  // DEFAULT channel row id → service_type slug (null/absent = the Default).
+  const [packages, setPackages] = useState<Array<{ slug: string; label: string }>>([]);
+  const [pkgSel, setPkgSel] = useState<Record<number, string | null>>({});
+  const [variantBusy, setVariantBusy] = useState(false);
   const [logs, setLogs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -1873,6 +1879,7 @@ function NotificationsTab() {
       ]);
       setMessages(m.data || []);
       setMergeTags(m.merge_tags || []);
+      setPackages(m.packages || []);
       setLogs(l.data || []);
     } catch {}
     finally { setLoading(false); }
@@ -1882,7 +1889,9 @@ function NotificationsTab() {
 
   // Optimistically flip a channel's on/off, then persist. id = template row id.
   async function toggle(id: number, ch: any, is_active: boolean) {
-    setMessages(prev => prev.map(m => ({ ...m, channels: m.channels.map((c: any) => c.id === id ? { ...c, is_active } : c) })));
+    setMessages(prev => prev.map(m => ({ ...m, channels: m.channels.map((c: any) =>
+      c.id === id ? { ...c, is_active }
+      : { ...c, variants: (c.variants || []).map((v: any) => v.id === id ? { ...v, is_active } : v) }) })));
     try {
       await fetch(`${API}/api/notifications/templates/${id}`, {
         method: "PATCH",
@@ -1906,11 +1915,45 @@ function NotificationsTab() {
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ is_active: ch.is_active, subject, body }),
       });
-      setMessages(prev => prev.map(m => ({ ...m, channels: m.channels.map((c: any) => c.id === id ? { ...c, subject, body } : c) })));
+      setMessages(prev => prev.map(m => ({ ...m, channels: m.channels.map((c: any) =>
+        c.id === id ? { ...c, subject, body }
+        : { ...c, variants: (c.variants || []).map((v: any) => v.id === id ? { ...v, body } : v) }) })));
       toast({ title: "Message saved" });
       setEditingId(null);
     } catch { toast({ title: "Failed to save", variant: "destructive" }); }
     finally { setSaving(null); }
+  }
+
+  // [per-package-confirmation] Add a package variant of a channel and select it
+  // for editing (server seeds it from the default's current copy). ch is the
+  // DEFAULT channel; slug is a jobs.service_type.
+  async function addVariant(msg: any, ch: any, slug: string) {
+    setVariantBusy(true);
+    try {
+      const r = await fetch(`${API}/api/notifications/templates`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ trigger: msg.key, channel: ch.channel, service_type: slug }),
+      });
+      if (!r.ok) throw new Error();
+      await load();
+      setPkgSel(prev => ({ ...prev, [ch.id]: slug }));
+      toast({ title: "Package added — edit its message below" });
+    } catch { toast({ title: "Couldn't add package", variant: "destructive" }); }
+    finally { setVariantBusy(false); }
+  }
+  // Remove a package variant → that package falls back to the Default.
+  async function removeVariant(ch: any, variantId: number) {
+    setVariantBusy(true);
+    try {
+      const r = await fetch(`${API}/api/notifications/templates/${variantId}`, { method: "DELETE", headers: getAuthHeaders() });
+      if (!r.ok) throw new Error();
+      setEditingId(null);
+      setPkgSel(prev => ({ ...prev, [ch.id]: null }));
+      await load();
+      toast({ title: "Package removed — uses the default now" });
+    } catch { toast({ title: "Couldn't remove package", variant: "destructive" }); }
+    finally { setVariantBusy(false); }
   }
 
   function startTiming(msg: any) {
@@ -2143,50 +2186,86 @@ function NotificationsTab() {
                         nothing sends it. Hide it and point at the real setting so
                         the post-visit ask has ONE configuration surface per
                         channel. */}
-                    {(msg.key === 'review_request' ? msg.channels.filter((c: any) => c.channel !== 'sms') : msg.channels).map((ch: any) => (
-                      <div key={ch.channel} style={{ border: '1px solid #F0EEE9', borderRadius: 9, padding: '12px 14px', background: ch.is_active ? '#fff' : '#FAFAF8' }}>
+                    {(msg.key === 'review_request' ? msg.channels.filter((c: any) => c.channel !== 'sms') : msg.channels).map((ch: any) => {
+                      // [per-package-confirmation] The booking-confirmation SMS can carry
+                      // per-package variants. effCh is the row being viewed/edited — the
+                      // selected package's variant, else the default — so preview, toggle,
+                      // edit and test all treat a variant as a first-class message.
+                      const isBookingSms = msg.key === 'job_scheduled' && ch.channel === 'sms';
+                      const variants: any[] = ch.variants || [];
+                      const sel = pkgSel[ch.id] ?? null;
+                      const selVar = sel ? variants.find((v: any) => v.service_type === sel) : null;
+                      const effCh = selVar ? { ...ch, id: selVar.id, body: selVar.body, is_active: selVar.is_active } : ch;
+                      const pkgLabel = (slug: string) => packages.find(p => p.slug === slug)?.label || slug;
+                      const usedSlugs = new Set(variants.map((v: any) => v.service_type));
+                      const addable = packages.filter(p => !usedSlugs.has(p.slug));
+                      const chip = (active: boolean): any => ({ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: FF, border: active ? '1px solid var(--brand, #5B9BD5)' : '1px solid #E5E2DC', background: active ? '#EBF4FF' : '#fff', color: active ? '#1D4ED8' : '#6B7280' });
+                      return (
+                      <div key={ch.channel} style={{ border: '1px solid #F0EEE9', borderRadius: 9, padding: '12px 14px', background: effCh.is_active ? '#fff' : '#FAFAF8' }}>
+                        {isBookingSms && (
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Package</span>
+                            <button onClick={() => { setEditingId(null); setPkgSel(p => ({ ...p, [ch.id]: null })); }} style={chip(sel === null)}>Default</button>
+                            {variants.map((v: any) => (
+                              <button key={v.service_type} onClick={() => { setEditingId(null); setPkgSel(p => ({ ...p, [ch.id]: v.service_type })); }} style={chip(sel === v.service_type)}>
+                                {pkgLabel(v.service_type)}{!v.is_active ? ' · off' : ''}
+                              </button>
+                            ))}
+                            {addable.length > 0 && (
+                              <select value="" disabled={variantBusy} onChange={e => { if (e.target.value) addVariant(msg, ch, e.target.value); }}
+                                style={{ fontSize: 11, border: '1px dashed #C7C3BC', borderRadius: 999, padding: '4px 8px', color: '#6B7280', background: '#fff', fontFamily: FF, cursor: 'pointer' }}>
+                                <option value="">+ Add package…</option>
+                                {addable.map(p => <option key={p.slug} value={p.slug}>{p.label}</option>)}
+                              </select>
+                            )}
+                            {selVar && (
+                              <button onClick={() => removeVariant(ch, selVar.id)} disabled={variantBusy} style={{ fontSize: 11, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, marginLeft: 'auto' }}>Remove package</button>
+                            )}
+                          </div>
+                        )}
                         <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
-                            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: chTags[ch.channel]?.color }}>{chTags[ch.channel]?.label}</span>
-                            {editingId !== ch.id && (
-                              <p style={{ fontSize: 12, color: ch.is_active ? '#374151' : '#9E9B94', margin: '4px 0 0', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
-                                {ch.channel === 'email' && ch.subject ? <><strong>{cmFill(ch.subject)}</strong>{" — "}</> : ""}{ch.channel === 'email' ? cmStrip(cmFill(ch.body)) : cmFill(ch.body)}
+                            <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: chTags[ch.channel]?.color }}>{chTags[ch.channel]?.label}{isBookingSms && sel ? ` · ${pkgLabel(sel)}` : ''}</span>
+                            {editingId !== effCh.id && (
+                              <p style={{ fontSize: 12, color: effCh.is_active ? '#374151' : '#9E9B94', margin: '4px 0 0', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                                {ch.channel === 'email' && effCh.subject ? <><strong>{cmFill(effCh.subject)}</strong>{" — "}</> : ""}{ch.channel === 'email' ? cmStrip(cmFill(effCh.body)) : cmFill(effCh.body)}
                               </p>
                             )}
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-                            <button onClick={() => toggle(ch.id, ch, !ch.is_active)} title={ch.is_active ? "On — tap to pause" : "Paused — tap to turn on"}
-                              style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: ch.is_active ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s' }}>
-                              <div style={{ width: 18, height: 18, borderRadius: 9, background: '#fff', position: 'absolute', top: 3, left: ch.is_active ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }}/>
+                            <button onClick={() => toggle(effCh.id, effCh, !effCh.is_active)} title={effCh.is_active ? "On — tap to pause" : "Paused — tap to turn on"}
+                              style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: effCh.is_active ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s' }}>
+                              <div style={{ width: 18, height: 18, borderRadius: 9, background: '#fff', position: 'absolute', top: 3, left: effCh.is_active ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }}/>
                             </button>
-                            <button onClick={() => editingId === ch.id ? setEditingId(null) : startEdit(ch)}
+                            <button onClick={() => editingId === effCh.id ? setEditingId(null) : startEdit(effCh)}
                               style={{ fontSize: 11, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
-                              {editingId === ch.id ? "Cancel" : "Edit"}
+                              {editingId === effCh.id ? "Cancel" : "Edit"}
                             </button>
-                            <button onClick={() => openTest({ key: msg.key, label: msg.label, channel: ch.channel })} title="Send a [TEST] copy to yourself"
+                            <button onClick={() => openTest({ key: msg.key, label: msg.label, channel: ch.channel, ...(isBookingSms && selVar ? { body: effCh.body } : {}) })} title="Send a [TEST] copy to yourself"
                               style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
                               Send Test
                             </button>
                           </div>
                         </div>
 
-                        {editingId === ch.id && (
+                        {editingId === effCh.id && (
                           <div style={{ marginTop: 14 }}>
                             <EasyMessageEditor
                               channel={ch.channel}
-                              initialSubject={ch.channel === 'email' ? (ch.subject || '') : ''}
-                              initialBody={ch.body || ''}
+                              initialSubject={ch.channel === 'email' ? (effCh.subject || '') : ''}
+                              initialBody={effCh.body || ''}
                               mergeTags={mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)}
                               templateKey={msg.key}
                               branchId={activeBranchId === 'all' ? null : activeBranchId}
-                              saving={saving === ch.id}
-                              onSave={(subject, body) => saveDirect(ch.id, ch, subject, body)}
+                              saving={saving === effCh.id}
+                              onSave={(subject, body) => saveDirect(effCh.id, effCh, subject, body)}
                               onCancel={() => setEditingId(null)}
                             />
                           </div>
                         )}
                       </div>
-                    ))}
+                      );
+                    })}
                     {msg.key === 'review_request' && (
                       <p style={{ fontSize: 11.5, color: '#6B7280', margin: '2px 0 0', lineHeight: 1.5 }}>
                         The survey <strong>text message</strong> (and the send delay) are configured in <strong>Company Settings → Customer Survey</strong> — both channels carry the same tokenized survey link.

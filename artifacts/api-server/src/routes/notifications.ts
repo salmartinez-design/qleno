@@ -11,6 +11,20 @@ import {
 } from "../lib/customer-messages.js";
 import { sendTestNotification, assertUnderRateLimit, TestSendError } from "../services/testSendService.js";
 
+// [per-package-confirmation] Residential packages that a booking-confirmation
+// message can be tailored to. `slug` is a jobs.service_type enum value; the send
+// path matches on it. ("Hourly" isn't a service_type — it's a billing style — so
+// it isn't here.) Offered as the "add a package" choices in the editor.
+const BOOKING_PACKAGES: Array<{ slug: string; label: string }> = [
+  { slug: "deep_clean", label: "Deep Clean" },
+  { slug: "standard_clean", label: "Standard Clean" },
+  { slug: "move_out", label: "Move In / Move Out" },
+  { slug: "move_in", label: "Move In" },
+  { slug: "recurring", label: "Recurring" },
+  { slug: "post_construction", label: "Post Construction" },
+  { slug: "carpet_cleaning", label: "Carpet Cleaning" },
+];
+
 // Friendly "when does it send" string for an offset (cron-driven) message.
 function formatOffsetTiming(anchor: string, days: number | null, hour: number | null): string {
   const h = hour == null ? 9 : hour;
@@ -106,7 +120,18 @@ router.get("/customer-messages", requireAuth, requireRole("owner", "admin"), asy
                        FROM customer_message_schedules WHERE company_id = ${companyId} ORDER BY sort_order, id`),
       db.select().from(notificationTemplatesTable).where(eq(notificationTemplatesTable.company_id, companyId)),
     ]);
-    const tplByKey = new Map((tplRows as any[]).map((r) => [`${r.trigger}:${r.channel}`, r]));
+    // [per-package-confirmation] A template row is either the DEFAULT (service_type
+    // NULL) or a per-service-type variant. Key the default by trigger:channel;
+    // collect variants separately so the editor can list them. Without this split,
+    // the variants would collide with the default in the Map and one would randomly
+    // win as "the" message.
+    const tplByKey = new Map<string, any>();
+    const variantsByKey = new Map<string, any[]>();
+    for (const r of tplRows as any[]) {
+      const k = `${r.trigger}:${r.channel}`;
+      if (r.service_type == null) { if (!tplByKey.has(k)) tplByKey.set(k, r); }
+      else { const arr = variantsByKey.get(k) ?? []; arr.push(r); variantsByKey.set(k, arr); }
+    }
     const catalogByKey = new Map(CUSTOMER_MESSAGE_CATALOG.map((d) => [d.trigger, d]));
 
     const messages = (schedRes.rows as any[]).map((s) => {
@@ -134,11 +159,20 @@ router.get("/customer-messages", requireAuth, requireRole("owner", "admin"), asy
             subject: row?.subject ?? defCh?.subject ?? null,
             body: body ?? defCh?.body ?? "",
             is_active: row?.is_active ?? true,
+            // [per-package-confirmation] Per-service-type overrides for this
+            // channel. Only the booking-confirmation SMS uses these today, but
+            // the shape is generic. Each is editable/removable independently.
+            variants: (variantsByKey.get(`${s.key}:${channel}`) ?? []).map((v) => ({
+              id: v.id,
+              service_type: v.service_type,
+              body: (channel === "email" ? (v.body_html || v.body) : (v.body_text || v.body)) ?? "",
+              is_active: v.is_active ?? true,
+            })),
           };
         }),
       };
     });
-    return res.json({ data: messages, merge_tags: MERGE_TAGS });
+    return res.json({ data: messages, merge_tags: MERGE_TAGS, packages: BOOKING_PACKAGES });
   } catch (err) {
     console.error("Customer messages fetch error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -258,6 +292,78 @@ router.patch("/templates/:id", requireAuth, requireRole("owner", "admin"), async
     return res.json(updated);
   } catch (err) {
     console.error("Update template error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [per-package-confirmation] Create a per-service-type variant of an existing
+// message channel (e.g. the Deep Clean booking-confirmation SMS). Seeds its body
+// from the default's current copy when none is supplied, so a new package starts
+// editable, not blank. Idempotent: returns the existing variant if one is there.
+router.post("/templates", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const { trigger, channel, service_type, body } = req.body ?? {};
+    if (!trigger || (channel !== "email" && channel !== "sms") || !service_type) {
+      return res.status(400).json({ error: "trigger, channel (email|sms) and service_type are required" });
+    }
+    const svc = String(service_type);
+    if (!BOOKING_PACKAGES.some((p) => p.slug === svc)) {
+      return res.status(400).json({ error: "Unknown package" });
+    }
+    // Already exists? return it (idempotent).
+    const existing = await db.execute(sql`
+      SELECT * FROM notification_templates
+       WHERE company_id = ${companyId} AND trigger = ${trigger}
+         AND channel = ${channel}::notification_channel AND service_type = ${svc} LIMIT 1`);
+    if (existing.rows.length) {
+      const r: any = existing.rows[0];
+      return res.json({ id: r.id, service_type: r.service_type, body: (channel === "email" ? r.body_html : r.body_text) || r.body || "", is_active: r.is_active });
+    }
+    // Seed body from the caller, else the default row's current copy, else "".
+    let seedBody = body != null ? String(body) : "";
+    if (!seedBody) {
+      const def = await db.execute(sql`
+        SELECT body, body_text, body_html FROM notification_templates
+         WHERE company_id = ${companyId} AND trigger = ${trigger}
+           AND channel = ${channel}::notification_channel AND service_type IS NULL LIMIT 1`);
+      const d: any = def.rows[0];
+      if (d) seedBody = (channel === "email" ? d.body_html : d.body_text) || d.body || "";
+    }
+    const bodyHtml = channel === "email" ? seedBody : null;
+    const bodyText = channel === "sms" ? seedBody : null;
+    const inserted = await db.execute(sql`
+      INSERT INTO notification_templates
+        (company_id, trigger, channel, service_type, subject, body, body_html, body_text, is_active, created_at)
+      VALUES
+        (${companyId}, ${trigger}, ${channel}::notification_channel, ${svc}, NULL, ${seedBody}, ${bodyHtml}, ${bodyText}, true, NOW())
+      RETURNING id, service_type, is_active`);
+    const r: any = inserted.rows[0];
+    return res.json({ id: r.id, service_type: r.service_type, body: seedBody, is_active: r.is_active });
+  } catch (err) {
+    console.error("Create template variant error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [per-package-confirmation] Delete a per-service-type variant (reverts that
+// package to the default). The default (service_type NULL) can never be deleted
+// here — only paused via PATCH is_active.
+router.delete("/templates/:id", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const id = parseInt(req.params.id);
+    const [row] = await db.select().from(notificationTemplatesTable)
+      .where(and(eq(notificationTemplatesTable.id, id), eq(notificationTemplatesTable.company_id, companyId)));
+    if (!row) return res.status(404).json({ error: "Template not found" });
+    if ((row as any).service_type == null) {
+      return res.status(400).json({ error: "The default message can't be deleted — pause it instead." });
+    }
+    await db.delete(notificationTemplatesTable)
+      .where(and(eq(notificationTemplatesTable.id, id), eq(notificationTemplatesTable.company_id, companyId)));
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Delete template variant error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
