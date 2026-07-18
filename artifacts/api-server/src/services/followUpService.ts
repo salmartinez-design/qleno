@@ -1374,7 +1374,7 @@ export async function sendSingleEnrollmentTouch(
   companyId: number, enrollmentId: number, stepOverride?: number,
 ): Promise<{ sent: boolean; channel?: string; recipient?: string | null; step?: number; reason?: string; advanced_to_step?: number | null; completed?: boolean; provider_id?: string | null; error?: string }> {
   const enrRows = await db.execute(sql`
-    SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id, fe.estimate_id, fe.current_step,
+    SELECT fe.id, fe.company_id, fe.sequence_id, fe.quote_id, fe.client_id, fe.lead_id, fe.estimate_id, fe.abandoned_booking_id, fe.current_step,
            fs.name AS sequence_name
     FROM follow_up_enrollments fe
     JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
@@ -1418,6 +1418,32 @@ export async function sendSingleEnrollmentTouch(
   const mergeVars: Record<string, string> = { first_name: firstName, company_name: ci.name, company_phone: ci.phone, company_email: ci.email };
   if (enr.quote_id) Object.assign(mergeVars, await buildQuoteMergeVars(companyId, enr.quote_id));
   if (enr.estimate_id) Object.assign(mergeVars, await buildEstimateMergeVars(companyId, enr.estimate_id, enr.id));
+  // [resume-link 2026-07-18] Set {{book_link}} + {{resume_link}} here too — this
+  // manual "Send now" path previously set neither, so an abandoned-cart touch went
+  // out with an EMPTY link. Mirror processEnrollment; KEEP THE TWO IN SYNC.
+  {
+    const bookLink = await resolveBookLink(companyId, {
+      clientId: enr.client_id ?? null, quoteId: enr.quote_id ?? null,
+      email: recipientEmail, phone: recipientPhone,
+    });
+    mergeVars.book_link = bookLink;
+    if (enr.abandoned_booking_id) {
+      let resumeLink = bookLink;
+      if (!bookLink.includes("/book-quote/")) {
+        try {
+          const rt = await db.execute(sql`
+            UPDATE abandoned_bookings
+               SET resume_token = COALESCE(resume_token, md5(random()::text || clock_timestamp()::text || id::text))
+             WHERE id = ${enr.abandoned_booking_id}
+            RETURNING resume_token`);
+          const token = (rt.rows[0] as any)?.resume_token;
+          if (token) resumeLink = bookLink + (bookLink.includes("?") ? "&" : "?") + "resume=" + token;
+        } catch { /* fall back to the plain book link */ }
+      }
+      mergeVars.resume_link = resumeLink;
+      mergeVars.office_phone = mergeVars.company_phone;
+    }
+  }
   let body = resolveMergeFields(rawBody, mergeVars);
   // [quote-email-live] Same bespoke-quote-email swap as processEnrollment — a
   // scoped one-off re-send of the quote-delivery touch must look identical to
