@@ -134,7 +134,7 @@ export async function gatherConfirmationData(jobId: number, companyId: number): 
     }
   } catch { /* non-fatal */ }
 
-  const FALLBACK_PHONE = "(847) 538-3729", FALLBACK_EMAIL = "schaumburg@phes.io";
+  const FALLBACK_PHONE = "(773) 706-6000", FALLBACK_EMAIL = "info@phes.io";
   return {
     jobId: j.id,
     companyName: j.company_name || "Phes",

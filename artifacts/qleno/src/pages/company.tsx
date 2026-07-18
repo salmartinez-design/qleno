@@ -1760,7 +1760,7 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
 // so the office sees what the customer actually gets (no {{tags}} on screen).
 const CM_SAMPLE: Record<string, string> = {
   first_name: "Maria", client_name: "Maria Gomez", company_name: "Phes",
-  company_phone: "(708) 974-5517", company_email: "info@phes.io",
+  company_phone: "(773) 706-6000", company_email: "info@phes.io",
   service_type: "Standard Cleaning", date: "Friday, June 27, 2026", time: "9:00 AM",
   // The deployed templates use the appointment_* tag names (matching what the
   // send paths now supply via buildAppointmentVars). Keep these in the preview

@@ -113,7 +113,7 @@ function sampleOfficeBookingParams(): any {
     firstName: "Maria",
     lastName: "Sample",
     email: "maria.sample@example.com",
-    phone: "(708) 974-5517",
+    phone: "(773) 706-6000",
     serviceType: "Standard Cleaning",
     scheduledDate: "Friday, June 27, 2026",
     arrivalWindow: "9:00 AM to 12:00 PM",
@@ -220,7 +220,7 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
   const c: any = cRows.rows[0] ?? {};
   const fullVars: Record<string, string> = {
     company_name: c.name || "Phes",
-    company_phone: c.phone || "(708) 974-5517",
+    company_phone: c.phone || "(773) 706-6000",
     company_email: c.email || "info@phes.io",
     ...SAMPLE_CUSTOMER_VARS,
   };
@@ -352,7 +352,7 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
         ? renderPhesBookingConfirmation({
             logoUrl: emailLogoUrl(c.logo_url),
             companyName: c.name || "Phes",
-            companyPhone: c.phone || "(708) 974-5517",
+            companyPhone: c.phone || "(773) 706-6000",
             companyPhoneTel: c.phone ? String(c.phone).replace(/[^\d+]/g, "") : "+17089745517",
             companyEmail: c.email || "info@phes.io",
             website: "phes.io",
