@@ -130,7 +130,7 @@ export async function sendJobScheduledConfirmation(
     const channels = opts?.channels ?? ["email", "sms"];
     if (!channels.length) return;
     const rows = await db.execute(sql`
-      SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.scheduled_time, j.service_type,
+      SELECT j.id, j.company_id, j.client_id, j.scheduled_date, j.scheduled_time, j.arrival_window, j.service_type,
              j.allowed_hours, j.estimated_hours,
              j.address_street, j.address_city, j.address_state, j.address_zip,
              c.first_name, c.last_name, c.email AS client_email, c.phone AS client_phone,
@@ -165,12 +165,20 @@ export async function sendJobScheduledConfirmation(
     // just the start time. Single source: companies.arrival_window_minutes (45).
     const { computeArrivalWindow } = await import("../services/notificationService.js");
     const arrivalWinMins = Number(j.arrival_window_minutes) || 45;
-    const arrivalWindowLabel = computeArrivalWindow(j.scheduled_time, null, arrivalWinMins);
+    // Widget bookings store the requested start time in jobs.arrival_window
+    // ("9:00 AM"), NOT scheduled_time — so fall back to it, else the time tags
+    // render "your scheduled window" even though the customer picked a time.
+    const effectiveTime = j.scheduled_time || j.arrival_window || null;
+    const arrivalWindowLabel = computeArrivalWindow(effectiveTime, null, arrivalWinMins);
 
     const mv: Record<string, string> = {
       first_name: (j.first_name || "").trim(),
       appointment_date: j.scheduled_date ? fmtApptDate(j.scheduled_date) : "your scheduled date",
-      appointment_time: j.scheduled_time || "your scheduled window",
+      appointment_time: effectiveTime || "your scheduled window",
+      // Public cleaning checklist — linked from the booking SMS ({{checklist_link}})
+      // and available to any template. Tenant-configurable later (matches the
+      // hardcoded checklistUrl used by the confirmation email renderer below).
+      checklist_link: "https://phes.io/cleaning-checklist",
       service_type: labelService(j.service_type),
       service_address: serviceAddress,
       // Short-form aliases so a template authored with {{service}} / {{address}}
@@ -181,7 +189,7 @@ export async function sendJobScheduledConfirmation(
       // [appointment-vars] Add the short-name aliases ({{date}} / {{time}}) and
       // {{appointment_window}}, and normalize the time to "9:00 AM". Present
       // values override the raw fields above; missing ones keep the fallback.
-      ...buildAppointmentVars({ scheduledDate: j.scheduled_date, scheduledTime: j.scheduled_time, arrivalWindow: arrivalWindowLabel }),
+      ...buildAppointmentVars({ scheduledDate: j.scheduled_date, scheduledTime: effectiveTime, arrivalWindow: arrivalWindowLabel }),
     };
 
     // [services-breakdown] Populate {{services_breakdown}} from the job's locked
