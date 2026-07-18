@@ -208,7 +208,7 @@ export async function sendJobScheduledConfirmation(
     // fallback otherwise. The renderer reuses the merged template body's policy
     // copy verbatim (extractPolicyCopy) and reskins everything else.
     const origin = appBaseUrl();
-    const FALLBACK_PHONE = "(847) 538-3729", FALLBACK_PHONE_TEL = "+18475383729", FALLBACK_EMAIL = "schaumburg@phes.io";
+    const FALLBACK_PHONE = "(773) 706-6000", FALLBACK_PHONE_TEL = "+17737066000", FALLBACK_EMAIL = "info@phes.io";
     const cPhone = j.company_phone || FALLBACK_PHONE;
     const cPhoneTel = j.company_phone ? String(j.company_phone).replace(/[^\d+]/g, "") : FALLBACK_PHONE_TEL;
     const cEmail = j.company_email || FALLBACK_EMAIL;

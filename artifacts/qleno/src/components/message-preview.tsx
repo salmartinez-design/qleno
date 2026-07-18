@@ -7,7 +7,7 @@
 // Sample customer used across every preview so the office sees realistic output.
 export const PREVIEW_SAMPLE: Record<string, string> = {
   first_name: "Maria", client_name: "Maria Gomez", company_name: "Phes",
-  company_phone: "(708) 974-5517", phone: "(708) 974-5517", company_email: "info@phes.io",
+  company_phone: "(773) 706-6000", phone: "(773) 706-6000", company_email: "info@phes.io",
   service_type: "Standard Cleaning", scope: "Standard Cleaning",
   date: "Friday, June 27, 2026", appointment_date: "Friday, June 27, 2026",
   time: "9:00 AM", appointment_time: "9:00 AM",

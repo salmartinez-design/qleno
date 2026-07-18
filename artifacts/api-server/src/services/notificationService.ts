@@ -192,7 +192,7 @@ export async function sendNotification(
 
     const fullVars: Record<string, string> = {
       company_name:  company?.name  || "Phes",
-      company_phone: company?.phone || "(708) 974-5517",
+      company_phone: company?.phone || "(773) 706-6000",
       company_email: company?.email || "info@phes.io",
       ...mergeVars,
     };
