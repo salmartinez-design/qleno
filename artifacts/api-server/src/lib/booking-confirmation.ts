@@ -266,6 +266,9 @@ export async function sendJobScheduledConfirmation(
       hasCardOnFile: !!j.stripe_payment_method_id,
       // TODO: make the checklist URL tenant-configurable (Company Settings).
       checklistUrl: "https://phes.io/cleaning-checklist",
+      // Deep Clean / Move In-Out are flat-rate estimates that can run over on a
+      // rougher-than-described home — surface the $70/hr overage terms up front.
+      showOverageNote: /deep_clean|move_out|move_in/i.test(String(j.service_type || "")),
     });
     const renderEmail = isPhes ? renderPhes : renderStandard;
 

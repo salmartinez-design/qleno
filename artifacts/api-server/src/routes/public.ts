@@ -1235,7 +1235,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
         ) VALUES (
           ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
           ${preferred_date || new Date().toISOString().split("T")[0]}, ${normalizedFreq},
-          ${adjustedTotal}, ${pricing.base_hours}, ${pricing.hourly_rate},
+          ${adjustedTotal}, ${pricing.total_hours ?? pricing.base_hours}, ${pricing.hourly_rate},
           ${condRating}, ${condMult},
           ${bundleId}, ${bundleDiscount},
           ${lastCleanedResp}, ${lastCleanedFl},
@@ -1416,10 +1416,21 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       // Dedup: if this customer already got an online quote (needs_contacted
       // lead from abandon-track), UPGRADE that same lead to booked rather than
       // create a second one. Else insert a fresh booked lead.
-      await upsertWidgetLead(company_id, {
+      const bookedLeadId = await upsertWidgetLead(company_id, {
         email, phone, first_name, last_name, address: address || null, zip: zip || null,
         scope: scopeName, source: "booking_widget", status: "booked", jobId, booked: true,
       });
+      // Log the booking as a lead activity so the pipeline's Activity tab shows
+      // it (the lead status flips to "booked", but that alone left the timeline
+      // empty — "no activity yet" on a freshly-booked lead).
+      if (bookedLeadId) {
+        await db.execute(drizzleSql`
+          INSERT INTO lead_activity_log (lead_id, company_id, action_type, note, performed_by, created_at)
+          VALUES (${bookedLeadId}, ${company_id}, 'booked',
+                  ${`Booked ${scopeName} for ${preferred_date || "an upcoming date"} via website — $${adjustedTotal.toFixed(2)}`},
+                  NULL, NOW())
+        `).catch((e) => console.error("[confirm] lead activity log failed (non-fatal):", e));
+      }
       // Booking finished — stop any abandoned-booking drip first (FK is
       // ON DELETE SET NULL, so the delete below only nulls an already-stopped
       // enrollment), then remove the abandoned booking for this email.
