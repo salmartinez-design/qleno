@@ -1068,6 +1068,14 @@ export default function BookPage() {
       const stripe = w.Stripe(stripePubKey);
       const elements = stripe.elements(); // clientSecret passed to confirmCardSetup, not here
       cardEl = elements.create("card", {
+        // [link-fix 2026-07-18] Disable Stripe Link on this legacy Card Element.
+        // With Link on, a returning customer's card autofills into Link (shown as
+        // "link VISA ••6613") but NOT into the element's number field — so
+        // confirmCardSetup({ card: cardElement }) throws "incomplete_number" and
+        // the booking fails for every Link-recognized email. Disabling Link forces
+        // the card into the element so confirmCardSetup can read it. (Proper fix
+        // for keeping Link = migrate to the Payment Element + confirmSetup.)
+        disableLink: true,
         style: {
           base: {
             fontFamily: "'Plus Jakarta Sans', Arial, sans-serif",
