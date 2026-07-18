@@ -4264,14 +4264,14 @@ router.get("/:id/photos", requireAuth, async (req, res) => {
   }
 });
 
-// [photo-window 2026-07-18] Before/after photos may be added up to 48 hours
+// [photo-window 2026-07-18] Before/after photos may be added up to 24 hours
 // after a job is marked complete (techs are too busy in the field to always do
 // it on the spot). Enforced on upload against jobs.actual_end_time.
-const PHOTO_UPLOAD_WINDOW_MS = 48 * 60 * 60 * 1000;
+const PHOTO_UPLOAD_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 // "Now" in the Central wall-clock frame (a Date whose UTC components equal the
 // America/Chicago wall digits), matching how completion timestamps are stored by
-// the clock/complete flows. Comparing completion time against this keeps the 48h
+// the clock/complete flows. Comparing completion time against this keeps the 24h
 // boundary timezone-proof regardless of the server's own zone.
 function nowCentralWall(): Date {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -4308,18 +4308,18 @@ router.post("/:id/photos", requireAuth, photoUpload.single("photo"), async (req,
     }
     // [photo-window 2026-07-18] Techs are often too busy in the field to add
     // before/after photos on the spot, so uploads stay open AFTER the job is
-    // marked complete — but only up to 48 hours, so photos stay tied to the
+    // marked complete — but only up to 24 hours, so photos stay tied to the
     // actual visit. Before completion there's no gate (the tech is still on the
     // job). actual_end_time is stored in the Central wall-clock frame (see
     // timeclock.ts), so "now" is compared in that same frame to avoid a
-    // timezone skew on the 48h boundary.
+    // timezone skew on the 24h boundary.
     if (target.status === "complete" && target.actual_end_time) {
       const doneMs = new Date(target.actual_end_time).getTime();
       const ageMs = nowCentralWall().getTime() - doneMs;
       if (Number.isFinite(doneMs) && ageMs > PHOTO_UPLOAD_WINDOW_MS) {
         return res.status(409).json({
           error: "PHOTO_WINDOW_CLOSED",
-          message: "Photos can be added up to 48 hours after a job is completed. This job was completed more than 48 hours ago — ask the office to reopen it if you still need to add photos.",
+          message: "Photos can be added up to 24 hours after a job is completed. This job was completed more than 24 hours ago — ask the office to reopen it if you still need to add photos.",
         });
       }
     }
