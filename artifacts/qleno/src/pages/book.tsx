@@ -1410,6 +1410,20 @@ export default function BookPage() {
   );
   const conditionMultiplier = 1.0;
 
+  // Human-facing package name for the quote breakdown. Derived from
+  // displayScopeKey (not calcResult.scope_name) so the label is correct even
+  // when packages share a DB scope (Deep Clean vs Move In/Out) — otherwise a
+  // Move In/Out or Standard booking would render "Deep Clean" in its quote,
+  // and the recurring-upsell first-visit line hardcoded "Deep Clean" for all
+  // three eligible packages. Falls back to the raw scope name for others
+  // (hourly, recurring, commercial).
+  const packageDisplayName =
+    displayScopeKey === "deep_clean" ? "Deep Clean"
+    : displayScopeKey === "move_in_out" ? "Move In / Move Out"
+    : displayScopeKey === "one_time_standard" ? "One-Time Standard Clean"
+    : displayScopeKey === "post_construction" ? "Post-Construction Cleaning"
+    : (calcResult?.scope_name ?? selectedScope?.name ?? "");
+
   // ── Add-on visibility: dynamically driven by show_online flag from API ──
   const visibleAddons = addons.filter(a => {
     const nl = a.name.toLowerCase();
@@ -1590,7 +1604,7 @@ export default function BookPage() {
       <div style={{ display: "flex", alignItems: "flex-start", gap: 8, width: "100%" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 13, color: "#6B6860", display: "block", lineHeight: 1.4 }}>
-            {upsellAccepted ? "Deep Clean (First Visit)" : calcResult.scope_name}
+            {upsellAccepted ? `${packageDisplayName} (First Visit)` : packageDisplayName}
             {sqft > 0 && <span style={{ color: "#9E9B94" }}>{" · "}{sqft.toLocaleString()} sqft</span>}
           </span>
         </div>
@@ -1660,7 +1674,7 @@ export default function BookPage() {
       >
         <div>
           <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#1A1917" }}>
-            {upsellAccepted ? "Deep Clean + Recurring" : calcResult.scope_name}
+            {upsellAccepted ? `${packageDisplayName} + Recurring` : packageDisplayName}
           </p>
           {sqft > 0 && <p style={{ margin: 0, fontSize: 11, color: "#6B6860" }}>{sqft.toLocaleString()} sqft</p>}
         </div>
@@ -3638,7 +3652,7 @@ export default function BookPage() {
                       discount, so it didn't reflect the -$20 and didn't reconcile. */}
                   {calcResult && (
                     <>
-                      <Row label={upsellAccepted ? "Deep Clean (First Visit)" : calcResult.scope_name} value={`$${calcResult.base_price.toFixed(2)}`} />
+                      <Row label={upsellAccepted ? `${packageDisplayName} (First Visit)` : packageDisplayName} value={`$${calcResult.base_price.toFixed(2)}`} />
                       {(calcResult.addon_breakdown ?? []).filter(a => a.amount !== 0).map(a => (
                         <Row key={a.id} label={a.name.split(" — ")[0].split(" (")[0].trim()} value={`+$${Math.abs(a.amount).toFixed(2)}`} />
                       ))}
@@ -3649,7 +3663,7 @@ export default function BookPage() {
                     </>
                   )}
                   {bookResult.pricing?.discount_amount > 0 && (
-                    <Row label="Discount applied" value={`-$${bookResult.pricing.discount_amount.toFixed(2)}`} green />
+                    <Row label="Discount code applied" value={`-$${bookResult.pricing.discount_amount.toFixed(2)}`} green />
                   )}
                   {bookResult.pricing?.final_total !== undefined && <Row label="First Visit Total" value={`$${bookResult.pricing.final_total.toFixed(2)}`} bold />}
                 </div>
