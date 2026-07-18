@@ -98,6 +98,13 @@ async function runBookingSchemaGuard(): Promise<void> {
     // to a specific quote for the quote-detail Email Status card.
     { label: "communication_log.quote_id", stmt: "ALTER TABLE communication_log ADD COLUMN IF NOT EXISTS quote_id INTEGER" },
     { label: "communication_log.quote_id idx", stmt: "CREATE INDEX IF NOT EXISTS idx_comm_log_quote ON communication_log (quote_id) WHERE quote_id IS NOT NULL" },
+    // [resume-link 2026-07-18] Unguessable token so the abandoned-cart recovery
+    // SMS/email {{resume_link}} can drop a pre-price abandoner back into the
+    // booking widget with their captured contact + home details pre-filled
+    // (instead of a blank form). Backfill existing rows so their links resume too.
+    { label: "abandoned_bookings.resume_token", stmt: "ALTER TABLE abandoned_bookings ADD COLUMN IF NOT EXISTS resume_token TEXT" },
+    { label: "abandoned_bookings.resume_token idx", stmt: "CREATE UNIQUE INDEX IF NOT EXISTS idx_abandoned_resume_token ON abandoned_bookings (resume_token) WHERE resume_token IS NOT NULL" },
+    { label: "abandoned_bookings.resume_token backfill", stmt: "UPDATE abandoned_bookings SET resume_token = md5(random()::text || clock_timestamp()::text || id::text) WHERE resume_token IS NULL" },
     // [per-package-confirmation 2026-07-17] Per-service-type variant of a
     // notification template (booking-confirmation SMS to start). NULL = the
     // default used for every job; a slug (jobs.service_type) is a package

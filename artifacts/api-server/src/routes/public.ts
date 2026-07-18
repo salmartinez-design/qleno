@@ -2050,6 +2050,36 @@ async function sendQuoteLeadAlert(companyId: number, kind: "new" | "quoted", lea
   });
 }
 
+// ── GET /api/public/resume/:token ────────────────────────────────────────────
+// [resume-link 2026-07-18] Powers the abandoned-cart recovery {{resume_link}}:
+// returns the captured contact + home details for a resume token so the booking
+// widget can pre-fill and drop the visitor back where they left off. Read-only,
+// token-gated (unguessable md5) — exposes only what the visitor themselves typed.
+router.get("/resume/:token", rateLimit, async (req, res) => {
+  try {
+    const token = String(req.params.token || "").trim();
+    if (!token) return res.status(400).json({ error: "token required" });
+    const { sql: drizzleSql } = await import("drizzle-orm");
+    const r = await db.execute(drizzleSql`
+      SELECT company_id, first_name, last_name, email, phone, address, zip, scope, details
+        FROM abandoned_bookings WHERE resume_token = ${token} LIMIT 1`);
+    const row = r.rows[0] as any;
+    if (!row) return res.status(404).json({ error: "not found" });
+    const d = (row.details && typeof row.details === "object") ? row.details : {};
+    return res.json({
+      company_id: row.company_id,
+      first_name: row.first_name ?? null, last_name: row.last_name ?? null,
+      email: row.email ?? null, phone: row.phone ?? null,
+      address: row.address ?? null, zip: row.zip ?? null,
+      scope: row.scope ?? null,
+      bedrooms: d.bedrooms ?? null, bathrooms: d.bathrooms ?? null, sqft: d.sqft ?? null,
+    });
+  } catch (err) {
+    console.error("GET /public/resume:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── POST /api/public/book/abandon-track ──────────────────────────────────────
 // Called from the booking widget when a user completes Step 1 but hasn't paid yet.
 // Upserts an abandoned_bookings record so office can follow up if they leave.
@@ -2146,6 +2176,7 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
             scope      = COALESCE(${scope || null}, scope),
             step_abandoned = ${step_abandoned},
             details    = COALESCE(details, '{}'::jsonb) || COALESCE(${detailsOrNull ? JSON.stringify(detailsOrNull) : null}::jsonb, '{}'::jsonb),
+            resume_token = COALESCE(resume_token, md5(random()::text || clock_timestamp()::text)),
             updated_at = NOW()
           WHERE company_id = ${company_id} AND email = ${email}
         `);
@@ -2168,13 +2199,15 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
       }
     }
     const inserted = await db.execute(drizzleSql`
-      INSERT INTO abandoned_bookings (company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned, details, created_at, updated_at)
+      INSERT INTO abandoned_bookings (company_id, first_name, last_name, email, phone, address, zip, scope, step_abandoned, details, resume_token, created_at, updated_at)
       VALUES (${company_id}, ${first_name || null}, ${last_name || null}, ${email || null}, ${phone || null},
               ${address || null}, ${zip || null}, ${scope || null}, ${step_abandoned},
-              COALESCE(${detailsOrNull ? JSON.stringify(detailsOrNull) : null}::jsonb, '{}'::jsonb), NOW(), NOW())
-      RETURNING id
+              COALESCE(${detailsOrNull ? JSON.stringify(detailsOrNull) : null}::jsonb, '{}'::jsonb),
+              md5(random()::text || clock_timestamp()::text || ${company_id}::text), NOW(), NOW())
+      RETURNING id, resume_token
     `);
     const newAbId = (inserted.rows[0] as any)?.id;
+    const newResumeToken = (inserted.rows[0] as any)?.resume_token ?? null;
     // Lead already created above (widget-lead-first) as `leadId`.
     // [cart-drip-visible 2026-07-09] Enroll with that lead id so the cart drip
     // links to the lead and shows on the lead card + Drip tab.
@@ -2201,7 +2234,7 @@ router.post("/book/abandon-track", rateLimit, async (req, res) => {
       console.error("[abandon-track] Office notification error:", notifyErr);
     }
 
-    return res.json({ ok: true, action: "created" });
+    return res.json({ ok: true, action: "created", resume_token: newResumeToken });
   } catch (err: any) {
     console.error("POST /public/book/abandon-track:", err);
     return res.status(500).json({ error: "Internal Server Error" });
