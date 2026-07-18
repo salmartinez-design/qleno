@@ -1917,7 +1917,7 @@ function BreakdownPanel() {
   );
 
   return (
-    <div style={{ borderTop: "1px solid #E8E5E0", background: "#F7F6F3", flexShrink: 0 }}>
+    <div style={{ borderBottom: "1px solid #E8E5E0", background: "#F7F6F3", flexShrink: 0 }}>
       <button onClick={toggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
         <span style={{ fontSize: 10, fontWeight: 800, color: "#0F6E56", background: "#ECFDF5", border: "0.5px solid #A7F3D0", padding: "2px 9px", borderRadius: 6 }}>{open ? "▾ Hide breakdown" : "▸ Breakdown"}</span>
         {!open && <span style={{ fontSize: 10, color: "#B4B2A9" }}>source · booked by service · who booked</span>}
@@ -2163,6 +2163,7 @@ export default function LeadsPage() {
             </div>
           )}
 
+          {!isLostFilter && view === "board" && <BreakdownPanel />}
           {/* position: relative so the board-mode detail can float as an absolute
               drawer over the right edge WITHOUT resizing the columns. [board-reflow
               2026-07-17] Previously the 460px in-flow panel squeezed the 4-col grid,
@@ -2259,7 +2260,6 @@ export default function LeadsPage() {
             </div>
             )}
           </div>
-          {!isLostFilter && view === "board" && <BreakdownPanel />}
         </div>
       )}
 
