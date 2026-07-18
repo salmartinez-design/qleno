@@ -212,12 +212,19 @@ export async function sendJobScheduledConfirmation(
     const cPhone = j.company_phone || FALLBACK_PHONE;
     const cPhoneTel = j.company_phone ? String(j.company_phone).replace(/[^\d+]/g, "") : FALLBACK_PHONE_TEL;
     const cEmail = j.company_email || FALLBACK_EMAIL;
+    // company_logo is often a RELATIVE path ("/images/phes-logo.jpeg") — which
+    // renders as a broken image in email (a mail client has no base URL to
+    // resolve it against). Force an absolute URL so the logo loads everywhere.
+    const rawLogo = j.company_logo || "/phes-logo.jpeg";
+    const absLogo = /^https?:\/\//i.test(rawLogo)
+      ? rawLogo
+      : `${origin}${rawLogo.startsWith("/") ? "" : "/"}${rawLogo}`;
     // PHES gets a fully hand-crafted bespoke template (copy baked in); every
     // other tenant keeps the standard renderer. Future tenant-editable layouts
     // are a separate PR. Gated on company name (covers both Phes branches).
     const isPhes = /phes/i.test(j.company_name || "");
     const renderStandard = (mergedBody: string): string => renderConfirmationEmail({
-      logoUrl: j.company_logo || `${origin}/phes-logo.jpeg`,
+      logoUrl: absLogo,
       companyName: j.company_name || "Phes Schaumburg",
       clientFirst: (j.first_name || "").trim(),
       apptDate: j.scheduled_date ? fmtApptDate(j.scheduled_date) : "Your scheduled date",
@@ -240,7 +247,7 @@ export async function sendJobScheduledConfirmation(
       ? j.scheduled_date.toISOString().slice(0, 10)
       : String(j.scheduled_date || "").slice(0, 10);
     const renderPhes = (): string => renderPhesBookingConfirmation({
-      logoUrl: j.company_logo || `${origin}/phes-logo.jpeg`,
+      logoUrl: absLogo,
       companyName: j.company_name || "Phes",
       companyPhone: cPhone, companyPhoneTel: cPhoneTel, companyEmail: cEmail,
       website: "phes.io",
