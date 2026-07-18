@@ -44,6 +44,7 @@ export interface PhesConfOpts {
   paymentTotal: string;            // "$673.00" ("" hides the payment row)
   hasCardOnFile: boolean;          // true → "charged to your card"; false → "due at service"
   checklistUrl: string;            // TODO: make tenant-configurable (Company Settings)
+  showOverageNote?: boolean;       // Deep Clean / Move In-Out: prominent $70/hr overage callout
 }
 
 // ── Add-to-calendar links ────────────────────────────────────────────────────
@@ -201,6 +202,9 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
         <li>Confirm your entry method (be home, key/code, or lockbox).</li>
         <li>Clear surfaces; make sure running water, power, and lighting are on.</li>
       </ul>
+
+      ${o.showOverageNote ? callout("#FEF7ED", "#D97706", "#92400E", "!", "If your home needs extra time",
+        `Deep cleans and move in/out cleans are flat-rate estimates based on the condition you described. If the home needs more time than we expected, <strong>we'll contact you first</strong> before doing any extra work — additional time is billed at <strong>$70/hour per cleaner</strong>.`) : ""}
 
       ${callout(BLUE_BG, BLUE_FG, BLUE_INK, "&#10003;", "Our 24-hour guarantee",
         `If we miss a spot, tell us within 24 hours and we'll come back and re-clean it at no charge. No questions asked.`)}
