@@ -156,6 +156,11 @@ export async function sendJobScheduledConfirmation(
     // (and the email CTA). Falls back to the full URL if shortening fails.
     const fullLink = token ? buildAppointmentLink(req, token) : null;
     const link = await shortenUrl(fullLink, j.company_id);
+    // Hosted .ics URL for the confirmation email's Apple "add to calendar"
+    // button — derived from the same appointment link's host (never hardcode).
+    const icsUrl = token && fullLink
+      ? fullLink.replace(/\/appointment\/[^/]+$/, `/api/appointment/${token}/calendar.ics`)
+      : undefined;
 
     const stateZip = [j.address_state, j.address_zip].filter(Boolean).join(" ");
     const serviceAddress = [j.address_street, j.address_city, stateZip].filter(Boolean).join(", ");
@@ -269,6 +274,7 @@ export async function sendJobScheduledConfirmation(
       // Deep Clean / Move In-Out are flat-rate estimates that can run over on a
       // rougher-than-described home — surface the $70/hr overage terms up front.
       showOverageNote: /deep_clean|move_out|move_in/i.test(String(j.service_type || "")),
+      icsUrl,
     });
     const renderEmail = isPhes ? renderPhes : renderStandard;
 

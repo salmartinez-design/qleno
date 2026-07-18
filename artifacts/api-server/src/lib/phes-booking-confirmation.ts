@@ -45,6 +45,7 @@ export interface PhesConfOpts {
   hasCardOnFile: boolean;          // true → "charged to your card"; false → "due at service"
   checklistUrl: string;            // TODO: make tenant-configurable (Company Settings)
   showOverageNote?: boolean;       // Deep Clean / Move In-Out: prominent $70/hr overage callout
+  icsUrl?: string;                 // hosted .ics for the Apple button (email clients block data: URIs)
 }
 
 // ── Add-to-calendar links ────────────────────────────────────────────────────
@@ -81,7 +82,9 @@ function calendarLinks(o: PhesConfOpts): { google: string; apple: string; outloo
     `LOCATION:${loc.replace(/([,;])/g, "\\$1")}`, `DESCRIPTION:${details.replace(/([,;])/g, "\\$1")}`,
     "END:VEVENT", "END:VCALENDAR",
   ].join("\r\n");
-  const apple = `data:text/calendar;charset=utf-8,${enc(ics)}`;
+  // Apple: prefer a hosted .ics URL (email clients block data: URIs, so the
+  // inline fallback below is effectively dead in Gmail/Apple Mail).
+  const apple = o.icsUrl || `data:text/calendar;charset=utf-8,${enc(ics)}`;
   return { google, apple, outlook };
 }
 function calButton(label: string, href: string): string {
