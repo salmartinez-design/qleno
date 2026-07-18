@@ -1917,9 +1917,9 @@ export default function BookPage() {
                   <input style={s.input} value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@example.com" type="email" />
                 </FieldWrap>
               </div>
-              {/* "How did you hear about us?" moved OFF the critical path to the
-                  post-booking confirmation screen — it serves internal reporting,
-                  not the customer's booking, so it shouldn't add friction here. */}
+              {/* "How did you hear about us?" now lives at the bottom of this
+                  Contact step (optional, non-blocking) so the source is captured
+                  before booking + for abandoners. [hear-about-us 2026-07-18] */}
               <FieldWrap label="Service Address" error={errors.address}>
                 <div style={{ position: "relative" }}>
                   <input
@@ -1972,6 +1972,21 @@ export default function BookPage() {
                   placeholder="e.g. Apt 2B, Suite 100, gate code #1234, ring doorbell on left"
                   style={s.input}
                 />
+              </FieldWrap>
+
+              {/* [hear-about-us 2026-07-18] Captured up front (optional, never
+                  blocks Continue) so the source rides along on the booking AND on
+                  the abandoned-cart record — even for people who never finish.
+                  The post-booking prompt now only shows if left blank here. */}
+              <FieldWrap label="How did you hear about us?">
+                <select
+                  style={{ ...s.input, width: "100%" }}
+                  value={referral}
+                  onChange={e => setReferral(e.target.value)}
+                >
+                  <option value="">Select…</option>
+                  {referralSources.map(src => <option key={src.slug} value={src.slug}>{src.name}</option>)}
+                </select>
               </FieldWrap>
 
               <div style={{ marginBottom: 16 }}>
@@ -3551,8 +3566,10 @@ export default function BookPage() {
                 </div>
               </div>
 
-              {/* "How did you hear about us?" — moved here from Step 1 (internal
-                  reporting only). Persisted post-booking, fail-safe. */}
+              {/* [hear-about-us 2026-07-18] Now asked up front on the Contact step;
+                  this post-booking prompt is a fail-safe that only shows if it was
+                  left blank there, so nobody is asked twice. */}
+              {!referral && (
               <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginTop: 24 }}>
                 <FieldWrap label="How did you hear about us?">
                   <select
@@ -3568,6 +3585,7 @@ export default function BookPage() {
                   <p style={{ margin: "-4px 0 0", fontSize: 13, color: "#2D6A4F", fontWeight: 500 }}>Thanks — that helps us a lot.</p>
                 )}
               </div>
+              )}
             </div>
           )}
 
@@ -3628,8 +3646,9 @@ export default function BookPage() {
                 <strong>Cancellation:</strong> Please provide at least 48 hours notice to cancel or reschedule. Cancellations within 48 hours or no-shows are charged the full service fee. Reply STOP to SMS to opt out of reminders.
               </div>
 
-              {/* "How did you hear about us?" — moved here from Step 1 so it never
-                  adds friction on the critical path. Persisted post-booking, fail-safe. */}
+              {/* [hear-about-us 2026-07-18] Fail-safe only — asked up front on the
+                  Contact step; shows here just if it was left blank there. */}
+              {!referral && (
               <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 24, marginBottom: 24 }}>
                 <FieldWrap label="How did you hear about us?">
                   <select
@@ -3645,6 +3664,7 @@ export default function BookPage() {
                   <p style={{ margin: "-4px 0 0", fontSize: 13, color: "#2D6A4F", fontWeight: 500 }}>Thanks — that helps us a lot.</p>
                 )}
               </div>
+              )}
 
               {/* Referral section — Give $25, get $25 */}
               <ReferralCard
