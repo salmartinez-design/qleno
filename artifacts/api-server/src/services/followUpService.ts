@@ -1039,7 +1039,14 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
     // exist, bookLink is already the pre-filled /book-quote quick-book — leave it.
     if (!bookLink.includes("/book-quote/")) {
       try {
-        const rt = await db.execute(sql`SELECT resume_token FROM abandoned_bookings WHERE id = ${enr.abandoned_booking_id} LIMIT 1`);
+        // [resume-link-hardening 2026-07-18] Generate the token on the spot if this
+        // row doesn't have one yet (older rows the backfill missed) so EVERY recovery
+        // link resumes. COALESCE returns the existing token or the freshly-set one.
+        const rt = await db.execute(sql`
+          UPDATE abandoned_bookings
+             SET resume_token = COALESCE(resume_token, md5(random()::text || clock_timestamp()::text || id::text))
+           WHERE id = ${enr.abandoned_booking_id}
+          RETURNING resume_token`);
         const token = (rt.rows[0] as any)?.resume_token;
         if (token) resumeLink = bookLink + (bookLink.includes("?") ? "&" : "?") + "resume=" + token;
       } catch { /* fall back to the plain book link */ }
