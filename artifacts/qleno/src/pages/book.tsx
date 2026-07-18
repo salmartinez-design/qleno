@@ -3631,13 +3631,27 @@ export default function BookPage() {
                   {(bookResult.pricing?.base_hours ?? calcResult?.base_hours ?? 0) > 0 && (
                     <Row label="Estimated Time" value={`${(bookResult.pricing?.total_hours ?? bookResult.pricing?.base_hours ?? calcResult?.total_hours ?? calcResult?.base_hours ?? 0).toFixed(1)} hrs`} />
                   )}
-                  {bookResult.pricing?.final_total !== undefined && <Row label="First Visit Total" value={`$${bookResult.pricing.final_total.toFixed(2)}`} bold />}
-                  {(calcResult?.addon_breakdown ?? []).filter(a => a.amount > 0).map(a => (
-                    <Row key={a.id} label={a.name.split(" — ")[0].split(" (")[0].trim()} value={`+$${a.amount.toFixed(2)}`} />
-                  ))}
+                  {/* [confirm-breakdown 2026-07-18] Full itemized breakdown that
+                      mirrors the Price Summary: base → add-ons → bundle discount →
+                      code discount → total. Previously the confirmation showed the
+                      add-ons at FULL price with no base line and no bundle (combo)
+                      discount, so it didn't reflect the -$20 and didn't reconcile. */}
+                  {calcResult && (
+                    <>
+                      <Row label={upsellAccepted ? "Deep Clean (First Visit)" : calcResult.scope_name} value={`$${calcResult.base_price.toFixed(2)}`} />
+                      {(calcResult.addon_breakdown ?? []).filter(a => a.amount !== 0).map(a => (
+                        <Row key={a.id} label={a.name.split(" — ")[0].split(" (")[0].trim()} value={`+$${Math.abs(a.amount).toFixed(2)}`} />
+                      ))}
+                      {calcResult.bundle_discount > 0 && (calcResult.bundle_breakdown ?? []).map((b, i) => (
+                        <Row key={`b${i}`} label={`${b.name} Discount`} value={`-$${b.discount.toFixed(2)}`} green />
+                      ))}
+                      {(calcResult.pet_fee ?? 0) > 0 && <Row label="Pet Fee" value={`+$${(calcResult.pet_fee ?? 0).toFixed(2)}`} />}
+                    </>
+                  )}
                   {bookResult.pricing?.discount_amount > 0 && (
                     <Row label="Discount applied" value={`-$${bookResult.pricing.discount_amount.toFixed(2)}`} green />
                   )}
+                  {bookResult.pricing?.final_total !== undefined && <Row label="First Visit Total" value={`$${bookResult.pricing.final_total.toFixed(2)}`} bold />}
                 </div>
               </div>
 
