@@ -49,6 +49,18 @@ const OLD = {
 // is a billing style, not a service_type, so it has no variant here.
 export const PACKAGE_BOOKING_SMS: Record<string, string> = {
   deep_clean:
+    "Hi {{first_name}}! Your Deep Clean is booked for {{appointment_date}} at {{appointment_time}}. Prep checklist: {{checklist_link}}. We'll text you when we're on our way that day. Cancel within 48 hrs = full fee. Questions? {{company_phone}}. Reply STOP to opt out.",
+  move_out:
+    "Hi {{first_name}}! Your Move In/Out clean is booked for {{appointment_date}} at {{appointment_time}}. Prep checklist: {{checklist_link}}. We'll text you when we're on our way that day. Cancel within 48 hrs = full fee. Questions? {{company_phone}}. Reply STOP to opt out.",
+  standard_clean:
+    "Hi {{first_name}}! Your Standard Clean is booked for {{appointment_date}} at {{appointment_time}}. Prep checklist: {{checklist_link}}. We'll text you when we're on our way that day. Cancel within 48 hrs = full fee. Questions? {{company_phone}}. Reply STOP to opt out.",
+};
+
+// Prior per-package copy — the upgrade below rewrites tenant rows still holding
+// these exact strings to the current PACKAGE_BOOKING_SMS. Office edits (any other
+// body) are preserved.
+const OLD_PACKAGE_BOOKING_SMS: Record<string, string> = {
+  deep_clean:
     "Hi {{first_name}}! Your Deep Clean is booked for {{appointment_date}} at {{appointment_time}}. Please clear countertops and secure pets so we can reach every corner. Your full prep checklist is in your email. Questions? {{company_phone}}. Reply STOP to opt out.",
   move_out:
     "Hi {{first_name}}! Your Move In/Out clean is booked for {{appointment_date}} at {{appointment_time}}. The home should be empty (no furniture or boxes) with utilities on. Full checklist is in your email. Questions? {{company_phone}}. Reply STOP to opt out.",
@@ -112,6 +124,14 @@ export async function upgradeCustomerSmsCopy(): Promise<void> {
       FROM follow_up_sequences s
       WHERE st.sequence_id = s.id AND s.sequence_type = 'quote_followup'
         AND st.channel = 'sms' AND st.message_template = ${OLD.quoteLast}`);
+    // Per-package booking SMS: rewrite rows still holding the prior default to
+    // the current copy (adds the checklist link + on-the-way + 48-hr fee line).
+    for (const [slug, body] of Object.entries(PACKAGE_BOOKING_SMS)) {
+      await db.execute(sql`
+        UPDATE notification_templates SET body_text = ${body}
+        WHERE trigger = 'job_scheduled' AND channel = 'sms'
+          AND service_type = ${slug} AND body_text = ${OLD_PACKAGE_BOOKING_SMS[slug]}`);
+    }
     console.log("[sms-copy] customer SMS copy upgrade applied (idempotent)");
   } catch (err) {
     console.error("[sms-copy] upgrade error (non-fatal):", err);
