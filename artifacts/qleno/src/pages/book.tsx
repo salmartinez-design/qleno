@@ -756,6 +756,39 @@ export default function BookPage() {
       .catch(() => { setNotFound(true); setLoading(false); });
   }, [slug]);
 
+  // ── Resume an abandoned cart ──────────────────────────────────────────────
+  // [resume-link 2026-07-18] When the recovery SMS/email {{resume_link}} carries
+  // ?resume=<token>, pull the visitor's captured contact + home details and
+  // pre-fill the form, then drop them at the Scope + Home Details step (past
+  // contact) so "pick up right where you left off" is actually true. Runs once,
+  // after company loads (needs active_scopes to map the service name → scope id).
+  const resumeAppliedRef = useRef(false);
+  useEffect(() => {
+    if (resumeAppliedRef.current || !company?.id) return;
+    const token = new URLSearchParams(window.location.search).get("resume");
+    if (!token) return;
+    resumeAppliedRef.current = true;
+    pubFetch(`/api/public/resume/${encodeURIComponent(token)}`)
+      .then((d: any) => {
+        if (!d || d.error) return;
+        if (d.first_name) setFirstName(d.first_name);
+        if (d.last_name) setLastName(d.last_name);
+        if (d.email) setEmail(d.email);
+        if (d.phone) setPhone(d.phone);
+        if (d.zip) setZip(String(d.zip));
+        if (d.address) { setAddressField(d.address); setAddressVerified(true); }
+        if (d.sqft) setSqft(Number(d.sqft) || 0);
+        if (d.bedrooms) setBedrooms(Number(d.bedrooms) || 0);
+        if (d.bathrooms) setBathrooms(Number(d.bathrooms) || 0);
+        if (d.scope) {
+          const sc = company.active_scopes?.find(s => s.name?.toLowerCase() === String(d.scope).toLowerCase());
+          if (sc) setScopeId(sc.id);
+        }
+        setStep(1); // land on Scope + Home Details, pre-filled
+      })
+      .catch(() => {});
+  }, [company]);
+
   // ── Load frequencies + addons when scope changes ──────────────────────────
   useEffect(() => {
     if (!scopeId) return;

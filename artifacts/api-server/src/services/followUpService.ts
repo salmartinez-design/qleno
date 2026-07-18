@@ -1032,7 +1032,19 @@ async function processEnrollment(enr: any): Promise<TouchResult | null> {
   // Abandoned-booking enrollments' {{resume_link}} now points at the same target
   // (their quote when one exists), plus {{office_phone}} the steps reference.
   if (enr.abandoned_booking_id) {
-    mergeVars.resume_link = bookLink;
+    let resumeLink = bookLink;
+    // [resume-link 2026-07-18] No quote (pre-price abandon) → bookLink is a blank
+    // /book form. Attach the resume token so the widget pre-fills the captured
+    // contact + home details and drops them where they left off. If a quote DOES
+    // exist, bookLink is already the pre-filled /book-quote quick-book — leave it.
+    if (!bookLink.includes("/book-quote/")) {
+      try {
+        const rt = await db.execute(sql`SELECT resume_token FROM abandoned_bookings WHERE id = ${enr.abandoned_booking_id} LIMIT 1`);
+        const token = (rt.rows[0] as any)?.resume_token;
+        if (token) resumeLink = bookLink + (bookLink.includes("?") ? "&" : "?") + "resume=" + token;
+      } catch { /* fall back to the plain book link */ }
+    }
+    mergeVars.resume_link = resumeLink;
     mergeVars.office_phone = mergeVars.company_phone;
   }
   let body      = resolveMergeFields(rawBody, mergeVars);
