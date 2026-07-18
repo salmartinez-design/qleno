@@ -73,4 +73,54 @@ router.get("/:token", async (req, res) => {
   }
 });
 
+// [apple-calendar] Hosted .ics for the confirmation email's "Add to calendar"
+// Apple button. Email clients (Gmail, Apple Mail) block data: URIs, so Apple
+// needs a real https link that returns text/calendar — Google/Outlook use their
+// own web deeplinks. Same 2-hour default window as those links.
+router.get("/:token/calendar.ics", async (req, res) => {
+  try {
+    const token = String(req.params.token || "").trim();
+    if (!token) return res.status(404).send("Not Found");
+    const rows = await db.execute(sql`
+      SELECT j.scheduled_date, j.scheduled_time, j.arrival_window, j.service_type,
+             j.address_street, j.address_city, j.address_state, j.address_zip,
+             co.name AS company_name
+      FROM jobs j JOIN companies co ON co.id = j.company_id
+      WHERE j.customer_view_token = ${token} LIMIT 1`);
+    const j: any = rows.rows[0];
+    if (!j) return res.status(404).send("Not Found");
+
+    const iso = j.scheduled_date instanceof Date
+      ? j.scheduled_date.toISOString().slice(0, 10)
+      : String(j.scheduled_date || "").slice(0, 10);
+    const [y, mo, d] = iso.split("-").map(Number);
+    if (!y || !mo || !d) return res.status(404).send("Not Found");
+    const mm = /^(\d{1,2}):(\d{2})(?::\d{2})?\s*(AM|PM)?/i.exec(String(j.scheduled_time || j.arrival_window || "9:00 AM").trim());
+    let h = 9, min = 0;
+    if (mm) { h = parseInt(mm[1], 10); min = parseInt(mm[2], 10); const ap = mm[3]?.toUpperCase(); if (ap === "PM" && h < 12) h += 12; if (ap === "AM" && h === 12) h = 0; }
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const start = new Date(Date.UTC(y, mo - 1, d, h, min, 0));
+    const end = new Date(start.getTime() + 2 * 3600 * 1000);
+    const fmt = (dt: Date) => `${dt.getUTCFullYear()}${pad(dt.getUTCMonth() + 1)}${pad(dt.getUTCDate())}T${pad(dt.getUTCHours())}${pad(dt.getUTCMinutes())}00`;
+    const escIcs = (s: string) => String(s || "").replace(/([,;\\])/g, "\\$1").replace(/\n/g, "\\n");
+    const company = j.company_name || "Phes";
+    const stateZip = [j.address_state, j.address_zip].filter(Boolean).join(" ");
+    const loc = [j.address_street, j.address_city, stateZip].filter(Boolean).join(", ");
+    const ics = [
+      "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Phes//Booking//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+      "BEGIN:VEVENT", `UID:${token}@qleno`, `DTSTAMP:${fmt(start)}`, `DTSTART:${fmt(start)}`, `DTEND:${fmt(end)}`,
+      `SUMMARY:${escIcs(`${company} cleaning`)}`,
+      `LOCATION:${escIcs(loc)}`,
+      `DESCRIPTION:${escIcs(`Your ${labelService(j.service_type)} with ${company}.`)}`,
+      "END:VEVENT", "END:VCALENDAR",
+    ].join("\r\n");
+    res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+    res.setHeader("Content-Disposition", 'attachment; filename="appointment.ics"');
+    return res.send(ics);
+  } catch (err) {
+    console.error("Appointment .ics error:", err);
+    return res.status(500).send("Internal Server Error");
+  }
+});
+
 export default router;
