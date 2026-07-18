@@ -781,8 +781,19 @@ export default function BookPage() {
         if (d.bedrooms) setBedrooms(Number(d.bedrooms) || 0);
         if (d.bathrooms) setBathrooms(Number(d.bathrooms) || 0);
         if (d.scope) {
-          const sc = company.active_scopes?.find(s => s.name?.toLowerCase() === String(d.scope).toLowerCase());
+          const nm = String(d.scope).toLowerCase().trim();
+          const sc = company.active_scopes?.find(s => s.name?.toLowerCase() === nm);
           if (sc) setScopeId(sc.id);
+          // Also highlight the right service card. Deep Clean and Move In/Out
+          // share one DB scope, so scopeId alone doesn't distinguish them — the
+          // display key does. Mirror the service-card match logic exactly.
+          const key =
+            nm === "deep clean" ? "deep_clean" :
+            nm === "move in / move out" ? "move_in_out" :
+            nm.includes("recurring cleaning") ? "recurring" :
+            (nm.includes("one-time standard") || nm.includes("one time standard")) ? "one_time_standard" :
+            nm.includes("commercial cleaning") ? "commercial" : null;
+          if (key) setDisplayScopeKey(key);
         }
         setStep(1); // land on Scope + Home Details, pre-filled
       })
