@@ -1137,6 +1137,82 @@ router.get("/my-jobs/:id/history", requireAuth, async (req, res) => {
   }
 });
 
+// ─── GET /api/jobs/my-jobs/needs-photos ──────────────────────────────────────
+// [completed-photo-upload 2026-07-18] Techs are often too busy in the field to
+// add before/after photos before moving on, so they need to come BACK to a
+// finished job — hours or days later — and add them. The date-scoped my-jobs
+// list can't surface that (a job done Monday is invisible on Thursday), so this
+// returns the tech's recently-completed jobs that are still MISSING a before or
+// after photo, across days, newest first. Feeds the "Still need photos" section
+// on My Jobs; each row carries what the inline uploader + detail link need.
+// Tech-accessible (requireAuth + company scope); office/owner/admin can pass
+// employee_id to view a specific tech's backlog, mirroring the my-jobs list.
+router.get("/my-jobs/needs-photos", requireAuth, async (req, res) => {
+  try {
+    let userId = req.auth!.userId;
+    const canViewAsOther = req.auth!.role === "owner" || req.auth!.role === "admin" || req.auth!.role === "office";
+    if (canViewAsOther && req.query.employee_id) {
+      userId = parseInt(req.query.employee_id as string);
+    }
+
+    // Cross-tenant, same as the my-jobs list: a tech sees jobs from every tenant
+    // they belong to.
+    const tenantIdsRow = await db.execute(sql`
+      SELECT company_id FROM user_companies WHERE user_id = ${userId}
+      UNION
+      SELECT company_id FROM users WHERE id = ${userId} AND company_id IS NOT NULL
+    `);
+    const tenantIds = (tenantIdsRow.rows as any[]).map(r => Number(r.company_id)).filter(Number.isFinite);
+    if (tenantIds.length === 0) return res.json({ data: [] });
+
+    // Look-back window (default 14 days, capped at 60). A tech that fell weeks
+    // behind on photos still has a bounded, fast list.
+    const days = Math.min(Math.max(parseInt(String(req.query.days ?? "14"), 10) || 14, 1), 60);
+    const today = new Date().toISOString().split("T")[0];
+    const cutoff = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
+
+    const rows = await db.execute(sql`
+      SELECT
+        j.id, j.scheduled_date, j.service_type, j.account_id, j.account_property_id,
+        CASE WHEN j.account_id IS NOT NULL THEN a.account_name
+             ELSE concat(c.first_name, ' ', c.last_name) END AS client_name,
+        CASE WHEN j.account_property_id IS NOT NULL THEN ap.address ELSE c.address END AS address,
+        CASE WHEN j.account_property_id IS NOT NULL THEN ap.city    ELSE c.city    END AS city,
+        CASE WHEN j.account_property_id IS NOT NULL THEN ap.state   ELSE c.state   END AS state,
+        CASE WHEN j.account_property_id IS NOT NULL THEN ap.zip     ELSE c.zip     END AS zip,
+        COALESCE(
+          (SELECT z.color FROM service_zones z WHERE z.id = j.zone_id),
+          (SELECT z.color FROM service_zones z WHERE z.company_id = j.company_id AND z.is_active = true
+             AND COALESCE(j.address_zip, CASE WHEN j.account_property_id IS NOT NULL THEN ap.zip ELSE c.zip END) = ANY(z.zip_codes) LIMIT 1)
+        ) AS zone_color,
+        (SELECT COUNT(*)::int FROM job_photos p WHERE p.job_id = j.id AND p.photo_type = 'before') AS before_photo_count,
+        (SELECT COUNT(*)::int FROM job_photos p WHERE p.job_id = j.id AND p.photo_type = 'after')  AS after_photo_count
+      FROM jobs j
+      LEFT JOIN clients c ON c.id = j.client_id
+      LEFT JOIN accounts a ON a.id = j.account_id
+      LEFT JOIN account_properties ap ON ap.id = j.account_property_id
+      WHERE j.company_id = ANY(${sql.raw(`ARRAY[${tenantIds.join(",")}]`)})
+        AND j.status = 'complete'
+        AND j.scheduled_date >= ${cutoff}
+        AND j.scheduled_date <= ${today}
+        AND (
+          j.assigned_user_id = ${userId}
+          OR EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = j.id AND jt.user_id = ${userId})
+        )
+        AND (
+          (SELECT COUNT(*) FROM job_photos p WHERE p.job_id = j.id AND p.photo_type = 'before') = 0
+          OR (SELECT COUNT(*) FROM job_photos p WHERE p.job_id = j.id AND p.photo_type = 'after') = 0
+        )
+      ORDER BY j.scheduled_date DESC, j.id DESC
+      LIMIT 50
+    `);
+    return res.json({ data: (rows as any).rows });
+  } catch (err) {
+    console.error("My-jobs needs-photos error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to list jobs needing photos" });
+  }
+});
+
 // ─── POST /api/jobs/suggest-tech ─────────────────────────────────────────────
 router.post("/suggest-tech", requireAuth, async (req, res) => {
   try {

@@ -1686,6 +1686,23 @@ export default function MyJobsPage() {
   });
   const dayEvents: TechEvent[] = eventsQ.data?.events ?? [];
 
+  // [completed-photo-upload 2026-07-18] The tech's recently-completed jobs still
+  // missing a before/after photo, across days — NOT scoped to the selected date.
+  // Techs are too busy in the field to add photos on the spot, so this is the
+  // catch-up surface: they add them hours or days later without hunting for the
+  // right day. Refetched on its own key so uploading here drops a job off the
+  // list once both categories have a photo.
+  const needsPhotosQ = useQuery({
+    queryKey: ["my-jobs-needs-photos", employeeView?.employeeId ?? "self"],
+    queryFn: async () => {
+      const res = await apiFetch(`/jobs/my-jobs/needs-photos${employeeView ? `?employee_id=${employeeView.employeeId}` : ""}`);
+      return res.ok ? res.json() : { data: [] };
+    },
+    staleTime: 30_000,
+    enabled: !!token,
+  });
+  const needsPhotosJobs: Job[] = needsPhotosQ.data?.data ?? [];
+
   const jobs: Job[] = data?.data || [];
   const requireAfterPhoto: boolean = data?.require_after_photo_for_clockout ?? false;
   const activeJobs = jobs.filter(j => j.status !== "cancelled" && (!j.time_clock_entry || !j.time_clock_entry.clock_out_at || j.status !== "complete"));
@@ -1694,6 +1711,11 @@ export default function MyJobsPage() {
   // when every non-cancelled job today is checked out. No clock-out tap — this
   // is a closure STATE. Job hours come from the tech's own check-in/out spans.
   const completedToday = jobs.filter(j => j.status !== "cancelled" && (j.status === "complete" || !!j.time_clock_entry?.clock_out_at));
+  // Photo backlog = recent completed jobs still missing a before/after photo,
+  // MINUS anything already on the selected day's list (it's shown there with its
+  // own uploader), so the same job never appears twice on one screen.
+  const dayJobIds = new Set(jobs.map(j => j.id));
+  const backlogNeedsPhotos = needsPhotosJobs.filter(j => !dayJobIds.has(j.id));
   const dayComplete = jobs.length > 0 && activeJobs.length === 0 && completedToday.length > 0;
   const dayJobHours = completedToday.reduce((sum, j) => {
     const e = j.time_clock_entry;
@@ -2106,6 +2128,42 @@ export default function MyJobsPage() {
                 </div>
               ))}
             </>
+          )}
+
+          {/* [completed-photo-upload 2026-07-18] Catch-up surface, OUTSIDE the
+              per-day block so it shows on every day (including empty ones):
+              finished jobs from the last two weeks still missing a before/after
+              photo. Techs too busy in the field add them here later, no need to
+              find the right day. Uploading drops the job off once both are in. */}
+          {backlogNeedsPhotos.length > 0 && (
+            <div style={{ marginTop: 24 }}>
+              <p style={{ fontSize: 11, color: "#B45309", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px 4px", fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
+                <Camera size={13} /> Still need photos
+              </p>
+              <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 10px 4px", lineHeight: 1.5 }}>
+                Finished jobs from the last two weeks still missing a before or after photo. Add them anytime — no need to find the day.
+              </p>
+              {backlogNeedsPhotos.map(job => {
+                const needsBefore = (job.before_photo_count ?? 0) === 0;
+                const needsAfter = (job.after_photo_count ?? 0) === 0;
+                const missingLabel = needsBefore && needsAfter ? "Missing before & after" : needsBefore ? "Missing before photo" : "Missing after photo";
+                return (
+                  <div key={job.id} onClick={() => navigate(`/my-jobs/${job.id}?date=${String(job.scheduled_date).slice(0, 10)}`)}
+                    style={{ backgroundColor: "#FFFFFF", border: `1px solid ${job.zone_color || "#E5E2DC"}`, borderLeft: "3px solid #F59E0B", borderRadius: 12, padding: 18, marginBottom: 10, cursor: "pointer" }}>
+                    <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+                      <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: 0 }}>{job.client_name}</p>
+                      <span style={{ fontSize: 11, color: "#9E9B94", fontWeight: 600, flexShrink: 0 }}>{formatApptDate(String(job.scheduled_date).slice(0, 10))}</span>
+                    </div>
+                    <p style={{ fontSize: 11, color: "var(--brand)", textTransform: "uppercase", fontWeight: 600, margin: "0 0 4px" }}>{formatServiceType(job.service_type)}</p>
+                    {job.address && <p style={{ fontSize: 12, color: "#6B6860", margin: "2px 0 0" }}>{formatAddress(job.address, job.city, job.state, job.zip)}</p>}
+                    <p style={{ fontSize: 12, fontWeight: 700, color: "#B45309", margin: "8px 0 0", display: "flex", alignItems: "center", gap: 5 }}>
+                      <Camera size={13} /> {missingLabel}
+                    </p>
+                    <CompletedPhotoUpload job={job} onRefresh={() => { needsPhotosQ.refetch(); refetch(); }} />
+                  </div>
+                );
+              })}
+            </div>
           )}
         </div>
       </div>
