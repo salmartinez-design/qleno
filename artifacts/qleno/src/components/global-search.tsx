@@ -154,15 +154,25 @@ export function GlobalSearch({ onClose }: Props) {
                 return (
                   <button key={c.id} onClick={() => go(`/customers/${c.id}`)}
                     style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: active ? '#F5F4F1' : 'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
-                    <div style={{ width:32, height:32, borderRadius:16, background: c.zone_color ? `${c.zone_color}22` : '#EBF4FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, border: c.zone_color ? `2px solid ${c.zone_color}` : 'none' }}>
-                      {c.zone_color
-                        ? <span style={{ width:10, height:10, borderRadius:'50%', background: c.zone_color, display:'inline-block' }}/>
-                        : <User size={15} color="#5B9BD5"/>
-                      }
+                    {/* [search-zone-chip 2026-07-19] Was a zone-colored ring with a
+                        solid center dot ("nipple"). Replaced with a neutral initials
+                        monogram + an explicit zone chip (colored dot + first segment
+                        of the zone name) on the second line — reads as a tidy tag and
+                        surfaces the zone by name, not just a color. */}
+                    <div style={{ width:34, height:34, borderRadius:9, background:'#F1EFE8', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:12, fontWeight:700, color:'#6B6860' }}>
+                      {`${(c.first_name?.[0] || '')}${(c.last_name?.[0] || '')}`.toUpperCase() || <User size={15} color="#5B9BD5"/>}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
-                      <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{c.first_name} {c.last_name}</p>
-                      <p style={{ fontSize:11, color:'#9E9B94', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.address || c.email || c.phone}{c.zone_name ? ` · ${c.zone_name}` : ''}</p>
+                      <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0, marginBottom: (c.zone_name || c.address || c.email || c.phone) ? 3 : 0 }}>{c.first_name} {c.last_name}</p>
+                      <div style={{ display:'flex', alignItems:'center', gap:7, minWidth:0 }}>
+                        {c.zone_name && (
+                          <span style={{ display:'inline-flex', alignItems:'center', gap:5, background:'#F1EFE8', borderRadius:20, padding:'2px 9px 2px 7px', fontSize:11, fontWeight:600, color:'#44413B', flexShrink:0, maxWidth:170 }}>
+                            <span style={{ width:8, height:8, borderRadius:'50%', background: c.zone_color || '#B4B2A9', flexShrink:0 }}/>
+                            <span style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.zone_name.split('/')[0].trim()}</span>
+                          </span>
+                        )}
+                        <span style={{ fontSize:11, color:'#9E9B94', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{c.address || c.email || c.phone}</span>
+                      </div>
                     </div>
                   </button>
                 );
