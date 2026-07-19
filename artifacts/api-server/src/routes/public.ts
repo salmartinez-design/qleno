@@ -1201,6 +1201,19 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     const arrivalWindowVal = (typeof arrival_window === "string" && arrival_window.trim())
       ? arrival_window.trim().slice(0, 40)
       : null;
+    // [scheduled-time cascade 2026-07-19] The widget's requested start time lives
+    // in arrival_window ("9:30 AM") — ALSO write it to jobs.scheduled_time (the
+    // HH:MM:SS column the dispatch board + job drawer read for the start slot), so
+    // the booked time actually cascades to the job. Legacy window keywords
+    // (morning/afternoon) or blanks don't parse → scheduled_time stays null.
+    const schedTimeVal = (() => {
+      const m = /^(\d{1,2}):(\d{2})\s*(AM|PM)?/i.exec(String(arrivalWindowVal ?? "").trim());
+      if (!m) return null;
+      let h = parseInt(m[1], 10); const min = m[2]; const ap = m[3]?.toUpperCase();
+      if (ap === "PM" && h < 12) h += 12;
+      if (ap === "AM" && h === 12) h = 0;
+      return `${String(h).padStart(2, "0")}:${min}:00`;
+    })();
 
     const bookLocVal = (booking_location === "oak_lawn" || booking_location === "schaumburg") ? booking_location : null;
     // [address-capture 2026-07-10] Use the resolved address (parsed or geocoded) so
@@ -1219,7 +1232,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       drizzleSql`
         INSERT INTO jobs (
           company_id, client_id, service_type, status,
-          scheduled_date, frequency, base_fee, estimated_hours, hourly_rate,
+          scheduled_date, scheduled_time, frequency, base_fee, estimated_hours, hourly_rate,
           home_condition_rating, condition_multiplier,
           applied_bundle_id, bundle_discount_total,
           last_cleaned_response, last_cleaned_flag,
@@ -1234,7 +1247,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
           notes, created_at
         ) VALUES (
           ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
-          ${preferred_date || new Date().toISOString().split("T")[0]}, ${normalizedFreq},
+          ${preferred_date || new Date().toISOString().split("T")[0]}, ${schedTimeVal}, ${normalizedFreq},
           ${adjustedTotal}, ${pricing.total_hours ?? pricing.base_hours}, ${pricing.hourly_rate},
           ${condRating}, ${condMult},
           ${bundleId}, ${bundleDiscount},
