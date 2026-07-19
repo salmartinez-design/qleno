@@ -593,20 +593,42 @@ export async function enrollForLeadDrip(
 ): Promise<void> {
   try {
     const seqType = leadSource === 'phone_in' ? 'lead_drip_phone' : 'lead_drip_web';
-    // [cart-drip-visible 2026-07-09] If this lead already has an active
-    // abandoned-booking (cart) drip, that drip OWNS the conversation — don't
-    // stack a second lead drip on top (an abandoner who later submits a full
-    // quote would otherwise get double-texted). The cart drip is the more
-    // specific, purpose-built sequence, so it wins.
+    // [cart-drip-visible 2026-07-09; contact-keyed 2026-07-19] If this CONTACT
+    // already has an active abandoned-booking (cart) drip, that drip OWNS the
+    // conversation — don't stack a second lead drip on top. The match is by the
+    // contact's email/phone, NOT just this lead_id: the very-dirty "Heavy" callback
+    // form (POST /api/public/leads) inserts a SEPARATE lead row, so a person who
+    // abandoned a booking AND submitted that form has two distinct lead rows — a
+    // lead_id-only check never saw the cart drip on the other row and let both
+    // sequences text/email the same person. Match through the enrollment's linked
+    // abandoned_bookings row OR its linked lead. The cart drip is the more specific,
+    // purpose-built sequence, so it wins.
     const cart = await db.execute(sql`
-      SELECT fe.id FROM follow_up_enrollments fe
-      JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
-      WHERE fe.lead_id = ${leadId} AND fs.sequence_type = 'abandoned_booking'
-        AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
-      LIMIT 1
+      WITH me AS (
+        SELECT LOWER(TRIM(COALESCE(email, ''))) AS email,
+               RIGHT(regexp_replace(COALESCE(phone, ''), '[^0-9]', '', 'g'), 10) AS phone10
+          FROM leads WHERE id = ${leadId} LIMIT 1
+      )
+      SELECT fe.id
+        FROM follow_up_enrollments fe
+        JOIN follow_up_sequences fs ON fs.id = fe.sequence_id
+        LEFT JOIN abandoned_bookings ab ON ab.id = fe.abandoned_booking_id
+        LEFT JOIN leads l2 ON l2.id = fe.lead_id
+        CROSS JOIN me
+       WHERE fs.sequence_type = 'abandoned_booking'
+         AND fe.company_id = ${companyId}
+         AND fe.completed_at IS NULL AND fe.stopped_at IS NULL
+         AND (
+           fe.lead_id = ${leadId}
+           OR (me.email <> '' AND (LOWER(TRIM(COALESCE(ab.email, ''))) = me.email
+                                    OR LOWER(TRIM(COALESCE(l2.email, ''))) = me.email))
+           OR (me.phone10 <> '' AND (RIGHT(regexp_replace(COALESCE(ab.phone, ''), '[^0-9]', '', 'g'), 10) = me.phone10
+                                      OR RIGHT(regexp_replace(COALESCE(l2.phone, ''), '[^0-9]', '', 'g'), 10) = me.phone10))
+         )
+       LIMIT 1
     `);
     if (cart.rows.length > 0) {
-      console.log(`[follow-up] lead ${leadId} already in abandoned_booking (cart) drip — skipping ${seqType} to avoid a double drip.`);
+      console.log(`[follow-up] contact for lead ${leadId} already in abandoned_booking (cart) drip — skipping ${seqType} to avoid a double drip.`);
       return;
     }
     const seqRows = await db.execute(sql`
