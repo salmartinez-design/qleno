@@ -81,6 +81,24 @@ router.get("/:token/calendar.ics", async (req, res) => {
   try {
     const token = String(req.params.token || "").trim();
     if (!token) return res.status(404).send("Not Found");
+    // [test-ics 2026-07-19] Send Test booking-confirmation emails have no real
+    // job/token, so the test render points the Apple "Add to Calendar" button at
+    // token 'sample'. Return a static sample event so the button is actually
+    // testable (a data: URI gets stripped by Gmail/Apple Mail). Matches the sample
+    // date the [TEST] email shows.
+    if (token === "sample") {
+      const sampleIcs = [
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//Phes//Booking//EN", "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+        "BEGIN:VEVENT", "UID:sample@qleno", "DTSTAMP:20260627T090000", "DTSTART:20260627T090000", "DTEND:20260627T110000",
+        "SUMMARY:Phes cleaning (sample)",
+        "LOCATION:123 Sample St, Chicago, IL 60601",
+        "DESCRIPTION:Sample booking confirmation calendar event.",
+        "END:VEVENT", "END:VCALENDAR",
+      ].join("\r\n");
+      res.setHeader("Content-Type", "text/calendar; charset=utf-8");
+      res.setHeader("Content-Disposition", 'attachment; filename="appointment-sample.ics"');
+      return res.send(sampleIcs);
+    }
     const rows = await db.execute(sql`
       SELECT j.scheduled_date, j.scheduled_time, j.arrival_window, j.service_type,
              j.address_street, j.address_city, j.address_state, j.address_zip,
