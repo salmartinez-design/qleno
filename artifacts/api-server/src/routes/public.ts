@@ -11,7 +11,7 @@ import { companiesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getBranchByZip } from "../lib/branchRouter";
 import { computePetFee, petFeeConfigFromRow } from "../lib/pet-fee";
-import { buildClientConfirmationEmail, buildOfficeNotificationEmail } from "../lib/emailTemplates";
+import { buildOfficeNotificationEmail } from "../lib/emailTemplates";
 import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
 import { geocodeWithComponents } from "../lib/geocode";
 
@@ -1564,14 +1564,13 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(resendKey);
-        const { subject: clientSubject, html: clientHtml } = buildClientConfirmationEmail(emailParams);
-        await resend.emails.send({
-          from: `Phes <${branchConfig.officeEmail}>`,
-          replyTo: branchConfig.officeEmail,
-          to: [email],
-          subject: clientSubject,
-          html: clientHtml,
-        });
+        // [single-confirmation 2026-07-19] The CUSTOMER confirmation is already sent
+        // by sendJobScheduledConfirmation earlier in this handler (the on-brand
+        // job_scheduled email with the working Apple calendar invite + the real
+        // per-package line-item breakdown). Also sending buildClientConfirmationEmail
+        // here double-emailed every booked customer (two confirmations + the SMS), so
+        // this block now sends ONLY the office notification. Removing the customer
+        // send here is the whole fix — the office still gets its copy below.
         const { subject: officeSubject, html: officeHtml } = buildOfficeNotificationEmail(emailParams);
         await resend.emails.send({
           from: `Phes <${branchConfig.officeEmail}>`,
@@ -2084,6 +2083,13 @@ router.get("/resume/:token", rateLimit, async (req, res) => {
       address: row.address ?? null, zip: row.zip ?? null,
       scope: row.scope ?? null,
       bedrooms: d.bedrooms ?? null, bathrooms: d.bathrooms ?? null, sqft: d.sqft ?? null,
+      // [resume-restore 2026-07-19] Frequency (cadence) + add-ons were captured in
+      // `details` but never handed back, so the resumed widget re-defaulted the
+      // cadence to weekly and dropped add-ons — the visitor's price never returned
+      // to what they saw (the $295.10 Pat Peregoy monthly quote). Return both so the
+      // widget can re-apply them and reproduce the exact quote.
+      frequency: d.frequency ?? null,
+      add_ons: Array.isArray(d.add_ons) ? d.add_ons : null,
     });
   } catch (err) {
     console.error("GET /public/resume:", err);

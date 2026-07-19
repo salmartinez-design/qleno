@@ -23,7 +23,7 @@ import { stylePolicyCopy } from "../lib/confirmation-email.js";
 import { renderPhesBookingConfirmation } from "../lib/phes-booking-confirmation.js";
 import { renderPhesQuote, type QuoteOption } from "../lib/phes-quote-email.js";
 import { resolveSender, sendSmsVia } from "../lib/comms-sender.js";
-import { emailLogoUrl } from "../lib/app-url.js";
+import { emailLogoUrl, appBaseUrl } from "../lib/app-url.js";
 import { SAMPLE_SERVICES_BREAKDOWN_HTML } from "../lib/services-breakdown.js";
 // Reuse the exact production render paths for the two non-template card groups:
 // the hardcoded job-status SMS bodies and the office booking-notification email.
@@ -360,7 +360,12 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
             date: SAMPLE_CUSTOMER_VARS.appointment_date || SAMPLE_CUSTOMER_VARS.date,
             arrivalWindow: SAMPLE_CUSTOMER_VARS.arrival_window,
             address: SAMPLE_CUSTOMER_VARS.service_address,
-            service: SAMPLE_CUSTOMER_VARS.service_type,
+            // [test-sample-coherence 2026-07-19] The sample line-item breakdown is a
+            // Deep Clean, so label it Deep Clean too (was "Standard Cleaning", which
+            // contradicted the breakdown) and show the matching overage note. On a
+            // REAL send both come from the job (labelService + buildJobLineItems), so
+            // the real email always reflects the actual booked package.
+            service: "Deep Clean",
             estimatedTime: "~3.5 hours",
             servicesBreakdownHtml: SAMPLE_SERVICES_BREAKDOWN_HTML,
             scheduledDateISO: "2026-06-27",
@@ -368,6 +373,12 @@ export async function sendTestNotification(params: TestSendParams): Promise<Test
             paymentTotal: "$673.00",
             hasCardOnFile: true,
             checklistUrl: "https://phes.io/cleaning-checklist",
+            showOverageNote: true,
+            // [test-ics 2026-07-19] Give the Apple "Add to Calendar" button a REAL
+            // hosted .ics (the sample event) so it's testable — the inline data: URI
+            // fallback is stripped by Gmail/Apple Mail. Real sends pass the per-job
+            // .ics; a test has no job, so it points at the sample endpoint.
+            icsUrl: `${appBaseUrl()}/api/appointment/sample/calendar.ics`,
           })
         : bodyIsFullHtml
         ? rendered.body

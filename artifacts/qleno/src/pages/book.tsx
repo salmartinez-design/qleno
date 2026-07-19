@@ -763,6 +763,13 @@ export default function BookPage() {
   // contact) so "pick up right where you left off" is actually true. Runs once,
   // after company loads (needs active_scopes to map the service name → scope id).
   const resumeAppliedRef = useRef(false);
+  // [resume-restore 2026-07-19] The cadence + add-ons come back from the resume
+  // endpoint, but the scope-change effect fires AFTER this handler (it keys on
+  // scopeId) and resets frequency/add-ons to defaults. Stash the resumed values in
+  // refs so that effect can re-apply them once the scope's frequencies/add-ons have
+  // loaded, instead of clobbering them. Consumed (set back to null) on first use.
+  const resumeFreqRef = useRef<string | null>(null);
+  const resumeAddonNamesRef = useRef<string[] | null>(null);
   useEffect(() => {
     if (resumeAppliedRef.current || !company?.id) return;
     const token = new URLSearchParams(window.location.search).get("resume");
@@ -780,6 +787,10 @@ export default function BookPage() {
         if (d.sqft) setSqft(Number(d.sqft) || 0);
         if (d.bedrooms) setBedrooms(Number(d.bedrooms) || 0);
         if (d.bathrooms) setBathrooms(Number(d.bathrooms) || 0);
+        // Stash cadence + add-on names for the scope-change effect to re-apply
+        // once this scope's frequencies/add-ons finish loading (see refs above).
+        resumeFreqRef.current = d.frequency ? String(d.frequency) : null;
+        resumeAddonNamesRef.current = Array.isArray(d.add_ons) ? d.add_ons.map((n: any) => String(n)) : null;
         if (d.scope) {
           const nm = String(d.scope).toLowerCase().trim();
           const sc = company.active_scopes?.find(s => s.name?.toLowerCase() === nm);
@@ -863,12 +874,29 @@ export default function BookPage() {
       }
       setAddons(resolvedAds);
 
-      // One-time services default to "onetime"; recurring defaults to first freq (weekly)
+      // [resume-restore 2026-07-19] If we're resuming an abandoned quote, re-apply
+      // the add-ons the visitor had selected (matched by name → current id) now that
+      // this scope's add-on list is loaded. Runs once, then the ref is consumed.
+      if (resumeAddonNamesRef.current && resolvedAds.length) {
+        const wanted = new Set(resumeAddonNamesRef.current.map(n => n.toLowerCase()));
+        const ids = resolvedAds.filter((a: any) => wanted.has(String(a.name).toLowerCase())).map((a: any) => a.id);
+        if (ids.length) setSelectedAddonIds(ids);
+      }
+      resumeAddonNamesRef.current = null;
+
+      // One-time services default to "onetime"; recurring defaults to first freq
+      // (weekly) — UNLESS we're resuming an abandoned quote, in which case honor the
+      // cadence the visitor originally picked (e.g. monthly) so their price returns.
+      // For split recurring scopes filteredFreqs already merges all cadences, so the
+      // resumed frequency is present here. Consumed after first use.
+      const resumedFreq = resumeFreqRef.current;
       const defaultFreq =
+        (resumedFreq ? filteredFreqs.find((f: PricingFrequency) => f.frequency === resumedFreq) : undefined) ??
         filteredFreqs.find((f: PricingFrequency) => f.frequency === "onetime") ??
         filteredFreqs.find((f: PricingFrequency) => f.frequency === "weekly") ??
         filteredFreqs[0];
       setFrequencyStr(defaultFreq?.frequency ?? "");
+      resumeFreqRef.current = null;
     }).catch(() => {});
   }, [scopeId]);
 
@@ -957,7 +985,7 @@ export default function BookPage() {
         body: JSON.stringify({
           company_id: company.id,
           first_name: firstName, last_name: lastName, email, phone, address, zip,
-          scope: selectedScope?.name || "", details, ...extra,
+          scope: effectiveScope?.name || "", details, ...extra,
         }),
       }).catch(() => {});
     };
@@ -1174,7 +1202,7 @@ export default function BookPage() {
             company_id: company.id,
             first_name: firstName, last_name: lastName, phone, email, zip,
             referral_source: referral || null, sms_consent: smsConsent,
-            scope_id: scopeId, sqft, frequency: frequencies.some(f => f.frequency === "onetime") ? "onetime" : frequencyStr,
+            scope_id: effectiveScopeId, sqft, frequency: frequencies.some(f => f.frequency === "onetime") ? "onetime" : frequencyStr,
             addon_ids: selectedAddonIds,
             bedrooms, bathrooms, half_baths: halfBaths, floors, people, pets, cleanliness,
             home_condition_rating: showCleanlinessQ ? (cleanliness || 1) : null,
@@ -1369,6 +1397,18 @@ export default function BookPage() {
   }
 
   const selectedScope = company.active_scopes.find(s => s.id === scopeId);
+  // [freq-scope-consistency 2026-07-18] Split recurring scopes are separate DB
+  // rows per cadence ("Recurring Cleaning - Weekly / - Biweekly / - Monthly").
+  // Clicking the recurring card freezes `scopeId` to whichever row matched FIRST
+  // (typically "…- Weekly"), but the cadence is an independent picker
+  // (`frequencyStr`). Resolve the scope that actually matches the chosen frequency
+  // so Service and Frequency never contradict — otherwise the office "Quote
+  // Viewed" alert, the customer's review + confirmation screens, AND the booking
+  // submit all report "…- Weekly" while the frequency says "monthly" (the Pat
+  // Peregoy quote). `recurringFreqScopeMap` is empty for every non-split scope, so
+  // the `?? scopeId` fallback leaves one-time / deep-clean / commercial untouched.
+  const effectiveScopeId = recurringFreqScopeMap[frequencyStr] ?? scopeId;
+  const effectiveScope = company.active_scopes.find(s => s.id === effectiveScopeId) ?? selectedScope;
   const isCommercial = (selectedScope?.name ?? "").toLowerCase().includes("commercial");
   const isRecurringScope = !isCommercial && !!scopeId && (selectedScope?.name ?? "").toLowerCase().includes("recurring cleaning");
   const isMoveInOut = displayScopeKey === "move_in_out";
@@ -1422,7 +1462,7 @@ export default function BookPage() {
     : displayScopeKey === "move_in_out" ? "Move In / Move Out"
     : displayScopeKey === "one_time_standard" ? "One-Time Standard Clean"
     : displayScopeKey === "post_construction" ? "Post-Construction Cleaning"
-    : (calcResult?.scope_name ?? selectedScope?.name ?? "");
+    : (calcResult?.scope_name ?? effectiveScope?.name ?? "");
 
   // ── Add-on visibility: dynamically driven by show_online flag from API ──
   const visibleAddons = addons.filter(a => {
@@ -3513,7 +3553,7 @@ export default function BookPage() {
                   <Row label="Name" value={`${firstName} ${lastName}`} />
                   <Row label="Email" value={email} />
                   <Row label="Phone" value={phone} />
-                  <Row label="Service" value={selectedScope?.name ?? ""} />
+                  <Row label="Service" value={effectiveScope?.name ?? ""} />
                   {sqft > 0 && <Row label="Sq Ft" value={`${sqft.toLocaleString()} sqft`} />}
                   {frequencyStr && <Row label="Frequency" value={wLabel(frequencyStr)} />}
                   {selectedDate && <Row label="First Date" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })} />}
@@ -3611,7 +3651,7 @@ export default function BookPage() {
                 </div>
                 <p style={{ margin: "0 0 10px", fontSize: 28, fontWeight: 800, lineHeight: 1.2, letterSpacing: "-0.02em", color: "#1A1917" }}>Your booking is confirmed!</p>
                 <p style={{ margin: "0 0 6px", fontSize: 14, color: "#6B6860" }}>
-                  Thank you, {firstName}. {selectedScope?.name} is scheduled
+                  Thank you, {firstName}. {effectiveScope?.name} is scheduled
                   {selectedDate ? ` for ${new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}` : ""}
                   {arrivalWindow ? ` at ${arrivalWindow}` : ""}.
                 </p>
@@ -3634,7 +3674,7 @@ export default function BookPage() {
                   <Row label="Name" value={`${firstName} ${lastName}`} />
                   <Row label="Email" value={email} />
                   <Row label="Phone" value={phone} />
-                  <Row label="Service" value={selectedScope?.name ?? ""} />
+                  <Row label="Service" value={effectiveScope?.name ?? ""} />
                   {sqft > 0 && <Row label="Sq Ft" value={`${sqft.toLocaleString()} sqft`} />}
                   {upsellAccepted && <Row label="Frequency" value={wLabel(upsellCadence)} />}
                   {selectedDate && <Row label="First Date" value={new Date(selectedDate + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })} bold />}

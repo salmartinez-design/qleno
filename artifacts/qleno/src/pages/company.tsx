@@ -3719,6 +3719,25 @@ function FollowUpSequencesTab({ onTest, only }: { onTest?: (t: { key: string; la
                                   >
                                     Cancel
                                   </button>
+                                  {/* [drip-test-in-editor 2026-07-19] Test the message from inside the
+                                      editor. The read-only view already has Send Test, but an email step
+                                      opened for editing showed only Save/Cancel, so there was no way to
+                                      test an email while looking at it. Sends the CURRENT draft
+                                      (editSubject/editTemplate) so the test matches what you're editing. */}
+                                  {onTest && (
+                                    <button
+                                      onClick={() => {
+                                        const isQuoteDelivery = seq.sequence_type === "quote_followup" && step.channel === "email" && /\{\{\s*line_items\s*\}\}/.test(editTemplate || "");
+                                        onTest(isQuoteDelivery
+                                          ? { key: "quote_email", label: `${SEQ_LABELS[seq.sequence_type] ?? seq.name} · Step ${step.step_number}`, channel: "email" }
+                                          : { key: "custom_dripstep", label: `${SEQ_LABELS[seq.sequence_type] ?? seq.name} · Step ${step.step_number}`, channel: step.channel === "email" ? "email" : "sms", body: editTemplate, subject: step.channel === "email" ? editSubject : undefined });
+                                      }}
+                                      title="Send a [TEST] copy to yourself"
+                                      style={{ display: "inline-flex", alignItems: "center", padding: "7px 14px", background: "#ECFDF5", border: "none", borderRadius: 6, fontFamily: FFF, fontSize: 12, fontWeight: 600, color: "#047857", cursor: "pointer" }}
+                                    >
+                                      Send Test
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             ) : (
