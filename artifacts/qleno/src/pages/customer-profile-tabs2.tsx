@@ -818,6 +818,23 @@ function CommLogDetailCard({ entry }: { entry: any }) {
   const [expanded, setExpanded] = useState(false);
   const [trailOpen, setTrailOpen] = useState(false);
   const isEmail = (entry.channel || "").toLowerCase() === "email";
+  // [comm-log-resend 2026-07-19] Let the office re-send the booking confirmation
+  // email straight from the client profile (they get asked to do this). Only on
+  // the booking-confirmation entry (job_scheduled) that carries a job_id — the
+  // resend endpoint is job-based and re-fires the same confirmation.
+  const [resent, setResent] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const canResend = isEmail && !!entry.job_id && entry.type === "job_scheduled";
+  const resendBooking = async () => {
+    if (!entry.job_id) return;
+    setResent("sending");
+    try {
+      const r = await fetch(`${API}/api/jobs/${entry.job_id}/resend-confirmation`, {
+        method: "POST", headers: { ...(getAuthHeaders() as Record<string, string>), "Content-Type": "application/json" },
+      });
+      const d = await r.json().catch(() => ({}));
+      setResent(r.ok && d?.ok ? "sent" : "error");
+    } catch { setResent("error"); }
+  };
   // Emails stay COMPACT in the log — subject + a one-line snippet; the full
   // email opens on its own page via openEmailPage. Other channels keep the
   // expandable body.
@@ -885,6 +902,13 @@ function CommLogDetailCard({ entry }: { entry: any }) {
             <button onClick={() => openEmailPage(entry)}
               style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3, fontFamily: FF2 }}>
               <ExternalLink size={11} /> View email
+            </button>
+          )}
+          {canResend && (
+            <button onClick={resendBooking} disabled={resent === "sending"}
+              title="Resend this booking confirmation email to the customer"
+              style={{ fontSize: 11, color: resent === "error" ? "#DC2626" : resent === "sent" ? "#047857" : "var(--brand)", background: "none", border: "none", cursor: resent === "sending" ? "default" : "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3, fontFamily: FF2 }}>
+              {resent === "sending" ? "Sending…" : resent === "sent" ? "Resent ✓" : resent === "error" ? "Failed — retry" : "Resend"}
             </button>
           )}
           {(entry.source === "system" || entry.delivery_status) && <DeliveryBadge status={entry.delivery_status} />}
