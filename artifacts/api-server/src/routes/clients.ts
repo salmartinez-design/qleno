@@ -676,7 +676,8 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                            WHERE i.company_id = nl.company_id AND i.client_id = ${clientId}
                              AND i.invoice_number = (nl.metadata->>'invoice_number') LIMIT 1)
                END AS doc_id,
-               COALESCE(nl.job_id, (nl.metadata->>'job_id')::int) AS job_id
+               CASE WHEN nl.metadata->>'job_id' ~ '^[0-9]+$'
+                    THEN (nl.metadata->>'job_id')::int END AS job_id
           FROM notification_log nl
          WHERE nl.company_id = ${companyId}
            AND (( ${email} <> '' AND nl.recipient = ${email}) OR ( ${phone} <> '' AND nl.recipient = ${phone}))
