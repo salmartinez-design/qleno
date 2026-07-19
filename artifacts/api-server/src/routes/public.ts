@@ -2084,6 +2084,13 @@ router.get("/resume/:token", rateLimit, async (req, res) => {
       address: row.address ?? null, zip: row.zip ?? null,
       scope: row.scope ?? null,
       bedrooms: d.bedrooms ?? null, bathrooms: d.bathrooms ?? null, sqft: d.sqft ?? null,
+      // [resume-restore 2026-07-19] Frequency (cadence) + add-ons were captured in
+      // `details` but never handed back, so the resumed widget re-defaulted the
+      // cadence to weekly and dropped add-ons — the visitor's price never returned
+      // to what they saw (the $295.10 Pat Peregoy monthly quote). Return both so the
+      // widget can re-apply them and reproduce the exact quote.
+      frequency: d.frequency ?? null,
+      add_ons: Array.isArray(d.add_ons) ? d.add_ons : null,
     });
   } catch (err) {
     console.error("GET /public/resume:", err);

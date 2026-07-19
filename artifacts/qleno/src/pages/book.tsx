@@ -763,6 +763,13 @@ export default function BookPage() {
   // contact) so "pick up right where you left off" is actually true. Runs once,
   // after company loads (needs active_scopes to map the service name → scope id).
   const resumeAppliedRef = useRef(false);
+  // [resume-restore 2026-07-19] The cadence + add-ons come back from the resume
+  // endpoint, but the scope-change effect fires AFTER this handler (it keys on
+  // scopeId) and resets frequency/add-ons to defaults. Stash the resumed values in
+  // refs so that effect can re-apply them once the scope's frequencies/add-ons have
+  // loaded, instead of clobbering them. Consumed (set back to null) on first use.
+  const resumeFreqRef = useRef<string | null>(null);
+  const resumeAddonNamesRef = useRef<string[] | null>(null);
   useEffect(() => {
     if (resumeAppliedRef.current || !company?.id) return;
     const token = new URLSearchParams(window.location.search).get("resume");
@@ -780,6 +787,10 @@ export default function BookPage() {
         if (d.sqft) setSqft(Number(d.sqft) || 0);
         if (d.bedrooms) setBedrooms(Number(d.bedrooms) || 0);
         if (d.bathrooms) setBathrooms(Number(d.bathrooms) || 0);
+        // Stash cadence + add-on names for the scope-change effect to re-apply
+        // once this scope's frequencies/add-ons finish loading (see refs above).
+        resumeFreqRef.current = d.frequency ? String(d.frequency) : null;
+        resumeAddonNamesRef.current = Array.isArray(d.add_ons) ? d.add_ons.map((n: any) => String(n)) : null;
         if (d.scope) {
           const nm = String(d.scope).toLowerCase().trim();
           const sc = company.active_scopes?.find(s => s.name?.toLowerCase() === nm);
@@ -863,12 +874,29 @@ export default function BookPage() {
       }
       setAddons(resolvedAds);
 
-      // One-time services default to "onetime"; recurring defaults to first freq (weekly)
+      // [resume-restore 2026-07-19] If we're resuming an abandoned quote, re-apply
+      // the add-ons the visitor had selected (matched by name → current id) now that
+      // this scope's add-on list is loaded. Runs once, then the ref is consumed.
+      if (resumeAddonNamesRef.current && resolvedAds.length) {
+        const wanted = new Set(resumeAddonNamesRef.current.map(n => n.toLowerCase()));
+        const ids = resolvedAds.filter((a: any) => wanted.has(String(a.name).toLowerCase())).map((a: any) => a.id);
+        if (ids.length) setSelectedAddonIds(ids);
+      }
+      resumeAddonNamesRef.current = null;
+
+      // One-time services default to "onetime"; recurring defaults to first freq
+      // (weekly) — UNLESS we're resuming an abandoned quote, in which case honor the
+      // cadence the visitor originally picked (e.g. monthly) so their price returns.
+      // For split recurring scopes filteredFreqs already merges all cadences, so the
+      // resumed frequency is present here. Consumed after first use.
+      const resumedFreq = resumeFreqRef.current;
       const defaultFreq =
+        (resumedFreq ? filteredFreqs.find((f: PricingFrequency) => f.frequency === resumedFreq) : undefined) ??
         filteredFreqs.find((f: PricingFrequency) => f.frequency === "onetime") ??
         filteredFreqs.find((f: PricingFrequency) => f.frequency === "weekly") ??
         filteredFreqs[0];
       setFrequencyStr(defaultFreq?.frequency ?? "");
+      resumeFreqRef.current = null;
     }).catch(() => {});
   }, [scopeId]);
 
