@@ -69,6 +69,25 @@ export function NotificationBell() {
     if (link) setLocation(link);
     setOpen(false);
   };
+  // Legacy "new_booking" notifications stored link="/customers" (generic, went
+  // nowhere useful). Deep-link to the job on the dispatch board instead. The
+  // board is date-scoped and only opens a job that's on the loaded date, so we
+  // fetch the job's scheduled date to build /dispatch?date=..&job=.. New
+  // notifications already carry a /dispatch link and skip the fetch.
+  const resolveTarget = async (n: any): Promise<string | undefined> => {
+    const meta = typeof n.meta === "string"
+      ? (() => { try { return JSON.parse(n.meta); } catch { return null; } })()
+      : n.meta;
+    if (n.type === "new_booking" && meta?.job_id && (!n.link || !String(n.link).startsWith("/dispatch"))) {
+      try {
+        const jr = await fetch(`${API}/api/jobs/${meta.job_id}`, { headers: getAuthHeaders() as any })
+          .then((r) => (r.ok ? r.json() : null));
+        const d = String(jr?.job?.scheduled_date ?? jr?.scheduled_date ?? "").slice(0, 10);
+        return `/dispatch?${d ? `date=${d}&` : ""}job=${meta.job_id}`;
+      } catch { /* fall back to the stored link */ }
+    }
+    return n.link || undefined;
+  };
   const markAllRead = async () => {
     try {
       await fetch(`${API}/api/notifications/inbox/read-all`, { method: "PATCH", headers: getAuthHeaders() as any });
@@ -129,7 +148,7 @@ export function NotificationBell() {
             ) : items.map((n: any) => (
               <button
                 key={n.id}
-                onClick={() => markRead(n.id, n.link)}
+                onClick={async () => markRead(n.id, await resolveTarget(n))}
                 style={{
                   display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 16px",
                   background: n.read ? "#fff" : "#F0F4FF",
