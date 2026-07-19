@@ -216,7 +216,7 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
         `Book a recurring service (weekly, biweekly, or monthly) by the end of your appointment day and we'll take 15% off your second visit. You'll also get preferred scheduling and the same technician each visit. Call ${esc(o.companyPhone)} or reply to set it up.<br/>${phoneBtn}`)}
 
       <!-- Fine print -->
-      <p style="margin:22px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;"><strong style="color:${MUTE};">Pricing:</strong> Flat-rate estimates assume the home matches what you described. If conditions differ significantly, we'll send an updated estimate. Extra time bills at $70/hour per cleaner.</p>
+      ${o.showOverageNote ? "" : `<p style="margin:22px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;"><strong style="color:${MUTE};">Pricing:</strong> Flat-rate estimates assume the home matches what you described. If conditions differ significantly, we'll send an updated estimate. Extra time bills at $70/hour per cleaner.</p>`}
       <p style="margin:10px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;"><strong style="color:${MUTE};">Non-solicitation:</strong> By using our services, you agree not to solicit, hire, or contract any Phes staff member privately. Breach terminates your service agreement.</p>
       <p style="margin:10px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;">Review our full <a href="https://${escAttr(o.website)}/terms" style="color:${BRAND};text-decoration:underline;">Terms and Conditions</a> and <a href="https://${escAttr(o.website)}/privacy" style="color:${BRAND};text-decoration:underline;">Privacy Policy</a>.</p>
     </td></tr>
