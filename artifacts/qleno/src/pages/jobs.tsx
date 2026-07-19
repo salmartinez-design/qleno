@@ -1582,6 +1582,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const token = useAuthStore(s => s.token)!;
   const { toast } = useToast();
   const [busy, setBusy] = useState(false);
+  const [photosOpen, setPhotosOpen] = useState(false);
   const sc = STATUS[job.status] || STATUS.scheduled;
   const assignedEmp = employees.find(e => e.id === job.assigned_user_id);
   const endMins = timeToMins(job.scheduled_time) + job.duration_minutes;
@@ -3236,12 +3237,14 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 
           {(job.before_photo_count > 0 || job.after_photo_count > 0) && (
             <PS label="Photos">
-              <div style={{ display: "flex", gap: 8 }}>
+              <div onClick={() => setPhotosOpen(true)} title="View photos" style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                 {job.before_photo_count > 0 && <PBadge count={job.before_photo_count} label="before" color="#0284C7" bg="#F0F9FF" border="#BAE6FD" />}
                 {job.after_photo_count > 0 && <PBadge count={job.after_photo_count} label="after" color="#16A34A" bg="#F0FDF4" border="#BBF7D0" />}
+                <span style={{ fontSize: 11, color: "var(--brand)", fontWeight: 600 }}>View →</span>
               </div>
             </PS>
           )}
+          {photosOpen && <JobPhotosModal jobId={job.id} onClose={() => setPhotosOpen(false)} />}
 
           {/* [clock-pay-tabs 2026-07-10] Commission + Time Clock merged into one
               tabbed section (Maribel: "commission comes from the clock ... i think
@@ -4999,6 +5002,62 @@ function KV({ label, value, color }: { label: string; value: string; color?: str
 }
 function PBadge({ count, label, color, bg, border }: { count: number; label: string; color: string; bg: string; border: string }) {
   return <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 6, backgroundColor: bg, border: `1px solid ${border}` }}><Camera size={12} style={{ color }} /><span style={{ fontSize: 11, color, fontWeight: 600 }}>{count} {label}</span></div>;
+}
+
+// [job-photos-viewer 2026-07-19] The drawer showed before/after COUNTS but the
+// badges weren't clickable, so techs' photos couldn't be viewed. This modal
+// fetches the job's photos (endpoint returns signed R2 URLs) and shows them in
+// before/after grids with click-to-enlarge.
+function JobPhotosModal({ jobId, onClose }: { jobId: number; onClose: () => void }) {
+  const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const [photos, setPhotos] = useState<Array<{ url: string; photo_type: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [zoom, setZoom] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const r = await fetch(`${API}/api/jobs/${jobId}/photos`, { headers: getAuthHeaders() as any });
+        const d = r.ok ? await r.json() : { data: [] };
+        if (alive) setPhotos(d.data || []);
+      } catch { if (alive) setPhotos([]); }
+      if (alive) setLoading(false);
+    })();
+    return () => { alive = false; };
+  }, [jobId, API]);
+  const before = photos.filter((p) => p.photo_type === "before");
+  const after = photos.filter((p) => p.photo_type !== "before");
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, maxWidth: 900, width: "100%", maxHeight: "90vh", overflow: "auto", padding: 20, fontFamily: FF }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1917" }}>Job #{jobId} photos</div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#6B7280", lineHeight: 1 }}>×</button>
+        </div>
+        {loading ? (
+          <div style={{ padding: 32, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>Loading photos…</div>
+        ) : (!before.length && !after.length) ? (
+          <div style={{ padding: 32, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>No photos found for this job.</div>
+        ) : (
+          ([["Before", before], ["After", after]] as [string, typeof photos][]).map(([lbl, arr]) => arr.length > 0 && (
+            <div key={lbl} style={{ marginBottom: 16 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", marginBottom: 6 }}>{lbl} ({arr.length})</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(120px,1fr))", gap: 8 }}>
+                {arr.map((p, i) => (
+                  <img key={i} src={p.url} alt={`${lbl} ${i + 1}`} onClick={() => setZoom(p.url)} style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 8, cursor: "zoom-in", border: "1px solid #E5E2DC", display: "block" }} />
+                ))}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+      {zoom && (
+        <div onClick={() => setZoom(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.88)", zIndex: 1001, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, cursor: "zoom-out" }}>
+          <img src={zoom} alt="enlarged" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ─── MOBILE JOB CARD ──────────────────────────────────────────────────────────
