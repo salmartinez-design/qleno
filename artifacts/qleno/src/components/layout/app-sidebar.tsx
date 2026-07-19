@@ -40,6 +40,38 @@ function useNeedsContactedCount(role: string | undefined) {
   return eligible ? count : 0;
 }
 
+// [msg-sidebar-badge 2026-07-19] Unread-inbox count for the Messages sidebar
+// item, so unread texts surface the same way the Leads "needs contacted" badge
+// does — a number that stays until the office opens the thread. Uses the same
+// /api/sms/unread-count endpoint the mobile bottom-nav Messages badge already
+// polls, so both stay in sync.
+function useUnreadMessagesCount(role: string | undefined) {
+  const [count, setCount] = useState<number>(0);
+  const token = useAuthStore(state => state.token);
+
+  const eligible = role && ["owner", "admin", "office", "super_admin"].includes(role);
+
+  const fetchCount = useCallback(async () => {
+    if (!eligible || !token) return;
+    try {
+      const res = await fetch("/api/sms/unread-count", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      setCount(data.unread ?? 0);
+    } catch { /* silent */ }
+  }, [eligible, token]);
+
+  useEffect(() => {
+    fetchCount();
+    const id = setInterval(fetchCount, 30_000);
+    return () => clearInterval(id);
+  }, [fetchCount]);
+
+  return eligible ? count : 0;
+}
+
 // [AI.10] useZoneCoverageCount hook removed — Zone Coverage page
 // retired in favor of server-side auto-resolution at boot. Sidebar
 // no longer surfaces a missing-zip badge; the data layer fixes
@@ -67,7 +99,7 @@ const NAV_SECTIONS = [
       // [recurring-revenue 2026-07-12] The recurring-revenue engine, surfaced
       // under the name the office already knows the old tool by ("Ares").
       { title: "Ares",      url: "/ares", icon: Repeat, roles: ["owner", "admin", "office", "super_admin"] },
-      { title: "Messages",  url: "/messages",  icon: MessageSquare, roles: ["owner", "admin", "office", "super_admin"] },
+      { title: "Messages",  url: "/messages",  icon: MessageSquare, roles: ["owner", "admin", "office", "super_admin"], badge: "unread_messages" },
       { title: "Accounts",  url: "/accounts",  icon: Building2, roles: ["owner", "admin", "office", "super_admin"] },
     ],
   },
@@ -165,6 +197,7 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
   }
 
   const needsContactedCount = useNeedsContactedCount(userInfo?.role);
+  const unreadMessagesCount = useUnreadMessagesCount(userInfo?.role);
 
   const initials = userInfo
     ? `${userInfo.firstName[0] || ''}${userInfo.lastName[0] || ''}`.toUpperCase()
@@ -332,7 +365,8 @@ export function AppSidebar({ mobile = false, open = false, onClose }: AppSidebar
               .map(item => {
                 const active = isActive(item.url);
                 const Icon = item.icon;
-                const badgeCount = item.badge === "needs_contacted" ? needsContactedCount : 0;
+                const itemBadge = (item as { badge?: string }).badge;
+                const badgeCount = itemBadge === "needs_contacted" ? needsContactedCount : itemBadge === "unread_messages" ? unreadMessagesCount : 0;
                 return (
                   <Link key={item.title + item.url} href={item.url} onClick={mobile ? onClose : undefined}>
                     <div
