@@ -1535,8 +1535,20 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
             SELECT u.first_name, u.last_name
             FROM users u
             WHERE u.company_id = ${company_id}
-              AND u.role = 'tech'
               AND u.is_active = true
+              -- [avail-techs-fix 2026-07-19] Was 'u.role = tech' — there is NO
+              -- 'tech' value in the role enum (it's 'technician'), so this query
+              -- threw an invalid-enum error every time, got swallowed by the
+              -- catch, and the "Available This Window" block silently never
+              -- rendered. Use the SAME field-staff predicate the dispatch board
+              -- uses (routes/dispatch.ts): technician + team_lead, plus office/
+              -- admin only if field-tagged, and hide placeholder/QA accounts.
+              -- This also correctly excludes office staff (e.g. Maribel/Francisco).
+              AND u.show_on_dispatch IS NOT FALSE
+              AND (
+                u.role NOT IN ('admin', 'owner', 'office', 'super_admin', 'accountant')
+                OR (COALESCE(u.tags, '{}') && ARRAY['field','technician']::text[])
+              )
               AND u.id NOT IN (
                 SELECT jt.user_id FROM job_technicians jt
                 JOIN jobs j ON j.id = jt.job_id

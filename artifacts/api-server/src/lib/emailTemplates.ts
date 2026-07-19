@@ -1,19 +1,14 @@
 import { BranchConfig } from "./branchRouter";
-import { readFileSync } from "fs";
-import { resolve } from "path";
+import { emailLogoUrl } from "./app-url";
 
-// Embed logo as base64 at module load — avoids broken images from URL resolution
-// issues across environments. Falls back to empty string (header still renders).
-function loadLogoDataUri(): string {
-  try {
-    const uploadsDir = process.env.UPLOADS_DIR || resolve(process.cwd(), "artifacts/api-server/uploads");
-    const data = readFileSync(resolve(uploadsDir, "logos", "phes-logo.jpeg"));
-    return `data:image/jpeg;base64,${data.toString("base64")}`;
-  } catch {
-    return "";
-  }
-}
-const LOGO_DATA_URI = loadLogoDataUri();
+// [office-logo-fix 2026-07-19] The logo used to be embedded as a base64 data:
+// URI. Gmail (and several other clients) BLOCK data: image URIs for security,
+// so the office New-Booking notice — and every email routed through
+// emailWrapper — showed a broken-image placeholder in the dark header. Switch
+// to the same hosted absolute URL the customer confirmation email uses
+// (emailLogoUrl → https://app.qleno.com/phes-logo.jpeg, verified 200/image/jpeg),
+// which renders everywhere. Same fix class as #1131/#1133.
+const LOGO_URL = emailLogoUrl();
 
 export interface ConfirmationEmailParams {
   firstName: string;
@@ -88,21 +83,19 @@ const BORDER = "#E5E2DC";
 const BG = "#F7F6F3";
 
 function emailWrapper(body: string): string {
-  const logoImg = LOGO_DATA_URI
-    ? `<img src="${LOGO_DATA_URI}" alt="Phes" style="display:block;height:40px;width:auto;max-width:130px;object-fit:contain;" />`
-    : "";
+  // White header + centered hosted logo + brand underline, matching the
+  // approved customer confirmation email. The old navy header boxed a JPEG
+  // wordmark (no transparency) into a dark bar — it rendered as a white
+  // rectangle even when it loaded, and the redundant "Phes" text sat beside it.
+  const logoImg = LOGO_URL
+    ? `<img src="${LOGO_URL}" alt="Phes — Residential &amp; Commercial Cleaning" height="52" style="height:52px;width:auto;max-width:220px;display:block;border:0;" />`
+    : `<span style="color:${DARK};font-size:20px;font-weight:800;${BASE};">Phes</span>`;
   return `<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:${BG};">
 <div style="max-width:600px;margin:0 auto;padding:24px 16px;">
   <div style="background:#fff;border:1px solid ${BORDER};border-radius:12px;overflow:hidden;">
-    <div style="background:${NAVY};padding:20px 28px;">
-      <table cellpadding="0" cellspacing="0" border="0"><tr>
-        <td style="vertical-align:middle;">${logoImg}</td>
-        <td style="vertical-align:middle;padding-left:14px;">
-          <span style="display:block;color:#fff;font-size:18px;font-weight:800;${BASE};letter-spacing:-0.01em;line-height:1.2;">Phes</span>
-          <span style="display:block;color:#9DA3B0;font-size:12px;font-weight:500;${BASE};margin-top:2px;">Residential &amp; Commercial Cleaning</span>
-        </td>
-      </tr></table>
+    <div style="padding:26px 28px 22px;text-align:center;border-bottom:3px solid ${MINT};">
+      ${logoImg ? `<table cellpadding="0" cellspacing="0" border="0" style="margin:0 auto;"><tr><td>${logoImg}</td></tr></table>` : ""}
     </div>
     <div style="padding:28px;${BASE};color:${DARK};font-size:14px;line-height:1.6;">
       ${body}
