@@ -12,6 +12,31 @@ const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
 const BRAND = "#00C9A0";
 
+// [msg-linkify 2026-07-19] Message bodies — especially drip touches carrying the
+// lead's booking/resume link — were rendered as plain text, so the office
+// couldn't click through to a lead's quote to close them from the conversation.
+// Turn bare URLs into clickable links. color:inherit + underline keeps them
+// legible on the inbound (light), drip (lavender), and outbound (mint) bubbles.
+const URL_RE = /(https?:\/\/[^\s]+)/g;
+function linkify(text: string) {
+  return text.split(URL_RE).map((part, i) =>
+    /^https?:\/\//.test(part) ? (
+      <a
+        key={i}
+        href={part}
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        style={{ color: "inherit", textDecoration: "underline", wordBreak: "break-all" }}
+      >
+        {part}
+      </a>
+    ) : (
+      part
+    )
+  );
+}
+
 interface Convo {
   contact_phone: string; last_at: string; last_body: string; last_dir: string;
   unread: number; client_id: number | null; lead_id: number | null; name: string | null;
@@ -743,7 +768,7 @@ export default function MessagesPage() {
                             </button>
                           </div>
                           <div style={{ fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", color: INK }}>
-                            {s.message}
+                            {linkify(s.message)}
                           </div>
                         </div>
                       </div>
@@ -774,7 +799,7 @@ export default function MessagesPage() {
                             border: isDrip ? "1px solid #E4DBFB" : "none",
                             borderBottomLeftRadius: inbound ? 3 : 12, borderBottomRightRadius: inbound ? 12 : 3 }}>
                             {m.body && (
-                              <div style={{ fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{m.body}</div>
+                              <div style={{ fontSize: 13.5, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word" }}>{linkify(m.body)}</div>
                             )}
                             {mediaKeys.map((key, idx) => (
                               <AuthMedia key={idx} msgId={m.id as number} idx={idx} mediaKey={key} />
