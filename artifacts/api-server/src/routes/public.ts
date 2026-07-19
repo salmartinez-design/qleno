@@ -1309,9 +1309,12 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
     // ── In-app notification: new booking ────────────────────────────────────
     try {
       const notifBody = `${first_name} ${last_name} booked a ${scopeName} for ${preferred_date || "an upcoming date"} — $${adjustedTotal.toFixed(2)}`;
+      // Deep-link to THIS booking on the dispatch board (date + job) so the
+      // office can act on it (assign a tech) — not the generic /customers list.
+      const notifLink = `/dispatch?date=${preferred_date || new Date().toISOString().split("T")[0]}&job=${jobId}`;
       await db.execute(
         drizzleSql`INSERT INTO notifications (company_id, type, title, body, link, meta)
-          VALUES (${Number(company_id)}, 'new_booking', ${'New Booking — ' + first_name + ' ' + last_name}, ${notifBody}, ${'/customers'}, ${JSON.stringify({ job_id: jobId, client_name: `${first_name} ${last_name}` })}::jsonb)`
+          VALUES (${Number(company_id)}, 'new_booking', ${'New Booking — ' + first_name + ' ' + last_name}, ${notifBody}, ${notifLink}, ${JSON.stringify({ job_id: jobId, client_name: `${first_name} ${last_name}` })}::jsonb)`
       );
     } catch (notifErr) {
       console.error("[new_booking notify] failed:", notifErr);
