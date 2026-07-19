@@ -160,8 +160,6 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
 
   const checklist = `<p style="margin:14px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;"><strong>Curious what's included?</strong> See our full <a href="${escAttr(o.checklistUrl)}" style="color:${BRAND};text-decoration:none;font-weight:600;">Cleaning Checklist &rarr;</a></p>`;
 
-  const phoneBtn = `<a href="tel:${escAttr(o.companyPhoneTel)}" style="display:inline-block;margin-top:10px;padding:9px 18px;background:${GREEN_FG};color:#ffffff;text-decoration:none;border-radius:7px;font-family:${FONT};font-size:14px;font-weight:700;">Call ${esc(o.companyPhone)}</a>`;
-
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Your cleaning is confirmed</title></head>
 <body style="margin:0;padding:0;background:${BG};font-family:${FONT};">
@@ -213,7 +211,7 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
         `If we miss a spot, tell us within 24 hours and we'll come back and re-clean it at no charge. No questions asked.`)}
 
       ${callout(GREEN_BG, GREEN_FG, GREEN_INK, "%", "Get 15% OFF your second appointment",
-        `Book a recurring service (weekly, biweekly, or monthly) by the end of your appointment day and we'll take 15% off your second visit. You'll also get preferred scheduling and the same technician each visit. Call ${esc(o.companyPhone)} or reply to set it up.<br/>${phoneBtn}`)}
+        `Book a recurring service (weekly, biweekly, or monthly) by the end of your appointment day and we'll take 15% off your second visit. You'll also get preferred scheduling and the same technician each visit. Call ${esc(o.companyPhone)} or reply to set it up.`)}
 
       <!-- Fine print -->
       ${o.showOverageNote ? "" : `<p style="margin:22px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;"><strong style="color:${MUTE};">Pricing:</strong> Flat-rate estimates assume the home matches what you described. If conditions differ significantly, we'll send an updated estimate. Extra time bills at $70/hour per cleaner.</p>`}
