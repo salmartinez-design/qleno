@@ -11,7 +11,7 @@ import { companiesTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getBranchByZip } from "../lib/branchRouter";
 import { computePetFee, petFeeConfigFromRow } from "../lib/pet-fee";
-import { buildClientConfirmationEmail, buildOfficeNotificationEmail } from "../lib/emailTemplates";
+import { buildOfficeNotificationEmail } from "../lib/emailTemplates";
 import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
 import { geocodeWithComponents } from "../lib/geocode";
 
@@ -1564,14 +1564,12 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       try {
         const { Resend } = await import("resend");
         const resend = new Resend(resendKey);
-        const { subject: clientSubject, html: clientHtml } = buildClientConfirmationEmail(emailParams);
-        await resend.emails.send({
-          from: `Phes <${branchConfig.officeEmail}>`,
-          replyTo: branchConfig.officeEmail,
-          to: [email],
-          subject: clientSubject,
-          html: clientHtml,
-        });
+        // [dedup 2026-07-19] The CUSTOMER confirmation is sent by
+        // sendJobScheduledConfirmation() above (the branded email WITH the
+        // Add-to-Calendar Google/Apple/Outlook buttons + logo). Do NOT also send
+        // the legacy buildClientConfirmationEmail here — it was a second,
+        // calendar-less "Your Phes Deep Clean is Confirmed" email to the same
+        // customer. Only the office notification remains in this block.
         const { subject: officeSubject, html: officeHtml } = buildOfficeNotificationEmail(emailParams);
         await resend.emails.send({
           from: `Phes <${branchConfig.officeEmail}>`,
