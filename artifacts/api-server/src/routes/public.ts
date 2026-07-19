@@ -1152,14 +1152,33 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       clientId = (newClient.rows[0] as any).id;
     }
 
-    const homeResult = await db.execute(
-      drizzleSql`
+    // [address-dedup 2026-07-19] Reuse an existing home at the SAME address
+    // instead of stacking a duplicate property on every booking — repeat
+    // bookings at one address were piling up identical "Home" rows on the
+    // profile. Match on case-insensitive trimmed address + zip; refresh details.
+    const homeAddr = address || address_street || "(address pending)";
+    const homeZip = zip || address_zip || null;
+    const existingHome = await db.execute(drizzleSql`
+      SELECT id FROM client_homes
+       WHERE company_id = ${company_id} AND client_id = ${clientId}
+         AND lower(trim(COALESCE(address, ''))) = lower(trim(${homeAddr}))
+         AND COALESCE(zip, '') = COALESCE(${homeZip}::text, '')
+       ORDER BY is_primary DESC NULLS LAST, id ASC LIMIT 1`);
+    let homeId: number;
+    if (existingHome.rows.length) {
+      homeId = (existingHome.rows[0] as any).id;
+      await db.execute(drizzleSql`
+        UPDATE client_homes SET bedrooms = COALESCE(${bedrooms || null}, bedrooms),
+               bathrooms = COALESCE(${bathrooms || null}, bathrooms),
+               sq_footage = COALESCE(${sqft || null}, sq_footage)
+         WHERE id = ${homeId}`).catch(() => {});
+    } else {
+      const homeResult = await db.execute(drizzleSql`
         INSERT INTO client_homes (company_id, client_id, address, zip, bedrooms, bathrooms, sq_footage, is_primary, created_at)
-        VALUES (${company_id}, ${clientId}, ${address || address_street || "(address pending)"}, ${zip || address_zip || null}, ${bedrooms || null}, ${bathrooms || null}, ${sqft || null}, true, NOW())
-        RETURNING id
-      `
-    );
-    const homeId = (homeResult.rows[0] as any).id;
+        VALUES (${company_id}, ${clientId}, ${homeAddr}, ${homeZip}, ${bedrooms || null}, ${bathrooms || null}, ${sqft || null}, true, NOW())
+        RETURNING id`);
+      homeId = (homeResult.rows[0] as any).id;
+    }
 
     const addonBreakdownJson = JSON.stringify(pricing.addon_breakdown);
     const scopeRow = await db.execute(drizzleSql`SELECT name FROM pricing_scopes WHERE id = ${scope_id} LIMIT 1`);
@@ -1713,14 +1732,33 @@ router.post("/book", rateLimit, async (req, res) => {
       clientId = (newClient.rows[0] as any).id;
     }
 
-    const homeResult = await db.execute(
-      drizzleSql`
+    // [address-dedup 2026-07-19] Reuse an existing home at the SAME address
+    // instead of stacking a duplicate property on every booking — repeat
+    // bookings at one address were piling up identical "Home" rows on the
+    // profile. Match on case-insensitive trimmed address + zip; refresh details.
+    const homeAddr = address || address_street || "(address pending)";
+    const homeZip = zip || address_zip || null;
+    const existingHome = await db.execute(drizzleSql`
+      SELECT id FROM client_homes
+       WHERE company_id = ${company_id} AND client_id = ${clientId}
+         AND lower(trim(COALESCE(address, ''))) = lower(trim(${homeAddr}))
+         AND COALESCE(zip, '') = COALESCE(${homeZip}::text, '')
+       ORDER BY is_primary DESC NULLS LAST, id ASC LIMIT 1`);
+    let homeId: number;
+    if (existingHome.rows.length) {
+      homeId = (existingHome.rows[0] as any).id;
+      await db.execute(drizzleSql`
+        UPDATE client_homes SET bedrooms = COALESCE(${bedrooms || null}, bedrooms),
+               bathrooms = COALESCE(${bathrooms || null}, bathrooms),
+               sq_footage = COALESCE(${sqft || null}, sq_footage)
+         WHERE id = ${homeId}`).catch(() => {});
+    } else {
+      const homeResult = await db.execute(drizzleSql`
         INSERT INTO client_homes (company_id, client_id, address, zip, bedrooms, bathrooms, sq_footage, is_primary, created_at)
-        VALUES (${company_id}, ${clientId}, ${address || address_street || "(address pending)"}, ${zip || address_zip || null}, ${bedrooms || null}, ${bathrooms || null}, ${sqft || null}, true, NOW())
-        RETURNING id
-      `
-    );
-    const homeId = (homeResult.rows[0] as any).id;
+        VALUES (${company_id}, ${clientId}, ${homeAddr}, ${homeZip}, ${bedrooms || null}, ${bathrooms || null}, ${sqft || null}, true, NOW())
+        RETURNING id`);
+      homeId = (homeResult.rows[0] as any).id;
+    }
 
     const addonBreakdownJson = JSON.stringify(pricing.addon_breakdown);
     const scopeRow = await db.execute(drizzleSql`SELECT name FROM pricing_scopes WHERE id = ${scope_id} LIMIT 1`);
