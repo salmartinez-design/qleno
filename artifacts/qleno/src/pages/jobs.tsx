@@ -5012,7 +5012,7 @@ function JobPhotosModal({ jobId, onClose }: { jobId: number; onClose: () => void
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
   const [photos, setPhotos] = useState<Array<{ url: string; photo_type: string }>>([]);
   const [loading, setLoading] = useState(true);
-  const [zoom, setZoom] = useState<string | null>(null);
+  const [zoomIdx, setZoomIdx] = useState<number | null>(null);
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -5027,6 +5027,18 @@ function JobPhotosModal({ jobId, onClose }: { jobId: number; onClose: () => void
   }, [jobId, API]);
   const before = photos.filter((p) => p.photo_type === "before");
   const after = photos.filter((p) => p.photo_type !== "before");
+  const ordered = [...before, ...after];
+  // Keyboard nav for the lightbox: ← / → step through all photos, Esc closes.
+  useEffect(() => {
+    if (zoomIdx === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") setZoomIdx((i) => (i! > 0 ? i! - 1 : ordered.length - 1));
+      else if (e.key === "ArrowRight") setZoomIdx((i) => (i! < ordered.length - 1 ? i! + 1 : 0));
+      else if (e.key === "Escape") setZoomIdx(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [zoomIdx, ordered.length]);
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, maxWidth: 900, width: "100%", maxHeight: "90vh", overflow: "auto", padding: 20, fontFamily: FF }}>
@@ -5039,21 +5051,35 @@ function JobPhotosModal({ jobId, onClose }: { jobId: number; onClose: () => void
         ) : (!before.length && !after.length) ? (
           <div style={{ padding: 32, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>No photos found for this job.</div>
         ) : (
-          ([["Before", before], ["After", after]] as [string, typeof photos][]).map(([lbl, arr]) => arr.length > 0 && (
+          ([["Before", before, 0], ["After", after, before.length]] as [string, typeof photos, number][]).map(([lbl, arr, offset]) => arr.length > 0 && (
             <div key={lbl} style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", marginBottom: 6 }}>{lbl} ({arr.length})</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(120px,1fr))", gap: 8 }}>
                 {arr.map((p, i) => (
-                  <img key={i} src={p.url} alt={`${lbl} ${i + 1}`} onClick={() => setZoom(p.url)} style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 8, cursor: "zoom-in", border: "1px solid #E5E2DC", display: "block" }} />
+                  <img key={i} src={p.url} alt={`${lbl} ${i + 1}`} onClick={() => setZoomIdx(offset + i)} style={{ width: "100%", height: 120, objectFit: "cover", borderRadius: 8, cursor: "zoom-in", border: "1px solid #E5E2DC", display: "block" }} />
                 ))}
               </div>
             </div>
           ))
         )}
       </div>
-      {zoom && (
-        <div onClick={() => setZoom(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.88)", zIndex: 1001, display: "flex", alignItems: "center", justifyContent: "center", padding: 20, cursor: "zoom-out" }}>
-          <img src={zoom} alt="enlarged" style={{ maxWidth: "100%", maxHeight: "100%", objectFit: "contain" }} />
+      {zoomIdx !== null && ordered[zoomIdx] && (
+        <div onClick={() => setZoomIdx(null)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.9)", zIndex: 1001, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <button onClick={onClose} style={{ position: "absolute", top: 16, right: 20, background: "none", border: "none", cursor: "pointer", fontSize: 30, color: "#fff", lineHeight: 1 }}>×</button>
+          <button
+            onClick={(e) => { e.stopPropagation(); setZoomIdx((i) => (i! > 0 ? i! - 1 : ordered.length - 1)); }}
+            style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,.15)", border: "none", color: "#fff", fontSize: 30, lineHeight: 1, cursor: "pointer", display: ordered.length > 1 ? "flex" : "none", alignItems: "center", justifyContent: "center" }}
+            aria-label="Previous"
+          >‹</button>
+          <img src={ordered[zoomIdx].url} alt="enlarged" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "88%", maxHeight: "88%", objectFit: "contain", borderRadius: 4 }} />
+          <button
+            onClick={(e) => { e.stopPropagation(); setZoomIdx((i) => (i! < ordered.length - 1 ? i! + 1 : 0)); }}
+            style={{ position: "absolute", right: 12, top: "50%", transform: "translateY(-50%)", width: 48, height: 48, borderRadius: "50%", background: "rgba(255,255,255,.15)", border: "none", color: "#fff", fontSize: 30, lineHeight: 1, cursor: "pointer", display: ordered.length > 1 ? "flex" : "none", alignItems: "center", justifyContent: "center" }}
+            aria-label="Next"
+          >›</button>
+          <div style={{ position: "absolute", bottom: 20, left: "50%", transform: "translateX(-50%)", color: "#fff", fontSize: 13, fontWeight: 600, background: "rgba(0,0,0,.5)", padding: "4px 12px", borderRadius: 12, fontFamily: FF }}>
+            {zoomIdx < before.length ? "Before" : "After"} · {zoomIdx + 1} / {ordered.length}
+          </div>
         </div>
       )}
     </div>
