@@ -676,8 +676,20 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                            WHERE i.company_id = nl.company_id AND i.client_id = ${clientId}
                              AND i.invoice_number = (nl.metadata->>'invoice_number') LIMIT 1)
                END AS doc_id,
-               CASE WHEN nl.metadata->>'job_id' ~ '^[0-9]+$'
-                    THEN (nl.metadata->>'job_id')::int END AS job_id
+               COALESCE(
+                 CASE WHEN nl.metadata->>'job_id' ~ '^[0-9]+$'
+                      THEN (nl.metadata->>'job_id')::int END,
+                 -- Pre-#1147 booking emails don't carry job_id in metadata. Resolve
+                 -- to the client's job created closest to when the email was sent
+                 -- (the job_scheduled confirmation fires seconds after job creation),
+                 -- so the office can still Resend from the profile.
+                 CASE WHEN nl.trigger = 'job_scheduled' THEN
+                   (SELECT j.id FROM jobs j
+                     WHERE j.company_id = nl.company_id AND j.client_id = ${clientId}
+                     ORDER BY ABS(EXTRACT(EPOCH FROM (j.created_at - nl.sent_at)))
+                     LIMIT 1)
+                 END
+               ) AS job_id
           FROM notification_log nl
          WHERE nl.company_id = ${companyId}
            AND (( ${email} <> '' AND nl.recipient = ${email}) OR ( ${phone} <> '' AND nl.recipient = ${phone}))
