@@ -461,6 +461,32 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       return key(b).localeCompare(key(a));
     });
 
+    // [scorecard-display 2026-07-19] Client ratings from the PORTAL and SURVEY
+    // land in scorecard_entries (employee-facing, no client_id) — not the
+    // scorecards table this profile historically read, so they never showed here
+    // (only SMS-reply ratings did). Union them in: one row per job, joined to the
+    // client via the job, mapped to the same shape (score_value is the 0–4 scale
+    // the UI expects). A scorecards row (SMS) wins when a job has both.
+    const seenScJobs = new Set((scorecards as any[]).map((s) => s.job_id));
+    const entryRes = await db.execute(sql`
+      SELECT DISTINCT ON (se.job_id)
+             se.id, se.job_id, se.score_value::float AS score, se.entry_date,
+             se.notes AS comments, j.scheduled_date, u.first_name, u.last_name
+        FROM scorecard_entries se
+        JOIN jobs j ON j.id = se.job_id AND j.client_id = ${clientId} AND j.company_id = ${companyId}
+        LEFT JOIN users u ON u.id = se.employee_id
+       WHERE se.company_id = ${companyId}
+       ORDER BY se.job_id, se.entry_date DESC`);
+    const entryScorecards = (entryRes.rows as any[])
+      .filter((r) => !seenScJobs.has(r.job_id))
+      .map((r) => ({
+        id: `se-${r.id}`, score: Number(r.score), comments: r.comments ?? null,
+        excluded: false, created_at: r.entry_date, job_id: r.job_id,
+        scheduled_date: r.scheduled_date, first_name: r.first_name, last_name: r.last_name,
+      }));
+    const mergedScorecards = [...(scorecards as any[]), ...entryScorecards]
+      .sort((a, b) => String(b.created_at ?? b.scheduled_date ?? "").localeCompare(String(a.created_at ?? a.scheduled_date ?? "")));
+
     return res.json({
       ...client,
       ...(zoneData || {}),
@@ -468,7 +494,7 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
       homes: homesWithZone,
       tech_preferences: preferences,
       notification_settings: notifications,
-      scorecards,
+      scorecards: mergedScorecards,
       invoices: invoicesWithService,
       jobs: jobs.slice(0, 20),
       stats: {
@@ -480,7 +506,7 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
         completed_jobs: completed_jobs.length,
         avg_bill,
         avg_bill_completed,
-        scorecard_avg: scorecards.length ? scorecards.reduce((s, sc) => s + sc.score, 0) / scorecards.length : null,
+        scorecard_avg: mergedScorecards.length ? mergedScorecards.reduce((s, sc) => s + Number(sc.score), 0) / mergedScorecards.length : null,
         // [scheduling-engine 2026-04-29] Derived fields the profile
         // page needs to render the badge + tier + consistency flag
         // without re-deriving on the client.
