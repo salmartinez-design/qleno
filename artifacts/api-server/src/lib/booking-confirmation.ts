@@ -206,6 +206,11 @@ export async function sendJobScheduledConfirmation(
     const built = await buildJobLineItems(j.company_id, j.id).catch(() => null);
     const lineItems = (built?.lineItems ?? []).map((li) => ({ description: li.description, total: Number(li.total) || 0 }));
     mv.services_breakdown = renderServicesBreakdown(lineItems);
+    // [comm-log-resend] Stamp the job id into the log metadata so the client
+    // profile's Communication Log can offer a "Resend" on this booking email
+    // (the comm-log query reads metadata->>'job_id'). No template uses {{job_id}},
+    // so this only affects the logged metadata, not the rendered message.
+    mv.job_id = String(jobId);
     const paymentTotal = built ? `$${built.subtotal.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "";
 
     // Dedicated confirmation-email renderer (Pass 2). Cleaner first name + photo
