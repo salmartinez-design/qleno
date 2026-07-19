@@ -155,7 +155,7 @@ export function renderPhesBookingConfirmation(o: PhesConfOpts): string {
     </table>`;
 
   const breakdown = o.servicesBreakdownHtml
-    ? `${h3("Service details")}${o.servicesBreakdownHtml}`
+    ? `${h3("Price breakdown")}${o.servicesBreakdownHtml}`
     : "";
 
   const checklist = `<p style="margin:14px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;"><strong>Curious what's included?</strong> See our full <a href="${escAttr(o.checklistUrl)}" style="color:${BRAND};text-decoration:none;font-weight:600;">Cleaning Checklist &rarr;</a></p>`;
