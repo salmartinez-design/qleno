@@ -649,7 +649,8 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                     THEN (SELECT i.id FROM invoices i
                            WHERE i.company_id = nl.company_id AND i.client_id = ${clientId}
                              AND i.invoice_number = (nl.metadata->>'invoice_number') LIMIT 1)
-               END AS doc_id
+               END AS doc_id,
+               COALESCE(nl.job_id, (nl.metadata->>'job_id')::int) AS job_id
           FROM notification_log nl
          WHERE nl.company_id = ${companyId}
            AND (( ${email} <> '' AND nl.recipient = ${email}) OR ( ${phone} <> '' AND nl.recipient = ${phone}))
@@ -658,7 +659,7 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                'sms'::text AS type, COALESCE(to_number, from_number)::text AS recipient,
                status::text AS status, NULL::text AS subject, body::text AS body,
                NULL::text AS email_html, 'two_way'::text AS source,
-               NULL::text AS doc_type, NULL::int AS doc_id
+               NULL::text AS doc_type, NULL::int AS doc_id, NULL::int AS job_id
           FROM sms_messages
          WHERE company_id = ${companyId} AND (
                client_id = ${clientId}
@@ -670,7 +671,7 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                COALESCE(source, 'message')::text AS type, recipient::text AS recipient,
                delivery_status::text AS status, subject::text AS subject, body::text AS body,
                NULL::text AS email_html, 'logged'::text AS source,
-               NULL::text AS doc_type, NULL::int AS doc_id
+               NULL::text AS doc_type, NULL::int AS doc_id, NULL::int AS job_id
           FROM communication_log
          WHERE company_id = ${companyId} AND customer_id = ${clientId}
         UNION ALL
@@ -680,7 +681,7 @@ router.get("/:id/messages", requireAuth, requireRole("owner", "admin", "office")
                status::text AS status, subject::text AS subject, body::text AS body,
                CASE WHEN channel = 'email' AND body ~ '<[a-zA-Z]' THEN body END AS email_html,
                'cadence'::text AS source,
-               NULL::text AS doc_type, NULL::int AS doc_id
+               NULL::text AS doc_type, NULL::int AS doc_id, NULL::int AS job_id
           FROM message_log
          WHERE company_id = ${companyId} AND (
                client_id = ${clientId}
