@@ -11,6 +11,7 @@ import {
 import { eq, and } from "drizzle-orm";
 import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
+import { computePricing } from "../lib/pricing-engine.js";
 
 const router = Router();
 
@@ -505,23 +506,6 @@ router.delete("/fees/:id", requireAuth, async (req, res) => {
 
 // ── Calculate ─────────────────────────────────────────────────────────────────
 
-export function calcAddonAmount(addon: any, base_price: number, sqft: number | null): number {
-  const pv = parseFloat(String(addon.price_value ?? addon.price ?? 0));
-  switch (addon.price_type) {
-    case "flat":       return pv;
-    case "percentage": return (pv / 100) * base_price;
-    case "sqft_pct":   return sqft ? (pv / 100) * sqft : 0;
-    case "time_only":  return 0;
-    case "manual_adj": return pv;
-    // legacy
-    case "percent": {
-      const pob = parseFloat(String(addon.percent_of_base ?? 0));
-      return (pob / 100) * base_price;
-    }
-    default: return pv;
-  }
-}
-
 router.post("/calculate", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
@@ -542,215 +526,18 @@ router.post("/calculate", requireAuth, async (req, res) => {
 
     if (!scope_id) return res.status(400).json({ error: "scope_id is required" });
 
-    const [scope] = await db.select().from(pricingScopesTable)
-      .where(and(eq(pricingScopesTable.id, scope_id), eq(pricingScopesTable.company_id, companyId)));
-    if (!scope) return res.status(404).json({ error: "Scope not found" });
-
-    const method = scope.pricing_method || "sqft";
-
-    const freqs = await db.select().from(pricingFrequenciesTable)
-      .where(and(eq(pricingFrequenciesTable.scope_id, scope_id), eq(pricingFrequenciesTable.company_id, companyId)));
-    const freqFactor = frequency ? freqs.find(f => f.frequency === frequency) : null;
-    // [PR #63] Prefer per-client override when present. Falls back to scope
-    // rate. Both still go through the frequency multiplier path below so
-    // Weekly/Biweekly/etc. discounts continue to apply.
-    const overrideNum = hourly_rate_override != null && hourly_rate_override !== ""
-      ? parseFloat(String(hourly_rate_override))
-      : NaN;
-    const useOverride = !isNaN(overrideNum) && overrideNum > 0;
-    const scope_hourly = useOverride ? overrideNum : parseFloat(String(scope.hourly_rate));
-    let hourly_rate: number;
-    if (freqFactor?.rate_override != null && freqFactor.rate_override !== "") {
-      hourly_rate = parseFloat(String(freqFactor.rate_override));
-    } else {
-      const mult = freqFactor ? parseFloat(String(freqFactor.multiplier)) : 1.0;
-      hourly_rate = scope_hourly * mult;
-    }
-
-    let base_hours: number;
-    let tier_id: number | null = null;
-    let used_sqft: number | null = null;
-
-    if (method === "sqft") {
-      // [PR #62] Prefer caller-supplied hours over sqft tier lookup. The
-      // edit-job modal opens on legacy MC-migrated clients with no sqft
-      // on file but a known allowed_hours. Before this change the engine
-      // refused to compute (400 "sqft is required") which froze the
-      // modal — operators couldn't reconcile rate / parking / addons
-      // because the New total wouldn't move. Now: if the caller passes
-      // hours, use them directly with hours × hourly_rate (skip tier
-      // lookup). Sqft is still optional UI input — when provided it
-      // populates `used_sqft` for downstream %-based sqft addons. When
-      // both sqft and hours are missing, we still 400 — at that point
-      // the engine genuinely can't compute.
-      const hoursProvided = hours != null && hours !== "" && Number(hours) > 0;
-      if (!sqft && !hoursProvided) {
-        return res.status(400).json({ error: "sqft is required for sqft-based scopes" });
-      }
-      if (hoursProvided) {
-        // Use the explicit hours value, no tier lookup. used_sqft stays
-        // null (unless sqft was also passed) so sqft-based %-addons that
-        // depend on actual square footage compute to 0 — consistent with
-        // the no-sqft-known reality.
-        base_hours = parseFloat(String(hours));
-        used_sqft = sqft ?? null;
-      } else {
-        const tiers = await db.select().from(pricingTiersTable)
-          .where(and(eq(pricingTiersTable.scope_id, scope_id), eq(pricingTiersTable.company_id, companyId)));
-        const sortedTiers = [...tiers].sort((a, b) => a.min_sqft - b.min_sqft);
-        const tier = sortedTiers.find(t => sqft! >= t.min_sqft && sqft! <= t.max_sqft)
-          ?? (sqft! < Number(sortedTiers[0]?.min_sqft) ? sortedTiers[0] : sortedTiers[sortedTiers.length - 1]);
-        if (!tier) return res.status(422).json({ error: "No tier found for the given sqft" });
-        base_hours = parseFloat(String(tier.hours));
-        tier_id = tier.id;
-        used_sqft = sqft!;
-      }
-    } else {
-      if (!hours || Number(hours) <= 0) return res.status(400).json({ error: "hours is required for hourly/simplified scopes" });
-      base_hours = parseFloat(String(hours));
-      used_sqft = sqft ?? null;
-    }
-
-    let base_price = base_hours * hourly_rate;
-    const minimum_bill = parseFloat(String(scope.minimum_bill));
-    let minimum_applied = false;
-    if (minimum_bill > 0 && base_price < minimum_bill) { base_price = minimum_bill; minimum_applied = true; }
-
-    let addons_total = 0;
-    let addon_minutes = 0;
-    const addon_breakdown: Array<{ id: number; name: string; amount: number; price_type: string }> = [];
-
-    if (Array.isArray(addon_ids) && addon_ids.length > 0) {
-      const validIds = addon_ids.map((id: any) => parseInt(String(id))).filter(n => !isNaN(n));
-      if (validIds.length > 0) {
-        const result = await db.execute(sql`
-          SELECT * FROM pricing_addons
-           WHERE company_id = ${companyId}
-             AND id = ANY(ARRAY[${sql.raw(validIds.join(','))}]::int[])
-             AND is_active = true
-        `);
-        const addons = (result as any).rows ?? [];
-        for (const addon of addons) {
-          const qty = (addon_quantities && addon_quantities[String(addon.id)]) ? Math.max(1, parseInt(String(addon_quantities[String(addon.id)]))) : 1;
-          addon_minutes += (parseInt(String(addon.time_add_minutes ?? 0)) || 0) * qty;
-          if (addon.price_type === "time_only") continue;
-          const unitAmount = calcAddonAmount(addon, base_price, used_sqft);
-          const amount = unitAmount * qty;
-          addons_total += amount;
-          addon_breakdown.push({ id: addon.id, name: addon.name, amount: Math.round(amount * 100) / 100, price_type: addon.price_type });
-        }
-      }
-    }
-    const addon_hours = Math.round((addon_minutes / 60) * 100) / 100;
-    const total_hours = Math.round((base_hours + addon_hours) * 100) / 100;
-
-    // ── Bundle discounts (must match public/calculate logic exactly) ──────────
-    let bundle_discount = 0;
-    const bundle_breakdown: Array<{ id: number; name: string; discount: number; applied: boolean }> = [];
-    const disabledBundleSet = new Set(
-      (Array.isArray(disabled_bundle_ids) ? disabled_bundle_ids : [])
-        .map((x: any) => parseInt(String(x))).filter((n: number) => !isNaN(n)),
-    );
-    if (Array.isArray(addon_ids) && addon_ids.length > 0) {
-      const validIdsForBundles = addon_ids.map((id: any) => parseInt(String(id))).filter(n => !isNaN(n));
-      if (validIdsForBundles.length > 0) {
-        const bundleResult = await db.execute(sql`
-          SELECT ab.id, ab.name, ab.discount_type, ab.discount_value,
-                 array_agg(abi.addon_id) as required_ids
-            FROM addon_bundles ab
-            JOIN addon_bundle_items abi ON abi.bundle_id = ab.id
-           WHERE ab.company_id = ${companyId} AND ab.active = true
-           GROUP BY ab.id, ab.name, ab.discount_type, ab.discount_value
-        `);
-        const bundles = (bundleResult as any).rows ?? [];
-        // [combo-discount-fix 2026-06-16] (#13) Previously EVERY bundle whose
-        // required add-ons were all present was applied and summed, so two
-        // bundles covering the same add-ons stacked — e.g. "Appliance Combo"
-        // (-$20) AND "Oven + Refrigerator Combo" (-$15), both = {Oven,
-        // Refrigerator}, hit the same quote (-$35 instead of one). Select a
-        // NON-OVERLAPPING set: prefer the most specific bundle (largest required
-        // set), tie-broken by the larger discount, and never let two bundles
-        // claim the same add-on. Disjoint bundles (e.g. an appliance combo + a
-        // window combo) still stack — only same-add-on overlaps are collapsed.
-        const candidates = bundles.map((bundle: any) => {
-          const required: number[] = [...new Set((bundle.required_ids ?? []).map((x: any) => parseInt(String(x))).filter((n: number) => !isNaN(n)))] as number[];
-          const matched = required.filter(rid => validIdsForBundles.includes(rid));
-          if (required.length === 0 || matched.length !== required.length) return null;
-          const dv = parseFloat(String(bundle.discount_value));
-          let disc = 0;
-          if (bundle.discount_type === "flat_per_item") {
-            disc = dv * matched.length;
-          } else if (bundle.discount_type === "flat" || bundle.discount_type === "flat_total") {
-            disc = dv;
-          } else if (bundle.discount_type === "percentage") {
-            disc = (dv / 100) * base_price;
-          }
-          return { id: Number(bundle.id), name: String(bundle.name), required, disc };
-        }).filter(Boolean) as Array<{ id: number; name: string; required: number[]; disc: number }>;
-        // Most specific first; equal specificity → larger discount wins.
-        candidates.sort((a, b) => (b.required.length - a.required.length) || (b.disc - a.disc));
-        const consumedAddons = new Set<number>();
-        for (const c of candidates) {
-          if (c.required.some(rid => consumedAddons.has(rid))) continue; // overlaps a higher-priority bundle
-          c.required.forEach(rid => consumedAddons.add(rid));
-          // [combo-optional] A bundle the office toggled off is still surfaced
-          // (so the UI can show + re-enable it) but its discount is NOT applied.
-          const applied = !disabledBundleSet.has(c.id);
-          if (applied) bundle_discount += c.disc;
-          bundle_breakdown.push({ id: c.id, name: c.name, discount: Math.round(c.disc * 100) / 100, applied });
-        }
-      }
-    }
-    addons_total -= bundle_discount;
-
-    // Manual adjustment (office-entered free-form amount)
-    if (manual_adjustment && manual_adjustment !== 0) {
-      const adjAmt = parseFloat(String(manual_adjustment));
-      if (!isNaN(adjAmt) && adjAmt !== 0) {
-        addons_total += adjAmt;
-        addon_breakdown.push({ id: -1, name: "Manual Adjustment", amount: Math.round(adjAmt * 100) / 100, price_type: "manual_adj" });
-      }
-    }
-
-    let subtotal = base_price + addons_total;
-    let discount_amount = 0;
-    let final_total = subtotal;
-    let discount_valid = false;
-
-    if (discount_code) {
-      const allDiscounts = await db.select().from(pricingDiscountsTable).where(eq(pricingDiscountsTable.company_id, companyId));
-      const match = allDiscounts.find(d => {
-        if (d.code.toUpperCase() !== discount_code.toUpperCase() || !d.is_active) return false;
-        let scopes: number[] = []; try { scopes = JSON.parse((d as any).scope_ids || "[]"); } catch {}
-        return scopes.length === 0 || scopes.includes(scope_id);
-      });
-      if (match) {
-        discount_valid = true;
-        if (match.discount_type === "flat") {
-          discount_amount = parseFloat(String(match.discount_value));
-        } else {
-          discount_amount = (parseFloat(String(match.discount_value)) / 100) * subtotal;
-        }
-        final_total = Math.max(0, subtotal - discount_amount);
-      }
-    }
-
-    return res.json({
-      scope_id, pricing_method: method,
-      sqft: used_sqft, hours: base_hours, frequency: frequency ?? null,
-      tier_id, base_hours, addon_hours, total_hours,
-      hourly_rate: Math.round(hourly_rate * 100) / 100,
-      base_price: Math.round(base_price * 100) / 100,
-      minimum_applied, minimum_bill: Math.round(minimum_bill * 100) / 100,
-      addons_total: Math.round(addons_total * 100) / 100,
-      addon_breakdown,
-      bundle_discount: Math.round(bundle_discount * 100) / 100,
-      bundle_breakdown,
-      subtotal: Math.round(subtotal * 100) / 100,
-      discount_amount: Math.round(discount_amount * 100) / 100,
-      discount_valid: discount_code ? discount_valid : undefined,
-      final_total: Math.round(final_total * 100) / 100,
+    // [pricing-unify 2026-07-20] Office quote tool now runs on the SAME shared
+    // engine as the website (lib/pricing-engine.ts) — one source of truth, no
+    // more office-vs-website drift. The office passes its extra levers (rate
+    // override, explicit hours, add-on quantities, manual adjustment, disabled
+    // combos); it deliberately does NOT pass pets/public_only (office has no pet
+    // fee and no online-discount gate).
+    const result = await computePricing({
+      company_id: companyId,
+      scope_id, sqft, hours, frequency, addon_ids, discount_code,
+      addon_quantities, manual_adjustment, disabled_bundle_ids, hourly_rate_override,
     });
+    return res.json(result);
   } catch (err) {
     console.error("POST /pricing/calculate:", err);
     return res.status(500).json({ error: "Internal Server Error" });
