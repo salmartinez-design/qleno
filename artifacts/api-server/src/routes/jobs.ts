@@ -898,10 +898,16 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         id: jobsTable.id,
         client_id: jobsTable.client_id,
         client_name: sql<string>`CASE WHEN ${jobsTable.account_id} IS NOT NULL THEN ${accountsTable.account_name} ELSE concat(${clientsTable.first_name}, ' ', ${clientsTable.last_name}) END`,
-        address: sql<string | null>`CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.address} ELSE ${clientsTable.address} END`,
-        city: sql<string | null>`CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.city} ELSE ${clientsTable.city} END`,
-        state: sql<string | null>`CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.state} ELSE ${clientsTable.state} END`,
-        zip: sql<string | null>`CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.zip} ELSE ${clientsTable.zip} END`,
+        // [wrong-property-fix 2026-07-20] Prefer the per-job address override
+        // (jobs.address_*) over the client/account default — mirrors the dispatch
+        // board (routes/dispatch.ts). Before this, a residential client with more
+        // than one property always sent the tech to clients.address (the "usual"
+        // home), NOT the property the office assigned to THIS job (CJ Jimenez was
+        // dispatched to 6431 Artesian but the tech's My Jobs showed 5204 Oak Park).
+        address: sql<string | null>`COALESCE(NULLIF(${jobsTable.address_street}, ''), CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.address} ELSE ${clientsTable.address} END)`,
+        city: sql<string | null>`COALESCE(NULLIF(${jobsTable.address_city}, ''), CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.city} ELSE ${clientsTable.city} END)`,
+        state: sql<string | null>`COALESCE(NULLIF(${jobsTable.address_state}, ''), CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.state} ELSE ${clientsTable.state} END)`,
+        zip: sql<string | null>`COALESCE(NULLIF(${jobsTable.address_zip}, ''), CASE WHEN ${jobsTable.account_property_id} IS NOT NULL THEN ${accountPropertiesTable.zip} ELSE ${clientsTable.zip} END)`,
         lat: clientsTable.lat,
         lng: clientsTable.lng,
         job_lat: jobsTable.job_lat,
