@@ -1251,7 +1251,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       drizzleSql`
         INSERT INTO jobs (
           company_id, client_id, service_type, status,
-          scheduled_date, scheduled_time, frequency, base_fee, estimated_hours, hourly_rate,
+          scheduled_date, scheduled_time, frequency, base_fee, estimated_hours, allowed_hours, hourly_rate,
           home_condition_rating, condition_multiplier,
           applied_bundle_id, bundle_discount_total,
           last_cleaned_response, last_cleaned_flag,
@@ -1267,7 +1267,7 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
         ) VALUES (
           ${company_id}, ${clientId}, ${serviceTypeEnum}, 'scheduled',
           ${preferred_date || new Date().toISOString().split("T")[0]}, ${schedTimeVal}, ${normalizedFreq},
-          ${adjustedTotal}, ${pricing.total_hours ?? pricing.base_hours}, ${pricing.hourly_rate},
+          ${adjustedTotal}, ${pricing.total_hours ?? pricing.base_hours}, ${pricing.total_hours ?? pricing.base_hours}, ${pricing.hourly_rate},
           ${condRating}, ${condMult},
           ${bundleId}, ${bundleDiscount},
           ${lastCleanedResp}, ${lastCleanedFl},
@@ -1320,6 +1320,71 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       }
     } catch (itemErr) {
       console.error("[booking-itemize] failed to persist add-ons/discounts for job", jobId, itemErr);
+    }
+
+    // [online-recurring 2026-07-20] When a customer picks a recurring cadence in
+    // the widget (weekly/biweekly/every_3_weeks/monthly), stand up a real
+    // recurring_schedule so the visits actually repeat. Before this, confirm only
+    // stamped jobs.frequency and inserted ONE job — no schedule, so the engine had
+    // nothing to repeat from and the customer's "monthly" became a single orphan
+    // visit (Jennifer Nuno). Mirror the office quote-convert path: create the
+    // schedule, adopt THIS first job as its first occurrence (recurring_schedule_id
+    // + occurrence_date so the engine's dedup skips it and edit-cascades treat it
+    // as a member), stamp allowed_hours on it (the panel/efficiency read it — the
+    // engine sets it on every OTHER occurrence, so the first job would otherwise be
+    // the odd one out with a blank hours cell), then materialize the upcoming
+    // visits inline. The inline call is the SAFE single-schedule pattern
+    // (clients.ts / jobs.ts) — the dup cascade the startup guard warns about was
+    // the GLOBAL run; without it the 2 AM cron would be the first time the series
+    // appeared. Skip when the upsell block ran, since that builds its own recurring
+    // schedule (no double series). Only the Stripe confirm path is patched here —
+    // Phes runs Stripe-on, so this is the live booking path.
+    if (["weekly", "biweekly", "every_3_weeks", "monthly"].includes(normalizedFreq) && !upsellAcceptedVal) {
+      const firstVisitDate = preferred_date || new Date().toISOString().split("T")[0];
+      const recurHours = pricing.total_hours ?? pricing.base_hours;
+      const recurDurationMin = (recurHours != null && Number(recurHours) > 0) ? Math.round(Number(recurHours) * 60) : null;
+      const recurAllowedHrs = (recurHours != null && Number(recurHours) > 0) ? Number(recurHours).toFixed(2) : null;
+      try {
+        const { recurringSchedulesTable } = await import("@workspace/db/schema");
+        const [recurSched] = await db.insert(recurringSchedulesTable).values({
+          company_id: Number(company_id),
+          customer_id: clientId,
+          frequency: normalizedFreq as any,
+          day_of_week: null,                 // null → cadence anchors on start_date's weekday
+          start_date: firstVisitDate as any,
+          end_date: null,
+          service_type: serviceTypeEnum,
+          scheduled_time: schedTimeVal as any,
+          duration_minutes: recurDurationMin,
+          base_fee: String(adjustedTotal),   // = the first job's agreed per-visit price
+          notes: `Created from online booking widget — customer selected ${normalizedFreq}.`,
+        }).returning();
+
+        // Adopt the already-created first visit into the series (dedup skips this
+        // slot; allowed_hours stamped so the first job's hours cell isn't blank).
+        await db.execute(drizzleSql`
+          UPDATE jobs
+             SET recurring_schedule_id = ${recurSched.id},
+                 occurrence_date = ${firstVisitDate}::date,
+                 allowed_hours = COALESCE(allowed_hours, ${recurAllowedHrs})
+           WHERE id = ${jobId} AND company_id = ${Number(company_id)}
+        `);
+
+        // Materialize the upcoming occurrences now so the office sees the full
+        // series immediately (single-schedule generation is safe; the first date
+        // is deduped via the occurrence_date we just stamped on the first job).
+        try {
+          const { generateJobsFromSchedule, DAYS_AHEAD } = await import("../lib/recurring-jobs.js");
+          const genNow = new Date();
+          const genHorizon = new Date(genNow.getTime() + DAYS_AHEAD * 24 * 60 * 60 * 1000);
+          const gen = await generateJobsFromSchedule(recurSched as any, genNow, genHorizon, null, addrZip ?? null);
+          console.log(`[online-recurring] schedule ${recurSched.id} client ${clientId} (${normalizedFreq}) — first job ${jobId} adopted, ${gen.created} upcoming visit(s) generated`);
+        } catch (genErr) {
+          console.error("[online-recurring] inline generation failed (schedule created; 2 AM cron will backfill):", genErr);
+        }
+      } catch (recurErr) {
+        console.error("[online-recurring] failed to create recurring_schedule for booking job", jobId, recurErr);
+      }
     }
 
     // [book-from-quote] If this booking came from a quote email's "Book" link,
