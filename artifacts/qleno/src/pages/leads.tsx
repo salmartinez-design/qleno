@@ -1744,7 +1744,12 @@ function leadChannel(lead: any): "Website" | "Office" {
   // COALESCE(NULLIF(source,''), lead_source) used by the summary/report queries.
   const raw = (typeof lead.source === "string" && lead.source.trim()) ? lead.source : lead.lead_source;
   const s = String(raw || "").toLowerCase();
-  return /web|widget|online|quote|form|very_dirty/.test(s) ? "Website" : "Office";
+  // [source-fix 2026-07-20] Do NOT match bare "quote" — `source='quote'` is an
+  // OFFICE-built quote (see SOURCE_CONFIG), so matching it labeled every office
+  // quote "Website" (Maribel: "before all said office, now all say website").
+  // This regression re-introduced the exact bug #1020 fixed for leadSourceTag;
+  // keep the two regexes in sync. Online quotes still match via "web" (web_quote).
+  return /web|widget|online|form|very_dirty/.test(s) ? "Website" : "Office";
 }
 
 // "2h ago" / "3d ago" — compact relative time for card status lines.
