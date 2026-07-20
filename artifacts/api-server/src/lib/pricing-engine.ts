@@ -6,7 +6,7 @@
 // is what produced the office-vs-website quote variances.
 //
 // Design (approved 2026-07-20, "Option A"): the WEBSITE calculator is the source
-// of truth and its output must NOT change. This function reproduces that logic
+// of truth and its output must NOT change. `priceFromData` reproduces that logic
 // exactly when called with the website's params, and adds OFFICE-ONLY optional
 // levers (rate override, explicit hours, add-on quantities, manual adjustment,
 // disabled bundles) that the website NEVER passes — so the website stays byte-for-
@@ -15,6 +15,10 @@
 // The public/website caller MUST NOT forward any office-only lever from the
 // browser (a customer could otherwise tamper with their own price). The website
 // wrapper hardcodes the safe subset.
+//
+// Structure: `priceFromData` is PURE (all math, no IO) so it is unit-testable
+// without a DB (see tests/pricing-engine.test.ts). `computePricing` fetches the
+// rows and delegates to it.
 import { db } from "@workspace/db";
 import {
   pricingScopesTable,
@@ -69,19 +73,25 @@ export interface PricingParams {
   disabled_bundle_ids?: number[];              // combos toggled OFF on the quote
 }
 
-export async function computePricing(params: PricingParams) {
+// Rows the pure calculator needs. Shapes match what the DB queries return.
+export interface PricingData {
+  scope: { hourly_rate: any; minimum_bill: any; pricing_method?: string | null; name?: string | null };
+  tiers: Array<{ id: number; min_sqft: number; max_sqft: number; hours: any }>;
+  freqs: Array<{ frequency: string; multiplier: any; rate_override: any }>;
+  addons: Array<any>;   // selected + active addon rows
+  bundles: Array<{ id: any; name: any; discount_type: any; discount_value: any; required_ids: any[] }>; // active bundles
+  discounts: Array<{ code: string; is_active: boolean; discount_type: string; discount_value: any; scope_ids?: any; is_online?: boolean }>;
+  petRow?: any | null;  // offer_settings row (for pet fee), or null
+}
+
+// PURE — all math, no IO. Unit-testable without a DB.
+export function priceFromData(data: PricingData, params: PricingParams) {
   const {
-    scope_id, sqft, frequency, addon_ids, discount_code, company_id, pets, public_only,
+    scope_id, sqft, frequency, discount_code, public_only,
     hours, hourly_rate_override, addon_quantities, manual_adjustment, disabled_bundle_ids,
   } = params;
-
-  const [scope] = await db
-    .select()
-    .from(pricingScopesTable)
-    .where(and(eq(pricingScopesTable.id, scope_id), eq(pricingScopesTable.company_id, company_id)));
-  if (!scope) throw Object.assign(new Error("Scope not found"), { statusCode: 404 });
-
-  const method = (scope as any).pricing_method || "sqft";
+  const { scope, tiers, freqs, addons, bundles, discounts, petRow } = data;
+  const method = scope.pricing_method || "sqft";
 
   // ── Base hours ─────────────────────────────────────────────────────────────
   // Website path: method='sqft', no `hours` → sqft tier lookup (unchanged).
@@ -92,10 +102,6 @@ export async function computePricing(params: PricingParams) {
   const hoursProvided = hours != null && hours !== ("" as any) && Number(hours) > 0;
   if (method === "sqft" && !hoursProvided) {
     if (sqft == null) throw Object.assign(new Error("sqft is required for sqft-based scopes"), { statusCode: 400 });
-    const tiers = await db
-      .select()
-      .from(pricingTiersTable)
-      .where(and(eq(pricingTiersTable.scope_id, scope_id), eq(pricingTiersTable.company_id, company_id)));
     const sortedTiers = [...tiers].sort((a, b) => a.min_sqft - b.min_sqft);
     const tier =
       sortedTiers.find(t => sqft >= t.min_sqft && sqft <= t.max_sqft) ??
@@ -111,10 +117,6 @@ export async function computePricing(params: PricingParams) {
   }
 
   // ── Hourly rate (website logic; office override enters via scope_hourly) ─────
-  const freqs = await db
-    .select()
-    .from(pricingFrequenciesTable)
-    .where(and(eq(pricingFrequenciesTable.scope_id, scope_id), eq(pricingFrequenciesTable.company_id, company_id)));
   const freqFactor = freqs.find(f => f.frequency === frequency);
   const overrideNum = hourly_rate_override != null && (hourly_rate_override as any) !== ""
     ? parseFloat(String(hourly_rate_override)) : NaN;
@@ -142,25 +144,14 @@ export async function computePricing(params: PricingParams) {
   let addons_total = 0;
   let addon_minutes = 0;
   const addon_breakdown: Array<{ id: number; name: string; amount: number; price_type: string }> = [];
-  const validIds = Array.isArray(addon_ids)
-    ? addon_ids.map((id: any) => parseInt(String(id))).filter((n: number) => !isNaN(n)) : [];
-  if (validIds.length > 0) {
-    const addonResult = await db.execute(sql`
-      SELECT * FROM pricing_addons
-       WHERE company_id = ${company_id}
-         AND id = ANY(ARRAY[${sql.raw(validIds.join(","))}]::int[])
-         AND is_active = true
-    `);
-    const addons = (addonResult as any).rows ?? [];
-    for (const addon of addons) {
-      const qty = (addon_quantities && addon_quantities[String(addon.id)])
-        ? Math.max(1, parseInt(String(addon_quantities[String(addon.id)]))) : 1;
-      addon_minutes += (parseInt(String(addon.time_add_minutes ?? 0)) || 0) * qty;
-      if (addon.price_type === "time_only") continue;
-      const amount = calcAddonAmount(addon, base_price, used_sqft) * qty;
-      addons_total += amount;
-      addon_breakdown.push({ id: addon.id, name: addon.name, amount: Math.round(amount * 100) / 100, price_type: addon.price_type });
-    }
+  for (const addon of addons) {
+    const qty = (addon_quantities && addon_quantities[String(addon.id)])
+      ? Math.max(1, parseInt(String(addon_quantities[String(addon.id)]))) : 1;
+    addon_minutes += (parseInt(String(addon.time_add_minutes ?? 0)) || 0) * qty;
+    if (addon.price_type === "time_only") continue;
+    const amount = calcAddonAmount(addon, base_price, used_sqft) * qty;
+    addons_total += amount;
+    addon_breakdown.push({ id: addon.id, name: addon.name, amount: Math.round(amount * 100) / 100, price_type: addon.price_type });
   }
   const addon_hours = Math.round((addon_minutes / 60) * 100) / 100;
   const total_hours = Math.round((base_hours + addon_hours) * 100) / 100;
@@ -172,19 +163,11 @@ export async function computePricing(params: PricingParams) {
     (Array.isArray(disabled_bundle_ids) ? disabled_bundle_ids : [])
       .map((x: any) => parseInt(String(x))).filter((n: number) => !isNaN(n)),
   );
-  if (validIds.length > 0) {
-    const bundleResult = await db.execute(sql`
-      SELECT ab.id, ab.name, ab.discount_type, ab.discount_value,
-             array_agg(abi.addon_id) as required_ids
-        FROM addon_bundles ab
-        JOIN addon_bundle_items abi ON abi.bundle_id = ab.id
-       WHERE ab.company_id = ${company_id} AND ab.active = true
-       GROUP BY ab.id, ab.name, ab.discount_type, ab.discount_value
-    `);
-    const bundles = (bundleResult as any).rows ?? [];
+  const selectedIds = addons.map((a: any) => parseInt(String(a.id))).filter((n: number) => !isNaN(n));
+  if (selectedIds.length > 0) {
     const candidates = bundles.map((bundle: any) => {
       const required: number[] = [...new Set((bundle.required_ids ?? []).map((x: any) => parseInt(String(x))).filter((n: number) => !isNaN(n)))] as number[];
-      const matched = required.filter(rid => validIds.includes(rid));
+      const matched = required.filter(rid => selectedIds.includes(rid));
       if (required.length === 0 || matched.length !== required.length) return null;
       const dv = parseFloat(String(bundle.discount_value));
       let disc = 0;
@@ -217,14 +200,10 @@ export async function computePricing(params: PricingParams) {
   // ── Pet fee (WEBSITE-only; ships DISABLED per tenant). Fail-safe. ────────────
   let pet_fee = 0;
   let pet_fee_type: string | null = null;
-  if (pets && pets > 0) {
+  if (params.pets && params.pets > 0 && petRow) {
     try {
-      const osRes = await db.execute(sql`
-        SELECT pet_fee_enabled, pet_fee_type, pet_fee_amount
-          FROM offer_settings WHERE company_id = ${company_id} LIMIT 1
-      `);
-      const cfg = petFeeConfigFromRow((osRes as any).rows?.[0] ?? {});
-      pet_fee = computePetFee(cfg, pets, base_price);
+      const cfg = petFeeConfigFromRow(petRow);
+      pet_fee = computePetFee(cfg, params.pets, base_price);
       if (pet_fee > 0) pet_fee_type = cfg.type;
     } catch {
       pet_fee = 0;
@@ -237,8 +216,7 @@ export async function computePricing(params: PricingParams) {
   let discount_valid = false;
 
   if (discount_code) {
-    const allDiscounts = await db.select().from(pricingDiscountsTable).where(eq(pricingDiscountsTable.company_id, company_id));
-    const match = allDiscounts.find(d => {
+    const match = discounts.find(d => {
       if (d.code.toUpperCase() !== discount_code.toUpperCase() || !d.is_active) return false;
       if (public_only && (d as any).is_online === false) return false;
       let scopes: number[] = [];
@@ -279,4 +257,68 @@ export async function computePricing(params: PricingParams) {
     discount_valid: discount_code ? discount_valid : undefined,
     final_total: Math.round(final_total * 100) / 100,
   };
+}
+
+// Fetches the rows and delegates to the pure calculator.
+export async function computePricing(params: PricingParams) {
+  const { scope_id, addon_ids, discount_code, company_id, pets } = params;
+
+  const [scope] = await db
+    .select()
+    .from(pricingScopesTable)
+    .where(and(eq(pricingScopesTable.id, scope_id), eq(pricingScopesTable.company_id, company_id)));
+  if (!scope) throw Object.assign(new Error("Scope not found"), { statusCode: 404 });
+
+  const tiers = await db
+    .select()
+    .from(pricingTiersTable)
+    .where(and(eq(pricingTiersTable.scope_id, scope_id), eq(pricingTiersTable.company_id, company_id)));
+
+  const freqs = await db
+    .select()
+    .from(pricingFrequenciesTable)
+    .where(and(eq(pricingFrequenciesTable.scope_id, scope_id), eq(pricingFrequenciesTable.company_id, company_id)));
+
+  const validIds = Array.isArray(addon_ids)
+    ? addon_ids.map((id: any) => parseInt(String(id))).filter((n: number) => !isNaN(n)) : [];
+  let addons: any[] = [];
+  let bundles: any[] = [];
+  if (validIds.length > 0) {
+    const addonResult = await db.execute(sql`
+      SELECT * FROM pricing_addons
+       WHERE company_id = ${company_id}
+         AND id = ANY(ARRAY[${sql.raw(validIds.join(","))}]::int[])
+         AND is_active = true
+    `);
+    addons = (addonResult as any).rows ?? [];
+    const bundleResult = await db.execute(sql`
+      SELECT ab.id, ab.name, ab.discount_type, ab.discount_value,
+             array_agg(abi.addon_id) as required_ids
+        FROM addon_bundles ab
+        JOIN addon_bundle_items abi ON abi.bundle_id = ab.id
+       WHERE ab.company_id = ${company_id} AND ab.active = true
+       GROUP BY ab.id, ab.name, ab.discount_type, ab.discount_value
+    `);
+    bundles = (bundleResult as any).rows ?? [];
+  }
+
+  let discounts: any[] = [];
+  if (discount_code) {
+    discounts = await db.select().from(pricingDiscountsTable).where(eq(pricingDiscountsTable.company_id, company_id));
+  }
+
+  let petRow: any = null;
+  if (pets && pets > 0) {
+    try {
+      const osRes = await db.execute(sql`
+        SELECT pet_fee_enabled, pet_fee_type, pet_fee_amount
+          FROM offer_settings WHERE company_id = ${company_id} LIMIT 1
+      `);
+      petRow = (osRes as any).rows?.[0] ?? {};
+    } catch {
+      petRow = null;
+    }
+  }
+
+  return priceFromData({ scope, tiers, freqs, addons, bundles, discounts, petRow }, params);
 }
