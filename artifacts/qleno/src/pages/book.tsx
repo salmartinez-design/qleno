@@ -1128,6 +1128,18 @@ export default function BookPage() {
     setBooking(true);
     setBookError("");
 
+    // [split-scope-book-fix 2026-07-20] Submit the SAME frequency-mapped scope the
+    // price preview used — not the raw entry scopeId. Phes's recurring service is
+    // split into per-cadence scopes (Recurring Cleaning - Weekly/Biweekly/Monthly =
+    // separate scope IDs); the entry scope is "Weekly", so booking with scopeId made
+    // the job carry the Weekly scope — wrong service name AND weekly pricing — even
+    // when the customer picked Monthly (Jennifer Nuno: chose Monthly, quoted $295.10,
+    // booked as Weekly $260). recurringFreqScopeMap is empty for non-split scopes, so
+    // this is a no-op there. Mirrors runCalc's effectiveScopeId exactly so the booked
+    // price always equals the price the customer was shown.
+    const bookingFreq = frequencies.some(f => f.frequency === "onetime") ? "onetime" : frequencyStr;
+    const bookingScopeId = recurringFreqScopeMap[bookingFreq] ?? scopeId;
+
     try {
       // If Stripe is enabled, confirm the SetupIntent first
       if (stripeEnabled && stripeInstance && stripeCardElement && stripeClientSecret) {
@@ -1174,7 +1186,7 @@ export default function BookPage() {
             company_id: company.id,
             first_name: firstName, last_name: lastName, phone, email, zip,
             referral_source: referral || null, sms_consent: smsConsent,
-            scope_id: scopeId, sqft, frequency: frequencies.some(f => f.frequency === "onetime") ? "onetime" : frequencyStr,
+            scope_id: bookingScopeId, sqft, frequency: bookingFreq,
             addon_ids: selectedAddonIds,
             bedrooms, bathrooms, half_baths: halfBaths, floors, people, pets, cleanliness,
             home_condition_rating: showCleanlinessQ ? (cleanliness || 1) : null,
@@ -1227,7 +1239,7 @@ export default function BookPage() {
           company_id: company.id,
           first_name: firstName, last_name: lastName, phone, email, zip,
           referral_source: referral || null, sms_consent: smsConsent,
-          scope_id: scopeId, sqft, frequency: frequencies.some(f => f.frequency === "onetime") ? "onetime" : frequencyStr,
+          scope_id: bookingScopeId, sqft, frequency: bookingFreq,
           addon_ids: selectedAddonIds,
           bedrooms, bathrooms, half_baths: halfBaths, floors, people, pets, cleanliness,
           address: addressComponents?.formatted ?? address,
