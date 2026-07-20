@@ -1763,7 +1763,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     if (!redoDate) { setRedoMsg("Pick a redo date."); return; }
     setRedoBusy(true); setRedoMsg("");
     try {
-      const r = await fetch(`${API}/api/jobs/${job.id}/redo`, {
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/redo`, {
         method: "POST", headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
           reason: redoReason, reason_category: redoCategory,
