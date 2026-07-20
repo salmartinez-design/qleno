@@ -943,6 +943,15 @@ export default function BookPage() {
       // along, so the office alert + Lead Pipeline show the FULL quote picture
       // (Sal: "how many bedrooms, bathrooms, square footage, how did they hear
       // about us… this basic information is not enough"), not just contact info.
+      // [split-scope-quote-fix 2026-07-20] Capture the frequency-matched scope name
+      // (what the price preview + booking use) — not the raw entry scope. Otherwise
+      // the captured quote / lead / office alert / drip read "Recurring Cleaning -
+      // Weekly" while the amount is the Monthly price — the exact quote inconsistency
+      // Maribel flagged. Mirrors the booking's bookingScopeId so the quote and every
+      // downstream message agree on the service.
+      const capFreq = frequencies.some(f => f.frequency === "onetime") ? "onetime" : frequencyStr;
+      const capScopeId = recurringFreqScopeMap[capFreq] ?? scopeId;
+      const capScopeName = company.active_scopes.find(s => s.id === capScopeId)?.name || selectedScope?.name || "";
       const details = {
         bedrooms: bedrooms || null,
         bathrooms: bathrooms || null,
@@ -957,7 +966,7 @@ export default function BookPage() {
         body: JSON.stringify({
           company_id: company.id,
           first_name: firstName, last_name: lastName, email, phone, address, zip,
-          scope: selectedScope?.name || "", details, ...extra,
+          scope: capScopeName, details, ...extra,
         }),
       }).catch(() => {});
     };
