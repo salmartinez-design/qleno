@@ -1751,6 +1751,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [redoRecoveryTech, setRedoRecoveryTech] = useState<number | null>(null);
   const [redoPay, setRedoPay] = useState("");
   const [redoDate, setRedoDate] = useState("");
+  const [redoTime, setRedoTime] = useState("");
   const [redoMsg, setRedoMsg] = useState("");
   const redoLbl: React.CSSProperties = { display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", margin: "12px 0 5px" };
   const redoInp: React.CSSProperties = { width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, boxSizing: "border-box", background: "#fff" };
@@ -1772,7 +1773,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           mode: redoMode,
           recovery_user_id: redoMode === "recovery" ? redoRecoveryTech : undefined,
           recovery_pay: redoMode === "recovery" ? (Number(redoPay) || 0) : undefined,
-          scheduled_date: redoDate, scheduled_time: job.scheduled_time || undefined,
+          scheduled_date: redoDate, scheduled_time: redoTime || job.scheduled_time || undefined,
         }),
       });
       const d = await r.json();
@@ -3944,6 +3945,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 const base = job.scheduled_date ? new Date(`${job.scheduled_date}T12:00:00`) : new Date();
                 base.setDate(base.getDate() + 3);
                 setRedoDate(base.toISOString().slice(0, 10));
+                setRedoTime(job.scheduled_time || "");
                 setRedoAccountable(redoJobTechs.length ? [redoJobTechs[0].id] : []);
                 setRedoMode("same"); setRedoReason(""); setRedoCategory("Missed area");
                 setRedoAreas(""); setRedoRecoveryTech(null); setRedoPay(""); setRedoMsg("");
@@ -4053,8 +4055,16 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               </div>
             )}
 
-            <label style={redoLbl}>Redo date</label>
-            <input type="date" value={redoDate} onChange={e => setRedoDate(e.target.value)} style={redoInp} />
+            <div style={{ display: "flex", gap: 10 }}>
+              <div style={{ flex: 1 }}>
+                <label style={redoLbl}>Redo date</label>
+                <input type="date" value={redoDate} onChange={e => setRedoDate(e.target.value)} style={redoInp} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={redoLbl}>Redo time</label>
+                <input type="time" value={redoTime ? redoTime.slice(0, 5) : ""} onChange={e => setRedoTime(e.target.value ? `${e.target.value}:00` : "")} style={redoInp} />
+              </div>
+            </div>
 
             {redoMsg && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 8 }}>{redoMsg}</div>}
             <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 8, lineHeight: 1.4 }}>Client isn&rsquo;t charged and isn&rsquo;t messaged. The ticket counts toward the 2-in-30 probation rule.</div>
