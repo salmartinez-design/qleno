@@ -402,6 +402,9 @@ export default function MessagesPage() {
         body: JSON.stringify({ phone: c.contact_phone }),
       });
       setConvos(cs => cs.map(x => x.contact_phone === c.contact_phone ? { ...x, unread: 0 } : x));
+      // Nudge the sidebar's unread-messages badge to refetch now instead of
+      // waiting up to 30s for its next poll, so the counter drops as you read.
+      window.dispatchEvent(new Event("qleno:sms-read"));
     } catch { /* silent */ }
   }, []);
 
@@ -473,6 +476,11 @@ export default function MessagesPage() {
   function openConvo(c: Convo) {
     setActive(c); loadThread(c); loadScheduled(c);
     setAttachments([]); setReply(""); setScheduleOpen(false);
+    // [auto-mark-read 2026-07-19] Opening a thread to read it marks it read —
+    // the manual "Mark as read" button was the only thing that cleared unread,
+    // so clicking through threads left them all unread and the sidebar/list
+    // counters never moved. Only fire when there's actually unread to clear.
+    if (c.unread > 0) markRead(c);
   }
 
   // ── File attachment ────────────────────────────────────────────────────────

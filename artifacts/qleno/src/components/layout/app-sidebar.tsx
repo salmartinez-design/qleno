@@ -66,7 +66,10 @@ function useUnreadMessagesCount(role: string | undefined) {
   useEffect(() => {
     fetchCount();
     const id = setInterval(fetchCount, 30_000);
-    return () => clearInterval(id);
+    // Refetch immediately when the Messages page marks a thread read, so the
+    // badge drops as the office reads instead of lagging up to 30s.
+    window.addEventListener("qleno:sms-read", fetchCount);
+    return () => { clearInterval(id); window.removeEventListener("qleno:sms-read", fetchCount); };
   }, [fetchCount]);
 
   return eligible ? count : 0;
