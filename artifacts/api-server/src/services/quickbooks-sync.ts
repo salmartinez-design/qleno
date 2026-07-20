@@ -49,6 +49,69 @@ const QB_MV = "minorversion=65";
 const QB_ACCOUNTING_SCOPE = "com.intuit.quickbooks.accounting";
 export { QB_ACCOUNTING_SCOPE };
 
+// ── [qbo-ar-only 2026-07-20] Push mode: cash-basis, A/R-invoices-only ────────
+// Problem this fixes: marking a job/invoice paid used to push BOTH a QBO Invoice
+// AND a QBO Payment. The Payment (no DepositToAccountRef) landed in Undeposited
+// Funds. But real money already arrives via the payment processors' own bank
+// deposits (Stripe/Square) — so every card sale was counted twice and
+// Undeposited Funds grew forever. Phes is cash-basis.
+//
+// New default behavior ('ar_invoices_only'):
+//   • A QBO Payment / SalesReceipt is NEVER created (see syncPayment).
+//   • A QBO Invoice is created ONLY for clients/accounts we bill on account
+//     terms and wait for a check/ACH (billing types below) — so we keep A/R
+//     for them. The office matches the eventual bank deposit to the open QBO
+//     invoice manually.
+//   • Card-on-file clients (and every other non-A/R billing type: zelle, cash,
+//     the default 'manual', unknown) push NOTHING — no invoice, no payment.
+//     Their income is recognized from the processor's bank deposit only.
+//
+// Reversible kill-switch: set QBO_PUSH_MODE=legacy in the Railway env to restore
+// the original invoice+payment-for-everyone behavior. The old code paths are
+// preserved below, just gated — nothing was deleted.
+export type QboPushMode = "ar_invoices_only" | "legacy";
+export function getQboPushMode(): QboPushMode {
+  return (process.env.QBO_PUSH_MODE || "").toLowerCase() === "legacy"
+    ? "legacy"
+    : "ar_invoices_only";
+}
+
+// Billing types that require A/R in QBO (we send a bill and wait for payment).
+// Covers both residential clients.payment_method (free text) and commercial
+// accounts.payment_method (enum: card_on_file | check | ach | invoice_only).
+const QBO_AR_BILLING_TYPES = new Set(["check", "ach", "net_30", "invoice_only"]);
+export function billingTypeNeedsQboInvoice(paymentMethod: string | null | undefined): boolean {
+  return QBO_AR_BILLING_TYPES.has((paymentMethod || "").trim().toLowerCase());
+}
+
+// Resolve the governing billing type for an invoice. Residential per-visit
+// invoices carry client_id → use clients.payment_method. Commercial account
+// invoices carry account_id (client_id NULL) → use accounts.payment_method.
+// client_id wins when both are present (a residential client under an account
+// is still billed by the client's own method).
+async function resolveInvoiceBillingType(
+  companyId: number,
+  invoice: { client_id: number | null; account_id: number | null },
+): Promise<string | null> {
+  if (invoice.client_id) {
+    const [c] = await db
+      .select({ pm: clientsTable.payment_method })
+      .from(clientsTable)
+      .where(and(eq(clientsTable.id, invoice.client_id), eq(clientsTable.company_id, companyId)))
+      .limit(1);
+    return c?.pm ?? null;
+  }
+  if (invoice.account_id) {
+    const [a] = await db
+      .select({ pm: accountsTable.payment_method })
+      .from(accountsTable)
+      .where(and(eq(accountsTable.id, invoice.account_id), eq(accountsTable.company_id, companyId)))
+      .limit(1);
+    return a?.pm ?? null;
+  }
+  return null;
+}
+
 // ── Module-level caches ───────────────────────────────────────────────────
 const serviceItemCache = new Map<number, string>(); // companyId → QB item ID
 const qbCompanyCache = new Map<number, { realmId: string; token: string }>(); // companyId → QB info
@@ -581,6 +644,28 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
       return;
     }
 
+    // [qbo-ar-only 2026-07-20] A/R-invoices-only gate. Under the default push
+    // mode we push an Invoice ONLY for clients/accounts billed on account terms
+    // (check / ach / net_30 / invoice_only). Card-on-file and every other
+    // billing type (zelle, cash, the default 'manual', unknown) push NOTHING —
+    // their revenue comes from the processor's own bank deposits, so a QBO
+    // invoice+payment would double-count it. 'legacy' mode restores the old
+    // push-for-everyone behavior. Customer sync is unaffected (its own path).
+    if (getQboPushMode() !== "legacy") {
+      const billingType = await resolveInvoiceBillingType(companyId, invoice);
+      if (!billingTypeNeedsQboInvoice(billingType)) {
+        await upsertQueue(
+          companyId,
+          "invoice",
+          invoiceId,
+          "skipped",
+          undefined,
+          `qbo push mode ar_invoices_only: billing_type=${billingType ?? "none"} is not A/R (card-on-file/other → nothing pushed)`,
+        );
+        return;
+      }
+    }
+
     const { token, realmId } = auth;
 
     // Ensure customer is synced first
@@ -794,6 +879,24 @@ export async function syncInvoice(companyId: number, invoiceId: number): Promise
 
 // ── SYNC PAYMENT ──────────────────────────────────────────────────────────
 export async function syncPayment(companyId: number, invoiceId: number): Promise<void> {
+  // [qbo-ar-only 2026-07-20] Payments are NEVER pushed to QBO in the default
+  // mode. Phes is cash-basis: real money already lands via the Stripe/Square
+  // bank deposit (card clients) or a manually-recorded deposit (check/ACH), so
+  // a QBO Payment on top double-counts revenue and inflates Undeposited Funds.
+  // The check/ACH invoice stays open in QBO as A/R; the office matches the
+  // deposit to it manually. Set QBO_PUSH_MODE=legacy to restore the original
+  // payment-creation behavior below (preserved, just gated).
+  if (getQboPushMode() !== "legacy") {
+    await upsertQueue(
+      companyId,
+      "payment",
+      invoiceId,
+      "skipped",
+      undefined,
+      "qbo push mode ar_invoices_only: payments are never pushed to QBO",
+    );
+    return;
+  }
   try {
     // Idempotency: if a payment for this invoice was already pushed (queue row
     // with status='synced' and a stored QB payment Id), do not double-push.
