@@ -244,4 +244,70 @@ router.get("/needs-classification", requireAuth, requireRole(...CAPTURE_ROLES), 
   }
 });
 
+// ── GET /api/recurring/unlinked-jobs-audit ────────────────────────────────────
+// [rebooking-fix 2026-07-21] Read-only diagnostic sizing the rebooking bug: how
+// many FUTURE scheduled jobs belong to a recurring target (client/account with
+// an active-or-paused schedule) yet carry recurring_schedule_id NULL. Those are
+// the jobs that — before the engine + cancel-route fixes — got silently rebooked
+// when cancelled (the schedule-scoped dedup + skip-tombstone both key on the
+// link). A high count means many MaidCentral-imported clients would benefit from
+// a recurring_schedule_id backfill. Purely SELECTs; writes nothing.
+router.get("/unlinked-jobs-audit", requireAuth, requireRole(...CAPTURE_ROLES), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const summary = await db.execute(sql`
+      WITH sched AS (
+        SELECT customer_id, account_id
+          FROM recurring_schedules
+         WHERE company_id = ${companyId} AND (is_active OR paused_by_suspension)
+      )
+      SELECT
+        (SELECT COUNT(*) FROM recurring_schedules
+          WHERE company_id = ${companyId} AND (is_active OR paused_by_suspension)) AS active_schedules,
+        COUNT(*)                                                     AS future_jobs_for_recurring_targets,
+        COUNT(*) FILTER (WHERE j.recurring_schedule_id IS NULL)      AS unlinked_future_jobs,
+        COUNT(DISTINCT j.client_id) FILTER (WHERE j.recurring_schedule_id IS NULL AND j.client_id IS NOT NULL)  AS affected_clients
+        FROM jobs j
+       WHERE j.company_id = ${companyId}
+         AND j.status::text IN ('scheduled','in_progress')
+         AND COALESCE(j.occurrence_date, j.scheduled_date) >= CURRENT_DATE
+         AND (
+           j.client_id IN (SELECT customer_id FROM sched WHERE customer_id IS NOT NULL)
+           OR j.account_id IN (SELECT account_id FROM sched WHERE account_id IS NOT NULL)
+         )
+    `);
+    const perClient = await db.execute(sql`
+      SELECT j.client_id,
+             concat(c.first_name, ' ', COALESCE(c.last_name, '')) AS client_name,
+             COUNT(*) AS unlinked_future_jobs,
+             MIN(COALESCE(j.occurrence_date, j.scheduled_date))::text AS next_unlinked_date
+        FROM jobs j
+        JOIN clients c ON c.id = j.client_id
+       WHERE j.company_id = ${companyId}
+         AND j.recurring_schedule_id IS NULL
+         AND j.status::text IN ('scheduled','in_progress')
+         AND COALESCE(j.occurrence_date, j.scheduled_date) >= CURRENT_DATE
+         AND j.client_id IN (
+           SELECT customer_id FROM recurring_schedules
+            WHERE company_id = ${companyId} AND (is_active OR paused_by_suspension) AND customer_id IS NOT NULL
+         )
+       GROUP BY j.client_id, c.first_name, c.last_name
+       ORDER BY unlinked_future_jobs DESC
+       LIMIT 100
+    `);
+    const s = (summary.rows[0] as any) || {};
+    const num = (v: unknown) => parseInt(String(v ?? "0")) || 0;
+    return res.json({
+      active_schedules: num(s.active_schedules),
+      future_jobs_for_recurring_targets: num(s.future_jobs_for_recurring_targets),
+      unlinked_future_jobs: num(s.unlinked_future_jobs),
+      affected_clients: num(s.affected_clients),
+      by_client: perClient.rows,
+    });
+  } catch (err) {
+    console.error("[recurring/unlinked-jobs-audit GET]", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+});
+
 export default router;

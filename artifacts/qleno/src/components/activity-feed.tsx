@@ -90,6 +90,13 @@ export function ActivityFeed({ endpoint, queryKey, introText }: {
       case "add_ons":       return "Add-ons updated";
       case "service_type":  return `Service changed to ${label(String(n))}`;
       case "notes": case "office_notes": return "Notes updated";
+      case "auto_scheduled": {
+        // [system-schedule-log 2026-07-21] Qleno's recurrence engine created this
+        // visit (and maybe auto-assigned a tech). Lets the office catch auto-
+        // scheduling / rebooking (Maribel's ask). Actor renders as "Qleno".
+        const who = (nv && typeof nv === "object" && nv.tech_name) ? String(nv.tech_name) : null;
+        return who ? `Qleno scheduled this visit and assigned ${who}` : "Qleno scheduled this visit";
+      }
       default: {
         const nt = valText(n), ot = valText(o);
         if (nt) return `${label(f)} changed${ot ? ` from ${ot}` : ""} to ${nt}`;

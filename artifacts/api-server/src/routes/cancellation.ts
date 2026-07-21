@@ -393,15 +393,37 @@ router.post("/action", requireAuth, async (req, res) => {
       // or is later deleted, skipped_dates keeps the skip permanent. Cancel-service
       // (affects_future_jobs) deactivates the whole schedule below, so a per-date
       // skip is moot there — only record it for a lone-occurrence skip.
-      if (!policy.affects_future_jobs && row.recurring_schedule_id != null) {
+      if (!policy.affects_future_jobs) {
         const skipDate = row.occurrence_date ?? row.scheduled_date;
-        if (skipDate) {
+        // [rebooking-fix 2026-07-21] Resolve the schedule to tombstone the skip
+        // on. Linked jobs use their own recurring_schedule_id; UNLINKED ones
+        // (recurring_schedule_id NULL — the MaidCentral-import norm) resolve the
+        // client's / account's active-or-paused schedule by target. Without this
+        // the skip was never recorded for imported recurring clients and the
+        // engine kept rebooking the cancelled visit (Maribel's complaint). The
+        // engine-side dedup fix (recurring-jobs.ts target dedup now counts
+        // cancelled slots) is the retroactive net; this keeps the skip explicit.
+        let schedId: number | null = row.recurring_schedule_id ?? null;
+        if (schedId == null && skipDate) {
+          const sres = await tx.execute(sql`
+            SELECT id FROM recurring_schedules
+             WHERE company_id = ${companyId}
+               AND (is_active OR paused_by_suspension)
+               AND ${row.account_id != null
+                 ? sql`account_id = ${row.account_id} AND account_property_id IS NOT DISTINCT FROM ${row.account_property_id ?? null}`
+                 : sql`customer_id = ${row.client_id}`}
+             ORDER BY is_active DESC, id DESC
+             LIMIT 1
+          `);
+          schedId = (sres.rows[0] as any)?.id ?? null;
+        }
+        if (schedId != null && skipDate) {
           await tx.execute(sql`
             UPDATE recurring_schedules
             SET skipped_dates = ARRAY(
               SELECT DISTINCT unnest(COALESCE(skipped_dates, '{}'::date[]) || ARRAY[${skipDate}::date])
             )
-            WHERE id = ${row.recurring_schedule_id} AND company_id = ${companyId}
+            WHERE id = ${schedId} AND company_id = ${companyId}
           `);
         }
       }

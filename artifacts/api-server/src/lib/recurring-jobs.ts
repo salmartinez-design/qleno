@@ -32,6 +32,20 @@ import {
 // full year instead of a rolling quarter.
 export const DAYS_AHEAD = 365;
 
+// [system-schedule-log 2026-07-21] Idempotent boot migration: let the engine
+// author job_audit_log rows as a SYSTEM actor. The column is NOT NULL + FK to
+// users, so an engine insert (no human) would throw; dropping NOT NULL lets us
+// write user_id NULL / user_name 'Qleno'. The FK stays (NULL is allowed under
+// it), and the activity feed already reads user_name inline, not via the join.
+export async function runAutoScheduleAuditMigration(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE job_audit_log ALTER COLUMN user_id DROP NOT NULL`);
+    console.log("[recurring-engine] auto_scheduled audit migration ok");
+  } catch (err) {
+    console.error("[recurring-engine] auto_scheduled audit migration (non-fatal):", err);
+  }
+}
+
 function mapServiceType(raw: string | null): string {
   if (!raw) return "recurring";
   const s = raw.toLowerCase().trim();
@@ -405,19 +419,27 @@ export async function computeOccurrencesForSchedule(
 
   const existingDates = new Set((existing.rows as any[]).map(r => String(r.occ)));
 
-  // [dup-guard 2026-07-08] Also treat an existing ACTIVE job for the SAME TARGET
+  // [dup-guard 2026-07-08] Also treat an existing job for the SAME TARGET
   // (this client, or this account+property) on a slot as filled — even when it
   // isn't linked to THIS schedule. Legacy/imported jobs commonly have
   // recurring_schedule_id NULL, so the schedule-scoped dedup above doesn't see
   // them and the engine regenerates a DUPLICATE onto the same slot (Jennifer
   // Joy: two jobs each on 7/15 & 7/22). Matching the billing target closes that.
-  // Cancelled jobs are excluded — a cancelled slot may legitimately be re-filled.
+  //
+  // [rebooking-fix 2026-07-21] CANCELLED jobs now ALSO fill the slot. Before,
+  // this query excluded `status <> 'cancelled'`, so when the office cancelled a
+  // visit on an UNLINKED recurring job (recurring_schedule_id NULL — the norm
+  // for MaidCentral imports), the schedule-scoped dedup above missed it AND this
+  // target dedup skipped it → the engine rebooked the cancelled visit and
+  // re-assigned the tech on its next run (Maribel: "Qleno keeps rebooking
+  // services we cancel"). A cancelled slot must stay empty; the office rebooks
+  // by hand, never the engine. (Charged cancels become status='complete', so
+  // they already filled the slot and are unaffected by this change.)
   const _isAcctSchedule = (schedule as any).account_id != null;
   const targetExisting = await db.execute(sql`
     SELECT COALESCE(occurrence_date, scheduled_date)::text AS occ
     FROM jobs
     WHERE company_id = ${schedule.company_id}
-      AND status <> 'cancelled'
       AND COALESCE(occurrence_date, scheduled_date) >= ${fromStr}
       AND COALESCE(occurrence_date, scheduled_date) <= ${toStr}
       AND ${_isAcctSchedule
@@ -568,6 +590,21 @@ export async function generateJobsFromSchedule(
     scheduleTechs = [{ user_id: Number(schedule.assigned_employee_id), is_primary: true }];
   }
 
+  // [system-schedule-log 2026-07-21] Resolve the auto-assigned tech's NAME once
+  // per run so each generated occurrence can log a readable "Qleno scheduled X"
+  // audit entry (Maribel: "the activity log should reflect when Qleno schedules
+  // someone, this way we can catch it"). Primary tech drives the label; helpers
+  // still land on job_technicians above.
+  const _primaryTechId = scheduleTechs.find(t => t.is_primary)?.user_id ?? scheduleTechs[0]?.user_id ?? null;
+  let _primaryTechName: string | null = null;
+  if (_primaryTechId != null) {
+    try {
+      const nr = await db.execute(sql`SELECT first_name, last_name FROM users WHERE id = ${_primaryTechId} LIMIT 1`);
+      const u = (nr.rows[0] as any) ?? {};
+      _primaryTechName = `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || null;
+    } catch { /* name is cosmetic — leave null */ }
+  }
+
   let parkingStamped = 0;
   let created = 0;
   let conflictSkipped = 0;
@@ -606,6 +643,30 @@ export async function generateJobsFromSchedule(
     if (resolved && (row as any)._parking_fee_applies) {
       await stampParkingFeeOnJob(newId, resolved);
       parkingStamped++;
+    }
+    // [system-schedule-log 2026-07-21] Stamp a "Qleno scheduled this" row on the
+    // job's audit trail so it surfaces in the client/account activity feed as a
+    // system action (user_id NULL, user_name "Qleno"). Non-fatal: a logging
+    // failure must never abort generation. Relies on job_audit_log.user_id being
+    // nullable — runAutoScheduleAuditMigration drops the NOT NULL at boot.
+    try {
+      await db.execute(sql`
+        INSERT INTO job_audit_log
+          (job_id, company_id, user_id, user_name, user_email,
+           field_name, old_value, new_value, cascade_scope, schedule_id)
+        VALUES
+          (${newId}, ${schedule.company_id}, NULL, 'Qleno', 'system',
+           'auto_scheduled', NULL,
+           ${JSON.stringify({
+             action: "auto_scheduled",
+             occurrence_date: String(row.scheduled_date),
+             assigned_user_id: _primaryTechId,
+             tech_name: _primaryTechName,
+           })}::jsonb,
+           'this_job', ${schedule.id})
+      `);
+    } catch (logErr) {
+      console.warn("[recurring-engine] auto_scheduled audit non-fatal:", (logErr as any)?.message);
     }
   }
 
