@@ -78,6 +78,7 @@ const FREQ_OPTIONS: { value: string; label: string; applies_to: FreqApplies[] }[
   { value: "biweekly",       label: "Bi-weekly",        applies_to: ["residential", "commercial"] },
   { value: "every_3_weeks",  label: "Every 3 weeks",    applies_to: ["residential", "commercial"] },
   { value: "monthly",        label: "Every 4 weeks",    applies_to: ["residential", "commercial"] },
+  { value: "monthly_weekday",label: "Monthly (day of week)", applies_to: ["residential"] },
   { value: "daily",          label: "Daily",            applies_to: ["commercial"] },
   { value: "weekdays",       label: "Weekdays (M–F)",   applies_to: ["commercial"] },
   { value: "custom_days",    label: "Custom days",      applies_to: ["commercial"] },
@@ -96,6 +97,34 @@ function formatTime(t: string) {
 
 function formatDate(d: string) {
   return new Date(d + "T00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+// [monthly-weekday 2026-07-21] Shared with the backend recurring_day enum order.
+const DOW_ENUM_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const DOW_SHORT = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEK_OF_MONTH_LABELS: Record<number, string> = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "Last" };
+// The date of the nth (1..4) or last (5) `weekday` in year/month (month 0-based).
+function nthWeekdayDate(year: number, month: number, nth: number, weekday: number): Date {
+  if (nth >= 5) {
+    const last = new Date(year, month + 1, 0);
+    const back = (last.getDay() - weekday + 7) % 7;
+    return new Date(year, month, last.getDate() - back);
+  }
+  const first = new Date(year, month, 1);
+  const offset = (weekday - first.getDay() + 7) % 7;
+  return new Date(year, month, 1 + offset + (nth - 1) * 7);
+}
+// First matching nth-weekday date on/after `from`, as YYYY-MM-DD (local).
+function nextNthWeekdayYmd(from: Date, nth: number, weekday: number): string {
+  let y = from.getFullYear(), m = from.getMonth();
+  for (let i = 0; i < 3; i++) {
+    const d = nthWeekdayDate(y, m, nth, weekday);
+    if (d >= new Date(from.getFullYear(), from.getMonth(), from.getDate())) {
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    }
+    m += 1; if (m > 11) { m = 0; y += 1; }
+  }
+  return "";
 }
 
 function todayStr() {
@@ -248,6 +277,12 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   const [price, setPrice] = useState(120);
   const [priceOverridden, setPriceOverridden] = useState(false);
   const [frequency, setFrequency] = useState("on_demand");
+  // [monthly-weekday 2026-07-21] Nth/last-weekday anchor for the "Monthly (day of
+  // week)" cadence — e.g. "Last Friday of the month". weekOfMonth: 1..4=first..
+  // fourth, 5=last. monthlyWeekday: 0=Sun..6=Sat. Only used when
+  // frequency === 'monthly_weekday'; the payload maps the weekday to the enum.
+  const [weekOfMonth, setWeekOfMonth] = useState(5);
+  const [monthlyWeekday, setMonthlyWeekday] = useState(5); // Friday default
   const [notes, setNotes] = useState("");
 
   // Add-ons (Parking Fee, Refrigerator Cleaning, etc.) — selectable at
@@ -887,6 +922,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           base_fee: Number(price) + addOnsTotal,
           add_ons: buildAddOnsPayload(),
           frequency,
+          // [monthly-weekday 2026-07-21] Nth/last-weekday anchor — only meaningful
+          // for the monthly_weekday cadence; ignored by the server otherwise.
+          week_of_month: frequency === "monthly_weekday" ? weekOfMonth : undefined,
+          day_of_week: frequency === "monthly_weekday" ? DOW_ENUM_NAMES[monthlyWeekday] : undefined,
           notes: notes || undefined,
           assigned_user_id: selectedEmployees[0] || undefined,
           status: "scheduled",
@@ -1531,13 +1570,42 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Frequency</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                     {FREQ_OPTIONS.filter(f => f.applies_to.includes(effectiveParent)).map(f => (
-                      <button key={f.value} onClick={() => setFrequency(f.value)}
+                      <button key={f.value} onClick={() => {
+                        setFrequency(f.value);
+                        // [monthly-weekday] Snap the service date to the chosen
+                        // nth-weekday so the first job + schedule anchor line up.
+                        if (f.value === "monthly_weekday") {
+                          const ymd = nextNthWeekdayYmd(new Date(scheduledDate + "T00:00"), weekOfMonth, monthlyWeekday);
+                          if (ymd) setScheduledDate(ymd);
+                        }
+                      }}
                         style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: `1.5px solid ${frequency === f.value ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 8, background: frequency === f.value ? "var(--brand-dim, #EBF4FF)" : "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                         {frequency === f.value && <Check size={12} color="var(--brand, #00C9A0)"/>}
                         <span style={{ fontSize: 12, fontWeight: frequency === f.value ? 600 : 400, color: frequency === f.value ? "var(--brand, #00C9A0)" : "#6B7280" }}>{f.label}</span>
                       </button>
                     ))}
                   </div>
+                  {/* [monthly-weekday 2026-07-21] Nth/last weekday-of-month picker.
+                      Fixes the "every 4 weeks drifts on 5-Friday months" issue —
+                      e.g. Last Friday of the month, every month. */}
+                  {frequency === "monthly_weekday" && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                      <select value={weekOfMonth} onChange={e => {
+                        const w = Number(e.target.value); setWeekOfMonth(w);
+                        const ymd = nextNthWeekdayYmd(new Date(scheduledDate + "T00:00"), w, monthlyWeekday);
+                        if (ymd) setScheduledDate(ymd);
+                      }} style={{ flex: 1, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", background: "#fff", outline: "none" }}>
+                        {[1, 2, 3, 4, 5].map(w => <option key={w} value={w}>{WEEK_OF_MONTH_LABELS[w]}</option>)}
+                      </select>
+                      <select value={monthlyWeekday} onChange={e => {
+                        const d = Number(e.target.value); setMonthlyWeekday(d);
+                        const ymd = nextNthWeekdayYmd(new Date(scheduledDate + "T00:00"), weekOfMonth, d);
+                        if (ymd) setScheduledDate(ymd);
+                      }} style={{ flex: 1.4, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", background: "#fff", outline: "none" }}>
+                        {DOW_SHORT.map((nm, i) => <option key={i} value={i}>{nm}</option>)}
+                      </select>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Notes (optional)</p>

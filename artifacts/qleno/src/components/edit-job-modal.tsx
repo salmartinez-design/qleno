@@ -208,7 +208,15 @@ const FREQUENCIES_STANDARD: Array<{ value: string; label: string }> = [
   { value: "biweekly", label: "Biweekly" },
   { value: "every_3_weeks", label: "Every 3 weeks" },
   { value: "monthly", label: "Every 4 weeks / Monthly" },
+  // [monthly-weekday 2026-07-21] Nth/last weekday of month ("Last Friday").
+  // Fixes recurrences that drift because "every 4 weeks" slides on 5-weekday
+  // months. Pairs week_of_month + day_of_week on the schedule.
+  { value: "monthly_weekday", label: "Monthly (day of week)" },
 ];
+// [monthly-weekday 2026-07-21] Shared with the recurring_day enum + labels.
+const MW_DOW_ENUM = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const MW_DOW_LABELS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MW_WEEK_LABELS: Record<number, string> = { 1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "Last" };
 const FREQUENCIES_COMMERCIAL_MULTI: Array<{ value: string; label: string }> = [
   { value: "daily",       label: "Daily (every day)" },
   { value: "weekdays",    label: "Weekdays (M–F)" },
@@ -292,6 +300,11 @@ export default function EditJobModal({
   const [scopesLoading, setScopesLoading] = useState(true);
 
   const [frequency, setFrequency] = useState(job.frequency || "on_demand");
+  // [monthly-weekday 2026-07-21] Anchor for the "Monthly (day of week)" cadence.
+  // weekOfMonth 1..4=first..fourth, 5=last; monthlyWeekday 0=Sun..6=Sat. Hydrated
+  // from the recurring_schedule preload below when it's already a monthly_weekday.
+  const [weekOfMonth, setWeekOfMonth] = useState(5);
+  const [monthlyWeekday, setMonthlyWeekday] = useState(5);
   const [scheduledDate, setScheduledDate] = useState(job.scheduled_date);
   // [AI.5] Normalize on init — DB may store "09:00:00" or "9:00" which would
   // silently kill canSave's regex (only HH:MM passes). See normalizeTimeStr.
@@ -712,6 +725,14 @@ export default function EditJobModal({
             };
             const dayInt = dayMap[String(rs.day_of_week).toLowerCase()];
             if (dayInt !== undefined) setDaysOfWeek([dayInt]);
+          }
+          // [monthly-weekday 2026-07-21] Hydrate the nth-weekday pickers so the
+          // modal opens showing the schedule's real "Last Friday" anchor.
+          if (String(rs.frequency) === "monthly_weekday") {
+            if (rs.week_of_month != null) setWeekOfMonth(Number(rs.week_of_month));
+            const mwMap: Record<string, number> = { sunday: 0, monday: 1, tuesday: 2, wednesday: 3, thursday: 4, friday: 5, saturday: 6 };
+            const mwDow = mwMap[String(rs.day_of_week).toLowerCase()];
+            if (mwDow !== undefined) setMonthlyWeekday(mwDow);
           }
           setParkingFeeEnabledInitial(!!rs.parking_fee_enabled);
           setParkingFeeAmountInitial(rs.parking_fee_amount != null ? Number(rs.parking_fee_amount) : null);
@@ -1265,6 +1286,11 @@ export default function EditJobModal({
         team_user_ids: selectedTechIds,
         instructions,
         cascade_scope: cascade,
+        // [monthly-weekday 2026-07-21] Nth/last-weekday anchor — only meaningful
+        // for the monthly_weekday cadence; the backend ignores them otherwise
+        // and clears week_of_month when switching to another frequency.
+        week_of_month: frequency === "monthly_weekday" ? weekOfMonth : undefined,
+        day_of_week: frequency === "monthly_weekday" ? MW_DOW_ENUM[monthlyWeekday] : undefined,
         // [notify-choice 2026-07-08] The office's per-save pick. The backend
         // only acts on it when the save actually changed date/time; 'none'
         // suppresses the pending-note nag too (decision already made).
@@ -1765,6 +1791,16 @@ export default function EditJobModal({
                           are deliberately not exposed here. */}
                       {FREQUENCIES_STANDARD.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                     </select>
+                    {frequency === "monthly_weekday" && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <select value={weekOfMonth} onChange={e => setWeekOfMonth(Number(e.target.value))} style={{ ...INPUT, flex: 1 }}>
+                          {[1, 2, 3, 4, 5].map(w => <option key={w} value={w}>{MW_WEEK_LABELS[w]}</option>)}
+                        </select>
+                        <select value={monthlyWeekday} onChange={e => setMonthlyWeekday(Number(e.target.value))} style={{ ...INPUT, flex: 1.4 }}>
+                          {MW_DOW_LABELS.map((nm, i) => <option key={i} value={i}>{nm}</option>)}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div style={{ marginTop: 10 }}>

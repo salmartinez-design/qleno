@@ -560,6 +560,16 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] runAutoScheduleAuditMigration — non-fatal:", err?.message ?? err);
   }
+  // [monthly-weekday 2026-07-21] Add 'monthly_weekday' to the jobs frequency enum
+  // so last-Friday-of-month recurrences can be created/generated.
+  try {
+    await withBootTimeout("runMonthlyWeekdayEnumMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runMonthlyWeekdayEnumMigration } = await import("./lib/recurring-jobs.js");
+      await runMonthlyWeekdayEnumMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runMonthlyWeekdayEnumMigration — non-fatal:", err?.message ?? err);
+  }
   // [redo-service 2026-07-10] jobs.redo_of_job_id / non_billable +
   // quality_complaints.reason_category / areas / redo_job_id.
   try {

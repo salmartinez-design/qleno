@@ -499,6 +499,9 @@ router.post("/", requireAuth, async (req, res) => {
       frequency, base_fee, allowed_hours, notes,
       account_id, account_property_id, billing_method, hourly_rate, estimated_hours,
       branch_id, add_ons, team_user_ids, days_of_week,
+      // [monthly-weekday 2026-07-21] Nth/last weekday of month. week_of_month:
+      // 1..4 = first..fourth, 5 = last. day_of_week: recurring_day enum string.
+      week_of_month, day_of_week,
     } = req.body;
 
     // [multi-tech-create 2026-06-04] The wizard's tech picker is multi-select.
@@ -703,7 +706,16 @@ router.post("/", requireAuth, async (req, res) => {
     // same way residential does. $0 is legitimate for account series (the
     // account is the billing entity — monthly-batch invoicing), so the
     // positive-fee guard only applies to RESIDENTIAL (744-phantom guard).
-    const RECURRING_FREQS = new Set(["weekly", "biweekly", "monthly", "weekdays", "every_3_weeks", "daily", "custom_days"]);
+    const RECURRING_FREQS = new Set(["weekly", "biweekly", "monthly", "weekdays", "every_3_weeks", "daily", "custom_days", "monthly_weekday"]);
+    // [monthly-weekday 2026-07-21] Sanitize the nth-weekday anchor. week_of_month
+    // clamps to 1..5 (5=last); day_of_week must be a recurring_day enum value.
+    const _DOW_ENUM = new Set(["sunday","monday","tuesday","wednesday","thursday","friday","saturday"]);
+    const _weekOfMonth = frequency === "monthly_weekday"
+      ? Math.max(1, Math.min(5, Number.parseInt(String(week_of_month), 10) || 1))
+      : null;
+    const _monthlyDow = frequency === "monthly_weekday" && typeof day_of_week === "string" && _DOW_ENUM.has(day_of_week)
+      ? day_of_week
+      : null;
     // custom_days needs the operator's selected weekdays (0=Sun..6=Sat); every
     // other cadence anchors on start_date and ignores this. Sanitize to a valid
     // 0–6 int set so a bad payload can't poison the schedule.
@@ -763,7 +775,11 @@ router.post("/", requireAuth, async (req, res) => {
             company_id: req.auth!.companyId!,
             customer_id: _scheduleCustomerId,
             frequency: frequency as any, // narrowed to string; column wants the freq enum union
-            day_of_week: null, // cadence anchors on start_date's weekday when null
+            // [monthly-weekday 2026-07-21] Anchor the nth-weekday cadence: store
+            // the chosen weekday + week_of_month. Other cadences leave day_of_week
+            // null (engine anchors on start_date's weekday).
+            day_of_week: (_monthlyDow as any) ?? null,
+            week_of_month: _weekOfMonth,
             // Multi-day weekday pattern — only custom_days carries it; daily/
             // weekdays resolve their own pattern in the engine, single-day
             // cadences anchor on start_date. (See recurring_schedules invariant.)
@@ -1468,6 +1484,7 @@ router.get("/:id", requireAuth, requireRole("owner", "admin", "office", "super_a
     if (jobMeta.recurring_schedule_id != null) {
       const rs = await db.execute(sql`
         SELECT id, frequency, day_of_week, days_of_week, custom_frequency_weeks,
+               week_of_month,
                parking_fee_enabled, parking_fee_amount, parking_fee_days,
                commercial_hourly_rate
         FROM recurring_schedules WHERE id = ${jobMeta.recurring_schedule_id} LIMIT 1
@@ -1756,6 +1773,12 @@ router.patch("/:id", requireAuth, async (req, res) => {
       instructions,
       cascade_scope,
       days_of_week,           // [AI] multi-day pattern (int array 0..6)
+      // [monthly-weekday 2026-07-21] Nth/last-weekday anchor for the
+      // monthly_weekday cadence. week_of_month 1..4=first..fourth, 5=last;
+      // day_of_week is a recurring_day enum string. Both thread onto the
+      // schedule on create_recurring / this_and_future.
+      week_of_month,
+      day_of_week,
       // [AI.7.1] Parking fee schedule-level cascade. When the user toggles
       // parking ON in the modal and picks "this and future", these flow
       // onto recurring_schedules so the engine stamps parking on every
@@ -1784,6 +1807,15 @@ router.patch("/:id", requireAuth, async (req, res) => {
       // null = clear override (revert to company rate); undefined = not sent (no change).
       commission_override_pct,
     } = req.body ?? {};
+
+    // [monthly-weekday 2026-07-21] Sanitize the nth-weekday anchor once for the
+    // cascade write sites below. week_of_month clamps to 1..5 (5=last);
+    // day_of_week must be a recurring_day enum string.
+    const _DOW_ENUM_SET = new Set(["sunday","monday","tuesday","wednesday","thursday","friday","saturday"]);
+    const _mwWeekOfMonth = week_of_month != null
+      ? Math.max(1, Math.min(5, Number.parseInt(String(week_of_month), 10) || 1))
+      : null;
+    const _mwDayOfWeek = typeof day_of_week === "string" && _DOW_ENUM_SET.has(day_of_week) ? day_of_week : null;
 
     // [PR / 2026-04-30] Cascade dry-run mode. Counters-only for v1
     // (Sal Q3.1 = a). When dry_run=true, the route runs the entire
@@ -2260,6 +2292,7 @@ router.patch("/:id", requireAuth, async (req, res) => {
           daily:         { f: "daily",         weeks: null },
           weekdays:      { f: "weekdays",      weeks: null },
           custom_days:   { f: "custom_days",   weeks: null },
+          monthly_weekday: { f: "monthly_weekday", weeks: null },
         };
         const fmap = freqMap[freqStr] ?? { f: "custom", weeks: null };
         // Multi-day frequencies use days_of_week (int[] 0..6); single-
@@ -2341,7 +2374,11 @@ router.patch("/:id", requireAuth, async (req, res) => {
             company_id: companyId,
             customer_id: Number(before.client_id),
             frequency: fmap.f as any,
-            day_of_week: scheduleDow as any,
+            // [monthly-weekday 2026-07-21] Prefer the explicit weekday the modal
+            // sent for a monthly_weekday cadence; otherwise anchor on the date's
+            // weekday. week_of_month carries the nth (5=last) for that cadence.
+            day_of_week: ((freqStr === "monthly_weekday" && _mwDayOfWeek) ? _mwDayOfWeek : scheduleDow) as any,
+            week_of_month: freqStr === "monthly_weekday" ? (_mwWeekOfMonth ?? 5) : null,
             days_of_week: scheduleDays,
             custom_frequency_weeks: fmap.weeks,
             start_date: effectiveDate,
@@ -2765,11 +2802,22 @@ router.patch("/:id", requireAuth, async (req, res) => {
             daily:         { f: "daily", weeks: null },
             weekdays:      { f: "weekdays", weeks: null },
             custom_days:   { f: "custom_days", weeks: null },
+            monthly_weekday: { f: "monthly_weekday", weeks: null },
             on_demand:     { f: "custom", weeks: null },
           };
           const m = map[String(frequency)] ?? { f: "custom", weeks: null };
           rsSetParts.frequency = m.f;
           rsSetParts.custom_frequency_weeks = m.weeks;
+          // [monthly-weekday 2026-07-21] Set the nth-weekday anchor when switching
+          // TO monthly_weekday; clear it when switching away so a stale week_of_month
+          // can't drive a later cadence. day_of_week is set in the single-day branch
+          // below, but for monthly_weekday we set it explicitly from the modal.
+          if (frequency === "monthly_weekday") {
+            rsSetParts.week_of_month = _mwWeekOfMonth ?? 5;
+            if (_mwDayOfWeek) rsSetParts.day_of_week = _mwDayOfWeek;
+          } else {
+            rsSetParts.week_of_month = null;
+          }
         }
         // [AI] Cascade days_of_week + clear day_of_week when switching to
         // multi-day. Inverse: clear days_of_week when switching back to
