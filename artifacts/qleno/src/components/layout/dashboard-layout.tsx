@@ -783,6 +783,10 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '7px 10px 5px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Create new</div>
                   {([
                     { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new' },
+                    // [quick-create-estimate 2026-07-21] Sal: "when I hit + New we
+                    // need an estimate option." Estimates are their own flow
+                    // (/estimates/new — separate from the price Quote above).
+                    { label: 'Estimate', desc: 'Build a client estimate', Icon: ClipboardList, href: '/estimates/new' },
                     { label: 'Job',    desc: 'Schedule a job',      Icon: Briefcase, href: '/dispatch?new=1' },
                     { label: 'Event',  desc: 'Block time or add a visit', Icon: CalendarClock, href: '/dispatch?newEvent=1' },
                     { label: 'Client', desc: 'Add a customer',      Icon: UserPlus,  href: '/customers' },
@@ -964,6 +968,10 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
                   <div style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.07em', padding: '7px 10px 5px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Create new</div>
                   {([
                     { label: 'Quote',  desc: 'Build a price quote', Icon: Receipt,   href: '/quotes/new' },
+                    // [quick-create-estimate 2026-07-21] Sal: "when I hit + New we
+                    // need an estimate option." Estimates are their own flow
+                    // (/estimates/new — separate from the price Quote above).
+                    { label: 'Estimate', desc: 'Build a client estimate', Icon: ClipboardList, href: '/estimates/new' },
                     { label: 'Job',    desc: 'Schedule a job',      Icon: Briefcase, href: '/dispatch?new=1' },
                     { label: 'Event',  desc: 'Block time or add a visit', Icon: CalendarClock, href: '/dispatch?newEvent=1' },
                     { label: 'Client', desc: 'Add a customer',      Icon: UserPlus,  href: '/customers' },
