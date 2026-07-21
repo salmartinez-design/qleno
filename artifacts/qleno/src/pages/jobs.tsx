@@ -7966,6 +7966,18 @@ export default function JobsPage() {
         toast({ title: `Cross-zone assignment`, description: `${targetEmployee.name} is in ${targetEmployee.zone.zone_name} but this job is in ${job.zone_name || "a different zone"}.` });
       }
     }
+    // [multitech-drag-fix 2026-07-21] A multi-tech job is FANNED OUT into one
+    // card per assigned cleaner (team_role primary/team), all sharing job.id.
+    // The optimistic update below strips every card with this job.id and re-adds
+    // a single one in the target row — so on a multi-tech job the helper cards
+    // vanish and it looks like the crew was deleted (Maribel: "it deletes the
+    // others and leaves only one"). The crew is intact server-side (reassign-tech
+    // keeps helpers; the PUT only carries the time), so we just need to re-fan
+    // the board: detect >1 card for this job now, and refetch after the save.
+    const jobCardCount =
+      data.employees.reduce((n, emp) => n + emp.jobs.filter(j => j.id === job.id).length, 0) +
+      (data.unassigned_jobs?.filter(j => j.id === job.id).length ?? 0);
+    const isMultiTech = jobCardCount > 1;
     // Optimistic update — move chip immediately without blocking the UI on a full reload
     const updatedJob: DispatchJob = { ...job, scheduled_time: minsToStr(newMins), assigned_user_id: empId };
     setData(prev => {
@@ -7992,6 +8004,9 @@ export default function JobsPage() {
         if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || "Reassign failed"); }
       }
       await patchJob(job.id, patch, token);
+      // [multitech-drag-fix 2026-07-21] Re-fan the board so the helper cards the
+      // optimistic collapse hid come back (with the correct post-move assignment).
+      if (isMultiTech) await load();
     }
     catch (e) { toast({ title: "Failed to update job", description: (e as Error).message, variant: "destructive" }); load(); }
   }
