@@ -78,7 +78,7 @@ const FREQ_OPTIONS: { value: string; label: string; applies_to: FreqApplies[] }[
   { value: "biweekly",       label: "Bi-weekly",        applies_to: ["residential", "commercial"] },
   { value: "every_3_weeks",  label: "Every 3 weeks",    applies_to: ["residential", "commercial"] },
   { value: "monthly",        label: "Every 4 weeks",    applies_to: ["residential", "commercial"] },
-  { value: "monthly_weekday",label: "Monthly (day of week)", applies_to: ["residential"] },
+  { value: "monthly_weekday",label: "Monthly (day of week)", applies_to: ["residential", "commercial"] },
   { value: "daily",          label: "Daily",            applies_to: ["commercial"] },
   { value: "weekdays",       label: "Weekdays (M–F)",   applies_to: ["commercial"] },
   { value: "custom_days",    label: "Custom days",      applies_to: ["commercial"] },
@@ -895,6 +895,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           // Only "Custom days" carries selected weekdays; every other cadence
           // anchors on the scheduled date.
           days_of_week: commercialFrequency === "custom_days" ? commercialDaysOfWeek : undefined,
+          // [tech-cadence-accounts 2026-07-21] Nth/last-weekday anchor for the
+          // account (commercial) monthly_weekday cadence; ignored otherwise.
+          week_of_month: commercialFrequency === "monthly_weekday" ? weekOfMonth : undefined,
+          day_of_week: commercialFrequency === "monthly_weekday" ? DOW_ENUM_NAMES[monthlyWeekday] : undefined,
           notes: commercialNotes || undefined,
           assigned_user_id: selectedEmployees[0] || undefined,
           status: "scheduled",
@@ -1950,13 +1954,39 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Frequency</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                     {FREQ_OPTIONS.filter(f => f.applies_to.includes(effectiveParent)).map(f => (
-                      <button key={f.value} onClick={() => setCommercialFrequency(f.value)}
+                      <button key={f.value} onClick={() => {
+                        setCommercialFrequency(f.value);
+                        if (f.value === "monthly_weekday") {
+                          const ymd = nextNthWeekdayYmd(new Date(commercialScheduledDate + "T00:00"), weekOfMonth, monthlyWeekday);
+                          if (ymd) setCommercialScheduledDate(ymd);
+                        }
+                      }}
                         style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: `1.5px solid ${commercialFrequency === f.value ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, borderRadius: 8, background: commercialFrequency === f.value ? "var(--brand-dim, #EBF4FF)" : "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                         {commercialFrequency === f.value && <Check size={12} color="var(--brand, #00C9A0)"/>}
                         <span style={{ fontSize: 12, fontWeight: commercialFrequency === f.value ? 600 : 400, color: commercialFrequency === f.value ? "var(--brand, #00C9A0)" : "#6B7280" }}>{f.label}</span>
                       </button>
                     ))}
                   </div>
+                  {/* [tech-cadence-accounts 2026-07-21] Nth/last weekday-of-month
+                      for commercial accounts — e.g. "Last Friday of the month." */}
+                  {commercialFrequency === "monthly_weekday" && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                      <select value={weekOfMonth} onChange={e => {
+                        const w = Number(e.target.value); setWeekOfMonth(w);
+                        const ymd = nextNthWeekdayYmd(new Date(commercialScheduledDate + "T00:00"), w, monthlyWeekday);
+                        if (ymd) setCommercialScheduledDate(ymd);
+                      }} style={{ flex: 1, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", background: "#fff", outline: "none" }}>
+                        {[1, 2, 3, 4, 5].map(w => <option key={w} value={w}>{WEEK_OF_MONTH_LABELS[w]}</option>)}
+                      </select>
+                      <select value={monthlyWeekday} onChange={e => {
+                        const d = Number(e.target.value); setMonthlyWeekday(d);
+                        const ymd = nextNthWeekdayYmd(new Date(commercialScheduledDate + "T00:00"), weekOfMonth, d);
+                        if (ymd) setCommercialScheduledDate(ymd);
+                      }} style={{ flex: 1.4, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", background: "#fff", outline: "none" }}>
+                        {DOW_SHORT.map((nm, i) => <option key={i} value={i}>{nm}</option>)}
+                      </select>
+                    </div>
+                  )}
                   {/* Day picker — only for "Custom days". Without at least one
                       day selected the series can't be generated, so we surface
                       a hint and the Schedule step blocks on it. 0=Sun..6=Sat. */}

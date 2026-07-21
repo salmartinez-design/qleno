@@ -1590,6 +1590,19 @@ export default function EditJobModal({
                         {FREQUENCIES_COMMERCIAL_MULTI.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
                       </optgroup>
                     </select>
+                    {/* [tech-cadence-accounts 2026-07-21] Nth/last-weekday picker
+                        on the commercial branch too, so account schedules can be
+                        set to e.g. "Last Friday of the month." */}
+                    {frequency === "monthly_weekday" && (
+                      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                        <select value={weekOfMonth} onChange={e => setWeekOfMonth(Number(e.target.value))} style={{ ...INPUT, flex: 1 }}>
+                          {[1, 2, 3, 4, 5].map(w => <option key={w} value={w}>{MW_WEEK_LABELS[w]}</option>)}
+                        </select>
+                        <select value={monthlyWeekday} onChange={e => setMonthlyWeekday(Number(e.target.value))} style={{ ...INPUT, flex: 1.4 }}>
+                          {MW_DOW_LABELS.map((nm, i) => <option key={i} value={i}>{nm}</option>)}
+                        </select>
+                      </div>
+                    )}
                   </div>
                 </div>
                 {/* [feature/edit-modal-frequency-presets] Convenience preset
