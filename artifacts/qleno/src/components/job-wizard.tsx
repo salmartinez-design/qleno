@@ -117,7 +117,10 @@ function nthWeekdayDate(year: number, month: number, nth: number, weekday: numbe
 // First matching nth-weekday date on/after `from`, as YYYY-MM-DD (local).
 function nextNthWeekdayYmd(from: Date, nth: number, weekday: number): string {
   let y = from.getFullYear(), m = from.getMonth();
-  for (let i = 0; i < 3; i++) {
+  // A given nth-weekday (1..4 or last) exists in every month, so the target is
+  // always within the next 2 months — but loop a generous 13 so a "last"
+  // ordinal near month-end can never fall through to the empty-string return.
+  for (let i = 0; i < 13; i++) {
     const d = nthWeekdayDate(y, m, nth, weekday);
     if (d >= new Date(from.getFullYear(), from.getMonth(), from.getDate())) {
       return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -125,6 +128,18 @@ function nextNthWeekdayYmd(from: Date, nth: number, weekday: number): string {
     m += 1; if (m > 11) { m = 0; y += 1; }
   }
   return "";
+}
+
+// [monthly-weekday-anchor 2026-07-21] Snap a STABLE anchor date to the next
+// nth-weekday on/after it. The wizard MUST snap from the user's actual picked
+// date (or today) — never from a previously-snapped value. Re-snapping off the
+// moving scheduled date drifts the start forward a month every time the ordinal
+// or weekday is toggled (a "1st Wednesday" schedule created on Jul 21 landed on
+// Oct 7, skipping Aug/Sep — Maribel's bug). Falls back to the anchor itself if
+// the cadence somehow yields nothing.
+function snapNthWeekday(anchorYmd: string, nth: number, weekday: number): string {
+  if (!anchorYmd) return "";
+  return nextNthWeekdayYmd(new Date(anchorYmd + "T00:00"), nth, weekday) || anchorYmd;
 }
 
 function todayStr() {
@@ -272,6 +287,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   // initial state only (operator can still change it). Cleared on
   // wizard close via the existing reset block at line ~191.
   const [scheduledDate, setScheduledDate] = useState(presetDate || todayStr());
+  // [monthly-weekday-anchor 2026-07-21] Stable base the monthly_weekday snap
+  // computes from — the user's last explicit date pick, never the snapped value.
+  const [mwAnchor, setMwAnchor] = useState(presetDate || todayStr());
   const [scheduledTime, setScheduledTime] = useState("09:00");
   const [duration, setDuration] = useState(120);
   const [price, setPrice] = useState(120);
@@ -324,6 +342,8 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   // "Rebook last service" suggestion on the commercial Service step.
   const [propertyRecentJob, setPropertyRecentJob] = useState<any>(null);
   const [commercialScheduledDate, setCommercialScheduledDate] = useState(todayStr());
+  // [monthly-weekday-anchor 2026-07-21] Commercial counterpart of mwAnchor.
+  const [commMwAnchor, setCommMwAnchor] = useState(todayStr());
   const [commercialScheduledTime, setCommercialScheduledTime] = useState("09:00");
   const [commercialDuration, setCommercialDuration] = useState(120);
   const [commercialFrequency, setCommercialFrequency] = useState("on_demand");
@@ -360,9 +380,11 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
   useEffect(() => {
     if (open && presetDate) {
       setScheduledDate(presetDate);
+      setMwAnchor(presetDate);
       // The commercial branch tracks its own date — seed it too so an
       // account-calendar "+ New job" lands on the day that was clicked.
       setCommercialScheduledDate(presetDate);
+      setCommMwAnchor(presetDate);
     }
   }, [open, presetDate]);
 
@@ -430,13 +452,13 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
       setShowNewCust(false); setNewCustFirst(""); setNewCustLast(""); setNewCustPhone(""); setNewCustEmail(""); setNewCustAddress(""); setNewCustSaving(false); setNewCustError("");
       setAccountQuery(""); setAccountResults([]); setSelectedAccount(null);
       setPropertyQuery(""); setProperties([]); setSelectedProperty(null);
-      setServiceType("standard_clean"); setScheduledDate(todayStr()); setScheduledTime("09:00");
+      setServiceType("standard_clean"); setScheduledDate(todayStr()); setMwAnchor(todayStr()); setScheduledTime("09:00");
       setDuration(120); setPrice(120); setPriceOverridden(false); setFrequency("on_demand"); setNotes("");
       setShowQuote(false); setQuoteSending(false); setQuoteSent(false); setQuoteError("");
       setCommercialServiceType(""); setAcctServiceParent("commercial"); setRateLookup(null); setRateLookupLoading(false);
       setRateLookupDone(false); setRateOverride(false); setOverrideRate(""); setEstimatedHours("");
       setManualBillingMethod("hourly"); setManualRate("");
-      setCommercialScheduledDate(todayStr()); setCommercialScheduledTime("09:00");
+      setCommercialScheduledDate(todayStr()); setCommMwAnchor(todayStr()); setCommercialScheduledTime("09:00");
       setCommercialDuration(120); setCommercialFrequency("on_demand"); setCommercialDaysOfWeek([]); setCommercialNotes("");
       setSelectedEmployees([]); setSubmitting(false); setError("");
       setSuggestions([]); setSuggestionsLoading(false); setSuggestionsDismissed(false);
@@ -1501,7 +1523,11 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Date</p>
-                  <CalendarPopover value={scheduledDate} onChange={setScheduledDate} block ariaLabel="Service date" />
+                  <CalendarPopover value={scheduledDate} onChange={(v) => {
+                    // Explicit pick re-anchors the cadence, then snaps if monthly_weekday.
+                    setMwAnchor(v);
+                    setScheduledDate(frequency === "monthly_weekday" ? snapNthWeekday(v, weekOfMonth, monthlyWeekday) : v);
+                  }} block ariaLabel="Service date" />
                 </div>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</p>
@@ -1578,8 +1604,11 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                         setFrequency(f.value);
                         // [monthly-weekday] Snap the service date to the chosen
                         // nth-weekday so the first job + schedule anchor line up.
+                        // Anchor on the CURRENT picked date (scheduledDate here is
+                        // the raw pick), then snap from that stable anchor.
                         if (f.value === "monthly_weekday") {
-                          const ymd = nextNthWeekdayYmd(new Date(scheduledDate + "T00:00"), weekOfMonth, monthlyWeekday);
+                          setMwAnchor(scheduledDate);
+                          const ymd = snapNthWeekday(scheduledDate, weekOfMonth, monthlyWeekday);
                           if (ymd) setScheduledDate(ymd);
                         }
                       }}
@@ -1596,14 +1625,14 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                       <select value={weekOfMonth} onChange={e => {
                         const w = Number(e.target.value); setWeekOfMonth(w);
-                        const ymd = nextNthWeekdayYmd(new Date(scheduledDate + "T00:00"), w, monthlyWeekday);
+                        const ymd = snapNthWeekday(mwAnchor || scheduledDate, w, monthlyWeekday);
                         if (ymd) setScheduledDate(ymd);
                       }} style={{ flex: 1, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", background: "#fff", outline: "none" }}>
                         {[1, 2, 3, 4, 5].map(w => <option key={w} value={w}>{WEEK_OF_MONTH_LABELS[w]}</option>)}
                       </select>
                       <select value={monthlyWeekday} onChange={e => {
                         const d = Number(e.target.value); setMonthlyWeekday(d);
-                        const ymd = nextNthWeekdayYmd(new Date(scheduledDate + "T00:00"), weekOfMonth, d);
+                        const ymd = snapNthWeekday(mwAnchor || scheduledDate, weekOfMonth, d);
                         if (ymd) setScheduledDate(ymd);
                       }} style={{ flex: 1.4, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", background: "#fff", outline: "none" }}>
                         {DOW_SHORT.map((nm, i) => <option key={i} value={i}>{nm}</option>)}
@@ -1925,7 +1954,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Date</p>
-                  <CalendarPopover value={commercialScheduledDate} onChange={setCommercialScheduledDate} block ariaLabel="Service date" />
+                  <CalendarPopover value={commercialScheduledDate} onChange={(v) => {
+                    setCommMwAnchor(v);
+                    setCommercialScheduledDate(commercialFrequency === "monthly_weekday" ? snapNthWeekday(v, weekOfMonth, monthlyWeekday) : v);
+                  }} block ariaLabel="Service date" />
                 </div>
                 <div>
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</p>
@@ -1957,7 +1989,8 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       <button key={f.value} onClick={() => {
                         setCommercialFrequency(f.value);
                         if (f.value === "monthly_weekday") {
-                          const ymd = nextNthWeekdayYmd(new Date(commercialScheduledDate + "T00:00"), weekOfMonth, monthlyWeekday);
+                          setCommMwAnchor(commercialScheduledDate);
+                          const ymd = snapNthWeekday(commercialScheduledDate, weekOfMonth, monthlyWeekday);
                           if (ymd) setCommercialScheduledDate(ymd);
                         }
                       }}
@@ -1973,14 +2006,14 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                       <select value={weekOfMonth} onChange={e => {
                         const w = Number(e.target.value); setWeekOfMonth(w);
-                        const ymd = nextNthWeekdayYmd(new Date(commercialScheduledDate + "T00:00"), w, monthlyWeekday);
+                        const ymd = snapNthWeekday(commMwAnchor || commercialScheduledDate, w, monthlyWeekday);
                         if (ymd) setCommercialScheduledDate(ymd);
                       }} style={{ flex: 1, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", background: "#fff", outline: "none" }}>
                         {[1, 2, 3, 4, 5].map(w => <option key={w} value={w}>{WEEK_OF_MONTH_LABELS[w]}</option>)}
                       </select>
                       <select value={monthlyWeekday} onChange={e => {
                         const d = Number(e.target.value); setMonthlyWeekday(d);
-                        const ymd = nextNthWeekdayYmd(new Date(commercialScheduledDate + "T00:00"), weekOfMonth, d);
+                        const ymd = snapNthWeekday(commMwAnchor || commercialScheduledDate, weekOfMonth, d);
                         if (ymd) setCommercialScheduledDate(ymd);
                       }} style={{ flex: 1.4, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", background: "#fff", outline: "none" }}>
                         {DOW_SHORT.map((nm, i) => <option key={i} value={i}>{nm}</option>)}
