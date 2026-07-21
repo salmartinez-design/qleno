@@ -55,6 +55,7 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
     const {
       status,
       source,
+      channel,
       assigned_to,
       scope,
       search,
@@ -90,6 +91,15 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
     if (source) {
       const sources = source.split(",").map(s => `'${s.replace(/'/g, "''")}'`).join(",");
       conditions.push(`l.source IN (${sources})`);
+    }
+    // [dashboard-deeplink 2026-07-21] `channel` groups the many raw sources into
+    // the same online-vs-office split the Dashboard "Online/Office" tiles count,
+    // so those tiles can deep-link the board to exactly what they tallied. Keep
+    // this predicate identical to the /summary `online` definition or the tile
+    // count and the filtered board will disagree.
+    if (channel === "online" || channel === "office") {
+      const onlineSql = `(COALESCE(NULLIF(l.source,''), l.lead_source) IN ('web_quote','website','booking_widget') OR l.lead_source = 'web_quote')`;
+      conditions.push(channel === "online" ? onlineSql : `NOT ${onlineSql}`);
     }
     if (assigned_to) {
       if (assigned_to === "unassigned") {
@@ -158,7 +168,21 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
         ORDER BY fe.id DESC LIMIT 1
       ) drip ON TRUE
       ${where}
-      ORDER BY l.replied_at DESC NULLS LAST, l.created_at DESC
+      -- [lead-sort 2026-07-21] Most-recent-activity first: an un-answered reply
+      -- always floats to the top of the pipeline (that's the "call back" alarm),
+      -- then whichever lead was last touched — a drip send, a stage change, a
+      -- note (updated_at) — so nothing worked recently sinks under a stale lead
+      -- that merely happens to be newer. Fallbacks to created_at keep the type
+      -- uniform (created_at is NOT NULL) so GREATEST never trips on a null.
+      ORDER BY (l.replied_at IS NOT NULL) DESC,
+        GREATEST(
+          COALESCE(l.replied_at, l.created_at),
+          COALESCE(l.contacted_at, l.created_at),
+          COALESCE(l.quoted_at, l.created_at),
+          COALESCE(l.booked_at, l.created_at),
+          COALESCE(l.updated_at, l.created_at),
+          l.created_at
+        ) DESC
       LIMIT ${limitNum} OFFSET ${offset}
     `));
 

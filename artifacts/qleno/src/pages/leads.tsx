@@ -173,7 +173,10 @@ function KpiStrip({ counts, filter, onFilter }: {
   const lostN = (counts.no_response || 0) + (counts.not_interested || 0) + (counts.closed || 0);
   const tiles = [
     { key: "all",             label: "All leads",     n: counts.all || 0,             urgent: false },
-    { key: "needs_contacted", label: "Needs contact", n: counts.needs_contacted || 0, urgent: true },
+    // [dashboard-deeplink 2026-07-21] Fetch BOTH raw statuses that land in the
+    // "New" board column so the tab's count, the column, and the Dashboard
+    // "Needs contact" chip (which tallies new + needs_contacted) all agree.
+    { key: "new,needs_contacted", label: "Needs contact", n: (counts.needs_contacted || 0) + (counts.new || 0), urgent: true },
     { key: "contacted",       label: "Contacted",     n: counts.contacted || 0,       urgent: false },
     { key: "quoted",          label: "Quoted",        n: counts.quoted || 0,          urgent: false },
     { key: "booked",          label: "Booked",        n: counts.booked || 0,          urgent: false },
@@ -1752,6 +1755,30 @@ function leadChannel(lead: any): "Website" | "Office" {
   return /web|widget|online|form|very_dirty/.test(s) ? "Website" : "Office";
 }
 
+// [lead-sort 2026-07-21] The most-recent point of contact on a lead, as an
+// epoch ms — the reply, the last drip send, a stage change, or a note bump
+// (updated_at). Drives the board's "freshest work on top" ordering so the card
+// order matches the "sent 40m ago" line the operator reads. Mirrors the server
+// ORDER BY, plus last_drip_touch_at which the board payload carries but the SQL
+// can't cheaply reach.
+function lastActivity(l: any): number {
+  const ts = [l.replied_at, l.last_drip_touch_at, l.quoted_at, l.contacted_at, l.booked_at, l.updated_at, l.created_at];
+  let max = 0;
+  for (const t of ts) {
+    if (!t) continue;
+    const ms = new Date(t).getTime();
+    if (ms > max) max = ms;
+  }
+  return max;
+}
+
+// Today's calendar date (America/Chicago) as YYYY-MM-DD — matches the tz the
+// Dashboard's today tiles count in, so a "Today" deep-link filters to the same
+// set. en-CA renders ISO order.
+function ctToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
+
 // "2h ago" / "3d ago" — compact relative time for card status lines.
 function relTime(ts: string | null | undefined): string {
   if (!ts) return "";
@@ -1843,7 +1870,11 @@ function BoardView({ leads, counts, selectedId, onSelect }: { leads: Lead[]; cou
                 {[...items].sort((a: any, b: any) => {
                   // Un-answered replies float to the top of their column.
                   if (!!a.replied_at !== !!b.replied_at) return a.replied_at ? -1 : 1;
-                  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+                  // [lead-sort 2026-07-21] then most-recent activity first (was
+                  // pure created_at, which sank a lead you just worked under a
+                  // newer-but-untouched one and read as unsorted next to the
+                  // "sent Xago" line).
+                  return lastActivity(b) - lastActivity(a);
                 }).map(l => {
                   const ch = leadChannel(l);
                   const price = Number((l as any).quote_amount || (l as any).linked_quote_price || 0);
@@ -1993,7 +2024,21 @@ export default function LeadsPage() {
   const dismissLegend = () => { setLegendHidden(true); try { localStorage.setItem("leadsLegendHidden", "1"); } catch {} };
   const [mainView, setMainView] = useState<"pipeline" | "reports" | "sequences">("pipeline");
   const [view, setView] = useState<"board" | "list">("board");
-  const [filter, setFilter] = useState("all");
+  // [dashboard-deeplink 2026-07-21] The Dashboard lead tiles/chips land here with
+  // the bucket they tallied preset via the query string (?status / ?channel /
+  // ?window=today) — before this the cards all dumped onto the unfiltered board
+  // with no way to see which leads fell into the category. Read once on mount.
+  const dl = (() => { try { return new URLSearchParams(window.location.search); } catch { return new URLSearchParams(); } })();
+  const VALID_STATUS = new Set(["needs_contacted", "new,needs_contacted", "contacted", "quoted", "booked", "no_response,not_interested,closed"]);
+  const [filter, setFilter] = useState(() => {
+    const s = dl.get("status");
+    return s && VALID_STATUS.has(s) ? s : "all";
+  });
+  const [channel, setChannel] = useState<"all" | "online" | "office">(() => {
+    const c = dl.get("channel");
+    return c === "online" || c === "office" ? c : "all";
+  });
+  const [todayOnly, setTodayOnly] = useState(() => dl.get("window") === "today");
   const [search, setSearch] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
@@ -2020,11 +2065,13 @@ export default function LeadsPage() {
       // list view stays paginated at LIMIT. [board-loadall 2026-07-17]
       const params = new URLSearchParams({ page: String(page), limit: String(view === "board" ? 300 : LIMIT) });
       if (filter !== "all") params.set("status", filter);
+      if (channel !== "all") params.set("channel", channel);
+      if (todayOnly) { const d = ctToday(); params.set("date_from", d); params.set("date_to", d); }
       if (search) params.set("search", search);
       const r = await fetch(`${API}/api/leads?${params}`, { headers: getAuthHeaders() });
       if (r.ok) { const d = await r.json(); setLeads(d.leads || []); setTotal(d.total || 0); }
     } finally { setLoading(false); }
-  }, [page, filter, search, view]);
+  }, [page, filter, channel, todayOnly, search, view]);
 
   const loadCounts = useCallback(async () => {
     const r = await fetch(`${API}/api/leads/status-counts`, { headers: getAuthHeaders() });
@@ -2155,6 +2202,32 @@ export default function LeadsPage() {
       {mainView === "pipeline" && (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
           <KpiStrip counts={counts} filter={filter} onFilter={handleFilter} />
+
+          {/* [dashboard-deeplink 2026-07-21] When a Dashboard card deep-links in
+              with a source/date filter, show it as a clearable chip so the board
+              isn't silently narrowed — the operator sees exactly what subset
+              they're looking at and can drop back to the full pipeline. */}
+          {(channel !== "all" || todayOnly) && (
+            <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "7px 20px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, fontFamily: FF }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: 0.6 }}>Filtered</span>
+              {todayOnly && (
+                <button onClick={() => { setTodayOnly(false); setPage(1); }}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px 3px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#F7F6F3", cursor: "pointer", fontFamily: FF, fontSize: 12, color: "#1A1917", fontWeight: 600 }}>
+                  Today <X size={12} style={{ color: "#9E9B94" }} />
+                </button>
+              )}
+              {channel !== "all" && (
+                <button onClick={() => { setChannel("all"); setPage(1); }}
+                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px 3px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#F7F6F3", cursor: "pointer", fontFamily: FF, fontSize: 12, color: "#1A1917", fontWeight: 600 }}>
+                  {channel === "online" ? "Online leads" : "Office leads"} <X size={12} style={{ color: "#9E9B94" }} />
+                </button>
+              )}
+              <button onClick={() => { setChannel("all"); setTodayOnly(false); setPage(1); }}
+                style={{ marginLeft: 2, background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, color: "#00A88A", fontWeight: 700 }}>
+                Clear all
+              </button>
+            </div>
+          )}
 
           {/* [pipeline-clarity 2026-07-12] One-line legend so the board explains
               itself — a lead moves left → right; Booked is the win, Lost is its
