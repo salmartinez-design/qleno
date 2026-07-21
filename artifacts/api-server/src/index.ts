@@ -550,6 +550,16 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] runSuspensionMigration — non-fatal:", err?.message ?? err);
   }
+  // [system-schedule-log 2026-07-21] Relax job_audit_log.user_id NOT NULL so the
+  // recurrence engine can log "Qleno scheduled this" as a system actor.
+  try {
+    await withBootTimeout("runAutoScheduleAuditMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runAutoScheduleAuditMigration } = await import("./lib/recurring-jobs.js");
+      await runAutoScheduleAuditMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runAutoScheduleAuditMigration — non-fatal:", err?.message ?? err);
+  }
   // [redo-service 2026-07-10] jobs.redo_of_job_id / non_billable +
   // quality_complaints.reason_category / areas / redo_job_id.
   try {
