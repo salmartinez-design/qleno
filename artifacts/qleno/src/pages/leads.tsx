@@ -2038,7 +2038,15 @@ export default function LeadsPage() {
     const c = dl.get("channel");
     return c === "online" || c === "office" ? c : "all";
   });
-  const [todayOnly, setTodayOnly] = useState(() => dl.get("window") === "today");
+  // [lead-day-filter 2026-07-21] Filter the board to a single day (by lead
+  // creation date). "" = no day filter. Seeds from ?day=YYYY-MM-DD, or
+  // ?window=today (the Dashboard "today" tiles) → today's CT date. Also exposed
+  // as a visible date picker so the office can scope to any day, not just today.
+  const [dayFilter, setDayFilter] = useState(() => {
+    const d = dl.get("day");
+    if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+    return dl.get("window") === "today" ? ctToday() : "";
+  });
   const [search, setSearch] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
   const [total, setTotal] = useState(0);
@@ -2066,12 +2074,12 @@ export default function LeadsPage() {
       const params = new URLSearchParams({ page: String(page), limit: String(view === "board" ? 300 : LIMIT) });
       if (filter !== "all") params.set("status", filter);
       if (channel !== "all") params.set("channel", channel);
-      if (todayOnly) { const d = ctToday(); params.set("date_from", d); params.set("date_to", d); }
+      if (dayFilter) { params.set("date_from", dayFilter); params.set("date_to", dayFilter); }
       if (search) params.set("search", search);
       const r = await fetch(`${API}/api/leads?${params}`, { headers: getAuthHeaders() });
       if (r.ok) { const d = await r.json(); setLeads(d.leads || []); setTotal(d.total || 0); }
     } finally { setLoading(false); }
-  }, [page, filter, channel, todayOnly, search, view]);
+  }, [page, filter, channel, dayFilter, search, view]);
 
   const loadCounts = useCallback(async () => {
     const r = await fetch(`${API}/api/leads/status-counts`, { headers: getAuthHeaders() });
@@ -2203,31 +2211,36 @@ export default function LeadsPage() {
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
           <KpiStrip counts={counts} filter={filter} onFilter={handleFilter} />
 
-          {/* [dashboard-deeplink 2026-07-21] When a Dashboard card deep-links in
-              with a source/date filter, show it as a clearable chip so the board
-              isn't silently narrowed — the operator sees exactly what subset
-              they're looking at and can drop back to the full pipeline. */}
-          {(channel !== "all" || todayOnly) && (
-            <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "7px 20px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0, fontFamily: FF }}>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: 0.6 }}>Filtered</span>
-              {todayOnly && (
-                <button onClick={() => { setTodayOnly(false); setPage(1); }}
-                  style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px 3px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#F7F6F3", cursor: "pointer", fontFamily: FF, fontSize: 12, color: "#1A1917", fontWeight: 600 }}>
-                  Today <X size={12} style={{ color: "#9E9B94" }} />
-                </button>
-              )}
-              {channel !== "all" && (
+          {/* [lead-day-filter 2026-07-21] Always-visible Day filter (Sal: "we
+              should have a filter to filter by day") — scope the board to the
+              leads that came in on a chosen day. Dashboard "today" deep-links
+              (?window=today) land pre-set here. The channel chip (Online/Office)
+              from a Dashboard card shows alongside, clearable, so the board is
+              never silently narrowed. */}
+          <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "7px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, fontFamily: FF, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: 0.6 }}>Day</span>
+            <input type="date" value={dayFilter} onChange={e => { setDayFilter(e.target.value); setPage(1); }}
+              style={{ fontSize: 12, padding: "4px 8px", border: "1px solid #E5E2DC", borderRadius: 7, fontFamily: FF, color: "#1A1917", background: "#F7F6F3", outline: "none" }} />
+            <button onClick={() => { setDayFilter(ctToday()); setPage(1); }}
+              style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", border: `1px solid ${dayFilter === ctToday() ? "#00C9A0" : "#E5E2DC"}`, borderRadius: 7, background: dayFilter === ctToday() ? "#EAFBF6" : "#fff", color: "#1A1917", cursor: "pointer", fontFamily: FF }}>
+              Today
+            </button>
+            {dayFilter && (
+              <button onClick={() => { setDayFilter(""); setPage(1); }}
+                style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: "#00A88A", fontWeight: 700, background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
+                Clear day <X size={11} />
+              </button>
+            )}
+            {channel !== "all" && (
+              <>
+                <div style={{ width: 1, height: 16, background: "#E8E5E0" }} />
                 <button onClick={() => { setChannel("all"); setPage(1); }}
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px 3px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#F7F6F3", cursor: "pointer", fontFamily: FF, fontSize: 12, color: "#1A1917", fontWeight: 600 }}>
                   {channel === "online" ? "Online leads" : "Office leads"} <X size={12} style={{ color: "#9E9B94" }} />
                 </button>
-              )}
-              <button onClick={() => { setChannel("all"); setTodayOnly(false); setPage(1); }}
-                style={{ marginLeft: 2, background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, color: "#00A88A", fontWeight: 700 }}>
-                Clear all
-              </button>
-            </div>
-          )}
+              </>
+            )}
+          </div>
 
           {/* [pipeline-clarity 2026-07-12] One-line legend so the board explains
               itself — a lead moves left → right; Booked is the win, Lost is its
