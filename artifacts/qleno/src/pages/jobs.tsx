@@ -574,6 +574,13 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
   const [techs, setTechs] = useState<Array<{ id: number; first_name: string; last_name: string; name: string; avatar_url?: string | null }>>([]);
   const [loadingTechs, setLoadingTechs] = useState(false);
   const [saving, setSaving] = useState(false);
+  // [assign-all-future 2026-07-21] Maribel: "when assigning a cleaner we should
+  // have an option to assign all future jobs to them or just one." Only offered
+  // on a recurring job. When on, the reassign goes through the edit-job
+  // this_and_future cascade (which already re-techs future occurrences + the
+  // schedule) instead of the single-job reassign-tech.
+  const isRecurring = !!job.frequency && job.frequency !== "on_demand";
+  const [allFuture, setAllFuture] = useState(false);
 
   // Fetch candidate techs from /api/users/techs-with-status (the same
   // endpoint the existing Add Team Member picker uses, so role and active
@@ -614,6 +621,25 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
     if (newId === (job.assigned_user_id ?? null)) return;
     setSaving(true);
     try {
+      // [assign-all-future 2026-07-21] Assigning a real tech to ALL future visits
+      // → route through the edit-job this_and_future cascade so the schedule +
+      // every future occurrence get re-teched (keeps existing helpers, new tech
+      // as primary). Unassign and single-visit reassign stay on reassign-tech.
+      if (allFuture && newId != null) {
+        const helpers = (job.technicians || []).filter(t => !t.is_primary && t.user_id !== newId).map(t => t.user_id);
+        const r = await fetch(`${API}/api/jobs/${job.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ team_user_ids: [newId, ...helpers], cascade_scope: "this_and_future" }),
+        });
+        if (!r.ok) {
+          const body = await r.json().catch(() => ({}));
+          throw new Error(body.error || `Failed (HTTP ${r.status})`);
+        }
+        toast({ title: "Technician assigned to this & all future visits" });
+        onUpdate();
+        return;
+      }
       const r = await fetch(`${API}/api/jobs/${job.id}/reassign-tech`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
@@ -633,6 +659,7 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
   }
 
   return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, minWidth: 0, flex: 1 }}>
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       {/* [job-card-redesign 2026-06-25] Show the assigned cleaner's real photo
           (avatar_url; initials fallback) instead of the generic person glyph. */}
@@ -672,6 +699,15 @@ function InlineTechEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
         )}
       </select>
       {saving && <span style={{ fontSize: 11, color: "#9E9B94" }}>Saving…</span>}
+    </div>
+    {/* [assign-all-future 2026-07-21] Recurring jobs: choose whether the next
+        tech pick applies to just this visit or the whole future series. */}
+    {isRecurring && (
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#6B6860", fontFamily: FF, cursor: "pointer", paddingLeft: 36 }}>
+        <input type="checkbox" checked={allFuture} onChange={e => setAllFuture(e.target.checked)} disabled={saving} style={{ cursor: "pointer" }} />
+        Apply to all future visits
+      </label>
+    )}
     </div>
   );
 }
