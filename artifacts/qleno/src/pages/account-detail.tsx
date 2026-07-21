@@ -255,6 +255,118 @@ function AccountNotificationPreferences({ accountId, commsPaused }: { accountId:
   );
 }
 
+// [tech-pref-accounts 2026-07-21] Preferred / do-not-schedule cleaner for a
+// commercial account — the account-level twin of the client Tech Preferences
+// tab (Sal: "for this account only send Rossy"). Stored reference for dispatch;
+// same shape/labels as the client version, keyed to /api/accounts/:id/tech-
+// preferences.
+function AccountTechPreferences({ accountId }: { accountId: string }) {
+  const { toast } = useToast();
+  const [prefs, setPrefs] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ user_id: "", preference: "preferred", notes: "" });
+  const [saving, setSaving] = useState(false);
+
+  async function load() {
+    try {
+      const r = await fetch(`${API}/api/accounts/${accountId}/tech-preferences`, { headers: getAuthHeaders() });
+      if (r.ok) setPrefs(await r.json());
+    } catch {}
+  }
+  useEffect(() => { load(); }, [accountId]);
+  useEffect(() => {
+    fetch(`${API}/api/users?limit=200`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setEmployees(Array.isArray(d) ? d : (d.data || [])); })
+      .catch(() => {});
+  }, []);
+
+  async function add() {
+    if (!form.user_id) return;
+    setSaving(true);
+    try {
+      const r = await fetch(`${API}/api/accounts/${accountId}/tech-preferences`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" } as Record<string, string>,
+        body: JSON.stringify({ ...form, user_id: parseInt(form.user_id) }),
+      });
+      if (!r.ok) throw new Error();
+      setForm({ user_id: "", preference: "preferred", notes: "" });
+      setShowForm(false);
+      await load();
+      toast({ title: "Technician preference saved for this account" });
+    } catch {
+      toast({ title: "Failed to save preference", variant: "destructive" });
+    }
+    setSaving(false);
+  }
+
+  async function remove(prefId: number) {
+    try {
+      const r = await fetch(`${API}/api/accounts/${accountId}/tech-preferences/${prefId}`, { method: "DELETE", headers: getAuthHeaders() });
+      if (r.ok) await load();
+    } catch {}
+  }
+
+  const prefBadge: Record<string, string> = {
+    preferred: "bg-green-100 text-green-800",
+    do_not_schedule: "bg-red-100 text-red-800",
+    neutral: "bg-gray-100 text-gray-600",
+  };
+  const prefLabel: Record<string, string> = { preferred: "Preferred", do_not_schedule: "Do Not Schedule", neutral: "Neutral" };
+
+  return (
+    <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
+      <div className="flex items-end justify-between flex-wrap gap-2">
+        <div>
+          <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Technician Preferences</p>
+          <p className="text-xs text-gray-500 mt-0.5 max-w-md">Preferred or do-not-schedule cleaners for this account (e.g. "only send Rossy"). Surfaced to dispatch when assigning.</p>
+        </div>
+        <button onClick={() => setShowForm(v => !v)} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#00C9A0] rounded-md flex items-center gap-1">
+          <Plus size={12} /> Add
+        </button>
+      </div>
+
+      {showForm && (
+        <div className="border border-gray-200 rounded-lg p-3 space-y-2">
+          <select value={form.user_id} onChange={e => setForm(f => ({ ...f, user_id: e.target.value }))} className="w-full px-2.5 py-2 border border-gray-200 rounded-md text-sm bg-white">
+            <option value="">Select technician…</option>
+            {employees.filter((e: any) => e.role === "technician").map((e: any) => (
+              <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
+            ))}
+          </select>
+          <select value={form.preference} onChange={e => setForm(f => ({ ...f, preference: e.target.value }))} className="w-full px-2.5 py-2 border border-gray-200 rounded-md text-sm bg-white">
+            <option value="preferred">Preferred</option>
+            <option value="do_not_schedule">Do Not Schedule</option>
+            <option value="neutral">Neutral</option>
+          </select>
+          <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Reason or details (optional)" className="w-full px-2.5 py-2 border border-gray-200 rounded-md text-sm" />
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setShowForm(false)} className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-md">Cancel</button>
+            <button onClick={add} disabled={saving || !form.user_id} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#00C9A0] rounded-md disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
+          </div>
+        </div>
+      )}
+
+      {prefs.length === 0 ? (
+        <p className="text-xs text-gray-400">No technician preferences set for this account.</p>
+      ) : (
+        <div className="divide-y divide-gray-100">
+          {prefs.map((p: any) => (
+            <div key={p.id} className="flex items-center gap-3 py-2">
+              <span className="text-sm text-[#1A1917] flex-1 min-w-0 truncate">{p.first_name} {p.last_name || ""}</span>
+              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${prefBadge[p.preference] || prefBadge.neutral}`}>{prefLabel[p.preference] || p.preference}</span>
+              {p.notes && <span className="text-xs text-gray-400 truncate max-w-[160px]">{p.notes}</span>}
+              <button onClick={() => remove(p.id)} className="text-xs text-gray-400 hover:text-red-600">Remove</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AccountDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { toast } = useToast();
@@ -870,6 +982,9 @@ export default function AccountDetailPage() {
               </div>
               <AccountNotificationPreferences accountId={String(id)} commsPaused={account.comms_enabled === false} />
             </div>
+
+            {/* [tech-pref-accounts 2026-07-21] Preferred / do-not-schedule cleaner */}
+            <AccountTechPreferences accountId={String(id)} />
 
             {/* Activity Summary */}
             <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">

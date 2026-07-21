@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import {
   accountsTable, accountRateCardsTable, accountPropertiesTable, accountContactsTable,
   jobsTable, invoicesTable, usersTable, clientsTable, recurringSchedulesTable,
+  technicianPreferencesTable,
 } from "@workspace/db/schema";
 import { eq, and, sql, inArray, notExists, desc, gte, lte } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
@@ -119,6 +120,84 @@ router.get("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch account" });
+  }
+});
+
+// ─── TECHNICIAN PREFERENCES (account scope) ─────────────────────────────────
+// [tech-pref-accounts 2026-07-21] Preferred / do-not-schedule cleaner for a
+// commercial account (Sal: "for this account only send Rossy"). Mirrors the
+// per-client tech-preferences routes in clients.ts, keyed on account_id. Same
+// stored-reference model — the dispatch board surfaces the flag; nothing here
+// auto-assigns.
+//
+// Idempotent boot migration: relax technician_preferences.client_id NOT NULL and
+// add account_id so a row can be scoped to a client OR an account.
+export async function ensureTechPrefAccountColumns(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE technician_preferences ADD COLUMN IF NOT EXISTS account_id integer`);
+    await db.execute(sql`ALTER TABLE technician_preferences ALTER COLUMN client_id DROP NOT NULL`);
+    console.log("[tech-pref-accounts] migration ok");
+  } catch (err) {
+    console.error("[tech-pref-accounts] migration (non-fatal):", err);
+  }
+}
+
+router.get("/:id/tech-preferences", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const accountId = parseInt(req.params.id);
+    if (isNaN(accountId)) return res.status(400).json({ error: "Invalid id" });
+    const prefs = await db.select({
+      id: technicianPreferencesTable.id,
+      user_id: technicianPreferencesTable.user_id,
+      preference: technicianPreferencesTable.preference,
+      notes: technicianPreferencesTable.notes,
+      created_at: technicianPreferencesTable.created_at,
+      first_name: usersTable.first_name,
+      last_name: usersTable.last_name,
+      avatar_url: usersTable.avatar_url,
+    }).from(technicianPreferencesTable)
+      .leftJoin(usersTable, eq(technicianPreferencesTable.user_id, usersTable.id))
+      .where(and(
+        eq(technicianPreferencesTable.account_id, accountId),
+        eq(technicianPreferencesTable.company_id, req.auth!.companyId!),
+      ));
+    return res.json(prefs);
+  } catch (err) {
+    console.error("[tech-pref-accounts] GET error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.post("/:id/tech-preferences", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const accountId = parseInt(req.params.id);
+    if (isNaN(accountId)) return res.status(400).json({ error: "Invalid id" });
+    const { user_id, preference, notes } = req.body;
+    if (!user_id || !preference) return res.status(400).json({ error: "user_id and preference are required" });
+    const [pref] = await db.insert(technicianPreferencesTable).values({
+      company_id: req.auth!.companyId!, account_id: accountId, client_id: null,
+      user_id: Number(user_id), preference, notes: notes ?? null,
+    }).returning();
+    return res.status(201).json(pref);
+  } catch (err) {
+    console.error("[tech-pref-accounts] POST error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+router.delete("/:id/tech-preferences/:prefId", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const prefId = parseInt(req.params.prefId);
+    if (isNaN(prefId)) return res.status(400).json({ error: "Invalid id" });
+    await db.delete(technicianPreferencesTable)
+      .where(and(
+        eq(technicianPreferencesTable.id, prefId),
+        eq(technicianPreferencesTable.company_id, req.auth!.companyId!),
+      ));
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[tech-pref-accounts] DELETE error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
