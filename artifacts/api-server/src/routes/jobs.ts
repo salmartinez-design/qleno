@@ -4270,6 +4270,25 @@ router.get("/:id/photos", requireAuth, async (req, res) => {
   }
 });
 
+// [photo-window 2026-07-18] Before/after photos may be added up to 24 hours
+// after a job is marked complete (techs are too busy in the field to always do
+// it on the spot). Enforced on upload against jobs.actual_end_time.
+const PHOTO_UPLOAD_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// "Now" in the Central wall-clock frame (a Date whose UTC components equal the
+// America/Chicago wall digits), matching how completion timestamps are stored by
+// the clock/complete flows. Comparing completion time against this keeps the 24h
+// boundary timezone-proof regardless of the server's own zone.
+function nowCentralWall(): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Chicago", year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const g = (t: string) => parts.find(p => p.type === t)!.value;
+  let hh = g("hour"); if (hh === "24") hh = "00";
+  return new Date(`${g("year")}-${g("month")}-${g("day")}T${hh}:${g("minute")}:${g("second")}Z`);
+}
+
 router.post("/:id/photos", requireAuth, photoUpload.single("photo"), async (req, res) => {
   // [AF] PHOTOS_ENABLED is now an explicit kill switch — photo uploads are
   // ENABLED by default and only blocked when PHOTOS_ENABLED="false".
@@ -4285,13 +4304,30 @@ router.post("/:id/photos", requireAuth, photoUpload.single("photo"), async (req,
     // cached job id (or a cross-tenant id) silently attached the tech's
     // before/after pics to the wrong job with no server-side guardrail.
     const [target] = await db
-      .select({ id: jobsTable.id, status: jobsTable.status })
+      .select({ id: jobsTable.id, status: jobsTable.status, actual_end_time: jobsTable.actual_end_time })
       .from(jobsTable)
       .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, req.auth!.companyId)))
       .limit(1);
     if (!target) return res.status(404).json({ error: "Not Found", message: "Job not found" });
     if (target.status === "cancelled") {
       return res.status(409).json({ error: "Conflict", message: "This job is cancelled — photos can't be attached to it. Open today's job and retry." });
+    }
+    // [photo-window 2026-07-18] Techs are often too busy in the field to add
+    // before/after photos on the spot, so uploads stay open AFTER the job is
+    // marked complete — but only up to 24 hours, so photos stay tied to the
+    // actual visit. Before completion there's no gate (the tech is still on the
+    // job). actual_end_time is stored in the Central wall-clock frame (see
+    // timeclock.ts), so "now" is compared in that same frame to avoid a
+    // timezone skew on the 24h boundary.
+    if (target.status === "complete" && target.actual_end_time) {
+      const doneMs = new Date(target.actual_end_time).getTime();
+      const ageMs = nowCentralWall().getTime() - doneMs;
+      if (Number.isFinite(doneMs) && ageMs > PHOTO_UPLOAD_WINDOW_MS) {
+        return res.status(409).json({
+          error: "PHOTO_WINDOW_CLOSED",
+          message: "Photos can be added up to 24 hours after a job is completed. This job was completed more than 24 hours ago — ask the office to reopen it if you still need to add photos.",
+        });
+      }
     }
 
     // [photos-r2 2026-06-24] Resolve the image bytes from either a multipart

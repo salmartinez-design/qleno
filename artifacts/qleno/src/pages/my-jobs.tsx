@@ -510,6 +510,59 @@ function EventClockCard({ ev, onRefresh, actingForUserId }: { ev: TechEvent; onR
   );
 }
 
+// [photo-compress 2026-07-10] Shared upload path for job before/after photos.
+// Compresses each raw phone photo to a ~1600px JPEG (~300 KB) FIRST — which also
+// converts HEIC → JPEG so nothing gets dropped — then uploads a few at a time so
+// a weak mobile connection isn't overwhelmed. Multipart (not base64 JSON); the
+// server streams it to R2. Direct fetch because apiFetch forces JSON — FormData
+// needs the browser to set its own multipart boundary. Used by the on-job
+// PhotoGrid AND the Completed-Today row uploader (so a tech can still add photos
+// after clock-out without leaving the day list).
+async function uploadJobPhotos(
+  jobId: number,
+  type: "before" | "after",
+  files: File[],
+): Promise<{ ok: number; skipped: number; serverError?: string }> {
+  let ok = 0, skipped = 0;
+  // Surfaced when the server refuses an upload for a specific reason (e.g. the
+  // 48-hour post-completion window has closed) so the tech sees WHY, not a
+  // generic "couldn't read photos."
+  let serverError: string | undefined;
+  const token = useAuthStore.getState().token;
+
+  const uploadOne = async (raw: File) => {
+    const file = await compressImage(raw);
+    // After compression a photo is well under the server's 15 MB cap; this
+    // only trips for a huge non-image or an undecodable original.
+    if (file.size > 15 * 1024 * 1024) { skipped++; return; }
+    try {
+      const fd = new FormData();
+      fd.append("photo", file);
+      fd.append("photo_type", type);
+      const res = await fetch(`${BASE}/api/jobs/${jobId}/photos`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: fd,
+      });
+      if (!res.ok) {
+        skipped++;
+        if (!serverError) {
+          const body = await res.json().catch(() => null);
+          if (body?.message) serverError = body.message as string;
+        }
+        return;
+      }
+      ok++;
+    } catch { skipped++; }
+  };
+
+  const CONCURRENCY = 3;
+  for (let i = 0; i < files.length; i += CONCURRENCY) {
+    await Promise.all(files.slice(i, i + CONCURRENCY).map(uploadOne));
+  }
+  return { ok, skipped, serverError };
+}
+
 function PhotoGrid({ jobId, type, photos, onUploaded }: {
   jobId: number; type: "before" | "after"; photos: string[]; onUploaded: () => void;
 }) {
@@ -519,52 +572,15 @@ function PhotoGrid({ jobId, type, photos, onUploaded }: {
 
   // [multi-photo 2026-06-10] Juliana: "can't upload more than one photo at a
   // time." The picker is `multiple`.
-  // [photo-compress 2026-07-10] Juliana again: uploads took ~30 min and photos
-  // "couldn't be added." Two causes fixed here: (1) each raw phone photo (3–12
-  // MB) was sent full-size and uploaded ONE AT A TIME; (2) HEIC (iPhone default)
-  // and >10 MB shots were silently skipped. Now we compress every photo to a
-  // ~1600px JPEG (~300 KB) FIRST — which also converts HEIC → JPEG so nothing
-  // gets dropped — then upload a few at a time. A 5 MB / 30 s upload becomes
-  // ~300 KB / ~2 s, and a batch runs in parallel.
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files ?? []);
     if (files.length === 0) return;
     setUploading(true);
-    let ok = 0, skipped = 0;
-    const token = useAuthStore.getState().token;
-
-    const uploadOne = async (raw: File) => {
-      const file = await compressImage(raw);
-      // After compression a photo is well under the server's 15 MB cap; this
-      // only trips for a huge non-image or an undecodable original.
-      if (file.size > 15 * 1024 * 1024) { skipped++; return; }
-      try {
-        // [photos-r2 2026-06-24] Multipart (not base64 JSON); the server streams
-        // it to R2. Direct fetch because apiFetch forces JSON — FormData needs
-        // the browser to set its own multipart boundary.
-        const fd = new FormData();
-        fd.append("photo", file);
-        fd.append("photo_type", type);
-        const res = await fetch(`${BASE}/api/jobs/${jobId}/photos`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: fd,
-        });
-        if (!res.ok) { skipped++; return; }
-        ok++;
-      } catch { skipped++; }
-    };
-
     try {
-      // Upload in small parallel batches — fast, but capped so a weak mobile
-      // connection isn't overwhelmed.
-      const CONCURRENCY = 3;
-      for (let i = 0; i < files.length; i += CONCURRENCY) {
-        await Promise.all(files.slice(i, i + CONCURRENCY).map(uploadOne));
-      }
+      const { ok, skipped, serverError } = await uploadJobPhotos(jobId, type, files);
       if (ok > 0) onUploaded();
       if (ok > 0) toast({ title: `${ok} ${type} photo${ok === 1 ? "" : "s"} added${skipped ? ` · ${skipped} skipped` : ""}` });
-      else if (skipped > 0) toast({ variant: "destructive", title: "Couldn't add photos", description: "Those files couldn't be read as photos. Try taking the picture again." });
+      else if (skipped > 0) toast({ variant: "destructive", title: "Couldn't add photos", description: serverError || "Those files couldn't be read as photos. Try taking the picture again." });
     } finally {
       setUploading(false);
       if (inputRef.current) inputRef.current.value = "";
@@ -590,6 +606,71 @@ function PhotoGrid({ jobId, type, photos, onUploaded }: {
         </button>
         <input ref={inputRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={handleFile} />
       </div>
+    </div>
+  );
+}
+
+// [completed-photo-upload 2026-07-18] After clock-out a job collapses out of the
+// active list into a compact "Completed Today" row, and the on-job Before/After
+// tiles go with it — so techs reported they "can't upload before/after pics after
+// they clock out" (they didn't realize the row was a tap-through to the detail
+// screen). This puts the two uploaders straight on the row: a tech adds photos
+// right where the job now lives, no navigation, no lost work. Uses the same
+// compress+multipart path as PhotoGrid; refetches the day on success so the
+// count + "Photos added" state update in place.
+function CompletedPhotoUpload({ job, onRefresh }: { job: Job; onRefresh: () => void }) {
+  const { toast } = useToast();
+  const beforeRef = useRef<HTMLInputElement>(null);
+  const afterRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState<null | "before" | "after">(null);
+
+  const handle = async (type: "before" | "after", e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    if (files.length === 0) return;
+    setBusy(type);
+    try {
+      const { ok, skipped, serverError } = await uploadJobPhotos(job.id, type, files);
+      if (ok > 0) {
+        toast({ title: `${ok} ${type} photo${ok === 1 ? "" : "s"} added${skipped ? ` · ${skipped} skipped` : ""}` });
+        onRefresh();
+      } else if (skipped > 0) {
+        toast({ variant: "destructive", title: "Couldn't add photos", description: serverError || "Those files couldn't be read as photos. Try taking the picture again." });
+      }
+    } finally {
+      setBusy(null);
+      if (e.target) e.target.value = "";
+    }
+  };
+
+  const btn = (type: "before" | "after", count: number, ref: React.RefObject<HTMLInputElement>) => {
+    const has = count > 0;
+    return (
+      <button
+        onClick={(ev) => { ev.stopPropagation(); ref.current?.click(); }}
+        disabled={busy !== null}
+        style={{
+          flex: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6,
+          minHeight: 42, borderRadius: 9, cursor: busy !== null ? "default" : "pointer",
+          border: `1.5px solid ${has ? "#99E9D3" : "#F5C99A"}`,
+          backgroundColor: has ? "#ECFDF8" : "#FFF7ED",
+          color: has ? "#047857" : "#B45309",
+          fontSize: 13, fontWeight: 700, fontFamily: "inherit",
+          opacity: busy !== null && busy !== type ? 0.6 : 1,
+        }}
+      >
+        <Camera size={14} />
+        {busy === type ? "Uploading…" : `${type === "before" ? "Before" : "After"}${has ? ` (${count})` : ""}`}
+      </button>
+    );
+  };
+
+  return (
+    // stopPropagation so tapping an uploader doesn't also open the detail screen.
+    <div style={{ display: "flex", gap: 8, marginTop: 10 }} onClick={(e) => e.stopPropagation()}>
+      {btn("before", job.before_photo_count ?? 0, beforeRef)}
+      {btn("after", job.after_photo_count ?? 0, afterRef)}
+      <input ref={beforeRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => handle("before", e)} />
+      <input ref={afterRef} type="file" accept="image/*" multiple style={{ display: "none" }} onChange={(e) => handle("after", e)} />
     </div>
   );
 }
@@ -1990,7 +2071,7 @@ export default function MyJobsPage() {
                   Tech name of past visits is hidden separately (no conflict). */}
               {completedToday.length > 0 && (
                 <div style={{ marginTop: 20 }}>
-                  <p style={{ fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 10px 4px" }}>Completed Today</p>
+                  <p style={{ fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 10px 4px" }}>{isToday ? "Completed Today" : "Completed"}</p>
                   {completedToday.map(job => {
                     const needsPhotos = (job.before_photo_count ?? 0) === 0 || (job.after_photo_count ?? 0) === 0;
                     return (
@@ -2003,8 +2084,9 @@ export default function MyJobsPage() {
                         <p style={{ fontSize: 11, color: "var(--brand)", textTransform: "uppercase", fontWeight: 600, margin: "0 0 4px" }}>{formatServiceType(job.service_type)}</p>
                         {job.address && <p style={{ fontSize: 12, color: "#6B6860", margin: "2px 0 0" }}>{formatAddress(job.address, job.city, job.state, job.zip)}</p>}
                         <p style={{ fontSize: 12, fontWeight: 700, color: needsPhotos ? "#B45309" : "#2D9B83", margin: "8px 0 0", display: "flex", alignItems: "center", gap: 5 }}>
-                          <Camera size={13} /> {needsPhotos ? "Tap to add before/after photos" : "Photos added — tap to review"}
+                          <Camera size={13} /> {needsPhotos ? "Add before & after photos" : "Photos added — tap to review"}
                         </p>
+                        <CompletedPhotoUpload job={job} onRefresh={refetch} />
                       </div>
                     );
                   })}
