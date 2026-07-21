@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation } from "wouter";
-import { ChevronLeft, ChevronRight, Plus, ExternalLink, CalendarClock } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, ExternalLink, CalendarClock, X } from "lucide-react";
 import { getAuthHeaders } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 
@@ -269,6 +269,36 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
     }
   }
 
+  // [account-skip 2026-07-21] Skip a single account visit from the calendar
+  // (Maribel: "we should be able to skip services from the Accounts calendar").
+  // Uses the standard cancellation action='skip' — a free cancel that also
+  // tombstones the date on the schedule so the recurrence engine won't refill it
+  // (account schedules included, per the rebooking fix). No fee, no future
+  // siblings touched.
+  const [skippingId, setSkippingId] = useState<number | null>(null);
+  async function skipJob(j: CalJob) {
+    if (!window.confirm(`Skip this visit on ${(j.scheduled_date || "").slice(0, 10)}? It won't be rescheduled.`)) return;
+    setSkippingId(j.id);
+    try {
+      const res = await fetch(`${API}/api/cancellations/action`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ job_id: j.id, action: "skip" }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.message || d.error || "Failed to skip visit");
+      }
+      toast({ title: "Visit skipped" });
+      setOpenDay(null);
+      setReloadTick(t => t + 1);
+    } catch (e: any) {
+      toast({ title: "Couldn't skip visit", description: e?.message || "", variant: "destructive" });
+    } finally {
+      setSkippingId(null);
+    }
+  }
+
   function chipLabel(j: CalJob): string {
     const name = jobPlaceLabel(j);
     const t = fmtTime(j.scheduled_time);
@@ -483,6 +513,16 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                                 <CalendarClock size={10} /> Move
                               </button>
                             ))}
+                            {movable && moveJobId !== j.id && (
+                              <button
+                                onClick={() => skipJob(j)}
+                                disabled={skippingId === j.id}
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-1.5 py-0.5 cursor-pointer disabled:opacity-60"
+                                title="Skip this visit — it won't be rescheduled"
+                              >
+                                <X size={10} /> {skippingId === j.id ? "…" : "Skip"}
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
