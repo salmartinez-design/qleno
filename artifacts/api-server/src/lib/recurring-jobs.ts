@@ -46,6 +46,21 @@ export async function runAutoScheduleAuditMigration(): Promise<void> {
   }
 }
 
+// [monthly-weekday 2026-07-21] Idempotent boot migration: add 'monthly_weekday'
+// to the jobs `frequency` enum so generated occurrences of a last-Friday-style
+// schedule can carry the accurate label (mirrors the service_type ADD VALUE
+// pattern). ALTER TYPE ADD VALUE cannot run inside a transaction — db.execute
+// autocommits each statement, so this is safe at boot. IF NOT EXISTS makes it
+// a no-op on re-run.
+export async function runMonthlyWeekdayEnumMigration(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TYPE frequency ADD VALUE IF NOT EXISTS 'monthly_weekday'`);
+    console.log("[recurring-engine] monthly_weekday enum migration ok");
+  } catch (err) {
+    console.error("[recurring-engine] monthly_weekday enum migration (non-fatal):", err);
+  }
+}
+
 function mapServiceType(raw: string | null): string {
   if (!raw) return "recurring";
   const s = raw.toLowerCase().trim();
@@ -76,6 +91,10 @@ function mapFrequency(freq: string): string {
   if (freq === "daily") return "daily";
   if (freq === "weekdays") return "weekdays";
   if (freq === "custom_days") return "custom_days";
+  // [monthly-weekday 2026-07-21] Nth/last-weekday schedules label their child
+  // jobs 'monthly_weekday' too (the enum carries it after the boot migration);
+  // the cadence itself is driven by week_of_month + day_of_week on the schedule.
+  if (freq === "monthly_weekday") return "monthly_weekday";
   return "biweekly";
 }
 

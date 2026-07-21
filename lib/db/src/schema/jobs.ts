@@ -36,6 +36,11 @@ export const frequencyEnum = pgEnum("frequency", [
   // (typically [1, 15] or [15, 30]). Engine snaps forward to next
   // business day when an anchor falls on a weekend.
   "semi_monthly",
+  // [monthly-weekday 2026-07-21] Nth/last weekday of month — "Last Friday",
+  // "2nd Tuesday". Pairs recurring_schedules.week_of_month (1..4, 5=last) with
+  // day_of_week. Fixes the "every 4 weeks drifts on 5-Friday months" complaint.
+  // Added to the live enum by runMonthlyWeekdayEnumMigration at boot.
+  "monthly_weekday",
 ]);
 
 export const jobsTable = pgTable("jobs", {
