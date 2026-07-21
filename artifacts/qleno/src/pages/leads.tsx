@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { getAuthHeaders } from "@/lib/auth";
 import { formatAddress } from "@/lib/format-address";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
+import { CalendarPopover } from "@/components/calendar-popover";
 import { useAddressAutocomplete } from "@/hooks/use-address-autocomplete";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -2219,8 +2220,12 @@ export default function LeadsPage() {
               never silently narrowed. */}
           <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "7px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, fontFamily: FF, flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: 0.6 }}>Day</span>
-            <input type="date" value={dayFilter} onChange={e => { setDayFilter(e.target.value); setPage(1); }}
-              style={{ fontSize: 12, padding: "4px 8px", border: "1px solid #E5E2DC", borderRadius: 7, fontFamily: FF, color: "#1A1917", background: "#F7F6F3", outline: "none" }} />
+            {/* [lead-day-filter-ui 2026-07-21] Use the app's branded CalendarPopover
+                (same one the job/quote wizards use) instead of the browser's native
+                date input — Sal: "change to the easier UI one we use." */}
+            <div style={{ minWidth: 150 }}>
+              <CalendarPopover value={dayFilter} onChange={ymd => { setDayFilter(ymd); setPage(1); }} ariaLabel="Filter leads by day" block />
+            </div>
             <button onClick={() => { setDayFilter(ctToday()); setPage(1); }}
               style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", border: `1px solid ${dayFilter === ctToday() ? "#00C9A0" : "#E5E2DC"}`, borderRadius: 7, background: dayFilter === ctToday() ? "#EAFBF6" : "#fff", color: "#1A1917", cursor: "pointer", fontFamily: FF }}>
               Today
