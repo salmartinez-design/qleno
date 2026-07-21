@@ -570,6 +570,16 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] runMonthlyWeekdayEnumMigration — non-fatal:", err?.message ?? err);
   }
+  // [tech-pref-accounts 2026-07-21] technician_preferences.account_id + relax
+  // client_id NOT NULL so tech preferences can be scoped to a commercial account.
+  try {
+    await withBootTimeout("ensureTechPrefAccountColumns", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureTechPrefAccountColumns } = await import("./routes/accounts.js");
+      await ensureTechPrefAccountColumns();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureTechPrefAccountColumns — non-fatal:", err?.message ?? err);
+  }
   // [redo-service 2026-07-10] jobs.redo_of_job_id / non_billable +
   // quality_complaints.reason_category / areas / redo_job_id.
   try {
