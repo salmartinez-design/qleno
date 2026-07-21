@@ -108,19 +108,24 @@ function LeadsCard({ isMobile }: { isMobile: boolean }) {
         <button onClick={() => navigate("/leads")} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>Open pipeline →</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 8 }}>
-        <Tile label="New leads" value={m.total ?? 0} sub={`${m.online ?? 0} online · ${m.office ?? 0} office`} onClick={() => navigate("/leads")} />
-        <Tile label="Online" value={m.online ?? 0} sub="from the web" onClick={() => navigate("/leads")} />
-        <Tile label="Office" value={m.office ?? 0} sub="phone / walk-in" onClick={() => navigate("/leads")} />
-        <Tile label="Booked" value={m.booked ?? 0} sub="closed today" accent="#0A6E5A" onClick={() => navigate("/leads")} />
+        {/* [dashboard-deeplink 2026-07-21] Each tile lands on the board filtered
+            to exactly what it counted, instead of dumping onto the full list.
+            Today's-intake tiles carry ?window=today (+ channel); Booked opens the
+            Booked column (booked-today is a booked_at metric, not created-today,
+            so it deep-links the stage rather than a mismatched date window). */}
+        <Tile label="New leads" value={m.total ?? 0} sub={`${m.online ?? 0} online · ${m.office ?? 0} office`} onClick={() => navigate("/leads?window=today")} />
+        <Tile label="Online" value={m.online ?? 0} sub="from the web" onClick={() => navigate("/leads?window=today&channel=online")} />
+        <Tile label="Office" value={m.office ?? 0} sub="phone / walk-in" onClick={() => navigate("/leads?window=today&channel=office")} />
+        <Tile label="Booked" value={m.booked ?? 0} sub="closed today" accent="#0A6E5A" onClick={() => navigate("/leads?status=booked")} />
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
         {[
-          { k: "Needs contact", v: p.needs_contact ?? 0, c: "#B91C1C" },
-          { k: "Contacted", v: p.contacted ?? 0, c: "#92400E" },
-          { k: "Quoted", v: p.quoted ?? 0, c: "#1D4ED8" },
-          { k: "Booked (open)", v: p.booked ?? 0, c: "#0A6E5A" },
+          { k: "Needs contact", v: p.needs_contact ?? 0, c: "#B91C1C", to: "/leads?status=new,needs_contacted" },
+          { k: "Contacted", v: p.contacted ?? 0, c: "#92400E", to: "/leads?status=contacted" },
+          { k: "Quoted", v: p.quoted ?? 0, c: "#1D4ED8", to: "/leads?status=quoted" },
+          { k: "Booked (open)", v: p.booked ?? 0, c: "#0A6E5A", to: "/leads?status=booked" },
         ].map(chip => (
-          <button key={chip.k} onClick={() => navigate("/leads")} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>
+          <button key={chip.k} onClick={() => navigate(chip.to)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: chip.c }} />
             <span style={{ fontSize: 12, color: "#6B6860" }}>{chip.k}</span>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{chip.v}</span>
