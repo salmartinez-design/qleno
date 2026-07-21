@@ -55,6 +55,11 @@ interface Item {
   frequency: string;
   quantity: string;
   unit_rate: string;
+  // [estimate-checklist-toggle 2026-07-21] Flat-mode "What's included" checklist:
+  // uncheck to drop a line from THIS estimate without deleting the text. Undefined
+  // = included (back-compat with existing saved rows). Excluded rows are greyed in
+  // the builder and filtered out of what saves/sends to the client.
+  included?: boolean;
 }
 
 const TYPE_LABELS: Record<PricingType, { type: string; qty: string; rate: string }> = {
@@ -220,7 +225,10 @@ export default function EstimateBuilderPage() {
     valid_until: validUntil || null,
     // Flat mode persists scope only (name + shared frequency, no price); itemized
     // keeps the full priced line. Empty scope rows are dropped either way.
-    items: items.filter(it => it.name.trim() || (billingMode === "itemized" && Number(it.unit_rate) > 0)).map(it => (
+    // [estimate-checklist-toggle 2026-07-21] Unchecked ('included === false')
+    // rows are dropped from THIS estimate — they never reach the saved record or
+    // the client-facing view.
+    items: items.filter(it => it.included !== false && (it.name.trim() || (billingMode === "itemized" && Number(it.unit_rate) > 0))).map(it => (
       billingMode === "flat"
         ? { name: it.name, pricing_type: "flat", frequency: it.frequency, quantity: 1, unit_rate: 0 }
         : { name: it.name, pricing_type: it.pricing_type, frequency: it.frequency, quantity: Number(it.quantity) || 0, unit_rate: Number(it.unit_rate) || 0 }
@@ -670,13 +678,24 @@ export default function EstimateBuilderPage() {
               <textarea style={{ ...inp, minHeight: 70, resize: "vertical", marginBottom: 14 }} value={scopeNote} onChange={e => setScopeNote(e.target.value)} placeholder="e.g. Full janitorial service for the suite — all offices, the break room, both restrooms, and common hallways, cleaned each visit. Supplies included." />
 
               <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>What's included <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9CA3AF" }}>— optional checklist, no per-line price</span></span>
-              {items.map((it, i) => (
+              {items.map((it, i) => {
+                const on = it.included !== false; // undefined = included (back-compat)
+                return (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                  <span style={{ width: 20, height: 20, borderRadius: 6, background: MINT, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><Check size={13} /></span>
-                  <input style={inp} value={it.name} onChange={e => updateItem(i, { name: e.target.value })} placeholder="Workstations & desks — dust & sanitize" />
+                  {/* [estimate-checklist-toggle 2026-07-21] The green check is now a
+                      real toggle — click to include/exclude this line from the
+                      estimate (was a static, un-clickable badge). Trash still deletes. */}
+                  <button
+                    type="button"
+                    title={on ? "Included — click to exclude from this estimate" : "Excluded — click to include"}
+                    onClick={() => updateItem(i, { included: !on })}
+                    style={{ width: 20, height: 20, borderRadius: 6, background: on ? MINT : "#fff", color: "#fff", border: on ? "none" : `1.5px solid ${BORDER}`, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, cursor: "pointer", padding: 0 }}
+                  >{on && <Check size={13} />}</button>
+                  <input style={{ ...inp, opacity: on ? 1 : 0.5, textDecoration: on ? "none" : "line-through" }} value={it.name} onChange={e => updateItem(i, { name: e.target.value })} placeholder="Workstations & desks — dust & sanitize" />
                   <button title="Remove" onClick={() => setItems(its => its.length > 1 ? its.filter((_, idx) => idx !== i) : its)} style={{ ...iconBtn, flexShrink: 0 }}><Trash2 size={15} /></button>
                 </div>
-              ))}
+                );
+              })}
             </>
           ) : (
             items.map((it, i) => {
