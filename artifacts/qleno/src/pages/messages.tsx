@@ -104,6 +104,25 @@ function fmtTime(s: string) {
     ? d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
     : d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
+// [msg-timestamp 2026-07-21] The message-bubble stamp. fmtTime (used by the
+// conversation LIST) drops to a bare date once a message isn't from today —
+// fine for the narrow list preview, but on the message itself it hid the time
+// entirely after a day (Maribel: "the timestamp goes away after a day — that
+// should still be displayed there with the date"). Here we always keep the
+// time, adding the date (and the year, when it's a prior year) once it's not
+// today, so every message carries a full, unambiguous stamp.
+function fmtMsgTime(s: string) {
+  if (!s) return "";
+  const d = parseServerDate(s);
+  if (isNaN(d.getTime())) return s;
+  const today = new Date();
+  if (d.toDateString() === today.toDateString()) {
+    return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  }
+  const opts: Intl.DateTimeFormatOptions = { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" };
+  if (d.getFullYear() !== today.getFullYear()) opts.year = "numeric";
+  return d.toLocaleString("en-US", opts);
+}
 function fmtScheduled(s: string) {
   if (!s) return "";
   const d = parseServerDate(s);
@@ -813,7 +832,7 @@ export default function MessagesPage() {
                               <AuthMedia key={idx} msgId={m.id as number} idx={idx} mediaKey={key} />
                             ))}
                             <div style={{ fontSize: 10, marginTop: 4, opacity: 0.7, textAlign: "right" }}>
-                              {fmtTime(m.created_at)}{!inbound && m.status && m.status !== "sent" ? ` · ${m.status}` : ""}
+                              {fmtMsgTime(m.created_at)}{!inbound && m.status && m.status !== "sent" ? ` · ${m.status}` : ""}
                             </div>
                           </div>
                           {/* [drip-reply-tag 2026-07-12] This inbound reply followed a
