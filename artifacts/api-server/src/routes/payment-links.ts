@@ -370,9 +370,22 @@ router.post("/public/:token/save-card", async (req, res) => {
     const pm = await stripe.paymentMethods.retrieve(payment_method_id);
     const card = pm.card;
 
-    // Update client record
+    // Update client record.
+    // [card-link-chargeable 2026-07-22] This used to save ONLY the display
+    // fields (last4 / brand / expiry). It never stored
+    // `stripe_payment_method_id` — the one field that actually makes the card
+    // chargeable. `charge-invoice.ts` reads that column to build the
+    // off-session PaymentIntent and bails with "No Stripe card on file" when
+    // it's null, and `derivePaymentSource()` uses its presence to route the
+    // client to Stripe at all. So a customer who saved a card through the
+    // card-on-file LINK looked done in the UI ("•••• 6613 Visa") but could
+    // never actually be charged, and still derived to Square. The online
+    // booking path (routes/public.ts) has always stored both; this brings the
+    // link path to parity with it.
     await db.update(clientsTable)
       .set({
+        stripe_payment_method_id: payment_method_id,
+        payment_source: "stripe",
         card_last_four: card?.last4 ?? null,
         card_brand: card?.brand ?? null,
         card_expiry: card ? `${card.exp_month}/${String(card.exp_year).slice(-2)}` : null,
