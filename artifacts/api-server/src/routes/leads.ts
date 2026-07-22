@@ -12,6 +12,33 @@ import { enrollForLeadDrip, stopEnrollmentsForLead, sendSingleEnrollmentTouch } 
 
 const router = Router();
 
+// [lead-referral-source 2026-07-22] "How did you hear about us?" as a real,
+// queryable column on leads — reports can't GROUP BY a jsonb key efficiently.
+// Reuses the referral_source enum that already exists (and is already on
+// clients); we are NOT inventing a second vocabulary.
+//
+// Backfill is the good part: the public booking widget has been collecting this
+// into details.referral_source all along, so existing web leads get their REAL
+// answer rather than "unknown". Only values that match the enum are copied;
+// anything else is left NULL rather than guessed at. Idempotent — only fills
+// rows that are still NULL.
+export async function runLeadReferralSourceMigration(): Promise<void> {
+  try {
+    await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS referral_source referral_source`);
+    await db.execute(sql`
+      UPDATE leads
+         SET referral_source = lower(trim(details->>'referral_source'))::referral_source
+       WHERE referral_source IS NULL
+         AND details ? 'referral_source'
+         AND lower(trim(details->>'referral_source')) IN (
+           'google','nextdoor','facebook','yelp','client_referral',
+           'door_hanger','yard_sign','website','other')`);
+    console.log("[lead-referral-source] migration ok");
+  } catch (err) {
+    console.error("[lead-referral-source] migration (non-fatal):", err);
+  }
+}
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 async function logActivity(
@@ -383,7 +410,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       source = "manual", status = "needs_contacted",
       lead_source,
       scope, sqft, bedrooms, bathrooms, notes,
-      quote_amount, assigned_to,
+      quote_amount, assigned_to, referral_source,
     } = req.body;
 
     if (!first_name) return res.status(400).json({ error: "first_name required" });
@@ -401,7 +428,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       INSERT INTO leads (
         company_id, first_name, last_name, email, phone,
         address, city, state, zip, source, status, lead_source,
-        scope, sqft, bedrooms, bathrooms, notes,
+        scope, sqft, bedrooms, bathrooms, notes, referral_source,
         quote_amount, assigned_to, created_at, updated_at
       ) VALUES (
         ${companyId}, ${first_name}, ${last_name || null}, ${email || null}, ${phone || null},
@@ -409,7 +436,8 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
         ${source}, ${status}, ${resolvedLeadSource},
         ${scope || null}, ${sqft ? parseInt(sqft) : null},
         ${bedrooms ? parseInt(bedrooms) : null}, ${bathrooms ? parseInt(bathrooms) : null},
-        ${notes || null}, ${quote_amount ? parseFloat(quote_amount) : null},
+        ${notes || null}, ${referral_source || null}::referral_source,
+        ${quote_amount ? parseFloat(quote_amount) : null},
         ${resolvedAssignedTo},
         NOW(), NOW()
       ) RETURNING id
@@ -874,7 +902,7 @@ router.get("/reports", requireAuth, requireRole("owner", "admin", "office"), asy
     const fromClause = from ? `AND l.created_at >= '${from}'::date` : "";
     const toClause = to ? `AND l.created_at < ('${to}'::date + interval '1 day')` : "";
 
-    const [totals, bySource, byOwner, touchConv, dripSummary] = await Promise.all([
+    const [totals, bySource, byOwner, touchConv, dripSummary, byReferral] = await Promise.all([
       db.execute(sql.raw(`
         SELECT
           COUNT(*) FILTER (WHERE TRUE) AS total,
@@ -952,11 +980,28 @@ router.get("/reports", requireAuth, requireRole("owner", "admin", "office"), asy
         GROUP BY fs.id, fs.name, fs.sequence_type, fs.is_active
         ORDER BY fs.id
       `)),
+      // [lead-referral-source 2026-07-22] HOW THEY HEARD ABOUT US (discovery) —
+      // deliberately separate from bySource above, which is HOW THEY ENTERED
+      // (office quote vs website widget). Different questions; never merge them.
+      // Leads with no answer roll up as 'unknown' so the panel stays honest
+      // about coverage instead of silently dropping them.
+      db.execute(sql.raw(`
+        SELECT
+          COALESCE(l.referral_source::text, 'unknown') AS referral_label,
+          COUNT(*) AS total,
+          COUNT(*) FILTER (WHERE l.status = 'booked') AS booked,
+          COALESCE(SUM(l.quote_amount) FILTER (WHERE l.status = 'booked'), 0) AS booked_revenue
+        FROM leads l
+        WHERE l.company_id = ${companyId} ${fromClause} ${toClause}
+        GROUP BY 1
+        ORDER BY booked DESC, total DESC
+      `)),
     ]);
 
     return res.json({
       totals: totals.rows[0],
       bySource: bySource.rows,
+      byReferral: byReferral.rows,
       byOwner: byOwner.rows,
       touchConversion: touchConv.rows,
       dripSummary: dripSummary.rows,

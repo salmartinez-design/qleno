@@ -550,6 +550,16 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] runSuspensionMigration — non-fatal:", err?.message ?? err);
   }
+  // [lead-referral-source 2026-07-22] leads.referral_source column + backfill of
+  // the answers the booking widget already collected into details.
+  try {
+    await withBootTimeout("runLeadReferralSourceMigration", SCHEMA_TIMEOUT_MS, async () => {
+      const { runLeadReferralSourceMigration } = await import("./routes/leads.js");
+      await runLeadReferralSourceMigration();
+    });
+  } catch (err: any) {
+    console.error("[startup] runLeadReferralSourceMigration — non-fatal:", err?.message ?? err);
+  }
   // [system-schedule-log 2026-07-21] Relax job_audit_log.user_id NOT NULL so the
   // recurrence engine can log "Qleno scheduled this" as a system actor.
   try {
