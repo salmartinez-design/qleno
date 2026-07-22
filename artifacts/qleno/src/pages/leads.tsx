@@ -1349,6 +1349,149 @@ const SOURCE_LABELS: Record<string, string> = {
 
 // ── Sequences View ────────────────────────────────────────────────────────────
 
+// ─── Enrollment view (Layer 2) ────────────────────────────────────────────────
+// [enrollment-view 2026-07-22] Where every contact sits inside the nurture —
+// modelled on GHL's Enrollment history. Per-sequence is the DEFAULT lens; the
+// contact search is a filter on top of it, so searching one customer shows every
+// sequence they're in at once (lead + client records resolve to one person
+// server-side). Company-scoped; leads/sequences carry no branch_id.
+function EnrollmentsView() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [seqs, setSeqs] = useState<any[]>([]);
+  const [seqId, setSeqId] = useState<string>("");   // "" = every sequence
+  const [status, setStatus] = useState<"all" | "active" | "finished" | "stopped">("active");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [search, setSearch] = useState("");
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [q, setQ] = useState("");
+
+  useEffect(() => {
+    fetch(`${API}/api/follow-up/sequences`, { headers: getAuthHeaders() as Record<string, string> })
+      .then(r => r.ok ? r.json() : []).then(d => setSeqs(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    const p = new URLSearchParams({ status, limit: "100" });
+    if (seqId) p.set("sequence_id", seqId);
+    if (from) p.set("from", from);
+    if (to) p.set("to", to);
+    if (q) p.set("search", q);
+    fetch(`${API}/api/follow-up/enrollments?${p}`, { headers: getAuthHeaders() as Record<string, string> })
+      .then(r => r.ok ? r.json() : { enrollments: [], total: 0 })
+      .then(d => { setRows(d.enrollments || []); setTotal(d.total || 0); })
+      .catch(() => { setRows([]); setTotal(0); })
+      .finally(() => setLoading(false));
+  }, [seqId, status, from, to, q]);
+
+  function onSearch(v: string) {
+    setSearch(v);
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => setQ(v.trim()), 350);
+  }
+
+  // Why this contact is in the sequence — derived from which record enrolled them.
+  const reasonOf = (r: any) =>
+    r.lead_id ? "New lead"
+    : r.quote_id ? "Quote sent"
+    : r.estimate_id ? "Estimate sent"
+    : r.abandoned_booking_id ? "Abandoned booking"
+    : r.client_id ? "Customer"
+    : "—";
+
+  const TH: React.CSSProperties = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FF, whiteSpace: "nowrap" };
+  const TD: React.CSSProperties = { padding: "10px 12px", fontSize: 12.5, color: "#1A1917", fontFamily: FF, borderTop: "0.5px solid #F2EFE9", verticalAlign: "top" };
+  const pill = (bg: string, fg: string): React.CSSProperties => ({ display: "inline-block", padding: "2px 8px", borderRadius: 20, fontSize: 10.5, fontWeight: 700, background: bg, color: fg, whiteSpace: "nowrap" });
+  const statusPill = (s: string) =>
+    s === "active" ? pill("#EAFBF6", "#0F6E56")
+    : s === "finished" ? pill("#F3F4F6", "#6B7280")
+    : pill("#F3F4F6", "#6B7280");
+
+  const STATUS_TABS: Array<{ k: typeof status; label: string }> = [
+    { k: "active", label: "In it now" }, { k: "finished", label: "Ran to end" },
+    { k: "stopped", label: "Stopped" }, { k: "all", label: "All" },
+  ];
+
+  return (
+    <div style={{ padding: "24px 28px", overflowY: "auto", fontFamily: FF }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", marginBottom: 6 }}>Enrollments</div>
+      <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 18, lineHeight: 1.5, maxWidth: 760 }}>
+        Every contact currently moving through a sequence — where they are, what goes out next, and why they were added.
+        Pick a sequence to see just its people, or search a customer to see every sequence they're in at once.
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+        <select value={seqId} onChange={e => setSeqId(e.target.value)}
+          style={{ fontSize: 12, padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontFamily: FF, background: "#fff", color: "#1A1917", outline: "none", minWidth: 190 }}>
+          <option value="">All sequences</option>
+          {seqs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <div style={{ minWidth: 140 }}><CalendarPopover value={from} onChange={setFrom} ariaLabel="Enrolled from" block /></div>
+        <span style={{ fontSize: 11, color: "#9E9B94" }}>to</span>
+        <div style={{ minWidth: 140 }}><CalendarPopover value={to} onChange={setTo} ariaLabel="Enrolled to" block /></div>
+        {(from || to) && (
+          <button onClick={() => { setFrom(""); setTo(""); }}
+            style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, color: "#00A88A", fontWeight: 700 }}>Clear dates</button>
+        )}
+        <input value={search} onChange={e => onSearch(e.target.value)} placeholder="Search a customer…"
+          style={{ fontSize: 12, padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontFamily: FF, background: "#F7F6F3", color: "#1A1917", outline: "none", minWidth: 200 }} />
+      </div>
+
+      {/* Status tabs — underline pattern, matching the pipeline stat tabs */}
+      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #E8E5E0", marginBottom: 14 }}>
+        {STATUS_TABS.map(t => (
+          <button key={t.k} onClick={() => setStatus(t.k)}
+            style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 12,
+              fontWeight: status === t.k ? 700 : 600, color: status === t.k ? "#1A1917" : "#C4C0B8",
+              borderBottom: `2px solid ${status === t.k ? "#1A1917" : "transparent"}`, marginBottom: -1 }}>
+            {t.label}
+          </button>
+        ))}
+        <div style={{ flex: 1 }} />
+        <span style={{ alignSelf: "center", fontSize: 11, color: "#9E9B94" }}>{loading ? "Loading…" : `${total} ${total === 1 ? "person" : "people"}`}</span>
+      </div>
+
+      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr style={{ background: "#FAFAF8" }}>
+            {["Contact", "Why they're in it", "Sequence", "Enrolled", "Step", "Status", "Next send"].map(h => <th key={h} style={TH}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {!loading && rows.length === 0 && (
+              <tr><td colSpan={7} style={{ ...TD, color: "#9E9B94" }}>Nobody matches these filters.</td></tr>
+            )}
+            {rows.map(r => (
+              <tr key={r.id}>
+                <td style={TD}>
+                  <div style={{ fontWeight: 700 }}>{r.contact_name || "—"}</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94" }}>{r.contact_email || r.contact_phone || ""}</div>
+                </td>
+                <td style={{ ...TD, color: "#6B6860" }}>{reasonOf(r)}</td>
+                <td style={{ ...TD, color: "#6B6860" }}>{r.sequence_name}</td>
+                <td style={{ ...TD, color: "#6B6860", whiteSpace: "nowrap" }}>{fmtDate(r.enrolled_at)}</td>
+                <td style={{ ...TD, whiteSpace: "nowrap" }}>{Number(r.current_step || 0)} of {Number(r.total_steps || 0)}</td>
+                <td style={TD}>
+                  <span style={statusPill(r.status)}>{r.status === "active" ? "In it now" : r.status === "finished" ? "Ran to end" : "Stopped"}</span>
+                  {r.status === "stopped" && r.stopped_reason && (
+                    <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 3 }}>{String(r.stopped_reason).replace(/_/g, " ")}</div>
+                  )}
+                </td>
+                <td style={{ ...TD, color: "#6B6860", whiteSpace: "nowrap" }}>
+                  {r.status === "active" && r.next_fire_at ? fmtDateTime(r.next_fire_at) : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 function SequencesView() {
   const [seqs, setSeqs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2023,7 +2166,7 @@ export default function LeadsPage() {
     try { return localStorage.getItem("leadsLegendHidden") === "1"; } catch { return false; }
   });
   const dismissLegend = () => { setLegendHidden(true); try { localStorage.setItem("leadsLegendHidden", "1"); } catch {} };
-  const [mainView, setMainView] = useState<"pipeline" | "reports" | "sequences">("pipeline");
+  const [mainView, setMainView] = useState<"pipeline" | "reports" | "sequences" | "enrollments">("pipeline");
   const [view, setView] = useState<"board" | "list">("board");
   // [dashboard-deeplink 2026-07-21] The Dashboard lead tiles/chips land here with
   // the bucket they tallied preset via the query string (?status / ?channel /
@@ -2183,7 +2326,7 @@ export default function LeadsPage() {
           <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: -0.3, fontFamily: FF }}>Leads</span>
         </button>
         <div style={{ display: "flex", gap: 2 }}>
-          {(["reports", "sequences"] as const).map(v => (
+          {(["reports", "sequences", "enrollments"] as const).map(v => (
             <button key={v} onClick={() => setMainView(v)}
               style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF,
                 background: mainView === v ? "rgba(255,255,255,.12)" : "transparent",
@@ -2207,6 +2350,7 @@ export default function LeadsPage() {
 
       {mainView === "reports" && <ReportsView />}
       {mainView === "sequences" && <SequencesView />}
+      {mainView === "enrollments" && <EnrollmentsView />}
 
       {mainView === "pipeline" && (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
