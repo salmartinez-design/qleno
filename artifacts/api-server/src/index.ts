@@ -673,6 +673,18 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] ensureTimeChangeNoticeSetup — non-fatal:", err?.message ?? err);
   }
+  // [card-link-chargeable] recover clients.stripe_payment_method_id from Stripe for
+  // cards saved via the card-on-file link before 2026-07-22 (display fields were
+  // stored but not the chargeable id). MUST run BEFORE ensurePaymentSourceBackfill
+  // so a recovered card derives to 'stripe' rather than defaulting to 'square'.
+  try {
+    await withBootTimeout("ensureStripePaymentMethodBackfill", SCHEMA_TIMEOUT_MS, async () => {
+      const { ensureStripePaymentMethodBackfill } = await import("./lib/stripe-payment-method-backfill.js");
+      await ensureStripePaymentMethodBackfill();
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureStripePaymentMethodBackfill — non-fatal:", err?.message ?? err);
+  }
   // [invoicing-engine] backfill clients.payment_source (stripe if card on file, else square)
   try {
     await withBootTimeout("ensurePaymentSourceBackfill", SCHEMA_TIMEOUT_MS, async () => {
