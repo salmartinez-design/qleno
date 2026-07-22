@@ -165,6 +165,20 @@ function startNotificationCron() {
         .then((r) => console.log(`[boot] mileage_auto: ${r.inserted} legs across ${r.periods} period(s), ${r.companies} tenant(s)`))
         .catch((e: Error) => console.error("[boot] mileage_auto error:", e));
     }
+    // [cadence 2026-07-22] 5 AM CT → close bundled ACCOUNT billing windows.
+    // Weekly accounts (National Able) fold Mon–Fri into one issued invoice on
+    // Friday and email the billing contact; monthly accounts (Cucci, KMA,
+    // Daveco) fold the month once it has ended, issued silently. per_job
+    // accounts + residential never reach here — those already issue per visit
+    // on completion. A no-op on non-close days, and idempotent per window, so
+    // a redeploy or double-fire cannot bill the same week twice.
+    if (ctH === 5 && fired["invoice_cadence_close"] !== `${ctDate}-5`) {
+      fired["invoice_cadence_close"] = `${ctDate}-5`;
+      import("./lib/invoice-cadence.js")
+        .then(({ runInvoiceCadenceCron }) => runInvoiceCadenceCron(ctDate))
+        .then((r) => { if (r.closed) console.log(`[cron] invoice_cadence_close: ${r.closed} window(s) closed, ${r.emailed} emailed across ${r.companies} tenant(s)`); })
+        .catch((e: Error) => console.error("[cron] invoice_cadence_close error:", e));
+    }
     // [service-suspension 2026-07-11] 8 AM CT → suspension lifecycle messages:
     // the 30-days-before-expiry "want to resume?" reminder + the at-expiry
     // final notice (flag for office; NO automatic cancel/resume). Idempotent
@@ -481,6 +495,120 @@ async function runStartupMigrations() {
     });
   } catch (err: any) {
     console.error("[startup] ensureEventTimeclockSchema — non-fatal:", err?.message ?? err);
+  }
+  // [square-map 2026-07-22] Square ↔ Qleno customer map. Resolves an incoming
+  // Square customer_id to the Qleno client / account / property that owns it,
+  // so payments can be reconciled back to invoices. Additive table only — it
+  // does not touch clients/accounts here, and creating it charges nothing.
+  // Populated on demand by lib/square-customer-map.ts (idempotent). Idempotent.
+  try {
+    await withBootTimeout("ensureSquareCustomerMapSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS square_customer_map (
+          id serial PRIMARY KEY,
+          company_id integer NOT NULL REFERENCES companies(id),
+          square_customer_id text NOT NULL,
+          square_customer_name text,
+          square_email text,
+          square_company_name text,
+          square_phone text,
+          square_address text,
+          square_postal text,
+          square_created_at timestamptz,
+          client_id integer REFERENCES clients(id),
+          account_id integer REFERENCES accounts(id),
+          account_property_id integer REFERENCES account_properties(id),
+          square_card_id text,
+          card_brand text,
+          card_last4 text,
+          card_exp text,
+          card_count integer NOT NULL DEFAULT 0,
+          status text NOT NULL DEFAULT 'needs_review',
+          match_method text,
+          match_score numeric(5,2),
+          review_reason text,
+          email_mismatch boolean NOT NULL DEFAULT false,
+          is_account_primary boolean NOT NULL DEFAULT false,
+          linked_at timestamptz,
+          linked_by_user_id integer REFERENCES users(id),
+          reviewed_at timestamptz,
+          reviewed_by_user_id integer REFERENCES users(id),
+          first_seen_at timestamptz NOT NULL DEFAULT now(),
+          last_synced_at timestamptz NOT NULL DEFAULT now(),
+          candidates jsonb
+        )
+      `);
+      // The idempotency key the sync upserts on.
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_square_map_company_customer ON square_customer_map(company_id, square_customer_id)`);
+      // The webhook lookup path: a payment arrives carrying a Square customer_id.
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_square_map_square_customer ON square_customer_map(square_customer_id)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_square_map_client ON square_customer_map(client_id)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_square_map_account ON square_customer_map(account_id)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_square_map_status ON square_customer_map(company_id, status)`);
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureSquareCustomerMapSchema — non-fatal:", err?.message ?? err);
+  }
+  try {
+    // [auto-issue-toggle 2026-07-22] The two manual overrides on auto-invoicing.
+    // Both default to "auto-issue behaves as before", so an existing row is
+    // never silently switched off by the migration itself.
+    await withBootTimeout("ensureAutoIssueOverrideSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`ALTER TABLE accounts ADD COLUMN IF NOT EXISTS auto_issue_enabled boolean NOT NULL DEFAULT true`);
+      await db.execute(sql`ALTER TABLE jobs ADD COLUMN IF NOT EXISTS invoice_hold boolean NOT NULL DEFAULT false`);
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureAutoIssueOverrideSchema — non-fatal:", err?.message ?? err);
+  }
+  try {
+    // [square-webhook 2026-07-22] Square payment reconciliation ledger. The
+    // unique index is the idempotency guarantee — Square retries any non-2xx,
+    // and without it a retry would credit the same invoice twice.
+    await withBootTimeout("ensureSquarePaymentEventsSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS square_payment_events (
+          id serial PRIMARY KEY,
+          company_id integer NOT NULL REFERENCES companies(id),
+          square_payment_id text NOT NULL,
+          square_customer_id text,
+          square_order_id text,
+          square_location_id text,
+          event_type text,
+          square_status text,
+          amount numeric(10,2) NOT NULL,
+          currency text NOT NULL DEFAULT 'USD',
+          card_brand text,
+          card_last4 text,
+          square_created_at timestamp,
+          resolution text NOT NULL DEFAULT 'needs_review',
+          review_reason text,
+          resolved_client_id integer REFERENCES clients(id),
+          resolved_account_id integer REFERENCES accounts(id),
+          matched_invoice_id integer REFERENCES invoices(id),
+          applied_payment_id integer REFERENCES payments(id),
+          candidate_invoice_ids jsonb,
+          raw jsonb,
+          created_at timestamp NOT NULL DEFAULT now(),
+          processed_at timestamp,
+          reviewed_at timestamp,
+          reviewed_by_user_id integer
+        )`);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_square_payment_company_payment ON square_payment_events (company_id, square_payment_id)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_square_payment_customer ON square_payment_events (square_customer_id)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_square_payment_resolution ON square_payment_events (company_id, resolution)`);
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_square_payment_invoice ON square_payment_events (matched_invoice_id)`);
+      // Distinct from stripe_payment_id so the originating processor of any
+      // payment row stays unambiguous.
+      await db.execute(sql`ALTER TABLE payments ADD COLUMN IF NOT EXISTS square_payment_id text`);
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureSquarePaymentEventsSchema — non-fatal:", err?.message ?? err);
   }
   try {
     await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());

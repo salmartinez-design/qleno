@@ -300,4 +300,60 @@ router.post("/:clientId/consolidate", requireAuth, requireRole("owner", "admin",
   }
 });
 
+// ---------------------------------------------------------------------------
+// [cadence 2026-07-22] ACCOUNT-keyed bundling. The routes above key on
+// client_id (residential batch_invoice clients) and push the merged parent to
+// QuickBooks. Commercial ACCOUNTS need the same fold but grouped by account_id
+// and with NO QB push, so they get their own pair of endpoints over
+// lib/invoice-cadence.ts rather than a client_id-shaped workaround.
+// ---------------------------------------------------------------------------
+
+// GET /api/batch-invoicing/accounts/preview?as_of=YYYY-MM-DD&force=1
+// Dry run: what the close WOULD bill, per bundled account. Writes nothing.
+router.get("/accounts/preview", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const { runInvoiceCadenceClose } = await import("../lib/invoice-cadence.js");
+    const out = await runInvoiceCadenceClose({
+      companyId: req.auth!.companyId as number,
+      asOf: typeof req.query.as_of === "string" ? req.query.as_of : undefined,
+      force: req.query.force === "1" || req.query.force === "true",
+      accountId: req.query.account_id ? parseInt(String(req.query.account_id)) : undefined,
+      dryRun: true,
+    });
+    return res.json(out);
+  } catch (err) {
+    console.error("Account cadence preview error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to preview account billing windows" });
+  }
+});
+
+// POST /api/batch-invoicing/accounts/close
+// Body: { as_of?: 'YYYY-MM-DD', force?: boolean, account_id?: number }
+// Runs the close for real. Same code the nightly 5 AM cron runs — this is the
+// manual trigger (and what the July backfill uses with force).
+router.post("/accounts/close", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const { runInvoiceCadenceClose } = await import("../lib/invoice-cadence.js");
+    const out = await runInvoiceCadenceClose({
+      companyId,
+      asOf: typeof req.body?.as_of === "string" ? req.body.as_of : undefined,
+      force: req.body?.force === true,
+      accountId: req.body?.account_id ? parseInt(String(req.body.account_id)) : undefined,
+      dryRun: false,
+      userId: req.auth!.userId,
+    });
+    for (const r of out.results.filter((x: any) => x.status === "closed")) {
+      logAudit(req, "UPDATE", "invoice", r.parent_invoice_id!, null, {
+        action: "account_cadence_close", account_id: r.account_id, cadence: r.cadence,
+        window: r.window, visit_count: r.visit_count, total: r.total, emailed: r.emailed,
+      });
+    }
+    return res.json(out);
+  } catch (err) {
+    console.error("Account cadence close error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to close account billing windows" });
+  }
+});
+
 export default router;

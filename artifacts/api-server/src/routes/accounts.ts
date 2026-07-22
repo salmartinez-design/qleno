@@ -291,6 +291,10 @@ router.patch("/:id", requireAuth, requireRole("owner", "admin", "office"), async
     "auto_charge_on_completion", "stripe_customer_id", "square_customer_id",
     // [account-comms-toggle] master "pause all communications" switch
     "comms_enabled",
+    // [auto-issue-toggle 2026-07-22] per-account auto-invoicing on/off (default
+    // on). Off = completed jobs for this account produce no invoice at all and
+    // wait in the "not yet invoiced" queue for the office.
+    "auto_issue_enabled",
   ];
   const updates: Record<string, unknown> = { updated_at: new Date() };
   for (const key of allowed) {

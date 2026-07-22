@@ -185,6 +185,13 @@ export const jobsTable = pgTable("jobs", {
   // job_technicians pay_override — non_billable only affects client billing.
   redo_of_job_id: integer("redo_of_job_id"),
   non_billable: boolean("non_billable").notNull().default(false),
+  // [auto-issue-hold 2026-07-22] Office hold on THIS visit's invoice. Distinct
+  // from non_billable (which means "free, never bill this") — a held job WILL be
+  // billed, just not automatically: the office is still resolving a complaint, a
+  // rate, or a scope question. Auto-issue skips it and it stays in the
+  // "not yet invoiced" queue until the hold is lifted. Clearing the hold and
+  // re-running completion invoices it normally.
+  invoice_hold: boolean("invoice_hold").notNull().default(false),
 });
 
 export const insertJobSchema = createInsertSchema(jobsTable).omit({ id: true, created_at: true });

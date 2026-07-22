@@ -31,9 +31,30 @@
 //   - At most one invoice per job: if a non-void invoice already exists it is
 //     returned untouched, never duplicated.
 //   - Skip jobs already charged (jobs.charge_succeeded_at IS NOT NULL).
-//   - Commercial accounts (account_id) now auto-issue per visit like
-//     residential (invoice_frequency no longer gates this — every account job
-//     issues). One invoice per job still holds.
+//   - [edge-cases 2026-07-22] WORK DONE is the only billing trigger:
+//       * status must be 'complete'. Scheduled/rescheduled never invoice — a
+//         reschedule moves the visit, and the invoice follows it to the new
+//         completion date. Re-completing an already-invoiced job is caught by
+//         the idempotency check, so a move never doubles up.
+//       * cancelled / called-off / no_show_marked_by_tech never invoice. A
+//         cancellation FEE stays a deliberate office charge, never an automatic
+//         by-product of the cancel.
+//       * jobs.invoice_hold = office hold on this one visit (billable, but not
+//         by the robot). Skipped, and stays in the "not yet invoiced" queue.
+//       * accounts.auto_issue_enabled = false turns the whole account off.
+//         Default true, so legacy rows keep working.
+//       * a $0 commercial visit is an UNSET RATE — held as a pending draft,
+//         never issued into AR at $0.
+//     Everything skipped here remains visible in the "not yet invoiced" queue.
+//     The office override is unchanged and total: edit, hold, void, or invoice
+//     by hand at any point — auto-issue only ever acts on the untouched path.
+//   - Commercial accounts (account_id) auto-issue per visit like residential
+//     ONLY when accounts.invoice_frequency = 'per_job' (PPM, Weed Man, the
+//     condo assocs). [cadence 2026-07-22] weekly/monthly/custom accounts hold
+//     each visit as a pending draft instead — lib/invoice-cadence.ts bundles
+//     the window into one invoice at period end (National Able weekly Mon–Fri,
+//     Cucci/KMA/Daveco monthly). One invoice per job still holds either way;
+//     bundling merges those per-visit documents, it never re-prices them.
 //
 // Fully non-fatal: any hiccup is swallowed so it never breaks the job/clock write.
 // QB push is fire-and-forget and only fires for RESIDENTIAL invoices that are
@@ -104,14 +125,41 @@ export async function ensureInvoiceForCompletedJob(
         charge_succeeded_at: jobsTable.charge_succeeded_at,
         scheduled_date: jobsTable.scheduled_date,
         non_billable: jobsTable.non_billable,
+        status: jobsTable.status,
+        no_show_marked_by_tech: jobsTable.no_show_marked_by_tech,
+        invoice_hold: jobsTable.invoice_hold,
       })
       .from(jobsTable)
       .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
       .limit(1);
     if (!job) return NO_OP;
+
+    // [edge-cases 2026-07-22] WORK DONE is the only thing that bills.
+    //
+    // Completion is the trigger, full stop. A scheduled or rescheduled job never
+    // invoices — a reschedule just moves the visit, and its invoice is created
+    // (or re-dated) when the job actually completes at the new date. Because
+    // completion is what fires this, moving a job that has ALREADY completed
+    // does not spawn a second invoice either: the idempotency check above hands
+    // back the existing one.
+    //
+    // Cancelled, called-off and no-show visits never invoice. Nobody cleaned, so
+    // there is nothing to bill — and a cancellation FEE is a separate, deliberate
+    // charge the office raises by hand, never an artifact of the cancel itself.
+    // A no-show is the customer's accountability signal (per the job-status
+    // model), not a billing event.
+    if (job.status !== "complete") return NO_OP;
+    if (job.no_show_marked_by_tech) return NO_OP;
+
     // [redo-service 2026-07-10] A redo/re-clean is free to the client under the
     // guarantee — never invoice it, not even a $0 draft on a commercial account.
     if (job.non_billable) return NO_OP;
+
+    // [auto-issue-hold 2026-07-22] Office hold on this specific visit. The job
+    // WILL be billed — just not by the robot. It stays in the "not yet invoiced"
+    // queue until someone lifts the hold, which is the whole point: a disputed
+    // or unresolved visit should be visible, not quietly invoiced.
+    if (job.invoice_hold) return NO_OP;
 
     // [cutover-guard 2026-06-17] Pre-cutover jobs are billed in MaidCentral, NOT
     // Qleno. Never auto-invoice a job scheduled before the Qleno go-live date —
@@ -147,13 +195,29 @@ export async function ensureInvoiceForCompletedJob(
       .limit(1);
     const autoIssue = co?.auto_issue_invoices === true;
 
+    // [cadence 2026-07-22] An account's invoice_frequency decides WHETHER this
+    // visit becomes its own document. per_job issues immediately (#1174).
+    // weekly/monthly hold the visit as a pending draft so the period-close step
+    // (lib/invoice-cadence.ts) can bundle the window into ONE invoice — Sal:
+    // National Able bundles Mon–Fri, Cucci/KMA/Daveco bundle the month.
+    let accountCadence: string | null = null;
     if (job.account_id) {
       const [acct] = await db
-        .select({ payment_terms_days: accountsTable.payment_terms_days })
+        .select({
+          payment_terms_days: accountsTable.payment_terms_days,
+          invoice_frequency: accountsTable.invoice_frequency,
+          auto_issue_enabled: accountsTable.auto_issue_enabled,
+        })
         .from(accountsTable)
         .where(eq(accountsTable.id, job.account_id))
         .limit(1);
       termsDays = acct?.payment_terms_days ?? 30;
+      accountCadence = acct?.invoice_frequency ?? "per_job";
+      // [auto-issue-toggle 2026-07-22] Account-level opt-out. Default is ON, so
+      // a missing/legacy row still auto-invoices; only an explicit false stops
+      // it. Nothing is created at all — the completed job simply stays in the
+      // "not yet invoiced" queue for the office.
+      if (acct?.auto_issue_enabled === false) return NO_OP;
     } else {
       termsDays = co?.payment_terms_days ?? 0;
     }
@@ -223,7 +287,13 @@ export async function ensureInvoiceForCompletedJob(
     // Applies to residential AND account jobs alike. A $0 commercial visit
     // (allowed through the guard above so an unpriced job stays visible) is held
     // as a pending draft — never issued into AR at $0.
-    const issueNow = !isBatch && autoIssue && netAmount > 0;
+    // [cadence 2026-07-22] A bundled account (weekly/monthly) never issues its
+    // own per-visit document — the visit is held as a pending draft and the
+    // period close folds the window into one invoice. 'custom' is treated as
+    // monthly (the only custom cadence in use is a month-end bundle); per_job
+    // and residential are unaffected.
+    const isBundledAccount = !!job.account_id && (accountCadence === "weekly" || accountCadence === "monthly" || accountCadence === "custom");
+    const issueNow = !isBatch && !isBundledAccount && autoIssue && netAmount > 0;
 
     const [newInv] = await db
       .insert(invoicesTable)
