@@ -89,6 +89,16 @@ export const companiesTable = pgTable("companies", {
   // grace period, or nothing at all. Qleno does NOT assess this automatically;
   // it is contract wording only.
   late_fee_terms: text("late_fee_terms"),
+  // [agreement-clauses 2026-07-22] Numbers that vary by contract, surfaced in
+  // service agreements as merge variables so the office tunes them in Settings
+  // instead of editing legal text. Defaults are Sal's approved values
+  // (2026-07-22). Wording only — Qleno does not enforce or bill any of these.
+  agr_termination_notice_days: integer("agr_termination_notice_days").notNull().default(30),
+  agr_rate_notice_days: integer("agr_rate_notice_days").notNull().default(30),
+  agr_damage_report_days: integer("agr_damage_report_days").notNull().default(5),
+  agr_damage_cap: numeric("agr_damage_cap", { precision: 12, scale: 2 }).notNull().default("500.00"),
+  agr_nonsolicit_months: integer("agr_nonsolicit_months").notNull().default(12),
+  agr_nonsolicit_fee: numeric("agr_nonsolicit_fee", { precision: 12, scale: 2 }).notNull().default("2500.00"),
   auto_send_invoices: boolean("auto_send_invoices").notNull().default(false),
   auto_charge_on_invoice: boolean("auto_charge_on_invoice").notNull().default(false),
   annual_revenue_goal: integer("annual_revenue_goal"),

@@ -35,6 +35,13 @@ export const AGREEMENT_VARIABLES: { token: string; label: string; example: strin
   { token: "company_phone",    label: "Your company phone",      example: "773-706-6000" },
   { token: "company_email",    label: "Your company email",      example: "info@phes.io" },
   { token: "late_fee",         label: "Late-payment terms (Company Settings)", example: "1.5% per month on balances over 10 days past due" },
+  // Contract numbers — all editable under Company Settings → Service Agreement Terms.
+  { token: "termination_notice_days", label: "Termination notice (days)",  example: "30" },
+  { token: "rate_notice_days",        label: "Rate-change notice (days)",  example: "30" },
+  { token: "damage_report_days",      label: "Damage reporting window (business days)", example: "5" },
+  { token: "damage_cap",              label: "Damage liability cap",       example: "$500.00" },
+  { token: "nonsolicit_months",       label: "Non-solicit period (months)",example: "12" },
+  { token: "nonsolicit_fee",          label: "Non-solicit placement fee",  example: "$2,500.00" },
   // Only resolves when the agreement is sent from an estimate — a contract sent
   // straight off a client record has no scope to draw from.
   { token: "scope_of_work",    label: "Scope of work (from the estimate)", example: "Lobby & entrance\nCommon hallways & stairwells" },
@@ -42,7 +49,11 @@ export const AGREEMENT_VARIABLES: { token: string; label: string; example: strin
 
 function money(n: any): string {
   const v = Number(n);
-  return Number.isFinite(v) ? `$${v.toFixed(2)}` : "";
+  // Thousands separators — "$2,500.00" is how a dollar figure reads in a
+  // contract; "$2500.00" looks like a typo in a signed document.
+  return Number.isFinite(v)
+    ? `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    : "";
 }
 
 function longDate(d: Date): string {
@@ -70,7 +81,11 @@ export async function buildAgreementVars(
   vars.effective_date = longDate(now);
 
   const co: any = (await db.execute(sql`
-    SELECT name, phone, email, late_fee_terms FROM companies WHERE id = ${companyId} LIMIT 1
+    SELECT name, phone, email, late_fee_terms,
+           agr_termination_notice_days, agr_rate_notice_days,
+           agr_damage_report_days, agr_damage_cap,
+           agr_nonsolicit_months, agr_nonsolicit_fee
+      FROM companies WHERE id = ${companyId} LIMIT 1
   `)).rows[0];
   if (co) {
     vars.company_name = co.name ?? "";
@@ -82,6 +97,15 @@ export async function buildAgreementVars(
     // would assert a fee the office never agreed to charge.
     vars.late_fee = String(co.late_fee_terms || "").trim()
       || "Late payments may be subject to a late fee.";
+    // [agreement-clauses 2026-07-22] Tunable contract numbers. These fall back
+    // to the approved defaults rather than empty — a blank in "limited to ___"
+    // would make the clause unenforceable, which is worse than a stale number.
+    vars.termination_notice_days = String(co.agr_termination_notice_days ?? 30);
+    vars.rate_notice_days = String(co.agr_rate_notice_days ?? 30);
+    vars.damage_report_days = String(co.agr_damage_report_days ?? 5);
+    vars.damage_cap = money(co.agr_damage_cap ?? 500);
+    vars.nonsolicit_months = String(co.agr_nonsolicit_months ?? 12);
+    vars.nonsolicit_fee = money(co.agr_nonsolicit_fee ?? 2500);
   }
 
   if (opts.clientId) {
