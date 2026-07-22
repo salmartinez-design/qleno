@@ -85,6 +85,7 @@ import acquisitionSourcesRouter from "./acquisition-sources.js";
 import publicRouter from "./public.js";
 import appointmentRouter from "./appointment.js";
 import quickbooksRouter from "./integrations/quickbooks.js";
+import squareRouter from "./square.js";
 import bundlesRouter from "./bundles.js";
 import followUpRouter from "./follow-up.js";
 import leadsRouter from "./leads.js";
@@ -238,6 +239,9 @@ router.use("/bundles", bundlesRouter);
 router.use("/photos", photosRouter);
 router.use("/public", publicRouter);
 router.use("/integrations/quickbooks", quickbooksRouter);
+// [square 2026-07-22] Customer map + payment reconciliation queues. The raw-body
+// webhook at /api/square/webhook is mounted separately in app.ts, before json().
+router.use("/square", squareRouter);
 router.use("/follow-up", followUpRouter);
 router.use("/leads", leadsRouter);
 router.use("/referral-partners", referralPartnersRouter);

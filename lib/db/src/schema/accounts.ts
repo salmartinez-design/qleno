@@ -35,6 +35,15 @@ export const accountsTable = pgTable("accounts", {
   // accounts (PPM, KMA, etc.) with many properties that don't want messaging.
   // Default true = normal. Enforced in every client-resolving send path.
   comms_enabled: boolean("comms_enabled").notNull().default(true),
+  // [auto-issue-toggle 2026-07-22] Per-account kill switch for automatic
+  // invoicing. Default true = a completed visit invoices itself (per_job) or
+  // joins its cadence bundle (weekly/monthly). Set false and the account's
+  // completed jobs stop producing invoices entirely and surface in the
+  // "not yet invoiced" queue for the office to handle by hand — for an account
+  // mid-renegotiation, in dispute, or being reconciled outside Qleno.
+  // Deliberately separate from is_active (which stops scheduling too) and from
+  // invoice_frequency (which decides the shape, not the whether).
+  auto_issue_enabled: boolean("auto_issue_enabled").notNull().default(true),
   created_at: timestamp("created_at").notNull().defaultNow(),
   updated_at: timestamp("updated_at").notNull().defaultNow(),
 });

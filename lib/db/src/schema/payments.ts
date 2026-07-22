@@ -20,6 +20,12 @@ export const paymentsTable = pgTable("payments", {
   status: text("status").notNull().default("completed"),
   job_id: integer("job_id"),
   stripe_payment_id: text("stripe_payment_id"),
+  // [square-webhook 2026-07-22] Square's own payment id, when this payment was
+  // reconciled in from Square rather than charged by Qleno. Kept separate from
+  // stripe_payment_id so the processor a payment came from stays unambiguous —
+  // mark-unpaid already refuses to reverse a real processor payment, and it
+  // needs to be able to tell.
+  square_payment_id: text("square_payment_id"),
   stripe_error_code: text("stripe_error_code"),
   stripe_error_message: text("stripe_error_message"),
   last_4: text("last_4"),

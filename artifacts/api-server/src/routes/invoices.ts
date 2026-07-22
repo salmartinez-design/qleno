@@ -812,7 +812,10 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
 // the GET /:id/pdf render exactly — keep the two in sync. Returns null if the
 // invoice isn't found; the caller treats a null / thrown result as "email
 // without an attachment" so a PDF hiccup never blocks the send.
-async function buildInvoicePdfBuffer(companyId: number, invoiceId: number): Promise<{ buffer: Buffer; filename: string } | null> {
+// [cadence 2026-07-22] Exported so the bundled-account close
+// (lib/invoice-cadence.ts) attaches the SAME PDF a hand-sent invoice carries —
+// one renderer, so the two can't drift.
+export async function buildInvoicePdfBuffer(companyId: number, invoiceId: number): Promise<{ buffer: Buffer; filename: string } | null> {
   const [inv] = await db
     .select({
       invoice_number: invoicesTable.invoice_number,
@@ -1612,6 +1615,63 @@ router.post("/merge", requireAuth, requireRole("owner", "admin", "office"), asyn
   } catch (err) {
     console.error("Invoice merge error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to merge invoices" });
+  }
+});
+
+// [auto-issue-hold 2026-07-22] Hold / release a single job's invoice.
+//
+// The office's manual escape hatch on automatic invoicing, for the case that
+// isn't "never bill this" (non_billable) and isn't "turn the whole account off"
+// (accounts.auto_issue_enabled): THIS visit is billable but shouldn't go out yet
+// — a complaint is open, a rate is unsettled, the scope is being argued.
+//
+// A held job produces no invoice on completion and stays in the "not yet
+// invoiced" queue, which is the point: it must remain visible, not vanish.
+// Releasing the hold does NOT invoice it — the office invoices it when ready, or
+// the next completion write does. Holding a job that ALREADY has an invoice is
+// rejected: at that point the tools are edit and void, not hold.
+router.post("/job/:jobId/hold", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.jobId);
+    const companyId = req.auth!.companyId!;
+    if (!Number.isFinite(jobId)) return res.status(400).json({ error: "Invalid job id" });
+    const hold = req.body?.hold !== false; // default true; pass {hold:false} to release
+
+    const [job] = await db
+      .select({ id: jobsTable.id, invoice_hold: jobsTable.invoice_hold, status: jobsTable.status })
+      .from(jobsTable)
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)))
+      .limit(1);
+    if (!job) return res.status(404).json({ error: "Job not found" });
+
+    if (hold) {
+      const [live] = await db
+        .select({ id: invoicesTable.id, invoice_number: invoicesTable.invoice_number })
+        .from(invoicesTable)
+        .where(and(
+          eq(invoicesTable.job_id, jobId),
+          eq(invoicesTable.company_id, companyId),
+          ne(invoicesTable.status, "void"),
+        ))
+        .limit(1);
+      if (live) {
+        return res.status(409).json({
+          error: "Already invoiced",
+          message: `Job #${jobId} already has invoice #${live.invoice_number ?? live.id}. Edit or void it instead of holding the job.`,
+          invoice_id: live.id,
+        });
+      }
+    }
+
+    await db.update(jobsTable)
+      .set({ invoice_hold: hold })
+      .where(and(eq(jobsTable.id, jobId), eq(jobsTable.company_id, companyId)));
+    logAudit(req, "UPDATE", "job", jobId, { invoice_hold: job.invoice_hold }, { invoice_hold: hold });
+
+    return res.json({ ok: true, job_id: jobId, invoice_hold: hold });
+  } catch (err) {
+    console.error("Invoice hold error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to set invoice hold" });
   }
 });
 

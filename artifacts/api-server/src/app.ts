@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import rateLimit from "express-rate-limit";
 import router from "./routes";
 import stripeWebhookRouter from "./routes/stripe-webhook.js";
+import squareWebhookRouter from "./routes/square-webhook.js";
 import { resolveShortLink } from "./lib/short-link.js";
 import { isAppReady } from "./lib/readiness.js";
 
@@ -27,6 +28,16 @@ app.use(
   "/api/stripe/webhook",
   express.raw({ type: "application/json" }),
   stripeWebhookRouter
+);
+
+// ── Square Webhook — raw body BEFORE express.json() ─────────────────────────
+// [square-webhook 2026-07-22] Same constraint as Stripe: Square's HMAC covers
+// the exact bytes of the body, so a re-serialized object never verifies.
+// Read-only reconciler — it credits invoices, it never charges anything.
+app.use(
+  "/api/square/webhook",
+  express.raw({ type: "application/json" }),
+  squareWebhookRouter
 );
 
 app.use(express.json({ limit: "25mb" }));

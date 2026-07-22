@@ -181,3 +181,10 @@ export * from "./estimates";
 
 export * from "./recurring_subscriptions";
 export * from "./sales_commissions";
+
+// [square-map 2026-07-22] Square ↔ Qleno customer map. Resolves a Square
+// customer_id to the Qleno client / account / property that owns it, with a
+// needs_review queue for duplicates and fuzzy matches. Read by the payment
+// reconciler; populated by lib/square-customer-map.ts (idempotent re-runnable).
+export * from "./square_customer_map";
+export * from "./square_payment_events";
