@@ -21,7 +21,14 @@ export const accountsTable = pgTable("accounts", {
   account_name: text("account_name").notNull(),
   billing_contact_id: integer("billing_contact_id"),
   payment_method: accountPaymentMethodEnum("payment_method").notNull().default("card_on_file"),
-  auto_charge_on_completion: boolean("auto_charge_on_completion").notNull().default(true),
+  // [manual-charging-policy 2026-07-22] Charging is a deliberate, manual act:
+  // the office charges in Square and marks the invoice paid by hand. So this
+  // defaults to FALSE — a newly created account never auto-charges until
+  // someone turns it on for that account. The toggle itself is fully live
+  // (accounts.tsx create form, account-detail.tsx billing form); only its
+  // default state changed. Do NOT flip this back to true — an account that
+  // silently auto-charges moves real money without the owner initiating it.
+  auto_charge_on_completion: boolean("auto_charge_on_completion").notNull().default(false),
   invoice_frequency: invoiceFrequencyEnum("invoice_frequency").notNull().default("per_job"),
   payment_terms_days: integer("payment_terms_days").notNull().default(0),
   account_type: accountTypeEnum("account_type").notNull().default("property_management"),

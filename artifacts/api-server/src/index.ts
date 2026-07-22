@@ -565,6 +565,25 @@ async function runStartupMigrations() {
     console.error("[startup] ensureAutoIssueOverrideSchema — non-fatal:", err?.message ?? err);
   }
   try {
+    // [manual-charging-policy 2026-07-22] Auto-charge is OFF by default.
+    // Charging is a manual act (Square, then mark paid by hand), so a newly
+    // created account must never auto-charge until someone enables it.
+    //
+    // SET DEFAULT only changes what a future INSERT gets when the column is
+    // omitted. It does NOT rewrite, re-validate, or even scan existing rows —
+    // no table rewrite, no lock beyond a brief ACCESS EXCLUSIVE on the
+    // catalog entry. The 22 existing accounts were flipped as a separate,
+    // snapshotted data write; this statement deliberately backfills nothing,
+    // so an account someone later turns ON stays on across deploys.
+    await withBootTimeout("ensureAutoChargeDefaultOff", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`ALTER TABLE accounts ALTER COLUMN auto_charge_on_completion SET DEFAULT false`);
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureAutoChargeDefaultOff — non-fatal:", err?.message ?? err);
+  }
+  try {
     // [square-webhook 2026-07-22] Square payment reconciliation ledger. The
     // unique index is the idempotency guarantee — Square retries any non-2xx,
     // and without it a retry would credit the same invoice twice.
