@@ -2167,12 +2167,16 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
     if (!confirm(`Charge $${amt.toFixed(2)} to ${client.first_name}'s ${client.card_brand || "card"} ending ${client.card_last_four}?`)) return;
     setChargeBusy(true);
     try {
-      const r = await fetch(`${API}/api/payments`, {
+      // [real-card-charge 2026-07-22] Must hit /payments/charge-card, NOT
+      // /payments. The latter only RECORDS a payment (no Stripe call), so this
+      // button used to mark the money received and email the customer a receipt
+      // without ever charging them.
+      const r = await fetch(`${API}/api/payments/charge-card`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
-        body: JSON.stringify({ client_id: client.id, amount: amt, method: "card", memo: chargeMemo || undefined, last_4: client.card_last_four, card_brand: client.card_brand }),
+        body: JSON.stringify({ client_id: client.id, amount: amt, memo: chargeMemo || undefined }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.error || "Charge failed"); }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); alert(e.message || e.error || "Charge failed"); }
       else { setChargeOpen(false); setChargeAmt(""); setChargeMemo(""); alert(`Charged $${amt.toFixed(2)} successfully.`); refetch(); }
     } catch { alert("Network error — please try again."); }
     finally { setChargeBusy(false); }
@@ -2196,6 +2200,12 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
 
   const FF = "'Plus Jakarta Sans', sans-serif";
   const hasCard = !!client.card_last_four;
+  // [real-card-charge 2026-07-22] A last-4 on the record is NOT proof we can
+  // charge it — the chargeable handle is stripe_payment_method_id. Cards saved
+  // through the card-on-file link before 2026-07-22 have the display fields but
+  // no payment-method id, so they render as a card yet cannot be charged. Gate
+  // the charge UI on the real thing and say so when they disagree.
+  const canCharge = !!(client as any).stripe_payment_method_id;
   const brandIcon = client.card_brand ? client.card_brand.charAt(0).toUpperCase() + client.card_brand.slice(1) : "Card";
 
   async function saveCommercialRate() {
@@ -2324,7 +2334,12 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
 
             {/* Charge on command — charge the card on file for any amount, with a confirm */}
             <div style={{ marginBottom: 16 }}>
-              {!chargeOpen ? (
+              {!canCharge ? (
+                <div style={{ padding: "12px 14px", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, fontSize: 12, color: "#92400E", fontFamily: FF, lineHeight: 1.5 }}>
+                  This card can't be charged from Qleno yet — we have the card details on file but not the
+                  secure token needed to charge it. Send this client a card-on-file link to re-save it.
+                </div>
+              ) : !chargeOpen ? (
                 <button onClick={() => setChargeOpen(true)}
                   style={{ width: "100%", padding: "11px 0", background: "#ECFDF5", border: "1px solid #6EE7B7", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#065F46", cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                   <CreditCard size={14} /> Charge this card
