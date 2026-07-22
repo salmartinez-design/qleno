@@ -1522,6 +1522,12 @@ router.post("/book/confirm", rateLimit, async (req, res) => {
       recurring_job_id: recurringJobId,
       home_id: homeId,
       pricing,
+      // [conversion-hardening 2026-07-22] The amount actually booked = the
+      // job's base_fee (final_total already scaled by the home-condition
+      // multiplier). `pricing.final_total` is PRE-multiplier, so the widget's
+      // phes.io conversion value under-reported every dirty-home booking.
+      first_visit_total: adjustedTotal,
+      quote_id: bookingQuoteId,
       card_last4: cardLast4,
       card_brand: cardBrand,
       branch: branchConfig.branch,
@@ -1697,7 +1703,10 @@ router.post("/book", rateLimit, async (req, res) => {
       `
     );
 
-    return res.status(201).json({ ok: true, client_id: clientId, job_id: jobId, home_id: homeId, pricing });
+    // first_visit_total: the booked amount (no condition multiplier on this
+    // legacy path) — same field name the confirm path returns, so the widget's
+    // conversion event reads one key everywhere.
+    return res.status(201).json({ ok: true, client_id: clientId, job_id: jobId, home_id: homeId, pricing, first_visit_total: pricing.final_total });
   } catch (err: any) {
     if (err.statusCode) return res.status(err.statusCode).json({ error: err.message });
     console.error("POST /public/book:", err);
@@ -1896,7 +1905,7 @@ router.post("/book/commercial-confirm", rateLimit, async (req, res) => {
     await upsertWidgetLead(company_id, { email, phone, first_name, last_name, address: address || null, zip: cAddrZip, scope: "Commercial Cleaning", source: "booking_widget", status: "booked", jobId, booked: true });
 
     console.log(`[COMMERCIAL] Single visit confirmed — client_id=${clientId} job_id=${jobId} card=${cardBrand} *${cardLast4}`);
-    return res.status(201).json({ ok: true, client_id: clientId, job_id: jobId, pricing: { final_total: 180 }, card_last4: cardLast4, card_brand: cardBrand });
+    return res.status(201).json({ ok: true, client_id: clientId, job_id: jobId, pricing: { final_total: 180 }, first_visit_total: 180, card_last4: cardLast4, card_brand: cardBrand });
   } catch (err: any) {
     console.error("POST /public/book/commercial-confirm:", err);
     return res.status(500).json({ error: "Internal Server Error" });
