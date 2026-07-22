@@ -453,10 +453,19 @@ export default function EstimateBuilderPage() {
           twilio_unconfigured: "Texting isn't configured yet (Twilio credentials).",
           no_from_number: "No texting number is set up for this location.",
           comms_disabled: "Sending is turned off (global comms are paused).",
+          company_comms_disabled: "Sending is turned off for this company.",
+          branch_comms_disabled: "Sending is turned off for this location.",
+          twilio_disabled: "Texting isn't switched on yet for this company.",
           resend_unconfigured: "Email isn't configured yet.",
           send_failed: "The carrier rejected it — check the number and try again.",
         };
-        toast.error(REASON[why] || "Couldn't send the card-on-file link.");
+        // Surface the carrier's own words on a rejection so a failure is
+        // self-diagnosing instead of a dead end.
+        const detail = bySms && why === "send_failed" ? String(r?.sms_detail || "") : "";
+        toast.error(
+          (REASON[why] || "Couldn't send the card-on-file link.") +
+          (detail ? ` (${detail})` : "")
+        );
         return;
       }
       toast.success(`Card-on-file link sent to ${to}`);
