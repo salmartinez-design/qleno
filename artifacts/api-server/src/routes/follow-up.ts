@@ -50,6 +50,95 @@ router.post("/sequences/:id/test-run", requireAuth, requireRole("owner", "admin"
 // ── GET /api/follow-up/sequences ──────────────────────────────────────────────
 // [seq-test-run 2026-07-09] owner/admin/office — office needs to view sequences
 // to run the real-time tester. Editing/activating stays owner/admin (PATCH below).
+// ── GET /api/follow-up/enrollments ───────────────────────────────────────────
+// [enrollment-view 2026-07-22] Layer 2: where every contact sits inside the
+// nurture (models GHL's Enrollment history). No new tables — follow_up_
+// enrollments already carries current_step / enrolled_at / next_fire_at /
+// completed_at / stopped_at.
+//
+// An enrollment is polymorphic: it points at a lead OR client OR quote OR
+// estimate. We resolve all of them to ONE contact identity (name/email/phone)
+// so a person who came in as a lead and later became a client reads as the same
+// human — that's what makes the client-centric search work.
+//
+// Query: ?sequence_id= &from= &to= &status=active|finished|stopped|all
+//        &search= &page= &limit=
+// Company-scoped only (leads/sequences carry no branch_id — see inventory).
+router.get("/enrollments", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const { sequence_id, from, to, status = "all", search, page = "1", limit = "50" } =
+      req.query as Record<string, string>;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const lim = Math.min(200, Math.max(1, parseInt(limit) || 50));
+    const offset = (pageNum - 1) * lim;
+
+    const seqFilter = sequence_id && Number.isInteger(parseInt(sequence_id))
+      ? sql`AND e.sequence_id = ${parseInt(sequence_id)}` : sql``;
+    const fromFilter = from ? sql`AND e.enrolled_at >= ${from}::date` : sql``;
+    const toFilter = to ? sql`AND e.enrolled_at < (${to}::date + interval '1 day')` : sql``;
+    const statusFilter =
+      status === "active" ? sql`AND e.completed_at IS NULL AND e.stopped_at IS NULL`
+      : status === "finished" ? sql`AND e.completed_at IS NOT NULL`
+      : status === "stopped" ? sql`AND e.stopped_at IS NOT NULL`
+      : sql``;
+    const q = (search || "").trim();
+    const searchFilter = q
+      ? sql`AND (
+          COALESCE(l.first_name,'') || ' ' || COALESCE(l.last_name,'') ILIKE ${"%" + q + "%"} OR
+          COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'') ILIKE ${"%" + q + "%"} OR
+          COALESCE(qc.first_name,'') || ' ' || COALESCE(qc.last_name,'') ILIKE ${"%" + q + "%"} OR
+          COALESCE(est.contact_name,'') ILIKE ${"%" + q + "%"} OR
+          COALESCE(l.email, c.email, qc.email, est.contact_email, '') ILIKE ${"%" + q + "%"} OR
+          COALESCE(l.phone, c.phone, qc.phone, est.contact_phone, '') ILIKE ${"%" + q + "%"}
+        )` : sql``;
+
+    const base = sql`
+      FROM follow_up_enrollments e
+      JOIN follow_up_sequences s ON s.id = e.sequence_id
+      LEFT JOIN leads l    ON l.id  = e.lead_id
+      LEFT JOIN clients c  ON c.id  = e.client_id
+      LEFT JOIN quotes q   ON q.id  = e.quote_id
+      LEFT JOIN clients qc ON qc.id = q.client_id
+      LEFT JOIN estimates est ON est.id = e.estimate_id
+      WHERE e.company_id = ${companyId}
+      ${seqFilter} ${fromFilter} ${toFilter} ${statusFilter} ${searchFilter}`;
+
+    const rows = await db.execute(sql`
+      SELECT e.id, e.sequence_id, s.name AS sequence_name, s.sequence_type,
+             e.lead_id, e.client_id, e.quote_id, e.estimate_id, e.abandoned_booking_id,
+             e.current_step, e.enrolled_at, e.next_fire_at,
+             e.completed_at, e.stopped_at, e.stopped_reason,
+             NULLIF(TRIM(COALESCE(
+               NULLIF(TRIM(COALESCE(l.first_name,'') || ' ' || COALESCE(l.last_name,'')), ''),
+               NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), ''),
+               NULLIF(TRIM(COALESCE(qc.first_name,'') || ' ' || COALESCE(qc.last_name,'')), ''),
+               est.contact_name
+             )), '') AS contact_name,
+             COALESCE(l.email, c.email, qc.email, est.contact_email) AS contact_email,
+             COALESCE(l.phone, c.phone, qc.phone, est.contact_phone) AS contact_phone,
+             COALESCE(e.client_id, q.client_id, est.client_id) AS resolved_client_id,
+             (SELECT COUNT(*)::int FROM follow_up_steps fs WHERE fs.sequence_id = e.sequence_id) AS total_steps,
+             CASE WHEN e.stopped_at IS NOT NULL THEN 'stopped'
+                  WHEN e.completed_at IS NOT NULL THEN 'finished'
+                  ELSE 'active' END AS status
+      ${base}
+      ORDER BY e.enrolled_at DESC
+      LIMIT ${lim} OFFSET ${offset}`);
+
+    const totalRes = await db.execute(sql`SELECT COUNT(*)::int AS n ${base}`);
+    return res.json({
+      enrollments: rows.rows,
+      total: Number((totalRes.rows[0] as any)?.n ?? 0),
+      page: pageNum,
+      limit: lim,
+    });
+  } catch (err) {
+    console.error("GET /follow-up/enrollments:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.get("/sequences", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
