@@ -2255,6 +2255,16 @@ function ctToday(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 }
 
+// [leads-default-today 2026-07-22] "today" / "Jul 21" for the empty state. Split
+// into parts rather than new Date(str), which parses YYYY-MM-DD as UTC and would
+// name the previous day in US timezones.
+function fmtDayLabel(ymd: string): string {
+  if (!ymd) return "this day";
+  if (ymd === ctToday()) return "today";
+  const [y, m, d] = ymd.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
 // "2h ago" / "3d ago" — compact relative time for card status lines.
 function relTime(ts: string | null | undefined): string {
   if (!ts) return "";
@@ -2536,13 +2546,25 @@ export default function LeadsPage() {
   // [lead-day-stage-date 2026-07-22] the match is on the date the lead reached
   // the stage it's in now (booked_at for Booked, quoted_at for Quoted, etc.),
   // NOT creation date — see STAGE_DATE_SQL in routes/leads.ts for why.
-  // "" = no day filter. Seeds from ?day=YYYY-MM-DD, or
-  // ?window=today (the Dashboard "today" tiles) → today's CT date. Also exposed
-  // as a visible date picker so the office can scope to any day, not just today.
+  // "" = no day filter. Also exposed as a visible date picker so the office can
+  // scope to any day, not just today.
+  //
+  // [leads-default-today 2026-07-22] A plain visit to /leads now lands on TODAY
+  // (Sal: "this screen should default to today") — the board opens on what's
+  // moving right now instead of all 107 leads ever.
+  //
+  // Deep links are the deliberate exception. The Dashboard's bucket chips
+  // (?status / ?channel) count ALL-TIME totals — clicking "Booked (open) 45"
+  // and landing on a board showing 3 recreates exactly the count-doesn't-match-
+  // the-list mismatch fixed in #1190. So an explicit link wins and imposes no
+  // day; only an unqualified visit defaults to today. ?window=today still opts
+  // in, and ?lead=<id> must show that lead whatever day it was last touched.
   const [dayFilter, setDayFilter] = useState(() => {
     const d = dl.get("day");
     if (d && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
-    return dl.get("window") === "today" ? ctToday() : "";
+    if (dl.get("window") === "today") return ctToday();
+    const deepLinked = dl.get("status") || dl.get("channel") || dl.get("lead");
+    return deepLinked ? "" : ctToday();
   });
   const [search, setSearch] = useState("");
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -2778,6 +2800,28 @@ export default function LeadsPage() {
               2026-07-17] Previously the 460px in-flow panel squeezed the 4-col grid,
               so opening/deleting a lead reflowed every card and lost your place. */}
           <div style={{ display: "flex", flex: 1, overflow: "hidden", position: "relative" }}>
+            {/* [leads-default-today 2026-07-22] Now that the board opens on today,
+                a quiet morning renders four empty columns — which reads as broken
+                rather than as "nothing has moved yet." Name the reason and put the
+                way out right here; the office shouldn't have to work out that the
+                date picker above is what's hiding their pipeline. */}
+            {!isLostFilter && view === "board" && dayFilter && !loading && leads.length === 0 && (
+              <div style={{ position: "absolute", inset: 0, zIndex: 5, display: "flex", alignItems: "center", justifyContent: "center", background: "#F7F6F3" }}>
+                <div style={{ textAlign: "center", maxWidth: 380, fontFamily: FF }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 6 }}>
+                    Nothing moved on {fmtDayLabel(dayFilter)}
+                  </div>
+                  <div style={{ fontSize: 12.5, color: "#6B6860", lineHeight: 1.5, marginBottom: 14 }}>
+                    No lead was contacted, quoted or booked on this day. Your open
+                    pipeline is still there — it's just not what this day is showing.
+                  </div>
+                  <button onClick={() => { setDayFilter(""); setPage(1); }}
+                    style={{ padding: "7px 16px", borderRadius: 8, border: "1px solid #00C9A0", background: "#EAFBF6", color: "#04241d", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: FF }}>
+                    Show all leads
+                  </button>
+                </div>
+              </div>
+            )}
             {!isLostFilter && view === "board" && (
               <BoardView leads={leads} counts={counts} selectedId={selectedLead?.id ?? null} onSelect={l => { setSelectedLead(l); setCheckedIds(new Set()); }} />
             )}
