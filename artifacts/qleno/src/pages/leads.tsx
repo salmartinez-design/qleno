@@ -1444,7 +1444,57 @@ const SOURCE_LABELS: Record<string, string> = {
 // [execution-logs 2026-07-22] The diagnostic layer — every message a sequence
 // actually fired, newest first. Models GHL's Execution logs. Reads message_log;
 // no new tables.
-function LogsView() {
+// [sequence-crosslinks 2026-07-22] Shared cells for the nurture tables. Both the
+// Message log and Enrollments listed the sequence and the person as plain text,
+// so the tabs never connected to each other or to a profile.
+//
+// Style note: these are deliberately NOT blue underlined links. The tables are
+// dense, and colouring every row's name and sequence would turn the page into a
+// wall of link text. They read as normal cells and reveal themselves on hover —
+// the same restraint the Messages page name-link uses.
+function SeqLinkCell({ id, name, onOpen }: { id?: number | null; name?: string | null; onOpen?: (id: number) => void }) {
+  if (!name) return <>—</>;
+  if (!id || !onOpen) return <>{name}</>;
+  return (
+    <button onClick={() => onOpen(id)} title="Open this sequence"
+      style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FF, fontSize: "inherit",
+        color: "inherit", textAlign: "left", textDecoration: "underline", textDecorationColor: "#D9D5CD",
+        textUnderlineOffset: 3 }}
+      onMouseEnter={e => { e.currentTarget.style.color = "#00A88A"; e.currentTarget.style.textDecorationColor = "#00A88A"; }}
+      onMouseLeave={e => { e.currentTarget.style.color = "inherit"; e.currentTarget.style.textDecorationColor = "#D9D5CD"; }}>
+      {name}
+    </button>
+  );
+}
+
+// Contact → their profile. Clients go to /customers/:id, leads open the lead in
+// the pipeline — the same two destinations the Messages thread header uses, so
+// "click the name" means one thing across the app.
+function ContactLinkCell({ name, sub, leadId, clientId }: {
+  name?: string | null; sub?: string | null; leadId?: number | null; clientId?: number | null;
+}) {
+  const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+  const href = clientId ? `${base}/customers/${clientId}` : leadId ? `${base}/leads?lead=${leadId}` : null;
+  const label = name || "—";
+  return (
+    <>
+      {href ? (
+        <button onClick={() => window.open(href, "_blank")} title={clientId ? "Open client profile" : "Open lead"}
+          style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FF, fontSize: "inherit",
+            fontWeight: 700, color: "#1A1917", textAlign: "left" }}
+          onMouseEnter={e => (e.currentTarget.style.color = "#00A88A")}
+          onMouseLeave={e => (e.currentTarget.style.color = "#1A1917")}>
+          {label}
+        </button>
+      ) : (
+        <div style={{ fontWeight: 700 }}>{label}</div>
+      )}
+      {sub ? <div style={{ fontSize: 11, color: "#9E9B94" }}>{sub}</div> : null}
+    </>
+  );
+}
+
+function LogsView({ onOpenSequence }: { onOpenSequence?: (id: number) => void }) {
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -1537,10 +1587,12 @@ function LogsView() {
               <tr key={r.id}>
                 <td style={{ ...TD, color: "#6B6860", whiteSpace: "nowrap" }}>{fmtDateTime(r.sent_at)}</td>
                 <td style={TD}>
-                  <div style={{ fontWeight: 700 }}>{r.contact_name || "—"}</div>
-                  <div style={{ fontSize: 11, color: "#9E9B94" }}>{r.recipient_email || r.recipient_phone || ""}</div>
+                  <ContactLinkCell name={r.contact_name} sub={r.recipient_email || r.recipient_phone || ""}
+                    leadId={r.lead_id} clientId={r.resolved_client_id} />
                 </td>
-                <td style={{ ...TD, color: "#6B6860" }}>{r.sequence_name || "—"}</td>
+                <td style={{ ...TD, color: "#6B6860" }}>
+                  <SeqLinkCell id={r.sequence_id} name={r.sequence_name} onOpen={onOpenSequence} />
+                </td>
                 <td style={{ ...TD, whiteSpace: "nowrap" }}>{r.step_number != null ? `Touch ${r.step_number}` : "—"}</td>
                 <td style={{ ...TD, color: "#6B6860" }}>{r.channel === "sms" ? "Text" : "Email"}</td>
                 <td style={TD}><span style={statusStyle(r.status)}>{r.status || "—"}</span></td>
@@ -1563,12 +1615,17 @@ function LogsView() {
 // contact search is a filter on top of it, so searching one customer shows every
 // sequence they're in at once (lead + client records resolve to one person
 // server-side). Company-scoped; leads/sequences carry no branch_id.
-function EnrollmentsView() {
+function EnrollmentsView({ initialSeqId = "", onOpenSequence }: {
+  initialSeqId?: string; onOpenSequence?: (id: number) => void;
+}) {
   const [rows, setRows] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [seqs, setSeqs] = useState<any[]>([]);
-  const [seqId, setSeqId] = useState<string>("");   // "" = every sequence
+  // [sequence-crosslinks 2026-07-22] Seeded when arriving from a sequence's
+  // "See who's in it", so the sequence dropdown already reflects the jump
+  // instead of dumping every enrollment and making the office re-pick.
+  const [seqId, setSeqId] = useState<string>(initialSeqId);   // "" = every sequence
   const [status, setStatus] = useState<"all" | "active" | "finished" | "stopped">("active");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -1675,11 +1732,13 @@ function EnrollmentsView() {
             {rows.map(r => (
               <tr key={r.id}>
                 <td style={TD}>
-                  <div style={{ fontWeight: 700 }}>{r.contact_name || "—"}</div>
-                  <div style={{ fontSize: 11, color: "#9E9B94" }}>{r.contact_email || r.contact_phone || ""}</div>
+                  <ContactLinkCell name={r.contact_name} sub={r.contact_email || r.contact_phone || ""}
+                    leadId={r.lead_id} clientId={r.resolved_client_id} />
                 </td>
                 <td style={{ ...TD, color: "#6B6860" }}>{reasonOf(r)}</td>
-                <td style={{ ...TD, color: "#6B6860" }}>{r.sequence_name}</td>
+                <td style={{ ...TD, color: "#6B6860" }}>
+                  <SeqLinkCell id={r.sequence_id} name={r.sequence_name} onOpen={onOpenSequence} />
+                </td>
                 <td style={{ ...TD, color: "#6B6860", whiteSpace: "nowrap" }}>{fmtDate(r.enrolled_at)}</td>
                 <td style={{ ...TD, whiteSpace: "nowrap" }}>{Number(r.current_step || 0)} of {Number(r.total_steps || 0)}</td>
                 <td style={TD}>
@@ -1700,7 +1759,9 @@ function EnrollmentsView() {
   );
 }
 
-function SequencesView() {
+function SequencesView({ focusSeqId = null, onSeeEnrolled }: {
+  focusSeqId?: number | null; onSeeEnrolled?: (id: number) => void;
+}) {
   const [seqs, setSeqs] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const { toast } = useToast();
@@ -1747,7 +1808,8 @@ function SequencesView() {
         <>
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "#9E9B94", fontFamily: FF, marginBottom: 8 }}>Lead Drips — chase new leads until you reach them</div>
           {leadSeqs.map(seq => (
-            <SequenceRow key={seq.id} seq={seq} onToggle={() => toggleActive(seq)} />
+            <SequenceRow key={seq.id} seq={seq} onToggle={() => toggleActive(seq)}
+              defaultOpen={focusSeqId === seq.id} focused={focusSeqId === seq.id} onSeeEnrolled={onSeeEnrolled} />
           ))}
         </>
       )}
@@ -1756,7 +1818,8 @@ function SequencesView() {
         <>
           <div style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.6, color: "#9E9B94", fontFamily: FF, margin: "16px 0 8px" }}>Customer Journey — quotes, retention, recovery</div>
           {otherSeqs.map(seq => (
-            <SequenceRow key={seq.id} seq={seq} onToggle={() => toggleActive(seq)} />
+            <SequenceRow key={seq.id} seq={seq} onToggle={() => toggleActive(seq)}
+              defaultOpen={focusSeqId === seq.id} focused={focusSeqId === seq.id} onSeeEnrolled={onSeeEnrolled} />
           ))}
         </>
       )}
@@ -1807,8 +1870,19 @@ function touchTimingLabel(cumulativeHours: number): string {
   return `Day ${Math.floor(cumulativeHours / 24)}`;
 }
 
-function SequenceRow({ seq, onToggle }: { seq: any; onToggle: () => void }) {
-  const [open, setOpen] = useState(false);
+function SequenceRow({ seq, onToggle, defaultOpen = false, focused = false, onSeeEnrolled }: {
+  seq: any; onToggle: () => void; defaultOpen?: boolean; focused?: boolean; onSeeEnrolled?: (id: number) => void;
+}) {
+  // [sequence-crosslinks 2026-07-22] Arriving from a log/enrollment row that named
+  // this sequence, it opens already expanded and scrolls itself into view —
+  // landing on a collapsed list where you still have to find the right row would
+  // barely beat the dead text it replaced.
+  const [open, setOpen] = useState(defaultOpen);
+  const rowRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focused || !rowRef.current) return;
+    rowRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focused]);
   // [seq-test-run 2026-07-09] Real-time tester state — send the campaign to a
   // test phone/email now. Contacts persist in localStorage so staff don't
   // re-type them each time.
@@ -1849,7 +1923,9 @@ function SequenceRow({ seq, onToggle }: { seq: any; onToggle: () => void }) {
   const timed = steps.map(s => { cum += Number(s.delay_hours) || 0; return { ...s, cumHours: cum }; });
 
   return (
-    <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, marginBottom: 8, overflow: "hidden" }}>
+    <div ref={rowRef} style={{ background: "#fff", borderRadius: 10, marginBottom: 8, overflow: "hidden",
+      border: focused ? "1px solid #00C9A0" : "0.5px solid #E8E5E0",
+      boxShadow: focused ? "0 0 0 3px rgba(0,201,160,0.12)" : "none" }}>
       <div onClick={() => setOpen(o => !o)}
         style={{ padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1869,7 +1945,21 @@ function SequenceRow({ seq, onToggle }: { seq: any; onToggle: () => void }) {
               activity). Neutral ink on purpose — green is reserved for
               booked/success, and "enrolled" is neither. */}
           <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
-            <span><b style={{ color: "#1A1917", fontWeight: 700 }}>{Number(seq.enrolled_active ?? 0)}</b> in it now</span>
+            {/* [sequence-crosslinks 2026-07-22] The count is the way INTO the
+                people it counts — Enrollments, pre-filtered to this sequence.
+                Completes the loop: log row → sequence → who's in it. */}
+            {onSeeEnrolled && Number(seq.enrolled_active ?? 0) > 0 ? (
+              <button onClick={e => { e.stopPropagation(); onSeeEnrolled(seq.id); }}
+                title="See everyone currently in this sequence"
+                style={{ background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: FF,
+                  fontSize: "inherit", color: "#9E9B94", textDecoration: "underline", textDecorationColor: "#D9D5CD", textUnderlineOffset: 3 }}
+                onMouseEnter={e => (e.currentTarget.style.color = "#00A88A")}
+                onMouseLeave={e => (e.currentTarget.style.color = "#9E9B94")}>
+                <b style={{ color: "inherit", fontWeight: 700 }}>{Number(seq.enrolled_active ?? 0)}</b> in it now
+              </button>
+            ) : (
+              <span><b style={{ color: "#1A1917", fontWeight: 700 }}>{Number(seq.enrolled_active ?? 0)}</b> in it now</span>
+            )}
             <span>·</span>
             <span><b style={{ color: "#1A1917", fontWeight: 700 }}>{Number(seq.enrolled_total ?? 0)}</b> all&#8209;time</span>
             {seq.last_enrolled_at && (<><span>·</span><span>last added {relTime(seq.last_enrolled_at)}</span></>)}
@@ -2418,6 +2508,16 @@ export default function LeadsPage() {
   const dismissLegend = () => { setLegendHidden(true); try { localStorage.setItem("leadsLegendHidden", "1"); } catch {} };
   const [mainView, setMainView] = useState<"pipeline" | "reports" | "sequences" | "enrollments" | "logs">("pipeline");
   const [view, setView] = useState<"board" | "list">("board");
+  // [sequence-crosslinks 2026-07-22] The four nurture tabs were islands: the same
+  // three objects (a sequence, a contact, a message) appeared in all of them as
+  // dead text, so from a log row naming "Phone Lead Drip" there was no way into
+  // that sequence (Sal: "i cant click into any of the sequences"). These two
+  // pieces of state carry a jump between tabs — the sequence to auto-expand on
+  // the Sequences tab, and the sequence to pre-filter on Enrollments.
+  const [focusSeqId, setFocusSeqId] = useState<number | null>(null);
+  const [enrollSeqId, setEnrollSeqId] = useState<string>("");
+  const openSequence = useCallback((id: number) => { setFocusSeqId(id); setMainView("sequences"); }, []);
+  const openEnrollments = useCallback((id: number) => { setEnrollSeqId(String(id)); setMainView("enrollments"); }, []);
   // [dashboard-deeplink 2026-07-21] The Dashboard lead tiles/chips land here with
   // the bucket they tallied preset via the query string (?status / ?channel /
   // ?window=today) — before this the cards all dumped onto the unfiltered board
@@ -2608,9 +2708,9 @@ export default function LeadsPage() {
       </div>
 
       {mainView === "reports" && <ReportsView />}
-      {mainView === "sequences" && <SequencesView />}
-      {mainView === "enrollments" && <EnrollmentsView />}
-      {mainView === "logs" && <LogsView />}
+      {mainView === "sequences" && <SequencesView focusSeqId={focusSeqId} onSeeEnrolled={openEnrollments} />}
+      {mainView === "enrollments" && <EnrollmentsView initialSeqId={enrollSeqId} onOpenSequence={openSequence} />}
+      {mainView === "logs" && <LogsView onOpenSequence={openSequence} />}
 
       {mainView === "pipeline" && (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>

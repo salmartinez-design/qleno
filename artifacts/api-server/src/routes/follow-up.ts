@@ -92,6 +92,12 @@ router.get("/logs", requireAuth, requireRole("owner", "admin", "office"), async 
              m.sequence_name, m.subject, m.recipient_email, m.recipient_phone,
              LEFT(m.body, 160) AS body_preview,
              e.sequence_id,
+             -- [sequence-crosslinks 2026-07-22] Who this went to, as IDs, so the
+             -- Message log's contact name can open that person's profile instead
+             -- of being dead text. Enrollments already returned these; logs
+             -- didn't, which is why only that tab couldn't link out.
+             e.lead_id,
+             COALESCE(e.client_id, m.client_id) AS resolved_client_id,
              NULLIF(TRIM(COALESCE(
                NULLIF(TRIM(COALESCE(l.first_name,'') || ' ' || COALESCE(l.last_name,'')), ''),
                NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '')
