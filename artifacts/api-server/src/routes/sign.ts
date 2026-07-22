@@ -66,12 +66,34 @@ router.get("/:token", async (req, res) => {
       return res.status(410).json({ error: "This agreement link has expired" });
     }
 
-    // [agreement-esign] Record the first 'viewed' event for the audit trail.
+    // [agreement-multi-view 2026-07-22] Record EVERY view, not just the first.
+    // This used to fire once (guarded on viewed_at IS NULL), so an agreement
+    // opened five times looked identical to one opened once — the office had no
+    // way to see a client reading it repeatedly before signing. DocuSign logs
+    // each open; so do we now. viewed_at stays the FIRST view (that is what the
+    // existing UI means by it); last_viewed_at and view_count track the rest,
+    // and every open lands in agreement_events, which the Certificate of
+    // Completion already prints in full.
+    //
+    // A 15-second same-IP window absorbs double-fires from one page load (a
+    // quick refresh, a re-mount) without hiding a genuine separate visit.
     try {
-      const upd: any = await db.execute(sql`UPDATE form_submissions SET viewed_at = now() WHERE sign_token = ${token} AND viewed_at IS NULL AND status <> 'signed'`);
-      if ((upd?.rowCount ?? 0) > 0) {
+      const ip = reqIp(req);
+      const recent: any = await db.execute(sql`
+        SELECT 1 FROM agreement_events
+         WHERE agreement_id = ${submission.id} AND company_id = ${submission.company_id}
+           AND event_type = 'viewed' AND ip_address = ${ip}
+           AND created_at > now() - interval '15 seconds'
+         LIMIT 1`);
+      if (((recent as any).rows?.length ?? 0) === 0) {
+        await db.execute(sql`
+          UPDATE form_submissions
+             SET viewed_at = COALESCE(viewed_at, now()),
+                 last_viewed_at = now(),
+                 view_count = COALESCE(view_count, 0) + 1
+           WHERE sign_token = ${token}`);
         await db.execute(sql`INSERT INTO agreement_events (company_id, agreement_id, event_type, actor_email, ip_address, user_agent)
-          VALUES (${submission.company_id}, ${submission.id}, 'viewed', ${submission.sent_to ?? null}, ${reqIp(req)}, ${reqUa(req)})`);
+          VALUES (${submission.company_id}, ${submission.id}, 'viewed', ${submission.sent_to ?? null}, ${ip}, ${reqUa(req)})`);
       }
     } catch (e) { console.error("viewed-event (non-fatal):", e); }
 

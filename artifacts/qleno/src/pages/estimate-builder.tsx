@@ -479,6 +479,8 @@ export default function EstimateBuilderPage() {
   const [agrLink, setAgrLink] = useState<{ url: string; to: string } | null>(null);
   const [agrModal, setAgrModal] = useState<null | { title: string; to: string; to_name: string }>(null);
   const [agrBody, setAgrBody] = useState("");
+  const [agrTemplates, setAgrTemplates] = useState<{ id: number; name: string }[]>([]);
+  const [agrTemplateId, setAgrTemplateId] = useState<number | null>(null);
   const [agrVersion, setAgrVersion] = useState(0);
   const AGR_REASON: Record<string, string> = {
     no_email: "Add a contact email first, then send the agreement.",
@@ -491,8 +493,29 @@ export default function EstimateBuilderPage() {
     try {
       const d = await apiFetch(`/api/estimates/${savedId}/agreement-draft`);
       if (!d.has_template) { toast.error(AGR_REASON.no_template); return; }
-      setAgrModal({ title: d.title, to: d.to, to_name: d.to_name }); setAgrBody(d.body || "");
+      setAgrModal({ title: d.title, to: d.to, to_name: d.to_name });
+      setAgrBody(d.body || "");
+      setAgrTemplates(d.templates || []);
+      setAgrTemplateId(d.template_id ?? null);
     } catch { toast.error("Couldn't load the agreement"); }
+    finally { setAgrBusy(false); }
+  }
+  // [agreement-template-choice 2026-07-22] Switch layouts inside the send modal.
+  // Reloads the draft for the chosen template so its merge variables resolve
+  // against THIS estimate. Any hand edits are replaced — the office is
+  // explicitly picking different wording, so silently keeping the old text
+  // would be worse than losing the edit.
+  async function switchAgreementTemplate(templateId: number) {
+    if (!id) return;
+    setAgrBusy(true);
+    try {
+      const d = await apiFetch(`/api/estimates/${id}/agreement-draft?template_id=${templateId}`);
+      if (d.has_template) {
+        setAgrTemplateId(d.template_id ?? templateId);
+        setAgrBody(d.body || "");
+        setAgrModal(m => (m ? { ...m, title: d.title } : m));
+      }
+    } catch { toast.error("Couldn't load that template"); }
     finally { setAgrBusy(false); }
   }
   async function submitAgreement() {
@@ -940,7 +963,24 @@ export default function EstimateBuilderPage() {
             <div style={{ padding: 18, overflowY: "auto" }}>
               <div style={{ display: "flex", gap: 20, marginBottom: 14, flexWrap: "wrap" }}>
                 <div><div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF" }}>TO</div><div style={{ fontSize: 13, color: agrModal.to ? INK : "#B91C1C" }}>{agrModal.to_name ? `${agrModal.to_name} · ` : ""}{agrModal.to || "No contact email"}</div></div>
-                <div><div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF" }}>TEMPLATE</div><div style={{ fontSize: 13, color: INK }}>{agrModal.title} <span onClick={() => navigate("/company/agreements")} style={{ color: "#185FA5", cursor: "pointer" }}>· Edit template ↗</span></div></div>
+                <div>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF" }}>TEMPLATE</div>
+                  {agrTemplates.length > 1 ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
+                      <select
+                        value={agrTemplateId ?? ""}
+                        disabled={agrBusy}
+                        onChange={e => switchAgreementTemplate(parseInt(e.target.value, 10))}
+                        style={{ flex: 1, padding: "7px 9px", border: `1px solid ${BORDER}`, borderRadius: 7, fontSize: 13, fontFamily: FF, background: "#fff", color: INK }}
+                      >
+                        {agrTemplates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                      </select>
+                      <span onClick={() => navigate("/company/agreements")} style={{ color: "#185FA5", cursor: "pointer", fontSize: 12, whiteSpace: "nowrap" }}>Edit ↗</span>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 13, color: INK }}>{agrModal.title} <span onClick={() => navigate("/company/agreements")} style={{ color: "#185FA5", cursor: "pointer" }}>· Edit template ↗</span></div>
+                  )}
+                </div>
               </div>
               <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF", marginBottom: 5 }}>AGREEMENT TEXT — EDITABLE</div>
               <textarea value={agrBody} onChange={e => setAgrBody(e.target.value)} style={{ ...inp, minHeight: 260, resize: "vertical", lineHeight: 1.55, fontSize: 13, whiteSpace: "pre-wrap" }} />
@@ -1057,7 +1097,14 @@ function AgreementTracking({ estimateId, version }: { estimateId: number; versio
             <div style={{ display: "flex", alignItems: "flex-start", marginBottom: 14 }}>
               <Step done label="Sent" when={ts(a.sent_at)} icon={<Check size={13} />} />
               <div style={{ height: 2, flex: "0 0 32px", marginTop: 12, background: viewed ? "#0F6E56" : "#E5E2DC" }} />
-              <Step done={viewed} label="Viewed" when={viewed ? ts(a.viewed_at) : "—"} icon={<Eye size={13} />} />
+              {/* [agreement-multi-view] Repeat opens are the buying signal — show
+                  the count and the most recent open, not just the first. */}
+              <Step
+                done={viewed}
+                label={viewed && (a.view_count ?? 0) > 1 ? `Viewed ${a.view_count}×` : "Viewed"}
+                when={viewed ? ts(a.last_viewed_at || a.viewed_at) : "—"}
+                icon={<Eye size={13} />}
+              />
               <div style={{ height: 2, flex: "0 0 32px", marginTop: 12, background: signed ? "#0F6E56" : "#E5E2DC" }} />
               <Step done={signed} label="Signed" when={signed ? ts(a.signature_at) : "—"} icon={<FileSignature size={13} />} />
             </div>
