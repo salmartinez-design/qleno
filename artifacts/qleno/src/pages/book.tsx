@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRoute } from "wouter";
 import { Phone, Mail, Clock, MapPin, CheckCircle2, AlertCircle, ChevronLeft, ChevronRight, Minus, Plus, Calendar, Tag } from "lucide-react";
 import { CalendarPopover } from "@/components/calendar-popover";
+import { buildBookingCompleteMessage, PARENT_ORIGINS } from "@/lib/booking-conversion";
 
 // ── API base (public, no auth) ───────────────────────────────────────────────
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -683,25 +684,25 @@ export default function BookPage() {
   // targetOrigin: phes.io serves from BOTH https://phes.io AND https://www.phes.io
   // (distinct origins). postMessage takes one targetOrigin, so post to each.
   // Never "*" for a payload with a booking id + price.
+  //
+  // [conversion-hardening 2026-07-22] The payload rules — genuine booking only
+  // (walkthrough quote requests reach step 5 too and must NOT count), always a
+  // unique bookingId, PHES tenant only, and value = amount actually booked —
+  // live in lib/booking-conversion.ts (pure + unit-tested). This effect owns
+  // only the two things that need the live window: fire once per booking, and
+  // skip entirely when we aren't inside an iframe.
   const conversionFiredRef = useRef(false);
   useEffect(() => {
     if (step !== 5 || !bookResult || conversionFiredRef.current) return;
+    // Not embedded — window.parent is us. Nothing to notify.
+    if (typeof window === "undefined" || window.parent === window) return;
+    const payload = buildBookingCompleteMessage(slug, bookResult);
+    if (!payload) return;
     conversionFiredRef.current = true;
-    const PARENT_ORIGINS = ["https://phes.io", "https://www.phes.io"];
-    const value = Number(
-      bookResult?.firstVisitTotal ?? bookResult?.pricing?.final_total ?? 0,
-    ) || 0;
-    const payload = {
-      type: "qleno-booking-complete",
-      bookingId: bookResult?.jobId ?? bookResult?.job_id ?? null,
-      quoteId: bookResult?.quoteId ?? null,
-      value,
-      currency: "USD",
-    };
     try {
-      PARENT_ORIGINS.forEach(o => window.parent?.postMessage(payload, o));
-    } catch { /* not embedded */ }
-  }, [step, bookResult]);
+      PARENT_ORIGINS.forEach(o => window.parent.postMessage(payload, o));
+    } catch { /* cross-origin parent that rejects the post — nothing to do */ }
+  }, [step, bookResult, slug]);
 
   // ── Wire autocomplete after Maps is ready AND input is in the DOM ──────────
   useEffect(() => {
