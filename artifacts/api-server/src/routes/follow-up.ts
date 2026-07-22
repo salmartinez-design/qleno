@@ -50,6 +50,68 @@ router.post("/sequences/:id/test-run", requireAuth, requireRole("owner", "admin"
 // ── GET /api/follow-up/sequences ──────────────────────────────────────────────
 // [seq-test-run 2026-07-09] owner/admin/office — office needs to view sequences
 // to run the real-time tester. Editing/activating stays owner/admin (PATCH below).
+// ── GET /api/follow-up/logs ──────────────────────────────────────────────────
+// [execution-logs 2026-07-22] Layer 3: every message a sequence actually fired
+// (models GHL's Execution logs — the diagnostic layer). message_log already
+// carries channel/status/step_number/sent_at/recipient and a denormalised
+// sequence_name; we join the enrollment only to put a human name on the row.
+// Query: ?sequence_id= &from= &to= &channel=sms|email &status= &search= &page= &limit=
+router.get("/logs", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const { sequence_id, from, to, channel, status, search, page = "1", limit = "100" } =
+      req.query as Record<string, string>;
+    const pageNum = Math.max(1, parseInt(page) || 1);
+    const lim = Math.min(300, Math.max(1, parseInt(limit) || 100));
+    const offset = (pageNum - 1) * lim;
+
+    const seqF = sequence_id && Number.isInteger(parseInt(sequence_id))
+      ? sql`AND e.sequence_id = ${parseInt(sequence_id)}` : sql``;
+    const fromF = from ? sql`AND m.sent_at >= ${from}::date` : sql``;
+    const toF = to ? sql`AND m.sent_at < (${to}::date + interval '1 day')` : sql``;
+    const chF = channel === "sms" || channel === "email" ? sql`AND m.channel = ${channel}` : sql``;
+    const stF = status ? sql`AND m.status = ${status}` : sql``;
+    const q = (search || "").trim();
+    const searchF = q ? sql`AND (
+        COALESCE(l.first_name,'') || ' ' || COALESCE(l.last_name,'') ILIKE ${"%" + q + "%"} OR
+        COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'') ILIKE ${"%" + q + "%"} OR
+        COALESCE(m.recipient_email,'') ILIKE ${"%" + q + "%"} OR
+        COALESCE(m.recipient_phone,'') ILIKE ${"%" + q + "%"}
+      )` : sql``;
+
+    const base = sql`
+      FROM message_log m
+      LEFT JOIN follow_up_enrollments e ON e.id = m.enrollment_id
+      LEFT JOIN leads l   ON l.id = e.lead_id
+      LEFT JOIN clients c ON c.id = COALESCE(e.client_id, m.client_id)
+      WHERE m.company_id = ${companyId}
+      ${seqF} ${fromF} ${toF} ${chF} ${stF} ${searchF}`;
+
+    const rows = await db.execute(sql`
+      SELECT m.id, m.sent_at, m.channel, m.status, m.step_number,
+             m.sequence_name, m.subject, m.recipient_email, m.recipient_phone,
+             LEFT(m.body, 160) AS body_preview,
+             e.sequence_id,
+             NULLIF(TRIM(COALESCE(
+               NULLIF(TRIM(COALESCE(l.first_name,'') || ' ' || COALESCE(l.last_name,'')), ''),
+               NULLIF(TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,'')), '')
+             )), '') AS contact_name
+      ${base}
+      ORDER BY m.sent_at DESC
+      LIMIT ${lim} OFFSET ${offset}`);
+
+    const totalRes = await db.execute(sql`SELECT COUNT(*)::int AS n ${base}`);
+    return res.json({
+      logs: rows.rows,
+      total: Number((totalRes.rows[0] as any)?.n ?? 0),
+      page: pageNum, limit: lim,
+    });
+  } catch (err) {
+    console.error("GET /follow-up/logs:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // ── GET /api/follow-up/enrollments ───────────────────────────────────────────
 // [enrollment-view 2026-07-22] Layer 2: where every contact sits inside the
 // nurture (models GHL's Enrollment history). No new tables — follow_up_
