@@ -2,6 +2,7 @@ import { pgTable, serial, integer, text, numeric, boolean, timestamp, jsonb } fr
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
+import { referralSourceEnum } from "./clients";
 
 // [lead-pipeline-foundation 2026-06-25] Drizzle definitions for the lead
 // pipeline. These tables were previously created ONLY by the boot-time raw-SQL
@@ -47,6 +48,11 @@ export const leadsTable = pgTable("leads", {
   // Pipeline state
   status: text("status").default("needs_contacted"),
   source: text("source"),
+  // [lead-referral-source 2026-07-22] HOW they heard about us (discovery),
+  // distinct from `source` above which is HOW THEY ENTERED (entry channel).
+  // Reuses the existing referral_source enum already on clients — the booking
+  // widget has been collecting this into details.referral_source all along.
+  referral_source: referralSourceEnum("referral_source"),
   assigned_to: integer("assigned_to"),
   referral_partner_id: integer("referral_partner_id"),
   quote_amount: numeric("quote_amount", { precision: 10, scale: 2 }),

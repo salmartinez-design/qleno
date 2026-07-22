@@ -1150,22 +1150,76 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
 
 // ── Reports View ──────────────────────────────────────────────────────────────
 
+// [reports-range 2026-07-22] One date-range control drives the whole page.
+// Underline tabs, matching the pipeline stat tabs — not filled pills.
+type RangeKey = "today" | "week" | "month" | "quarter" | "custom";
+function rangeDates(k: RangeKey): { from: string; to: string } {
+  const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  if (k === "today") return { from: ymd(today), to: ymd(today) };
+  if (k === "week") { const s = new Date(today); s.setDate(s.getDate() - s.getDay()); return { from: ymd(s), to: ymd(today) }; }
+  if (k === "month") return { from: ymd(new Date(today.getFullYear(), today.getMonth(), 1)), to: ymd(today) };
+  if (k === "quarter") return { from: ymd(new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1)), to: ymd(today) };
+  return { from: "", to: "" };
+}
+
 function ReportsView() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [range, setRange] = useState<RangeKey>("week");   // default: This Week
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const { from, to } = range === "custom" ? { from: customFrom, to: customTo } : rangeDates(range);
 
   useEffect(() => {
     (async () => {
       setLoading(true);
       try {
-        const r = await fetch(`${API}/api/leads/reports`, { headers: getAuthHeaders() });
+        const p = new URLSearchParams();
+        if (from) p.set("from", from);
+        if (to) p.set("to", to);
+        const r = await fetch(`${API}/api/leads/reports?${p}`, { headers: getAuthHeaders() as Record<string, string> });
         if (r.ok) setData(await r.json());
       } finally { setLoading(false); }
     })();
-  }, []);
+  }, [from, to]);
 
-  if (loading) return <div style={{ padding: 32, color: "#9E9B94", fontFamily: FF }}>Loading reports…</div>;
-  if (!data) return <div style={{ padding: 32, color: "#9E9B94", fontFamily: FF }}>No data.</div>;
+  const RANGE_TABS: Array<{ k: RangeKey; label: string }> = [
+    { k: "today", label: "Today" }, { k: "week", label: "This Week" },
+    { k: "month", label: "This Month" }, { k: "quarter", label: "Quarter" },
+    { k: "custom", label: "Custom" },
+  ];
+  const rangeBar = (
+    <div style={{ marginBottom: 18 }}>
+      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #E8E5E0" }}>
+        {RANGE_TABS.map(t => (
+          <button key={t.k} onClick={() => setRange(t.k)}
+            style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 12,
+              fontWeight: range === t.k ? 700 : 600, color: range === t.k ? "#1A1917" : "#C4C0B8",
+              borderBottom: `2px solid ${range === t.k ? "#00C9A0" : "transparent"}`, marginBottom: -1 }}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {range === "custom" && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 10 }}>
+          <div style={{ minWidth: 140 }}><CalendarPopover value={customFrom} onChange={setCustomFrom} ariaLabel="Report start" block /></div>
+          <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>to</span>
+          <div style={{ minWidth: 140 }}><CalendarPopover value={customTo} onChange={setCustomTo} ariaLabel="Report end" block /></div>
+        </div>
+      )}
+    </div>
+  );
+
+  if (loading || !data) return (
+    <div style={{ padding: "24px 28px", maxWidth: 940, fontFamily: FF }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", marginBottom: 4 }}>Pipeline Reports</div>
+      <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 20 }}>Where your leads come from, where they are right now, who's closing them, and what the automatic follow-ups are doing.</div>
+      {rangeBar}
+      <div style={{ padding: 24, color: "#9E9B94", fontSize: 12 }}>{loading ? "Loading reports…" : "No data for this range."}</div>
+    </div>
+  );
 
   const t = data.totals || {};
   const total = Number(t.total) || 0;
@@ -1198,6 +1252,8 @@ function ReportsView() {
         Where your leads come from, where they are right now, who's closing them, and what the automatic follow-ups are doing.
       </div>
 
+      {rangeBar}
+
       {/* Funnel: every lead is in exactly one of these stages */}
       <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px", marginBottom: 16 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 2 }}>Pipeline right now</div>
@@ -1226,11 +1282,46 @@ function ReportsView() {
         </div>
       </div>
 
+      {/* [lead-referral-source 2026-07-22] HOW THEY HEARD ABOUT US (discovery) —
+          deliberately its own panel, separate from "Where leads come from" below
+          which is the INTAKE TOOL they came through. Colour here encodes the
+          channel's own brand identity, not quality — one of the two documented
+          exceptions to "green = booked". */}
+      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px", marginBottom: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>How they heard about us</div>
+        <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>
+          Bar = leads from that channel · colour identifies the channel, not quality
+        </div>
+        {(() => {
+          const rows = (data.byReferral || []) as any[];
+          if (!rows.length) return <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>No answers recorded for this range yet.</div>;
+          const maxRef = Math.max(1, ...rows.map(r => Number(r.total) || 0));
+          const LBL: Record<string, string> = { google: "Google", nextdoor: "Nextdoor", facebook: "Facebook", yelp: "Yelp", client_referral: "Referral from a client", door_hanger: "Door hanger", yard_sign: "Yard sign", website: "Our website", other: "Other", unknown: "Not asked / unknown" };
+          const CLR: Record<string, string> = { google: "#4285F4", nextdoor: "#8ED500", facebook: "#1877F2", yelp: "#D32323", client_referral: "#00C9A0", door_hanger: "#B45309", yard_sign: "#0F766E", website: "#7C3AED", other: "#9CA3AF", unknown: "#D5D2CC" };
+          return rows.map(r => {
+            const key = String(r.referral_label || "unknown");
+            const n = Number(r.total) || 0, bk = Number(r.booked) || 0;
+            const rev = Number(r.booked_revenue) || 0;
+            return (
+              <div key={key} style={{ marginBottom: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11.5, fontFamily: FF, marginBottom: 4 }}>
+                  <span style={{ color: "#1A1917", fontWeight: 600 }}>{LBL[key] || key}</span>
+                  <span style={{ color: "#6B6860" }}>{bk} booked{rev > 0 ? ` · $${Math.round(rev).toLocaleString()}` : ""}<span style={{ color: "#C4C0B8" }}> · {n} lead{n === 1 ? "" : "s"}</span></span>
+                </div>
+                <div style={{ height: 6, background: "#F2EFE9", borderRadius: 4, overflow: "hidden" }}>
+                  <div style={{ width: `${(n / maxRef) * 100}%`, height: "100%", background: CLR[key] || "#9CA3AF", borderRadius: 4 }} />
+                </div>
+              </div>
+            );
+          });
+        })()}
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Where leads come from */}
         <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px" }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Where leads come from</div>
-          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>Bar = share of all leads · green = how many booked</div>
+          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>Which intake tool they came through · bar = share of all leads · green = how many booked</div>
           {(data.bySource || []).map((s: any) => {
             const n = Number(s.total) || 0;
             return (
@@ -1886,6 +1977,9 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
     address: "", city: "", state: "IL", zip: "",
     lead_source: "phone_in", source: "manual", scope: "",
     sqft: "", bedrooms: "", bathrooms: "", notes: "", quote_amount: "",
+    // [lead-referral-source 2026-07-22] Discovery — how they heard about us.
+    // Required here so phone leads match the widget, which already asks.
+    referral_source: "",
   });
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
@@ -1896,6 +1990,7 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
 
   async function handleSave() {
     if (!form.first_name.trim()) { toast({ title: "First name is required", variant: "destructive" }); return; }
+    if (!form.referral_source) { toast({ title: "Please pick how they heard about us", variant: "destructive" }); return; }
     setSaving(true);
     try {
       const r = await fetch(`${API}/api/leads`, {
@@ -1918,6 +2013,26 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}><X size={18} color="#6B6860" /></button>
         </div>
         <div style={{ padding: "24px 24px 0", flex: 1, display: "flex", flexDirection: "column", gap: 14 }}>
+          {/* [lead-referral-source 2026-07-22] Discovery question — same wording
+              and same option list the public booking widget already uses, so
+              phone leads and web leads are measured on one vocabulary. Distinct
+              from "Lead source" below, which is the entry channel. */}
+          <div style={{ marginBottom: 14 }}>
+            <label style={lbl}>How did you hear about us?</label>
+            <select value={form.referral_source} onChange={e => set("referral_source", e.target.value)} style={selectStyle}>
+              <option value="">Ask the customer…</option>
+              <option value="google">Google</option>
+              <option value="client_referral">Referral from a client</option>
+              <option value="facebook">Facebook</option>
+              <option value="nextdoor">Nextdoor</option>
+              <option value="yelp">Yelp</option>
+              <option value="door_hanger">Door hanger</option>
+              <option value="yard_sign">Yard sign</option>
+              <option value="website">Our website</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+
           {/* Lead source */}
           <div>
             <label style={lbl}>How did they reach you?</label>
