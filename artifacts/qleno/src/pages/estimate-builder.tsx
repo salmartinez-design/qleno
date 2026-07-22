@@ -387,7 +387,17 @@ export default function EstimateBuilderPage() {
 
   // [estimate-card-on-file] Send the client a Stripe save-card link (reuses the
   // payment-links save_card flow): ensure a client record, then send the link.
+  // [card-link-send-options 2026-07-22] Was fire-and-forget with the channel
+  // auto-picked (`send_email: !!email, send_sms: !email && !!phone`) — so a
+  // client with an email could NEVER be texted the card link. Now it opens a
+  // small modal: pick Email or Text, and edit the address/number for this send
+  // (Sal: "send this as an SMS… with the ability to edit the number").
   const [cardBusy, setCardBusy] = useState(false);
+  const [cardOpen, setCardOpen] = useState(false);
+  const [cardClientId, setCardClientId] = useState<number | null>(null);
+  const [cardChannel, setCardChannel] = useState<"email" | "sms">("email");
+  const [cardEmail, setCardEmail] = useState("");
+  const [cardPhone, setCardPhone] = useState("");
   async function sendCardOnFile() {
     const savedId = await save();
     if (!savedId) return;
@@ -395,8 +405,31 @@ export default function EstimateBuilderPage() {
     try {
       const c = await apiFetch(`/api/estimates/${savedId}/ensure-client`, { method: "POST" });
       if (!c.email && !c.phone) { toast.error("Add an email or phone first, then send the card link."); return; }
-      await apiFetch(`/api/payment-links`, { method: "POST", body: { client_id: c.client_id, purpose: "save_card", send_email: !!c.email, send_sms: !c.email && !!c.phone } });
-      toast.success(`Card-on-file link sent to ${c.email || c.phone}`);
+      setCardClientId(c.client_id);
+      setCardEmail(c.email || "");
+      setCardPhone(c.phone || "");
+      setCardChannel(c.email ? "email" : "sms");
+      setCardOpen(true);
+    } catch { toast.error("Couldn't prepare the card-on-file link"); }
+    finally { setCardBusy(false); }
+  }
+  async function sendCardLink() {
+    if (!cardClientId) return;
+    const bySms = cardChannel === "sms";
+    const to = bySms ? cardPhone.trim() : cardEmail.trim();
+    if (!to) { toast.error(bySms ? "Enter a phone number." : "Enter an email address."); return; }
+    setCardBusy(true);
+    try {
+      await apiFetch(`/api/payment-links`, {
+        method: "POST",
+        body: {
+          client_id: cardClientId, purpose: "save_card",
+          send_email: !bySms, send_sms: bySms,
+          to_email: bySms ? undefined : to, to_phone: bySms ? to : undefined,
+        },
+      });
+      toast.success(`Card-on-file link sent to ${to}`);
+      setCardOpen(false);
     } catch { toast.error("Couldn't send the card-on-file link"); }
     finally { setCardBusy(false); }
   }
@@ -810,6 +843,46 @@ export default function EstimateBuilderPage() {
               <button onClick={() => setSmsOpen(false)} style={ghostBtn}>Cancel</button>
               <button onClick={sendSms} disabled={smsSending || !smsTo.trim()} style={{ ...primaryBtn, opacity: smsTo.trim() ? 1 : 0.5 }}>
                 <MessageSquare size={15} /> {smsSending ? "Sending…" : "Send text"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* [card-link-send-options 2026-07-22] Choose Email or Text for the Stripe
+          save-card link, and edit the recipient for this send. */}
+      {cardOpen && (
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} onClick={() => setCardOpen(false)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 420, fontFamily: FF }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Send card-on-file link</span>
+              <button onClick={() => setCardOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}><X size={16} /></button>
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Send by</div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              {(["email", "sms"] as const).map(ch => (
+                <button key={ch} onClick={() => setCardChannel(ch)}
+                  style={{ flex: 1, padding: "8px 10px", borderRadius: 9, cursor: "pointer", fontFamily: FF, fontSize: 13, fontWeight: 700,
+                    border: `1.5px solid ${cardChannel === ch ? "#00C9A0" : "#E5E2DC"}`,
+                    background: cardChannel === ch ? "#EAFBF6" : "#fff", color: INK }}>
+                  {ch === "email" ? "Email" : "Text"}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>To</div>
+            {cardChannel === "email" ? (
+              <input style={{ ...inp, marginBottom: 4 }} type="email" value={cardEmail} onChange={e => setCardEmail(e.target.value)} placeholder="name@email.com" />
+            ) : (
+              <input style={{ ...inp, marginBottom: 4 }} type="tel" value={cardPhone} onChange={e => setCardPhone(e.target.value)} placeholder="(773) 555-0123" />
+            )}
+            <div style={{ fontSize: 11, color: MUTE, marginBottom: 16 }}>
+              Edit if it should go somewhere else — this send only; the client record isn't changed. They'll get a secure Stripe link to save a card (expires in 72 hours).
+            </div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+              <button onClick={() => setCardOpen(false)} style={ghostBtn}>Cancel</button>
+              <button onClick={sendCardLink} disabled={cardBusy || !(cardChannel === "email" ? cardEmail.trim() : cardPhone.trim())}
+                style={{ ...primaryBtn, opacity: (cardChannel === "email" ? cardEmail.trim() : cardPhone.trim()) ? 1 : 0.5 }}>
+                <CreditCard size={15} /> {cardBusy ? "Sending…" : cardChannel === "email" ? "Send email" : "Send text"}
               </button>
             </div>
           </div>
