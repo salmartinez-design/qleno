@@ -67,15 +67,40 @@ router.get("/o/:token", async (req, res) => {
     `);
     const link = (rows as any).rows[0];
     if (link) {
-      await recordEngagementEvent({
-        companyId: link.company_id,
-        estimateId: link.estimate_id,
-        enrollmentId: link.enrollment_id,
-        eventType: "opened",
-        channel: "email",
-        recipient: link.recipient ?? null,
-        meta: { token, ua: req.get("user-agent") || null },
-      });
+      // [open-tracking-accuracy 2026-07-22] A raw pixel hit is NOT a human open.
+      // Apple Mail Privacy Protection, Gmail's image proxy and mail scanners
+      // prefetch the image — which logged 9 "Email opened" events for a single
+      // recipient in minutes (Sal: "confirm the audit log is correct"). Two
+      // guards so the log and the counts mean what the office thinks they mean:
+      //   1. Skip known proxy/scanner user-agents outright.
+      //   2. Collapse repeat opens from the same recipient on the same estimate
+      //      inside a 30-minute window into the first one.
+      // Genuine re-reads hours/days later still record.
+      const ua = req.get("user-agent") || "";
+      const isPrefetch = /GoogleImageProxy|YahooMailProxy|Barracuda|Proofpoint|Mimecast|MessageLabs|Symantec|bot\b|crawler|spider|scanner|preview/i.test(ua);
+      let duplicate = false;
+      if (!isPrefetch) {
+        const dup = await db.execute(sql`
+          SELECT 1 FROM engagement_events
+           WHERE company_id = ${link.company_id}
+             AND event_type = 'opened'
+             AND estimate_id IS NOT DISTINCT FROM ${link.estimate_id ?? null}
+             AND recipient IS NOT DISTINCT FROM ${link.recipient ?? null}
+             AND occurred_at > now() - interval '30 minutes'
+           LIMIT 1`);
+        duplicate = ((dup as any).rows?.length ?? 0) > 0;
+      }
+      if (!isPrefetch && !duplicate) {
+        await recordEngagementEvent({
+          companyId: link.company_id,
+          estimateId: link.estimate_id,
+          enrollmentId: link.enrollment_id,
+          eventType: "opened",
+          channel: "email",
+          recipient: link.recipient ?? null,
+          meta: { token, ua: ua || null },
+        });
+      }
     }
   } catch (err) {
     console.error("[track] open error (non-fatal):", err);
