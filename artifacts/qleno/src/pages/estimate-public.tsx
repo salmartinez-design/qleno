@@ -110,7 +110,11 @@ export default function EstimatePublicPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showAccept, setShowAccept] = useState(false);
-  const [acceptName, setAcceptName] = useState("");
+  // [accept-one-tap 2026-07-22] The typed-name step was dropped — accepting is
+  // now a plain yes/no. We already know WHO this doc was prepared for, so the
+  // acceptance record keeps naming them via contact_name instead of asking the
+  // customer to retype it.
+
   const [smsConsent, setSmsConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [actionMsg, setActionMsg] = useState<string | null>(null);
@@ -133,7 +137,9 @@ export default function EstimatePublicPage() {
   }, [token]);
 
   async function accept() {
-    if (!acceptName.trim()) { setActionMsg("Please enter your name."); return; }
+    // The backend still records an accepting name; source it from the doc's own
+    // contact rather than a form field the customer has to fill in.
+    const signer = (est?.contact_name || est?.property_name || "Customer").trim();
     setSubmitting(true);
     setActionMsg(null);
     try {
@@ -147,11 +153,11 @@ export default function EstimatePublicPage() {
       const r = await fetch(`${API}/api/estimates/public/${encodeURIComponent(token)}/accept`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: acceptName.trim(), selected_frequency: freq, sms_consent: smsConsent }),
+        body: JSON.stringify({ name: signer, selected_frequency: freq, sms_consent: smsConsent }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) { setActionMsg(body.message || "Could not accept — please contact us."); return; }
-      setEst(e => e ? { ...e, status: "accepted", accepted_name: acceptName.trim(), accepted_at: new Date().toISOString(), selected_frequency: freq } : e);
+      setEst(e => e ? { ...e, status: "accepted", accepted_name: signer, accepted_at: new Date().toISOString(), selected_frequency: freq } : e);
       setShowAccept(false);
     } finally {
       setSubmitting(false);
@@ -439,25 +445,18 @@ export default function EstimatePublicPage() {
       {showAccept && (
         <div className="est-noprint" style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 50 }}>
           <div style={{ background: "#fff", borderRadius: 16, padding: "24px 22px", width: "100%", maxWidth: 380 }}>
-            <p style={{ fontSize: 17, fontWeight: 800, color: INK, margin: "0 0 4px" }}>{hasOptions ? "Confirm your plan" : `Accept this ${docLower}`}</p>
+            <p style={{ fontSize: 17, fontWeight: 800, color: INK, margin: "0 0 4px" }}>{hasOptions ? "Confirm your plan?" : `Accept this ${docLower}?`}</p>
             {hasOptions && chosenOpt ? (
               <p style={{ fontSize: 13, color: MUTE, margin: "0 0 14px" }}>
                 <strong style={{ color: INK }}>{chosenOpt.label}</strong>
                 {chosenOpt.recurring
                   ? <> — <strong style={{ color: INK }}>{money(chosenOpt.recurring_price)}</strong>/visit (first visit {money(chosenOpt.first_visit_price)})</>
                   : <> — <strong style={{ color: INK }}>{money(chosenOpt.first_visit_price)}</strong></>}
-                . Enter your name and we'll confirm your booking.
+                . We'll confirm your booking and be in touch to schedule.
               </p>
             ) : (
-              <p style={{ fontSize: 13, color: MUTE, margin: "0 0 14px" }}>Total: <strong style={{ color: INK }}>{money(est.total)}</strong>. Enter your name to confirm.</p>
+              <p style={{ fontSize: 13, color: MUTE, margin: "0 0 14px" }}>Total: <strong style={{ color: INK }}>{money(est.total)}</strong>. We'll be in touch shortly to schedule.</p>
             )}
-            <input
-              value={acceptName}
-              onChange={e => setAcceptName(e.target.value)}
-              placeholder="Your full name"
-              autoFocus
-              style={{ width: "100%", padding: "11px 13px", border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 15, fontFamily: FF, boxSizing: "border-box", marginBottom: 10 }}
-            />
             <label style={{ display: "flex", alignItems: "flex-start", gap: 9, cursor: "pointer", margin: "0 0 12px" }}>
               <input type="checkbox" checked={smsConsent} onChange={e => setSmsConsent(e.target.checked)} style={{ marginTop: 3, accentColor: MINT, width: 16, height: 16, flexShrink: 0 }} />
               <span style={{ fontSize: 12, color: MUTE, lineHeight: 1.55 }}>
@@ -471,11 +470,11 @@ export default function EstimatePublicPage() {
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setShowAccept(false); setActionMsg(null); }} disabled={submitting}
                 style={{ flex: 1, height: 44, background: "#fff", color: INK, border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
-                Cancel
+                No, not yet
               </button>
               <button onClick={accept} disabled={submitting}
                 style={{ flex: 1.4, height: 44, background: MINT, color: "#04241d", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 800, cursor: submitting ? "not-allowed" : "pointer", fontFamily: FF, opacity: submitting ? 0.7 : 1 }}>
-                {submitting ? "Confirming…" : "Confirm Accept"}
+                {submitting ? "Confirming…" : "Yes, accept"}
               </button>
             </div>
           </div>
