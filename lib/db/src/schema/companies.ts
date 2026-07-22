@@ -99,6 +99,10 @@ export const companiesTable = pgTable("companies", {
   agr_damage_cap: numeric("agr_damage_cap", { precision: 12, scale: 2 }).notNull().default("500.00"),
   agr_nonsolicit_months: integer("agr_nonsolicit_months").notNull().default(12),
   agr_nonsolicit_fee: numeric("agr_nonsolicit_fee", { precision: 12, scale: 2 }).notNull().default("2500.00"),
+  // [rate-increase-limit 2026-07-22] How often rates may be raised, in months.
+  // 0 = no limit, which renders {{rate_increase_limit}} as an empty string
+  // rather than the nonsense "once every 0 months".
+  agr_rate_increase_limit_months: integer("agr_rate_increase_limit_months").notNull().default(12),
   auto_send_invoices: boolean("auto_send_invoices").notNull().default(false),
   auto_charge_on_invoice: boolean("auto_charge_on_invoice").notNull().default(false),
   annual_revenue_goal: integer("annual_revenue_goal"),

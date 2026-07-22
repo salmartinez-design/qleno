@@ -42,6 +42,7 @@ export const AGREEMENT_VARIABLES: { token: string; label: string; example: strin
   { token: "damage_cap",              label: "Damage liability cap",       example: "$500.00" },
   { token: "nonsolicit_months",       label: "Non-solicit period (months)",example: "12" },
   { token: "nonsolicit_fee",          label: "Non-solicit placement fee",  example: "$2,500.00" },
+  { token: "rate_increase_limit",     label: "Rate-increase frequency limit (full sentence; empty when off)", example: "Rates will not be adjusted more than once in any 12-month period." },
   // Only resolves when the agreement is sent from an estimate — a contract sent
   // straight off a client record has no scope to draw from.
   { token: "scope_of_work",    label: "Scope of work (from the estimate)", example: "Lobby & entrance\nCommon hallways & stairwells" },
@@ -84,7 +85,7 @@ export async function buildAgreementVars(
     SELECT name, phone, email, late_fee_terms,
            agr_termination_notice_days, agr_rate_notice_days,
            agr_damage_report_days, agr_damage_cap,
-           agr_nonsolicit_months, agr_nonsolicit_fee
+           agr_nonsolicit_months, agr_nonsolicit_fee, agr_rate_increase_limit_months
       FROM companies WHERE id = ${companyId} LIMIT 1
   `)).rows[0];
   if (co) {
@@ -106,6 +107,14 @@ export async function buildAgreementVars(
     vars.damage_cap = money(co.agr_damage_cap ?? 500);
     vars.nonsolicit_months = String(co.agr_nonsolicit_months ?? 12);
     vars.nonsolicit_fee = money(co.agr_nonsolicit_fee ?? 2500);
+    // [rate-increase-limit 2026-07-22] Renders a WHOLE SENTENCE, or nothing when
+    // the limit is switched off. A bare number would leave "once every 0 months"
+    // in a signed contract, so the on/off decision lives here — the renderer has
+    // no conditionals by design.
+    const rateLimitMonths = Number(co.agr_rate_increase_limit_months ?? 12);
+    vars.rate_increase_limit = rateLimitMonths > 0
+      ? `Rates will not be adjusted more than once in any ${rateLimitMonths}-month period.`
+      : "";
   }
 
   if (opts.clientId) {
@@ -173,13 +182,20 @@ export async function buildAgreementVars(
 export function renderAgreementBody(body: string | null | undefined, vars: AgreementVars): string {
   const text = String(body ?? "");
   if (!text) return "";
-  return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (whole, token) => {
+  const substituted = text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (whole, token) => {
     const key = String(token).toLowerCase();
     const val = vars[key];
     // A known token with an empty value (e.g. client has no phone) renders empty
     // — that is a real data gap and should be visible as a blank, not as syntax.
     return Object.prototype.hasOwnProperty.call(vars, key) ? val : whole;
   });
+  // A variable that renders empty (the rate-increase limit when switched off)
+  // leaves the space before it dangling. Tidy up so a signed contract never
+  // carries stray whitespace. Only runs of spaces/tabs are touched — never
+  // newlines, so paragraph structure is preserved exactly.
+  return substituted
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/[ \t]+$/gm, "");
 }
 
 // Convenience: look up the values and render in one call.

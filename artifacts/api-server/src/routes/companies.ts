@@ -275,6 +275,7 @@ router.patch("/me", requireAuth, async (req, res) => {
         ["agr_rate_notice_days", 0, 365],
         ["agr_damage_report_days", 1, 90],
         ["agr_nonsolicit_months", 0, 60],
+        ["agr_rate_increase_limit_months", 0, 60],
       ];
       for (const [f, lo, hi] of dayFields) {
         const cv = clampInt(req.body[f], lo, hi);
