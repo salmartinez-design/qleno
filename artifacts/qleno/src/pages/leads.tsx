@@ -1349,6 +1349,123 @@ const SOURCE_LABELS: Record<string, string> = {
 
 // ── Sequences View ────────────────────────────────────────────────────────────
 
+// ─── Execution logs (Layer 3) ─────────────────────────────────────────────────
+// [execution-logs 2026-07-22] The diagnostic layer — every message a sequence
+// actually fired, newest first. Models GHL's Execution logs. Reads message_log;
+// no new tables.
+function LogsView() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [seqs, setSeqs] = useState<any[]>([]);
+  const [seqId, setSeqId] = useState("");
+  const [channel, setChannel] = useState<"" | "sms" | "email">("");
+  const [status, setStatus] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [search, setSearch] = useState("");
+  const [q, setQ] = useState("");
+  const deb = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    fetch(`${API}/api/follow-up/sequences`, { headers: getAuthHeaders() as Record<string, string> })
+      .then(r => r.ok ? r.json() : []).then(d => setSeqs(Array.isArray(d) ? d : [])).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    setLoading(true);
+    const p = new URLSearchParams({ limit: "150" });
+    if (seqId) p.set("sequence_id", seqId);
+    if (channel) p.set("channel", channel);
+    if (status) p.set("status", status);
+    if (from) p.set("from", from);
+    if (to) p.set("to", to);
+    if (q) p.set("search", q);
+    fetch(`${API}/api/follow-up/logs?${p}`, { headers: getAuthHeaders() as Record<string, string> })
+      .then(r => r.ok ? r.json() : { logs: [], total: 0 })
+      .then(d => { setRows(d.logs || []); setTotal(d.total || 0); })
+      .catch(() => { setRows([]); setTotal(0); })
+      .finally(() => setLoading(false));
+  }, [seqId, channel, status, from, to, q]);
+
+  function onSearch(v: string) {
+    setSearch(v);
+    if (deb.current) clearTimeout(deb.current);
+    deb.current = setTimeout(() => setQ(v.trim()), 350);
+  }
+
+  const TH: React.CSSProperties = { textAlign: "left", padding: "9px 12px", fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: 0.6, fontFamily: FF, whiteSpace: "nowrap" };
+  const TD: React.CSSProperties = { padding: "10px 12px", fontSize: 12.5, color: "#1A1917", fontFamily: FF, borderTop: "0.5px solid #F2EFE9", verticalAlign: "top" };
+  const sel: React.CSSProperties = { fontSize: 12, padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 7, fontFamily: FF, background: "#fff", color: "#1A1917", outline: "none" };
+  // Delivered reads green (it worked); anything else is muted — failures are the
+  // exception and shouldn't be dressed up as an alarm state.
+  const statusStyle = (s: string): React.CSSProperties => {
+    const ok = /sent|delivered/i.test(s || "");
+    return { display: "inline-block", padding: "2px 8px", borderRadius: 20, fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap",
+      background: ok ? "#EAFBF6" : "#F3F4F6", color: ok ? "#0F6E56" : "#6B7280" };
+  };
+
+  return (
+    <div style={{ padding: "24px 28px", overflowY: "auto", fontFamily: FF }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", marginBottom: 6 }}>Message log</div>
+      <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 18, lineHeight: 1.5, maxWidth: 760 }}>
+        Every text and email a sequence actually sent, newest first. Use this to check what a specific customer received and when.
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 14 }}>
+        <select value={seqId} onChange={e => setSeqId(e.target.value)} style={{ ...sel, minWidth: 180 }}>
+          <option value="">All sequences</option>
+          {seqs.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select>
+        <select value={channel} onChange={e => setChannel(e.target.value as any)} style={sel}>
+          <option value="">Text &amp; email</option><option value="sms">Text only</option><option value="email">Email only</option>
+        </select>
+        <select value={status} onChange={e => setStatus(e.target.value)} style={sel}>
+          <option value="">Any result</option><option value="sent">Sent</option><option value="failed">Failed</option>
+        </select>
+        <div style={{ minWidth: 140 }}><CalendarPopover value={from} onChange={setFrom} ariaLabel="Sent from" block /></div>
+        <span style={{ fontSize: 11, color: "#9E9B94" }}>to</span>
+        <div style={{ minWidth: 140 }}><CalendarPopover value={to} onChange={setTo} ariaLabel="Sent to" block /></div>
+        {(from || to) && <button onClick={() => { setFrom(""); setTo(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, color: "#00A88A", fontWeight: 700 }}>Clear dates</button>}
+        <input value={search} onChange={e => onSearch(e.target.value)} placeholder="Search a customer…"
+          style={{ ...sel, background: "#F7F6F3", minWidth: 190 }} />
+        <div style={{ flex: 1 }} />
+        <span style={{ fontSize: 11, color: "#9E9B94" }}>{loading ? "Loading…" : `${total} message${total === 1 ? "" : "s"}`}</span>
+      </div>
+
+      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, overflow: "hidden" }}>
+        <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <thead><tr style={{ background: "#FAFAF8" }}>
+            {["Sent", "Contact", "Sequence", "Touch", "Type", "Result", "Message"].map(h => <th key={h} style={TH}>{h}</th>)}
+          </tr></thead>
+          <tbody>
+            {!loading && rows.length === 0 && (
+              <tr><td colSpan={7} style={{ ...TD, color: "#9E9B94" }}>No messages match these filters.</td></tr>
+            )}
+            {rows.map(r => (
+              <tr key={r.id}>
+                <td style={{ ...TD, color: "#6B6860", whiteSpace: "nowrap" }}>{fmtDateTime(r.sent_at)}</td>
+                <td style={TD}>
+                  <div style={{ fontWeight: 700 }}>{r.contact_name || "—"}</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94" }}>{r.recipient_email || r.recipient_phone || ""}</div>
+                </td>
+                <td style={{ ...TD, color: "#6B6860" }}>{r.sequence_name || "—"}</td>
+                <td style={{ ...TD, whiteSpace: "nowrap" }}>{r.step_number != null ? `Touch ${r.step_number}` : "—"}</td>
+                <td style={{ ...TD, color: "#6B6860" }}>{r.channel === "sms" ? "Text" : "Email"}</td>
+                <td style={TD}><span style={statusStyle(r.status)}>{r.status || "—"}</span></td>
+                <td style={{ ...TD, color: "#6B6860", maxWidth: 320 }}>
+                  {r.subject && <div style={{ fontWeight: 600, color: "#1A1917" }}>{r.subject}</div>}
+                  <div style={{ fontSize: 11.5, lineHeight: 1.4 }}>{r.body_preview}</div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
 // ─── Enrollment view (Layer 2) ────────────────────────────────────────────────
 // [enrollment-view 2026-07-22] Where every contact sits inside the nurture —
 // modelled on GHL's Enrollment history. Per-sequence is the DEFAULT lens; the
@@ -2166,7 +2283,7 @@ export default function LeadsPage() {
     try { return localStorage.getItem("leadsLegendHidden") === "1"; } catch { return false; }
   });
   const dismissLegend = () => { setLegendHidden(true); try { localStorage.setItem("leadsLegendHidden", "1"); } catch {} };
-  const [mainView, setMainView] = useState<"pipeline" | "reports" | "sequences" | "enrollments">("pipeline");
+  const [mainView, setMainView] = useState<"pipeline" | "reports" | "sequences" | "enrollments" | "logs">("pipeline");
   const [view, setView] = useState<"board" | "list">("board");
   // [dashboard-deeplink 2026-07-21] The Dashboard lead tiles/chips land here with
   // the bucket they tallied preset via the query string (?status / ?channel /
@@ -2326,7 +2443,7 @@ export default function LeadsPage() {
           <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: -0.3, fontFamily: FF }}>Leads</span>
         </button>
         <div style={{ display: "flex", gap: 2 }}>
-          {(["reports", "sequences", "enrollments"] as const).map(v => (
+          {(["reports", "sequences", "enrollments", "logs"] as const).map(v => (
             <button key={v} onClick={() => setMainView(v)}
               style={{ fontSize: 11, fontWeight: 600, padding: "5px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF,
                 background: mainView === v ? "rgba(255,255,255,.12)" : "transparent",
@@ -2351,6 +2468,7 @@ export default function LeadsPage() {
       {mainView === "reports" && <ReportsView />}
       {mainView === "sequences" && <SequencesView />}
       {mainView === "enrollments" && <EnrollmentsView />}
+      {mainView === "logs" && <LogsView />}
 
       {mainView === "pipeline" && (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
