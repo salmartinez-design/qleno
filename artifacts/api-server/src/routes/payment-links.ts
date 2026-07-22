@@ -24,7 +24,14 @@ function getAppBaseUrl(): string {
 router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
-    const { client_id, purpose = "save_card", invoice_id, amount, send_email, send_sms } = req.body;
+    // [card-link-recipient-override 2026-07-22] to_email / to_phone let the
+    // caller send this one link to a different address/number than the client
+    // record holds (Sal: "send this as an SMS… with the ability to edit the
+    // number so clients can leave a card on file"). Omitted = client record, so
+    // every existing caller is unchanged.
+    const { client_id, purpose = "save_card", invoice_id, amount, send_email, send_sms, to_email, to_phone } = req.body;
+    const overrideEmail = typeof to_email === "string" && to_email.trim() ? to_email.trim() : null;
+    const overridePhone = typeof to_phone === "string" && to_phone.trim() ? to_phone.trim() : null;
 
     if (!client_id) return res.status(400).json({ error: "client_id required" });
 
@@ -69,7 +76,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       if (process.env.COMMS_ENABLED !== "true") {
         console.log("[COMMS BLOCKED] Payment link email suppressed:", { clientId: client.id });
       } else {
-      const toEmail = client.billing_contact_email || client.email;
+      const toEmail = overrideEmail || client.billing_contact_email || client.email;
       if (!toEmail) {
         return res.status(400).json({ error: "Client has no email address" });
       }
@@ -110,7 +117,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       if (process.env.COMMS_ENABLED !== "true") {
         console.log("[COMMS BLOCKED] Payment link SMS suppressed:", { clientId: client.id });
       } else {
-      const toPhone = client.billing_contact_phone || client.phone;
+      const toPhone = overridePhone || client.billing_contact_phone || client.phone;
       const twilioSid = process.env.TWILIO_ACCOUNT_SID;
       const twilioToken = process.env.TWILIO_AUTH_TOKEN;
       // [card-link-from-number 2026-06-26] co1 keeps its Twilio number on the
