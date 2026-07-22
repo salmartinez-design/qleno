@@ -68,7 +68,9 @@ export default function AccountsPage() {
     invoice_frequency: "per_job",
     payment_method: "card_on_file",
     payment_terms_days: 0,
-    auto_charge_on_completion: true,
+    // [manual-charging-policy 2026-07-22] Off by default — the switch below
+    // stays fully functional, it just starts unchecked.
+    auto_charge_on_completion: false,
     notes: "",
   });
   const [creating, setCreating] = useState(false);
@@ -107,7 +109,7 @@ export default function AccountsPage() {
       if (r.ok) {
         toast({ title: "Account created" });
         setShowCreate(false);
-        setForm({ account_name: "", account_type: "property_management", invoice_frequency: "per_job", payment_method: "card_on_file", payment_terms_days: 0, auto_charge_on_completion: true, notes: "" });
+        setForm({ account_name: "", account_type: "property_management", invoice_frequency: "per_job", payment_method: "card_on_file", payment_terms_days: 0, auto_charge_on_completion: false, notes: "" });
         load();
       } else {
         const err = await r.json();

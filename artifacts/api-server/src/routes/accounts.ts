@@ -263,7 +263,9 @@ router.post("/", requireAuth, requireRole("owner", "admin"), async (req, res) =>
         invoice_frequency: invoice_frequency ?? "per_job",
         payment_method: payment_method ?? "card_on_file",
         payment_terms_days: payment_terms_days ?? 0,
-        auto_charge_on_completion: auto_charge_on_completion ?? true,
+        // [manual-charging-policy 2026-07-22] Defaults OFF. An account only
+        // auto-charges if the caller explicitly asks for it.
+        auto_charge_on_completion: auto_charge_on_completion ?? false,
         notes: notes ?? null,
         stripe_customer_id: stripe_customer_id ?? null,
         square_customer_id: square_customer_id ?? null,
