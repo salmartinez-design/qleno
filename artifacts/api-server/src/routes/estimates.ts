@@ -1029,7 +1029,7 @@ router.get("/:id/agreement-draft", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const id = parseInt(req.params.id, 10);
-    const e = await db.execute(sql`SELECT contact_email, contact_name FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
+    const e = await db.execute(sql`SELECT contact_email, contact_name, client_id FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
     const est: any = (e as any).rows[0];
     if (!est) return res.status(404).json({ error: "Not Found" });
     const tpl = await db.execute(sql`
@@ -1040,7 +1040,18 @@ router.get("/:id/agreement-draft", requireAuth, async (req, res) => {
     `);
     const t: any = (tpl as any).rows[0];
     if (!t) return res.json({ has_template: false });
-    return res.json({ has_template: true, template_id: t.id, title: t.name, body: t.terms_body || "", to: est.contact_email, to_name: est.contact_name });
+    // [agreement-merge 2026-07-22] Fill {{client_name}} / {{rate}} / {{frequency}}
+    // from THIS estimate before the office sees the draft, so the review modal
+    // shows the finished contract instead of raw {{tokens}}. Whatever they send
+    // is stored verbatim as the override, so the signer sees the same text.
+    let body = t.terms_body || "";
+    try {
+      const { renderAgreementFor } = await import("../lib/agreement-merge.js");
+      body = await renderAgreementFor(companyId, body, { estimateId: id, clientId: est.client_id ?? null });
+    } catch (e) {
+      console.error("[agreement-merge] estimate draft render (non-fatal):", e);
+    }
+    return res.json({ has_template: true, template_id: t.id, title: t.name, body, to: est.contact_email, to_name: est.contact_name });
   } catch (err) {
     console.error("Estimate agreement-draft error:", err);
     return res.status(500).json({ error: "Internal Server Error" });

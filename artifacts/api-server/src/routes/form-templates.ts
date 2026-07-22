@@ -7,6 +7,75 @@ import { randomUUID } from "crypto";
 
 const router = Router();
 
+// [agreement-merge 2026-07-22] The catalog of {{variables}} an agreement body can
+// use, so the builder can show authors what's available instead of making them
+// guess token names. Static list — no auth-sensitive data, but keep it behind
+// requireAuth like the rest of this router.
+router.get("/variables", requireAuth, async (_req, res) => {
+  try {
+    const { AGREEMENT_VARIABLES } = await import("../lib/agreement-merge.js");
+    return res.json({ data: AGREEMENT_VARIABLES });
+  } catch (err) {
+    console.error("Agreement variables error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [agreement-merge 2026-07-22] Phes's real commercial service agreement (the one
+// that lived in Jotform), rewritten with {{merge variables}} so one template
+// serves every building. Client name, address, rate, frequency and scope come
+// from the estimate/client at send time — see lib/agreement-merge.ts.
+const PHES_COMMERCIAL_SERVICE_AGREEMENT = `COMMERCIAL CLEANING SERVICE AGREEMENT
+
+1. PARTIES
+This Commercial Cleaning Service Agreement ("Agreement") is entered into on {{today}} by and between {{company_name}}, an Illinois company (the "Service Provider"), and {{client_company}} (the "Client").
+
+2. CLIENT & SERVICE PROVIDER INFORMATION
+Client Name: {{client_company}}
+Service Address: {{service_address}}
+Billing Method: Card on File
+Service Provider: {{company_name}}
+Provider Email: {{company_email}}
+Provider Phone: {{company_phone}}
+
+3. SERVICE SUMMARY & SCOPE
+
+Effective Date: Services shall commence on {{effective_date}}.
+
+Service Frequency: {{frequency}}
+Scheduling: Exact service dates and times shall be determined by the Service Provider and may be adjusted due to holidays, weather conditions, building access restrictions, or operational needs, with reasonable notice provided to the Client.
+
+Scope of Work
+{{scope_of_work}}
+
+Supplies and Equipment: The Service Provider will furnish all cleaning supplies and equipment necessary to perform these services.
+
+4. PAYMENT TERMS & BILLING CYCLE
+
+Rate: {{rate}} per visit - {{frequency}}
+
+Payment Method: Card on file.
+
+Due Date: Payment is due in full on the first visit of the month.
+
+Scope Limitation: The work performed will be strictly limited to the services listed in Section 3. Any additional tasks or requests outside this scope will be billed separately and require prior written approval.
+
+5. CANCELLATION & ACCESS
+
+Early Termination: Either party may terminate this Agreement with a 30-day written notice.
+
+Lockout Policy: Service Provider shall provide forty-eight (48) hours' notice of the scheduled time. If the Service Provider is ready and able to perform services but is denied access to the property, the visit will be billed in full.
+
+6. LIABILITY & INSURANCE
+
+The Service Provider carries commercial general liability insurance. A certificate of insurance is available upon request.
+
+7. CONFIDENTIALITY
+
+All client information and property details will be kept strictly confidential.
+
+By signing below, the Client agrees to the terms of this Agreement.`;
+
 const PHES_RESIDENTIAL_SCHEMA = [
   { id: "f_name", type: "text", label: "Full Name", required: true, variable: "client_name" },
   { id: "f_address", type: "text", label: "Service Address", required: true, variable: "client_address" },
@@ -149,17 +218,17 @@ router.get("/submissions", requireAuth, async (req, res) => {
 
 router.post("/seed-defaults", requireAuth, async (req, res) => {
   try {
+    // [agreement-merge 2026-07-22] Seed MISSING defaults by name instead of
+    // all-or-nothing. The old early-return meant a company seeded once could
+    // never receive a newly added default (the Commercial Service Agreement
+    // would never reach Phes). Matching on name also guarantees we never
+    // overwrite a template the office has since edited — we only add what
+    // isn't there.
     const existing = await db
-      .select({ id: formTemplatesTable.id })
+      .select({ name: formTemplatesTable.name })
       .from(formTemplatesTable)
-      .where(and(
-        eq(formTemplatesTable.company_id, req.auth!.companyId),
-        eq(formTemplatesTable.is_default, true)
-      ));
-
-    if (existing.length > 0) {
-      return res.json({ message: "Defaults already seeded", count: existing.length });
-    }
+      .where(eq(formTemplatesTable.company_id, req.auth!.companyId));
+    const existingNames = new Set(existing.map(r => String(r.name || "").trim().toLowerCase()));
 
     const defaults = [
       {
@@ -213,6 +282,21 @@ All client information and property details will be kept strictly confidential.`
         created_by: req.auth!.userId,
       },
       {
+        // Phes's real commercial contract (was in Jotform). Distinct name from
+        // the generic "Commercial Cleaning Agreement" above so seeding adds it
+        // without disturbing whatever a company already has.
+        company_id: req.auth!.companyId,
+        name: "Commercial Service Agreement",
+        type: "agreement",
+        category: "commercial",
+        schema: [] as any,
+        terms_body: PHES_COMMERCIAL_SERVICE_AGREEMENT,
+        requires_sign: true,
+        is_active: true,
+        is_default: true,
+        created_by: req.auth!.userId,
+      },
+      {
         company_id: req.auth!.companyId,
         name: "New Client Intake Form",
         type: "intake",
@@ -260,8 +344,16 @@ All client information and property details will be kept strictly confidential.`
       },
     ];
 
-    const inserted = await db.insert(formTemplatesTable).values(defaults).returning({ id: formTemplatesTable.id });
-    return res.json({ message: "Default templates seeded", count: inserted.length });
+    const missing = defaults.filter(d => !existingNames.has(String(d.name || "").trim().toLowerCase()));
+    if (missing.length === 0) {
+      return res.json({ message: "Defaults already seeded", count: 0 });
+    }
+    const inserted = await db.insert(formTemplatesTable).values(missing).returning({ id: formTemplatesTable.id });
+    return res.json({
+      message: "Default templates seeded",
+      count: inserted.length,
+      added: missing.map(d => d.name),
+    });
   } catch (err) {
     console.error("Seed defaults error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -428,6 +520,27 @@ router.post("/:id/send", requireAuth, async (req, res) => {
         submitted_by: req.auth!.userId,
       })
       .returning();
+
+    // [agreement-merge 2026-07-22] Fill {{client_name}} / {{rate}} / etc. from the
+    // client + company records and PERSIST the result on this submission, so the
+    // signer, the stored record and the certificate all show identical text. A
+    // caller-supplied terms_body_override (per-send hand edit) is rendered too,
+    // so hand-edited text can still use variables. No-op for templates with no
+    // variables in them.
+    try {
+      const { renderAgreementFor } = await import("../lib/agreement-merge.js");
+      const sourceBody = req.body.terms_body_override || template.terms_body || "";
+      if (sourceBody) {
+        const rendered = await renderAgreementFor(req.auth!.companyId, sourceBody, {
+          clientId: client_id || null,
+        });
+        if (rendered) {
+          await db.execute(sql`UPDATE form_submissions SET terms_body_override = ${rendered} WHERE id = ${submission.id}`);
+        }
+      }
+    } catch (e) {
+      console.error("[agreement-merge] render on send (non-fatal):", e);
+    }
 
     // [agreement-esign] Record the 'sent' audit event for the Certificate of Completion.
     await db.execute(sql`INSERT INTO agreement_events (company_id, agreement_id, event_type, actor_email, meta)
