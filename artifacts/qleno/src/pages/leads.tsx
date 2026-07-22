@@ -2306,17 +2306,25 @@ function BoardView({ leads, counts, selectedId, onSelect }: { leads: Lead[]; cou
 // lead-source mix, booked-by-service, who-booked. Lazy-loads /leads/breakdown on
 // first open; open/closed state remembered per browser. Sits under the columns so
 // it never competes with the work surface.
-function BreakdownPanel() {
+// [lead-day-stage-date 2026-07-22] Takes `day` so the panel describes the same
+// slice the columns above it show. It used to be all-time regardless, which read
+// as "here's today's board, and here's the mix — of everything, ever."
+function BreakdownPanel({ day }: { day: string }) {
   const [open, setOpen] = useState(() => { try { return localStorage.getItem("leadsBreakdownOpen") === "1"; } catch { return false; } });
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const toggle = () => { const next = !open; setOpen(next); try { localStorage.setItem("leadsBreakdownOpen", next ? "1" : "0"); } catch {} };
+  // Re-fetch when the day changes, not just on first open — `data` alone as the
+  // guard would pin the panel to whichever day it was first opened on.
+  useEffect(() => { setData(null); }, [day]);
   useEffect(() => {
     if (!open || data) return;
     setLoading(true);
-    fetch(`${API}/api/leads/breakdown`, { headers: getAuthHeaders() })
+    const bp = new URLSearchParams();
+    if (day) { bp.set("date_from", day); bp.set("date_to", day); }
+    fetch(`${API}/api/leads/breakdown?${bp}`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : null).then(d => setData(d)).finally(() => setLoading(false));
-  }, [open, data]);
+  }, [open, data, day]);
 
   const src = data?.source || { web: 0, office: 0 };
   const srcTotal = (src.web || 0) + (src.office || 0);
@@ -2424,8 +2432,11 @@ export default function LeadsPage() {
     const c = dl.get("channel");
     return c === "online" || c === "office" ? c : "all";
   });
-  // [lead-day-filter 2026-07-21] Filter the board to a single day (by lead
-  // creation date). "" = no day filter. Seeds from ?day=YYYY-MM-DD, or
+  // [lead-day-filter 2026-07-21] Filter the board to a single day. As of
+  // [lead-day-stage-date 2026-07-22] the match is on the date the lead reached
+  // the stage it's in now (booked_at for Booked, quoted_at for Quoted, etc.),
+  // NOT creation date — see STAGE_DATE_SQL in routes/leads.ts for why.
+  // "" = no day filter. Seeds from ?day=YYYY-MM-DD, or
   // ?window=today (the Dashboard "today" tiles) → today's CT date. Also exposed
   // as a visible date picker so the office can scope to any day, not just today.
   const [dayFilter, setDayFilter] = useState(() => {
@@ -2467,8 +2478,14 @@ export default function LeadsPage() {
     } finally { setLoading(false); }
   }, [page, filter, channel, dayFilter, search, view]);
 
+  // [lead-day-stage-date 2026-07-22] Counts follow the Day filter too. They used
+  // to be fetched bare, so the KPI strip and every column's "of N" stayed on
+  // all-time totals while the columns below them showed one day — "45 BOOKED"
+  // sitting above "Showing 3 of 45".
   const loadCounts = useCallback(async () => {
-    const r = await fetch(`${API}/api/leads/status-counts`, { headers: getAuthHeaders() });
+    const cp = new URLSearchParams();
+    if (dayFilter) { cp.set("date_from", dayFilter); cp.set("date_to", dayFilter); }
+    const r = await fetch(`${API}/api/leads/status-counts?${cp}`, { headers: getAuthHeaders() });
     if (r.ok) {
       const obj: Record<string, number> = await r.json();
       const map: Record<string, number> = { all: 0 };
@@ -2478,7 +2495,7 @@ export default function LeadsPage() {
       }
       setCounts(map);
     }
-  }, []);
+  }, [dayFilter]);
 
   useEffect(() => {
     fetch(`${API}/api/users?limit=200`, { headers: getAuthHeaders() })
@@ -2623,6 +2640,15 @@ export default function LeadsPage() {
                 Clear day <X size={11} />
               </button>
             )}
+            {/* [lead-day-stage-date 2026-07-22] Say what the day means, because
+                "activity" vs "created" is not guessable from a date picker —
+                each column now answers for its own stage (contacted that day,
+                quoted that day, booked that day). */}
+            {dayFilter && (
+              <span style={{ fontSize: 10.5, color: "#9E9B94", fontFamily: FF }}>
+                by stage activity — contacted, quoted or booked on this day
+              </span>
+            )}
             {channel !== "all" && (
               <>
                 <div style={{ width: 1, height: 16, background: "#E8E5E0" }} />
@@ -2646,7 +2672,7 @@ export default function LeadsPage() {
             </div>
           )}
 
-          {!isLostFilter && view === "board" && <BreakdownPanel />}
+          {!isLostFilter && view === "board" && <BreakdownPanel day={dayFilter} />}
           {/* position: relative so the board-mode detail can float as an absolute
               drawer over the right edge WITHOUT resizing the columns. [board-reflow
               2026-07-17] Previously the 460px in-flow panel squeezed the 4-col grid,

@@ -12,6 +12,42 @@ import { enrollForLeadDrip, stopEnrollmentsForLead, sendSingleEnrollmentTouch } 
 
 const router = Router();
 
+// [lead-day-stage-date 2026-07-22] THE date a lead "belongs to" for the board's
+// Day filter: the moment it reached the stage it currently sits in. A lead
+// created Monday, quoted Wednesday and booked Friday belongs to Friday while
+// it's in Booked — that's the only reading under which every column can have
+// hits on a given day. Keep this ONE definition: the list query, the KPI
+// status-counts and the breakdown panel all filter through it, and if they
+// drift the strip will disagree with the columns it labels (the same class of
+// bug the channel predicate comment above /leads warns about).
+//
+// Lost statuses have no lost_at column, so updated_at (when the office moved
+// them) is the closest signal we have; created_at is the floor everywhere because it
+// is NOT NULL and covers leads imported before the stamps existed.
+const STAGE_DATE_SQL = (t = "l") => `CASE
+    WHEN ${t}.status = 'booked'    THEN COALESCE(${t}.booked_at, ${t}.quoted_at, ${t}.contacted_at, ${t}.created_at)
+    WHEN ${t}.status = 'quoted'    THEN COALESCE(${t}.quoted_at, ${t}.contacted_at, ${t}.created_at)
+    WHEN ${t}.status = 'contacted' THEN COALESCE(${t}.contacted_at, ${t}.created_at)
+    WHEN ${t}.status IN ('no_response','not_interested','closed')
+                                   THEN COALESCE(${t}.updated_at, ${t}.created_at)
+    ELSE ${t}.created_at
+  END`;
+
+// These day params get concatenated into raw SQL, so accept only a literal
+// YYYY-MM-DD and drop anything else on the floor. Never widen this.
+const ymdOrNull = (v?: string) => (v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null);
+
+// The Day-filter predicate, as raw SQL fragments, for whichever table alias the
+// caller is using. Shared by /leads, /status-counts and /breakdown so the three
+// can't drift apart.
+const dayFilterSql = (t: string, from?: string, to?: string) => {
+  const f = ymdOrNull(from), tt = ymdOrNull(to);
+  return [
+    f ? `AND ${STAGE_DATE_SQL(t)} >= '${f}'::date` : "",
+    tt ? `AND ${STAGE_DATE_SQL(t)} < ('${tt}'::date + interval '1 day')` : "",
+  ].join(" ");
+};
+
 // [lead-referral-source 2026-07-22] "How did you hear about us?" as a real,
 // queryable column on leads — reports can't GROUP BY a jsonb key efficiently.
 // Reuses the referral_source enum that already exists (and is already on
@@ -143,8 +179,18 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
       const q = search.replace(/'/g, "''");
       conditions.push(`(l.first_name ILIKE '%${q}%' OR l.last_name ILIKE '%${q}%' OR l.email ILIKE '%${q}%' OR l.phone ILIKE '%${q}%' OR l.address ILIKE '%${q}%' OR l.zip ILIKE '%${q}%')`);
     }
-    if (date_from) conditions.push(`l.created_at >= '${date_from}'::date`);
-    if (date_to) conditions.push(`l.created_at < ('${date_to}'::date + interval '1 day')`);
+    // [lead-day-stage-date 2026-07-22] The day filter matches the date the lead
+    // reached the stage it's sitting in NOW — contacted leads by contacted_at,
+    // quoted by quoted_at, booked by booked_at — not by created_at. Filtering
+    // every column on created_at made the board look broken: only same-day
+    // bookings ever survived, so Booked showed hits and New/Contacted/Quoted sat
+    // empty for every day picked. Sal: "the booked filters to today but nothing
+    // else." Answer "what happened on this day," which is what a day filter on a
+    // pipeline means. Fallbacks to created_at cover leads imported before the
+    // stamps existed (and lost leads, which have no lost_at — updated_at is when
+    // the office marked them).
+    if (ymdOrNull(date_from)) conditions.push(`${STAGE_DATE_SQL("l")} >= '${ymdOrNull(date_from)}'::date`);
+    if (ymdOrNull(date_to)) conditions.push(`${STAGE_DATE_SQL("l")} < ('${ymdOrNull(date_to)}'::date + interval '1 day')`);
     if (referral_partner) {
       if (referral_partner === "none") {
         conditions.push(`l.referral_partner_id IS NULL`);
@@ -224,9 +270,15 @@ router.get("/", requireAuth, requireRole("owner", "admin", "office"), async (req
 router.get("/status-counts", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
-    const rows = await db.execute(
-      sql`SELECT status, COUNT(*) as count FROM leads WHERE company_id = ${companyId} GROUP BY status`
-    );
+    // [lead-day-stage-date 2026-07-22] Honor the board's Day filter. Before
+    // this the strip and every column's "of N" total were company-wide
+    // all-time numbers, so picking a day left "45 BOOKED" up top next to
+    // "Showing 3 of 45" in the column — the header simply never moved.
+    const { date_from, date_to } = req.query as Record<string, string>;
+    const dayWhere = dayFilterSql("leads", date_from, date_to);
+    const rows = await db.execute(sql.raw(
+      `SELECT status, COUNT(*) as count FROM leads WHERE company_id = ${companyId} ${dayWhere} GROUP BY status`
+    ));
     const counts: Record<string, number> = {};
     for (const row of rows.rows as any[]) {
       counts[row.status] = parseInt(row.count);
@@ -245,6 +297,11 @@ router.get("/status-counts", requireAuth, requireRole("owner", "admin", "office"
 router.get("/breakdown", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
+    // [lead-day-stage-date 2026-07-22] Scope to the board's Day filter when one
+    // is set, on the same stage-date definition the columns use — otherwise the
+    // panel narrates all-time numbers under a one-day board.
+    const { date_from, date_to } = req.query as Record<string, string>;
+    const day = (t: string) => sql.raw(dayFilterSql(t, date_from, date_to));
     // Same "came through the web" rule the dashboard/summary uses.
     const web = sql`(COALESCE(NULLIF(source,''), lead_source) IN ('web_quote','website','booking_widget') OR lead_source = 'web_quote')`;
     // Messy scopes → 5 buckets. Hourly wins when present (covers all hourly
@@ -261,11 +318,11 @@ router.get("/breakdown", requireAuth, requireRole("owner", "admin", "office"), a
     const src = (await db.execute(sql`
       SELECT COUNT(*) FILTER (WHERE ${web})       AS web,
              COUNT(*) FILTER (WHERE NOT (${web})) AS office
-      FROM leads WHERE company_id = ${companyId}`)).rows[0] as any;
+      FROM leads WHERE company_id = ${companyId} ${day("leads")}`)).rows[0] as any;
 
     const byService = (await db.execute(sql`
       SELECT ${bucket} AS bucket, COUNT(*)::int AS count, COALESCE(SUM(quote_amount), 0) AS revenue
-      FROM leads WHERE company_id = ${companyId} AND status = 'booked'
+      FROM leads WHERE company_id = ${companyId} AND status = 'booked' ${day("leads")}
       GROUP BY 1 ORDER BY count DESC`)).rows;
 
     const bookedRows = (await db.execute(sql`
@@ -273,7 +330,7 @@ router.get("/breakdown", requireAuth, requireRole("owner", "admin", "office"), a
              NULLIF(trim(u.first_name || ' ' || coalesce(u.last_name,'')), '') AS owner_name,
              ${web} AS is_web
       FROM leads l LEFT JOIN users u ON u.id = l.assigned_to
-      WHERE l.company_id = ${companyId} AND l.status = 'booked'`)).rows as any[];
+      WHERE l.company_id = ${companyId} AND l.status = 'booked' ${day("l")}`)).rows as any[];
     const owners = new Map<string, { key: string; label: string; count: number }>();
     for (const r of bookedRows) {
       let key: string, label: string;
