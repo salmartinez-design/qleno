@@ -1864,6 +1864,16 @@ function SequenceRow({ seq, onToggle }: { seq: any; onToggle: () => void }) {
               {info.audience}
             </div>
           )}
+          {/* [sequences-enrolled-counts 2026-07-22] Who is actually in this drip
+              right now (GHL Workflows list: total + active enrolled + last
+              activity). Neutral ink on purpose — green is reserved for
+              booked/success, and "enrolled" is neither. */}
+          <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+            <span><b style={{ color: "#1A1917", fontWeight: 700 }}>{Number(seq.enrolled_active ?? 0)}</b> in it now</span>
+            <span>·</span>
+            <span><b style={{ color: "#1A1917", fontWeight: 700 }}>{Number(seq.enrolled_total ?? 0)}</b> all&#8209;time</span>
+            {seq.last_enrolled_at && (<><span>·</span><span>last added {relTime(seq.last_enrolled_at)}</span></>)}
+          </div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
           <button onClick={e => { e.stopPropagation(); setTestOpen(true); setOpen(true); }}
