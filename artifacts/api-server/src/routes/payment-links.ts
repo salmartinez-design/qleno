@@ -81,6 +81,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     // reported "sent" for a message that never left. Callers now get the truth.
     let emailSent = false, smsSent = false;
     let emailReason: string | null = null, smsReason: string | null = null;
+    let smsDetail: string | null = null;
 
     const baseUrl = getAppBaseUrl();
     const payUrl = `${baseUrl}/pay/${token}`;
@@ -138,43 +139,28 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
         console.log("[COMMS BLOCKED] Payment link SMS suppressed:", { clientId: client.id });
       } else {
       const toPhone = toE164(overridePhone || client.billing_contact_phone || client.phone);
-      const twilioSid = process.env.TWILIO_ACCOUNT_SID;
-      const twilioToken = process.env.TWILIO_AUTH_TOKEN;
-      // [card-link-from-number 2026-06-26] co1 keeps its Twilio number on the
-      // BRANCH (company.twilio_from_number is NULL), so reading the company
-      // column alone silently SKIPPED every card-link SMS. Fall back to the
-      // branch number via resolveSender — same fix as on-my-way / reminders.
-      const { resolveSender } = await import("../lib/comms-sender.js");
+      // [card-link-sender-parity 2026-07-22] This path used to hand-roll a Twilio
+      // REST call: it authenticated with the ENV account_sid but took the From
+      // number as `company.twilio_from_number || sender.from_number` — the
+      // INVERSE of resolveSender's branch-first precedence. For a tenant that
+      // keeps a stale number on the company row (Phes co1 keeps the real numbers
+      // on the BRANCHES), that pairs an account with a From it doesn't own and
+      // Twilio rejects the send (21606) — the card link "sent" but never arrived
+      // while the estimate SMS to the SAME number worked. Route through
+      // resolveSender + sendSmsVia like every other working SMS path so the
+      // credentials and the From number always come from one resolution.
+      const { resolveSender, sendSmsVia } = await import("../lib/comms-sender.js");
       const sender = await resolveSender(companyId, (client as any).branch_id ?? null);
-      const twilioFrom = company.twilio_from_number || sender.from_number;
-      if (!twilioSid || !twilioToken || !twilioFrom || !toPhone) {
-        smsReason = !toPhone ? "no_phone"
-          : (!twilioSid || !twilioToken) ? "twilio_unconfigured"
-          : "no_from_number";
+      if (!toPhone || sender.reason) {
+        smsReason = !toPhone ? "no_phone" : sender.reason!;
         console.warn("[card-link] SMS skipped:", smsReason);
       } else {
         try {
-          // [card-link-twilio-rest 2026-06-26] The `twilio` SDK is NOT a
-          // dependency (never installed), so `import("twilio")` threw and the
-          // card-link SMS silently failed for everyone. Use the raw Twilio REST
-          // API via fetch — the same approach every WORKING SMS path uses
-          // (reminders, on-my-way, sendNotification).
-          const smsRes = await fetch(
-            `https://api.twilio.com/2010-04-01/Accounts/${twilioSid}/Messages.json`,
-            {
-              method: "POST",
-              headers: {
-                Authorization: `Basic ${Buffer.from(`${twilioSid}:${twilioToken}`).toString("base64")}`,
-                "Content-Type": "application/x-www-form-urlencoded",
-              },
-              body: new URLSearchParams({
-                To: toPhone,
-                From: twilioFrom,
-                Body: `${companyName}: Please save your payment method for future invoices. Link expires in 72 hours: ${payUrl}`,
-              }).toString(),
-            }
+          await sendSmsVia(
+            sender,
+            toPhone,
+            `${companyName}: Please save your payment method for future invoices. Link expires in 72 hours: ${payUrl}`
           );
-          if (!smsRes.ok) throw new Error((await smsRes.text()).slice(0, 200));
           await db.insert(notificationLogTable).values({
             company_id: companyId,
             trigger: "payment_link_sms",
@@ -184,8 +170,11 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
           }).catch(() => {});
           smsSent = true;
         } catch (err: any) {
+          // sendSmsVia throws with the Twilio status + code + message. Surface it
+          // so a rejected send says WHY instead of a bare "send_failed".
           smsReason = "send_failed";
-          console.error("[card-link] SMS send failed:", err?.message ?? err);
+          smsDetail = String(err?.message ?? err).slice(0, 300);
+          console.error("[card-link] SMS send failed:", smsDetail, { from: sender.from_number, to: toPhone });
         }
       }
       } // end COMMS_ENABLED else
@@ -195,7 +184,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     res.json({
       id: link.id, token, url: payUrl, expires_at: expiresAt,
       email_sent: emailSent, email_reason: emailReason,
-      sms_sent: smsSent, sms_reason: smsReason,
+      sms_sent: smsSent, sms_reason: smsReason, sms_detail: smsDetail,
     });
   } catch (err) {
     console.error("Create payment link error:", err);
