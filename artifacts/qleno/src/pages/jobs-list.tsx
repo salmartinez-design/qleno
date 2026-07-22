@@ -6,6 +6,7 @@ import { formatAddress } from "@/lib/format-address";
 import { useBranch } from "@/contexts/branch-context";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { X } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -95,6 +96,14 @@ function fmtDate(d: string) {
   const [y, m, dd] = d.split("-");
   return `${m}/${dd}/${y}`;
 }
+// [booked-today-drilldown 2026-07-22] Long form for the banner ("Jul 22, 2026")
+// — the banner is a sentence, not a table cell, so the terse m/d/y reads wrong.
+// Parsed as parts, NOT new Date(str), which would shift the day in US timezones.
+function fmtBookedOn(d: string) {
+  if (!d) return "\u2014";
+  const [y, m, dd] = d.split("-").map(Number);
+  return new Date(y, m - 1, dd).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
 function fmtTime(t: string | null) {
   if (!t) return "";
   const [h, min] = t.split(":");
@@ -119,14 +128,30 @@ export default function JobsListPage() {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // ── State ──────────────────────────────────────────────────────────────────
-  const [period, setPeriod] = useState("this_month");
-  const [filters, setFilters] = useState<Record<string, string>>({});
+  // [booked-today-drilldown 2026-07-22] ?booked_on=YYYY-MM-DD opens this page as
+  // the drill-down behind the Dashboard's "New Jobs Booked" tile — the jobs
+  // BOOKED that day, whatever date they're scheduled for.
+  //
+  // The period seed is load-bearing: `period` filters scheduled_date, and the
+  // default "this_month" would hide exactly the jobs this view exists to show
+  // (a job booked today for Aug 1 is next month). So arriving with booked_on
+  // starts at "all" — the day scoping comes from booked_on alone.
+  const bookedOnParam = (() => {
+    const v = new URLSearchParams(window.location.search).get("booked_on") || "";
+    return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : "";
+  })();
+  const [period, setPeriod] = useState(bookedOnParam ? "all" : "this_month");
+  const [filters, setFilters] = useState<Record<string, string>>(
+    bookedOnParam ? { booked_on: bookedOnParam } : {}
+  );
   const [showFilters, setShowFilters] = useState(false);
   const [showColumns, setShowColumns] = useState(false);
   const [search, setSearch] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [selected, setSelected] = useState<Set<number>>(new Set());
-  const [sort, setSort] = useState({ col: "scheduled_date", dir: "desc" as "asc" | "desc" });
+  // Booked-on view sorts by when it was booked (most recent booking first) —
+  // that's the question being asked; scheduled_date is arbitrary order here.
+  const [sort, setSort] = useState({ col: bookedOnParam ? "created_at" : "scheduled_date", dir: "desc" as "asc" | "desc" });
   const [visibleCols, setVisibleCols] = useState<string[]>(
     ALL_COLUMNS.filter(c => c.default).map(c => c.key)
   );
@@ -308,6 +333,29 @@ export default function JobsListPage() {
             ))}
           </div>
         </div>
+
+        {/* [booked-today-drilldown 2026-07-22] Say what this filtered view IS.
+            Arriving from the dashboard tile, the period buttons above read "All"
+            and the list shows jobs scheduled across many months — without this
+            banner that looks broken rather than deliberate. Also the only way to
+            clear booked_on, since it has no FilterSelect of its own. */}
+        {filters.booked_on && (
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
+            background: "#EAFBF6", border: "1px solid #A7F3D0", borderRadius: 10,
+            padding: "9px 14px", marginBottom: 14 }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#04241d", fontFamily: FF }}>
+              Jobs booked on {fmtBookedOn(filters.booked_on)}
+            </span>
+            <span style={{ fontSize: 12, color: "#3E6B5E", fontFamily: FF }}>
+              by the day they were booked, not the day they're scheduled — so future visits are included
+            </span>
+            <button onClick={() => { setFilter("booked_on", ""); setPeriod("this_month"); }}
+              style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 4, background: "none",
+                border: "none", cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#00A88A", fontFamily: FF }}>
+              Clear <X size={12} />
+            </button>
+          </div>
+        )}
 
         {/* KPI Strip — auto-fit so it wraps to 2–3 per row on phones instead of
             forcing 5 wide columns off-screen. */}

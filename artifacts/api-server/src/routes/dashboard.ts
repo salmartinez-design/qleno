@@ -557,6 +557,10 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
       // excluding recurring-engine occurrences (recurring_schedule_id set —
       // one new recurring client generates many future occurrences with
       // today's created_at; we count the booking, not every generated visit).
+      // [booked-today-drilldown 2026-07-22] The tile links to
+      // /reports/jobs?booked_on=<today>, whose `booked_on` filter in
+      // buildJobWhereClause (routes/jobs.ts) mirrors these three predicates.
+      // Change one, change the other or the count won't match the list it opens.
       db.select({ c: count() }).from(jobsTable)
         .where(and(
           eq(jobsTable.company_id, companyId),

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useLocation } from "wouter";
+import { useLocation, Link } from "wouter";
 import { ChevronRight, Calendar, ShieldAlert, Building2, Car, Check, X } from "lucide-react";
 import { CloseDayModal } from "@/components/close-day-modal";
 import { useBranch } from "@/contexts/branch-context";
@@ -10,6 +10,14 @@ import MobileDashboard from "@/components/mobile-dashboard";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+// [booked-today-drilldown 2026-07-22] Today's calendar date in America/Chicago —
+// the tz the "booked today" KPI counts in server-side. Using the browser's local
+// date instead would hand the drill-down a different day than the tile counted
+// for anyone not on Central time.
+function ctToday(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
+}
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 
@@ -827,14 +835,29 @@ export default function Dashboard() {
             borderBottom: '0.5px solid #F0EDE8',
           }}>
             {[
-              { label: 'Daily Revenue',        value: hcp == null ? '—' : fmtWF(hcp.rev_booked_today), sub: "today's scheduled jobs" },
-              { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_today), sub: 'booked today' },
-            ].map((tile, i) => (
-              <div key={i} style={{ ...CARD, padding: '20px 24px', minHeight: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px', fontFamily: FF }}>{tile.label}</p>
-                <p style={{ fontSize: 28, fontWeight: 500, color: '#1A1917', margin: 0, lineHeight: 1, fontFamily: FF }}>{tile.value}</p>
-              </div>
-            ))}
+              { label: 'Daily Revenue',        value: hcp == null ? '—' : fmtWF(hcp.rev_booked_today), sub: "today's scheduled jobs", href: null as string | null },
+              // [booked-today-drilldown 2026-07-22] The count was a dead end: Sal
+              // could see "5 booked today" but not WHICH 5, so an SMS booking of
+              // an existing client (which never enters the Lead Pipeline) was
+              // invisible as anything but a number. Opens the same 5 as a list.
+              { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_today), sub: 'booked today', href: `/reports/jobs?booked_on=${ctToday()}` },
+            ].map((tile, i) => {
+              const inner = (
+                <>
+                  <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px', fontFamily: FF }}>{tile.label}</p>
+                  <p style={{ fontSize: 28, fontWeight: 500, color: '#1A1917', margin: 0, lineHeight: 1, fontFamily: FF }}>{tile.value}</p>
+                </>
+              );
+              const box: React.CSSProperties = { ...CARD, padding: '20px 24px', minHeight: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center' };
+              return tile.href ? (
+                <Link key={i} href={tile.href} title="See the jobs booked today"
+                  style={{ ...box, textDecoration: 'none', cursor: 'pointer' }}>
+                  {inner}
+                </Link>
+              ) : (
+                <div key={i} style={box}>{inner}</div>
+              );
+            })}
           </div>
         )}
 
