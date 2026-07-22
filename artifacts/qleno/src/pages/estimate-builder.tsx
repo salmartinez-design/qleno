@@ -392,6 +392,21 @@ export default function EstimateBuilderPage() {
   // client with an email could NEVER be texted the card link. Now it opens a
   // small modal: pick Email or Text, and edit the address/number for this send
   // (Sal: "send this as an SMS… with the ability to edit the number").
+  // [modal-drag-close 2026-07-22] Overlays used to close on ANY click, with the
+  // dialog only stopping clicks that ORIGINATED inside it. So drag-selecting text
+  // in a field (e.g. wiping the client's number to type your own) and releasing
+  // over the dim backdrop fired the click on the overlay and shut the modal
+  // mid-edit. Now a backdrop click only counts when the press BOTH started and
+  // ended on the backdrop itself.
+  const overlayDownRef = useRef(false);
+  const overlayProps = (close: () => void) => ({
+    onMouseDown: (e: React.MouseEvent) => { overlayDownRef.current = e.target === e.currentTarget; },
+    onClick: (e: React.MouseEvent) => {
+      if (overlayDownRef.current && e.target === e.currentTarget) close();
+      overlayDownRef.current = false;
+    },
+  });
+
   const [cardBusy, setCardBusy] = useState(false);
   const [cardOpen, setCardOpen] = useState(false);
   const [cardClientId, setCardClientId] = useState<number | null>(null);
@@ -840,7 +855,7 @@ export default function EstimateBuilderPage() {
 
       {/* [estimate-sms] Text-the-estimate preview modal */}
       {smsOpen && smsData && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} onClick={() => setSmsOpen(false)}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} {...overlayProps(() => setSmsOpen(false))}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 420, fontFamily: FF }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Text the estimate</span>
@@ -868,7 +883,7 @@ export default function EstimateBuilderPage() {
       {/* [card-link-send-options 2026-07-22] Choose Email or Text for the Stripe
           save-card link, and edit the recipient for this send. */}
       {cardOpen && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} onClick={() => setCardOpen(false)}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} {...overlayProps(() => setCardOpen(false))}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 420, fontFamily: FF }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Send card-on-file link</span>
@@ -907,7 +922,7 @@ export default function EstimateBuilderPage() {
 
       {/* [agreement-esign] Review & edit the agreement before sending */}
       {agrModal && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} onClick={() => setAgrModal(null)}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} {...overlayProps(() => setAgrModal(null))}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 0, width: "100%", maxWidth: 580, maxHeight: "88vh", display: "flex", flexDirection: "column", fontFamily: FF }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 18px", borderBottom: `1px solid #EEECE7` }}>
               <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Send agreement</span>
@@ -934,7 +949,7 @@ export default function EstimateBuilderPage() {
 
       {/* [agreement-esign] Signing link after creating the agreement */}
       {agrLink && (
-        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} onClick={() => setAgrLink(null)}>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 18, zIndex: 60 }} {...overlayProps(() => setAgrLink(null))}>
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 460, fontFamily: FF }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Agreement ready to sign</span>
