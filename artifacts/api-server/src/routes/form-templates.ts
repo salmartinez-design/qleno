@@ -60,7 +60,7 @@ Due Date: Payment is due in full on the first visit of the month.
 
 Late Payments: {{late_fee}}
 
-Rate Adjustments: The Service Provider may adjust rates by providing {{rate_notice_days}} days' written notice. If the Client does not accept the adjusted rate, either party may terminate this Agreement effective on the proposed adjustment date, with no further obligation beyond services already performed.
+Rate Adjustments: The Service Provider may adjust rates by providing {{rate_notice_days}} days' written notice. If the Client does not accept the adjusted rate, either party may terminate this Agreement effective on the proposed adjustment date, with no further obligation beyond services already performed. {{rate_increase_limit}}
 
 Scope Limitation: The work performed will be strictly limited to the services listed in Section 3. Any additional tasks or requests outside this scope will be billed separately and require prior written approval.
 

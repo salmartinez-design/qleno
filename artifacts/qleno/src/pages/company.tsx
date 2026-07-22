@@ -2721,6 +2721,7 @@ function InvoicingTab() {
     agr_damage_cap: '500.00',
     agr_nonsolicit_months: 12,
     agr_nonsolicit_fee: '2500.00',
+    agr_rate_increase_limit_months: 12,
   });
 
   useEffect(() => {
@@ -2750,6 +2751,7 @@ function InvoicingTab() {
           agr_damage_cap: c.agr_damage_cap ?? '500.00',
           agr_nonsolicit_months: c.agr_nonsolicit_months ?? 12,
           agr_nonsolicit_fee: c.agr_nonsolicit_fee ?? '2500.00',
+          agr_rate_increase_limit_months: c.agr_rate_increase_limit_months ?? 12,
         });
       })
       .catch(console.error)
@@ -2953,6 +2955,12 @@ function InvoicingTab() {
                 <label style={labelStyle}>Non-solicit period (months)</label>
                 <input type="number" min={0} max={60} value={settings.agr_nonsolicit_months}
                   onChange={e => setSettings(s => ({ ...s, agr_nonsolicit_months: e.target.value as any }))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Rate increases &mdash; max once every (months)</label>
+                <input type="number" min={0} max={60} value={settings.agr_rate_increase_limit_months}
+                  onChange={e => setSettings(s => ({ ...s, agr_rate_increase_limit_months: e.target.value as any }))} style={inputStyle} />
+                <div style={{ fontSize: 10, color: '#6B6860', marginTop: 3 }}>0 = no limit (sentence omitted).</div>
               </div>
               <div>
                 <label style={labelStyle}>Non-solicit placement fee ($)</label>
