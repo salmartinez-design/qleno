@@ -420,7 +420,7 @@ export default function EstimateBuilderPage() {
     if (!to) { toast.error(bySms ? "Enter a phone number." : "Enter an email address."); return; }
     setCardBusy(true);
     try {
-      await apiFetch(`/api/payment-links`, {
+      const r = await apiFetch(`/api/payment-links`, {
         method: "POST",
         body: {
           client_id: cardClientId, purpose: "save_card",
@@ -428,6 +428,22 @@ export default function EstimateBuilderPage() {
           to_email: bySms ? undefined : to, to_phone: bySms ? to : undefined,
         },
       });
+      // [card-link-delivery 2026-07-22] The route used to return success even
+      // when nothing left the building. Report what actually happened.
+      const ok = bySms ? r?.sms_sent : r?.email_sent;
+      if (!ok) {
+        const why = String((bySms ? r?.sms_reason : r?.email_reason) || "");
+        const REASON: Record<string, string> = {
+          no_phone: "That doesn't look like a valid phone number.",
+          twilio_unconfigured: "Texting isn't configured yet (Twilio credentials).",
+          no_from_number: "No texting number is set up for this location.",
+          comms_disabled: "Sending is turned off (global comms are paused).",
+          resend_unconfigured: "Email isn't configured yet.",
+          send_failed: "The carrier rejected it — check the number and try again.",
+        };
+        toast.error(REASON[why] || "Couldn't send the card-on-file link.");
+        return;
+      }
       toast.success(`Card-on-file link sent to ${to}`);
       setCardOpen(false);
     } catch { toast.error("Couldn't send the card-on-file link"); }

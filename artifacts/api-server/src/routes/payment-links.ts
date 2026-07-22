@@ -20,6 +20,17 @@ function getAppBaseUrl(): string {
   return appBaseUrl();
 }
 
+// [card-link-delivery 2026-07-22] Twilio only accepts E.164. The card-link
+// route was passing whatever was typed ("7738188400") straight through, so
+// Twilio rejected it and the send silently died. Same normalisation the
+// working estimate-SMS path uses.
+function toE164(p: string | null | undefined): string | null {
+  const d = String(p || "").replace(/\D/g, "");
+  if (d.length === 10) return `+1${d}`;
+  if (d.length === 11 && d.startsWith("1")) return `+${d}`;
+  return d ? `+${d}` : null;
+}
+
 // ─── POST /payment-links — create & optionally send ───────────────────────────
 router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
@@ -65,6 +76,12 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       })
       .returning();
 
+    // [card-link-delivery 2026-07-22] Track what ACTUALLY went out. This route
+    // used to return success even when the send was skipped or threw, so the UI
+    // reported "sent" for a message that never left. Callers now get the truth.
+    let emailSent = false, smsSent = false;
+    let emailReason: string | null = null, smsReason: string | null = null;
+
     const baseUrl = getAppBaseUrl();
     const payUrl = `${baseUrl}/pay/${token}`;
 
@@ -105,11 +122,14 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
             recipient: toEmail,
             status: "sent",
           }).catch(() => {});
-        } catch (err) {
-          console.error("Email send failed:", err);
+          emailSent = true;
+        } catch (err: any) {
+          emailReason = "send_failed";
+          console.error("[card-link] Email send failed:", err?.message ?? err);
         }
       }
       } // end COMMS_ENABLED else
+      if (!emailSent && !emailReason) emailReason = process.env.COMMS_ENABLED !== "true" ? "comms_disabled" : "resend_unconfigured";
     }
 
     // Send SMS via Twilio if requested
@@ -117,7 +137,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       if (process.env.COMMS_ENABLED !== "true") {
         console.log("[COMMS BLOCKED] Payment link SMS suppressed:", { clientId: client.id });
       } else {
-      const toPhone = overridePhone || client.billing_contact_phone || client.phone;
+      const toPhone = toE164(overridePhone || client.billing_contact_phone || client.phone);
       const twilioSid = process.env.TWILIO_ACCOUNT_SID;
       const twilioToken = process.env.TWILIO_AUTH_TOKEN;
       // [card-link-from-number 2026-06-26] co1 keeps its Twilio number on the
@@ -128,7 +148,10 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
       const sender = await resolveSender(companyId, (client as any).branch_id ?? null);
       const twilioFrom = company.twilio_from_number || sender.from_number;
       if (!twilioSid || !twilioToken || !twilioFrom || !toPhone) {
-        console.warn("Twilio not configured or no phone — skipping SMS");
+        smsReason = !toPhone ? "no_phone"
+          : (!twilioSid || !twilioToken) ? "twilio_unconfigured"
+          : "no_from_number";
+        console.warn("[card-link] SMS skipped:", smsReason);
       } else {
         try {
           // [card-link-twilio-rest 2026-06-26] The `twilio` SDK is NOT a
@@ -159,14 +182,21 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
             recipient: toPhone,
             status: "sent",
           }).catch(() => {});
-        } catch (err) {
-          console.error("SMS send failed:", err);
+          smsSent = true;
+        } catch (err: any) {
+          smsReason = "send_failed";
+          console.error("[card-link] SMS send failed:", err?.message ?? err);
         }
       }
       } // end COMMS_ENABLED else
+      if (!smsSent && !smsReason) smsReason = "comms_disabled";
     }
 
-    res.json({ id: link.id, token, url: payUrl, expires_at: expiresAt });
+    res.json({
+      id: link.id, token, url: payUrl, expires_at: expiresAt,
+      email_sent: emailSent, email_reason: emailReason,
+      sms_sent: smsSent, sms_reason: smsReason,
+    });
   } catch (err) {
     console.error("Create payment link error:", err);
     res.status(500).json({ error: "Failed to create payment link" });
