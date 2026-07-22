@@ -10,6 +10,56 @@ import {
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
+// [agreement-merge 2026-07-22] Reference list of the {{variables}} an agreement
+// body can use. Without this the tokens are undiscoverable — an author has to
+// know them by heart. Click a token to copy it.
+function MergeVariablesPanel() {
+  const [copied, setCopied] = useState<string | null>(null);
+  const { data } = useQuery<any>({
+    queryKey: ["agreement-variables"],
+    queryFn: () => apiFetch("/api/form-templates/variables"),
+    staleTime: 60 * 60 * 1000,
+  });
+  const vars: { token: string; label: string; example: string }[] = data?.data || [];
+  if (!vars.length) return null;
+
+  function copy(token: string) {
+    const text = `{{${token}}}`;
+    navigator.clipboard?.writeText(text).catch(() => {});
+    setCopied(token);
+    setTimeout(() => setCopied(c => (c === token ? null : c)), 1200);
+  }
+
+  return (
+    <div style={{ border: "1px solid #E5E2DC", borderRadius: 8, padding: "12px 14px", background: "#F7F6F3" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 4 }}>Auto-fill variables</div>
+      <div style={{ fontSize: 11, color: "#6B6860", lineHeight: 1.5, marginBottom: 10 }}>
+        Type these into your text and Qleno fills them in for each client when the agreement is sent.
+        Click one to copy it.
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {vars.map(v => (
+          <button
+            key={v.token}
+            type="button"
+            onClick={() => copy(v.token)}
+            title={`${v.label} — e.g. ${v.example}`}
+            style={{
+              fontSize: 11, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+              padding: "4px 8px", borderRadius: 6, cursor: "pointer",
+              border: `1px solid ${copied === v.token ? "#00C9A0" : "#E5E2DC"}`,
+              background: copied === v.token ? "#ECFDF5" : "#fff",
+              color: copied === v.token ? "#065F46" : "#1A1917",
+            }}
+          >
+            {copied === v.token ? "copied" : `{{${v.token}}}`}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 async function apiFetch(path: string, opts: RequestInit = {}) {
   const r = await fetch(`${API}${path}`, { headers: { ...getAuthHeaders(), "Content-Type": "application/json" }, ...opts });
   if (!r.ok) throw new Error(await r.text());
@@ -241,6 +291,8 @@ function TemplateEditor({ template, onClose, onSave }: any) {
                     <textarea value={termsBody} onChange={e => setTermsBody(e.target.value)} rows={12} style={{ ...inputStyle, resize: "vertical" }} placeholder="Enter form instructions or terms..." />
                   </div>
                 )}
+
+                <MergeVariablesPanel />
               </div>
 
               <div style={{ flex: 1, overflowY: "auto", padding: 32, background: "#F7F6F3" }}>
