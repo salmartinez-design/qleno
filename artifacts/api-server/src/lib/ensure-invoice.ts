@@ -4,14 +4,20 @@
 // clock-out paths (timeclock last-tech clock-out, tech-clock field clock_out).
 //
 // Scope 1 (per-visit) + Scope 2 (batch tagging):
-//   - [no-auto-issue 2026-07-06] EVERY auto-invoice is created as a DRAFT —
-//     never 'sent'. The office finalizes explicitly from the invoice detail
-//     ("Mark as invoiced" = no email, or "Send + email"). billing_terms still
-//     routes the batch workflow:
-//       per_visit (default)  → plain draft, office finalizes per invoice.
+//   - [auto-issue 2026-07-08; accounts 2026-07-21] When companies.
+//     auto_issue_invoices is ON, completion ISSUES a real per-visit invoice
+//     (status 'sent' with sent_at NULL → every surface labels it "ISSUED",
+//     never "SENT"; NO email is ever sent — emailing/charging stays a human
+//     action). This now covers residential AND commercial-account jobs alike
+//     (Sal: "every account, every cleaning" — accounts used to be forced to
+//     draft and hand-converted one by one). When the flag is OFF, everything
+//     lands as a plain draft. billing_terms still routes the batch workflow:
+//       per_visit (default)  → issued per visit (or draft if flag off).
 //       batch_invoice        → draft with batch_status='pending' — the
 //                              month-end consolidate step folds it into the
 //                              month's first invoice.
+//     A $0/unpriced ACCOUNT visit is held as a pending draft (never issued at
+//     $0) so an unset rate stays visible.
 //   - payment_source stamped from the client at creation (derive rule: a Stripe
 //     payment method on file → 'stripe', else 'square'); an explicit check/ach
 //     stamp on the client is preserved.
@@ -25,14 +31,15 @@
 //   - At most one invoice per job: if a non-void invoice already exists it is
 //     returned untouched, never duplicated.
 //   - Skip jobs already charged (jobs.charge_succeeded_at IS NOT NULL).
-//   - Commercial accounts (account_id) keep the legacy guard: auto-invoice only
-//     when invoice_frequency='per_job'. (The separate commercial-billing concern
-//     is unchanged here.)
+//   - Commercial accounts (account_id) now auto-issue per visit like
+//     residential (invoice_frequency no longer gates this — every account job
+//     issues). One invoice per job still holds.
 //
 // Fully non-fatal: any hiccup is swallowed so it never breaks the job/clock write.
-// QB push is fire-and-forget and only fires for invoices that are actually issued
-// (per-visit 'sent'); batch 'pending' drafts do NOT push — only their
-// consolidated parent does (Scope 2/5).
+// QB push is fire-and-forget and only fires for RESIDENTIAL invoices that are
+// actually issued (per-visit 'sent'), still subject to quickbooks-sync's
+// ar_invoices_only gating. ACCOUNT invoices never push from here (Sal: "no
+// pushing"); batch 'pending' drafts do NOT push either.
 import { db } from "@workspace/db";
 import { jobsTable, invoicesTable, accountsTable, companiesTable, clientsTable } from "@workspace/db/schema";
 import { eq, and, ne } from "drizzle-orm";
@@ -119,37 +126,36 @@ export async function ensureInvoiceForCompletedJob(
     if (job.charge_succeeded_at) return NO_OP;
 
     // Resolve terms + billing_terms + payment_source.
-    let accountDraft = false;
     let termsDays = 0;
     let billingTerms: string = "per_visit";
     let paymentSource: string | null = null;
-    // [auto-issue 2026-07-08] Per-company: completion ISSUES the per-visit
-    // invoice instead of parking a draft. Only read on the non-account branch
-    // — account/batch invoices always stay draft+pending for the merge flow.
-    let autoIssue = false;
+    // [auto-issue 2026-07-08] Per-company flag: completion ISSUES the per-visit
+    // invoice instead of parking a draft.
+    // [account-auto-issue 2026-07-21] Extended to commercial ACCOUNTS too (Sal:
+    // "every account, every cleaning"). Account jobs used to be FORCED to draft
+    // (the old `accountDraft`), so the office had to hand-convert every one
+    // (Maribel: "the draft is there but I have to manually convert them"). Now
+    // account jobs auto-issue a real per-visit invoice exactly like residential,
+    // gated by the same company flag. Still NO email (sent_at stays null →
+    // labeled "ISSUED", never emailed) and — per Sal — NO QuickBooks push for
+    // account invoices (guarded on the QB block below). A $0/unpriced account
+    // job still stays a pending draft (the "rate needs setting" signal).
+    const [co] = await db
+      .select({ payment_terms_days: companiesTable.payment_terms_days, auto_issue_invoices: companiesTable.auto_issue_invoices })
+      .from(companiesTable)
+      .where(eq(companiesTable.id, companyId))
+      .limit(1);
+    const autoIssue = co?.auto_issue_invoices === true;
 
     if (job.account_id) {
-      // [per-job-drafts 2026-07-02] Every commercial-account job now gets its
-      // OWN invoice — always as a DRAFT (nothing auto-sends). The office then
-      // sends it individually OR bulk-merges a period into one bill (POST
-      // /api/invoices/merge). Replaces the old behavior where non-'per_job'
-      // accounts made NO invoice and jobs piled up uninvoiced. accountDraft
-      // routes through isBatch below → status='draft' / batch_status='pending'.
       const [acct] = await db
-        .select({ invoice_frequency: accountsTable.invoice_frequency, payment_terms_days: accountsTable.payment_terms_days })
+        .select({ payment_terms_days: accountsTable.payment_terms_days })
         .from(accountsTable)
         .where(eq(accountsTable.id, job.account_id))
         .limit(1);
-      if (acct) termsDays = acct.payment_terms_days ?? 30;
-      accountDraft = true;
+      termsDays = acct?.payment_terms_days ?? 30;
     } else {
-      const [co] = await db
-        .select({ payment_terms_days: companiesTable.payment_terms_days, auto_issue_invoices: companiesTable.auto_issue_invoices })
-        .from(companiesTable)
-        .where(eq(companiesTable.id, companyId))
-        .limit(1);
       termsDays = co?.payment_terms_days ?? 0;
-      autoIssue = co?.auto_issue_invoices === true;
     }
 
     // Client-driven billing_terms + payment_source (residential / per-client).
@@ -182,10 +188,10 @@ export async function ensureInvoiceForCompletedJob(
       }
     }
 
-    // [per-job-drafts 2026-07-02] Account jobs are held as drafts (accountDraft)
-    // alongside the residential batch_invoice path — both land status='draft',
-    // batch_status='pending', awaiting an explicit send or a bulk merge.
-    const isBatch = billingTerms === "batch_invoice" || accountDraft;
+    // Residential batch_invoice clients accumulate as pending drafts for a
+    // month-end consolidation/merge. Account jobs are NO LONGER forced here —
+    // they auto-issue per visit like residential (see [account-auto-issue]).
+    const isBatch = billingTerms === "batch_invoice";
 
     const today = new Date();
     const due = new Date(today);
@@ -212,6 +218,13 @@ export async function ensureInvoiceForCompletedJob(
     const isCommercialJob = !!job.account_id || clientType === "commercial";
     if (netAmount <= 0 && !isCommercialJob) return NO_OP;
 
+    // [account-auto-issue 2026-07-21] Issue a REAL invoice now when the company
+    // flag is on, it's not a batch_invoice client, and the visit is priced.
+    // Applies to residential AND account jobs alike. A $0 commercial visit
+    // (allowed through the guard above so an unpriced job stays visible) is held
+    // as a pending draft — never issued into AR at $0.
+    const issueNow = !isBatch && autoIssue && netAmount > 0;
+
     const [newInv] = await db
       .insert(invoicesTable)
       .values({
@@ -235,8 +248,11 @@ export async function ensureInvoiceForCompletedJob(
         //      complaints stay fixed. Emailing/charging remains a human
         //      action. batch_invoice clients + account jobs keep the
         //      draft+pending tag for month-end consolidation/merge.
-        status: !isBatch && autoIssue ? "sent" : "draft",
-        batch_status: isBatch ? "pending" : null,
+        status: issueNow ? "sent" : "draft",
+        // Drafts held for consolidation/merge stay 'pending': residential
+        // batch_invoice clients and any account job that didn't issue (e.g. a
+        // $0 unpriced visit awaiting a rate).
+        batch_status: !issueNow && (isBatch || !!job.account_id) ? "pending" : null,
         sent_at: null,
         payment_source: paymentSource,
         line_items: lineItems,
@@ -260,7 +276,11 @@ export async function ensureInvoiceForCompletedJob(
     // so push it to QuickBooks now (idempotent — syncInvoice finds-by-
     // DocNumber before create, #881). Drafts still never push; their push
     // happens when the office finalizes (Mark as invoiced / Send / mark-paid).
-    if (!isBatch && autoIssue) {
+    // [account-auto-issue 2026-07-21] ACCOUNT invoices never push from here —
+    // Sal's directive is "no pushing" for the auto-issued account flow (they
+    // now auto-issue for AR inside Qleno only). Residential is unchanged and
+    // still routes through quickbooks-sync's own ar_invoices_only gating.
+    if (issueNow && !job.account_id) {
       import("../services/quickbooks-sync.js").then(({ syncInvoice }) => {
         syncInvoice(companyId, newInv.id).catch((e: any) => console.error("[ensure-invoice] QB push non-fatal:", e));
       }).catch((e) => console.error("[ensure-invoice] QB module load non-fatal:", e));
