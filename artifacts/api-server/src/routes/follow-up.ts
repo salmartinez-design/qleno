@@ -211,6 +211,25 @@ router.get("/sequences", requireAuth, requireRole("owner", "admin", "office"), a
       ORDER BY id
     `);
 
+    // [sequences-enrolled-counts 2026-07-22] Roster needs "how many contacts are
+    // in this now" (GHL Workflows list). One grouped aggregate — NOT a per-row
+    // query — so adding it doesn't turn the roster into an N+1.
+    //   enrolled_total  — everyone who has ever entered this sequence
+    //   enrolled_active — still running (not completed, not stopped)
+    //   last_enrolled_at — most recent entry, drives the "last activity" column
+    const counts = await db.execute(sql`
+      SELECT sequence_id,
+             COUNT(*)::int AS enrolled_total,
+             COUNT(*) FILTER (WHERE completed_at IS NULL AND stopped_at IS NULL)::int AS enrolled_active,
+             MAX(enrolled_at) AS last_enrolled_at
+        FROM follow_up_enrollments
+       WHERE company_id = ${companyId}
+       GROUP BY sequence_id
+    `);
+    const bySeq = new Map<number, any>(
+      (counts.rows as any[]).map(r => [Number(r.sequence_id), r]),
+    );
+
     const result = [];
     for (const seq of seqs.rows) {
       const s = seq as any;
@@ -220,7 +239,14 @@ router.get("/sequences", requireAuth, requireRole("owner", "admin", "office"), a
         WHERE sequence_id = ${s.id}
         ORDER BY step_number
       `);
-      result.push({ ...s, steps: steps.rows });
+      const c = bySeq.get(Number(s.id));
+      result.push({
+        ...s,
+        steps: steps.rows,
+        enrolled_total: Number(c?.enrolled_total ?? 0),
+        enrolled_active: Number(c?.enrolled_active ?? 0),
+        last_enrolled_at: c?.last_enrolled_at ?? null,
+      });
     }
     return res.json(result);
   } catch (err) {
