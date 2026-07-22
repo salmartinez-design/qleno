@@ -34,6 +34,7 @@ export const AGREEMENT_VARIABLES: { token: string; label: string; example: strin
   { token: "company_name",     label: "Your company name",       example: "Phes" },
   { token: "company_phone",    label: "Your company phone",      example: "773-706-6000" },
   { token: "company_email",    label: "Your company email",      example: "info@phes.io" },
+  { token: "late_fee",         label: "Late-payment terms (Company Settings)", example: "1.5% per month on balances over 10 days past due" },
   // Only resolves when the agreement is sent from an estimate — a contract sent
   // straight off a client record has no scope to draw from.
   { token: "scope_of_work",    label: "Scope of work (from the estimate)", example: "Lobby & entrance\nCommon hallways & stairwells" },
@@ -69,12 +70,18 @@ export async function buildAgreementVars(
   vars.effective_date = longDate(now);
 
   const co: any = (await db.execute(sql`
-    SELECT name, phone, email FROM companies WHERE id = ${companyId} LIMIT 1
+    SELECT name, phone, email, late_fee_terms FROM companies WHERE id = ${companyId} LIMIT 1
   `)).rows[0];
   if (co) {
     vars.company_name = co.name ?? "";
     vars.company_phone = co.phone ?? "";
     vars.company_email = co.email ?? "";
+    // [agreement-late-fee 2026-07-22] Falls back to a deliberately soft sentence
+    // when the office hasn't configured terms. A BLANK here would leave "Late
+    // Payments:" dangling in a signed contract, and a hardcoded percentage
+    // would assert a fee the office never agreed to charge.
+    vars.late_fee = String(co.late_fee_terms || "").trim()
+      || "Late payments may be subject to a late fee.";
   }
 
   if (opts.clientId) {

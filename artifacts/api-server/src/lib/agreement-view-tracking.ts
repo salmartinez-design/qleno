@@ -16,6 +16,13 @@
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 
+// [agreement-late-fee 2026-07-22] Free-text late-payment terms used by the
+// {{late_fee}} merge variable. Contract wording only — nothing is charged
+// automatically off this value.
+export async function ensureLateFeeTermsColumn(): Promise<void> {
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS late_fee_terms text`);
+}
+
 export async function ensureAgreementViewColumns(): Promise<void> {
   await db.execute(sql`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS last_viewed_at timestamp`);
   await db.execute(sql`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS view_count integer NOT NULL DEFAULT 0`);

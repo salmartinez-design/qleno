@@ -2714,6 +2714,7 @@ function InvoicingTab() {
     invoice_payment_instructions: '',
     invoice_guarantee: '',
     invoice_terms: '',
+    late_fee_terms: '',
   });
 
   useEffect(() => {
@@ -2736,6 +2737,7 @@ function InvoicingTab() {
           invoice_payment_instructions: c.invoice_payment_instructions || '',
           invoice_guarantee: c.invoice_guarantee || '',
           invoice_terms: c.invoice_terms || '',
+          late_fee_terms: c.late_fee_terms || '',
         });
       })
       .catch(console.error)
@@ -2906,6 +2908,13 @@ function InvoicingTab() {
           <div>
             <label style={labelStyle}>Terms &amp; Cancellation Policy</label>
             <textarea value={settings.invoice_terms} onChange={e => setSettings(s => ({ ...s, invoice_terms: e.target.value }))} placeholder="Your cancellation and reschedule policy." style={textareaStyle} />
+          </div>
+          <div>
+            <label style={labelStyle}>Late Payment Terms</label>
+            <textarea value={settings.late_fee_terms} onChange={e => setSettings(s => ({ ...s, late_fee_terms: e.target.value }))} placeholder="e.g. Balances unpaid 10 days after the due date are subject to a 1.5% monthly late fee." style={textareaStyle} />
+            <div style={{ fontSize: 11, color: '#6B6860', marginTop: 4, lineHeight: 1.5 }}>
+              Used by service agreements wherever you write {'{{late_fee}}'}. Wording only &mdash; Qleno does not charge this automatically.
+            </div>
           </div>
         </div>
       </div>
