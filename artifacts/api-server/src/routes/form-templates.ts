@@ -58,11 +58,13 @@ Payment Method: Card on file.
 
 Due Date: Payment is due in full on the first visit of the month.
 
+Late Payments: {{late_fee}}
+
 Scope Limitation: The work performed will be strictly limited to the services listed in Section 3. Any additional tasks or requests outside this scope will be billed separately and require prior written approval.
 
 5. CANCELLATION & ACCESS
 
-Early Termination: Either party may terminate this Agreement with a 30-day written notice.
+Early Termination: Either party may terminate this Agreement with a 30-day written notice, delivered as described in Section 8.
 
 Lockout Policy: Service Provider shall provide forty-eight (48) hours' notice of the scheduled time. If the Service Provider is ready and able to perform services but is denied access to the property, the visit will be billed in full.
 
@@ -74,7 +76,18 @@ The Service Provider carries commercial general liability insurance. A certifica
 
 All client information and property details will be kept strictly confidential.
 
-By signing below, the Client agrees to the terms of this Agreement.`;
+8. NOTICES
+
+All notices required under this Agreement, including notice of termination, must be in writing. Written notice is validly delivered by email or by text message (SMS) to the addresses and numbers below, or to any address or number the parties later provide in writing. Notice is effective on the date it is sent.
+
+To the Service Provider: {{company_email}} / {{company_phone}}
+To the Client: {{client_email}} / {{client_phone}}
+
+9. ENTIRE AGREEMENT
+
+This Agreement constitutes the entire understanding between the parties. Any amendments must be in writing and signed by both parties.
+
+By signing, the Client fully understands and agrees to the contents of this Agreement. The individual signing represents and warrants that they have authority to bind the Client. The Client is responsible for all amounts due for services provided or scheduled during the term and any notice period.`;
 
 const PHES_RESIDENTIAL_SCHEMA = [
   { id: "f_name", type: "text", label: "Full Name", required: true, variable: "client_name" },

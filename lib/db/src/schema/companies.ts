@@ -83,6 +83,12 @@ export const companiesTable = pgTable("companies", {
   invoice_payment_instructions: text("invoice_payment_instructions"),
   invoice_guarantee: text("invoice_guarantee"),
   invoice_terms: text("invoice_terms"),
+  // [agreement-late-fee 2026-07-22] Free-text late-payment terms, surfaced in
+  // service agreements as {{late_fee}}. Free text (not a percent column) so the
+  // office can word it however the contract needs — a flat fee, a percentage, a
+  // grace period, or nothing at all. Qleno does NOT assess this automatically;
+  // it is contract wording only.
+  late_fee_terms: text("late_fee_terms"),
   auto_send_invoices: boolean("auto_send_invoices").notNull().default(false),
   auto_charge_on_invoice: boolean("auto_charge_on_invoice").notNull().default(false),
   annual_revenue_goal: integer("annual_revenue_goal"),

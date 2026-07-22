@@ -253,7 +253,10 @@ router.patch("/me", requireAuth, async (req, res) => {
       const cleanText = (v: unknown) =>
         v === undefined ? undefined : (v === null || String(v).trim() === "" ? null : String(v).slice(0, 4000));
       const fields = ["invoice_business_name", "invoice_tagline", "invoice_address",
-        "invoice_footer_message", "invoice_payment_instructions", "invoice_guarantee", "invoice_terms"];
+        "invoice_footer_message", "invoice_payment_instructions", "invoice_guarantee", "invoice_terms",
+        // [agreement-late-fee 2026-07-22] Late-payment wording for {{late_fee}}
+        // in service agreements. Same clear-on-empty semantics as the rest.
+        "late_fee_terms"];
       for (const f of fields) {
         const cv = cleanText(req.body[f]);
         if (cv !== undefined) patch[f] = cv;
