@@ -161,6 +161,53 @@ router.get("/thread", requireAuth, requireRole("owner", "admin", "office"), asyn
       }
     } catch (e) { console.warn("[sms/thread] drip-merge skipped:", (e as any)?.message ?? e); }
 
+    // [sms-thread-notes 2026-07-22] Fold internal notes into the thread, read-only,
+    // exactly like the drip merge above. Notes live in the contact's own log
+    // (communication_log for a client, lead_activity_log for a lead) — see
+    // POST /notes — so this reads from both and sorts them in by time.
+    try {
+      if (cp) {
+        const { clientId: noteClientId, leadId: noteLeadId } = await resolveThreadContact(companyId!, cp);
+        const notes: any[] = [];
+        if (noteClientId) {
+          const r = await db.execute(sql`
+            SELECT cl.id, cl.body, cl.summary, cl.sent_by,
+                   to_char(cl.logged_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at,
+                   NULLIF(trim(u.first_name||' '||coalesce(u.last_name,'')),'') AS author,
+                   cl.logged_by
+              FROM communication_log cl
+              LEFT JOIN users u ON u.id = cl.logged_by
+             WHERE cl.company_id = ${companyId} AND cl.customer_id = ${noteClientId} AND cl.channel = 'note'
+             ORDER BY cl.logged_at ASC`);
+          for (const n of r.rows as any[]) {
+            notes.push({ id: `note-${n.id}`, source: "note", direction: "internal",
+              body: n.body || n.summary, created_at: n.at,
+              author: n.author || n.sent_by || null, author_id: n.logged_by ?? null });
+          }
+        } else if (noteLeadId) {
+          const r = await db.execute(sql`
+            SELECT a.id, a.note,
+                   to_char(a.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS at,
+                   NULLIF(trim(u.first_name||' '||coalesce(u.last_name,'')),'') AS author,
+                   a.performed_by
+              FROM lead_activity_log a
+              LEFT JOIN users u ON u.id = a.performed_by
+             WHERE a.company_id = ${companyId} AND a.lead_id = ${noteLeadId}
+               AND a.action_type = 'note_added' AND a.note IS NOT NULL
+             ORDER BY a.created_at ASC`);
+          for (const n of r.rows as any[]) {
+            notes.push({ id: `leadnote-${n.id}`, source: "note", direction: "internal",
+              body: n.note, created_at: n.at,
+              author: n.author || null, author_id: n.performed_by ?? null });
+          }
+        }
+        if (notes.length) {
+          messages = [...messages, ...notes].sort(
+            (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        }
+      }
+    } catch (e) { console.warn("[sms/thread] note-merge skipped:", (e as any)?.message ?? e); }
+
     return res.json({ contact_phone: cp, messages });
   } catch (err) {
     console.error("GET /sms/thread:", err);
@@ -178,6 +225,149 @@ router.post("/mark-read", requireAuth, requireRole("owner", "admin", "office"), 
     return res.json({ ok: true });
   } catch (err) {
     console.error("POST /sms/mark-read:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── POST /api/sms/mark-unread — flag a thread back to unread ──────────────────
+// [sms-mark-unread 2026-07-22] The counterpart to mark-read. Since [auto-mark-read
+// 2026-07-19] opening a thread clears it, there was no way to say "I read this but
+// it still needs work" — the thread just vanished from the unread count. Marks the
+// most recent INBOUND message unread (not all of them): the unread badge is a
+// "needs attention" flag, and re-flagging a whole history would inflate the count
+// to something meaningless like 47.
+router.post("/mark-unread", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const phone = phone10(String(req.body?.phone ?? ""));
+    if (!phone) return res.status(400).json({ error: "phone required" });
+    const r = await db.execute(sql`
+      UPDATE sms_messages SET read_at = NULL
+       WHERE id = (
+         SELECT id FROM sms_messages
+          WHERE company_id = ${companyId} AND contact_phone = ${phone} AND direction = 'inbound'
+          ORDER BY created_at DESC LIMIT 1)
+      RETURNING id`);
+    // No inbound message on this thread (outbound-only conversation) — there is
+    // nothing to mark unread. Say so rather than reporting a silent success.
+    if (!r.rows.length) return res.status(409).json({ error: "No inbound message on this thread to mark unread" });
+    return res.json({ ok: true, unread: 1 });
+  } catch (err) {
+    console.error("POST /sms/mark-unread:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Notes on a conversation ───────────────────────────────────────────────────
+// [sms-thread-notes 2026-07-22] Staff-only notes attached to a customer thread
+// (Sal, on GHL: "a way to add notes to her SMS thread ... for internal notes").
+// NOTHING here sends anything to the customer — no Twilio, no sendNotification.
+//
+// Storage: a note is one communication_log row, channel='note',
+// direction='internal'. That is deliberate — the client profile's Communication
+// log already unions communication_log by customer_id (clients.ts
+// /:id/messages), so a client note cascades there with no query change. For a
+// LEAD-only thread (23% of Phes threads) there is no communication_log linkage,
+// so the note goes to lead_activity_log instead, which is what the lead panel's
+// feed already reads. One note, one row, in whichever log that contact's profile
+// actually renders.
+async function resolveThreadContact(companyId: number, phone: string) {
+  const r = await db.execute(sql`
+    SELECT
+      (SELECT c.id FROM clients c WHERE c.company_id = ${companyId}
+         AND right(regexp_replace(coalesce(c.phone,''),'\\D','','g'),10) = ${phone} ORDER BY c.id LIMIT 1) AS client_id,
+      (SELECT l.id FROM leads l WHERE l.company_id = ${companyId}
+         AND right(regexp_replace(coalesce(l.phone,''),'\\D','','g'),10) = ${phone} ORDER BY l.id DESC LIMIT 1) AS lead_id`);
+  const row = r.rows[0] as any;
+  return { clientId: row?.client_id ?? null, leadId: row?.lead_id ?? null };
+}
+
+router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId;
+    const phone = phone10(String(req.body?.phone ?? ""));
+    const body = String(req.body?.body ?? "").trim();
+    if (!phone) return res.status(400).json({ error: "phone required" });
+    if (!body) return res.status(400).json({ error: "body required" });
+
+    const ur = await db.execute(sql`
+      SELECT NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS name FROM users WHERE id = ${userId} LIMIT 1`);
+    const author = (ur.rows[0] as any)?.name || null;
+
+    // The thread may resolve to both (13 Phes threads do). Prefer the CLIENT —
+    // that's the "account" the note should live on once someone has booked.
+    const { clientId, leadId } = await resolveThreadContact(companyId, phone);
+
+    if (clientId) {
+      const r = await db.execute(sql`
+        INSERT INTO communication_log
+          (company_id, customer_id, direction, channel, summary, body,
+           source, sent_by, recipient, logged_by, delivery_status)
+        VALUES
+          (${companyId}, ${clientId}, 'internal', 'note', ${body}, ${body},
+           'staff', ${author}, ${phone}, ${userId}, 'logged')
+        RETURNING id, logged_at`);
+      const row = r.rows[0] as any;
+      return res.status(201).json({
+        id: `note-${row.id}`, note_id: row.id, store: "communication_log",
+        client_id: clientId, lead_id: leadId, body, author, created_at: row.logged_at,
+      });
+    }
+
+    if (leadId) {
+      const r = await db.execute(sql`
+        INSERT INTO lead_activity_log (lead_id, company_id, action_type, note, performed_by, created_at)
+        VALUES (${leadId}, ${companyId}, 'note_added', ${body}, ${userId}, NOW())
+        RETURNING id, created_at`);
+      const row = r.rows[0] as any;
+      return res.status(201).json({
+        id: `leadnote-${row.id}`, note_id: row.id, store: "lead_activity_log",
+        client_id: null, lead_id: leadId, body, author, created_at: row.created_at,
+      });
+    }
+
+    // Unknown number with no client and no lead — there is no profile to cascade
+    // to, so refuse rather than writing an orphan row nothing will ever surface.
+    return res.status(409).json({ error: "This number isn't linked to a client or lead yet, so there's no profile to save the note to." });
+  } catch (err) {
+    console.error("POST /sms/notes:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// DELETE /api/sms/notes/:id — id is the prefixed thread id ("note-12"/"leadnote-9")
+// so the client can delete whatever it rendered without tracking which store the
+// note came from. Author-or-owner/admin only; notes are an audit trail, so a
+// teammate can't quietly remove someone else's.
+router.delete("/notes/:id", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId;
+    const privileged = req.auth!.role === "owner" || req.auth!.role === "admin";
+    const raw = String(req.params.id);
+    const m = /^(note|leadnote)-(\d+)$/.exec(raw);
+    if (!m) return res.status(400).json({ error: "bad note id" });
+    const id = parseInt(m[2]);
+
+    if (m[1] === "note") {
+      const r = await db.execute(sql`
+        DELETE FROM communication_log
+         WHERE id = ${id} AND company_id = ${companyId} AND channel = 'note'
+           AND (${privileged} OR logged_by = ${userId})
+        RETURNING id`);
+      if (!r.rows.length) return res.status(404).json({ error: "Note not found, or not yours to delete" });
+    } else {
+      const r = await db.execute(sql`
+        DELETE FROM lead_activity_log
+         WHERE id = ${id} AND company_id = ${companyId} AND action_type = 'note_added'
+           AND (${privileged} OR performed_by = ${userId})
+        RETURNING id`);
+      if (!r.rows.length) return res.status(404).json({ error: "Note not found, or not yours to delete" });
+    }
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("DELETE /sms/notes/:id:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

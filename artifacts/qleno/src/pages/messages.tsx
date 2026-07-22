@@ -3,7 +3,7 @@ import { getAuthHeaders, useAuthStore } from "@/lib/auth";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useToast } from "@/hooks/use-toast";
-import { MessageSquare, Search, Send, ChevronLeft, Plus, X, Paperclip, Clock, Trash2, Image, Sparkles, Mic, Undo2, ChevronDown, Wand2, Zap } from "lucide-react";
+import { MessageSquare, Search, Send, ChevronLeft, Plus, X, Paperclip, Clock, Trash2, Image, Sparkles, Mic, Undo2, ChevronDown, Wand2, Zap, StickyNote } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -58,6 +58,10 @@ interface Msg {
   // folded into the thread (from message_log) so the office sees what the
   // customer is replying to. Labeled so it doesn't read as a person's text.
   source?: string;
+  // [sms-thread-notes 2026-07-22] source==="note" is an INTERNAL staff note —
+  // never sent to the customer. direction is "internal", so the inbound/outbound
+  // left/right rule doesn't apply; notes render full-width in amber.
+  author?: string | null; author_id?: number | null;
 }
 interface ScheduledMsg {
   id: number; message: string; media_urls?: string[] | null;
@@ -379,6 +383,14 @@ export default function MessagesPage() {
   // lives in a caret dropdown attached to Send (Apple-style "Send / Schedule").
   const [sendMenuOpen, setSendMenuOpen] = useState(false);
 
+  // [sms-thread-notes 2026-07-22] Composer mode. "reply" texts the customer;
+  // "note" saves a staff-only note to their profile and sends NOTHING. Modeled on
+  // GHL's Message/Note tabs. The mode is deliberately a visible, colored switch
+  // rather than a subtle toggle — the failure here (a private note going out as a
+  // text to the customer) is expensive, so the composer changes color entirely.
+  const [composerMode, setComposerMode] = useState<"reply" | "note">("reply");
+  const [savingNote, setSavingNote] = useState(false);
+
   // [composer-autogrow 2026-07-02] Grow the reply box with its content (up to
   // ~6 lines) so a multi-line draft stays fully visible. Before this the box
   // was locked to rows={1}, so after a couple of lines the top scrolled out of
@@ -426,6 +438,32 @@ export default function MessagesPage() {
       window.dispatchEvent(new Event("qleno:sms-read"));
     } catch { /* silent */ }
   }, []);
+
+  // [sms-mark-unread 2026-07-22] Flag a thread back to unread so it resurfaces in
+  // the inbox and the sidebar badge. Since opening a thread auto-marks it read,
+  // this is the only way to say "read it, still needs work" — the counterpart to
+  // Mark as read, and it also closes the thread so the auto-mark-read effect
+  // can't immediately undo it.
+  const markUnread = useCallback(async (c: Convo) => {
+    try {
+      const r = await fetch(`${API}/api/sms/mark-unread`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: c.contact_phone }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        toast({ title: "Couldn't mark unread", description: d?.error || "Please try again.", variant: "destructive" });
+        return;
+      }
+      setConvos(cs => cs.map(x => x.contact_phone === c.contact_phone ? { ...x, unread: 1 } : x));
+      setActive(null);
+      window.dispatchEvent(new Event("qleno:sms-read"));
+      toast({ title: "Marked unread", description: `${c.name || fmtPhone(c.contact_phone)} is back in your unread list.` });
+    } catch {
+      toast({ title: "Couldn't mark unread", description: "Please try again.", variant: "destructive" });
+    }
+  }, [toast]);
 
   const loadScheduled = useCallback(async (c: Convo) => {
     try {
@@ -561,6 +599,51 @@ export default function MessagesPage() {
       await loadThread(active); await loadConvos();
     } catch { toast({ title: "Failed to send", variant: "destructive" as any }); }
     finally { setSending(false); }
+  }
+
+  // ── Save internal note ─────────────────────────────────────────────────────
+  // [sms-thread-notes 2026-07-22] Saves to the contact's own log — the client's
+  // Communication log, or the lead's activity feed — and folds back into this
+  // thread. Nothing is texted.
+  async function saveNote() {
+    if (!reply.trim() || !active || savingNote) return;
+    setSavingNote(true);
+    try {
+      const r = await fetch(`${API}/api/sms/notes`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: active.contact_phone, body: reply.trim() }),
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        toast({ title: "Note not saved", description: d?.error || "Please try again.", variant: "destructive" as any });
+        return;
+      }
+      setReply("");
+      toast({
+        title: "Note saved",
+        description: d.store === "lead_activity_log"
+          ? "Visible on this lead's activity feed. Not sent to the customer."
+          : "Visible on the client's Communication log. Not sent to the customer.",
+      });
+      await loadThread(active);
+    } catch { toast({ title: "Note not saved", description: "Please try again.", variant: "destructive" as any }); }
+    finally { setSavingNote(false); }
+  }
+
+  async function deleteNote(id: string) {
+    if (!active) return;
+    try {
+      const r = await fetch(`${API}/api/sms/notes/${encodeURIComponent(id)}`, {
+        method: "DELETE", headers: getAuthHeaders(),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        toast({ title: "Couldn't delete note", description: d?.error || "Please try again.", variant: "destructive" as any });
+        return;
+      }
+      await loadThread(active);
+    } catch { toast({ title: "Couldn't delete note", variant: "destructive" as any }); }
   }
 
   // ── Schedule send ──────────────────────────────────────────────────────────
@@ -770,10 +853,17 @@ export default function MessagesPage() {
                       )}
                       <div style={{ fontSize: 12, color: MUTE }}>{fmtPhone(active.contact_phone)}{active.client_id ? " · Client" : active.lead_id ? " · Lead" : ""}</div>
                     </div>
-                    {active.unread > 0 && (
+                    {active.unread > 0 ? (
                       <button onClick={() => markRead(active)}
                         style={{ padding: "6px 12px", background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: INK, cursor: "pointer", fontFamily: FF, flexShrink: 0 }}>
                         Mark as read
+                      </button>
+                    ) : (
+                      // [sms-mark-unread 2026-07-22] Only offered once the thread is
+                      // read — otherwise it's a no-op sitting next to "Mark as read".
+                      <button onClick={() => markUnread(active)} title="Put this back in your unread list"
+                        style={{ padding: "6px 12px", background: "#F1F0EC", border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: INK, cursor: "pointer", fontFamily: FF, flexShrink: 0 }}>
+                        Mark unread
                       </button>
                     )}
                   </div>
@@ -803,6 +893,34 @@ export default function MessagesPage() {
 
                     {/* Sent/received messages */}
                     {thread.map(m => {
+                      // [sms-thread-notes 2026-07-22] Internal note — never sent to
+                      // the customer. Rendered full-width in amber, deliberately
+                      // unlike ANY message bubble (which are left/right, mint/grey),
+                      // so nobody can skim the thread and read a note as something
+                      // the customer saw.
+                      if (m.source === "note") {
+                        return (
+                          <div key={`note-${m.id}`} style={{ display: "flex", justifyContent: "center" }}>
+                            <div style={{ width: "92%", background: "#FEF7E0", border: "1px solid #F5DFA6", borderRadius: 10, padding: "8px 11px" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
+                                <StickyNote size={11} color="#8A6A12" />
+                                <span style={{ fontSize: 10, fontWeight: 800, color: "#8A6A12", textTransform: "uppercase", letterSpacing: 0.4 }}>
+                                  Internal note{m.author ? ` · ${m.author}` : ""}
+                                </span>
+                                <span style={{ fontSize: 10, color: "#A98A3E", marginLeft: "auto" }}>{fmtMsgTime(m.created_at)}</span>
+                                <button onClick={() => deleteNote(String(m.id))} title="Delete note"
+                                  style={{ border: "none", background: "transparent", cursor: "pointer", padding: 0, display: "flex" }}>
+                                  <Trash2 size={11} color="#A98A3E" />
+                                </button>
+                              </div>
+                              <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "#4A3A08" }}>
+                                {linkify(m.body)}
+                              </div>
+                              <div style={{ fontSize: 9.5, color: "#A98A3E", marginTop: 4 }}>Not sent to the customer</div>
+                            </div>
+                          </div>
+                        );
+                      }
                       const inbound = m.direction === "inbound";
                       const isDrip = !inbound && m.source === "drip";
                       const mediaKeys = Array.isArray(m.media_urls) ? m.media_urls : [];
@@ -903,7 +1021,28 @@ export default function MessagesPage() {
                       is just textarea + Send — the text box gets the full width
                       and wraps far less. Shared AI tools component so the New
                       Message modal gets the same tools. */}
-                  <div style={{ padding: "8px 10px 2px", background: "#fff", borderTop: `1px solid ${BORDER}`, display: "flex", alignItems: "center", gap: 8 }}>
+                  {/* [sms-thread-notes 2026-07-22] Reply / Note switch, GHL-style.
+                      Whole composer changes color in Note mode — a note leaking out
+                      as a real text to the customer is the expensive mistake here,
+                      so the two modes must never look alike. */}
+                  <div style={{ padding: "8px 10px 0", background: "#fff", borderTop: `1px solid ${BORDER}`, display: "flex", gap: 6 }}>
+                    {([["reply", "Message"], ["note", "Internal note"]] as const).map(([mode, label]) => {
+                      const on = composerMode === mode;
+                      const amber = mode === "note";
+                      return (
+                        <button key={mode} onClick={() => { setComposerMode(mode); if (mode === "note") setScheduleOpen(false); }}
+                          style={{ display: "flex", alignItems: "center", gap: 5, padding: "5px 11px", borderRadius: 8, cursor: "pointer", fontFamily: FF, fontSize: 12, fontWeight: 700,
+                            background: on ? (amber ? "#FEF7E0" : "#EAFBF6") : "transparent",
+                            border: `1px solid ${on ? (amber ? "#F5DFA6" : "#A7F3D0") : "transparent"}`,
+                            color: on ? (amber ? "#8A6A12" : "#04241d") : MUTE }}>
+                          {amber ? <StickyNote size={12} /> : <MessageSquare size={12} />} {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {composerMode === "reply" && (
+                  <div style={{ padding: "8px 10px 2px", background: "#fff", display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <ComposerAiTools value={reply} onChange={setReply} conversation={buildTranscript(thread)} />
                     </div>
@@ -914,19 +1053,34 @@ export default function MessagesPage() {
                       <Paperclip size={15} color={MUTE} />
                     </button>
                   </div>
+                  )}
 
                   {/* Composer */}
-                  <div style={{ padding: 10, borderTop: "none", display: "flex", gap: 8, alignItems: "flex-end", background: "#fff" }}>
+                  <div style={{ padding: 10, borderTop: "none", display: "flex", gap: 8, alignItems: "flex-end", background: composerMode === "note" ? "#FFFDF5" : "#fff" }}>
                     <textarea ref={replyRef} value={reply} onChange={e => setReply(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !scheduleOpen) { e.preventDefault(); send(); } }}
-                      placeholder={scheduleOpen ? "Type message to schedule…" : "Type a reply…"} rows={1}
-                      style={{ flex: 1, resize: "none", padding: "10px 12px", border: `1px solid ${scheduleOpen ? BRAND : BORDER}`, borderRadius: 10, fontSize: 14, lineHeight: 1.35, fontFamily: FF, maxHeight: 140, overflowY: "auto" }} />
+                      onKeyDown={e => {
+                        if (e.key !== "Enter" || e.shiftKey) return;
+                        if (composerMode === "note") { e.preventDefault(); saveNote(); return; }
+                        if (!scheduleOpen) { e.preventDefault(); send(); }
+                      }}
+                      placeholder={composerMode === "note" ? "Internal note — the customer never sees this…" : scheduleOpen ? "Type message to schedule…" : "Type a reply…"} rows={1}
+                      style={{ flex: 1, resize: "none", padding: "10px 12px",
+                        border: `1px solid ${composerMode === "note" ? "#F5DFA6" : scheduleOpen ? BRAND : BORDER}`,
+                        background: composerMode === "note" ? "#FEF7E0" : "#fff",
+                        borderRadius: 10, fontSize: 14, lineHeight: 1.35, fontFamily: FF, maxHeight: 140, overflowY: "auto" }} />
                     {/* [send-schedule-menu 2026-07-02] Apple-style split Send:
                         the main button sends now; the attached caret opens a
                         small menu with "Schedule send…" (the standalone clock
                         button is gone). Hidden while the schedule picker is
                         open — that row has its own Schedule / cancel controls. */}
-                    {!scheduleOpen && (
+                    {composerMode === "note" ? (
+                      <button onClick={saveNote} disabled={!reply.trim() || savingNote}
+                        style={{ height: 44, padding: "0 16px", background: "#8A6A12", color: "#FFFDF5", border: "none", borderRadius: 10, fontWeight: 800, fontFamily: FF,
+                          cursor: reply.trim() && !savingNote ? "pointer" : "default", opacity: reply.trim() && !savingNote ? 1 : 0.5,
+                          display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                        <StickyNote size={15} /> {savingNote ? "Saving…" : "Save note"}
+                      </button>
+                    ) : !scheduleOpen && (
                       <div style={{ position: "relative", flexShrink: 0 }}>
                         <div style={{ display: "flex", alignItems: "stretch", height: 44 }}>
                           <button onClick={send} disabled={!canSend || sending}

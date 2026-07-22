@@ -335,6 +335,18 @@ async function runStartupMigrations() {
       // [time-off-ticket 2026-07-07] Employee time-off submissions also create a
       // contact ticket on the employee (profile + Contact Tickets report).
       await db.execute(sql`ALTER TYPE contact_ticket_type ADD VALUE IF NOT EXISTS 'time_off_request'`);
+      // [sms-thread-notes 2026-07-22] Internal notes on a customer conversation
+      // (GHL-style). They ride in communication_log rather than a new table, so
+      // they cascade to the client's Communication log for free — that timeline
+      // already unions communication_log by customer_id. A note is neither
+      // inbound nor outbound and isn't a real channel, hence two new enum
+      // values. ADD VALUE is idempotent and must run outside a transaction
+      // (plain execute), same as the leave_day_unit line above.
+      await db.execute(sql`ALTER TYPE comm_channel ADD VALUE IF NOT EXISTS 'note'`);
+      await db.execute(sql`ALTER TYPE comm_direction ADD VALUE IF NOT EXISTS 'internal'`);
+      // Notes are looked up per conversation on every thread open.
+      await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_comm_log_note_customer
+        ON communication_log(company_id, customer_id) WHERE channel = 'note'`);
       // [quote-details-carry 2026-07-07] Full widget-quote snapshot (bedrooms/
       // bathrooms/sqft/frequency/add-ons/referral/step_reached) on the lead +
       // abandoned-booking rows, so the office alert and Lead Pipeline show

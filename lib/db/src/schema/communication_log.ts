@@ -4,9 +4,14 @@ import { clientsTable } from "./clients";
 import { usersTable } from "./users";
 import { jobsTable } from "./jobs";
 
-export const commDirectionEnum = pgEnum("comm_direction", ["inbound", "outbound"]);
+// [sms-thread-notes 2026-07-22] "internal" + "note" carry staff-only notes left
+// on a customer conversation. They are NOT messages: nothing is ever sent to the
+// customer on this channel. Storing them here (rather than in their own table)
+// is what makes them cascade to the client's Communication log for free — that
+// timeline already unions communication_log by customer_id.
+export const commDirectionEnum = pgEnum("comm_direction", ["inbound", "outbound", "internal"]);
 export const commChannelEnum = pgEnum("comm_channel", [
-  "phone", "email", "sms", "in_person", "other",
+  "phone", "email", "sms", "in_person", "other", "note",
 ]);
 
 export const communicationLogTable = pgTable("communication_log", {

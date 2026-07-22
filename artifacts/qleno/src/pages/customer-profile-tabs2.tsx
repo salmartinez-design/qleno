@@ -6,7 +6,7 @@ import {
   RefreshCw, Link, ExternalLink, DollarSign, CreditCard, RotateCcw,
   Clock, AlertCircle, CheckCircle, Eye, File,
   MessageSquare, Mail, Phone, Users, ChevronDown, ChevronUp, List, LayoutList,
-  Filter, CalendarDays,
+  Filter, CalendarDays, StickyNote,
 } from "lucide-react";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -690,6 +690,11 @@ function cardStyle(entry: any): React.CSSProperties {
   const ch = (entry.channel || "").toLowerCase();
   const dir = (entry.direction || "").toLowerCase();
   const src = (entry.source || "staff").toLowerCase();
+  // [sms-thread-notes 2026-07-22] Internal notes get their own amber treatment,
+  // matching the note bubble in the Messages thread. Checked FIRST so a note can
+  // never fall through to a channel style and read as something we sent the
+  // customer — nothing on this channel is ever delivered to anyone.
+  if (ch === "note") return { borderLeft: "3px solid #D9A93C", background: "#FEF7E0" };
   if (src === "system" || (ch === "sms" && src === "system")) {
     if (dir === "inbound") return { borderLeft: "3px solid #10B981", background: "rgba(16,185,129,0.04)" };
     if (ch === "email") return { borderLeft: "3px solid #8B5CF6", background: "rgba(139,92,246,0.04)" };
@@ -702,7 +707,7 @@ function cardStyle(entry: any): React.CSSProperties {
 }
 
 function channelLabel(ch: string) {
-  const m: Record<string,string> = { sms:"Text Message", text:"Text Message", email:"Email", phone:"Phone Call", in_person:"In Person", other:"Other" };
+  const m: Record<string,string> = { sms:"Text Message", text:"Text Message", email:"Email", phone:"Phone Call", in_person:"In Person", other:"Other", note:"Internal Note" };
   return m[ch?.toLowerCase()] || ch || "Message";
 }
 
@@ -728,6 +733,7 @@ function plainBody(s: string): string {
 
 function ChannelIcon({ ch, size = 13 }: { ch: string; size?: number }) {
   const c = (ch || "").toLowerCase();
+  if (c === "note") return <StickyNote size={size} />;
   if (c === "email") return <Mail size={size} />;
   if (c === "phone") return <Phone size={size} />;
   if (c === "in_person") return <Users size={size} />;
@@ -855,7 +861,12 @@ function CommLogDetailCard({ entry }: { entry: any }) {
             {channelLabel(entry.channel)}
           </span>
           <span style={{ fontSize: 11, color: "#6B6860" }}>
-            {entry.direction === "outbound" ? `To: ${entry.recipient || "—"}` : `From: ${entry.recipient || "—"}`}
+            {/* [sms-thread-notes 2026-07-22] A note has no recipient — saying
+                "From: —" would imply it came from somewhere. State plainly that
+                it never left the office. */}
+            {(entry.channel || "").toLowerCase() === "note"
+              ? "Staff only — not sent to the customer"
+              : entry.direction === "outbound" ? `To: ${entry.recipient || "—"}` : `From: ${entry.recipient || "—"}`}
           </span>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
@@ -937,6 +948,9 @@ const FILTERS = [
   { label: "Email", value: "email" },
   { label: "Phone", value: "phone" },
   { label: "In Person", value: "in_person" },
+  // [sms-thread-notes 2026-07-22] Internal notes are their own thing — neither a
+  // channel we send on nor a direction — so they get their own filter.
+  { label: "Internal Notes", value: "note" },
   { label: "System", value: "system" },
   { label: "Staff", value: "staff" },
   { label: "Inbound", value: "inbound" },
@@ -982,7 +996,7 @@ export function CommLog2({ clientId }: { clientId: number }) {
         // channel (sms/email/phone/in_person), direction (inbound/outbound),
         // and source (system = automated/cadence, staff = manual/two-way).
         const f = filter.toLowerCase();
-        const CHANNELS = ["sms", "email", "phone", "in_person"];
+        const CHANNELS = ["sms", "email", "phone", "in_person", "note"];
         const DIRECTIONS = ["inbound", "outbound"];
         return rows.filter((r: any) => {
           if (CHANNELS.includes(f)) return (r.channel || "").toLowerCase() === f;
