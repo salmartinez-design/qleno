@@ -5924,6 +5924,20 @@ function buildJobWhereClause(query: any, companyId: number, cursorId?: number | 
   if (query.zone_id) { const v = parseInt(query.zone_id); if (!isNaN(v)) parts.push(sql`j.zone_id = ${v}`); }
   if (query.date_from && DATE_RE.test(query.date_from)) parts.push(sql`j.scheduled_date >= ${query.date_from}`);
   if (query.date_to && DATE_RE.test(query.date_to)) parts.push(sql`j.scheduled_date <= ${query.date_to}`);
+  // [booked-today-drilldown 2026-07-22] `booked_on` filters by the day the job
+  // was BOOKED (created), not the day it's scheduled for — the two are usually
+  // different (a job booked today for Aug 1). This is the drill-down behind the
+  // dashboard's "New Jobs Booked" tile, so it reproduces that tile's predicate
+  // EXACTLY: created that Chicago day, not cancelled, and no recurring-engine
+  // occurrences (one new recurring client generates many future visits carrying
+  // today's created_at; the tile counts the booking, not every generated visit).
+  // If you change one, change the other — a tile whose count doesn't match the
+  // list it opens is worse than no link at all.
+  if (query.booked_on && DATE_RE.test(query.booked_on)) {
+    parts.push(sql`(j.created_at AT TIME ZONE 'America/Chicago')::date = ${query.booked_on}::date`);
+    parts.push(sql`j.recurring_schedule_id IS NULL`);
+    parts.push(sql`j.status != 'cancelled'`);
+  }
   if (query.assigned_user_id) {
     if (query.assigned_user_id === "unassigned") parts.push(sql`j.assigned_user_id IS NULL`);
     else { const v = parseInt(query.assigned_user_id); if (!isNaN(v)) parts.push(sql`j.assigned_user_id = ${v}`); }
