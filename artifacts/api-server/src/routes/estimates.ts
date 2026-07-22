@@ -1032,14 +1032,22 @@ router.get("/:id/agreement-draft", requireAuth, async (req, res) => {
     const e = await db.execute(sql`SELECT contact_email, contact_name, client_id FROM estimates WHERE id = ${id} AND company_id = ${companyId} LIMIT 1`);
     const est: any = (e as any).rows[0];
     if (!est) return res.status(404).json({ error: "Not Found" });
-    const tpl = await db.execute(sql`
+    // [agreement-template-choice 2026-07-22] Return EVERY signable template so the
+    // send modal can offer a picker, and honor an explicit ?template_id. The old
+    // query silently took the lowest-id commercial match, which is why the send
+    // modal kept serving the generic stub instead of the real service agreement.
+    // Default preference: newest signable template whose name mentions "service
+    // agreement", else commercial, else most recently created.
+    const all = await db.execute(sql`
       SELECT id, name, terms_body FROM form_templates
       WHERE company_id = ${companyId} AND requires_sign = true AND is_active = true
         AND (category = 'commercial' OR name ILIKE '%agreement%')
-      ORDER BY (name ILIKE '%commercial%') DESC, id ASC LIMIT 1
+      ORDER BY (name ILIKE '%service agreement%') DESC, (name ILIKE '%commercial%') DESC, id DESC
     `);
-    const t: any = (tpl as any).rows[0];
-    if (!t) return res.json({ has_template: false });
+    const rows: any[] = (all as any).rows || [];
+    if (!rows.length) return res.json({ has_template: false });
+    const wanted = req.query.template_id ? parseInt(String(req.query.template_id), 10) : null;
+    const t: any = (wanted && rows.find(r => r.id === wanted)) || rows[0];
     // [agreement-merge 2026-07-22] Fill {{client_name}} / {{rate}} / {{frequency}}
     // from THIS estimate before the office sees the draft, so the review modal
     // shows the finished contract instead of raw {{tokens}}. Whatever they send
@@ -1051,7 +1059,16 @@ router.get("/:id/agreement-draft", requireAuth, async (req, res) => {
     } catch (e) {
       console.error("[agreement-merge] estimate draft render (non-fatal):", e);
     }
-    return res.json({ has_template: true, template_id: t.id, title: t.name, body, to: est.contact_email, to_name: est.contact_name });
+    return res.json({
+      has_template: true,
+      template_id: t.id,
+      title: t.name,
+      body,
+      to: est.contact_email,
+      to_name: est.contact_name,
+      // The full picker list, so the office can switch layouts in the modal.
+      templates: rows.map(r => ({ id: r.id, name: r.name })),
+    });
   } catch (err) {
     console.error("Estimate agreement-draft error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
@@ -1064,7 +1081,8 @@ router.get("/:id/agreements", requireAuth, async (req, res) => {
     const companyId = req.auth!.companyId;
     const id = parseInt(req.params.id, 10);
     const rows = await db.execute(sql`
-      SELECT id, sign_token, status, sent_to, sent_at, viewed_at, signature_at, signature_name, pdf_url
+      SELECT id, sign_token, status, sent_to, sent_at, viewed_at, last_viewed_at,
+             COALESCE(view_count, 0) AS view_count, signature_at, signature_name, pdf_url
       FROM form_submissions
       WHERE estimate_id = ${id} AND company_id = ${companyId}
       ORDER BY id DESC
