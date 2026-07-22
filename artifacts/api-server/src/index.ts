@@ -804,9 +804,10 @@ async function runStartupMigrations() {
   // [agreement-multi-view] last_viewed_at + view_count on form_submissions
   try {
     await withBootTimeout("ensureAgreementViewColumns", SCHEMA_TIMEOUT_MS, async () => {
-      const { ensureAgreementViewColumns, ensureLateFeeTermsColumn } = await import("./lib/agreement-view-tracking.js");
+      const { ensureAgreementViewColumns, ensureLateFeeTermsColumn, ensureAgreementClauseColumns } = await import("./lib/agreement-view-tracking.js");
       await ensureAgreementViewColumns();
       await ensureLateFeeTermsColumn();
+      await ensureAgreementClauseColumns();
     });
   } catch (err: any) {
     console.error("[startup] ensureAgreementViewColumns — non-fatal:", err?.message ?? err);

@@ -2715,6 +2715,12 @@ function InvoicingTab() {
     invoice_guarantee: '',
     invoice_terms: '',
     late_fee_terms: '',
+    agr_termination_notice_days: 30,
+    agr_rate_notice_days: 30,
+    agr_damage_report_days: 5,
+    agr_damage_cap: '500.00',
+    agr_nonsolicit_months: 12,
+    agr_nonsolicit_fee: '2500.00',
   });
 
   useEffect(() => {
@@ -2738,6 +2744,12 @@ function InvoicingTab() {
           invoice_guarantee: c.invoice_guarantee || '',
           invoice_terms: c.invoice_terms || '',
           late_fee_terms: c.late_fee_terms || '',
+          agr_termination_notice_days: c.agr_termination_notice_days ?? 30,
+          agr_rate_notice_days: c.agr_rate_notice_days ?? 30,
+          agr_damage_report_days: c.agr_damage_report_days ?? 5,
+          agr_damage_cap: c.agr_damage_cap ?? '500.00',
+          agr_nonsolicit_months: c.agr_nonsolicit_months ?? 12,
+          agr_nonsolicit_fee: c.agr_nonsolicit_fee ?? '2500.00',
         });
       })
       .catch(console.error)
@@ -2908,6 +2920,46 @@ function InvoicingTab() {
           <div>
             <label style={labelStyle}>Terms &amp; Cancellation Policy</label>
             <textarea value={settings.invoice_terms} onChange={e => setSettings(s => ({ ...s, invoice_terms: e.target.value }))} placeholder="Your cancellation and reschedule policy." style={textareaStyle} />
+          </div>
+          {/* [agreement-clauses 2026-07-22] Numbers the service agreement merges in.
+              Editing them here beats editing legal text in the template. */}
+          <div style={{ gridColumn: '1 / -1', borderTop: '1px solid #E5E2DC', paddingTop: 16, marginTop: 4 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', marginBottom: 2 }}>Service Agreement Terms</div>
+            <div style={{ fontSize: 11, color: '#6B6860', marginBottom: 12, lineHeight: 1.5 }}>
+              Merged into service agreements. Wording only &mdash; Qleno does not enforce or bill these.
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 12 }}>
+              <div>
+                <label style={labelStyle}>Termination notice (days)</label>
+                <input type="number" min={0} max={365} value={settings.agr_termination_notice_days}
+                  onChange={e => setSettings(s => ({ ...s, agr_termination_notice_days: e.target.value as any }))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Rate-change notice (days)</label>
+                <input type="number" min={0} max={365} value={settings.agr_rate_notice_days}
+                  onChange={e => setSettings(s => ({ ...s, agr_rate_notice_days: e.target.value as any }))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Damage reporting window (business days)</label>
+                <input type="number" min={1} max={90} value={settings.agr_damage_report_days}
+                  onChange={e => setSettings(s => ({ ...s, agr_damage_report_days: e.target.value as any }))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Damage liability cap ($)</label>
+                <input type="number" min={0} step="0.01" value={settings.agr_damage_cap}
+                  onChange={e => setSettings(s => ({ ...s, agr_damage_cap: e.target.value as any }))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Non-solicit period (months)</label>
+                <input type="number" min={0} max={60} value={settings.agr_nonsolicit_months}
+                  onChange={e => setSettings(s => ({ ...s, agr_nonsolicit_months: e.target.value as any }))} style={inputStyle} />
+              </div>
+              <div>
+                <label style={labelStyle}>Non-solicit placement fee ($)</label>
+                <input type="number" min={0} step="0.01" value={settings.agr_nonsolicit_fee}
+                  onChange={e => setSettings(s => ({ ...s, agr_nonsolicit_fee: e.target.value as any }))} style={inputStyle} />
+              </div>
+            </div>
           </div>
           <div>
             <label style={labelStyle}>Late Payment Terms</label>

@@ -257,6 +257,33 @@ router.patch("/me", requireAuth, async (req, res) => {
         // [agreement-late-fee 2026-07-22] Late-payment wording for {{late_fee}}
         // in service agreements. Same clear-on-empty semantics as the rest.
         "late_fee_terms"];
+      // [agreement-clauses 2026-07-22] Numeric contract terms. Clamped to sane
+      // ranges so a stray keystroke can't put "0 days" or a negative cap into a
+      // signed agreement.
+      const clampInt = (v: unknown, min: number, max: number) => {
+        if (v === undefined || v === null || String(v).trim() === "") return undefined;
+        const n = parseInt(String(v), 10);
+        return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : undefined;
+      };
+      const clampMoney = (v: unknown) => {
+        if (v === undefined || v === null || String(v).trim() === "") return undefined;
+        const n = Number(v);
+        return Number.isFinite(n) ? Math.min(1_000_000, Math.max(0, n)).toFixed(2) : undefined;
+      };
+      const dayFields: [string, number, number][] = [
+        ["agr_termination_notice_days", 0, 365],
+        ["agr_rate_notice_days", 0, 365],
+        ["agr_damage_report_days", 1, 90],
+        ["agr_nonsolicit_months", 0, 60],
+      ];
+      for (const [f, lo, hi] of dayFields) {
+        const cv = clampInt(req.body[f], lo, hi);
+        if (cv !== undefined) patch[f] = cv;
+      }
+      for (const f of ["agr_damage_cap", "agr_nonsolicit_fee"]) {
+        const cv = clampMoney(req.body[f]);
+        if (cv !== undefined) patch[f] = cv;
+      }
       for (const f of fields) {
         const cv = cleanText(req.body[f]);
         if (cv !== undefined) patch[f] = cv;

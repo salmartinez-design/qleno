@@ -23,6 +23,19 @@ export async function ensureLateFeeTermsColumn(): Promise<void> {
   await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS late_fee_terms text`);
 }
 
+// [agreement-clauses 2026-07-22] Tunable numbers behind the service-agreement
+// merge variables (termination/rate notice, damage reporting window and cap,
+// non-solicit period and placement fee). Defaults are Sal's approved values.
+// Contract WORDING only — nothing here is enforced or billed by Qleno.
+export async function ensureAgreementClauseColumns(): Promise<void> {
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_termination_notice_days integer NOT NULL DEFAULT 30`);
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_rate_notice_days integer NOT NULL DEFAULT 30`);
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_damage_report_days integer NOT NULL DEFAULT 5`);
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_damage_cap numeric(12,2) NOT NULL DEFAULT 500.00`);
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_nonsolicit_months integer NOT NULL DEFAULT 12`);
+  await db.execute(sql`ALTER TABLE companies ADD COLUMN IF NOT EXISTS agr_nonsolicit_fee numeric(12,2) NOT NULL DEFAULT 2500.00`);
+}
+
 export async function ensureAgreementViewColumns(): Promise<void> {
   await db.execute(sql`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS last_viewed_at timestamp`);
   await db.execute(sql`ALTER TABLE form_submissions ADD COLUMN IF NOT EXISTS view_count integer NOT NULL DEFAULT 0`);

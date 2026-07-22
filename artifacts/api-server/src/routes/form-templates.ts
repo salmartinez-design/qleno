@@ -60,30 +60,46 @@ Due Date: Payment is due in full on the first visit of the month.
 
 Late Payments: {{late_fee}}
 
+Rate Adjustments: The Service Provider may adjust rates by providing {{rate_notice_days}} days' written notice. If the Client does not accept the adjusted rate, either party may terminate this Agreement effective on the proposed adjustment date, with no further obligation beyond services already performed.
+
 Scope Limitation: The work performed will be strictly limited to the services listed in Section 3. Any additional tasks or requests outside this scope will be billed separately and require prior written approval.
 
 5. CANCELLATION & ACCESS
 
-Early Termination: Either party may terminate this Agreement with a 30-day written notice, delivered as described in Section 8.
+Early Termination: Either party may terminate this Agreement with a {{termination_notice_days}}-day written notice, delivered as described in Section 10.
 
 Lockout Policy: Service Provider shall provide forty-eight (48) hours' notice of the scheduled time. If the Service Provider is ready and able to perform services but is denied access to the property, the visit will be billed in full.
 
-6. LIABILITY & INSURANCE
+Keys and Access: Keys, fobs and access codes provided to the Service Provider will be stored securely and used only to perform services under this Agreement. The Client must notify the Service Provider immediately if access credentials change. The Service Provider is not responsible for re-keying or credential replacement costs unless a credential is lost through its negligence.
 
-The Service Provider carries commercial general liability insurance. A certificate of insurance is available upon request.
+6. LIABILITY, DAMAGE & INSURANCE
 
-7. CONFIDENTIALITY
+Insurance: The Service Provider carries commercial general liability insurance. A certificate of insurance is available upon request.
+
+Damage: The Service Provider will repair or replace items damaged through its negligence. The Client must report suspected damage in writing within {{damage_report_days}} business days of the service date; claims reported after that period cannot be verified and will not be honored. The Service Provider is not liable for damage arising from pre-existing wear, defects, or items that were not properly secured. Except where prohibited by law, the Service Provider's liability for damage to any item is limited to {{damage_cap}} unless a higher amount is agreed in writing in advance.
+
+Governing Law: The laws of the State of Illinois govern this Agreement. Any disputes will be resolved in Cook County, Illinois.
+
+7. NON-SOLICITATION
+
+During the term of this Agreement and for {{nonsolicit_months}} months after it ends, the Client will not directly or indirectly hire, engage or solicit any employee or contractor of the Service Provider who performed services under this Agreement. If the Client does so, the Client agrees to pay a placement fee of {{nonsolicit_fee}}. The parties agree this amount is a reasonable estimate of the Service Provider's recruiting and training costs and is not a penalty.
+
+8. INDEPENDENT CONTRACTOR
+
+The Service Provider is an independent contractor. Personnel performing services are employees or contractors of the Service Provider only and are not employees of the Client. The Service Provider is solely responsible for their wages, taxes, insurance and supervision. Neither party is the agent of the other, and nothing in this Agreement creates a partnership or joint venture.
+
+9. CONFIDENTIALITY
 
 All client information and property details will be kept strictly confidential.
 
-8. NOTICES
+10. NOTICES
 
 All notices required under this Agreement, including notice of termination, must be in writing. Written notice is validly delivered by email or by text message (SMS) to the addresses and numbers below, or to any address or number the parties later provide in writing. Notice is effective on the date it is sent.
 
 To the Service Provider: {{company_email}} / {{company_phone}}
 To the Client: {{client_email}} / {{client_phone}}
 
-9. ENTIRE AGREEMENT
+11. ENTIRE AGREEMENT
 
 This Agreement constitutes the entire understanding between the parties. Any amendments must be in writing and signed by both parties.
 
