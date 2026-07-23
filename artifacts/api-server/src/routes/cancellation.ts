@@ -348,10 +348,23 @@ router.post("/action", requireAuth, async (req, res) => {
       // 'in_progress' if a tech already clocked in — preserve it).
       // billed_amount stays untouched. The audit log row records the
       // reschedule for reporting; the job itself continues to live.
+      // [moved-slot-dup 2026-07-23] Freeze the cadence slot BEFORE moving the
+      // job. occurrence_date is what stops the engine regenerating a visit on
+      // the day this one is leaving. Legacy recurring rows (created before
+      // occurrence_date existed, or imported) can still be NULL here, and once
+      // scheduled_date moves the original slot is unrecoverable — the nightly
+      // run then sees that day as empty and books a phantom on it. Stamping
+      // COALESCE(occurrence_date, scheduled_date) captures the pre-move day at
+      // the one moment it's still known. Postgres evaluates every SET from the
+      // OLD row, so reading scheduled_date here is the pre-move value.
+      // Non-recurring jobs stay NULL — they have no cadence slot to protect.
       if (body.new_time != null) {
         await tx.execute(sql`
           UPDATE jobs
-             SET scheduled_date = ${body.new_date}::date,
+             SET occurrence_date = CASE WHEN recurring_schedule_id IS NOT NULL
+                                        THEN COALESCE(occurrence_date, scheduled_date)
+                                        ELSE occurrence_date END,
+                 scheduled_date = ${body.new_date}::date,
                  scheduled_time = ${body.new_time}::time,
                  notes = ${appendedNotes}
            WHERE id = ${body.job_id} AND company_id = ${companyId}
@@ -359,7 +372,10 @@ router.post("/action", requireAuth, async (req, res) => {
       } else {
         await tx.execute(sql`
           UPDATE jobs
-             SET scheduled_date = ${body.new_date}::date,
+             SET occurrence_date = CASE WHEN recurring_schedule_id IS NOT NULL
+                                        THEN COALESCE(occurrence_date, scheduled_date)
+                                        ELSE occurrence_date END,
+                 scheduled_date = ${body.new_date}::date,
                  notes = ${appendedNotes}
            WHERE id = ${body.job_id} AND company_id = ${companyId}
         `);
