@@ -1620,6 +1620,24 @@ export default function MyJobsPage() {
   const requireAfterPhoto: boolean = data?.require_after_photo_for_clockout ?? false;
   const activeJobs = jobs.filter(j => j.status !== "cancelled" && (!j.time_clock_entry || !j.time_clock_entry.clock_out_at || j.status !== "complete"));
   const upcomingJobs = jobs.filter(j => j.status === "scheduled" && !j.time_clock_entry);
+  // [event-timeorder 2026-07-23] Clockable events (meetings / training / the
+  // tech's own 1-on-1) belong IN the day's timeline, not a drawer under it.
+  // Sort them into the active-card flow by start_time so a 2:15 PM 1-on-1 lands
+  // between the 9 AM and 3 PM jobs — the way the tech actually reads their day
+  // top-to-bottom (Sal report 2026-07-23: "it should land after his first job
+  // and before his second"). Reverses the earlier "move the event to the bottom"
+  // call now that clock-in lives on the event card. prevJobId (mileage's
+  // job-to-job hook) is precomputed from the job-only order so an interleaved
+  // event never breaks the drive-leg sequence.
+  const eventStart = (ev: TechEvent) => (typeof ev.start_time === "string" && /^\d/.test(ev.start_time) ? ev.start_time : "99:99:99");
+  const jobStart = (j: Job) => (typeof j.scheduled_time === "string" && /^\d/.test(j.scheduled_time) ? j.scheduled_time : "99:99:99");
+  const prevJobIdOf = new Map<number, number | null>();
+  activeJobs.forEach((j, i) => prevJobIdOf.set(j.id, i > 0 ? activeJobs[i - 1].id : null));
+  type ScheduleEntry = { time: string } & ({ kind: "job"; job: Job } | { kind: "event"; ev: TechEvent });
+  const activeEntries: ScheduleEntry[] = [
+    ...activeJobs.map((job): ScheduleEntry => ({ kind: "job", time: jobStart(job), job })),
+    ...dayEvents.map((ev): ScheduleEntry => ({ kind: "event", time: eventStart(ev), ev })),
+  ].sort((a, b) => (a.time < b.time ? -1 : a.time > b.time ? 1 : 0));
   // [day-complete 2026-06-04] The day is DERIVED, never a button: it's done
   // when every non-cancelled job today is checked out. No clock-out tap — this
   // is a closure STATE. Job hours come from the tech's own check-in/out spans.
@@ -1960,11 +1978,16 @@ export default function MyJobsPage() {
                   </p>
                 </div>
               )}
-              {activeJobs.map((job, i) => (
-                <JobCard key={job.id} job={job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView}
-                  actingForUserId={employeeView ? employeeView.employeeId : null}
-                  prevJobId={i > 0 ? activeJobs[i - 1].id : null} requireAfterPhoto={requireAfterPhoto}
-                  onOpenDetail={() => navigate(`/my-jobs/${job.id}?date=${selectedDate}`)} />
+              {activeEntries.map(entry => (
+                entry.kind === "event" ? (
+                  <EventClockCard key={`evt-${entry.ev.id}`} ev={entry.ev} onRefresh={eventsQ.refetch}
+                    actingForUserId={employeeView ? employeeView.employeeId : null} />
+                ) : (
+                  <JobCard key={entry.job.id} job={entry.job} empPos={empPos} onRefresh={refetch} isPreviewMode={!!employeeView}
+                    actingForUserId={employeeView ? employeeView.employeeId : null}
+                    prevJobId={prevJobIdOf.get(entry.job.id) ?? null} requireAfterPhoto={requireAfterPhoto}
+                    onOpenDetail={() => navigate(`/my-jobs/${entry.job.id}?date=${selectedDate}`)} />
+                )
               ))}
               {upcomingJobs.length > 0 && (
                 <div style={{ marginTop: 20 }}>
@@ -2010,14 +2033,11 @@ export default function MyJobsPage() {
                   })}
                 </div>
               )}
-              {/* [event-clock 2026-07-15] Clockable events + upcoming 1-on-1
-                  reminder, rendered at the BOTTOM of the day below the jobs
-                  (Sal: move the event to the bottom of the list). Clock in/out
-                  pays the tech for the time. */}
-              {dayEvents.map(ev => (
-                <EventClockCard key={`evt-${ev.id}`} ev={ev} onRefresh={eventsQ.refetch}
-                  actingForUserId={employeeView ? employeeView.employeeId : null} />
-              ))}
+              {/* [event-timeorder 2026-07-23] Same-day clockable events now render
+                  IN time order within the active-card flow above (interleaved by
+                  start_time), not dumped here at the bottom. What remains below is
+                  only the cross-day 1-on-1 reminder — a heads-up for an appointment
+                  on a DIFFERENT day than the one being viewed. */}
               {upcomingOneOnOnes.filter(o => o.event_date !== selectedDate).map(o => (
                 <div key={`ono-${o.id}`}
                   style={{ backgroundColor: "#0A0E1A", border: "1px solid var(--brand)", borderRadius: 12, padding: 16, marginTop: 12, boxShadow: "0 2px 12px rgba(var(--brand-rgb),0.28)" }}>
