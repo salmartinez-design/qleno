@@ -63,7 +63,7 @@
 // pushing"); batch 'pending' drafts do NOT push either.
 import { db } from "@workspace/db";
 import { jobsTable, invoicesTable, accountsTable, companiesTable, clientsTable } from "@workspace/db/schema";
-import { eq, and, ne } from "drizzle-orm";
+import { eq, and, ne, or, sql } from "drizzle-orm";
 import { getNextInvoiceNumber } from "./invoice-number.js";
 import { derivePaymentSource } from "./payment-source.js";
 import { buildJobLineItems } from "./invoice-line-items.js";
@@ -97,17 +97,41 @@ export async function ensureInvoiceForCompletedJob(
   userId: number | null,
 ): Promise<EnsureInvoiceResult> {
   try {
-    // Idempotency: a job gets at most one live invoice. A pre-existing non-void
+    // Idempotency: a visit gets at most one live invoice. A pre-existing non-void
     // invoice is handed back so callers can surface it without duplicating. A
     // voided invoice does NOT block re-issue (office voided it deliberately).
+    //
+    // [dupe-guard 2026-07-22] A visit is linked to an invoice by TWO carriers and
+    // this check must test BOTH:
+    //   (1) invoices.job_id          — the per-visit document.
+    //   (2) line_items[].job_id      — the visit folded into a consolidated /
+    //                                  bundled account invoice.
+    // Checking only (1) is what put the same July visit on two live invoices for
+    // Azzarello, Halper, and Cucci: POST /accounts/:id/generate-invoice built the
+    // month's batch first, then completion came along, saw no row with that
+    // job_id, and minted a second per-visit invoice for work already billed —
+    // inflating A/R by $1,330.93. The same `@>` containment predicate already
+    // guards the batch side (routes/accounts.ts uninvoiced-jobs selector); this
+    // makes the guard bidirectional so neither path can double-bill the other.
+    //
+    // KNOWN GAP (tracked separately): a hand-edited invoice collapsed to a single
+    // `quantity: N` line records only the FIRST job_id, so the other N-1 visits
+    // are billed but unnamed and remain invisible here. The durable fix is to
+    // preserve every job_id through a manual consolidate — see the follow-up.
     const existing = await db
       .select({ id: invoicesTable.id, status: invoicesTable.status, total: invoicesTable.total })
       .from(invoicesTable)
       .where(and(
-        eq(invoicesTable.job_id, jobId),
         eq(invoicesTable.company_id, companyId),
         ne(invoicesTable.status, "void"),
+        or(
+          eq(invoicesTable.job_id, jobId),
+          sql`${invoicesTable.line_items} @> jsonb_build_array(jsonb_build_object('job_id', ${jobId}::int))`,
+        ),
       ))
+      // Prefer the per-visit document when both carriers match, so callers that
+      // surface "the job's invoice" keep getting exactly what they got before.
+      .orderBy(sql`(${invoicesTable.job_id} = ${jobId}) DESC`, invoicesTable.id)
       .limit(1);
     if (existing[0]) {
       return { created: false, skipped: false, invoiceId: existing[0].id, status: existing[0].status, total: existing[0].total, error: false };
