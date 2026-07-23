@@ -740,18 +740,47 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                 </div>
 
                 {/* Additional pay & reimbursements */}
-                {addlEntries.length > 0 && (
-                  <>
-                    <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 8px' }}>Additional pay &amp; reimbursements</p>
-                    <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
-                      {addlEntries.map(([type, amount]) => (
-                        <span key={type} style={{ fontSize: 12, color: '#6B6860' }}>
-                          {labelType(type)}: <b style={{ color: (amount as number) < 0 ? '#B3261E' : '#1A1917' }}>${(amount as number).toFixed(2)}</b>
-                        </span>
-                      ))}
-                    </div>
-                  </>
-                )}
+                {(() => {
+                  // [addl-pay-detail 2026-07-23] Prefer the itemized entries WITH
+                  // notes (Sal: "I need to know what the additional pay is — there
+                  // is no breakdown"). Each bonus/tip/reimbursement is its own line
+                  // with what it was for. Fall back to the type-totals when the
+                  // itemized payload isn't present (older backend during deploy).
+                  const items: Array<{ type: string; amount: number; notes: string | null }> =
+                    Array.isArray(emp.additional_pay_items) ? emp.additional_pay_items.filter((i: any) => Number(i.amount) !== 0) : [];
+                  if (items.length > 0) {
+                    return (
+                      <>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 8px' }}>Additional pay &amp; reimbursements</p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                          {items.map((it, i) => (
+                            <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 8, fontSize: 12 }}>
+                              <span style={{ color: '#6B6860', fontWeight: 600, minWidth: 90 }}>{labelType(it.type)}</span>
+                              <b style={{ color: it.amount < 0 ? '#B3261E' : '#1A1917' }}>{it.amount < 0 ? '−' : ''}${Math.abs(it.amount).toFixed(2)}</b>
+                              {it.notes ? <span style={{ color: '#9E9B94' }}>· {it.notes}</span>
+                                : <span style={{ color: '#C4C0B8', fontStyle: 'italic' }}>· no note</span>}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  }
+                  if (addlEntries.length > 0) {
+                    return (
+                      <>
+                        <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 8px' }}>Additional pay &amp; reimbursements</p>
+                        <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                          {addlEntries.map(([type, amount]) => (
+                            <span key={type} style={{ fontSize: 12, color: '#6B6860' }}>
+                              {labelType(type)}: <b style={{ color: (amount as number) < 0 ? '#B3261E' : '#1A1917' }}>${(amount as number).toFixed(2)}</b>
+                            </span>
+                          ))}
+                        </div>
+                      </>
+                    );
+                  }
+                  return null;
+                })()}
 
                 {/* Commission by branch */}
                 {Array.isArray(emp.commission_by_branch) && emp.commission_by_branch.length > 1 && (
