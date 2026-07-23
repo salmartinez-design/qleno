@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, invoicesTable, scorecardsTable, serviceZonesTable, serviceZoneEmployeesTable, companiesTable, accountsTable, accountRateCardsTable, accountPropertiesTable, paymentsTable, recurringSchedulesTable, branchesTable, userCompaniesTable, jobDiscountsTable, additionalPayTable } from "@workspace/db/schema";
 import { computeTipSplit, type TipSplitTech } from "../lib/tip-split.js";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
+import { ctDate } from "../lib/ct-day.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { getResendEmailStatus } from "../lib/comms-sender.js";
 import { gatherConfirmationData, buildConfirmationPdf } from "../lib/confirmation-pdf.js";
@@ -5934,7 +5935,7 @@ function buildJobWhereClause(query: any, companyId: number, cursorId?: number | 
   // If you change one, change the other — a tile whose count doesn't match the
   // list it opens is worse than no link at all.
   if (query.booked_on && DATE_RE.test(query.booked_on)) {
-    parts.push(sql`(j.created_at AT TIME ZONE 'America/Chicago')::date = ${query.booked_on}::date`);
+    parts.push(sql`${ctDate(sql`j.created_at`)} = ${query.booked_on}::date`);
     parts.push(sql`j.recurring_schedule_id IS NULL`);
     parts.push(sql`j.status != 'cancelled'`);
   }

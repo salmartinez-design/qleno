@@ -699,8 +699,11 @@ function PeriodSelector({ value, onChange, dark }: { value: Period; onChange: (p
   return (
     <div style={{
       display: 'inline-flex', padding: 2, gap: 2,
-      background: dark ? 'rgba(255,255,255,0.14)' : 'var(--bg-base)',
-      border: `1px solid ${dark ? 'rgba(255,255,255,0.22)' : 'var(--border)'}`,
+      // `dark` means "sitting on the mint hero", not "dark mode" (Qleno has
+      // none). The active tab is solid Night with white type — the same pairing
+      // the delta pill uses, so the two accents on the band match.
+      background: dark ? 'rgba(10,14,26,0.16)' : 'var(--bg-base)',
+      border: `1px solid ${dark ? 'rgba(10,14,26,0.24)' : 'var(--border)'}`,
       borderRadius: 'var(--radius-control)',
     }}>
       {PERIODS.map(p => {
@@ -711,8 +714,8 @@ function PeriodSelector({ value, onChange, dark }: { value: Period; onChange: (p
               padding: '6px 14px', border: 'none', cursor: 'pointer', fontFamily: FF,
               fontSize: 12, fontWeight: 600,
               borderRadius: 6,
-              background: on ? (dark ? '#FFFFFF' : 'var(--bg-card)') : 'transparent',
-              color: on ? (dark ? 'var(--brand)' : 'var(--ink)') : (dark ? 'rgba(255,255,255,0.82)' : 'var(--ink-muted)'),
+              background: on ? (dark ? 'var(--night)' : 'var(--bg-card)') : 'transparent',
+              color: on ? (dark ? '#FFFFFF' : 'var(--ink)') : (dark ? 'rgba(255,255,255,0.88)' : 'var(--ink-muted)'),
               boxShadow: on && !dark ? 'inset 0 0 0 1px var(--border)' : 'none',
             }}>
             {p.label}
@@ -836,12 +839,14 @@ function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: 
   return (
     <div style={{
       borderRadius: 'var(--radius-card)',
-      // [brand 2026-07-22] Qleno Night, not the brand hue. The hero is the one
-      // large dark surface on the page; mint is the ACCENT on top of it (the
-      // delta pill, the selector's active state), never the field itself. A
-      // full-bleed brand-colored band is what made the page read as someone
-      // else's app when a tenant's brand_color is a blue.
-      background: 'linear-gradient(118deg, var(--night) 0%, var(--night-2) 100%)',
+      // [hero-mint 2026-07-23] Mint IS the field, at Sal's call — it's the
+      // primary brand color and the hero is where the brand should land. Type
+      // stays white on it, also his call. Note for anyone tempted to "fix" it:
+      // white on #00C9A0 is ~2.1:1, under the WCAG AA floor, so the ramp runs
+      // to a deeper #00A886 on the right and every label here is weight 600 at
+      // 11px+ to hold its edges. Do NOT lighten the ramp further. The accent
+      // ON this band is Qleno Night — see the delta pill and the selector.
+      background: 'linear-gradient(118deg, var(--brand) 0%, #00A886 100%)',
       color: '#FFFFFF', padding: '22px 26px',
       display: 'flex', alignItems: 'stretch', justifyContent: 'space-between', gap: 28, flexWrap: 'wrap',
     }}>
@@ -853,7 +858,7 @@ function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: 
             below still names the city because that's the forecast's location,
             not the branch selector. */}
         <p style={{ fontSize: 20, fontWeight: 600, margin: 0, fontFamily: FF, color: '#FFFFFF' }}>{greeting}</p>
-        <p style={{ fontSize: 12, margin: '6px 0 0', fontFamily: FF, color: 'rgba(255,255,255,0.78)' }}>{todayDate}</p>
+        <p style={{ fontSize: 12, margin: '6px 0 0', fontFamily: FF, color: 'rgba(255,255,255,0.85)' }}>{todayDate}</p>
 
         {weather?.available && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
@@ -868,7 +873,7 @@ function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: 
         )}
         {/* Weather earns its space by saying what it means for the day. */}
         {weather?.available && weather.rough && (
-          <p style={{ fontSize: 11, fontWeight: 600, margin: '8px 0 0', padding: '3px 8px', display: 'inline-block', borderRadius: 999, background: 'rgba(255,255,255,0.18)', fontFamily: FF }}>
+          <p style={{ fontSize: 11, fontWeight: 600, margin: '8px 0 0', padding: '3px 8px', display: 'inline-block', borderRadius: 999, background: 'rgba(10,14,26,0.22)', color: '#FFFFFF', fontFamily: FF }}>
             Expect longer drive times and same-day cancellations
           </p>
         )}
@@ -883,11 +888,11 @@ function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: 
             actually booked now has its own card under Leads closed, fed by
             jobs.created_at. Two different questions, two different numbers,
             two different labels. */}
-        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.75)', fontFamily: FF }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.85)', fontFamily: FF }}>
           Job revenue · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}
         </span>
         {summary && (
-          <span style={{ fontSize: 11, fontWeight: 500, marginTop: 3, color: 'rgba(255,255,255,0.6)', fontFamily: FF }}>
+          <span style={{ fontSize: 11, fontWeight: 500, marginTop: 3, color: 'rgba(255,255,255,0.78)', fontFamily: FF }}>
             {fmtRange(summary.window.from, summary.window.to)}
           </span>
         )}
@@ -898,24 +903,25 @@ function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: 
           {delta !== null && (
             <span style={{
               fontSize: 12, fontWeight: 600, fontFamily: FF, padding: '2px 8px', borderRadius: 999,
-              // Mint is the accent ON the night band. Down weeks drop to a
-              // neutral wash rather than turning red — the hero is orientation,
-              // not an alarm; alarms live in Needs attention.
-              background: delta >= 0 ? 'rgba(var(--brand-rgb),0.20)' : 'rgba(255,255,255,0.14)',
-              color: delta >= 0 ? 'var(--brand)' : 'rgba(255,255,255,0.88)',
+              // Night is the accent ON mint — the one dark note that carries
+              // enough contrast for white type. Up weeks get the solid pill;
+              // down weeks drop to a wash rather than turning red, because the
+              // hero orients, it doesn't alarm. Alarms live in Needs attention.
+              background: delta >= 0 ? 'var(--night)' : 'rgba(10,14,26,0.22)',
+              color: '#FFFFFF',
             }}>
               {delta >= 0 ? '+' : ''}{delta}% vs {prevLabel}
             </span>
           )}
         </div>
-        <span style={{ fontSize: 12, marginTop: 8, color: 'rgba(255,255,255,0.78)', fontFamily: FF }}>
+        <span style={{ fontSize: 12, marginTop: 8, color: 'rgba(255,255,255,0.85)', fontFamily: FF }}>
           {summary ? `${summary.revenue_booked.jobs} jobs on the schedule` : 'Loading…'}
         </span>
       </div>
 
       {/* right — the one control that scopes the page */}
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: 8 }}>
-        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', fontFamily: FF }}>Showing</span>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.85)', fontFamily: FF }}>Showing</span>
         <PeriodSelector value={period} onChange={setPeriod} dark />
       </div>
     </div>
@@ -1451,6 +1457,25 @@ export default function Dashboard() {
           navigate={navigate}
         />
 
+        {/* ── TODAY ON THE BOARD ───────────────────────────────── */}
+        {/* [board-first 2026-07-23] Sits directly under the risk strip, above
+            Money. It answers "what is happening right now" — the operational
+            question the morning starts with. Money and Growth are review
+            surfaces; they read fine further down. */}
+        <div>
+          <p style={SECTION_LABEL}>Today on the board</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: GAP }}>
+            {STATUS_CARDS.map(card => (
+              <StatusChip
+                key={card.key}
+                label={card.label}
+                value={Number(counts[card.key] ?? 0)}
+                onClick={() => navigate(`/dispatch?status=${card.dispatchKey}`)}
+              />
+            ))}
+          </div>
+        </div>
+
         {/* ── MONEY ────────────────────────────────────────────── */}
         {/* Revenue booked is the hero above; this row is the rest of the money
             picture. Receivables was removed at Sal's call — it lives on
@@ -1494,21 +1519,6 @@ export default function Dashboard() {
               <BookedCard booked={booked} navigate={navigate} />
             </div>
             <LeadSourcesCard report={leadReport} navigate={navigate} />
-          </div>
-        </div>
-
-        {/* ── TODAY ON THE BOARD ───────────────────────────────── */}
-        <div>
-          <p style={SECTION_LABEL}>Today on the board</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: GAP }}>
-            {STATUS_CARDS.map(card => (
-              <StatusChip
-                key={card.key}
-                label={card.label}
-                value={Number(counts[card.key] ?? 0)}
-                onClick={() => navigate(`/dispatch?status=${card.dispatchKey}`)}
-              />
-            ))}
           </div>
         </div>
 
