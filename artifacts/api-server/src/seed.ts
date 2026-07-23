@@ -207,7 +207,11 @@ export async function seedIfNeeded() {
         .update(companiesTable)
         .set({
           name: "Phes",
-          brand_color: "#5B9BD5",
+          // [brand 2026-07-22] brand_color is deliberately NOT re-asserted here.
+          // The owner sets it in /company → Branding, and this update ran on every
+          // Railway boot — so every deploy silently reverted their choice back to
+          // the old blue. Seed owns the INITIAL value (below, on the insert path)
+          // and never touches it again.
           phone: "(773) 706-6000",
           email: "info@phes.io",
           address: "9850 South Cicero Ave",
@@ -218,7 +222,7 @@ export async function seedIfNeeded() {
           business_hours: "Monday \u2013 Friday: 9:00 AM \u2013 6:00 PM\nSaturday: 9:00 AM \u2013 12:00 PM\nSunday: Closed",
         })
         .where(eq(companiesTable.slug, "phes-cleaning"));
-      console.log("[seed] Phes already seeded — name, brand color, and contact info ensured");
+      console.log("[seed] Phes already seeded — name and contact info ensured (brand color left to the tenant)");
 
       const owner = await db
         .select({ id: usersTable.id })
@@ -234,7 +238,8 @@ export async function seedIfNeeded() {
         .values({
           name: "Phes",
           slug: "phes-cleaning",
-          brand_color: "#5B9BD5",
+          brand_color: "#00C9A0", // Electric Mint — the Qleno brand default
+
           subscription_status: "active",
           plan: "growth",
           employee_count: 0,
