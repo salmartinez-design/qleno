@@ -341,9 +341,11 @@ router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), asyn
     // the office was told "Note not saved" — inviting a retry and a duplicate.
     // The note is the thing that matters; a missed bell is recoverable, a lost
     // (or doubled) note is not.
-    const notifyMentions = async (contactName: string | null) => {
+    // Returns how many people were ACTUALLY notified, not how many ids arrived —
+    // see the response field below.
+    const notifyMentions = async (contactName: string | null): Promise<number> => {
       try {
-      if (!mentionIds.length) return;
+      if (!mentionIds.length) return 0;
       // Inlined as a literal IN list, NOT a bound array. `= ANY(${arr}::int[])`
       // through the sql template failed to bind and 500'd every mention. Safe
       // to inline: mentionIds is already parseInt + Number.isInteger filtered
@@ -369,8 +371,10 @@ router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), asyn
           meta: { kind: "sms_note", phone, client_id: clientId, lead_id: leadId, contact: who },
         });
       }
+      return (rows.rows as any[]).length;
       } catch (e) {
         console.error("[sms/notes] mention notify failed (note still saved):", (e as any)?.message ?? e);
+        return 0;
       }
     };
 
@@ -386,11 +390,15 @@ router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), asyn
       const row = r.rows[0] as any;
       const cn = await db.execute(sql`
         SELECT NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS n FROM clients WHERE id = ${clientId} LIMIT 1`);
-      await notifyMentions((cn.rows[0] as any)?.n ?? null);
+      const notified = await notifyMentions((cn.rows[0] as any)?.n ?? null);
       return res.status(201).json({
         id: `note-${row.id}`, note_id: row.id, store: "communication_log",
         client_id: clientId, lead_id: leadId, body, author, created_at: row.logged_at,
-        mentioned: mentionIds.length,
+        // [mention-count 2026-07-23] The count of people who ACTUALLY got a bell,
+        // not the ids the client sent. It drove the toast, so tagging yourself
+        // (correctly dropped) or a deactivated teammate still reported
+        // "1 teammate notified" — the UI confirming a ping that never happened.
+        mentioned: notified,
       });
     }
 
@@ -402,11 +410,11 @@ router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), asyn
       const row = r.rows[0] as any;
       const ln = await db.execute(sql`
         SELECT NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS n FROM leads WHERE id = ${leadId} LIMIT 1`);
-      await notifyMentions((ln.rows[0] as any)?.n ?? null);
+      const notifiedLead = await notifyMentions((ln.rows[0] as any)?.n ?? null);
       return res.status(201).json({
         id: `leadnote-${row.id}`, note_id: row.id, store: "lead_activity_log",
         client_id: null, lead_id: leadId, body, author, created_at: row.created_at,
-        mentioned: mentionIds.length,
+        mentioned: notifiedLead,
       });
     }
 
