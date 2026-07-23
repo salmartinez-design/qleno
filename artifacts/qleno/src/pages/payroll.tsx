@@ -547,7 +547,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                       { k: 'Billed to clients', v: money(billedTotal) },
                       ...(laborPct != null ? [{ k: 'Labor %', v: `${laborPct}%` }] : []),
                       ...(eff != null ? [{ k: 'Efficiency', v: `${eff}%` }] : []),
-                      ...(effRate != null ? [{ k: 'Eff. $/hr', v: money(effRate) }] : []),
+                      ...(effRate != null ? [{ k: 'Commission $/hr', v: money(effRate) }] : []),
                     ].map(s => (
                       <div key={s.k}><div style={{ fontSize: 10, color: '#9B9890', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.k}</div><div style={{ fontSize: 15, fontWeight: 500, color: '#0A0E1A', marginTop: 3 }}>{s.v}</div></div>
                     ))}
@@ -657,7 +657,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                                   <span style={{ float: 'right', fontSize: 12, color: '#6B6860' }}>
                                     <span style={{ color: '#1A1917', fontWeight: 700 }}>{money(dayBilled)}</span> billed · <span style={{ color: '#00A383', fontWeight: 700 }}>{money(dayPay)}</span> pay
                                     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 8 }} title="Hours worked this day (for records — not paid hourly)">{dayWorked > 0 ? `${dayWorked.toFixed(1)}h` : '—'}</span>
-                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#0A7C66', background: '#E7F7F1', border: '1px solid #C9EDE2', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Effective rate this day = pay ÷ hours worked">{dayRate > 0 ? `${money(dayRate)}/hr` : '—/hr'}</span>
+                                    <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#0A7C66', background: '#E7F7F1', border: '1px solid #C9EDE2', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Commission rate this day = commission ÷ hours worked. Excludes tips, bonuses and mileage.">{dayRate > 0 ? `${money(dayRate)}/hr` : '—/hr'}</span>
                                     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: '#6B6860', background: '#fff', border: '1px solid #E5E2DC', borderRadius: 5, padding: '2px 7px', marginLeft: 6 }}>{laborOf(dayBilled, dayPay)} labor</span>
                                     <span style={{ display: 'inline-block', fontSize: 10, fontWeight: 700, color: dayMiles > 0 ? '#0A6E8A' : '#9B9890', background: dayMiles > 0 ? '#E0F2F9' : '#fff', border: `1px solid ${dayMiles > 0 ? '#BFE4F0' : '#E5E2DC'}`, borderRadius: 5, padding: '2px 7px', marginLeft: 6 }} title="Driving mileage between this day's jobs (pending office review)">{dayMiles > 0 ? `${dayMiles.toFixed(1)} mi · ${money(dayMileagePay)}` : '0 mi'}</span>
                                   </span>
@@ -1197,7 +1197,7 @@ export default function PayrollPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #EEECE7' }}>
-                {['Employee', 'Role', 'Hours', 'Effective $/hr', 'Gross Pay', 'Status'].map(h => (
+                {['Employee', 'Role', 'Hours', 'Gross $/hr', 'Gross Pay', 'Status'].map(h => (
                   <th key={h} style={{ padding: '12px 20px', textAlign: 'left', fontSize: '11px', fontWeight: 500, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
                 ))}
               </tr>

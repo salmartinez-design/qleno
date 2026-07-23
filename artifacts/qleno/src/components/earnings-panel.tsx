@@ -150,9 +150,18 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
           last period's money under new dates is what caused the bug report. */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, opacity: loading ? 0.6 : 1, transition: "opacity .15s" }}>
         <SummaryCard icon={<TrendingUp size={14} />} label="Commission earned" value={loading ? "—" : money(commission)} accent />
-        <SummaryCard icon={<TrendingUp size={14} />} label="Effective rate"
+        {/* [rate-labels 2026-07-23] "Commission rate", not "Effective rate".
+            This is commission ÷ hours worked — it excludes tips, bonuses and
+            event pay, so on a week with a $160 bonus it read $24.61/hr when the
+            real figure was $31.25. The overtime engine folds those same
+            nondiscretionary bonuses INTO its regular rate (29 CFR 778.208–.211),
+            so the two would never reconcile while both were called "effective".
+            Naming it for what it measures is the honest fix; the maths is right.
+            The average is year-to-date and now says so — unlabelled under a card
+            headed "This week" it read as a period comparison. */}
+        <SummaryCard icon={<TrendingUp size={14} />} label="Commission rate"
           value={loading ? "—" : periodRate != null ? `$${periodRate.toFixed(2)}/hr` : "—"}
-          sub={runningRate != null ? `avg $${runningRate.toFixed(2)}/hr` : undefined} accent />
+          sub={runningRate != null ? `YTD avg $${runningRate.toFixed(2)}/hr` : undefined} accent />
         <SummaryCard icon={<Clock size={14} />} label="Hours worked" value={loading ? "—" : `${hours.toFixed(1)} hrs`} />
         <SummaryCard icon={<DollarSign size={14} />} label="Tips & extra" value={loading ? "—" : money(tips)} />
         <SummaryCard icon={<DollarSign size={14} />} label="Mileage" value={loading ? "—" : money(mileage)} />
