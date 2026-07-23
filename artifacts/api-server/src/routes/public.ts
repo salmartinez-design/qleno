@@ -14,6 +14,7 @@ import { computePetFee, petFeeConfigFromRow } from "../lib/pet-fee";
 import { buildOfficeNotificationEmail } from "../lib/emailTemplates";
 import { enrollForAbandonedBooking, stopEnrollmentsForAbandonedBooking, enrollForLeadDrip } from "../services/followUpService.js";
 import { geocodeWithComponents } from "../lib/geocode";
+import { normalizeReferralSource } from "../lib/referral-source.js";
 
 const router = Router();
 
@@ -59,29 +60,12 @@ async function resolveBookingAddress(p: {
   return { street, city, state, zip, lat, lng };
 }
 
-// ── Normalize referral_source to match production ENUM values ────────────────
-// Production DB has: google, nextdoor, facebook, yelp, client_referral,
-//                    door_hanger, yard_sign, website, other
-const REFERRAL_MAP: Record<string, string> = {
-  google: "google",
-  facebook: "facebook",
-  instagram: "other",
-  nextdoor: "nextdoor",
-  "friend/family": "client_referral",
-  "client referral": "client_referral",
-  client_referral: "client_referral",
-  yelp: "yelp",
-  door_hanger: "door_hanger",
-  "door hanger": "door_hanger",
-  yard_sign: "yard_sign",
-  "yard sign": "yard_sign",
-  website: "website",
-  other: "other",
-};
-function normalizeReferral(value: string | null | undefined): string | null {
-  if (!value) return null;
-  return REFERRAL_MAP[value.toLowerCase().trim()] ?? "other";
-}
+// [referral-vocabulary 2026-07-23] The alias map that used to live here now
+// lives in lib/referral-source.ts, shared with the leads write path and the
+// backfill. It had drifted: this copy knew nine aliases and the leads copy knew
+// none, so the same answer could normalize one way for `clients` and be dropped
+// entirely for `leads`. One vocabulary, two call sites.
+const normalizeReferral = normalizeReferralSource;
 
 // [widget-lead-upsert 2026-07-04] Find-or-create the Lead Pipeline lead for a
 // public booking-widget action, deduped by email/phone within the company. An
@@ -104,6 +88,15 @@ async function upsertWidgetLead(companyId: number, opts: {
     const { sql: s } = await import("drizzle-orm");
     const email = opts.email ? String(opts.email).toLowerCase().trim() : null;
     const phone10 = (opts.phone ?? "").replace(/[^0-9]/g, "").slice(-10) || null;
+    // [referral-vocabulary 2026-07-23] The widget's "How did you hear about
+    // us?" answer rides in `details` as a display NAME ("Google Ads"). Land it
+    // on the real column at write time — the boot backfill exists to repair
+    // history, not to be the only thing that ever fills this in. COALESCE on
+    // update so a later touch from a form that didn't ask can't erase an
+    // answer the customer already gave.
+    const referral = normalizeReferralSource(
+      (opts.details?.referral_source ?? opts.details?.referral) as string | undefined
+    );
     let existing: any = null;
     if (email || phone10) {
       const found = await db.execute(s`
@@ -131,6 +124,7 @@ async function upsertWidgetLead(companyId: number, opts: {
           job_id     = COALESCE(job_id, ${opts.jobId ?? null}),
           booked_at  = ${opts.booked ? s`COALESCE(booked_at, NOW())` : s`booked_at`},
           details    = COALESCE(details, '{}'::jsonb) || COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb),
+          referral_source = COALESCE(referral_source, ${referral}::referral_source),
           updated_at = NOW()
         WHERE id = ${existing.id}`);
       // [booked-drip-stop 2026-07-09] The public booking-confirm paths upgrade a
@@ -150,12 +144,13 @@ async function upsertWidgetLead(companyId: number, opts: {
     // lead_source='manual' and rendered as the "Office" chip in the pipeline,
     // misrepresenting client-submitted leads as office-created ones.
     const ins = await db.execute(s`
-      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, lead_source, status, quote_amount, quoted_at, job_id, booked_at, details, created_at, updated_at)
+      INSERT INTO leads (company_id, first_name, last_name, phone, email, address, zip, scope, source, lead_source, status, quote_amount, quoted_at, job_id, booked_at, details, referral_source, created_at, updated_at)
       VALUES (${companyId}, ${opts.first_name ?? null}, ${opts.last_name ?? null}, ${opts.phone ?? null}, ${opts.email ?? null},
               ${opts.address ?? null}, ${opts.zip ?? null}, ${opts.scope ?? null}, ${opts.source}, ${opts.source}, ${opts.status},
               ${opts.quoteAmount ?? null}, ${opts.status === "quoted" ? s`NOW()` : s`NULL`},
               ${opts.jobId ?? null}, ${opts.booked ? s`NOW()` : s`NULL`},
-              COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb), NOW(), NOW())
+              COALESCE(${opts.details ? JSON.stringify(opts.details) : null}::jsonb, '{}'::jsonb),
+              ${referral}::referral_source, NOW(), NOW())
       RETURNING id`);
     return Number((ins.rows as any[])[0]?.id) || null;
   } catch (e) {

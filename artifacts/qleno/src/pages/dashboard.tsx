@@ -1187,15 +1187,75 @@ function BookedCard({ booked, navigate }: { booked: Booked | null; navigate: (p:
   );
 }
 
+// [referral-card 2026-07-23] "How did you hear about us?" — the ANSWER, not the
+// entry channel.
+//
+// This card used to show `by_source` (Office quote / Web Quote / Very Dirty),
+// which is exactly what the "Where it came from" column inside Revenue booked
+// already shows. Two cards, one fact, and neither of them the one Sal actually
+// needs: which marketing is producing customers. Now it groups on
+// `leads.referral_source` — Google, Yelp, a friend — and the entry-channel
+// reading lives in Revenue booked alone.
+//
+// `unasked` is rendered, deliberately, and always sorts last. Most office-keyed
+// quotes never filled this in, so hiding the gap would make a 6-answer sample
+// look like the whole picture. Seeing "31 not asked" is the nudge to ask.
+const REFERRAL_LABEL: Record<string, string> = {
+  google: 'Google', facebook: 'Facebook', instagram: 'Instagram', nextdoor: 'Nextdoor',
+  yelp: 'Yelp', client_referral: 'Friend or family', door_hanger: 'Door hanger',
+  yard_sign: 'Yard sign', website: 'Our website', other: 'Other',
+  unasked: 'Not asked',
+};
+const prettyReferral = (s: string | null) =>
+  !s ? 'Not asked' : (REFERRAL_LABEL[s] || s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
+
+// Same discipline as SOURCE_COLOR: one mint→night family, no pie-chart rainbow,
+// and the ordering carries meaning rather than being decorative. Word of mouth
+// gets Qleno Night — the darkest, most distinguished step — because it's the
+// free channel and it must never be mistaken for a paid one. Paid search takes
+// Electric Mint. Everything else steps down through the ramp; "Not asked" gets
+// the border tone so a wall of unanswered reads as absence, not as a channel.
+//
+// Encodes DATA, so it stays literal and is exempt from the var(--brand) sweep —
+// a tenant's brand_color must not repaint "Friend or family".
+const REFERRAL_COLOR: Record<string, string> = {
+  client_referral: '#0A0E1A',
+  google:          '#00C9A0',
+  yelp:            '#2E6B5E',
+  facebook:        '#4C8C7B',
+  instagram:       '#4C8C7B',
+  nextdoor:        '#6FA79A',
+  website:         '#8FB8AC',
+  door_hanger:     '#A9CCC2',
+  yard_sign:       '#C3DDD6',
+  other:           '#C8C4BC',
+  unasked:         '#E5E2DC',
+};
+const referralColor = (s: string | null) => REFERRAL_COLOR[s ?? 'unasked'] ?? '#C8C4BC';
+
 function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: string) => void }) {
-  const rows: any[] = (report?.by_source || []).slice(0, 6);
+  const all: any[] = report?.by_referral || [];
+  // Answered channels first by volume; "Not asked" is pinned last no matter how
+  // large it gets, so it reads as the footnote it is rather than the headline.
+  const rows = [
+    ...all.filter(r => r.referral !== 'unasked').sort((a, b) => b.leads - a.leads),
+    ...all.filter(r => r.referral === 'unasked'),
+  ].slice(0, 6);
   const maxLeads = Math.max(1, ...rows.map(r => r.leads || 0));
+  const answered = all.filter(r => r.referral !== 'unasked').reduce((n, r) => n + r.leads, 0);
+  const total = all.reduce((n, r) => n + r.leads, 0);
+
   return (
     <div style={{ ...CARD, padding: '18px 20px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-        <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, fontFamily: FF }}>Where the leads came from</p>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, fontFamily: FF }}>How they heard about us</p>
         <button onClick={() => navigate('/leads/reports')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Full report →</button>
       </div>
+      <p style={{ fontSize: 11, color: 'var(--ink-faint)', margin: '0 0 12px', fontFamily: FF }}>
+        {total > 0
+          ? `${answered} of ${total} lead${total === 1 ? '' : 's'} told us`
+          : 'referral source, not entry channel'}
+      </p>
       {report == null ? (
         <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>Loading…</p>
       ) : rows.length === 0 ? (
@@ -1204,29 +1264,31 @@ function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: stri
         <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FF }}>
           <thead>
             <tr>
-              {['Source', 'Leads', 'Close rate', 'Booked value'].map((h, i) => (
+              {['Heard about us', 'Leads', 'Close rate', 'Booked value'].map((h, i) => (
                 <th key={h} style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: i ? 'right' : 'left', padding: '0 0 6px' }}>{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={r.source ?? `s${i}`} style={{ borderTop: '1px solid var(--border-sub)' }}>
-                {/* Share bar carries the source's own color, so the same
-                    channel is the same swatch here, in the legend, and in the
-                    full report. Numbers stay --ink — color is never the value. */}
-                <td style={{ fontSize: 13, color: 'var(--ink)', padding: '9px 12px 9px 0', minWidth: 120 }}>
+              <tr key={r.referral ?? `s${i}`} style={{ borderTop: '1px solid var(--border-sub)' }}>
+                {/* Share bar carries the channel's own color, so the same
+                    channel is the same swatch here and in the full report.
+                    Numbers stay --ink — color is never the value. "Not asked"
+                    also drops its type to --ink-faint: it's a gap in the data,
+                    not a marketing channel competing with the real ones. */}
+                <td style={{ fontSize: 13, color: r.referral === 'unasked' ? 'var(--ink-faint)' : 'var(--ink)', padding: '9px 12px 9px 0', minWidth: 120 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: 2, background: sourceColor(r.source), flexShrink: 0 }} />
-                    {prettySource(r.source)}
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: referralColor(r.referral), flexShrink: 0 }} />
+                    {prettyReferral(r.referral)}
                   </div>
                   <div style={{ height: 4, borderRadius: 2, background: 'var(--bg-base)', marginTop: 5, overflow: 'hidden' }}>
-                    <div style={{ width: `${Math.round((r.leads / maxLeads) * 100)}%`, height: '100%', background: sourceColor(r.source), borderRadius: 2 }} />
+                    <div style={{ width: `${Math.round((r.leads / maxLeads) * 100)}%`, height: '100%', background: referralColor(r.referral), borderRadius: 2 }} />
                   </div>
                 </td>
-                <td style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right' }}>{r.leads}</td>
-                <td style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right' }}>{Math.round(r.rate)}%</td>
-                <td style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right' }}>{fmtWF(r.booked_value || 0)}</td>
+                <td style={{ fontSize: 13, color: r.referral === 'unasked' ? 'var(--ink-faint)' : 'var(--ink)', textAlign: 'right' }}>{r.leads}</td>
+                <td style={{ fontSize: 13, color: r.referral === 'unasked' ? 'var(--ink-faint)' : 'var(--ink)', textAlign: 'right' }}>{Math.round(r.rate)}%</td>
+                <td style={{ fontSize: 13, color: r.referral === 'unasked' ? 'var(--ink-faint)' : 'var(--ink)', textAlign: 'right' }}>{fmtWF(r.booked_value || 0)}</td>
               </tr>
             ))}
           </tbody>

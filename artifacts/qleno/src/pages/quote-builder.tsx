@@ -984,6 +984,17 @@ export default function QuoteBuilderPage() {
   }
 
   async function save(status: string = "draft", thenConvert = false) {
+    // [referral-required 2026-07-23] A new customer can't leave without us
+    // knowing how they found us. The dashboard's "How they heard about us" card
+    // is only as good as this field, and it was optional — so ~90% of
+    // office-keyed quotes had it blank and the card read almost entirely "Not
+    // asked". Gated to NEW leads only: an existing client already answered this
+    // the first time, and re-asking would be re-prompting for a fact we have.
+    // Drafts are exempt so a half-finished quote can still be parked.
+    if (!selectedClientId && !referralSource && status !== "draft") {
+      toast.error("Pick how they heard about us before sending.");
+      return;
+    }
     setSaving(true);
     try {
       // [edit-after-sent 2026-07-16] Plain "Save" (status="draft") on a quote that
@@ -1354,13 +1365,23 @@ export default function QuoteBuilderPage() {
                     style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
                   <select value={referralSource} onChange={e => setReferralSource(e.target.value)}
                     style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 12px", fontFamily: FF, background: "#FFF" }}>
+                    {/* [referral-vocabulary 2026-07-23] Values are the
+                        referral_source ENUM, not display strings. This select
+                        used to emit google_local_services / manual / Nextdoor
+                        (capital N) and the one on the Review step emitted a
+                        THIRD set ("Referral - Friend/Family") — three
+                        vocabularies for one column, so the reports grouped on
+                        noise. Both selects now emit the same nine slugs. */}
                     <option value="">How did they hear about us?</option>
-                    <option value="google_local_services">Google Local Services</option>
-                    <option value="google_search">Google Search</option>
+                    <option value="google">Google</option>
                     <option value="facebook">Facebook</option>
-                    <option value="referral">Referral</option>
-                    <option value="Nextdoor">Nextdoor</option>
-                    <option value="manual">Other</option>
+                    <option value="nextdoor">Nextdoor</option>
+                    <option value="yelp">Yelp</option>
+                    <option value="client_referral">Friend or family</option>
+                    <option value="door_hanger">Door hanger / flyer</option>
+                    <option value="yard_sign">Yard sign</option>
+                    <option value="website">Our website</option>
+                    <option value="other">Other</option>
                   </select>
                 </div>
               </div>
@@ -1923,18 +1944,18 @@ export default function QuoteBuilderPage() {
                       className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                       style={{ height: 36 }}
                     >
+                      {/* Same nine enum slugs as the intake select above — see
+                          the note there. Keep the two lists identical. */}
                       <option value="">Select…</option>
-                      <option value="Google">Google</option>
-                      <option value="Facebook">Facebook</option>
-                      <option value="Instagram">Instagram</option>
-                      <option value="Nextdoor">Nextdoor</option>
-                      <option value="Yelp">Yelp</option>
-                      <option value="Referral - Friend/Family">Referral — Friend / Family</option>
-                      <option value="Referral - Previous Client">Referral — Previous Client</option>
-                      <option value="Door Hanger / Flyer">Door Hanger / Flyer</option>
-                      <option value="Yard Sign">Yard Sign</option>
-                      <option value="Online Booking">Online Booking</option>
-                      <option value="Other">Other</option>
+                      <option value="google">Google</option>
+                      <option value="facebook">Facebook</option>
+                      <option value="nextdoor">Nextdoor</option>
+                      <option value="yelp">Yelp</option>
+                      <option value="client_referral">Friend or family</option>
+                      <option value="door_hanger">Door hanger / flyer</option>
+                      <option value="yard_sign">Yard sign</option>
+                      <option value="website">Our website</option>
+                      <option value="other">Other</option>
                     </select>
                   </div>
                 )}

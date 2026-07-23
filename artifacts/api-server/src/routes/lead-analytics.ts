@@ -74,6 +74,28 @@ router.get("/report", requireAuth, requireRole("owner", "admin", "office"), asyn
       booked_value: num(r.booked_value), rate: pct(num(r.booked), num(r.leads)),
     }));
 
+    // [referral-vocabulary 2026-07-23] Conversion by REFERRAL SOURCE — how the
+    // customer heard about us (Google, Yelp, a friend), which is a different
+    // question from `by_source` above (how the lead ENTERED: office quote vs
+    // website widget). The dashboard shows both and they must never be merged;
+    // an office-keyed quote from a Yelp caller is `quote` on one axis and
+    // `yelp` on the other.
+    //
+    // NULL rolls up as 'unasked' rather than being dropped, because coverage is
+    // the real story right now: most office-created quotes never filled the
+    // field in, and a card that hid those would overstate how much we know.
+    const byReferralRows = await db.execute(sql`
+      SELECT COALESCE(referral_source::text, 'unasked') AS referral,
+        COUNT(*)::int AS leads,
+        COUNT(*) FILTER (WHERE status = 'booked')::int AS booked,
+        COALESCE(SUM(quote_amount) FILTER (WHERE status = 'booked'), 0) AS booked_value
+      FROM leads l WHERE l.company_id = ${companyId} AND ${inWin}
+      GROUP BY 1 ORDER BY leads DESC`);
+    const by_referral = (byReferralRows.rows as any[]).map(r => ({
+      referral: r.referral, leads: num(r.leads), booked: num(r.booked),
+      booked_value: num(r.booked_value), rate: pct(num(r.booked), num(r.leads)),
+    }));
+
     // Partner performance
     const byPartnerRows = await db.execute(sql`
       SELECT p.id AS partner_id, p.name,
@@ -184,7 +206,7 @@ router.get("/report", requireAuth, requireRole("owner", "admin", "office"), asyn
       window: w,
       totals: { leads, booked, lost, pipeline_value, booked_revenue },
       funnel, rates, speed,
-      by_source, by_partner, by_rep,
+      by_source, by_referral, by_partner, by_rep,
       aging, cost, targets,
     });
   } catch (err) {
