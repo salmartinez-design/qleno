@@ -1615,6 +1615,114 @@ router.get("/summary", requireAuth, officeGate, async (req, res) => {
   }
 });
 
+// ── What actually got BOOKED in the window ──────────────────────────────────
+// [dashboard-booked 2026-07-22] /summary's `revenue_booked` filters on
+// jobs.scheduled_date — it is the window's SCHEDULED job revenue, which is what
+// the hero shows. That answers "what's on the calendar", not "what did we sell".
+// This endpoint answers the second question: jobs whose BOOKING was created in
+// the window (jobs.created_at), regardless of when they're scheduled. Same
+// definition as `revenue_newly_booked_today` on /mobile-cards, widened to the
+// period selector's window.
+//
+// CRITICAL — recurring occurrences are NOT sales. The recurring engine stamps
+// created_at when it generates each future occurrence, so a naive count of
+// "jobs created this window" is dominated by calendar fill: for Phes this week
+// that was 289 engine-generated occurrences worth $58.5k against 20 genuinely
+// sold jobs worth $7.3k. Reporting $65.8k as "booked" would be off by 9x and
+// would drown the source breakdown in Unknown. So `total` and both breakdowns
+// cover only jobs with recurring_schedule_id IS NULL — work someone actually
+// sold — and the engine's output is reported separately as `recurring`.
+//
+// Two breakdowns, because "we booked $4,100" alone doesn't tell Sal what to do:
+//   by_service — what kind of work got sold (jobs.service_type)
+//   by_source  — which channel it came from. A job's lead is found by
+//     leads.job_id first (the direct stamp advanceLeadStage writes), falling
+//     back to leads.client_id so a later job for an acquired client still
+//     attributes to the channel that won them. No lead either way →
+//     "Unknown", which is honest: office-created repeat work has no lead row.
+//
+// Read-only, company- and branch-scoped, office-gated like the rest of the file.
+router.get("/booked", requireAuth, officeGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const raw = String(req.query.period ?? "week");
+    const period: PeriodKey = raw === "today" || raw === "month" ? raw : "week";
+    const branchId = req.query.branch_id && req.query.branch_id !== "all"
+      ? parseInt(String(req.query.branch_id), 10) : null;
+    const w = resolvePeriod(period);
+
+    const rows = await db.execute(sql`
+      SELECT (j.recurring_schedule_id IS NOT NULL) AS from_schedule,
+             j.service_type::text AS service_type,
+             COALESCE(
+               (SELECT l.source FROM leads l
+                 WHERE l.company_id = j.company_id AND l.job_id = j.id
+                 ORDER BY l.created_at DESC LIMIT 1),
+               (SELECT l.source FROM leads l
+                 WHERE l.company_id = j.company_id AND l.client_id = j.client_id
+                 ORDER BY l.created_at DESC LIMIT 1)
+             ) AS source,
+             COUNT(*)::int AS jobs,
+             COALESCE(SUM(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS revenue
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+       WHERE j.company_id = ${companyId}
+         AND j.status != 'cancelled'
+         AND j.created_at >= ${w.from}::date
+         AND j.created_at < (${w.to}::date + interval '1 day')
+         ${branchId != null ? sql`AND j.branch_id = ${branchId}` : sql``}
+       GROUP BY 1, 2, 3
+    `);
+
+    const all = rows.rows as any[];
+    const sold = all.filter(r => r.from_schedule !== true);
+    const generated = all.filter(r => r.from_schedule === true);
+    const sum = (rs: any[], k: string) =>
+      rs.reduce((s, r) => s + (parseFloat(String(r[k] ?? 0)) || 0), 0);
+
+    type Bucket = { key: string; jobs: number; revenue: number };
+    const fold = (pick: (r: any) => string | null) => {
+      const m = new Map<string, Bucket>();
+      for (const r of sold) {
+        const key = pick(r) || "unknown";
+        const b = m.get(key) ?? { key, jobs: 0, revenue: 0 };
+        b.jobs += Number(r.jobs ?? 0);
+        b.revenue += parseFloat(String(r.revenue ?? 0)) || 0;
+        m.set(key, b);
+      }
+      return [...m.values()]
+        .map(b => ({ ...b, revenue: Math.round(b.revenue * 100) / 100 }))
+        .sort((a, b) => b.revenue - a.revenue || b.jobs - a.jobs);
+    };
+
+    const byService = fold(r => r.service_type);
+    const bySource = fold(r => r.source);
+
+    return res.json({
+      period,
+      label: w.label,
+      window: { from: w.from, to: w.to },
+      branch_id: branchId,
+      // Work someone SOLD in this window — excludes engine-generated occurrences.
+      total: {
+        revenue: Math.round(sum(sold, "revenue") * 100) / 100,
+        jobs: sold.reduce((s, r) => s + Number(r.jobs ?? 0), 0),
+      },
+      // Calendar fill the recurring engine produced in the same window. Shown
+      // separately so it can never be mistaken for new business.
+      recurring: {
+        revenue: Math.round(sum(generated, "revenue") * 100) / 100,
+        jobs: generated.reduce((s, r) => s + Number(r.jobs ?? 0), 0),
+      },
+      by_service: byService,
+      by_source: bySource,
+    });
+  } catch (err) {
+    console.error("GET /dashboard/booked error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // Desktop BUSINESS HEALTH section. Same source-of-truth helpers as mobile.
 router.get("/business-health", requireAuth, officeGate, async (req, res) => {
   try {

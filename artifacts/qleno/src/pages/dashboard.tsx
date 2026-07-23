@@ -732,6 +732,23 @@ type Summary = {
   payroll: { cost: number; revenue: number; pct_of_revenue: number | null; window: { from: string; to: string }; label: string };
 };
 
+// [dashboard-window-range 2026-07-22] "THIS WEEK" doesn't say which week. Every
+// label that names a window now shows the dates the SQL actually used, straight
+// off summary.window — so the words and the number can't drift apart.
+// Dates arrive as YYYY-MM-DD; they're parsed as parts, never `new Date(str)`,
+// which would read them as UTC midnight and render the previous day in Central.
+function fmtRange(from: string, to: string) {
+  const parse = (s: string) => {
+    const [y, m, d] = s.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  };
+  const a = parse(from), b = parse(to);
+  const mon = (d: Date) => d.toLocaleDateString('en-US', { month: 'short' });
+  if (from === to) return `${mon(a)} ${a.getDate()}`;
+  if (a.getMonth() === b.getMonth()) return `${mon(a)} ${a.getDate()}–${b.getDate()}`;
+  return `${mon(a)} ${a.getDate()} – ${mon(b)} ${b.getDate()}`;
+}
+
 function useSummary(period: Period, branchId: number | 'all') {
   const [data, setData] = useState<Summary | null>(null);
   useEffect(() => {
@@ -856,9 +873,21 @@ function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: 
 
       {/* centre — the headline number for the selected window */}
       <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 220 }}>
+        {/* [dashboard-booked 2026-07-22] This said "Revenue booked", which was
+            wrong: the SQL behind it filters on jobs.scheduled_date, so it's the
+            value of the work ON THE CALENDAR in this window — not what got sold
+            in it. Sal caught it ("that's just today's job revenue"). What was
+            actually booked now has its own card under Leads closed, fed by
+            jobs.created_at. Two different questions, two different numbers,
+            two different labels. */}
         <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.75)', fontFamily: FF }}>
-          Revenue booked · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}
+          Job revenue · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}
         </span>
+        {summary && (
+          <span style={{ fontSize: 11, fontWeight: 500, marginTop: 3, color: 'rgba(255,255,255,0.6)', fontFamily: FF }}>
+            {fmtRange(summary.window.from, summary.window.to)}
+          </span>
+        )}
         <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
           <span style={{ fontSize: 40, fontWeight: 600, lineHeight: 1, fontFamily: FF, color: '#FFFFFF' }}>
             {summary ? fmtWF(summary.revenue_booked.value) : '—'}
@@ -878,6 +907,9 @@ function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: 
         </div>
         <span style={{ fontSize: 12, marginTop: 8, color: 'rgba(255,255,255,0.78)', fontFamily: FF }}>
           {summary ? `${summary.revenue_booked.jobs} jobs on the schedule` : 'Loading…'}
+        </span>
+        <span style={{ fontSize: 11, marginTop: 4, color: 'rgba(255,255,255,0.55)', fontFamily: FF }}>
+          value of the work scheduled in this window
         </span>
       </div>
 
@@ -978,6 +1010,48 @@ function ConversionCard({ report, periodLabel, navigate }: { report: any; period
   );
 }
 
+// ── What actually got booked ─────────────────────────────────────────────────
+// [dashboard-booked 2026-07-22] The hero answers "what's on the calendar".
+// This answers "what did we sell" — jobs whose booking was CREATED in the
+// window (jobs.created_at), the money the funnel above it produced. It sits
+// directly under Leads closed on purpose: that card ends on "N booked", and
+// this is what those bookings were worth, what kind of work they were, and
+// which channel they came from.
+//
+// "Sold" deliberately EXCLUDES occurrences the recurring engine generated —
+// those carry a created_at too, and this week that was 289 of the 309 jobs
+// created. Counting them would report $65.8k of new business on $7.3k of
+// actual sales. They get their own quiet line instead.
+type Booked = {
+  label: string;
+  window: { from: string; to: string };
+  total: { revenue: number; jobs: number };
+  recurring: { revenue: number; jobs: number };
+  by_service: { key: string; jobs: number; revenue: number }[];
+  by_source: { key: string; jobs: number; revenue: number }[];
+};
+
+function useBooked(period: Period, branchId: number | 'all') {
+  const [data, setData] = useState<Booked | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    const b = branchId !== 'all' ? `&branch_id=${branchId}` : '';
+    fetchJsonWithRetry(`/api/dashboard/booked?period=${period}${b}`)
+      .then(j => { if (alive && j) setData(j); });
+    return () => { alive = false; };
+  }, [period, branchId]);
+  return data;
+}
+
+const SERVICE_LABEL: Record<string, string> = {
+  standard: 'Standard clean', deep_clean: 'Deep clean', move_in: 'Move in',
+  move_out: 'Move out', move_in_out: 'Move in/out', post_construction: 'Post-construction',
+  recurring: 'Recurring', one_time: 'One time', commercial: 'Commercial',
+};
+const prettyService = (s: string | null) =>
+  !s ? 'Unspecified' : (SERVICE_LABEL[s] || s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
+
 const SOURCE_LABEL: Record<string, string> = {
   website: 'Website', quote: 'Office quote', phone: 'Phone', referral: 'Referral',
   google: 'Google', google_local: 'Google Local', facebook: 'Facebook',
@@ -1036,6 +1110,77 @@ const sourceColor = (s: string | null) => {
     ? SOURCE_COLOR.web_quote
     : SOURCE_FALLBACK;
 };
+
+// Sits directly under ConversionCard: the funnel ends on "Booked N", this says
+// what those N were worth, what kind of work they were and where they came from.
+function BookedCard({ booked, navigate }: { booked: Booked | null; navigate: (p: string) => void }) {
+  const svc = (booked?.by_service || []).slice(0, 4);
+  const src = (booked?.by_source || []).slice(0, 4);
+  const maxSvc = Math.max(1, ...svc.map(r => r.revenue));
+  const maxSrc = Math.max(1, ...src.map(r => r.revenue));
+
+  const Column = ({ title, rows, max, color }: {
+    title: string; rows: { key: string; jobs: number; revenue: number }[];
+    max: number; color: (k: string) => string;
+  }) => (
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <p style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 8px', fontFamily: FF }}>{title}</p>
+      {rows.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>—</p>
+      ) : rows.map((r, i) => (
+        <div key={r.key} style={{ marginTop: i ? 9 : 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+            <span style={{ fontSize: 12, color: 'var(--ink)', fontFamily: FF, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {title === 'Kind of work' ? prettyService(r.key === 'unknown' ? null : r.key) : prettySource(r.key === 'unknown' ? null : r.key)}
+            </span>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', fontFamily: FF, flexShrink: 0, fontVariantNumeric: 'tabular-nums' }}>
+              {fmtWF(r.revenue)}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+            <div style={{ flex: 1, height: 5, background: 'var(--bg-base)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ width: `${(r.revenue / max) * 100}%`, height: '100%', background: color(r.key), borderRadius: 3 }} />
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--ink-faint)', fontFamily: FF, flexShrink: 0, width: 46, textAlign: 'right' }}>
+              {r.jobs} job{r.jobs === 1 ? '' : 's'}
+            </span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div style={{ ...CARD, padding: '18px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, fontFamily: FF }}>
+          Revenue booked{booked ? ` · ${fmtRange(booked.window.from, booked.window.to)}` : ''}
+        </p>
+        <button onClick={() => navigate('/leads/reports')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Full report →</button>
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 4 }}>
+        <span style={{ fontSize: 26, fontWeight: 600, color: 'var(--ink)', lineHeight: 1, fontFamily: FF }}>
+          {booked ? fmtWF(booked.total.revenue) : '—'}
+        </span>
+        <span style={{ fontSize: 12, color: 'var(--ink-faint)', fontFamily: FF }}>
+          {booked ? `${booked.total.jobs} job${booked.total.jobs === 1 ? '' : 's'} sold` : 'Loading…'}
+        </span>
+      </div>
+      <p style={{ fontSize: 11, color: 'var(--ink-faint)', margin: '0 0 14px', fontFamily: FF }}>
+        work sold in this window, whenever it's scheduled
+        {booked && booked.recurring.jobs > 0
+          ? ` · plus ${booked.recurring.jobs} recurring occurrence${booked.recurring.jobs === 1 ? '' : 's'} (${fmtWF(booked.recurring.revenue)}) the schedule generated`
+          : ''}
+      </p>
+
+      <div style={{ display: 'flex', gap: 22, alignItems: 'flex-start' }}>
+        <Column title="Kind of work" rows={svc} max={maxSvc} color={() => 'var(--brand)'} />
+        <Column title="Where it came from" rows={src} max={maxSrc} color={k => sourceColor(k === 'unknown' ? null : k)} />
+      </div>
+    </div>
+  );
+}
 
 function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: string) => void }) {
   const rows: any[] = (report?.by_source || []).slice(0, 6);
@@ -1187,6 +1332,7 @@ export default function Dashboard() {
   const [period, setPeriod] = useState<Period>('today');
   const summary = useSummary(period, activeBranchId);
   const leadReport = useLeadReport(summary?.window ?? null);
+  const booked = useBooked(period, activeBranchId);
   const weather = useWeather(activeBranchId);
 
   const today = useToday(activeBranchId);
@@ -1311,7 +1457,7 @@ export default function Dashboard() {
             picture. Receivables was removed at Sal's call — it lives on
             /reports/receivables and was noise here. */}
         <div>
-          <p style={SECTION_LABEL}>Money · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}</p>
+          <p style={SECTION_LABEL}>Money · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}{summary ? ` · ${fmtRange(summary.window.from, summary.window.to)}` : ''}</p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: GAP }}>
             <MoneyCard
               label="Cash collected"
@@ -1340,9 +1486,14 @@ export default function Dashboard() {
 
         {/* ── GROWTH ───────────────────────────────────────────── */}
         <div>
-          <p style={SECTION_LABEL}>Growth · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}</p>
+          <p style={SECTION_LABEL}>Growth · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}{summary ? ` · ${fmtRange(summary.window.from, summary.window.to)}` : ''}</p>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: GAP, alignItems: 'start' }}>
-            <ConversionCard report={leadReport} periodLabel={summary?.label ?? 'this week'} navigate={navigate} />
+            {/* Booked sits under the funnel, not beside it — the funnel's last
+                step is "Booked N" and this is what those N were worth. */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
+              <ConversionCard report={leadReport} periodLabel={summary?.label ?? 'this week'} navigate={navigate} />
+              <BookedCard booked={booked} navigate={navigate} />
+            </div>
             <LeadSourcesCard report={leadReport} navigate={navigate} />
           </div>
         </div>
