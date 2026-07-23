@@ -217,19 +217,26 @@ describe("pay-type engine — DB bridge (computePerTechCommissionRows)", () => {
     for (const r of rows) assert.equal(r.amount, 40.0);
   });
 
-  it("PRE-CLOCK: an HOURLY timesheet with no punches stays $0 (can't pre-split actual time)", () => {
+  it("PRE-CLOCK: hourly trainee excluded — the veteran takes the WHOLE pool", () => {
     const rows = computePerTechCommissionRows({
       jobs: [job({ id: 13, assigned_user_id: 1, billed_amount: "200", service_type: "standard_clean" })],
       jobTechs: [tech(13, 1, { is_primary: true }), tech(13, 2, { pay_type: "hourly", hourly_rate: "20" })],
       techHoursByKey: new Map(),
       serviceTypePctBySlug: new Map(), resRates, commercial,
     });
-    // Fee-split cleaner takes the even share; the hourly one earns nothing until clocked.
-    assert.equal(rows.find(r => r.user_id === 1)!.amount, 35.0);
+    // [trainee-split 2026-07-23] $200 × 35% = $70 pool. The hourly trainee is NOT
+    // a pool slot, so the lone veteran gets the FULL $70 (was $35 — half evaporated).
+    assert.equal(rows.find(r => r.user_id === 1)!.amount, 70.0);
     assert.equal(rows.find(r => r.user_id === 2), undefined);
   });
 
-  it("clocked: Cusimano mixed pay types reproduce MC ($94.66 + $63.40)", () => {
+  it("clocked: hourly trainee excluded from the fee-split pool (Sal 2026-07-23)", () => {
+    // [trainee-split 2026-07-23] DELIBERATE divergence from MaidCentral. Norma is
+    // the only fee-split cleaner, so she takes the WHOLE 35% pool ($540 × 0.35 =
+    // $189) and Jose (hourly trainee) is paid actual hours on top. Under MC parity
+    // this paid $94.66 — the pool split by BOTH cleaners' hours, with Jose's ~half
+    // of the pool paid to no one. Sal: pay the trainee hourly, distribute the full
+    // pool among the veterans.
     const rows = computePerTechCommissionRows({
       jobs: [job({ id: 20, base_fee: "540", billed_amount: "540", allowed_hours: "9", service_type: "standard_clean" })],
       jobTechs: [
@@ -239,8 +246,29 @@ describe("pay-type engine — DB bridge (computePerTechCommissionRows)", () => {
       techHoursByKey: new Map([["20:1", 3.18], ["20:2", 3.17]]),
       serviceTypePctBySlug: new Map(), resRates, commercial,
     });
-    assert.equal(rows.find((r) => r.user_id === 1)!.amount, 94.66);
+    assert.equal(rows.find((r) => r.user_id === 1)!.amount, 189.0);
     assert.equal(rows.find((r) => r.user_id === 2)!.amount, 63.4);
+  });
+
+  it("clocked: TWO veterans + one hourly trainee — vets split the full pool", () => {
+    // [trainee-split 2026-07-23] $600 deep clean at 32% = $192 pool. Two veterans
+    // (fee_split) at equal hours split $192 → $96 each; the trainee (hourly $20)
+    // is excluded from the denominator and paid 3h × $20 = $60 on top. Old model
+    // would have divided the pool across all THREE clocked cleaners → ~$64 each to
+    // the veterans with the trainee's ~$64 slice unpaid.
+    const rows = computePerTechCommissionRows({
+      jobs: [job({ id: 21, base_fee: "600", billed_amount: "600", allowed_hours: "6", service_type: "deep_clean" })],
+      jobTechs: [
+        tech(21, 1, { is_primary: true, pay_type: "fee_split" }),
+        tech(21, 2, { pay_type: "fee_split" }),
+        tech(21, 3, { pay_type: "hourly", hourly_rate: "20" }),
+      ],
+      techHoursByKey: new Map([["21:1", 3], ["21:2", 3], ["21:3", 3]]),
+      serviceTypePctBySlug: new Map([["deep_clean", 0.32]]), resRates, commercial,
+    });
+    assert.equal(rows.find((r) => r.user_id === 1)!.amount, 96.0);
+    assert.equal(rows.find((r) => r.user_id === 2)!.amount, 96.0);
+    assert.equal(rows.find((r) => r.user_id === 3)!.amount, 60.0);
   });
 
   it("clocked: breakage on gross base (Deep Clean $628.40 gross, not $578.40 net)", () => {
