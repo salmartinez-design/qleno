@@ -281,7 +281,13 @@ router.get("/today", requireAuth, officeGate, async (req, res) => {
       return mins == null ? null : mins - nowMinsCT;
     };
     const employeeBoard = allEmployees.map(emp => {
-      const empJobs = todayJobs.filter(j => j.assigned_user_id === emp.id);
+      // [cancelled-alert 2026-07-23] A cancelled visit is not work. todayJobs
+      // deliberately carries every status (revenue and the status counts need
+      // them), but a tech's board is about what they still have to DO — leaving
+      // cancelled rows in inflated "2 jobs today" for someone with one real job,
+      // and could hold a finished tech at SCHEDULED because the `every(complete)`
+      // check tripped over a cancelled row.
+      const empJobs = todayJobs.filter(j => j.assigned_user_id === emp.id && j.status !== 'cancelled');
       const activeClock = activeClockins.find(c => c.user_id === emp.id);
       const currentJob = empJobs.find(j => j.status === 'in_progress') || (activeClock ? empJobs[0] : null);
 
@@ -320,7 +326,16 @@ router.get("/today", requireAuth, officeGate, async (req, res) => {
     const alerts: { type: string; message: string; action: string; id?: number }[] = [];
     for (const emp of employeeBoard) {
       if (emp.status === 'SCHEDULED') {
-        const empJobs = todayJobs.filter(j => j.assigned_user_id === emp.id && j.scheduled_time);
+        // [cancelled-alert 2026-07-23] Only jobs still on the books can be late.
+        // This filtered by assignee + time but NOT status, so a CANCELLED visit
+        // raised "hasn't clocked in — job starts now" at its old start time.
+        // Rosa Gallegos, 2026-07-23: her real job was 3:00 PM, but a cancelled
+        // 10:30 visit fired the alarm at 10:40 (Sal: "Rosa Gallegoes job is at
+        // 3pm why is there this notification"). Nobody can clock into a job that
+        // isn't happening, so the alert could never clear — it just sat there
+        // until the ±15 band passed, teaching the office to ignore the strip.
+        const empJobs = todayJobs.filter(j =>
+          j.assigned_user_id === emp.id && j.scheduled_time && j.status === 'scheduled');
         for (const job of empJobs) {
           // Fires only inside a ±15-minute band around the Central start time.
           const diffMin = minsUntil(job.scheduled_time);
