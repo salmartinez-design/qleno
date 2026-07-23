@@ -9,6 +9,7 @@ import { sql } from "drizzle-orm";
 import { ctDate, ctToday } from "../lib/ct-day.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { normalizeReferralSource, referralAliasPairs } from "../lib/referral-source.js";
 import { enrollForLeadDrip, stopEnrollmentsForLead, sendSingleEnrollmentTouch } from "../services/followUpService.js";
 
 const router = Router();
@@ -56,20 +57,48 @@ const dayFilterSql = (t: string, from?: string, to?: string) => {
 //
 // Backfill is the good part: the public booking widget has been collecting this
 // into details.referral_source all along, so existing web leads get their REAL
-// answer rather than "unknown". Only values that match the enum are copied;
-// anything else is left NULL rather than guessed at. Idempotent — only fills
-// rows that are still NULL.
+// answer rather than "unknown". Idempotent — only fills rows that are still
+// NULL, so it is safe to re-run on every boot.
+//
+// [referral-vocabulary 2026-07-23] This used to copy only values that matched
+// an enum slug EXACTLY, leaving everything else NULL. But the widget stores the
+// display NAME, not the slug — "Google Ads", "Repeat Customer", "Referral" —
+// so the strict list threw away 11 of the 17 answers Phes had actually
+// collected and the referral card read as almost entirely "unknown". It looked
+// like nobody was answering the question. They were; we were discarding it.
+//
+// Now it normalizes through the shared alias map in lib/referral-source.ts,
+// the same one the public widget's client write path uses, so the two can't
+// drift again. Unrecognized non-empty answers land on `other` rather than NULL:
+// "answered something odd" and "never asked" are different facts.
 export async function runLeadReferralSourceMigration(): Promise<void> {
   try {
     await db.execute(sql`ALTER TABLE leads ADD COLUMN IF NOT EXISTS referral_source referral_source`);
+
+    // Build the alias map as a VALUES list so the vocabulary lives in exactly
+    // one place (the TS module) and Postgres just joins against it.
+    const pairs = referralAliasPairs();
+    const values = sql.join(
+      pairs.map(([alias, slug]) => sql`(${alias}, ${slug})`),
+      sql`, `
+    );
+    await db.execute(sql`
+      UPDATE leads l
+         SET referral_source = m.slug::referral_source
+        FROM (VALUES ${values}) AS m(alias, slug)
+       WHERE l.referral_source IS NULL
+         AND l.details ? 'referral_source'
+         AND m.alias = lower(trim(l.details->>'referral_source'))`);
+
+    // Anything answered but unrecognized: bucket as `other` so the coverage
+    // number stays honest instead of reading as "not asked".
     await db.execute(sql`
       UPDATE leads
-         SET referral_source = lower(trim(details->>'referral_source'))::referral_source
+         SET referral_source = 'other'
        WHERE referral_source IS NULL
          AND details ? 'referral_source'
-         AND lower(trim(details->>'referral_source')) IN (
-           'google','nextdoor','facebook','yelp','client_referral',
-           'door_hanger','yard_sign','website','other')`);
+         AND NULLIF(lower(trim(details->>'referral_source')), '') IS NOT NULL`);
+
     console.log("[lead-referral-source] migration ok");
   } catch (err) {
     console.error("[lead-referral-source] migration (non-fatal):", err);
@@ -497,7 +526,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
         ${source}, ${status}, ${resolvedLeadSource},
         ${scope || null}, ${sqft ? parseInt(sqft) : null},
         ${bedrooms ? parseInt(bedrooms) : null}, ${bathrooms ? parseInt(bathrooms) : null},
-        ${notes || null}, ${referral_source || null}::referral_source,
+        ${notes || null}, ${normalizeReferralSource(referral_source)}::referral_source,
         ${quote_amount ? parseFloat(quote_amount) : null},
         ${resolvedAssignedTo},
         NOW(), NOW()
