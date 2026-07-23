@@ -19,16 +19,16 @@
   --color-primary: var(--brand);
   --color-primary-foreground: #FFFFFF;
 
-  --color-secondary: #F0EEE9;
-  --color-secondary-foreground: #1A1917;
+  --color-secondary: var(--bg-hover);
+  --color-secondary-foreground: var(--ink);
 
-  --color-muted: #F7F6F3;
-  --color-muted-foreground: #6B7280;
+  --color-muted: var(--bg-base);
+  --color-muted-foreground: var(--ink-muted);
 
   --color-accent: var(--brand);
   --color-accent-foreground: #FFFFFF;
 
-  --color-destructive: #DC2626;
+  --color-destructive: var(--danger);
   --color-destructive-foreground: #FFFFFF;
 
   --color-sidebar: var(--bg-raised);
@@ -40,11 +40,11 @@
   --color-sidebar-accent-foreground: #1A1917;
   --color-sidebar-ring: var(--brand);
 
-  --color-chart-1: var(--brand);
-  --color-chart-2: #3B82F6;
-  --color-chart-3: #10B981;
-  --color-chart-4: #F59E0B;
-  --color-chart-5: #8B5CF6;
+  --color-chart-1: var(--cat-1);
+  --color-chart-2: var(--cat-2);
+  --color-chart-3: var(--cat-3);
+  --color-chart-4: var(--cat-4);
+  --color-chart-5: var(--cat-5);
 
   --font-sans: 'Plus Jakarta Sans', sans-serif;
   --font-serif: 'Plus Jakarta Sans', sans-serif;
@@ -98,6 +98,27 @@
   --ok:         #0F7A63;  --ok-bg:     #E6F6F1;
   --warn:       #B45309;  --warn-bg:   #FDF3E4;
   --danger:     #B3261E;  --danger-bg: #FCEBEA;
+  /* "info" is deliberately NOT blue. Blue reads as a different product next
+     to mint. Neutral-attention is a Night-derived slate. */
+  --info:       #2F3646;  --info-bg:   #EFEFF2;
+
+  /* === CLAY — the one accent complement ===
+     Mint sits at ~168deg; its opposite is ~348deg, the terracotta family.
+     Pulled warm so it agrees with the #F7F6F3 base instead of fighting it.
+     This is the ONLY non-green accent. Reach for it when you need "not mint"
+     (second chart series, a category chip). Do not add a blue or a violet. */
+  --clay:       #C2673F;  --clay-bg:   #FBF0E9;  --clay-ink: #9C4E2B;
+
+  /* === CATEGORICAL RAMP ===
+     For charts, referral sources, zones — anything encoding category rather
+     than status. Mint-anchored, ordered by contrast so adjacent series stay
+     distinguishable. Status colors above are NOT categorical; don't mix. */
+  --cat-1: #00C9A0;  /* mint   */
+  --cat-2: #0A0E1A;  /* night  */
+  --cat-3: #C2673F;  /* clay   */
+  --cat-4: #2E6B5E;  /* teal   */
+  --cat-5: #8FB8AC;  /* sage   */
+  --cat-6: #6B4E71;  /* plum   */
 
   /* === RADIUS SCALE ===
      Two values. Cards get --radius-card, every control (button, input,
@@ -213,29 +234,33 @@
   white-space: nowrap;
 }
 
+/* [ui-consistency 2026-07-23] These were raw Tailwind (green-100/blue-100/
+   violet-100 …) on a warm #F7F6F3 page — the cool tints read as a different
+   product. Every badge now composes from the semantic tokens. "scheduled" is
+   slate, NOT blue: scheduled is neutral-attention, not a distinct brand hue. */
 .badge-complete, .badge-paid {
-  background: #DCFCE7; color: #166534; border: 1px solid #BBF7D0;
+  background: var(--ok-bg); color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 28%, transparent);
 }
 .badge-scheduled, .badge-sent {
-  background: #DBEAFE; color: #1E40AF; border: 1px solid #BFDBFE;
+  background: var(--info-bg); color: var(--info); border: 1px solid color-mix(in srgb, var(--info) 28%, transparent);
 }
 .badge-in_progress {
-  background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A;
+  background: var(--warn-bg); color: var(--warn); border: 1px solid color-mix(in srgb, var(--warn) 28%, transparent);
 }
 .badge-overdue, .badge-flagged, .badge-cancelled {
-  background: #FEE2E2; color: #991B1B; border: 1px solid #FECACA;
+  background: var(--danger-bg); color: var(--danger); border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
 }
 .badge-draft {
-  background: #F3F4F6; color: #6B7280; border: 1px solid #E5E7EB;
+  background: var(--bg-hover); color: var(--ink-muted); border: 1px solid var(--border);
 }
 .badge-owner {
-  background: var(--brand-dim); color: var(--brand); border: 1px solid rgba(var(--brand-rgb), 0.3);
+  background: var(--brand-dim); color: var(--ok); border: 1px solid rgba(var(--brand-rgb), 0.3);
 }
 .badge-admin {
-  background: #EDE9FE; color: #5B21B6; border: 1px solid #DDD6FE;
+  background: var(--clay-bg); color: var(--clay-ink); border: 1px solid color-mix(in srgb, var(--clay) 28%, transparent);
 }
 .badge-technician, .badge-active {
-  background: #DCFCE7; color: #166534; border: 1px solid #BBF7D0;
+  background: var(--ok-bg); color: var(--ok); border: 1px solid color-mix(in srgb, var(--ok) 28%, transparent);
 }
 
 /* ============================================================
@@ -266,9 +291,12 @@
 /* ============================================================
    FREQUENCY COLORS FOR JOB CARDS
    ============================================================ */
-.freq-weekly     { border-left-color: var(--brand) !important; }
-.freq-biweekly   { border-left-color: #3B82F6 !important; }
-.freq-triweekly  { border-left-color: #F59E0B !important; }
-.freq-monthly    { border-left-color: #8B5CF6 !important; }
-.freq-on_demand  { border-left-color: #C0BDB6 !important; }
-.freq-other      { border-left-color: #EF4444 !important; }
+/* Frequency is a CATEGORY, not a status — so it draws from --cat-*, not from
+   --ok/--warn/--danger. Monthly used to be violet and biweekly blue, which is
+   what made the dispatch board look like it belonged to another app. */
+.freq-weekly     { border-left-color: var(--cat-1) !important; }
+.freq-biweekly   { border-left-color: var(--cat-4) !important; }
+.freq-triweekly  { border-left-color: var(--cat-3) !important; }
+.freq-monthly    { border-left-color: var(--cat-6) !important; }
+.freq-on_demand  { border-left-color: var(--cat-5) !important; }
+.freq-other      { border-left-color: var(--ink-faint) !important; }

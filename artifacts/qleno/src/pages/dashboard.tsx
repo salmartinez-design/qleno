@@ -840,13 +840,12 @@ function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: 
     <div style={{
       borderRadius: 'var(--radius-card)',
       // [hero-mint 2026-07-23] Mint IS the field, at Sal's call — it's the
-      // primary brand color and the hero is where the brand should land. Type
-      // stays white on it, also his call. Note for anyone tempted to "fix" it:
-      // white on #00C9A0 is ~2.1:1, under the WCAG AA floor, so the ramp runs
-      // to a deeper #00A886 on the right and every label here is weight 600 at
-      // 11px+ to hold its edges. Do NOT lighten the ramp further. The accent
-      // ON this band is Qleno Night — see the delta pill and the selector.
-      background: 'linear-gradient(118deg, var(--brand) 0%, #00A886 100%)',
+      // primary brand color and the hero is where the brand should land.
+      // SOLID #00C9A0, no gradient, no variant — Sal's explicit call. Do NOT
+      // reintroduce a ramp. White type on it is ~2.1:1, so every label on this
+      // band is weight 600 at 11px+ to hold its edges. The accent ON this band
+      // is Qleno Night — see the delta pill and the selector.
+      background: 'var(--brand)',
       color: '#FFFFFF', padding: '22px 26px',
       display: 'flex', alignItems: 'stretch', justifyContent: 'space-between', gap: 28, flexWrap: 'wrap',
     }}>
