@@ -14,7 +14,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation } from "wouter";
 import { useAuthStore, getAuthHeaders } from "@/lib/auth";
 import { resyncPushSubscription } from "@/lib/web-push-client";
-import { Bell, MessageSquare, Briefcase, CalendarDays, AlertTriangle } from "lucide-react";
+import { Bell, MessageSquare, Briefcase, CalendarDays, AlertTriangle, CalendarCheck, Clock, AtSign, UserCheck, MapPin } from "lucide-react";
+import { styleOf, familyOf } from "@/lib/notification-style";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -95,13 +96,30 @@ export function NotificationBell() {
     } catch (_) { /* no-op */ }
   };
 
-  const iconFor = (type: string) =>
-    type === "new_message" ? <MessageSquare size={14} style={{ color: "var(--brand)" }} />
-    : type === "job_assigned" ? <Briefcase size={14} style={{ color: "#2563EB" }} />
-    : type === "job_changed" ? <CalendarDays size={14} style={{ color: "#F59E0B" }} />
-    : type === "new_booking" ? <Bell size={14} style={{ color: "#2563EB" }} />
-    : type === "late_clockin" ? <AlertTriangle size={14} style={{ color: "#F59E0B" }} />
-    : <Bell size={14} style={{ color: "#6B7280" }} />;
+  // [notif-colors 2026-07-23] Icon shape says WHAT happened; the family colour
+  // (from lib/notification-style) says what KIND of thing it is. Colour comes
+  // from one map so the bell, the full page and any future surface can't drift.
+  const iconFor = (type: string) => {
+    const c = styleOf(type).color;
+    const P = { size: 14, style: { color: c } } as const;
+    switch (type) {
+      case "new_message":          return <MessageSquare {...P} />;
+      case "scheduled_sms_review": return <Clock {...P} />;
+      case "new_booking":          return <CalendarCheck {...P} />;
+      case "late_clockin":         return <Clock {...P} />;
+      case "geofence_violation":   return <MapPin {...P} />;
+      case "leave_request":
+      case "leave_reset_applied":
+      case "leave_reset_upcoming": return <CalendarDays {...P} />;
+      case "job_unassigned":       return <AlertTriangle {...P} />;
+      case "job_changed":          return <CalendarDays {...P} />;
+      case "job_assigned":         return <Briefcase {...P} />;
+      case "note_mention":         return <AtSign {...P} />;
+      case "one_on_one_scheduled":
+      case "leave_decision":       return <UserCheck {...P} />;
+      default:                     return <Bell {...P} />;
+    }
+  };
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
@@ -150,12 +168,18 @@ export function NotificationBell() {
                 key={n.id}
                 onClick={async () => markRead(n.id, await resolveTarget(n))}
                 style={{
-                  display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 16px",
-                  background: n.read ? "#fff" : "#F0F4FF",
+                  display: "flex", alignItems: "flex-start", gap: 10, padding: "11px 16px 11px 13px",
+                  // Unread carries the family tint; read rows go plain white so
+                  // the colour always means "still needs you", not just "exists".
+                  background: n.read ? "#fff" : styleOf(n.type).unreadBg,
+                  borderLeft: `3px solid ${n.read ? "transparent" : styleOf(n.type).color}`,
                   border: "none", borderBottom: "1px solid #F7F6F3", cursor: "pointer", width: "100%", textAlign: "left",
+                  boxShadow: n.read ? "none" : `inset 3px 0 0 ${styleOf(n.type).color}`,
                 }}
               >
-                <span style={{ marginTop: 2, flexShrink: 0, width: 28, height: 28, borderRadius: 7, background: n.read ? "#F3F4F6" : "var(--brand-dim)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <span style={{ marginTop: 2, flexShrink: 0, width: 28, height: 28, borderRadius: 7,
+                  background: styleOf(n.type).tint, border: `1px solid ${styleOf(n.type).border}`,
+                  display: "flex", alignItems: "center", justifyContent: "center" }}>
                   {iconFor(n.type)}
                 </span>
                 <span style={{ flex: 1, minWidth: 0 }}>
@@ -165,7 +189,7 @@ export function NotificationBell() {
                     {new Date(n.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </span>
                 </span>
-                {!n.read && <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#2563EB", flexShrink: 0, marginTop: 4 }} />}
+                {!n.read && <span style={{ width: 7, height: 7, borderRadius: "50%", background: styleOf(n.type).color, flexShrink: 0, marginTop: 4 }} />}
               </button>
             ))}
           </div>
