@@ -357,6 +357,26 @@ async function runStartupMigrations() {
          WHERE ja.pricing_addon_id = pa.id
            AND lower(pa.name) = 'parking fee'
            AND ja.affects_commission = true`);
+      // [commission-base-stale 2026-07-23] Residential price edits refreshed
+      // base_fee + billed_amount but not the STORED commission_base (the
+      // recompute was commercial-only), so the tech's fee split kept paying off
+      // the OLD price (Molly Rippert: billed $240 → $300, commission still on
+      // ~$240). Heal existing rows, but ONLY where it's provably safe — a
+      // residential, non-override job with NO add-ons and NO commissionable
+      // rate-mods, where the correct commission_base is exactly base_fee. Jobs
+      // WITH add-ons are left untouched (residential base_fee is all-in, so
+      // resetting could double-count). Idempotent: only rows that actually
+      // differ change. The going-forward fix (delta on price edit, routes/jobs.ts)
+      // prevents recurrence.
+      await db.execute(sql`
+        UPDATE jobs j SET commission_base = (j.base_fee)::numeric
+         WHERE j.commission_base IS NOT NULL
+           AND (j.base_fee)::numeric IS DISTINCT FROM (j.commission_base)::numeric
+           AND j.account_id IS NULL
+           AND COALESCE(j.manual_rate_override, false) = false
+           AND NOT EXISTS (SELECT 1 FROM job_add_ons ja WHERE ja.job_id = j.id)
+           AND NOT EXISTS (SELECT 1 FROM job_rate_mods jm WHERE jm.job_id = j.id AND jm.affects_commission = true)
+           AND COALESCE((SELECT c.client_type FROM clients c WHERE c.id = j.client_id), '') <> 'commercial'`);
       // [manual-edit-detach 2026-07-06] Stamped when the office hand-edits an
       // invoice's line items / tip via PUT. While set, the invoice is DETACHED
       // from job mirroring: the mark-paid pre-payment recalc and the job-edit
