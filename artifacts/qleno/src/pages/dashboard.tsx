@@ -803,8 +803,8 @@ function WeatherGlyph({ code, size = 26 }: { code: number; size?: number }) {
 // which is where the app's palette actually lives. Everything in here is
 // derived from var(--brand), so a tenant with a different brand_color gets a
 // coherent band rather than a blue one.
-function HeroBand({ greeting, todayDate, branchName, summary, period, setPeriod, weather }: {
-  greeting: string; todayDate: string; branchName?: string;
+function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: {
+  greeting: string; todayDate: string;
   summary: Summary | null; period: Period; setPeriod: (p: Period) => void; weather: any;
 }) {
   const delta = summary?.revenue_booked.delta_pct ?? null;
@@ -823,14 +823,12 @@ function HeroBand({ greeting, todayDate, branchName, summary, period, setPeriod,
     }}>
       {/* left — who / when / where */}
       <div style={{ minWidth: 200 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <p style={{ fontSize: 20, fontWeight: 600, margin: 0, fontFamily: FF, color: '#FFFFFF' }}>{greeting}</p>
-          {branchName && (
-            <span style={{ fontSize: 11, fontWeight: 600, background: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.28)', padding: '2px 8px', borderRadius: 999, fontFamily: FF }}>
-              {branchName}
-            </span>
-          )}
-        </div>
+        {/* [branch-dedupe 2026-07-22] No branch pill here. The header's branch
+            dropdown is the one place branch is named AND switchable; repeating
+            it beside the greeting read as "Oak Lawn Oak Lawn". The weather line
+            below still names the city because that's the forecast's location,
+            not the branch selector. */}
+        <p style={{ fontSize: 20, fontWeight: 600, margin: 0, fontFamily: FF, color: '#FFFFFF' }}>{greeting}</p>
         <p style={{ fontSize: 12, margin: '6px 0 0', fontFamily: FF, color: 'rgba(255,255,255,0.78)' }}>{todayDate}</p>
 
         {weather?.available && (
@@ -998,18 +996,46 @@ const prettySource = (s: string | null) =>
 // This map encodes DATA (which channel a color means), so it is deliberately
 // literal and exempt from the var(--brand) sweep — a tenant's brand_color must
 // not repaint "Referral".
+//
+// The KEYS here must be the raw `source` values /lead-analytics/report returns
+// — for Phes today that's quote / web_quote / very_dirty / widget /
+// booking_widget, not the tidy names. Keying on a guess is why every row first
+// rendered the gray fallback. Same precedence rule as the leads board
+// (`leadSourceTag`): explicit key first, then a web-ish regex, then neutral.
 const SOURCE_COLOR: Record<string, string> = {
-  referral:     '#0A0E1A',  // Qleno Night — the free channel, deliberately set apart
-  repeat:       '#0A0E1A',
-  google_local: '#00C9A0',  // Electric Mint
-  google:       '#00C9A0',
-  facebook:     '#4C8C7B',
-  instagram:    '#4C8C7B',
-  website:      '#8FB8AC',
-  phone:        '#8FB8AC',
+  // Free channels — Qleno Night, the darkest and most distinguished step.
+  referral:              '#0A0E1A',
+  repeat:                '#0A0E1A',
+  realtor:               '#0A0E1A',
+  // Paid search — Electric Mint.
+  google_local_services: '#00C9A0',
+  google_search:         '#00C9A0',
+  google:                '#00C9A0',
+  // Paid social.
+  facebook:              '#4C8C7B',
+  instagram:             '#4C8C7B',
+  // Office-built work: a quote your team keyed in, or an inbound call.
+  quote:                 '#5E7A72',
+  manual:                '#5E7A72',
+  phone_in:              '#5E7A72',
+  // Inbound from the site.
+  web_quote:             '#8FB8AC',
+  contact_form:          '#8FB8AC',
+  quote_request:         '#8FB8AC',
+  online_booking:        '#8FB8AC',
+  booking_widget:        '#A9CCC2',
+  widget:                '#A9CCC2',
+  very_dirty:            '#A9CCC2',
+  very_dirty_callback:   '#A9CCC2',
 };
 const SOURCE_FALLBACK = '#C8C4BC';
-const sourceColor = (s: string | null) => (s && SOURCE_COLOR[s]) || SOURCE_FALLBACK;
+const sourceColor = (s: string | null) => {
+  if (!s) return SOURCE_FALLBACK;
+  if (SOURCE_COLOR[s]) return SOURCE_COLOR[s];
+  return /web|widget|online|form|very_dirty/.test(s.toLowerCase())
+    ? SOURCE_COLOR.web_quote
+    : SOURCE_FALLBACK;
+};
 
 function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: string) => void }) {
   const rows: any[] = (report?.by_source || []).slice(0, 6);
@@ -1153,7 +1179,7 @@ export default function Dashboard() {
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
   const [showCloseDay, setShowCloseDay] = useState(false);
-  const { activeBranchId, activeBranch } = useBranch();
+  const { activeBranchId } = useBranch();
 
   // [dashboard-default 2026-07-22] Opens on TODAY. Sal's read of the page is
   // "what is my business doing right now" — the week is one tap away, not the
@@ -1266,7 +1292,6 @@ export default function Dashboard() {
         <HeroBand
           greeting={greeting}
           todayDate={todayDate}
-          branchName={activeBranch?.name}
           summary={summary}
           period={period}
           setPeriod={setPeriod}
