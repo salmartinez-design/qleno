@@ -163,13 +163,18 @@ function BrandingTab() {
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // [brand 2026-07-22] Hydrate the form from the server ONCE. This used to depend
+  // on the `company` object, so every refetch handed back a new object identity and
+  // reset these inputs — type a hex, let a background refetch land, and the field
+  // silently snapped back to the stored color while Save posted the OLD value.
+  const hydrated = useRef(false);
   useEffect(() => {
-    if (company) {
-      const c = (company as any).brand_color || '#00C9A7';
-      setBrandColor(c);
-      setPreviewColor(c);
-      setLogoUrl((company as any).logo_url || '');
-    }
+    if (!company || hydrated.current) return;
+    hydrated.current = true;
+    const c = (company as any).brand_color || '#00C9A7';
+    setBrandColor(c);
+    setPreviewColor(c);
+    setLogoUrl((company as any).logo_url || '');
   }, [company]);
 
   const handleColorChange = (hex: string) => {
