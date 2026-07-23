@@ -13,7 +13,7 @@ const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const INK = "#1A1917";
 const MUTE = "#6B7280";
 const BORDER = "#E5E2DC";
-const MINT = "#00C9A0";
+const MINT = "var(--brand)";
 
 async function apiFetch(path: string) {
   const r = await fetch(`${API}${path}`, { headers: getAuthHeaders() as Record<string, string> });
@@ -183,7 +183,7 @@ export default function EstimateEngagementPage() {
                 <div key={r.facility_type} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ width: 150, fontSize: 12.5, color: INK, flexShrink: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{FACILITY_LABEL[r.facility_type] || r.facility_type}</span>
                   <div style={{ flex: 1, background: "#F1EFE8", borderRadius: 6, height: 22 }}>
-                    <div style={{ width: `${Math.max(2, r.win_rate)}%`, height: 22, borderRadius: 6, background: "#00C9A0" }} />
+                    <div style={{ width: `${Math.max(2, r.win_rate)}%`, height: 22, borderRadius: 6, background: "var(--brand)" }} />
                   </div>
                   <span style={{ width: 150, textAlign: "right", fontSize: 12, color: MUTE, flexShrink: 0 }}><b style={{ color: INK }}>{r.win_rate}%</b> · {r.won}/{r.sent} · {fmt$(r.won_value)} won</span>
                 </div>

@@ -36,7 +36,7 @@ type Note = {
   created_at: string;
 };
 
-const MINT = "#00C9A0";
+const MINT = "var(--brand)";
 const INK = "#1A1917";
 const MUTE = "#6B7280";
 const BORDER = "#E5E2DC";

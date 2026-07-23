@@ -1408,6 +1408,213 @@ async function computeLastWeekPayrollPct(companyId: number): Promise<{ payroll_p
   };
 }
 
+// ── Period-scoped money summary ─────────────────────────────────────────────
+// [dashboard-period-selector 2026-07-22] /kpis answers fixed windows only
+// (this week, this month, next 7). The redesigned dashboard puts ONE period
+// selector at the top of the page and every money card has to follow it, so
+// this endpoint takes the window as a parameter and returns the four numbers
+// that row shows: revenue booked, cash collected, receivables, payroll %.
+//
+// Read-only. No schema change. Every number is company-scoped and, where the
+// table carries a branch, branch-scoped too.
+//
+// Definitions, so the card labels can't drift from the SQL:
+//   revenue_booked — non-cancelled jobs SCHEDULED in the window, valued at
+//     billed_amount when invoiced else base_fee. Same expression as /kpis, so
+//     "revenue this week" ties to the KPI strip to the penny.
+//   collected     — payments RECEIVED in the window (payments.created_at).
+//     Booked ≠ collected; showing both side by side is the point.
+//   payroll       — [arrears 2026-07-22] ALWAYS the last COMPLETED Sun–Sat
+//     week, never the selected window. Phes pays in arrears: this week's
+//     commission isn't owed or even final yet, so dividing a partial week's
+//     cost by a partial week's revenue produced a number that swung wildly
+//     every morning and meant nothing. The card is labelled with the actual
+//     dates it covers and does NOT move with the period selector.
+
+type PeriodKey = "today" | "week" | "month";
+
+const ctNow = () => new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+const ymd = (d: Date) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+// Sun–Sat weeks, calendar months, both in America/Chicago — the same tz the
+// "booked today" KPI counts in. `prev` is the immediately preceding window of
+// the same shape, which is what the delta chips compare against.
+function resolvePeriod(period: PeriodKey): { from: string; to: string; prevFrom: string; prevTo: string; label: string } {
+  const now = ctNow();
+  const d = (base: Date, days: number) => { const x = new Date(base); x.setDate(base.getDate() + days); return x; };
+
+  if (period === "today") {
+    return { from: ymd(now), to: ymd(now), prevFrom: ymd(d(now, -1)), prevTo: ymd(d(now, -1)), label: "Today" };
+  }
+  if (period === "month") {
+    const s = new Date(now.getFullYear(), now.getMonth(), 1);
+    const e = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    const ps = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const pe = new Date(now.getFullYear(), now.getMonth(), 0);
+    return { from: ymd(s), to: ymd(e), prevFrom: ymd(ps), prevTo: ymd(pe), label: "This month" };
+  }
+  const s = d(now, -now.getDay());          // Sunday
+  const e = d(s, 6);                        // Saturday
+  return { from: ymd(s), to: ymd(e), prevFrom: ymd(d(s, -7)), prevTo: ymd(d(s, -1)), label: "This week" };
+}
+
+// The last COMPLETED Sun–Sat week. Independent of the page's period selector —
+// see the payroll note above.
+function lastCompletedWeek(): { from: string; to: string } {
+  const now = ctNow();
+  const d = (base: Date, days: number) => { const x = new Date(base); x.setDate(base.getDate() + days); return x; };
+  const thisSun = d(now, -now.getDay());
+  return { from: ymd(d(thisSun, -7)), to: ymd(d(thisSun, -1)) };
+}
+
+const pctDelta = (cur: number, prev: number): number | null =>
+  prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : null;
+
+// Commission cost for jobs completed in [from, to]. Extracted from the
+// last-week payroll-% helper so the period selector and the BUSINESS HEALTH
+// card can't disagree about what a commission dollar is.
+async function commissionCostForRange(companyId: number, from: string, to: string, branchId: number | null): Promise<number> {
+  let compSettings: any = {
+    res_tech_pay_pct: 0.35, deep_clean_pay_pct: 0.32, move_in_out_pay_pct: 0.32,
+    commercial_hourly_rate: 20.0, commercial_comp_mode: "allowed_hours",
+  };
+  try {
+    const rows = await db.execute(sql`SELECT res_tech_pay_pct, deep_clean_pay_pct, move_in_out_pay_pct, commercial_hourly_rate, commercial_comp_mode FROM companies WHERE id = ${companyId} LIMIT 1`);
+    if (rows.rows[0]) compSettings = rows.rows[0];
+  } catch { /* tiered columns absent — keep defaults */ }
+
+  const jobRows = await db.execute(sql`
+    SELECT j.id, j.assigned_user_id, j.service_type::text AS service_type, j.account_id,
+           j.base_fee, j.billed_amount, j.allowed_hours, j.actual_hours, j.branch_id,
+           j.scheduled_date::text AS scheduled_date, c.client_type
+      FROM jobs j
+      LEFT JOIN clients c ON c.id = j.client_id
+     WHERE j.company_id = ${companyId} AND j.status = 'complete'
+       AND j.scheduled_date >= ${from} AND j.scheduled_date <= ${to}
+       ${branchId != null ? sql`AND j.branch_id = ${branchId}` : sql``}
+  `);
+  const jobs: CommissionInputJob[] = (jobRows.rows as any[]).map(r => ({
+    id: Number(r.id),
+    account_id: r.account_id != null ? Number(r.account_id) : (r.client_type === "commercial" ? -1 : null),
+    assigned_user_id: r.assigned_user_id != null ? Number(r.assigned_user_id) : null,
+    service_type: r.service_type ?? null,
+    base_fee: r.base_fee ?? null,
+    billed_amount: r.billed_amount ?? null,
+    allowed_hours: r.allowed_hours ?? null,
+    actual_hours: r.actual_hours ?? null,
+    branch_id: r.branch_id != null ? Number(r.branch_id) : null,
+    scheduled_date: String(r.scheduled_date),
+    client_type: r.client_type ?? null,
+  }));
+  if (jobs.length === 0) return 0;
+
+  const overrides = new Map<string, number>();
+  try {
+    const t = await db.execute(sql`
+      SELECT job_id, user_id, final_pay FROM job_technicians
+      WHERE company_id = ${companyId} AND job_id = ANY(${jobs.map(j => j.id)}::int[]) AND final_pay IS NOT NULL
+    `);
+    for (const r of t.rows as any[]) {
+      const pay = parseFloat(String(r.final_pay));
+      if (Number.isFinite(pay)) overrides.set(`${r.user_id}:${r.job_id}`, pay);
+    }
+  } catch { /* job_technicians absent on a fresh tenant — engine-computed only */ }
+
+  return computeCommissionRows({
+    jobs,
+    resRates: parseResRatesRow(compSettings),
+    commercial: {
+      commercial_hourly_rate: parseFloat(String(compSettings.commercial_hourly_rate ?? 20)),
+      commercial_comp_mode: compSettings.commercial_comp_mode === "actual_hours" ? "actual_hours" : "allowed_hours",
+    },
+    overrides,
+  }).reduce((s, r) => s + r.amount, 0);
+}
+
+router.get("/summary", requireAuth, officeGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const raw = String(req.query.period ?? "week");
+    const period: PeriodKey = raw === "today" || raw === "month" ? raw : "week";
+    const branchId = req.query.branch_id && req.query.branch_id !== "all"
+      ? parseInt(String(req.query.branch_id), 10) : null;
+    const w = resolvePeriod(period);
+
+    const revSql = (from: string, to: string) => db.execute(sql`
+      SELECT COALESCE(SUM(${jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`)}), 0)::numeric AS total,
+             COUNT(*)::int AS jobs
+        FROM jobs j
+        LEFT JOIN clients c ON c.id = j.client_id
+       WHERE j.company_id = ${companyId}
+         AND j.status != 'cancelled'
+         AND j.scheduled_date >= ${from} AND j.scheduled_date <= ${to}
+         ${branchId != null ? sql`AND j.branch_id = ${branchId}` : sql``}
+    `);
+
+    // Payments carry no branch column — collected is company-wide by
+    // construction. The card says "all branches" when a branch filter is on
+    // rather than silently reporting a number the filter didn't touch.
+    const paidSql = (from: string, to: string) => db.execute(sql`
+      SELECT COALESCE(SUM(amount), 0)::numeric AS total
+        FROM payments
+       WHERE company_id = ${companyId}
+         AND created_at >= ${from}::date
+         AND created_at < (${to}::date + interval '1 day')
+    `);
+
+    const pw = lastCompletedWeek();
+
+    const [curRev, prevRev, curPaid, prevPaid, payRev, payCost] = await Promise.all([
+      revSql(w.from, w.to),
+      revSql(w.prevFrom, w.prevTo),
+      paidSql(w.from, w.to),
+      paidSql(w.prevFrom, w.prevTo),
+      revSql(pw.from, pw.to),
+      commissionCostForRange(companyId, pw.from, pw.to, branchId),
+    ]);
+
+    const n = (r: any, k: string) => parseFloat(String(r?.rows?.[0]?.[k] ?? 0)) || 0;
+    const revenue = n(curRev, "total");
+    const revenuePrev = n(prevRev, "total");
+    const collected = n(curPaid, "total");
+    const collectedPrev = n(prevPaid, "total");
+
+    return res.json({
+      period,
+      label: w.label,
+      window: { from: w.from, to: w.to },
+      prev_window: { from: w.prevFrom, to: w.prevTo },
+      branch_id: branchId,
+      revenue_booked: {
+        value: revenue,
+        prev: revenuePrev,
+        delta_pct: pctDelta(revenue, revenuePrev),
+        jobs: Number(curRev.rows[0]?.jobs ?? 0),
+      },
+      collected: {
+        value: collected,
+        prev: collectedPrev,
+        delta_pct: pctDelta(collected, collectedPrev),
+        // true when the number ignores the active branch filter
+        company_wide: branchId != null,
+      },
+      // Last completed week, always — Phes pays in arrears. See the note above.
+      payroll: {
+        cost: Math.round(payCost * 100) / 100,
+        revenue: n(payRev, "total"),
+        pct_of_revenue: n(payRev, "total") > 0
+          ? Math.round((payCost / n(payRev, "total")) * 1000) / 10 : null,
+        window: { from: pw.from, to: pw.to },
+        label: "Last week",
+      },
+    });
+  } catch (err) {
+    console.error("GET /dashboard/summary error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // Desktop BUSINESS HEALTH section. Same source-of-truth helpers as mobile.
 router.get("/business-health", requireAuth, officeGate, async (req, res) => {
   try {
@@ -1680,6 +1887,117 @@ router.get("/recent-activity", requireAuth, officeGate, async (req, res) => {
   } catch (err) {
     console.error("Recent activity error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Live weather for the dispatch day ───────────────────────────────────────
+// [dashboard-weather 2026-07-22] Weather is an operations input for a cleaning
+// crew, not decoration: snow and heavy rain move drive time, push arrival
+// windows, and drive same-day cancellations. The office should see it on the
+// dashboard rather than on a second tab.
+//
+// Source is Open-Meteo — free, no API key, no account. The only thing that
+// leaves this server is a city name (e.g. "Oak Lawn, IL"); no customer or
+// employee data is sent. Coordinates and the forecast are cached in-process so
+// a dashboard refresh doesn't re-hit the provider.
+//
+// Location comes from the ACTIVE BRANCH's city/state (branches.city/state),
+// falling back to the company's. Oak Lawn and Schaumburg are ~30 miles apart
+// with genuinely different lake-effect weather, so the branch matters — the
+// coordinates are never hardcoded per branch.
+const WMO: Record<number, string> = {
+  0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Overcast",
+  45: "Fog", 48: "Freezing fog",
+  51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle",
+  56: "Freezing drizzle", 57: "Freezing drizzle",
+  61: "Light rain", 63: "Rain", 65: "Heavy rain",
+  66: "Freezing rain", 67: "Freezing rain",
+  71: "Light snow", 73: "Snow", 75: "Heavy snow", 77: "Snow grains",
+  80: "Rain showers", 81: "Rain showers", 82: "Heavy showers",
+  85: "Snow showers", 86: "Heavy snow showers",
+  95: "Thunderstorms", 96: "Thunderstorms", 99: "Severe thunderstorms",
+};
+
+// Codes where the office should expect schedule friction. Drives the card's
+// advisory line — the only opinion the endpoint offers.
+const ROUGH = new Set([56, 57, 65, 66, 67, 71, 73, 75, 77, 82, 85, 86, 95, 96, 99]);
+
+const geoCache = new Map<string, { lat: number; lon: number } | null>();
+const wxCache = new Map<string, { at: number; body: any }>();
+const WX_TTL_MS = 15 * 60 * 1000;
+
+async function geocode(place: string): Promise<{ lat: number; lon: number } | null> {
+  if (geoCache.has(place)) return geoCache.get(place)!;
+  const [city, state] = place.split(",").map(s => s.trim());
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=10&country=US&language=en&format=json`;
+  const r = await fetch(url);
+  if (!r.ok) { geoCache.set(place, null); return null; }
+  const j: any = await r.json();
+  const hits: any[] = j?.results || [];
+  // Prefer the hit in the right state — "Schaumburg" is unambiguous, "Oak Lawn"
+  // is not.
+  const hit = hits.find(h => !state || h.admin1_code === state || h.admin1 === state) || hits[0];
+  const out = hit ? { lat: hit.latitude, lon: hit.longitude } : null;
+  geoCache.set(place, out);
+  return out;
+}
+
+router.get("/weather", requireAuth, officeGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const branchId = req.query.branch_id && req.query.branch_id !== "all"
+      ? parseInt(String(req.query.branch_id), 10) : null;
+
+    let place = "";
+    if (branchId != null) {
+      const b = await db.execute(sql`
+        SELECT city, state FROM branches WHERE id = ${branchId} AND company_id = ${companyId} LIMIT 1`);
+      const row: any = b.rows[0];
+      if (row?.city) place = `${row.city}, ${row.state || ""}`;
+    }
+    if (!place) {
+      const c = await db.execute(sql`SELECT city, state FROM companies WHERE id = ${companyId} LIMIT 1`);
+      const row: any = c.rows[0];
+      if (row?.city) place = `${row.city}, ${row.state || ""}`;
+    }
+    // No city on file is a data gap, not an error — the card just hides.
+    if (!place) return res.json({ available: false, reason: "no_location" });
+
+    const cached = wxCache.get(place);
+    if (cached && Date.now() - cached.at < WX_TTL_MS) return res.json(cached.body);
+
+    const geo = await geocode(place);
+    if (!geo) return res.json({ available: false, reason: "geocode_failed", place });
+
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}`
+      + `&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m`
+      + `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code`
+      + `&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch`
+      + `&timezone=America%2FChicago&forecast_days=1`;
+    const r = await fetch(url);
+    if (!r.ok) return res.json({ available: false, reason: "provider_error", place });
+    const j: any = await r.json();
+
+    const code = Number(j?.current?.weather_code ?? 0);
+    const body = {
+      available: true,
+      place,
+      temp: Math.round(Number(j?.current?.temperature_2m ?? 0)),
+      feels_like: Math.round(Number(j?.current?.apparent_temperature ?? 0)),
+      code,
+      condition: WMO[code] || "—",
+      wind_mph: Math.round(Number(j?.current?.wind_speed_10m ?? 0)),
+      high: Math.round(Number(j?.daily?.temperature_2m_max?.[0] ?? 0)),
+      low: Math.round(Number(j?.daily?.temperature_2m_min?.[0] ?? 0)),
+      precip_chance: Number(j?.daily?.precipitation_probability_max?.[0] ?? 0),
+      rough: ROUGH.has(code),
+    };
+    wxCache.set(place, { at: Date.now(), body });
+    return res.json(body);
+  } catch (err) {
+    console.error("GET /dashboard/weather error:", err);
+    // Weather must never break the dashboard.
+    return res.json({ available: false, reason: "error" });
   }
 });
 

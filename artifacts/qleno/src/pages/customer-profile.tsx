@@ -125,7 +125,7 @@ function MiniCalendar({ jobs, onPickEmpty, onPickJob }: { jobs: any[]; onPickEmp
     }
   }
 
-  const dotColor: Record<string,string> = { complete:"#16A34A", scheduled:"#5B9BD5", assigned:"#5B9BD5", cancelled:"#9E9B94", skipped:"#9E9B94" };
+  const dotColor: Record<string,string> = { complete:"#16A34A", scheduled:"var(--brand)", assigned:"var(--brand)", cancelled:"#9E9B94", skipped:"#9E9B94" };
 
   // [scheduling-engine 2026-04-29] Build today's ISO date once so we
   // can decide whether to allow scheduling on the clicked day.
@@ -177,7 +177,7 @@ function MiniCalendar({ jobs, onPickEmpty, onPickJob }: { jobs: any[]; onPickEmp
                 borderRadius: 4,
                 ...(clickable ? { outline: "none" } : {}),
               }}
-              onMouseOver={e => { if (clickable) (e.currentTarget as HTMLButtonElement).style.background = "rgba(91,155,213,0.12)"; }}
+              onMouseOver={e => { if (clickable) (e.currentTarget as HTMLButtonElement).style.background = "rgba(var(--brand-rgb),0.12)"; }}
               onMouseOut={e => { if (clickable) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
             >
               <span style={{ fontSize: "11px", color: status ? "#1A1917" : isFuture ? "#6B7280" : "#C4C0BB", fontWeight: status ? 700 : 400 }}>{day}</span>
@@ -276,7 +276,7 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
         </div>
 
         {/* Loyalty */}
-        <div style={{ backgroundColor: "var(--brand-dim)", border: "1px solid rgba(91,155,213,0.2)", borderRadius: "12px", padding: "16px" }}>
+        <div style={{ backgroundColor: "var(--brand-dim)", border: "1px solid rgba(var(--brand-rgb),0.2)", borderRadius: "12px", padding: "16px" }}>
           <div style={{ fontSize: "10px", fontWeight: 700, color: "var(--brand)", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "6px" }}>CleanRewards</div>
           <div style={{ display: "flex", alignItems: "baseline", gap: "6px" }}>
             <span style={{ fontSize: "26px", fontWeight: 700, color: "var(--brand)", lineHeight: 1 }}>{pts.toLocaleString()}</span>
@@ -287,7 +287,7 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
           </span>
           {nextTier && (
             <>
-              <div style={{ height: "6px", backgroundColor: "rgba(91,155,213,0.2)", borderRadius: "3px", margin: "10px 0 4px", overflow: "hidden" }}>
+              <div style={{ height: "6px", backgroundColor: "rgba(var(--brand-rgb),0.2)", borderRadius: "3px", margin: "10px 0 4px", overflow: "hidden" }}>
                 <div style={{ height: "100%", width: `${pct}%`, backgroundColor: "var(--brand)", borderRadius: "3px", transition: "width 0.4s" }} />
               </div>
               <div style={{ fontSize: "11px", color: "var(--brand)", opacity: 0.8 }}>{Math.max(0, threshold - pts)} pts until {nextTier}</div>
@@ -338,7 +338,7 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
           <div style={{ fontSize: "10px", fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "2px" }}>Job Calendar</div>
           <MiniCalendar jobs={jobs} />
           <div style={{ display: "flex", gap: "10px", marginTop: "10px", flexWrap: "wrap" }}>
-            {[["#16A34A","Complete"],["#5B9BD5","Scheduled"],["#9E9B94","Cancelled"]].map(([c,l]) => (
+            {[["#16A34A","Complete"],["var(--brand)","Scheduled"],["#9E9B94","Cancelled"]].map(([c,l]) => (
               <div key={l} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                 <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: c }} />
                 <span style={{ fontSize: "10px", color: "#9E9B94" }}>{l}</span>
@@ -356,7 +356,7 @@ function Toast({ message, type = "success", onDone }: { message: string; type?: 
   useEffect(() => { const t = setTimeout(onDone, 3500); return () => clearTimeout(t); }, [onDone]);
   return (
     <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, background: type === "error" ? "#1A1917" : "#0A0E1A", color: "#fff", padding: "13px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: FF, boxShadow: "0 8px 30px rgba(0,0,0,0.35)", display: "flex", alignItems: "center", gap: 10, minWidth: 240 }}>
-      {type === "success" ? <Check size={14} style={{ color: "#00C9A0", flexShrink: 0 }} /> : <X size={14} style={{ color: "#EF4444", flexShrink: 0 }} />}
+      {type === "success" ? <Check size={14} style={{ color: "var(--brand)", flexShrink: 0 }} /> : <X size={14} style={{ color: "#EF4444", flexShrink: 0 }} />}
       {message}
     </div>
   );
@@ -674,9 +674,9 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
                   onClick={() => setForm(f => ({ ...f, client_type: t }))}
                   style={{
                     flex: 1, padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center",
-                    border: `1.5px solid ${form.client_type === t ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                    background: form.client_type === t ? "rgba(0,201,160,0.10)" : "#FFFFFF",
-                    color: form.client_type === t ? "var(--brand, #00C9A0)" : "#1A1917",
+                    border: `1.5px solid ${form.client_type === t ? "var(--brand)" : "#E5E2DC"}`,
+                    background: form.client_type === t ? "rgba(var(--brand-rgb),0.10)" : "#FFFFFF",
+                    color: form.client_type === t ? "var(--brand)" : "#1A1917",
                     fontSize: 13, fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif",
                   }}>
                   {t === "residential" ? "Residential" : "Commercial"}
@@ -938,7 +938,7 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
         {canManage && (
           isSuspended ? (
             <button onClick={() => resumeMut.mutate()} disabled={resumeMut.isPending}
-              style={{ padding: "8px 14px", border: "none", borderRadius: 8, background: "var(--brand)", color: "#04241d", fontSize: 13, fontWeight: 700, cursor: resumeMut.isPending ? "default" : "pointer", opacity: resumeMut.isPending ? 0.6 : 1, fontFamily: FF }}>
+              style={{ padding: "8px 14px", border: "none", borderRadius: 8, background: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: resumeMut.isPending ? "default" : "pointer", opacity: resumeMut.isPending ? 0.6 : 1, fontFamily: FF }}>
               {resumeMut.isPending ? "Resuming…" : "Resume service"}
             </button>
           ) : (
@@ -2041,8 +2041,8 @@ function NotesTab({ clientId, client }: { clientId: number; client: any }) {
   const noteMut = useMutation({ mutationFn: () => apiFetch(`/api/clients/${clientId}/communications/note`, { method: "POST", body: JSON.stringify({ body: noteBody }) }), onSuccess: () => { qc.invalidateQueries({ queryKey: ["client-comms", clientId] }); setCompose(null); setNoteBody(""); } });
 
   const typeIcon: Record<string, { icon: any; color: string }> = {
-    sms: { icon: MessageSquare, color: "#5B9BD5" },
-    email: { icon: Mail, color: "#5B9BD5" },
+    sms: { icon: MessageSquare, color: "var(--brand)" },
+    email: { icon: Mail, color: "var(--brand)" },
     note: { icon: StickyNote, color: "#92400E" },
     system: { icon: Check, color: "#9E9B94" },
     call_log: { icon: Phone, color: "#16A34A" },
@@ -2469,7 +2469,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
                     style={{ width: 90, padding: "4px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF }} />
                   <span style={{ fontSize: 12, color: "#9E9B94" }}>/hr</span>
                   <button onClick={saveCommercialRate} disabled={savingRate}
-                    style={{ background: "var(--brand, #00C9A0)", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, padding: "4px 10px", cursor: savingRate ? "wait" : "pointer", fontFamily: FF }}>
+                    style={{ background: "var(--brand)", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, padding: "4px 10px", cursor: savingRate ? "wait" : "pointer", fontFamily: FF }}>
                     {savingRate ? "…" : "Save"}
                   </button>
                   <button onClick={() => setEditingRate(false)} disabled={savingRate}
@@ -2534,7 +2534,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
                 placeholder="20.00"
                 style={{ width: 100, padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: FF }} />
               <button onClick={saveParkingFee} disabled={savingParking}
-                style={{ background: "var(--brand, #00C9A0)", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, padding: "6px 14px", cursor: savingParking ? "wait" : "pointer", fontFamily: FF }}>
+                style={{ background: "var(--brand)", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, padding: "6px 14px", cursor: savingParking ? "wait" : "pointer", fontFamily: FF }}>
                 {savingParking ? "…" : "Save"}
               </button>
               <button onClick={() => setEditingParking(false)} disabled={savingParking}
@@ -3029,7 +3029,7 @@ function RevenueTrendTab({ clientId, jobs }: { clientId: number; jobs: any[] }) 
           <div style={{ fontSize: 22, fontWeight: 800, color: "#1A1917" }}>${avg.toFixed(0)}</div>
           <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2 }}>Avg / Month</div>
         </div>
-        <div style={{ backgroundColor: "var(--brand-dim)", border: "1px solid rgba(91,155,213,0.2)", borderRadius: 10, padding: "16px 20px" }}>
+        <div style={{ backgroundColor: "var(--brand-dim)", border: "1px solid rgba(var(--brand-rgb),0.2)", borderRadius: 10, padding: "16px 20px" }}>
           <div style={{ fontSize: 22, fontWeight: 800, color: "var(--brand)" }}>${ltv.toFixed(0)}</div>
           <div style={{ fontSize: 11, color: "var(--brand)", marginTop: 2 }}>Est. LTV</div>
         </div>
@@ -3165,7 +3165,7 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
   const barColor = (key: string) => {
     if (key === "labor") return laborPct > 40 ? "#E53E3E" : laborPct > 35 ? "#F6AD55" : "#48BB78";
     if (key === "net") return netProfit >= 0 ? "#48BB78" : "#E53E3E";
-    return "#5B9BD5";
+    return "var(--brand)";
   };
 
   const r = 42; const circ = 2 * Math.PI * r;
@@ -3223,7 +3223,7 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
               <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#9E9B94" }} />
               <YAxis tick={{ fontSize: 10, fill: "#9E9B94" }} tickFormatter={(v: number) => `$${v}`} width={52} />
               <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, "Revenue"]} contentStyle={{ fontSize: 12, borderRadius: 6 }} />
-              <Line type="monotone" dataKey="revenue" stroke="#5B9BD5" strokeWidth={2.5} dot={{ r: 3, fill: "#5B9BD5" }} activeDot={{ r: 5 }} />
+              <Line type="monotone" dataKey="revenue" stroke="var(--brand)" strokeWidth={2.5} dot={{ r: 3, fill: "var(--brand)" }} activeDot={{ r: 5 }} />
             </LineChart>
           </ResponsiveContainer>
         )}
@@ -3302,7 +3302,7 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
               <div style={{ flex: 1, background: "#F0EEE9", borderRadius: 3, height: 8 }}>
                 <div style={{
                   height: "100%", borderRadius: 3, width: `${svc.pct}%`,
-                  background: "#5B9BD5", opacity: Math.max(0.35, 1 - i * 0.18),
+                  background: "var(--brand)", opacity: Math.max(0.35, 1 - i * 0.18),
                 }} />
               </div>
               <div style={{ width: 36, fontSize: 12, fontWeight: 600, color: "#1A1917", textAlign: "right" as const, flexShrink: 0 }}>{svc.pct}%</div>
@@ -3549,7 +3549,7 @@ function ProfileHero({ client, stats, jhStats, recurringSchedule, onSchedule, on
           </div>
         </div>
         <div style={{ background: "#0A0E1A", borderRadius: 10, padding: "12px 20px", textAlign: "center" as const, flexShrink: 0 }}>
-          <div style={{ fontSize: 22, fontWeight: 900, color: "#00C9A0", fontFamily: FF }}>${ltv.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+          <div style={{ fontSize: 22, fontWeight: 900, color: "var(--brand)", fontFamily: FF }}>${ltv.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginTop: 2 }}>Lifetime Value</div>
         </div>
       </div>
@@ -4251,7 +4251,7 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
             </div>
             <button type="button"
               onClick={() => setForm(f => ({ ...f, rec_frequency: "biweekly" }))}
-              style={{ padding: "8px 14px", borderRadius: 7, background: "var(--brand, #00C9A0)", color: "#FFFFFF", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+              style={{ padding: "8px 14px", borderRadius: 7, background: "var(--brand)", color: "#FFFFFF", border: "none", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
               + Set Up Recurring Schedule
             </button>
           </div>
@@ -4317,8 +4317,8 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                             onClick={() => setForm(f => ({ ...f, rec_day: d.v }))}
                             style={{
                               width: 36, height: 32, borderRadius: 6,
-                              border: `1.5px solid ${selected ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                              backgroundColor: selected ? "var(--brand, #00C9A0)" : "#F7F6F3",
+                              border: `1.5px solid ${selected ? "var(--brand)" : "#E5E2DC"}`,
+                              backgroundColor: selected ? "var(--brand)" : "#F7F6F3",
                               color: selected ? "#FFFFFF" : "#1A1917",
                               fontWeight: 700, fontSize: 13, fontFamily: FF, cursor: "pointer",
                             }}>{d.l}</button>
@@ -5455,9 +5455,9 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
           style={{
             position: "relative" as const,
             minHeight: 60, padding: "2px 3px", borderRadius: 6,
-            border: isHover ? "2px dashed #00C9A0" : isToday ? "1.5px solid #00C9A0" : "1px solid #EDEAE4",
+            border: isHover ? "2px dashed var(--brand)" : isToday ? "1.5px solid var(--brand)" : "1px solid #EDEAE4",
             background: isHover ? "#ECFBF6" : isPast ? "#FBFAF8" : "#FFFFFF",
-            boxShadow: isToday ? "0 0 0 1px #00C9A0" : "none",
+            boxShadow: isToday ? "0 0 0 1px var(--brand)" : "none",
             transition: "border 0.1s, background 0.1s",
             cursor: canAddJob ? "pointer" : "default",
           }}
@@ -5465,7 +5465,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
           onMouseOut={e => { if (canAddJob && !isHover) { const el = e.currentTarget as HTMLDivElement; el.style.background = isPast ? "#FBFAF8" : "#FFFFFF"; const p = el.querySelector<HTMLElement>(".qleno-day-add"); if (p) p.style.opacity = "0"; } }}
         >
           {canAddJob && (
-            <span className="qleno-day-add" style={{ position: "absolute" as const, top: 3, left: 5, fontSize: 13, fontWeight: 800, color: "#00C9A0", opacity: 0, transition: "opacity 0.1s", pointerEvents: "none" as const, lineHeight: 1 }}>+</span>
+            <span className="qleno-day-add" style={{ position: "absolute" as const, top: 3, left: 5, fontSize: 13, fontWeight: 800, color: "var(--brand)", opacity: 0, transition: "opacity 0.1s", pointerEvents: "none" as const, lineHeight: 1 }}>+</span>
           )}
           <div style={{
             fontSize: 11, fontWeight: isToday ? 800 : 600, color: isToday ? "#00876d" : isPast ? "#B7B3AB" : "#1A1917",
@@ -6540,7 +6540,7 @@ export default function CustomerProfilePage() {
                 </div>
               </div>
               <div style={{ background: "#0A0E1A", borderRadius: 8, padding: "6px 10px", textAlign: "center" as const, minWidth: 72 }}>
-                <div style={{ fontSize: 14, fontWeight: 900, color: "#00C9A0", lineHeight: 1.2 }}>${ltv.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
+                <div style={{ fontSize: 14, fontWeight: 900, color: "var(--brand)", lineHeight: 1.2 }}>${ltv.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
                 <div style={{ fontSize: 8, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>LTV</div>
                 {(jhStats?.ytd_revenue ?? 0) > 0 && (
                   <>

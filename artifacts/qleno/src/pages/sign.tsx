@@ -22,13 +22,13 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
         return (
           <div key={i} style={{ flex: 1, display: "flex", alignItems: "center" }}>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: done ? "#5B9BD5" : active ? "#EFF6FF" : "#F3F4F6", border: `2px solid ${done || active ? "#5B9BD5" : "#E5E2DC"}`, transition: "all 0.2s" }}>
-                {done ? <Check size={15} color="#fff" /> : <span style={{ fontSize: 13, fontWeight: 700, color: active ? "#5B9BD5" : "#9E9B94" }}>{i + 1}</span>}
+              <div style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: done ? "var(--brand)" : active ? "#EFF6FF" : "#F3F4F6", border: `2px solid ${done || active ? "var(--brand)" : "#E5E2DC"}`, transition: "all 0.2s" }}>
+                {done ? <Check size={15} color="#fff" /> : <span style={{ fontSize: 13, fontWeight: 700, color: active ? "var(--brand)" : "#9E9B94" }}>{i + 1}</span>}
               </div>
-              <div style={{ fontSize: 11, fontWeight: active ? 700 : 500, color: active ? "#5B9BD5" : done ? "#1A1917" : "#9E9B94", textAlign: "center", whiteSpace: "nowrap" }}>{label}</div>
+              <div style={{ fontSize: 11, fontWeight: active ? 700 : 500, color: active ? "var(--brand)" : done ? "#1A1917" : "#9E9B94", textAlign: "center", whiteSpace: "nowrap" }}>{label}</div>
             </div>
             {i < total - 1 && (
-              <div style={{ height: 2, flex: 0.4, background: done ? "#5B9BD5" : "#E5E2DC", marginBottom: 22, transition: "all 0.2s" }} />
+              <div style={{ height: 2, flex: 0.4, background: done ? "var(--brand)" : "#E5E2DC", marginBottom: 22, transition: "all 0.2s" }} />
             )}
           </div>
         );
@@ -80,7 +80,7 @@ export default function SignPage() {
     }
   };
 
-  const brand = data?.company_brand || "#5B9BD5";
+  const brand = data?.company_brand || "var(--brand)";
   const companyName = data?.company_name || "Qleno";
   const formName = data?.form_name || "Service Agreement";
   const schema = Array.isArray(data?.form_schema) ? data.form_schema : [];
@@ -232,9 +232,9 @@ export default function SignPage() {
                   />
                   {signatureName && (
                     <div style={{ marginTop: 8, padding: "10px 14px", background: "#EFF6FF", borderRadius: 7, display: "flex", alignItems: "center", gap: 8 }}>
-                      <Check size={14} color="#5B9BD5" />
+                      <Check size={14} color="var(--brand)" />
                       <div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "#5B9BD5" }}>Signature Preview</div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--brand)" }}>Signature Preview</div>
                         <div style={{ fontSize: 14, fontFamily: "Georgia, serif", color: "#1A1917" }}>{signatureName}</div>
                       </div>
                     </div>

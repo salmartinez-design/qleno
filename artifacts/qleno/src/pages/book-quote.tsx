@@ -19,7 +19,7 @@ async function pub(path: string, opts: RequestInit = {}) {
   return body;
 }
 
-const INK = "#1A1917", MUTE = "#6B6860", BORDER = "#E5E2DC", BRAND = "#00C9A0", BG = "#F7F6F3";
+const INK = "#1A1917", MUTE = "#6B6860", BORDER = "#E5E2DC", BRAND = "var(--brand)", BG = "#F7F6F3";
 const FONT = "'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif";
 const money = (n: any) => `$${Number(n ?? 0).toFixed(2)}`;
 // "~3.5 hours" from a quote's estimated hours; "" hides the line (mirrors the

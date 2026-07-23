@@ -112,7 +112,7 @@ export default function Login() {
               type="email"
               placeholder="you@yourcompany.com"
               style={INP}
-              onFocus={e => (e.target.style.borderColor = '#00C9A0')}
+              onFocus={e => (e.target.style.borderColor = 'var(--brand)')}
               onBlur={e => (e.target.style.borderColor = '#DEDAD4')}
               {...register("email")}
             />
@@ -122,14 +122,14 @@ export default function Login() {
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
               <label style={{ fontSize: '11px', fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Password</label>
-              <a href="#" style={{ fontSize: '12px', color: '#00C9A0', textDecoration: 'none' }}>Forgot password?</a>
+              <a href="#" style={{ fontSize: '12px', color: 'var(--brand)', textDecoration: 'none' }}>Forgot password?</a>
             </div>
             <div style={{ position: 'relative' }}>
               <input
                 type={showPassword ? "text" : "password"}
                 placeholder="••••••••"
                 style={INP}
-                onFocus={e => (e.target.style.borderColor = '#00C9A0')}
+                onFocus={e => (e.target.style.borderColor = 'var(--brand)')}
                 onBlur={e => (e.target.style.borderColor = '#DEDAD4')}
                 {...register("password")}
               />

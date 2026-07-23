@@ -60,7 +60,7 @@ export function PushNudge() {
   return (
     <div style={{
       margin: "10px 16px 0", padding: "12px 14px", borderRadius: 12,
-      background: "var(--brand-dim)", border: "1px solid rgba(0,201,160,0.30)",
+      background: "var(--brand-dim)", border: "1px solid rgba(var(--brand-rgb),0.30)",
       display: "flex", alignItems: "flex-start", gap: 10, fontFamily: FF,
     }}>
       <span style={{ flexShrink: 0, width: 30, height: 30, borderRadius: 8, background: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -77,7 +77,7 @@ export function PushNudge() {
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           {!needsInstall && (
             <button onClick={turnOn} disabled={busy}
-              style={{ fontFamily: FF, fontSize: 13, fontWeight: 700, color: "#04241d", background: "var(--brand)", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", opacity: busy ? 0.5 : 1 }}>
+              style={{ fontFamily: FF, fontSize: 13, fontWeight: 700, color: "#FFFFFF", background: "var(--brand)", border: "none", borderRadius: 8, padding: "8px 16px", cursor: "pointer", opacity: busy ? 0.5 : 1 }}>
               {busy ? "Turning on…" : "Turn on alerts"}
             </button>
           )}

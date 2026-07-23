@@ -27,11 +27,11 @@ import { ChevronLeft, ChevronRight, Check, AlertTriangle, MapPin } from "lucide-
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Tokens — Plus Jakarta Sans, brand palette. Mint (#00C9A0) reserved for the
+// Tokens — Plus Jakarta Sans, brand palette. Mint (var(--brand)) reserved for the
 // single primary action; everything else uses ink + line for calm hierarchy.
 // ─────────────────────────────────────────────────────────────────────────────
 const FONT = "'Plus Jakarta Sans', sans-serif";
-const MINT = "#00C9A0";
+const MINT = "var(--brand)";
 const NAVY = "#0A0E1A";
 const PAGE_BG = "#F7F6F3";
 const SURFACE = "#FFFFFF";

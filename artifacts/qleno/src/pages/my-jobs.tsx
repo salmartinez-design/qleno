@@ -270,7 +270,7 @@ function weatherIconFor(code: number) {
   if (code === 3 || code === 45 || code === 48) return <Cloud {...p} color="#6B6860" />;
   if (code >= 51 && code <= 57) return <CloudDrizzle {...p} color="#3B7DD8" />;
   if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return <CloudRain {...p} color="#3B7DD8" />;
-  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return <CloudSnow {...p} color="#5B9BD5" />;
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return <CloudSnow {...p} color="var(--brand)" />;
   if (code >= 95) return <CloudLightning {...p} color="#7C5CCB" />;
   return <Cloud {...p} color="#6B6860" />;
 }
@@ -460,11 +460,11 @@ function EventClockCard({ ev, onRefresh, actingForUserId }: { ev: TechEvent; onR
   const timeLabel = ev.start_time ? `${formatTime(ev.start_time)}${ev.end_time ? ` – ${formatTime(ev.end_time)}` : ""}` : "";
   const paidHours = entry?.paid_hours ? Number(entry.paid_hours) : null;
   const paidRate = entry?.paid_rate ? Number(entry.paid_rate) : null;
-  const accent = isOpen ? "#F59E0B" : "#00C9A0";
+  const accent = isOpen ? "#F59E0B" : "var(--brand)";
   return (
     <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: `4px solid ${accent}`, borderRadius: 12, padding: 16, marginBottom: 12 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(0,201,160,0.10)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+        <div style={{ width: 34, height: 34, borderRadius: 9, background: "rgba(var(--brand-rgb),0.10)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
           {isOneOnOne ? <MessageSquare size={17} color="#00A588" /> : <Clock size={17} color="#00A588" />}
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
@@ -480,7 +480,7 @@ function EventClockCard({ ev, onRefresh, actingForUserId }: { ev: TechEvent; onR
         </div>
         {!isDone && !isOpen && (
           <button onClick={() => post("clock-in")} disabled={busy}
-            style={{ flexShrink: 0, border: "none", background: "#00C9A0", color: "#0A0E1A", fontWeight: 800, fontSize: 13.5, padding: "10px 18px", borderRadius: 10, cursor: busy ? "default" : "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+            style={{ flexShrink: 0, border: "none", background: "var(--brand)", color: "#FFFFFF", fontWeight: 800, fontSize: 13.5, padding: "10px 18px", borderRadius: 10, cursor: busy ? "default" : "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
             {busy ? "…" : "Clock in"}
           </button>
         )}
@@ -712,7 +712,7 @@ function AddNote({ jobId, onSaved }: { jobId: number; onSaved: () => void }) {
         style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 12px", fontSize: 15, fontFamily: "inherit", outline: "none", resize: "vertical" }} />
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button onClick={save} disabled={saving || !text.trim()}
-          style={{ flex: 1, padding: "12px", borderRadius: 10, border: "none", background: text.trim() && !saving ? "var(--brand, #00C9A0)" : "#D1D5DB", color: "#fff", fontSize: 15, fontWeight: 700, cursor: text.trim() && !saving ? "pointer" : "default", fontFamily: "inherit" }}>
+          style={{ flex: 1, padding: "12px", borderRadius: 10, border: "none", background: text.trim() && !saving ? "var(--brand)" : "#D1D5DB", color: "#fff", fontSize: 15, fontWeight: 700, cursor: text.trim() && !saving ? "pointer" : "default", fontFamily: "inherit" }}>
           {saving ? "Saving…" : "Save note"}
         </button>
         <button onClick={() => { setOpen(false); setText(""); }} disabled={saving}
@@ -1081,7 +1081,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10, marginBottom: 4, flexWrap: "wrap" }}>
         <p style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", margin: 0 }}>{job.client_name}</p>
         {job.account_id && (
-          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "var(--brand-dim, #EBF4FF)", color: "var(--brand, #00C9A0)" }}>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "var(--brand-dim, var(--brand-soft))", color: "var(--brand)" }}>
             Commercial
           </span>
         )}
@@ -1182,7 +1182,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
               fontSize: 12, color: "var(--brand)", fontWeight: 600,
               textDecoration: "underline",
               padding: "6px 10px", borderRadius: 999,
-              backgroundColor: "var(--brand-dim, #EBF4FF)",
+              backgroundColor: "var(--brand-dim, var(--brand-soft))",
               minHeight: 32,
             }}
           >
@@ -1254,7 +1254,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
           onto every job regardless of which tech goes. Distinct colors so the
           tech never confuses a one-off with a standing instruction. */}
       {job.job_notes && (
-        <div style={{ backgroundColor: "#ECFDF8", border: "2px solid #00C9A0", borderRadius: 10, padding: "12px 14px", marginTop: 12 }}>
+        <div style={{ backgroundColor: "#ECFDF8", border: "2px solid var(--brand)", borderRadius: 10, padding: "12px 14px", marginTop: 12 }}>
           <p style={{ fontSize: 11, fontWeight: 800, color: "#047857", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 5px" }}>
             Today's Job Notes — this visit only
           </p>
@@ -1719,7 +1719,7 @@ export default function MyJobsPage() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <button onClick={() => { setShowPay(p => !p); setShowScorecard(false); }}
-              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: showPay ? 'var(--brand)' : 'var(--brand-dim)', color: showPay ? '#fff' : 'var(--brand)', border: '1px solid rgba(0,201,160,0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: showPay ? 'var(--brand)' : 'var(--brand-dim)', color: showPay ? '#fff' : 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
               <DollarSign size={13}/> Pay
             </button>
             {/* wouter v3 <Link> renders its own <a>; style goes on Link to
@@ -1804,7 +1804,7 @@ export default function MyJobsPage() {
             </div>
             {!isToday && (
               <button type="button" onClick={() => setSelectedDate(todayYmd)}
-                style={{ background: "none", border: "none", color: "var(--brand, #00C9A0)", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, marginTop: 1 }}>
+                style={{ background: "none", border: "none", color: "var(--brand)", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", padding: 0, marginTop: 1 }}>
                 Back to today
               </button>
             )}
@@ -1851,7 +1851,7 @@ export default function MyJobsPage() {
               <button
                 type="button"
                 onClick={() => { setShowScorecard(s => !s); setShowPay(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                style={{ flex: 1, textAlign: "left", background: showScorecard ? "rgba(0,201,160,0.14)" : "rgba(255,255,255,0.06)", border: `1px solid ${showScorecard ? "rgba(0,201,160,0.5)" : "rgba(255,255,255,0.10)"}`, borderRadius: 10, padding: "9px 11px", cursor: "pointer", fontFamily: "inherit" }}
+                style={{ flex: 1, textAlign: "left", background: showScorecard ? "rgba(var(--brand-rgb),0.14)" : "rgba(255,255,255,0.06)", border: `1px solid ${showScorecard ? "rgba(var(--brand-rgb),0.5)" : "rgba(255,255,255,0.10)"}`, borderRadius: 10, padding: "9px 11px", cursor: "pointer", fontFamily: "inherit" }}
               >
                 <p style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#A7AAB5", margin: "0 0 3px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}><Star size={9} style={{ color: "#FFD75E", fill: "#FFD75E" }} /> My Score</span>
@@ -1864,7 +1864,7 @@ export default function MyJobsPage() {
               </button>
             </div>
             <div style={{ marginTop: 11, height: 6, background: "rgba(255,255,255,0.10)", borderRadius: 4, overflow: "hidden" }}>
-              <span style={{ display: "block", height: "100%", width: `${nonCancelled.length ? Math.round((completedToday.length / nonCancelled.length) * 100) : 0}%`, background: "#00C9A0" }} />
+              <span style={{ display: "block", height: "100%", width: `${nonCancelled.length ? Math.round((completedToday.length / nonCancelled.length) * 100) : 0}%`, background: "var(--brand)" }} />
             </div>
             <p style={{ fontSize: 9.5, fontWeight: 600, color: "#9DA1AC", margin: "6px 0 0" }}>
               {completedToday.length} of {nonCancelled.length} job{nonCancelled.length === 1 ? "" : "s"} complete
@@ -1883,13 +1883,13 @@ export default function MyJobsPage() {
         )}
 
         {employeeView && (
-          <div style={{ background: "var(--brand, #00C9A0)", padding: "10px 18px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          <div style={{ background: "var(--brand)", padding: "10px 18px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
             <Eye size={14} color="#fff" />
             <span style={{ fontSize: 13, fontWeight: 600, color: "#fff", flex: 1 }}>
               Viewing as {employeeView.employeeName}
             </span>
             <button type="button" onClick={exitView}
-              style={{ fontSize: 12, fontWeight: 700, color: "var(--brand, #00C9A0)", background: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
+              style={{ fontSize: 12, fontWeight: 700, color: "var(--brand)", background: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
               Exit
             </button>
           </div>
@@ -1927,7 +1927,7 @@ export default function MyJobsPage() {
                   Check the next day ›
                 </button>
                 <button type="button" onClick={() => { setShowPay(true); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: "var(--brand, #00C9A0)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>
+                  style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 10, border: "none", background: "var(--brand)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", minHeight: 44 }}>
                   <DollarSign size={15} aria-hidden="true" /> View my pay
                 </button>
               </div>
@@ -2020,10 +2020,10 @@ export default function MyJobsPage() {
               ))}
               {upcomingOneOnOnes.filter(o => o.event_date !== selectedDate).map(o => (
                 <div key={`ono-${o.id}`}
-                  style={{ backgroundColor: "#0A0E1A", border: "1px solid #00C9A0", borderRadius: 12, padding: 16, marginTop: 12, boxShadow: "0 2px 12px rgba(0,201,160,0.28)" }}>
+                  style={{ backgroundColor: "#0A0E1A", border: "1px solid var(--brand)", borderRadius: 12, padding: 16, marginTop: 12, boxShadow: "0 2px 12px rgba(var(--brand-rgb),0.28)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(0,201,160,0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                      <MessageSquare size={18} color="#00C9A0" />
+                    <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(var(--brand-rgb),0.15)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                      <MessageSquare size={18} color="var(--brand)" />
                     </div>
                     <div style={{ minWidth: 0, flex: 1 }}>
                       <p style={{ fontSize: 11, fontWeight: 800, color: "#5EE6C7", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 2px" }}>1-on-1{o.with_name ? ` with ${o.with_name}` : ""}</p>

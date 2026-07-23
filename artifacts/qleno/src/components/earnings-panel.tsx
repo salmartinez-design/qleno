@@ -116,9 +116,9 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
   }
   const presetBtn = (active: boolean): React.CSSProperties => ({
     padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
-    border: `1px solid ${active ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-    background: active ? "rgba(0,201,160,0.08)" : "#fff",
-    color: active ? "var(--brand, #00C9A0)" : "#1A1917",
+    border: `1px solid ${active ? "var(--brand)" : "#E5E2DC"}`,
+    background: active ? "rgba(var(--brand-rgb),0.08)" : "#fff",
+    color: active ? "var(--brand)" : "#1A1917",
   });
 
   return (
@@ -179,7 +179,7 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
               <tr>
                 <td style={{ ...rTd, fontWeight: 800, borderTop: "2px solid #E5E2DC" }}>Total rewards</td>
                 {[roll.week, roll.month, roll.ytd].map((w, i) => (
-                  <td key={i} style={{ ...rTd, textAlign: "right", fontWeight: 800, color: "var(--brand, #00C9A0)", borderTop: "2px solid #E5E2DC" }}>{money(w.commission + w.tips + w.mileage)}</td>
+                  <td key={i} style={{ ...rTd, textAlign: "right", fontWeight: 800, color: "var(--brand)", borderTop: "2px solid #E5E2DC" }}>{money(w.commission + w.tips + w.mileage)}</td>
                 ))}
               </tr>
             </tbody>
@@ -216,7 +216,7 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
             <div key={day} style={{ borderBottom: "1px solid #F3F4F6" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#FAFAF8" }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{fmtDay(day)}</span>
-                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--brand, #00C9A0)" }}>{money(dayTotal)} <span style={{ color: "#9E9B94", fontWeight: 500 }}>· {dayHrs.toFixed(1)}h</span></span>
+                <span style={{ fontSize: 12, fontWeight: 700, color: "var(--brand)" }}>{money(dayTotal)} <span style={{ color: "#9E9B94", fontWeight: 500 }}>· {dayHrs.toFixed(1)}h</span></span>
               </div>
               {jobs.map(j => (
                 <div key={j.job_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 14px", borderTop: "1px solid #F7F6F3" }}>
@@ -241,7 +241,7 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
 function SummaryCard({ icon, label, value, accent, strong, sub }: { icon: React.ReactNode; label: string; value: string; accent?: boolean; strong?: boolean; sub?: string }) {
   return (
     <div style={{ background: "#fff", border: `1px solid ${accent ? "#99E6D5" : "#E5E2DC"}`, borderRadius: 12, padding: "14px 10px", textAlign: "center" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, color: accent ? "var(--brand, #00C9A0)" : "#6B7280", marginBottom: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, color: accent ? "var(--brand)" : "#6B7280", marginBottom: 8 }}>
         {icon}
         <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
       </div>

@@ -66,7 +66,7 @@ export default function PayPage() {
     const stripe = w.Stripe(data.stripe_publishable_key);
     const elements = stripe.elements({
       clientSecret: data.client_secret,
-      appearance: { variables: { fontFamily: "'Plus Jakarta Sans', Arial, sans-serif", colorPrimary: data?.company?.brand_color || "#5B9BD5", borderRadius: "8px" } },
+      appearance: { variables: { fontFamily: "'Plus Jakarta Sans', Arial, sans-serif", colorPrimary: data?.company?.brand_color || "var(--brand)", borderRadius: "8px" } },
     });
     // Payment Element renders ALL enabled methods: card/debit, Apple Pay,
     // Google Pay, Link, and ACH bank debit — chosen in the Stripe Dashboard.
@@ -151,7 +151,7 @@ export default function PayPage() {
     }
   }
 
-  const brand = data?.company?.brand_color || "#5B9BD5";
+  const brand = data?.company?.brand_color || "var(--brand)";
   const companyName = data?.company?.name || "Qleno";
   const clientName = data?.client ? `${data.client.first_name} ${data.client.last_name}` : "there";
 

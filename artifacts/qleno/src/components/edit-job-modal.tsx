@@ -1638,9 +1638,9 @@ export default function EditJobModal({
                             }}
                             style={{
                               fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6,
-                              border: `1px solid ${active ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                              background: active ? "rgba(0,201,160,0.08)" : "#FFFFFF",
-                              color: active ? "var(--brand, #00C9A0)" : "#6B6860",
+                              border: `1px solid ${active ? "var(--brand)" : "#E5E2DC"}`,
+                              background: active ? "rgba(var(--brand-rgb),0.08)" : "#FFFFFF",
+                              color: active ? "var(--brand)" : "#6B6860",
                               cursor: "pointer", fontFamily: FF,
                             }}>
                             {p.label}
@@ -1658,10 +1658,10 @@ export default function EditJobModal({
                               style={{
                                 display: "inline-flex", alignItems: "center",
                                 padding: "6px 10px", borderRadius: 6,
-                                border: `1.5px solid ${firing ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                                backgroundColor: firing ? "rgba(0,201,160,0.07)" : "#F7F6F3",
+                                border: `1.5px solid ${firing ? "var(--brand)" : "#E5E2DC"}`,
+                                backgroundColor: firing ? "rgba(var(--brand-rgb),0.07)" : "#F7F6F3",
                                 fontSize: 12, fontFamily: FF,
-                                color: firing ? "var(--brand, #00C9A0)" : "#9E9B94",
+                                color: firing ? "var(--brand)" : "#9E9B94",
                                 fontWeight: firing ? 700 : 500,
                               }}>
                               {d.short}
@@ -1688,10 +1688,10 @@ export default function EditJobModal({
                             style={{
                               display: "inline-flex", alignItems: "center", gap: 4,
                               padding: "6px 10px", borderRadius: 6,
-                              border: `1.5px solid ${checked ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                              backgroundColor: checked ? "rgba(0,201,160,0.07)" : "#F7F6F3",
+                              border: `1.5px solid ${checked ? "var(--brand)" : "#E5E2DC"}`,
+                              backgroundColor: checked ? "rgba(var(--brand-rgb),0.07)" : "#F7F6F3",
                               fontSize: 12, fontFamily: FF, cursor: "pointer",
-                              color: checked ? "var(--brand, #00C9A0)" : "#1A1917",
+                              color: checked ? "var(--brand)" : "#1A1917",
                               fontWeight: checked ? 700 : 500,
                             }}>
                             <input type="checkbox" checked={checked}
@@ -1861,8 +1861,8 @@ export default function EditJobModal({
                   <div key={e.id} style={{
                     display: "flex", alignItems: "center", justifyContent: "space-between",
                     padding: "10px 12px", borderRadius: 8,
-                    border: `1.5px solid ${selected ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                    backgroundColor: selected ? "rgba(0,201,160,0.07)" : "#F7F6F3",
+                    border: `1.5px solid ${selected ? "var(--brand)" : "#E5E2DC"}`,
+                    backgroundColor: selected ? "rgba(var(--brand-rgb),0.07)" : "#F7F6F3",
                     cursor: "pointer", fontFamily: FF,
                   }}
                   onClick={() => {
@@ -1989,8 +1989,8 @@ export default function EditJobModal({
                     <div key={a.id} style={{
                       display: "flex", alignItems: "center", gap: 8,
                       padding: "8px 10px", borderRadius: 8,
-                      border: `1px solid ${checked ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                      backgroundColor: checked ? "rgba(0,201,160,0.05)" : "#F7F6F3",
+                      border: `1px solid ${checked ? "var(--brand)" : "#E5E2DC"}`,
+                      backgroundColor: checked ? "rgba(var(--brand-rgb),0.05)" : "#F7F6F3",
                       fontFamily: FF,
                     }}>
                       <input type="checkbox" checked={checked}
@@ -2104,8 +2104,8 @@ export default function EditJobModal({
                       <div key={`orphan-${id}`} style={{
                         display: "flex", alignItems: "center", gap: 8,
                         padding: "8px 10px", borderRadius: 8,
-                        border: "1px solid var(--brand, #00C9A0)",
-                        backgroundColor: "rgba(0,201,160,0.05)", fontFamily: FF,
+                        border: "1px solid var(--brand)",
+                        backgroundColor: "rgba(var(--brand-rgb),0.05)", fontFamily: FF,
                       }}>
                         <span style={{ flex: 1, fontSize: 13, color: "#1A1917" }}>{name}</span>
                         <span style={{ fontSize: 12, color: "#6B6860" }}>${Number(amt).toFixed(0)}</span>
@@ -2181,7 +2181,7 @@ export default function EditJobModal({
               return (
                 <div style={{
                   marginTop: 10, padding: "10px 12px", borderRadius: 8,
-                  backgroundColor: "rgba(0,201,160,0.04)", border: "1px solid rgba(0,201,160,0.25)",
+                  backgroundColor: "rgba(var(--brand-rgb),0.04)", border: "1px solid rgba(var(--brand-rgb),0.25)",
                 }}>
                   <div style={{ fontSize: 11, fontWeight: 800, color: "#1A1917", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>
                     Apply parking on
@@ -2205,8 +2205,8 @@ export default function EditJobModal({
                           }}
                           style={{
                             minWidth: 44, minHeight: 32, padding: "0 10px", borderRadius: 6,
-                            border: `1.5px solid ${checked ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                            backgroundColor: checked ? "var(--brand, #00C9A0)" : "#FFFFFF",
+                            border: `1.5px solid ${checked ? "var(--brand)" : "#E5E2DC"}`,
+                            backgroundColor: checked ? "var(--brand)" : "#FFFFFF",
                             color: checked ? "#FFFFFF" : (isScheduled ? "#1A1917" : "#9E9B94"),
                             fontSize: 12, fontWeight: 700, fontFamily: FF, cursor: "pointer",
                           }}>
@@ -2266,9 +2266,9 @@ export default function EditJobModal({
                       onClick={() => setParkingFeeDays([0,1,2,3,4,5,6])}
                       style={{
                         fontSize: 11, fontWeight: 600, padding: "5px 10px", borderRadius: 6,
-                        border: `1px solid ${isAllDays ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                        background: isAllDays ? "rgba(0,201,160,0.08)" : "#FFFFFF",
-                        color: isAllDays ? "var(--brand, #00C9A0)" : "#6B6860",
+                        border: `1px solid ${isAllDays ? "var(--brand)" : "#E5E2DC"}`,
+                        background: isAllDays ? "rgba(var(--brand-rgb),0.08)" : "#FFFFFF",
+                        color: isAllDays ? "var(--brand)" : "#6B6860",
                         cursor: "pointer", fontFamily: FF,
                       }}>
                       All days
@@ -2352,7 +2352,7 @@ export default function EditJobModal({
                   if (!isNaN(v) && v >= 0) {
                     setBaseFee(v); setManualRate(true); setManualOpen(false);
                   }
-                }} style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--brand, #00C9A0)", border: "none", borderRadius: 6, padding: "8px 12px", cursor: "pointer", fontFamily: FF }}>
+                }} style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--brand)", border: "none", borderRadius: 6, padding: "8px 12px", cursor: "pointer", fontFamily: FF }}>
                   Apply
                 </button>
                 <button onClick={() => setManualOpen(false)} style={{ fontSize: 12, color: "#6B7280", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Cancel</button>
@@ -2414,15 +2414,15 @@ export default function EditJobModal({
                   )}
                   <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                     <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 6, overflow: "hidden", flexShrink: 0 }}>
-                      <button type="button" onClick={() => { setDiscType("percent"); setDiscCode(null); }} style={{ padding: "7px 11px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: discType === "percent" ? "var(--brand, #00C9A0)" : "#fff", color: discType === "percent" ? "#fff" : "#6B6860", fontFamily: FF }}>%</button>
-                      <button type="button" onClick={() => { setDiscType("flat"); setDiscCode(null); }} style={{ padding: "7px 11px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: discType === "flat" ? "var(--brand, #00C9A0)" : "#fff", color: discType === "flat" ? "#fff" : "#6B6860", fontFamily: FF }}>$</button>
+                      <button type="button" onClick={() => { setDiscType("percent"); setDiscCode(null); }} style={{ padding: "7px 11px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: discType === "percent" ? "var(--brand)" : "#fff", color: discType === "percent" ? "#fff" : "#6B6860", fontFamily: FF }}>%</button>
+                      <button type="button" onClick={() => { setDiscType("flat"); setDiscCode(null); }} style={{ padding: "7px 11px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", background: discType === "flat" ? "var(--brand)" : "#fff", color: discType === "flat" ? "#fff" : "#6B6860", fontFamily: FF }}>$</button>
                     </div>
                     <input type="number" min={0} step={0.01} value={discValue} onChange={e => { setDiscValue(e.target.value); setDiscCode(null); }} placeholder={discType === "percent" ? "15" : "25.00"} style={{ ...INPUT, width: 90 }} />
                     <input type="text" value={discReason} onChange={e => setDiscReason(e.target.value)} placeholder="Reason (Senior, Goodwill…)" style={{ ...INPUT, flex: 1, minWidth: 0 }} />
                   </div>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button type="button" disabled={discBusy || !(parseFloat(discValue) > 0)} onClick={applyDiscount}
-                      style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--brand, #00C9A0)", border: "none", borderRadius: 6, padding: "8px 14px", cursor: discBusy || !(parseFloat(discValue) > 0) ? "default" : "pointer", fontFamily: FF, opacity: discBusy || !(parseFloat(discValue) > 0) ? 0.6 : 1 }}>
+                      style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--brand)", border: "none", borderRadius: 6, padding: "8px 14px", cursor: discBusy || !(parseFloat(discValue) > 0) ? "default" : "pointer", fontFamily: FF, opacity: discBusy || !(parseFloat(discValue) > 0) ? 0.6 : 1 }}>
                       Apply discount
                     </button>
                     <button type="button" onClick={() => { setDiscOpen(false); setDiscValue(""); setDiscReason(""); setDiscCode(null); }} style={{ fontSize: 12, color: "#6B7280", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Cancel</button>
@@ -2511,7 +2511,7 @@ export default function EditJobModal({
               {([["none", "No"], ["sms", "Text"], ["email", "Email"], ["both", "Both"]] as const).map(([val, label], i) => (
                 <button key={val} onClick={() => setNotifyVia(val)}
                   style={{ padding: "7px 14px", border: "none", borderLeft: i === 0 ? "none" : "1px solid #E5E2DC", cursor: "pointer", fontFamily: FF, fontSize: 12, fontWeight: 700,
-                    background: notifyVia === val ? (val === "none" ? "#1A1917" : "#00C9A0") : "#FFFFFF",
+                    background: notifyVia === val ? (val === "none" ? "#1A1917" : "var(--brand)") : "#FFFFFF",
                     color: notifyVia === val ? "#FFFFFF" : "#6B6860" }}>
                   {label}
                 </button>
@@ -2548,7 +2548,7 @@ export default function EditJobModal({
             </button>
           )}
           <button onClick={onSaveClick} disabled={!canSave || previewing}
-            style={{ flex: 2, padding: "12px", border: "none", borderRadius: 10, background: (canSave && !previewing) ? "var(--brand, #00C9A0)" : "#E5E2DC", color: (canSave && !previewing) ? "#FFFFFF" : "#9E9B94", fontSize: 14, fontWeight: 700, cursor: (canSave && !previewing) ? "pointer" : "not-allowed", fontFamily: FF }}>
+            style={{ flex: 2, padding: "12px", border: "none", borderRadius: 10, background: (canSave && !previewing) ? "var(--brand)" : "#E5E2DC", color: (canSave && !previewing) ? "#FFFFFF" : "#9E9B94", fontSize: 14, fontWeight: 700, cursor: (canSave && !previewing) ? "pointer" : "not-allowed", fontFamily: FF }}>
             {saving ? "Saving…" : "Save changes"}
           </button>
         </div>
@@ -2574,8 +2574,8 @@ export default function EditJobModal({
             <div style={{
               display: "flex", gap: 8, alignItems: "flex-start",
               padding: "10px 12px", borderRadius: 8, marginBottom: 16,
-              backgroundColor: "rgba(0,201,160,0.08)",
-              borderLeft: "3px solid var(--brand, #00C9A0)",
+              backgroundColor: "rgba(var(--brand-rgb),0.08)",
+              borderLeft: "3px solid var(--brand)",
               fontSize: 12, color: "#1A1917", lineHeight: 1.45,
             }}>
               <span>
@@ -2628,7 +2628,7 @@ export default function EditJobModal({
               return (
                 <div style={{
                   marginBottom: 14, padding: "10px 12px", borderRadius: 8,
-                  backgroundColor: "rgba(0,201,160,0.06)", border: "1px solid rgba(0,201,160,0.25)",
+                  backgroundColor: "rgba(var(--brand-rgb),0.06)", border: "1px solid rgba(var(--brand-rgb),0.25)",
                   fontSize: 12, color: "#1A1917", lineHeight: 1.5,
                 }}>
                   <strong>Parking fee:</strong> {parkingNowChecked ? `apply on ${days}` : "remove"}.
@@ -2695,8 +2695,8 @@ export default function EditJobModal({
                           style={{
                             width: "100%",
                             textAlign: "left", padding: "12px 14px", borderRadius: 10,
-                            border: `1.5px solid ${sel ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                            backgroundColor: sel ? "rgba(0,201,160,0.07)" : "#F7F6F3",
+                            border: `1.5px solid ${sel ? "var(--brand)" : "#E5E2DC"}`,
+                            backgroundColor: sel ? "rgba(var(--brand-rgb),0.07)" : "#F7F6F3",
                             cursor: "pointer", fontFamily: FF,
                           }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{opt.label}</div>
@@ -2768,7 +2768,7 @@ export default function EditJobModal({
                         submit(cascadeChoice);
                       }}
                       disabled={saving}
-                      style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: (isSeriesWide && cascadeConfirm) ? "#DC2626" : "var(--brand, #00C9A0)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+                      style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: (isSeriesWide && cascadeConfirm) ? "#DC2626" : "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
                       {saving ? "Applying…" : (isSeriesWide && cascadeConfirm) ? "Yes, apply to the series" : "Apply changes"}
                     </button>
                   </div>

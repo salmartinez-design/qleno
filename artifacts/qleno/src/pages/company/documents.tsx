@@ -46,7 +46,7 @@ const inputStyle: React.CSSProperties = {
   boxSizing: "border-box", background: "#fff", color: "#1A1917",
 };
 const btnPrimary: React.CSSProperties = {
-  padding: "9px 18px", background: "var(--brand, #00C9A0)", color: "#fff",
+  padding: "9px 18px", background: "var(--brand)", color: "#fff",
   border: "none", borderRadius: 8, fontWeight: 600, fontSize: 13,
   fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: "pointer",
 };
@@ -162,14 +162,14 @@ function TemplateEditor({
         {isEmployee && (
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <button onClick={() => setIsRequired(p => !p)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
-              {isRequired ? <ToggleRight size={22} color="var(--brand, #00C9A0)"/> : <ToggleLeft size={22} color="#9E9B94"/>}
+              {isRequired ? <ToggleRight size={22} color="var(--brand)"/> : <ToggleLeft size={22} color="#9E9B94"/>}
             </button>
             <span style={{ fontSize: 13, fontWeight: 500, color: "#1A1917" }}>Required for onboarding</span>
           </div>
         )}
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <button onClick={() => setRequiresSignature(p => !p)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
-            {requiresSignature ? <ToggleRight size={22} color="var(--brand, #00C9A0)"/> : <ToggleLeft size={22} color="#9E9B94"/>}
+            {requiresSignature ? <ToggleRight size={22} color="var(--brand)"/> : <ToggleLeft size={22} color="#9E9B94"/>}
           </button>
           <span style={{ fontSize: 13, fontWeight: 500, color: "#1A1917" }}>Requires signature</span>
         </div>
@@ -295,7 +295,7 @@ export function DocumentsTab() {
                         onClick={() => updateMutation.mutate({ id: t.id, data: { is_required: !t.is_required } })}
                         style={{ background: "none", border: "none", cursor: "pointer", display: "flex", justifyContent: "center", width: "100%" }}
                       >
-                        {t.is_required ? <CheckSquare size={16} color="var(--brand, #00C9A0)"/> : <Square size={16} color="#D1D5DB"/>}
+                        {t.is_required ? <CheckSquare size={16} color="var(--brand)"/> : <Square size={16} color="#D1D5DB"/>}
                       </button>
                     </td>
                   )}
@@ -304,7 +304,7 @@ export function DocumentsTab() {
                       onClick={() => updateMutation.mutate({ id: t.id, data: { requires_signature: !t.requires_signature } })}
                       style={{ background: "none", border: "none", cursor: "pointer", display: "flex", justifyContent: "center", width: "100%" }}
                     >
-                      {t.requires_signature ? <CheckSquare size={16} color="var(--brand, #00C9A0)"/> : <Square size={16} color="#D1D5DB"/>}
+                      {t.requires_signature ? <CheckSquare size={16} color="var(--brand)"/> : <Square size={16} color="#D1D5DB"/>}
                     </button>
                   </td>
                   {!showRequired && (

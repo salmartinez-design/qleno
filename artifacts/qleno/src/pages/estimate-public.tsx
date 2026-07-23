@@ -10,7 +10,7 @@ const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
 // Locked brand palette for this priced-doc surface (Phes quote/estimate page).
 const NAVY = "#0A0E1A";
-const MINT = "#00C9A0";
+const MINT = "var(--brand)";
 const SUBLINE = "#9DA3B0";
 // Real Phes logo asset (public/). Used when the tenant has no logo_url of its own.
 const PHES_LOGO = `${API}/phes-logo.jpeg`;

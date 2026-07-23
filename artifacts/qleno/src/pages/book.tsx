@@ -3644,7 +3644,7 @@ export default function BookPage() {
               </div>
 
               {(bookResult.branch_phone || bookResult.branch_email) && (
-                <div style={{ background: "#EBF4FF", border: `1px solid ${brand}25`, borderRadius: 8, padding: "14px 16px", marginBottom: 24, fontSize: 14, color: "#1A1917", wordBreak: "break-word" }}>
+                <div style={{ background: "var(--brand-soft)", border: `1px solid ${brand}25`, borderRadius: 8, padding: "14px 16px", marginBottom: 24, fontSize: 14, color: "#1A1917", wordBreak: "break-word" }}>
                   <strong>Questions?</strong> Call or text <strong><a href={`tel:${bookResult.branch_phone?.replace(/[^\d+]/g, "")}`} style={{ color: "#1A1917", textDecoration: "none" }}>{bookResult.branch_phone}</a></strong>
                   {bookResult.branch_email && <> or email <a href={`mailto:${bookResult.branch_email}`} style={{ color: brand }}>{bookResult.branch_email}</a></>}
                 </div>
@@ -3824,7 +3824,7 @@ function ReferralCard({ companySlug, referrer }: {
           Know someone who could use a cleaning — a friend's home or a business? They get $25 off their first clean, and you get $25 off your next one after their first visit.
         </p>
         <button onClick={() => setOpen(true)}
-          style={{ background: "#5B9BD5", color: "#fff", border: "none", borderRadius: 8, padding: "11px 22px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}>
+          style={{ background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8, padding: "11px 22px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}>
           Refer a friend or business
         </button>
       </div>
@@ -3842,7 +3842,7 @@ function ReferralCard({ companySlug, referrer }: {
         {(["residential", "commercial"] as const).map((t) => (
           <button key={t} onClick={() => setRefType(t)}
             style={{ flex: 1, textAlign: "center", padding: "9px 0", fontSize: 13, fontWeight: 700, fontFamily: "inherit", border: "none", cursor: "pointer",
-              background: refType === t ? "#5B9BD5" : "#fff", color: refType === t ? "#fff" : "#6B6860" }}>
+              background: refType === t ? "var(--brand)" : "#fff", color: refType === t ? "#fff" : "#6B6860" }}>
             {t === "residential" ? "A home" : "A business"}
           </button>
         ))}
@@ -3855,7 +3855,7 @@ function ReferralCard({ companySlug, referrer }: {
       <input value={email} onChange={(e) => setEmail(e.target.value)} inputMode="email" placeholder="name@example.com" style={{ ...inputStyle, marginBottom: 14 }} />
       {err && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "#DC2626" }}>{err}</p>}
       <button onClick={submit} disabled={busy}
-        style={{ width: "100%", background: "#5B9BD5", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
+        style={{ width: "100%", background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
         {busy ? "Sending…" : "Send them $25 off"}
       </button>
       <p style={{ margin: "10px 0 0", fontSize: 11.5, color: "#9E9B94", textAlign: "center", lineHeight: 1.5 }}>

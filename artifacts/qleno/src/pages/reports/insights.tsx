@@ -16,7 +16,7 @@ const SERVICE_LABELS: Record<string, string> = {
 function Avatar({ user }: { user: any }) {
   if (user.avatar_url) return <img src={user.avatar_url} style={{ width: 40, height: 40, borderRadius: 20, objectFit: 'cover' }}/>;
   return (
-    <div style={{ width: 40, height: 40, borderRadius: 20, background: '#EBF4FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: '#5B9BD5' }}>
+    <div style={{ width: 40, height: 40, borderRadius: 20, background: 'var(--brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, color: 'var(--brand)' }}>
       {user.first_name?.[0]}{user.last_name?.[0]}
     </div>
   );
@@ -127,7 +127,7 @@ export default function InsightsPage() {
                   </div>
                   <button
                     onClick={() => navigate(`/employees/${p.id}`)}
-                    style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand, #5B9BD5)', background: 'var(--brand-dim, #EBF4FF)', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
+                    style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'var(--brand-dim, var(--brand-soft))', border: 'none', borderRadius: 6, padding: '4px 10px', cursor: 'pointer', fontFamily: 'inherit' }}>
                     Profile
                   </button>
                 </div>
@@ -211,7 +211,7 @@ export default function InsightsPage() {
                     </div>
                   </div>
                   <div style={{ height: 6, borderRadius: 3, background: '#F3F4F6', overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${(r.total_revenue / maxRevenue) * 100}%`, background: 'var(--brand, #5B9BD5)', borderRadius: 3 }}/>
+                    <div style={{ height: '100%', width: `${(r.total_revenue / maxRevenue) * 100}%`, background: 'var(--brand)', borderRadius: 3 }}/>
                   </div>
                 </div>
               ))}

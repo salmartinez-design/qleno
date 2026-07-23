@@ -13,6 +13,7 @@ import { chargeInvoice } from "../lib/charge-invoice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
 import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
 import { normalizeInvoiceLineItems } from "../lib/normalize-line-items.js";
+import { preserveJobIds } from "../lib/invoice-job-ids.js";
 
 const router = Router();
 
@@ -723,7 +724,17 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
     // durable fix — it protects every reader of line_items (View, PDF, QB sync,
     // recalc), not just the one render path. The total is still derived from the
     // (now numeric) line totals, so it can never drift.
+    // [job-ids-preserve 2026-07-23] Carry forward any job id this edit dropped.
+    // The edit UI sends whatever lines the office left on screen, so collapsing
+    // four job lines into one `quantity: 4` line used to discard three job_ids —
+    // leaving those visits billed but unnamed, invisible to every "already
+    // invoiced?" guard, and free to re-mint as duplicate per-visit invoices
+    // (Halper #985, Azzarello #1012, Cucci #1093). Amounts are untouched; only
+    // the additive `job_ids` carrier is written.
     const normLineItems = normalizeInvoiceLineItems(line_items);
+    const keptLineItems = normLineItems
+      ? (preserveJobIds(current.line_items, normLineItems) as typeof normLineItems)
+      : undefined;
 
     // Total ALWAYS = sum(line items) + tips, so it can never silently drift from
     // the lines. Use the new lines if provided, else the stored subtotal; use
@@ -751,7 +762,7 @@ router.put("/:id", requireAuth, requireRole("owner", "admin", "office"), async (
       .update(invoicesTable)
       .set({
         ...(status && { status }),
-        ...(normLineItems && { line_items: normLineItems }),
+        ...(keptLineItems && { line_items: keptLineItems }),
         ...(amountsEdited && { manually_edited_at: new Date() }),
         ...(dueProvided && { due_date: dueValue }),
         ...(createdProvided && { created_at: new Date(String(created_date) + "T12:00:00Z") }),

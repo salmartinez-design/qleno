@@ -64,7 +64,7 @@ export class ErrorBoundary extends Component<Props, State> {
             color: "#6B6860", fontSize: "14px", gap: "10px",
           }}>
             <span style={{
-              width: "16px", height: "16px", border: "2px solid #D9D5CC", borderTopColor: "#00C9A0",
+              width: "16px", height: "16px", border: "2px solid #D9D5CC", borderTopColor: "var(--brand)",
               borderRadius: "50%", display: "inline-block", animation: "qspin 0.7s linear infinite",
             }} />
             Updating to the latest version…
@@ -118,7 +118,7 @@ export class ErrorBoundary extends Component<Props, State> {
             <button
               onClick={() => window.location.reload()}
               style={{
-                backgroundColor: "#00C9A0",
+                backgroundColor: "var(--brand)",
                 color: "#FFFFFF",
                 border: "none",
                 borderRadius: "8px",

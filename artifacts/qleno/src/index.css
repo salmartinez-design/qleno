@@ -69,11 +69,42 @@
   --border:     #E5E2DC;
   --border-sub: #EEECE7;
 
-  /* === BRAND (overridden by JS on login) === */
-  --brand:      #5B9BD5;
-  --brand-rgb:  91, 155, 213;
-  --brand-dim:  rgba(91, 155, 213, 0.12);
-  --brand-soft: rgba(91, 155, 213, 0.07);
+  /* === BRAND (overridden by JS on login) ===
+     Electric Mint is the Qleno brand. This is the DEFAULT — applyTenantColor()
+     still overwrites it at runtime from companies.brand_color, so a tenant that
+     stored a different hex keeps rendering that hex. Changing a tenant's live
+     color is a data edit, not a code edit. */
+  --brand:      #00C9A0;
+  --brand-rgb:  0, 201, 160;
+  --brand-dim:  rgba(0, 201, 160, 0.12);
+  --brand-soft: rgba(0, 201, 160, 0.07);
+
+  /* === QLENO NIGHT === the second brand color: dark surfaces, the hero band,
+     the darkest step of any brand ramp. Pairs with mint, never with a blue. */
+  --night:      #0A0E1A;
+  --night-2:    #123028;  /* mint-shifted night, for gradients off --night */
+
+  /* === TEXT SYSTEM === */
+  --ink:        #1A1917;  /* every value, every heading */
+  --ink-muted:  #6B6860;  /* labels, secondary meta */
+  --ink-faint:  #9E9B94;  /* tertiary / placeholder-adjacent */
+
+  /* === SEMANTIC STATUS ===
+     [ui-consistency 2026-07-22] Status color is the ONLY color a number may
+     carry. A KPI value always renders --ink; if it needs to signal good/bad,
+     that goes on the delta chip or a status dot beside it, never on the value
+     itself. This is what killed the four-different-colored-numbers-in-one-row
+     pattern on /invoices. Don't add a sixth "sort of green" — use these. */
+  --ok:         #0F7A63;  --ok-bg:     #E6F6F1;
+  --warn:       #B45309;  --warn-bg:   #FDF3E4;
+  --danger:     #B3261E;  --danger-bg: #FCEBEA;
+
+  /* === RADIUS SCALE ===
+     Two values. Cards get --radius-card, every control (button, input,
+     select, tab) gets --radius-control. Pills stay 999px inline. The audit
+     found 8/10/12px cards and 6/8/10/20px/50% buttons across the app. */
+  --radius-card:    10px;
+  --radius-control: 8px;
 
   /* === LEGACY ALIASES === */
   --tenant-color:     #00C9A7;
@@ -228,7 +259,7 @@
 }
 .pac-item:first-child { border-top: none !important; }
 .pac-item:hover, .pac-item-selected { background: #F7F6F3 !important; }
-.pac-matched { color: #5B9BD5 !important; font-weight: 600 !important; }
+.pac-matched { color: var(--brand) !important; font-weight: 600 !important; }
 .pac-icon { display: none !important; }
 .pac-item-query { font-size: 14px !important; color: #1A1917 !important; }
 

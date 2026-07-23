@@ -7,7 +7,7 @@ import { FrequencyPicker } from "@/components/frequency-picker";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
-const INK = "#1A1917", MUTE = "#6B7280", BORDER = "#E5E2DC", MINT = "#00C9A0";
+const INK = "#1A1917", MUTE = "#6B7280", BORDER = "#E5E2DC", MINT = "var(--brand)";
 
 async function apiFetch(path: string, opts: RequestInit = {}) {
   const r = await fetch(`${API}${path}`, { ...opts, headers: { ...(getAuthHeaders() as Record<string, string>), "Content-Type": "application/json", ...opts.headers } });

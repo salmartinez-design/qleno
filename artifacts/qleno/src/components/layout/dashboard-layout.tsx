@@ -515,7 +515,7 @@ function UpdateBanner() {
     <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "#0A0E1A", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, padding: "8px 14px", fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, boxShadow: "0 2px 8px rgba(0,0,0,0.2)" }}>
       <span>A new version of Qleno is available.</span>
       <button onClick={() => { try { window.location.reload(); } catch { /* noop */ } }}
-        style={{ background: "#00C9A0", color: "#04241d", border: "none", borderRadius: 6, padding: "5px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
+        style={{ background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 6, padding: "5px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer", fontFamily: "inherit" }}>
         Reload
       </button>
     </div>

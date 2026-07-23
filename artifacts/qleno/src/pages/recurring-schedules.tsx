@@ -131,7 +131,7 @@ export default function RecurringSchedulesPage() {
     <DashboardLayout>
       <div style={{ padding: 24, maxWidth: 1000, margin: "0 auto" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-          <RefreshCw size={20} style={{ color: "var(--brand, #00C9A0)" }} />
+          <RefreshCw size={20} style={{ color: "var(--brand)" }} />
           <h1 style={{ fontSize: 22, fontWeight: 800, color: "#1A1917", margin: 0 }}>Recurring Schedules</h1>
         </div>
         <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 16px" }}>
@@ -159,7 +159,7 @@ export default function RecurringSchedulesPage() {
           <input type="time" value={bulkTime} onChange={e => setBulkTime(e.target.value)}
             style={{ padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
           <button onClick={applyBulkTime} disabled={selected.size === 0 || saving}
-            style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: selected.size && !saving ? "var(--brand, #00C9A0)" : "#D1D5DB", color: "#fff", fontSize: 13, fontWeight: 700, cursor: selected.size && !saving ? "pointer" : "default", fontFamily: "inherit" }}>
+            style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: selected.size && !saving ? "var(--brand)" : "#D1D5DB", color: "#fff", fontSize: 13, fontWeight: 700, cursor: selected.size && !saving ? "pointer" : "default", fontFamily: "inherit" }}>
             {saving ? "Applying…" : "Set time for selected"}
           </button>
         </div>
@@ -190,7 +190,7 @@ export default function RecurringSchedulesPage() {
                       ? <span style={{ color: "#1A1917", fontWeight: 600 }}>{fmtTime(r.scheduled_time)}</span>
                       : <span style={{ color: "#B45309", fontWeight: 700 }}>No time set</span>}
                   </p>
-                  <Link href={`/customers/${r.customer_id}`} onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: "var(--brand, #00C9A0)", fontWeight: 600, display: "inline-block", marginTop: 6 }}>Open profile</Link>
+                  <Link href={`/customers/${r.customer_id}`} onClick={e => e.stopPropagation()} style={{ fontSize: 12, color: "var(--brand)", fontWeight: 600, display: "inline-block", marginTop: 6 }}>Open profile</Link>
                 </div>
               </div>
             ))}
@@ -234,7 +234,7 @@ export default function RecurringSchedulesPage() {
                   </td>
                   <td style={td}>{r.base_fee ? `$${parseFloat(r.base_fee).toFixed(2)}` : "—"}</td>
                   <td style={{ ...td, textAlign: "right" }}>
-                    <Link href={`/customers/${r.customer_id}`} style={{ fontSize: 12, color: "var(--brand, #00C9A0)", fontWeight: 600 }}>Open profile</Link>
+                    <Link href={`/customers/${r.customer_id}`} style={{ fontSize: 12, color: "var(--brand)", fontWeight: 600 }}>Open profile</Link>
                   </td>
                 </tr>
               ))}

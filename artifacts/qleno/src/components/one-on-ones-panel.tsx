@@ -10,7 +10,7 @@ import { MessageSquare, Plus, ChevronLeft, Trash2, Check, ChevronRight } from "l
 import { getAuthHeaders } from "@/lib/auth";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
-const BRAND = "var(--brand, #00C9A0)";
+const BRAND = "var(--brand)";
 
 interface QuestionDef { id: string; section: string; label: string; hint?: string }
 interface Scorecard {

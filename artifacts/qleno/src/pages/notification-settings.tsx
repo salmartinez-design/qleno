@@ -10,7 +10,7 @@ const FF = "'Plus Jakarta Sans', sans-serif";
 const INK = "#1A1917";
 const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
-const BRAND = "#00C9A0";
+const BRAND = "var(--brand)";
 
 const CATEGORIES = [
   { key: "messages", label: "Messages", desc: "New inbound text messages from customers" },

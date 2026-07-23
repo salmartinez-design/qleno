@@ -101,9 +101,9 @@ function SignaturePad({ onSignature }: { onSignature: (data: string, name: strin
             style={{
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               borderRadius: 6, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif",
-              background: mode === m ? "var(--brand, #00C9A0)" : "#F7F6F3",
+              background: mode === m ? "var(--brand)" : "#F7F6F3",
               color: mode === m ? "#fff" : "#6B7280",
-              border: `1px solid ${mode === m ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+              border: `1px solid ${mode === m ? "var(--brand)" : "#E5E2DC"}`,
             }}
           >
             {m === "draw" ? "Draw Signature" : "Type Name"}
@@ -241,7 +241,7 @@ function DocView({
           {Array.from({ length: total }).map((_, i) => (
             <div key={i} style={{
               width: 8, height: 8, borderRadius: 4,
-              background: i < index ? "var(--brand, #00C9A0)" : i === index ? "var(--brand, #00C9A0)" : "#E5E2DC",
+              background: i < index ? "var(--brand)" : i === index ? "var(--brand)" : "#E5E2DC",
               opacity: i === index ? 1 : i < index ? 0.6 : 0.3,
             }}/>
           ))}
@@ -288,7 +288,7 @@ function DocView({
           checked={checked}
           onChange={e => setChecked(e.target.checked)}
           disabled={!scrolled}
-          style={{ marginTop: 2, accentColor: "var(--brand, #00C9A0)", width: 16, height: 16, flexShrink: 0 }}
+          style={{ marginTop: 2, accentColor: "var(--brand)", width: 16, height: 16, flexShrink: 0 }}
         />
         <span style={{ fontSize: 13, color: "#374151" }}>I have read and agree to this document.</span>
       </label>
@@ -299,7 +299,7 @@ function DocView({
         onClick={handleSubmit}
         disabled={!canProceed || submitting}
         style={{
-          padding: "12px 24px", background: canProceed ? "var(--brand, #00C9A0)" : "#E5E2DC",
+          padding: "12px 24px", background: canProceed ? "var(--brand)" : "#E5E2DC",
           color: canProceed ? "#fff" : "#9E9B94", border: "none", borderRadius: 8,
           fontWeight: 700, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif",
           cursor: canProceed ? "pointer" : "not-allowed", display: "flex",

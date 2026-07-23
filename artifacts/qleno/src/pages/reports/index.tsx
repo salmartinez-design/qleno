@@ -10,7 +10,7 @@ import {
 const REPORT_GROUPS = [
   {
     label: "Financial",
-    color: "#5B9BD5",
+    color: "var(--brand)",
     reports: [
       { title: "Revenue Summary",      desc: "Total revenue, trends, and projected income by period.", url: "/reports/revenue",          icon: DollarSign },
       { title: "Accounts Receivable",  desc: "Outstanding invoices grouped by aging bucket.",          url: "/reports/receivables",       icon: ReceiptText },

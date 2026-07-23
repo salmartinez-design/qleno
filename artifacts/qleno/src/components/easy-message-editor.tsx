@@ -290,7 +290,7 @@ export function EasyMessageEditor({
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-      <style>{`.cm-chip{display:inline-block;background:var(--brand-dim,#E8FDF8);border:1px solid var(--brand,#00C9A0);color:#0F6E56;border-radius:11px;padding:0 8px;font-size:11.5px;font-weight:600;margin:0 1px;white-space:nowrap;line-height:1.7;} .cm-ed p{margin:0 0 8px;} .cm-ed ul{margin:0 0 8px;padding-left:20px;} .cm-ed h2{font-size:18px;margin:0 0 8px;} .cm-ed h3{font-size:15px;margin:0 0 8px;} .cm-ed a{color:#185FA5;} .cm-pv p{margin:0 0 8px;} .cm-pv ul{margin:0 0 8px;padding-left:20px;} .cm-pv a{color:#185FA5;} .cm-pv h3{font-size:15px;font-weight:700;color:#5B9BD5;border-bottom:2px solid #D6E3F2;padding-bottom:4px;margin:16px 0 8px;} @keyframes cm-spin{to{transform:rotate(360deg)}} .spin{animation:cm-spin .8s linear infinite;}`}</style>
+      <style>{`.cm-chip{display:inline-block;background:var(--brand-dim,#E8FDF8);border:1px solid var(--brand,var(--brand));color:#0F6E56;border-radius:11px;padding:0 8px;font-size:11.5px;font-weight:600;margin:0 1px;white-space:nowrap;line-height:1.7;} .cm-ed p{margin:0 0 8px;} .cm-ed ul{margin:0 0 8px;padding-left:20px;} .cm-ed h2{font-size:18px;margin:0 0 8px;} .cm-ed h3{font-size:15px;margin:0 0 8px;} .cm-ed a{color:#185FA5;} .cm-pv p{margin:0 0 8px;} .cm-pv ul{margin:0 0 8px;padding-left:20px;} .cm-pv a{color:#185FA5;} .cm-pv h3{font-size:15px;font-weight:700;color:var(--brand);border-bottom:2px solid #D6E3F2;padding-bottom:4px;margin:16px 0 8px;} @keyframes cm-spin{to{transform:rotate(360deg)}} .spin{animation:cm-spin .8s linear infinite;}`}</style>
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 14, alignItems: "start" }}>
         {/* ── Editor ── */}
@@ -308,7 +308,7 @@ export function EasyMessageEditor({
                 {tb(() => exec("bold"), <Bold size={13} />, "Bold")}
                 {tb(() => exec("italic"), <Italic size={13} />, "Italic")}
                 <button type="button" key="h3" title="Heading (Cmd/Ctrl+Alt+3)" onMouseDown={(e) => { e.preventDefault(); toggleH3(); }}
-                  style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: activeH3 ? "#E8FDF8" : "#fff", border: `1px solid ${activeH3 ? "#00C9A0" : "#E5E2DC"}`, borderRadius: 5, cursor: "pointer", color: activeH3 ? "#0F6E56" : "#6B7280", fontSize: 11, fontWeight: 800, fontFamily: "inherit" }}>H3</button>
+                  style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: activeH3 ? "#E8FDF8" : "#fff", border: `1px solid ${activeH3 ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 5, cursor: "pointer", color: activeH3 ? "#0F6E56" : "#6B7280", fontSize: 11, fontWeight: 800, fontFamily: "inherit" }}>H3</button>
                 {tb(() => exec("insertUnorderedList"), <List size={13} />, "Bullet list")}
                 {tb(() => exec("insertOrderedList"), <ListOrdered size={13} />, "Numbered list")}
                 {tb(addLink, <Link2 size={13} />, "Add link")}
@@ -347,7 +347,7 @@ export function EasyMessageEditor({
               <div style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "12px 16px" }}>
                 {logoUrl
                   ? <img src={logoUrl} alt={companyName} style={{ height: 32, width: "auto", display: "block" }} />
-                  : <span style={{ display: "inline-block", background: "var(--brand,#00C9A0)", color: "#fff", fontWeight: 800, fontSize: 14, padding: "5px 12px", borderRadius: 6 }}>{companyName}</span>}
+                  : <span style={{ display: "inline-block", background: "var(--brand,var(--brand))", color: "#fff", fontWeight: 800, fontSize: 14, padding: "5px 12px", borderRadius: 6 }}>{companyName}</span>}
               </div>
               {subject && <div style={{ padding: "10px 16px 0", fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{subject.replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_, k) => SAMPLE[String(k).trim()] || "")}</div>}
               <div className="cm-pv" style={{ padding: "12px 16px", fontSize: 13, color: "#374151", lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: previewBody || "<span style='color:#B4B2A9'>Nothing yet</span>" }} />
@@ -381,7 +381,7 @@ export function EasyMessageEditor({
         <div style={{ display: "flex", gap: 8 }}>
           <button type="button" onClick={onCancel} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", fontSize: 13, color: "#374151", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
           <button type="button" disabled={saving} onClick={() => ref.current && onSave(subject, editableToBody(ref.current, channel))}
-            style={{ padding: "8px 18px", border: "none", borderRadius: 7, background: "var(--brand,#00C9A0)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+            style={{ padding: "8px 18px", border: "none", borderRadius: 7, background: "var(--brand,var(--brand))", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             {saving ? "Saving…" : "Save"}
           </button>
         </div>

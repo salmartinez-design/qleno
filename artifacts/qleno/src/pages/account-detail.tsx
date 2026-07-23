@@ -100,7 +100,7 @@ function statusBadge(status: string) {
   const map: Record<string, string> = {
     scheduled: "bg-blue-50 text-blue-700",
     in_progress: "bg-amber-50 text-amber-700",
-    complete: "bg-[#00C9A0]/10 text-[#00C9A0]",
+    complete: "bg-[var(--brand)]/10 text-[var(--brand)]",
     cancelled: "bg-gray-100 text-gray-500",
   };
   return map[status] ?? "bg-gray-100 text-gray-700";
@@ -156,7 +156,7 @@ function AccountMessagesLog({ accountId }: { accountId: string }) {
         const inbound = inboundOf(m.direction);
         return (
           <div key={i} className="py-3 flex gap-3">
-            <span className={`mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-full text-[10px] font-semibold shrink-0 ${inbound ? "bg-[#00C9A0]/10 text-[#00A886]" : "bg-gray-100 text-gray-600"}`}>
+            <span className={`mt-0.5 inline-flex items-center justify-center w-9 h-9 rounded-full text-[10px] font-semibold shrink-0 ${inbound ? "bg-[var(--brand)]/10 text-[#00A886]" : "bg-gray-100 text-gray-600"}`}>
               {chanLabel(m.channel).slice(0, 3)}
             </span>
             <div className="min-w-0 flex-1">
@@ -248,7 +248,7 @@ function AccountNotificationPreferences({ accountId, commsPaused }: { accountId:
       {!commsPaused && dirty && (
         <div className="flex justify-end gap-2">
           <button onClick={() => setOffs(offsFromOverrides(data.overrides || {}))} className="px-4 py-2 text-sm text-gray-500 border border-gray-200 rounded-md">Cancel</button>
-          <button onClick={save} disabled={saving} className="px-4 py-2 text-sm font-semibold text-white bg-[#00C9A0] rounded-md">{saving ? "Saving…" : "Save preferences"}</button>
+          <button onClick={save} disabled={saving} className="px-4 py-2 text-sm font-semibold text-white bg-[var(--brand)] rounded-md">{saving ? "Saving…" : "Save preferences"}</button>
         </div>
       )}
     </div>
@@ -323,7 +323,7 @@ function AccountTechPreferences({ accountId }: { accountId: string }) {
           <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Technician Preferences</p>
           <p className="text-xs text-gray-500 mt-0.5 max-w-md">Preferred or do-not-schedule cleaners for this account (e.g. "only send Rossy"). Surfaced to dispatch when assigning.</p>
         </div>
-        <button onClick={() => setShowForm(v => !v)} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#00C9A0] rounded-md flex items-center gap-1">
+        <button onClick={() => setShowForm(v => !v)} className="px-3 py-1.5 text-xs font-semibold text-white bg-[var(--brand)] rounded-md flex items-center gap-1">
           <Plus size={12} /> Add
         </button>
       </div>
@@ -344,7 +344,7 @@ function AccountTechPreferences({ accountId }: { accountId: string }) {
           <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Reason or details (optional)" className="w-full px-2.5 py-2 border border-gray-200 rounded-md text-sm" />
           <div className="flex justify-end gap-2">
             <button onClick={() => setShowForm(false)} className="px-3 py-1.5 text-xs text-gray-500 border border-gray-200 rounded-md">Cancel</button>
-            <button onClick={add} disabled={saving || !form.user_id} className="px-3 py-1.5 text-xs font-semibold text-white bg-[#00C9A0] rounded-md disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
+            <button onClick={add} disabled={saving || !form.user_id} className="px-3 py-1.5 text-xs font-semibold text-white bg-[var(--brand)] rounded-md disabled:opacity-50">{saving ? "Saving…" : "Save"}</button>
           </div>
         </div>
       )}
@@ -873,7 +873,7 @@ export default function AccountDetailPage() {
           </div>
           {jobs.length > 0 && (
             <Button
-              className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2"
+              className="bg-[var(--brand)] hover:opacity-90 text-white gap-2"
               onClick={generateInvoice}
               disabled={generatingInvoice}
             >
@@ -886,7 +886,7 @@ export default function AccountDetailPage() {
         {/* Stats Row */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           {[
-            { label: "Revenue MTD", value: fmt(stats.revenue_mtd ?? 0), icon: TrendingUp, color: "text-[#00C9A0]", bg: "bg-[#00C9A0]/8" },
+            { label: "Revenue MTD", value: fmt(stats.revenue_mtd ?? 0), icon: TrendingUp, color: "text-[var(--brand)]", bg: "bg-[var(--brand)]/8" },
             { label: "Revenue 12M", value: fmt(stats.revenue_12m ?? 0), icon: DollarSign, color: "text-blue-600", bg: "bg-blue-50" },
             { label: "Outstanding", value: fmt(stats.outstanding_balance ?? 0), icon: AlertCircle, color: "text-amber-600", bg: "bg-amber-50" },
             { label: "Open Jobs", value: String(stats.open_jobs ?? 0), icon: Briefcase, color: "text-purple-600", bg: "bg-purple-50" },
@@ -912,7 +912,7 @@ export default function AccountDetailPage() {
                 onClick={() => setTab(t.key)}
                 className={`px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px ${
                   tab === t.key
-                    ? "border-[#00C9A0] text-[#00C9A0]"
+                    ? "border-[var(--brand)] text-[var(--brand)]"
                     : "border-transparent text-gray-500 hover:text-gray-800"
                 }`}
               >
@@ -958,7 +958,7 @@ export default function AccountDetailPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Auto-charge</span>
-                  <span className={`font-medium ${account.auto_charge_on_completion ? "text-[#00C9A0]" : "text-gray-400"}`}>
+                  <span className={`font-medium ${account.auto_charge_on_completion ? "text-[var(--brand)]" : "text-gray-400"}`}>
                     {account.auto_charge_on_completion ? "Enabled" : "Disabled"}
                   </span>
                 </div>
@@ -1013,7 +1013,7 @@ export default function AccountDetailPage() {
             <div className="bg-white border border-gray-100 rounded-xl p-4 sm:col-span-2">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Upcoming visits</p>
-                <button onClick={() => setTab("calendar")} className="text-xs font-semibold text-[#00C9A0]">View calendar →</button>
+                <button onClick={() => setTab("calendar")} className="text-xs font-semibold text-[var(--brand)]">View calendar →</button>
               </div>
               {upcoming.length === 0 ? (
                 <p className="text-sm text-gray-400">No upcoming visits scheduled.</p>
@@ -1110,9 +1110,9 @@ export default function AccountDetailPage() {
                     value={propSearch}
                     onChange={(e) => setPropSearch(e.target.value)}
                     placeholder={`Search ${allProps.length} buildings…`}
-                    className="flex-1 h-9 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-[#00C9A0]"
+                    className="flex-1 h-9 rounded-lg border border-gray-200 px-3 text-sm outline-none focus:border-[var(--brand)]"
                   />
-                  <Button onClick={openNewProperty} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-1.5 flex-shrink-0" size="sm">
+                  <Button onClick={openNewProperty} className="bg-[var(--brand)] hover:opacity-90 text-white gap-1.5 flex-shrink-0" size="sm">
                     <Plus size={14} /> Add
                   </Button>
                 </div>
@@ -1152,7 +1152,7 @@ export default function AccountDetailPage() {
                         <div key={p.id} role="button" tabIndex={0}
                           onClick={() => selectProp(p.id)}
                           onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); selectProp(p.id); } }}
-                          className={`flex items-center gap-2.5 px-3 py-2.5 cursor-pointer transition-colors border-l-2 ${sel ? "bg-[#F1FBF8] border-[#00C9A0]" : "border-transparent hover:bg-gray-50"}`}>
+                          className={`flex items-center gap-2.5 px-3 py-2.5 cursor-pointer transition-colors border-l-2 ${sel ? "bg-[#F1FBF8] border-[var(--brand)]" : "border-transparent hover:bg-gray-50"}`}>
                           <div className="w-7 h-7 rounded-lg bg-purple-50 flex items-center justify-center flex-shrink-0">
                             <Home size={13} className="text-purple-600" />
                           </div>
@@ -1256,7 +1256,7 @@ export default function AccountDetailPage() {
                           <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Permanent building notes</p>
                           {bnEditProp !== p.id && (
                             <button onClick={() => { setBnOffice(p.notes || ""); setBnCleaner(p.access_notes || ""); setBnEditProp(p.id); }}
-                              className="text-xs font-semibold text-[#00C9A0] hover:underline">
+                              className="text-xs font-semibold text-[var(--brand)] hover:underline">
                               {(p.notes || p.access_notes) ? "Edit" : "+ Add notes"}
                             </button>
                           )}
@@ -1266,14 +1266,14 @@ export default function AccountDetailPage() {
                           <div className="space-y-2">
                             <div>
                               <p className="text-[10px] font-semibold text-gray-500 mb-1">OFFICE NOTES <span className="font-normal text-gray-400">· office only</span></p>
-                              <textarea rows={2} value={bnOffice} onChange={(e) => setBnOffice(e.target.value)} placeholder="e.g. NET 30, bill monthly, main contact Hugo" className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-none focus:border-[#00C9A0] resize-y" />
+                              <textarea rows={2} value={bnOffice} onChange={(e) => setBnOffice(e.target.value)} placeholder="e.g. NET 30, bill monthly, main contact Hugo" className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-none focus:border-[var(--brand)] resize-y" />
                             </div>
                             <div>
                               <p className="text-[10px] font-semibold text-gray-500 mb-1">CLEANER NOTES <span className="font-normal text-gray-400">· the cleaner sees this</span></p>
-                              <textarea rows={2} value={bnCleaner} onChange={(e) => setBnCleaner(e.target.value)} placeholder="e.g. lockbox 4417, park in rear, gate code 2247" className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-none focus:border-[#00C9A0] resize-y" />
+                              <textarea rows={2} value={bnCleaner} onChange={(e) => setBnCleaner(e.target.value)} placeholder="e.g. lockbox 4417, park in rear, gate code 2247" className="w-full text-xs border border-gray-200 rounded-lg p-2 outline-none focus:border-[var(--brand)] resize-y" />
                             </div>
                             <div className="flex gap-2">
-                              <button onClick={() => saveBuildingNotes(p.id)} disabled={bnSaving} className="px-3 py-1.5 rounded-lg bg-[#00C9A0] text-white text-xs font-semibold disabled:opacity-60">{bnSaving ? "Saving…" : "Save & apply to jobs"}</button>
+                              <button onClick={() => saveBuildingNotes(p.id)} disabled={bnSaving} className="px-3 py-1.5 rounded-lg bg-[var(--brand)] text-white text-xs font-semibold disabled:opacity-60">{bnSaving ? "Saving…" : "Save & apply to jobs"}</button>
                               <button onClick={() => setBnEditProp(null)} disabled={bnSaving} className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-semibold">Cancel</button>
                             </div>
                           </div>
@@ -1309,7 +1309,7 @@ export default function AccountDetailPage() {
                                 {recent.frequency && recent.frequency !== "one_time" ? ` · ${recent.frequency}` : ""}
                               </p>
                             </div>
-                            <span className="text-xs font-semibold text-[#00C9A0]">
+                            <span className="text-xs font-semibold text-[var(--brand)]">
                               {recent.billing_method === "hourly" && recent.hourly_rate
                                 ? `${fmtDecimal(parseFloat(recent.hourly_rate))}/hr`
                                 : recent.base_fee != null
@@ -1334,7 +1334,7 @@ export default function AccountDetailPage() {
         {tab === "rate_cards" && (
           <div className="space-y-3">
             <div className="flex justify-end">
-              <Button onClick={openNewRateCard} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2" size="sm">
+              <Button onClick={openNewRateCard} className="bg-[var(--brand)] hover:opacity-90 text-white gap-2" size="sm">
                 <Plus size={14} /> Add Rate Card
               </Button>
             </div>
@@ -1364,7 +1364,7 @@ export default function AccountDetailPage() {
                         <td className="px-4 py-3 text-gray-500">
                           {BILLING_METHODS.find((b) => b.value === rc.billing_method)?.label ?? rc.billing_method}
                         </td>
-                        <td className="px-4 py-3 font-semibold text-[#00C9A0]">
+                        <td className="px-4 py-3 font-semibold text-[var(--brand)]">
                           {fmtDecimal(parseFloat(rc.rate_amount))} / {rc.unit_label}
                         </td>
                         <td className="px-4 py-3 text-gray-400 text-xs hidden sm:table-cell max-w-xs truncate">
@@ -1393,7 +1393,7 @@ export default function AccountDetailPage() {
         {tab === "contacts" && (
           <div className="space-y-3">
             <div className="flex justify-end">
-              <Button onClick={openNewContact} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2" size="sm">
+              <Button onClick={openNewContact} className="bg-[var(--brand)] hover:opacity-90 text-white gap-2" size="sm">
                 <Plus size={14} /> Add Contact
               </Button>
             </div>
@@ -1435,7 +1435,7 @@ export default function AccountDetailPage() {
                               { flag: c.receives_on_way_sms, label: "On-Way SMS" },
                               { flag: c.receives_completion_notifications, label: "Completion" },
                             ].map((n) => n.flag && (
-                              <span key={n.label} className="flex items-center gap-0.5 text-xs bg-[#00C9A0]/10 text-[#00C9A0] px-1.5 py-0.5 rounded-full">
+                              <span key={n.label} className="flex items-center gap-0.5 text-xs bg-[var(--brand)]/10 text-[var(--brand)] px-1.5 py-0.5 rounded-full">
                                 <Bell size={10} /> {n.label}
                               </span>
                             ))}
@@ -1489,7 +1489,7 @@ export default function AccountDetailPage() {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="gap-2 border-[#00C9A0] text-[#00A886] hover:bg-[#00C9A0]/5"
+                    className="gap-2 border-[var(--brand)] text-[#00A886] hover:bg-[var(--brand)]/5"
                     onClick={() => generateInvoice(true)}
                     disabled={generatingInvoice}
                     title="Create one invoice per job — bill each turnover separately"
@@ -1498,7 +1498,7 @@ export default function AccountDetailPage() {
                     {generatingInvoice ? "Working..." : `Invoice each separately (${selectedJobIds.size > 0 ? selectedJobIds.size : jobs.length})`}
                   </Button>
                   <Button
-                    className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2"
+                    className="bg-[var(--brand)] hover:opacity-90 text-white gap-2"
                     size="sm"
                     onClick={() => generateInvoice(false)}
                     disabled={generatingInvoice}
@@ -1516,7 +1516,7 @@ export default function AccountDetailPage() {
             </div>
             {!jobs.length ? (
               <div className="flex flex-col items-center py-16 text-gray-400 gap-2">
-                <CheckCircle2 size={32} strokeWidth={1.5} className="text-[#00C9A0]" />
+                <CheckCircle2 size={32} strokeWidth={1.5} className="text-[var(--brand)]" />
                 <p className="text-sm">{includeScheduled ? `No billable visits in ${jobsMonthLabel}` : "All jobs are invoiced"}</p>
               </div>
             ) : (
@@ -1567,7 +1567,7 @@ export default function AccountDetailPage() {
                               : "—"
                             }
                           </td>
-                          <td className="px-4 py-3 text-right font-semibold text-[#00C9A0]">
+                          <td className="px-4 py-3 text-right font-semibold text-[var(--brand)]">
                             {fmtDecimal(amount)}
                           </td>
                         </tr>
@@ -1579,7 +1579,7 @@ export default function AccountDetailPage() {
                       <td colSpan={4} className="px-4 py-2.5 text-sm font-semibold text-gray-500">
                         {selectedJobIds.size > 0 ? `Total (${selectedJobIds.size} selected)` : "Total"}
                       </td>
-                      <td className="px-4 py-2.5 text-right text-sm font-bold text-[#00C9A0]">
+                      <td className="px-4 py-2.5 text-right text-sm font-bold text-[var(--brand)]">
                         {fmtDecimal((selectedJobIds.size > 0 ? jobs.filter((j: any) => selectedJobIds.has(j.id)) : jobs)
                           .reduce((s: number, j: any) => s + (j.billed_amount ? parseFloat(j.billed_amount) : parseFloat(j.base_fee ?? "0")), 0))}
                       </td>
@@ -1601,7 +1601,7 @@ export default function AccountDetailPage() {
                 <button onClick={() => shiftMonth(1)} aria-label="Next month" className="w-8 h-8 rounded-lg border border-gray-200 bg-gray-50 text-gray-600 hover:bg-gray-100">›</button>
               </div>
               <p className="text-sm text-gray-500">
-                {acctInvoices.length} invoice{acctInvoices.length === 1 ? "" : "s"} · <span className="font-semibold text-[#00C9A0]">{fmtDecimal(parseFloat(acctInvTotal))}</span>
+                {acctInvoices.length} invoice{acctInvoices.length === 1 ? "" : "s"} · <span className="font-semibold text-[var(--brand)]">{fmtDecimal(parseFloat(acctInvTotal))}</span>
               </p>
             </div>
             {invLoading ? (
@@ -1639,7 +1639,7 @@ export default function AccountDetailPage() {
                           </td>
                           <td className="px-4 py-3 text-gray-500 truncate max-w-[280px] hidden sm:table-cell">{desc}</td>
                           <td className="px-4 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded uppercase ${stCls}`}>{stLabel}</span></td>
-                          <td className="px-4 py-3 text-right font-semibold text-[#00C9A0]">{fmtDecimal(parseFloat(inv.total || "0"))}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-[var(--brand)]">{fmtDecimal(parseFloat(inv.total || "0"))}</td>
                         </tr>
                       );
                     })}
@@ -1647,7 +1647,7 @@ export default function AccountDetailPage() {
                   <tfoot>
                     <tr className="border-t border-gray-100 bg-gray-50">
                       <td colSpan={4} className="px-4 py-2.5 text-sm font-semibold text-gray-500">Total — {monthLabel}</td>
-                      <td className="px-4 py-2.5 text-right text-sm font-bold text-[#00C9A0]">{fmtDecimal(parseFloat(acctInvTotal))}</td>
+                      <td className="px-4 py-2.5 text-right text-sm font-bold text-[var(--brand)]">{fmtDecimal(parseFloat(acctInvTotal))}</td>
                     </tr>
                   </tfoot>
                 </table>
@@ -1744,7 +1744,7 @@ export default function AccountDetailPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowRateCard(false)}>Cancel</Button>
-            <Button className="bg-[#00C9A0] hover:bg-[#00b38f] text-white" onClick={saveRateCard} disabled={rcSaving}>
+            <Button className="bg-[var(--brand)] hover:opacity-90 text-white" onClick={saveRateCard} disabled={rcSaving}>
               {rcSaving ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
@@ -1798,7 +1798,7 @@ export default function AccountDetailPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBilling(false)}>Cancel</Button>
-            <Button className="bg-[#00C9A0] hover:bg-[#00b38f] text-white" onClick={saveBilling} disabled={billingSaving}>
+            <Button className="bg-[var(--brand)] hover:opacity-90 text-white" onClick={saveBilling} disabled={billingSaving}>
               {billingSaving ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
@@ -1877,7 +1877,7 @@ export default function AccountDetailPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowProperty(false)}>Cancel</Button>
-            <Button className="bg-[#00C9A0] hover:bg-[#00b38f] text-white" onClick={saveProperty} disabled={propSaving}>
+            <Button className="bg-[var(--brand)] hover:opacity-90 text-white" onClick={saveProperty} disabled={propSaving}>
               {propSaving ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>
@@ -1939,7 +1939,7 @@ export default function AccountDetailPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowContact(false)}>Cancel</Button>
-            <Button className="bg-[#00C9A0] hover:bg-[#00b38f] text-white" onClick={saveContact} disabled={contactSaving}>
+            <Button className="bg-[var(--brand)] hover:opacity-90 text-white" onClick={saveContact} disabled={contactSaving}>
               {contactSaving ? "Saving..." : "Save"}
             </Button>
           </DialogFooter>

@@ -1417,7 +1417,7 @@ export default function QuoteBuilderPage() {
                 <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 8 }}>Home Cleanliness</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                   {DIRT_LEVELS.map(d => (
-                    <button key={d.value} onClick={() => setDirtLevel(d.value)} style={{ flex: 1, minWidth: 90, padding: "8px 6px", border: dirtLevel === d.value ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 8, background: dirtLevel === d.value ? "#EBF4FF" : "#FFF", fontSize: 12, fontWeight: dirtLevel === d.value ? 600 : 400, color: dirtLevel === d.value ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF }}>
+                    <button key={d.value} onClick={() => setDirtLevel(d.value)} style={{ flex: 1, minWidth: 90, padding: "8px 6px", border: dirtLevel === d.value ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 8, background: dirtLevel === d.value ? "var(--brand-soft)" : "#FFF", fontSize: 12, fontWeight: dirtLevel === d.value ? 600 : 400, color: dirtLevel === d.value ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF }}>
                       {d.label}
                     </button>
                   ))}
@@ -1445,7 +1445,7 @@ export default function QuoteBuilderPage() {
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Frequency</div>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                         {s.frequencies.map(f => (
-                          <button key={f.id} onClick={() => updateScopeFrequency(s.scope_id, f.frequency)} style={{ padding: "6px 14px", borderRadius: 6, border: s.frequency === f.frequency ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: s.frequency === f.frequency ? "#EBF4FF" : "#FFF", color: s.frequency === f.frequency ? "var(--brand)" : "#6B6860", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>
+                          <button key={f.id} onClick={() => updateScopeFrequency(s.scope_id, f.frequency)} style={{ padding: "6px 14px", borderRadius: 6, border: s.frequency === f.frequency ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: s.frequency === f.frequency ? "var(--brand-soft)" : "#FFF", color: s.frequency === f.frequency ? "var(--brand)" : "#6B6860", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: FF }}>
                             {f.label || f.frequency}
                           </button>
                         ))}
@@ -1696,7 +1696,7 @@ export default function QuoteBuilderPage() {
                       placeholder="Search by client name, address, or phone..."
                       readOnly={!!selectedClientId}
                       style={{
-                        width: "100%", height: 40, border: `1px solid ${clientDropdownOpen ? "#5B9BD5" : "#E5E2DC"}`, borderRadius: 8, background: selectedClientId ? "#F7F6F3" : "#FFF",
+                        width: "100%", height: 40, border: `1px solid ${clientDropdownOpen ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, background: selectedClientId ? "#F7F6F3" : "#FFF",
                         padding: "0 36px 0 36px", fontSize: 14, fontFamily: FF, outline: "none", cursor: selectedClientId ? "default" : "text", boxSizing: "border-box",
                       }}
                     />
@@ -1720,8 +1720,8 @@ export default function QuoteBuilderPage() {
                       {/* Enter lead info instead */}
                       <div
                         onClick={() => { clearClient(); setClientDropdownOpen(false); }}
-                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "#F7F6F3", borderBottom: "1px solid #E5E2DC", cursor: "pointer", fontSize: 13, color: "#5B9BD5", fontWeight: 500, fontFamily: FF }}
-                        onMouseEnter={e => (e.currentTarget.style.background = "#EBF4FF")}
+                        style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 14px", background: "#F7F6F3", borderBottom: "1px solid #E5E2DC", cursor: "pointer", fontSize: 13, color: "var(--brand)", fontWeight: 500, fontFamily: FF }}
+                        onMouseEnter={e => (e.currentTarget.style.background = "var(--brand-soft)")}
                         onMouseLeave={e => (e.currentTarget.style.background = "#F7F6F3")}
                       >
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand)" strokeWidth={2.5}><path d="M12 5v14M5 12h14"/></svg>
@@ -1827,10 +1827,10 @@ export default function QuoteBuilderPage() {
 
                 {/* Returning client banner */}
                 {returningClient && !selectedClientId && (
-                  <div style={{ background: "#EBF4FF", border: "1px solid #5B9BD5", borderRadius: 6, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                  <div style={{ background: "var(--brand-soft)", border: "1px solid var(--brand)", borderRadius: 6, padding: "8px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                     <div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>Returning client — {returningClient.name}</div>
-                      {returningClient.address && <div style={{ fontSize: 12, color: "#5B9BD5", marginTop: 2 }}>{returningClient.address}</div>}
+                      {returningClient.address && <div style={{ fontSize: 12, color: "var(--brand)", marginTop: 2 }}>{returningClient.address}</div>}
                     </div>
                     <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
                       <button onClick={applyReturningClient} style={{ fontSize: 12, fontWeight: 600, color: "#2563EB", background: "#DBEAFE", border: "none", cursor: "pointer", padding: "4px 10px", borderRadius: 4 }}>Use this client</button>
@@ -1947,7 +1947,7 @@ export default function QuoteBuilderPage() {
                       onClick={() => toggleTech(preferredTech.id)}
                       style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 10px", borderRadius: 14, fontSize: 12, fontWeight: selectedTechIds.includes(preferredTech.id) ? 600 : 400, border: selectedTechIds.includes(preferredTech.id) ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: selectedTechIds.includes(preferredTech.id) ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
                     >
-                      <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechIds.includes(preferredTech.id) ? "var(--brand)" : "#5B9BD5", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
+                      <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechIds.includes(preferredTech.id) ? "var(--brand)" : "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
                       {preferredTech.full_name}
                       {selectedTechIds.includes(preferredTech.id) && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
                     </button>
@@ -2217,7 +2217,7 @@ export default function QuoteBuilderPage() {
                       const avail = count !== undefined ? techAvailDot(count) : null;
                       const isSel = selectedTechIds.includes(tech.id);
                       return (
-                        <div key={tech.id} onClick={() => toggleTech(tech.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", border: isSel ? "2px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "rgba(0,201,160,0.05)" : "#FFF", opacity: avail?.muted ? 0.55 : 1 }}>
+                        <div key={tech.id} onClick={() => toggleTech(tech.id)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", borderRadius: 6, cursor: "pointer", border: isSel ? "2px solid var(--brand)" : "1px solid #E5E2DC", background: isSel ? "rgba(var(--brand-rgb),0.05)" : "#FFF", opacity: avail?.muted ? 0.55 : 1 }}>
                           <div style={{ width: 28, height: 28, borderRadius: "50%", background: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 11, fontWeight: 700 }}>{tech.name.charAt(0).toUpperCase()}</div>
                           <div style={{ flex: 1, fontSize: 13, fontWeight: isSel ? 700 : 500, color: "#1A1917" }}>{tech.name}</div>
                           {avail && (
@@ -2312,7 +2312,7 @@ export default function QuoteBuilderPage() {
                   <Label className="text-xs">How would you rate the current cleanliness of your home?</Label>
                   <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
                     {DIRT_LEVELS.map(d => (
-                      <button key={d.value} onClick={() => setDirtLevel(d.value)} style={{ flex: 1, padding: "8px 6px", border: dirtLevel === d.value ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 8, background: dirtLevel === d.value ? "#EBF4FF" : "#FFF", fontSize: 12, fontWeight: dirtLevel === d.value ? 600 : 400, color: dirtLevel === d.value ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF, textAlign: "center" as const }}>
+                      <button key={d.value} onClick={() => setDirtLevel(d.value)} style={{ flex: 1, padding: "8px 6px", border: dirtLevel === d.value ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 8, background: dirtLevel === d.value ? "var(--brand-soft)" : "#FFF", fontSize: 12, fontWeight: dirtLevel === d.value ? 600 : 400, color: dirtLevel === d.value ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF, textAlign: "center" as const }}>
                         {d.label}
                       </button>
                     ))}
@@ -2395,7 +2395,7 @@ export default function QuoteBuilderPage() {
                                     placeholder={Number(s.calc?.hourly_rate ?? scope.hourly_rate).toFixed(2)}
                                     onChange={e => updateScopeRate(s.scope_id, e.target.value === "" ? null : parseFloat(e.target.value))}
                                     title="Override the hourly rate for this quote only"
-                                    style={{ width: 74, height: 28, border: `1px solid ${s.hourlyRateOverride != null ? "#00C9A0" : "#E5E2DC"}`, borderRadius: 6, padding: "0 6px", fontSize: 13, fontFamily: FF, outline: "none", textAlign: "center" }} />
+                                    style={{ width: 74, height: 28, border: `1px solid ${s.hourlyRateOverride != null ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 6, padding: "0 6px", fontSize: 13, fontFamily: FF, outline: "none", textAlign: "center" }} />
                                   <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>/hr</span>
                                   {s.hourlyRateOverride != null && (
                                     <button onClick={() => updateScopeRate(s.scope_id, null)} title="Reset to the configured rate"
@@ -2616,13 +2616,13 @@ export default function QuoteBuilderPage() {
 
               {/* Quick Book pre-fill banner */}
               {quickBookBanner && (
-                <div style={{ background: "#EBF4FF", border: "1px solid #5B9BD5", borderRadius: 6, padding: "8px 12px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ background: "var(--brand-soft)", border: "1px solid var(--brand)", borderRadius: 6, padding: "8px 12px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                   <span style={{ fontSize: 12, color: "#185FA5", fontFamily: FF }}>
                     Pre-filled from <strong>{quickBookBanner.scope}</strong> on{" "}
                     {(() => { try { return new Date(quickBookBanner.date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }); } catch { return quickBookBanner.date; } })()}.{" "}
                     Adjust anything before saving.
                   </span>
-                  <button onClick={() => setQuickBookBanner(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#5B9BD5", padding: 0, flexShrink: 0, fontFamily: FF, fontSize: 16, lineHeight: 1 }}>×</button>
+                  <button onClick={() => setQuickBookBanner(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--brand)", padding: 0, flexShrink: 0, fontFamily: FF, fontSize: 16, lineHeight: 1 }}>×</button>
                 </div>
               )}
 
@@ -2645,9 +2645,9 @@ export default function QuoteBuilderPage() {
                       <div
                         key={s.scope_id}
                         onClick={() => setFinalScopeId(s.scope_id)}
-                        style={{ border: isFinal ? "1.5px solid #5B9BD5" : "0.5px solid #E5E2DC", background: isFinal ? "#EBF4FF" : "#FFF", padding: "12px 16px", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, transition: "all 0.15s" }}
+                        style={{ border: isFinal ? "1.5px solid var(--brand)" : "0.5px solid #E5E2DC", background: isFinal ? "var(--brand-soft)" : "#FFF", padding: "12px 16px", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, transition: "all 0.15s" }}
                       >
-                        <input type="radio" checked={isFinal} onChange={() => setFinalScopeId(s.scope_id)} style={{ flexShrink: 0, accentColor: "#5B9BD5", width: 16, height: 16 }} onClick={e => e.stopPropagation()} />
+                        <input type="radio" checked={isFinal} onChange={() => setFinalScopeId(s.scope_id)} style={{ flexShrink: 0, accentColor: "var(--brand)", width: 16, height: 16 }} onClick={e => e.stopPropagation()} />
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scope?.name}{addonSummary}</div>
                           {s.frequency && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF }}>{s.frequency}</div>}
@@ -2695,7 +2695,7 @@ export default function QuoteBuilderPage() {
                           onClick={() => toggleTech(preferredTech.id)}
                           style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 14, fontSize: 12, fontWeight: selectedTechIds.includes(preferredTech.id) ? 600 : 400, border: selectedTechIds.includes(preferredTech.id) ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: selectedTechIds.includes(preferredTech.id) ? "#EAF9F4" : "#FFF", color: "#1A1917", cursor: "pointer", fontFamily: FF }}
                         >
-                          <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechIds.includes(preferredTech.id) ? "var(--brand)" : "#5B9BD5", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
+                          <span style={{ width: 18, height: 18, borderRadius: "50%", background: selectedTechIds.includes(preferredTech.id) ? "var(--brand)" : "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", color: "#FFF", fontSize: 9, fontWeight: 700 }}>{preferredTech.full_name.charAt(0)}</span>
                           {preferredTech.full_name}
                           {selectedTechIds.includes(preferredTech.id) && <Check style={{ width: 12, height: 12, color: "var(--brand)" }} />}
                         </button>

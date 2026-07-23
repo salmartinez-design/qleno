@@ -96,7 +96,7 @@ export function NotificationBell() {
   };
 
   const iconFor = (type: string) =>
-    type === "new_message" ? <MessageSquare size={14} style={{ color: "#00C9A0" }} />
+    type === "new_message" ? <MessageSquare size={14} style={{ color: "var(--brand)" }} />
     : type === "job_assigned" ? <Briefcase size={14} style={{ color: "#2563EB" }} />
     : type === "job_changed" ? <CalendarDays size={14} style={{ color: "#F59E0B" }} />
     : type === "new_booking" ? <Bell size={14} style={{ color: "#2563EB" }} />

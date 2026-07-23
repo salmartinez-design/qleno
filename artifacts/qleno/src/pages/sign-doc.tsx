@@ -51,9 +51,9 @@ function SignaturePad({ onSignature }: { onSignature: (data: string, name: strin
           <button key={m} onClick={() => setMode(m)} style={{
             padding: "5px 12px", fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: "pointer",
             fontFamily: "'Plus Jakarta Sans', sans-serif",
-            background: mode === m ? "var(--brand, #00C9A0)" : "#F7F6F3",
+            background: mode === m ? "var(--brand)" : "#F7F6F3",
             color: mode === m ? "#fff" : "#6B7280",
-            border: `1px solid ${mode === m ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
+            border: `1px solid ${mode === m ? "var(--brand)" : "#E5E2DC"}`,
           }}>{m === "draw" ? "Draw" : "Type Name"}</button>
         ))}
       </div>
@@ -212,7 +212,7 @@ export default function SignDocPage() {
           <label style={{ display: "flex", alignItems: "flex-start", gap: 10, cursor: "pointer" }}>
             <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)}
               disabled={!scrolled}
-              style={{ marginTop: 2, accentColor: "var(--brand, #00C9A0)", width: 16, height: 16, flexShrink: 0 }}
+              style={{ marginTop: 2, accentColor: "var(--brand)", width: 16, height: 16, flexShrink: 0 }}
             />
             <span style={{ fontSize: 13, color: "#374151" }}>I have read and agree to this document.</span>
           </label>
@@ -222,7 +222,7 @@ export default function SignDocPage() {
           {error && <p style={{ fontSize: 12, color: "#DC2626", background: "#FEE2E2", borderRadius: 6, padding: "8px 12px", margin: 0 }}>{error}</p>}
 
           <button onClick={handleSubmit} disabled={!canSubmit || submitting}
-            style={{ padding: "12px 24px", background: canSubmit ? "var(--brand, #00C9A0)" : "#E5E2DC", color: canSubmit ? "#fff" : "#9E9B94", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: canSubmit ? "pointer" : "not-allowed" }}
+            style={{ padding: "12px 24px", background: canSubmit ? "var(--brand)" : "#E5E2DC", color: canSubmit ? "#fff" : "#9E9B94", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: canSubmit ? "pointer" : "not-allowed" }}
           >
             {submitting ? "Submitting..." : "Submit Agreement"}
           </button>

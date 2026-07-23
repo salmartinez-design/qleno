@@ -86,7 +86,7 @@ export function ChatPanel({ onClose, userId }: Props) {
       <div style={{ padding:'14px 16px', borderBottom:'1px solid #E5E2DC', display:'flex', alignItems:'center', gap:10 }}>
         {view === 'channels' ? (
           <>
-            <MessageSquare size={16} color="#5B9BD5"/>
+            <MessageSquare size={16} color="var(--brand)"/>
             <span style={{ fontSize:14, fontWeight:700, color:'#1A1917', flex:1 }}>Team Chat</span>
             <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9E9B94', padding:2 }}><X size={16}/></button>
           </>
@@ -106,9 +106,9 @@ export function ChatPanel({ onClose, userId }: Props) {
           <p style={{ fontSize:10, fontWeight:700, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.07em', padding:'0 16px 8px', margin:0 }}>Channels</p>
           {['general','dispatch'].map(ch => (
             <button key={ch} onClick={() => { setActiveChannel(ch); setView('chat'); }}
-              style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'8px 16px', background: activeChannel===ch?'#EBF4FF':'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
-              <Hash size={13} color={activeChannel===ch?'#5B9BD5':'#9E9B94'}/>
-              <span style={{ fontSize:13, color: activeChannel===ch?'#5B9BD5':'#1A1917', fontWeight: activeChannel===ch?600:400 }}>{ch}</span>
+              style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'8px 16px', background: activeChannel===ch?'var(--brand-soft)':'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
+              <Hash size={13} color={activeChannel===ch?'var(--brand)':'#9E9B94'}/>
+              <span style={{ fontSize:13, color: activeChannel===ch?'var(--brand)':'#1A1917', fontWeight: activeChannel===ch?600:400 }}>{ch}</span>
             </button>
           ))}
           <p style={{ fontSize:10, fontWeight:700, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.07em', padding:'16px 16px 8px', margin:0 }}>Direct Messages</p>
@@ -116,7 +116,7 @@ export function ChatPanel({ onClose, userId }: Props) {
             const ch = `dm:${u.id}`;
             return (
               <button key={u.id} onClick={() => { setActiveChannel(ch); setView('chat'); }}
-                style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'8px 16px', background: activeChannel===ch?'#EBF4FF':'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
+                style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'8px 16px', background: activeChannel===ch?'var(--brand-soft)':'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
                 <div style={{ width:24, height:24, borderRadius:12, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'#6B7280', flexShrink:0 }}>
                   {u.first_name?.[0]}{u.last_name?.[0]}
                 </div>
@@ -138,7 +138,7 @@ export function ChatPanel({ onClose, userId }: Props) {
               return (
                 <div key={m.id} style={{ display:'flex', flexDirection: isMe?'row-reverse':'row', alignItems:'flex-end', gap:6 }}>
                   {!isMe && (
-                    <div style={{ width:26, height:26, borderRadius:13, background:'#EBF4FF', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'#5B9BD5', flexShrink:0 }}>
+                    <div style={{ width:26, height:26, borderRadius:13, background:'var(--brand-soft)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'var(--brand)', flexShrink:0 }}>
                       {m.sender_initials || m.sender_name?.[0] || '?'}
                     </div>
                   )}
@@ -146,7 +146,7 @@ export function ChatPanel({ onClose, userId }: Props) {
                     {!isMe && <p style={{ fontSize:10, color:'#9E9B94', margin:'0 0 2px 4px', fontWeight:600 }}>{m.sender_name?.split(' ')[0]}</p>}
                     <div style={{
                       padding:'8px 12px', borderRadius: isMe?'12px 12px 4px 12px':'12px 12px 12px 4px',
-                      background: isMe?'var(--brand, #5B9BD5)':'#F3F4F6',
+                      background: isMe?'var(--brand)':'#F3F4F6',
                       color: isMe?'#FFFFFF':'#1A1917',
                     }}>
                       <p style={{ fontSize:13, margin:0, lineHeight:1.4 }}>{m.body}</p>
@@ -168,7 +168,7 @@ export function ChatPanel({ onClose, userId }: Props) {
               placeholder="Message…"
               style={{ flex:1, height:36, padding:'0 12px', border:'1px solid #E5E2DC', borderRadius:18, fontSize:13, outline:'none', fontFamily:'inherit' }}/>
             <button onClick={send} disabled={!body.trim() || sending}
-              style={{ width:36, height:36, borderRadius:18, background:'var(--brand, #5B9BD5)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', opacity: !body.trim()?0.4:1 }}>
+              style={{ width:36, height:36, borderRadius:18, background:'var(--brand)', border:'none', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', opacity: !body.trim()?0.4:1 }}>
               <Send size={14} color="#FFFFFF"/>
             </button>
           </div>

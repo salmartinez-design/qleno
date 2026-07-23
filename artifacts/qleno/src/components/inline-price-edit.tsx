@@ -78,7 +78,7 @@ export function InlinePriceEdit({
         {canEdit && (
           <button
             onClick={() => { setVal(Number(price || 0).toFixed(2)); setErr(null); setEditing(true); }}
-            style={{ fontSize: 11, fontWeight: 600, color: "var(--brand, #00C9A0)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, display: "inline-flex", alignItems: "center", gap: 3 }}
+            style={{ fontSize: 11, fontWeight: 600, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontFamily: "inherit", padding: 0, display: "inline-flex", alignItems: "center", gap: 3 }}
           >
             <Pencil size={11} /> Change price
           </button>
@@ -100,7 +100,7 @@ export function InlinePriceEdit({
           />
         </div>
         <button onClick={save} disabled={saving} title="Save"
-          style={{ padding: "8px 10px", borderRadius: 8, border: "none", background: "var(--brand, #00C9A0)", color: "#fff", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+          style={{ padding: "8px 10px", borderRadius: 8, border: "none", background: "var(--brand)", color: "#fff", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
           <Check size={14} />
         </button>
         <button onClick={() => { setEditing(false); setErr(null); }} disabled={saving} title="Cancel"

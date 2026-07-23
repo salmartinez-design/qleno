@@ -341,7 +341,7 @@ function DripStepRow({ s, nextStep }: { s: any; nextStep: any }) {
         <div style={{
           width: 14, height: 14, borderRadius: "50%", flexShrink: 0, marginTop: 1,
           display: "flex", alignItems: "center", justifyContent: "center", fontSize: 7, fontWeight: 800, fontFamily: FF,
-          background: done ? "#D1FAE5" : isNext ? "#00C9A0" : "#F2EFE9",
+          background: done ? "#D1FAE5" : isNext ? "var(--brand)" : "#F2EFE9",
           color: done ? "#065F46" : isNext ? "#0A0E1A" : "#9E9B94",
         }}>
           {done ? "✓" : s.step_number}
@@ -467,7 +467,7 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
                 <div key={s.step_number} style={{
                   flex: 1, height: 20, borderRadius: 4, display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: 8, fontWeight: 800, fontFamily: FF,
-                  background: done ? "#D1FAE5" : isNext ? "#00C9A0" : "#F2EFE9",
+                  background: done ? "#D1FAE5" : isNext ? "var(--brand)" : "#F2EFE9",
                   color: done ? "#065F46" : isNext ? "#0A0E1A" : "#9E9B94",
                 }}>
                   {done ? "✓" : s.step_number}
@@ -495,7 +495,7 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
               </div>
               <div style={{ display: "flex", gap: 5 }}>
                 <button onClick={() => action("send-now")} disabled={!!busy}
-                  style={{ fontSize: 10, fontWeight: 800, padding: "5px 10px", borderRadius: 6, border: "none", background: "#00C9A0", color: "#0A0E1A", cursor: "pointer", fontFamily: FF }}>
+                  style={{ fontSize: 10, fontWeight: 800, padding: "5px 10px", borderRadius: 6, border: "none", background: "var(--brand)", color: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>
                   {busy === "send-now" ? <Loader2 size={10} className="animate-spin" /> : "Send now"}
                 </button>
                 <button onClick={() => action("skip")} disabled={!!busy}
@@ -726,7 +726,7 @@ function ActivityTab({ lead }: { lead: Lead }) {
         {!activity.length && <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>No activity yet.</div>}
         {activity.map(a => (
           <div key={a.id} style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: "0.5px solid #F2EFE9" }}>
-            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "#00C9A0", flexShrink: 0, marginTop: 4 }} />
+            <div style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--brand)", flexShrink: 0, marginTop: 4 }} />
             <div>
               <div style={{ fontSize: 11, color: "#1A1917", fontFamily: FF }}>{actionLabel(a.action_type)}{a.note ? ` — ${a.note}` : ""}</div>
               <div style={{ fontSize: 9, color: "#9E9B94", fontFamily: FF }}>
@@ -1066,8 +1066,8 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
           <button key={t.key} onClick={() => setTab(t.key)}
             style={{ padding: "9px 18px", fontSize: 11, fontWeight: 700, fontFamily: FF,
               color: tab === t.key ? "#1A1917" : "#9E9B94", cursor: "pointer",
-              borderBottom: `2px solid ${tab === t.key ? "#00C9A0" : "transparent"}`,
-              background: "none", border: "none", borderBottom: `2px solid ${tab === t.key ? "#00C9A0" : "transparent"}`,
+              borderBottom: `2px solid ${tab === t.key ? "var(--brand)" : "transparent"}`,
+              background: "none", border: "none", borderBottom: `2px solid ${tab === t.key ? "var(--brand)" : "transparent"}`,
               letterSpacing: 0.1 }}>
             {t.label}
           </button>
@@ -1083,7 +1083,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
           const sent = ["sent", "viewed", "accepted", "converted", "booked"].includes(qstatus.toLowerCase());
           const btn = (label: string, onClick: () => void, primary = false) => (
             <button onClick={onClick} style={{ fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 7, cursor: "pointer", fontFamily: FF,
-              border: primary ? "none" : "1px solid #E5E2DC", background: primary ? "var(--brand, #00C9A0)" : "#fff", color: primary ? "#fff" : "#374151" }}>{label}</button>
+              border: primary ? "none" : "1px solid #E5E2DC", background: primary ? "var(--brand)" : "#fff", color: primary ? "#fff" : "#374151" }}>{label}</button>
           );
           // [quote-details-carry 2026-07-07] What the visitor actually filled
           // out on the booking widget (bedrooms / bathrooms / sqft / frequency
@@ -1197,7 +1197,7 @@ function ReportsView() {
           <button key={t.k} onClick={() => setRange(t.k)}
             style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 12,
               fontWeight: range === t.k ? 700 : 600, color: range === t.k ? "#1A1917" : "#C4C0B8",
-              borderBottom: `2px solid ${range === t.k ? "#00C9A0" : "transparent"}`, marginBottom: -1 }}>
+              borderBottom: `2px solid ${range === t.k ? "var(--brand)" : "transparent"}`, marginBottom: -1 }}>
             {t.label}
           </button>
         ))}
@@ -1333,7 +1333,7 @@ function ReportsView() {
                   </span>
                 </div>
                 <div style={{ height: 5, background: "#F2EFE9", borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${(n / maxSource) * 100}%`, background: "#00C9A0", borderRadius: 3 }} />
+                  <div style={{ height: "100%", width: `${(n / maxSource) * 100}%`, background: "var(--brand)", borderRadius: 3 }} />
                 </div>
               </div>
             );
@@ -1358,7 +1358,7 @@ function ReportsView() {
                   </span>
                 </div>
                 <div style={{ height: 5, background: "#F2EFE9", borderRadius: 3, overflow: "hidden" }}>
-                  <div style={{ height: "100%", width: `${(n / maxOwner) * 100}%`, background: unassigned ? "#F0B95C" : "#00C9A0", borderRadius: 3 }} />
+                  <div style={{ height: "100%", width: `${(n / maxOwner) * 100}%`, background: unassigned ? "#F0B95C" : "var(--brand)", borderRadius: 3 }} />
                 </div>
               </div>
             );
@@ -1924,8 +1924,8 @@ function SequenceRow({ seq, onToggle, defaultOpen = false, focused = false, onSe
 
   return (
     <div ref={rowRef} style={{ background: "#fff", borderRadius: 10, marginBottom: 8, overflow: "hidden",
-      border: focused ? "1px solid #00C9A0" : "0.5px solid #E8E5E0",
-      boxShadow: focused ? "0 0 0 3px rgba(0,201,160,0.12)" : "none" }}>
+      border: focused ? "1px solid var(--brand)" : "0.5px solid #E8E5E0",
+      boxShadow: focused ? "0 0 0 3px rgba(var(--brand-rgb),0.12)" : "none" }}>
       <div onClick={() => setOpen(o => !o)}
         style={{ padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -1995,7 +1995,7 @@ function SequenceRow({ seq, onToggle, defaultOpen = false, focused = false, onSe
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                 <button disabled={testing} onClick={() => runTest()}
-                  style={{ padding: "7px 16px", borderRadius: 6, border: "none", cursor: testing ? "default" : "pointer", fontFamily: FF, fontSize: 12, fontWeight: 700, background: "#00C9A0", color: "#0A0E1A", opacity: testing ? 0.6 : 1 }}>
+                  style={{ padding: "7px 16px", borderRadius: 6, border: "none", cursor: testing ? "default" : "pointer", fontFamily: FF, fontSize: 12, fontWeight: 700, background: "var(--brand)", color: "#FFFFFF", opacity: testing ? 0.6 : 1 }}>
                   {testing ? "Sending…" : "Send all messages now"}
                 </button>
                 <span style={{ fontSize: 10.5, color: "#6B6860", fontFamily: FF }}>
@@ -2367,7 +2367,7 @@ function BoardView({ leads, counts, selectedId, onSelect }: { leads: Lead[]; cou
                   const replied = !!(l as any).replied_at;
                   const st = cardStatus(l as any);
                   return (
-                    <div key={l.id} onClick={() => onSelect(l)} style={{ background: "#fff", border: `1px solid ${replied ? "#DC2626" : selectedId === l.id ? "#00C9A0" : "#E8E5E0"}`, boxShadow: selectedId === l.id ? "0 0 0 2px rgba(0,201,160,.18)" : replied ? "0 0 0 2px rgba(220,38,38,.12)" : "none", borderRadius: 8, padding: "9px 10px", marginBottom: 7, cursor: "pointer" }}>
+                    <div key={l.id} onClick={() => onSelect(l)} style={{ background: "#fff", border: `1px solid ${replied ? "#DC2626" : selectedId === l.id ? "var(--brand)" : "#E8E5E0"}`, boxShadow: selectedId === l.id ? "0 0 0 2px rgba(var(--brand-rgb),.18)" : replied ? "0 0 0 2px rgba(220,38,38,.12)" : "none", borderRadius: 8, padding: "9px 10px", marginBottom: 7, cursor: "pointer" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 }}>
                         <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[l.first_name, l.last_name].filter(Boolean).join(" ") || "—"}</span>
@@ -2703,7 +2703,7 @@ export default function LeadsPage() {
             "Leads" tab, and Quotes is no longer a tab: the quote lives on each
             lead's record (Quote tab in the detail panel). */}
         <button onClick={() => setMainView("pipeline")} style={{ display: "flex", alignItems: "center", gap: 10, background: "none", border: "none", cursor: "pointer", padding: 0 }}>
-          <div style={{ width: 22, height: 22, borderRadius: 5, background: "#00C9A0", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#0A0E1A", fontFamily: FF }}>Q</div>
+          <div style={{ width: 22, height: 22, borderRadius: 5, background: "var(--brand)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, color: "#FFFFFF", fontFamily: FF }}>Q</div>
           <span style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: -0.3, fontFamily: FF }}>Leads</span>
         </button>
         <div style={{ display: "flex", gap: 2 }}>
@@ -2753,7 +2753,7 @@ export default function LeadsPage() {
               <CalendarPopover value={dayFilter} onChange={ymd => { setDayFilter(ymd); setPage(1); }} ariaLabel="Filter leads by day" block />
             </div>
             <button onClick={() => { setDayFilter(ctToday()); setPage(1); }}
-              style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", border: `1px solid ${dayFilter === ctToday() ? "#00C9A0" : "#E5E2DC"}`, borderRadius: 7, background: dayFilter === ctToday() ? "#EAFBF6" : "#fff", color: "#1A1917", cursor: "pointer", fontFamily: FF }}>
+              style={{ fontSize: 12, fontWeight: 600, padding: "4px 10px", border: `1px solid ${dayFilter === ctToday() ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 7, background: dayFilter === ctToday() ? "#EAFBF6" : "#fff", color: "#1A1917", cursor: "pointer", fontFamily: FF }}>
               Today
             </button>
             {dayFilter && (
@@ -2816,7 +2816,7 @@ export default function LeadsPage() {
                     pipeline is still there — it's just not what this day is showing.
                   </div>
                   <button onClick={() => { setDayFilter(""); setPage(1); }}
-                    style={{ padding: "7px 16px", borderRadius: 8, border: "1px solid #00C9A0", background: "#EAFBF6", color: "#04241d", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: FF }}>
+                    style={{ padding: "7px 16px", borderRadius: 8, border: "1px solid var(--brand)", background: "#EAFBF6", color: "#04241d", fontWeight: 700, fontSize: 12.5, cursor: "pointer", fontFamily: FF }}>
                     Show all leads
                   </button>
                 </div>

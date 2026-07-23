@@ -240,7 +240,7 @@ export default function LeadsReportsPage() {
                         </div>
                         <div style={{ height: 10, background: "#F2F1ED", borderRadius: 999, overflow: "hidden" }}>
                           <div style={{ width: `${(v / maxFunnel) * 100}%`, height: "100%",
-                            background: s === "booked" ? "#059669" : "#5B9BD5", borderRadius: 999 }} />
+                            background: s === "booked" ? "#059669" : "var(--brand)", borderRadius: 999 }} />
                         </div>
                       </div>
                     );
@@ -349,7 +349,7 @@ export default function LeadsReportsPage() {
                       </div>
                       <div style={{ height: 10, background: "#F2F1ED", borderRadius: 999, overflow: "hidden" }}>
                         <div style={{ width: `${(a.count / maxAge) * 100}%`, height: "100%",
-                          background: a.bucket.includes("31") ? "#DC2626" : a.bucket.includes("15") ? "#EA580C" : "#5B9BD5",
+                          background: a.bucket.includes("31") ? "#DC2626" : a.bucket.includes("15") ? "#EA580C" : "var(--brand)",
                           borderRadius: 999 }} />
                       </div>
                     </div>

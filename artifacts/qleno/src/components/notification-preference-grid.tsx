@@ -30,7 +30,7 @@ export function PrefToggle({ on, disabled, onClick }: { on: boolean; disabled?: 
       style={{
         width: 38, height: 22, borderRadius: 11, border: "none", padding: 0, position: "relative",
         cursor: disabled ? "default" : "pointer", flexShrink: 0,
-        background: on ? "var(--brand, #00C9A0)" : "#D4D1CB", opacity: disabled ? 0.5 : 1, transition: "background 120ms",
+        background: on ? "var(--brand)" : "#D4D1CB", opacity: disabled ? 0.5 : 1, transition: "background 120ms",
       }}
     >
       <span style={{ position: "absolute", top: 2, left: on ? 18 : 2, width: 18, height: 18, borderRadius: "50%", background: "#FFFFFF", transition: "left 120ms", boxShadow: "0 1px 2px rgba(0,0,0,0.2)" }} />

@@ -138,7 +138,7 @@ const SOURCE_LABELS: Record<string, string> = {
   yard_sign: "Yard Sign", website: "Website", other: "Other",
 };
 
-const COLORS = ["#5B9BD5", "#22C55E", "#F59E0B", "#8B5CF6", "#EF4444", "#06B6D4", "#EC4899", "#14B8A6", "#9E9B94"];
+const COLORS = ["var(--brand)", "#22C55E", "#F59E0B", "#8B5CF6", "#EF4444", "#06B6D4", "#EC4899", "#14B8A6", "#9E9B94"];
 
 export default function ReferralReportPage() {
   const [, navigate] = useLocation();

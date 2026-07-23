@@ -45,7 +45,7 @@ function fmt(n: number) {
 
 function freqBadgeClass(f: string) {
   const map: Record<string, string> = {
-    per_job: "bg-[#00C9A0]/10 text-[#00C9A0]",
+    per_job: "bg-[var(--brand)]/10 text-[var(--brand)]",
     weekly: "bg-blue-50 text-blue-700",
     monthly: "bg-purple-50 text-purple-700",
     custom: "bg-orange-50 text-orange-700",
@@ -142,7 +142,7 @@ export default function AccountsPage() {
             <h1 className="text-2xl font-semibold text-[#0A0E1A]">Accounts</h1>
             <p className="text-sm text-gray-500 mt-0.5">Commercial and property management accounts</p>
           </div>
-          <Button onClick={() => setShowCreate(true)} className="bg-[#00C9A0] hover:bg-[#00b38f] text-white gap-2">
+          <Button onClick={() => setShowCreate(true)} className="bg-[var(--brand)] hover:opacity-90 text-white gap-2">
             <Plus size={16} /> New Account
           </Button>
         </div>
@@ -151,7 +151,7 @@ export default function AccountsPage() {
         {!loading && accounts.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: "Revenue MTD", value: fmt(totalRevMtd), icon: TrendingUp, color: "text-[#00C9A0]", bg: "bg-[#00C9A0]/8" },
+              { label: "Revenue MTD", value: fmt(totalRevMtd), icon: TrendingUp, color: "text-[var(--brand)]", bg: "bg-[var(--brand)]/8" },
               { label: "Outstanding", value: fmt(totalOutstanding), icon: AlertCircle, color: "text-amber-600", bg: "bg-amber-50" },
               { label: "Open Jobs", value: totalOpenJobs.toString(), icon: Briefcase, color: "text-blue-600", bg: "bg-blue-50" },
               { label: "Properties", value: totalProperties.toString(), icon: MapPin, color: "text-purple-600", bg: "bg-purple-50" },
@@ -205,13 +205,13 @@ export default function AccountsPage() {
           <div className="space-y-1.5">
             {filtered.map((a) => (
               <Link key={a.id} href={`/accounts/${a.id}`}>
-                <div className="flex items-center justify-between px-4 py-3 bg-white border border-gray-100 rounded-xl hover:border-[#00C9A0]/40 hover:shadow-sm transition-all cursor-pointer group">
+                <div className="flex items-center justify-between px-4 py-3 bg-white border border-gray-100 rounded-xl hover:border-[var(--brand)]/40 hover:shadow-sm transition-all cursor-pointer group">
                   <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-lg bg-[#00C9A0]/10 flex items-center justify-center flex-shrink-0">
-                      <Building2 size={16} className="text-[#00C9A0]" />
+                    <div className="w-9 h-9 rounded-lg bg-[var(--brand)]/10 flex items-center justify-center flex-shrink-0">
+                      <Building2 size={16} className="text-[var(--brand)]" />
                     </div>
                     <div>
-                      <p className="font-medium text-[#0A0E1A] group-hover:text-[#00C9A0] transition-colors text-sm">
+                      <p className="font-medium text-[#0A0E1A] group-hover:text-[var(--brand)] transition-colors text-sm">
                         {a.account_name}
                         {!a.is_active && <span className="ml-2 text-xs text-gray-400 font-normal">(Inactive)</span>}
                       </p>
@@ -227,7 +227,7 @@ export default function AccountsPage() {
                     {a.revenue_mtd > 0 && (
                       <div className="text-right hidden sm:block">
                         <p className="text-xs text-gray-400">MTD</p>
-                        <p className="text-sm font-semibold text-[#00C9A0]">{fmt(a.revenue_mtd)}</p>
+                        <p className="text-sm font-semibold text-[var(--brand)]">{fmt(a.revenue_mtd)}</p>
                       </div>
                     )}
                     {/* Outstanding */}
@@ -240,7 +240,7 @@ export default function AccountsPage() {
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${freqBadgeClass(a.invoice_frequency)}`}>
                       {INVOICE_FREQ.find((f) => f.value === a.invoice_frequency)?.label ?? a.invoice_frequency}
                     </span>
-                    <ChevronRight size={15} className="text-gray-300 group-hover:text-[#00C9A0] transition-colors" />
+                    <ChevronRight size={15} className="text-gray-300 group-hover:text-[var(--brand)] transition-colors" />
                   </div>
                 </div>
               </Link>
@@ -331,7 +331,7 @@ export default function AccountsPage() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
-            <Button className="bg-[#00C9A0] hover:bg-[#00b38f] text-white" onClick={createAccount} disabled={creating}>
+            <Button className="bg-[var(--brand)] hover:opacity-90 text-white" onClick={createAccount} disabled={creating}>
               {creating ? "Creating..." : "Create Account"}
             </Button>
           </DialogFooter>

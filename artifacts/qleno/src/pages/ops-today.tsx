@@ -25,7 +25,7 @@ const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 // Tokens (owner-side: confident, denser, distinctive)
 // ─────────────────────────────────────────────────────────────────────────────
 const FONT = "'Plus Jakarta Sans', sans-serif";
-const MINT = "#00C9A0";
+const MINT = "var(--brand)";
 const NAVY = "#0A0E1A";
 const PAGE_BG = "#F7F6F3";
 const SURFACE = "#FFFFFF";
