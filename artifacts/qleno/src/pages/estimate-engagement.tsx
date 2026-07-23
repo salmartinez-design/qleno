@@ -156,7 +156,7 @@ export default function EstimateEngagementPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ fontFamily: FF, maxWidth: 1100, margin: "0 auto", padding: "8px 4px 80px" }}>
+      <div style={{ fontFamily: FF, margin: "0 auto", padding: "8px 4px 80px" }}>
         <button onClick={() => navigate("/estimates")} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", color: MUTE, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, padding: 0, marginBottom: 12 }}>
           <ArrowLeft size={15} /> Estimates
         </button>

@@ -15,7 +15,7 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
   return r.json();
 }
 
-const card: React.CSSProperties = { backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "24px" };
+const card: React.CSSProperties = { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", padding: 18 };
 const label: React.CSSProperties = { fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" };
 
 const STATUS_CONFIG: Record<string, { label: string; bg: string; text: string; icon: any }> = {

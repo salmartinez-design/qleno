@@ -83,7 +83,7 @@ export default function EstimatesPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ fontFamily: FF, maxWidth: 1100, margin: "0 auto", padding: "8px 4px 60px" }}>
+      <div style={{ fontFamily: FF, margin: "0 auto", padding: "8px 4px 60px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
           <div>
             <h1 style={{ fontSize: 24, fontWeight: 800, color: INK, margin: 0 }}>Estimates</h1>

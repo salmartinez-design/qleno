@@ -45,7 +45,7 @@ const PERIODS = [
   { k: "custom", l: "Custom" },
 ];
 
-const card: React.CSSProperties = { background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: 18 };
+const card: React.CSSProperties = { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", padding: 18 };
 const sectionTitle: React.CSSProperties = { fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 12 };
 const th: React.CSSProperties = { padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 700,
   color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" };

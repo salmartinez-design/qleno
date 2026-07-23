@@ -169,7 +169,7 @@ export default function LeadsTemplatesPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 40px" }}>
+      <div style={{ margin: "0 auto", padding: "0 0 40px" }}>
         <Link href="/leads" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, color: "#6B6860",
           textDecoration: "none", marginBottom: 12 }}>
           <ChevronLeft size={14} /> Back to Pipeline
