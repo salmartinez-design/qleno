@@ -11,7 +11,7 @@ const C = {
   card: "#FFFFFF", ink: "#1A1917", grey: "#6B6860", faint: "#9A968E",
   line: "#E5E2DC", lineSoft: "#EEEBE4", tint: "#FAF9F6", tint2: "#F3F1EC",
   mint: "#00C9A0", mintDeep: "#0A8F76", mintBg: "#E7F7F2",
-  amber: "#C6791A", amberBg: "#FBF1E1", red: "#DC2626", redBg: "#FBEBEB",
+  amber: "#C6791A", amberBg: "#FBF1E1", red: "#B3261E", redBg: "#FBEBEB",
 };
 const FF = "'Plus Jakarta Sans', sans-serif";
 const money = (n: number | null | undefined) =>

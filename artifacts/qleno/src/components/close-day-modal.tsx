@@ -17,16 +17,16 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
 }
 
 function SectionIcon({ type }: { type: "ok" | "warn" | "error" | "neutral" }) {
-  if (type === "ok") return <CheckCircle size={18} style={{ color: "#16A34A", flexShrink: 0 }} />;
-  if (type === "warn") return <AlertTriangle size={18} style={{ color: "#D97706", flexShrink: 0 }} />;
-  if (type === "error") return <AlertCircle size={18} style={{ color: "#DC2626", flexShrink: 0 }} />;
+  if (type === "ok") return <CheckCircle size={18} style={{ color: "#0F7A63", flexShrink: 0 }} />;
+  if (type === "warn") return <AlertTriangle size={18} style={{ color: "#B45309", flexShrink: 0 }} />;
+  if (type === "error") return <AlertCircle size={18} style={{ color: "#B3261E", flexShrink: 0 }} />;
   return <Clock size={18} style={{ color: "#9E9B94", flexShrink: 0 }} />;
 }
 
 function InfoRow({ label, value, color }: { label: string; value: string | number; color?: string }) {
   return (
-    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F0EDE8" }}>
-      <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>{label}</span>
+    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #F0EEE9" }}>
+      <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>{label}</span>
       <span style={{ fontSize: 13, fontWeight: 600, color: color || "#1A1917", fontFamily: FF }}>{value}</span>
     </div>
   );
@@ -102,7 +102,7 @@ export function CloseDayModal({ onClose, onOpenBatchInvoice }: { onClose: () => 
   const todayRevenue = payments.collected_today || 0;
 
   const SECTION: React.CSSProperties = {
-    backgroundColor: "#FAFAF9",
+    backgroundColor: "#F7F6F3",
     border: "1px solid #EEECE7",
     borderRadius: 10,
     padding: "16px",
@@ -116,7 +116,7 @@ export function CloseDayModal({ onClose, onOpenBatchInvoice }: { onClose: () => 
         <div style={{ padding: "20px 24px", borderBottom: "1px solid #EEECE7", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexShrink: 0 }}>
           <div>
             <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>Close Day — {todayLabel}</h2>
-            <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B7280" }}>Review today's activity before closing</p>
+            <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B6860" }}>Review today's activity before closing</p>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}>
             <X size={20} />
@@ -133,11 +133,11 @@ export function CloseDayModal({ onClose, onOpenBatchInvoice }: { onClose: () => 
                   <SectionIcon type={jobSectionStatus} />
                   <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>Jobs Today</span>
                 </div>
-                <InfoRow label="Complete" value={jobs.complete || 0} color="#16A34A" />
-                <InfoRow label="In Progress" value={jobs.in_progress || 0} color={jobs.in_progress > 0 ? "#D97706" : "#6B7280"} />
-                <InfoRow label="Scheduled (not started)" value={jobs.scheduled || 0} color={jobs.scheduled > 0 && hour >= 18 ? "#DC2626" : jobs.scheduled > 0 ? "#D97706" : "#6B7280"} />
+                <InfoRow label="Complete" value={jobs.complete || 0} color="#0F7A63" />
+                <InfoRow label="In Progress" value={jobs.in_progress || 0} color={jobs.in_progress > 0 ? "#B45309" : "#6B6860"} />
+                <InfoRow label="Scheduled (not started)" value={jobs.scheduled || 0} color={jobs.scheduled > 0 && hour >= 18 ? "#B3261E" : jobs.scheduled > 0 ? "#B45309" : "#6B6860"} />
                 {(jobs.in_progress > 0 || jobs.scheduled > 0) && (
-                  <p style={{ margin: "10px 0 0", fontSize: 12, color: "#D97706" }}>
+                  <p style={{ margin: "10px 0 0", fontSize: 12, color: "#B45309" }}>
                     Some jobs may not be finished. Check before closing.
                   </p>
                 )}
@@ -151,11 +151,11 @@ export function CloseDayModal({ onClose, onOpenBatchInvoice }: { onClose: () => 
                 <InfoRow
                   label="Jobs invoiced"
                   value={`${invoicing.invoiced || 0} of ${invoicing.total_complete || 0}`}
-                  color={invoicing.uninvoiced > 0 ? "#D97706" : "#16A34A"}
+                  color={invoicing.uninvoiced > 0 ? "#B45309" : "#0F7A63"}
                 />
                 {invoicing.uninvoiced > 0 ? (
                   <div style={{ marginTop: 10, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                    <span style={{ fontSize: 12, color: "#D97706" }}>{invoicing.uninvoiced} job{invoicing.uninvoiced !== 1 ? "s" : ""} not yet invoiced</span>
+                    <span style={{ fontSize: 12, color: "#B45309" }}>{invoicing.uninvoiced} job{invoicing.uninvoiced !== 1 ? "s" : ""} not yet invoiced</span>
                     {onOpenBatchInvoice && (
                       <button
                         onClick={() => { onClose(); setTimeout(onOpenBatchInvoice, 100); }}
@@ -166,7 +166,7 @@ export function CloseDayModal({ onClose, onOpenBatchInvoice }: { onClose: () => 
                     )}
                   </div>
                 ) : (
-                  <p style={{ margin: "10px 0 0", fontSize: 12, color: "#16A34A" }}>All completed jobs are invoiced.</p>
+                  <p style={{ margin: "10px 0 0", fontSize: 12, color: "#0F7A63" }}>All completed jobs are invoiced.</p>
                 )}
               </div>
 
@@ -178,7 +178,7 @@ export function CloseDayModal({ onClose, onOpenBatchInvoice }: { onClose: () => 
                 <InfoRow label="Total collected" value={`$${(payments.collected_today || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`} color="var(--brand)" />
                 <InfoRow label="Invoices awaiting payment" value={payments.awaiting_payment || 0} />
                 {(payments.overdue_count || 0) > 0 && (
-                  <InfoRow label="Overdue invoices" value={`${payments.overdue_count} ($${(payments.overdue_total || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`} color="#DC2626" />
+                  <InfoRow label="Overdue invoices" value={`${payments.overdue_count} ($${(payments.overdue_total || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`} color="#B3261E" />
                 )}
               </div>
 
@@ -190,9 +190,9 @@ export function CloseDayModal({ onClose, onOpenBatchInvoice }: { onClose: () => 
                 <InfoRow label="Total entries" value={timeclock.total || 0} />
                 {timeclock.missing_clock_out?.length > 0 && (
                   <div style={{ marginTop: 8 }}>
-                    <p style={{ margin: "0 0 8px", fontSize: 12, color: "#DC2626", fontWeight: 600 }}>Missing clock-out ({timeclock.missing_clock_out.length})</p>
+                    <p style={{ margin: "0 0 8px", fontSize: 12, color: "#B3261E", fontWeight: 600 }}>Missing clock-out ({timeclock.missing_clock_out.length})</p>
                     {timeclock.missing_clock_out.map((entry: any) => (
-                      <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid #F0EDE8" }}>
+                      <div key={entry.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", borderBottom: "1px solid #F0EEE9" }}>
                         <span style={{ fontSize: 13, color: "#1A1917", flex: 1 }}>{entry.user_name}</span>
                         <input
                           type="time"
@@ -212,14 +212,14 @@ export function CloseDayModal({ onClose, onOpenBatchInvoice }: { onClose: () => 
                   </div>
                 )}
                 {timeclock.flagged > 0 && (
-                  <p style={{ margin: "8px 0 0", fontSize: 12, color: "#D97706" }}>{timeclock.flagged} flagged {timeclock.flagged === 1 ? "entry" : "entries"} — check Clock Monitor</p>
+                  <p style={{ margin: "8px 0 0", fontSize: 12, color: "#B45309" }}>{timeclock.flagged} flagged {timeclock.flagged === 1 ? "entry" : "entries"} — check Clock Monitor</p>
                 )}
               </div>
             </>
           )}
         </div>
 
-        <div style={{ padding: "16px 24px", borderTop: "1px solid #EEECE7", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, backgroundColor: "#FAFAF9" }}>
+        <div style={{ padding: "16px 24px", borderTop: "1px solid #EEECE7", display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0, backgroundColor: "#F7F6F3" }}>
           <div>
             <p style={{ margin: 0, fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>Today's Revenue</p>
             <p style={{ margin: "2px 0 0", fontSize: 22, fontWeight: 800, color: "var(--brand)" }}>
@@ -227,7 +227,7 @@ export function CloseDayModal({ onClose, onOpenBatchInvoice }: { onClose: () => 
             </p>
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-            <button onClick={onClose} style={{ padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "transparent", color: "#6B7280", fontSize: 13, cursor: "pointer" }}>
+            <button onClick={onClose} style={{ padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "transparent", color: "#6B6860", fontSize: 13, cursor: "pointer" }}>
               Close
             </button>
             <div style={{ position: "relative" }}>

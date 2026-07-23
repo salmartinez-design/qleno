@@ -43,7 +43,7 @@ function StarRatingInput({ value, onChange }: { value: number; onChange: (v: num
           style={{ background:'none', border:'none', cursor:'pointer', padding:2 }}>
           <svg width={24} height={24} viewBox="0 0 24 24"
             fill={(hover || value) >= i ? '#F59E0B' : 'none'}
-            stroke={`${(hover || value) >= i ? '#F59E0B' : '#D1D5DB'}`} strokeWidth={1.5}>
+            stroke={`${(hover || value) >= i ? '#F59E0B' : '#E5E2DC'}`} strokeWidth={1.5}>
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
           </svg>
         </button>
@@ -190,7 +190,7 @@ export default function PortalDashboardPage() {
             <span style={{ fontSize:14, fontWeight:700, color:'#1A1917' }}>{company?.name}</span>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <span style={{ fontSize:13, color:'#6B7280' }}>Hi, {client?.first_name}</span>
+            <span style={{ fontSize:13, color:'#6B6860' }}>Hi, {client?.first_name}</span>
             {/* Profile picture with upload */}
             <div style={{ position:'relative', flexShrink:0 }}>
               <button
@@ -219,9 +219,9 @@ export default function PortalDashboardPage() {
             </button>
           </div>
           {uploadError && (
-            <div style={{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', background:'#FEE2E2', color:'#DC2626', padding:'8px 16px', borderRadius:8, fontSize:12, fontWeight:600, zIndex:999 }}>
+            <div style={{ position:'fixed', bottom:20, left:'50%', transform:'translateX(-50%)', background:'#FCEBEA', color:'#B3261E', padding:'8px 16px', borderRadius:8, fontSize:12, fontWeight:600, zIndex:999 }}>
               {uploadError}
-              <button onClick={() => setUploadError('')} style={{ marginLeft:8, background:'none', border:'none', cursor:'pointer', color:'#DC2626', fontWeight:800 }}>×</button>
+              <button onClick={() => setUploadError('')} style={{ marginLeft:8, background:'none', border:'none', cursor:'pointer', color:'#B3261E', fontWeight:800 }}>×</button>
             </div>
           )}
         </div>
@@ -257,23 +257,23 @@ export default function PortalDashboardPage() {
                       {new Date(nextJob.scheduled_date + 'T00:00:00').toLocaleDateString(undefined, { weekday:'long', month:'long', day:'numeric' })}
                     </p>
                     {nextJob.scheduled_time && (
-                      <p style={{ fontSize:14, color:'#6B7280', margin:'0 0 4px 0', display:'flex', alignItems:'center', gap:5 }}>
+                      <p style={{ fontSize:14, color:'#6B6860', margin:'0 0 4px 0', display:'flex', alignItems:'center', gap:5 }}>
                         <Clock size={13}/>{nextJob.scheduled_time}
                       </p>
                     )}
-                    <p style={{ fontSize:13, color:'#6B7280', margin:0 }}>{SERVICE_LABELS[nextJob.service_type] || nextJob.service_type}</p>
+                    <p style={{ fontSize:13, color:'#6B6860', margin:0 }}>{SERVICE_LABELS[nextJob.service_type] || nextJob.service_type}</p>
                   </div>
                   {(nextJob.cleaner_first) && (
                     <div style={{ textAlign:'center' }}>
                       <InitialAvatar name={`${nextJob.cleaner_first} ${nextJob.cleaner_last}`}/>
-                      <p style={{ fontSize:11, color:'#6B7280', margin:'4px 0 0 0' }}>{nextJob.cleaner_first}</p>
+                      <p style={{ fontSize:11, color:'#6B6860', margin:'4px 0 0 0' }}>{nextJob.cleaner_first}</p>
                     </div>
                   )}
                 </div>
               </div>
             ) : (
               <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:14, padding:'24px', textAlign:'center' }}>
-                <Calendar size={32} color="#D1D5DB" style={{ marginBottom:10 }}/>
+                <Calendar size={32} color="#E5E2DC" style={{ marginBottom:10 }}/>
                 <p style={{ fontSize:14, color:'#9E9B94', margin:0 }}>No upcoming cleanings scheduled</p>
               </div>
             )}
@@ -282,7 +282,7 @@ export default function PortalDashboardPage() {
             {lastJob && !ratingSubmitted.has(lastJob.id) && (
               <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:14, padding:'20px 22px' }}>
                 <p style={{ fontSize:13, fontWeight:700, color:'#1A1917', margin:'0 0 8px 0' }}>How was your last cleaning?</p>
-                <p style={{ fontSize:12, color:'#6B7280', margin:'0 0 14px 0' }}>
+                <p style={{ fontSize:12, color:'#6B6860', margin:'0 0 14px 0' }}>
                   {new Date(lastJob.scheduled_date + 'T00:00:00').toLocaleDateString()} · {SERVICE_LABELS[lastJob.service_type] || lastJob.service_type}
                 </p>
                 <StarRatingInput
@@ -303,9 +303,9 @@ export default function PortalDashboardPage() {
               </div>
             )}
             {lastJob && ratingSubmitted.has(lastJob.id) && (
-              <div style={{ background:'#DCFCE7', border:'1px solid #BBF7D0', borderRadius:14, padding:'16px 20px', display:'flex', alignItems:'center', gap:10 }}>
-                <Star size={18} color="#166534" fill="#166534"/>
-                <p style={{ fontSize:13, fontWeight:600, color:'#166534', margin:0 }}>Thank you for your rating!</p>
+              <div style={{ background:'#E6F6F1', border:'1px solid #C7E7DE', borderRadius:14, padding:'16px 20px', display:'flex', alignItems:'center', gap:10 }}>
+                <Star size={18} color="#0F7A63" fill="#0F7A63"/>
+                <p style={{ fontSize:13, fontWeight:600, color:'#0F7A63', margin:0 }}>Thank you for your rating!</p>
               </div>
             )}
 
@@ -327,10 +327,10 @@ export default function PortalDashboardPage() {
             {/* Loyalty */}
             {client?.loyalty_points > 0 && (
               <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:14, padding:'16px 20px', display:'flex', alignItems:'center', gap:12 }}>
-                <Zap size={20} color="#F59E0B" fill="#FEF3C7"/>
+                <Zap size={20} color="#F59E0B" fill="#FDF3E4"/>
                 <div style={{ flex:1 }}>
                   <p style={{ fontSize:13, fontWeight:700, color:'#1A1917', margin:'0 0 2px 0' }}>{client.loyalty_points} Loyalty Points</p>
-                  <div style={{ height:6, borderRadius:3, background:'#F3F4F6', overflow:'hidden' }}>
+                  <div style={{ height:6, borderRadius:3, background:'#F0EEE9', overflow:'hidden' }}>
                     <div style={{ height:'100%', width:`${Math.min((client.loyalty_points/500)*100,100)}%`, background:brandColor, borderRadius:3, transition:'width 0.4s' }}/>
                   </div>
                 </div>
@@ -356,10 +356,10 @@ export default function PortalDashboardPage() {
                       <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:'0 0 3px 0' }}>
                         {new Date(j.scheduled_date + 'T00:00:00').toLocaleDateString(undefined, { weekday:'short', month:'short', day:'numeric', year:'numeric' })}
                       </p>
-                      <p style={{ fontSize:12, color:'#6B7280', margin:0 }}>{SERVICE_LABELS[j.service_type] || j.service_type}</p>
+                      <p style={{ fontSize:12, color:'#6B6860', margin:0 }}>{SERVICE_LABELS[j.service_type] || j.service_type}</p>
                     </div>
                     <div style={{ textAlign:'right' }}>
-                      <span style={{ fontSize:11, background:j.status==='complete'?'#DCFCE7':'#F3F4F6', color:j.status==='complete'?'#166534':'#6B7280', padding:'3px 8px', borderRadius:10, fontWeight:600 }}>
+                      <span style={{ fontSize:11, background:j.status==='complete'?'#E6F6F1':'#F0EEE9', color:j.status==='complete'?'#0F7A63':'#6B6860', padding:'3px 8px', borderRadius:10, fontWeight:600 }}>
                         {j.status?.toUpperCase()}
                       </span>
                       {j.cleaner_first && (
@@ -378,10 +378,10 @@ export default function PortalDashboardPage() {
           <div>
             <h2 style={{ fontSize:16, fontWeight:700, color:'#1A1917', margin:'0 0 16px 0' }}>Tip My Cleaner</h2>
             {tipSent ? (
-              <div style={{ background:'#DCFCE7', border:'1px solid #BBF7D0', borderRadius:14, padding:'32px', textAlign:'center' }}>
-                <Star size={40} color="#166534" fill="#DCFCE7" style={{ marginBottom:12 }}/>
-                <p style={{ fontSize:16, fontWeight:700, color:'#166534', margin:'0 0 6px 0' }}>Tip sent!</p>
-                <p style={{ fontSize:13, color:'#6B7280', margin:0 }}>Your cleaner will love you for it.</p>
+              <div style={{ background:'#E6F6F1', border:'1px solid #C7E7DE', borderRadius:14, padding:'32px', textAlign:'center' }}>
+                <Star size={40} color="#0F7A63" fill="#E6F6F1" style={{ marginBottom:12 }}/>
+                <p style={{ fontSize:16, fontWeight:700, color:'#0F7A63', margin:'0 0 6px 0' }}>Tip sent!</p>
+                <p style={{ fontSize:13, color:'#6B6860', margin:0 }}>Your cleaner will love you for it.</p>
               </div>
             ) : (
               <>
@@ -395,7 +395,7 @@ export default function PortalDashboardPage() {
                         <InitialAvatar name={`${j.cleaner_first} ${j.cleaner_last}`}/>
                         <div>
                           <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:'0 0 2px 0' }}>{j.cleaner_first} {j.cleaner_last}</p>
-                          <p style={{ fontSize:11, color:'#6B7280', margin:0 }}>{new Date(j.scheduled_date + 'T00:00:00').toLocaleDateString()} · {SERVICE_LABELS[j.service_type] || j.service_type}</p>
+                          <p style={{ fontSize:11, color:'#6B6860', margin:0 }}>{new Date(j.scheduled_date + 'T00:00:00').toLocaleDateString()} · {SERVICE_LABELS[j.service_type] || j.service_type}</p>
                         </div>
                       </button>
                     ))}

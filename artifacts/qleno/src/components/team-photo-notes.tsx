@@ -38,7 +38,7 @@ type Note = {
 
 const MINT = "var(--brand)";
 const INK = "#1A1917";
-const MUTE = "#6B7280";
+const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
 
 export function TeamPhotoNotes(props: TeamPhotoNotesProps) {
@@ -154,12 +154,12 @@ export function TeamPhotoNotes(props: TeamPhotoNotesProps) {
         {isJobContext && jobHasCustomer && (
           <label style={{ display: "inline-flex", alignItems: "center", gap: 8, fontSize: 12, color: INK, cursor: "pointer" }}>
             <input type="checkbox" checked={sticky} onChange={(e) => setSticky(e.target.checked)} style={{ accentColor: MINT }} />
-            <Pin size={13} color={sticky ? "#3B82F6" : MUTE} />
+            <Pin size={13} color={sticky ? "#2F3646" : MUTE} />
             Show on every visit for this customer (blue) — otherwise just this job (yellow)
           </label>
         )}
 
-        {error && <p style={{ fontSize: 12, color: "#DC2626", margin: 0 }}>{error}</p>}
+        {error && <p style={{ fontSize: 12, color: "#B3261E", margin: 0 }}>{error}</p>}
 
         <div>
           <button type="button" onClick={add} disabled={saving}
@@ -189,7 +189,7 @@ export function TeamPhotoNotes(props: TeamPhotoNotesProps) {
               )}
               <div style={{ flex: 1, minWidth: 0 }}>
                 {n.is_sticky && (
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#1D4ED8", background: "#D9E7FA", borderRadius: 999, padding: "2px 7px", marginBottom: 4 }}>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "#2F3646", background: "#D9E7FA", borderRadius: 999, padding: "2px 7px", marginBottom: 4 }}>
                     <Pin size={10} /> Every visit
                   </span>
                 )}

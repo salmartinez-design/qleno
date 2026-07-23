@@ -149,7 +149,7 @@ export default function NotificationsPage() {
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
-              <CheckCheck size={14} style={{ color: "#2563EB" }} />
+              <CheckCheck size={14} style={{ color: "#2F3646" }} />
               Mark all read
             </button>
           )}
@@ -158,7 +158,7 @@ export default function NotificationsPage() {
         <div style={{ background: "#fff", borderRadius: 12, border: "1px solid #E5E2DC", overflow: "hidden" }}>
           {isLoading ? (
             <div style={{ padding: 48, textAlign: "center" }}>
-              <div style={{ width: 28, height: 28, border: "3px solid #E5E2DC", borderTopColor: "#2563EB", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto" }} />
+              <div style={{ width: 28, height: 28, border: "3px solid #E5E2DC", borderTopColor: "#2F3646", borderRadius: "50%", animation: "spin 0.8s linear infinite", margin: "0 auto" }} />
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
           ) : items.length === 0 ? (
@@ -204,13 +204,13 @@ export default function NotificationsPage() {
                     </span>
                   </span>
                   {n.body && (
-                    <span style={{ display: "block", fontSize: 12, color: "#6B7280", lineHeight: 1.5, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                    <span style={{ display: "block", fontSize: 12, color: "#6B6860", lineHeight: 1.5, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                       {n.body}
                     </span>
                   )}
                 </span>
                 {!n.read && (
-                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#2563EB", flexShrink: 0, marginTop: 6 }} />
+                  <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#2F3646", flexShrink: 0, marginTop: 6 }} />
                 )}
               </button>
             ))

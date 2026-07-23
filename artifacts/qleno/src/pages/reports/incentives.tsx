@@ -21,10 +21,10 @@ const TYPE_LABELS: Record<string, string> = {
 const REWARD_LABELS: Record<string, string> = { cash: "Cash", gift_card: "Gift Card", pto: "PTO", other: "Other" };
 
 const STATUS_STYLES: Record<string, { bg: string; color: string; label: string }> = {
-  pending_approval: { bg: "#FEF3C7", color: "#92400E", label: "Pending Approval" },
-  approved:         { bg: "#DBEAFE", color: "#1E40AF", label: "Approved" },
-  rejected:         { bg: "#F3F4F6", color: "#6B7280", label: "Rejected" },
-  paid:             { bg: "#DCFCE7", color: "#166534", label: "Paid" },
+  pending_approval: { bg: "#FDF3E4", color: "#B45309", label: "Pending Approval" },
+  approved:         { bg: "#EFEFF2", color: "#2F3646", label: "Approved" },
+  rejected:         { bg: "#F0EEE9", color: "#6B6860", label: "Rejected" },
+  paid:             { bg: "#E6F6F1", color: "#0F7A63", label: "Paid" },
 };
 
 const TEMPLATES = [
@@ -118,7 +118,7 @@ export default function IncentivesPage() {
 
   const tabStyle = (id: string) => ({
     padding: "8px 16px", border: "none", background: "none", cursor: "pointer", fontSize: 13,
-    fontWeight: tab === id ? 700 : 400, color: tab === id ? "var(--brand)" : "#6B7280",
+    fontWeight: tab === id ? 700 : 400, color: tab === id ? "var(--brand)" : "#6B6860",
     borderBottom: `2px solid ${tab === id ? "var(--brand)" : "transparent"}`, fontFamily: FF,
   } as React.CSSProperties);
 
@@ -133,7 +133,7 @@ export default function IncentivesPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>Incentive Programs</h1>
-            <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>Reward your team for performance, attendance, and loyalty</p>
+            <p style={{ fontSize: 13, color: "#6B6860", margin: 0 }}>Reward your team for performance, attendance, and loyalty</p>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => setAwardModal(true)} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 14px", backgroundColor: "#FFFFFF", color: "var(--brand)", border: "1px solid var(--brand)", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
@@ -147,10 +147,10 @@ export default function IncentivesPage() {
 
         {/* Pending alert (owner only) */}
         {isOwner && pending.length > 0 && tab !== "awards" && (
-          <div onClick={() => setTab("awards")} style={{ backgroundColor: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-            <AlertTriangle size={16} style={{ color: "#92400E" }} />
-            <span style={{ fontSize: 13, fontWeight: 600, color: "#92400E" }}>{pending.length} incentive award{pending.length !== 1 ? "s" : ""} pending your approval</span>
-            <span style={{ marginLeft: "auto", fontSize: 12, color: "#92400E", textDecoration: "underline" }}>Review</span>
+          <div onClick={() => setTab("awards")} style={{ backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
+            <AlertTriangle size={16} style={{ color: "#B45309" }} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#B45309" }}>{pending.length} incentive award{pending.length !== 1 ? "s" : ""} pending your approval</span>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "#B45309", textDecoration: "underline" }}>Review</span>
           </div>
         )}
 
@@ -184,9 +184,9 @@ export default function IncentivesPage() {
                       <tr key={p.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
                         <td style={{ padding: "14px 20px", fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{p.name}</td>
                         <td style={{ padding: "14px 20px" }}>
-                          <span style={{ padding: "2px 8px", backgroundColor: "#F0EEE9", borderRadius: 4, fontSize: 11, fontWeight: 600, color: "#6B7280" }}>{TYPE_LABELS[p.type]}</span>
+                          <span style={{ padding: "2px 8px", backgroundColor: "#F0EEE9", borderRadius: 4, fontSize: 11, fontWeight: 600, color: "#6B6860" }}>{TYPE_LABELS[p.type]}</span>
                         </td>
-                        <td style={{ padding: "14px 20px", fontSize: 13, color: "#6B7280", maxWidth: 200 }}>
+                        <td style={{ padding: "14px 20px", fontSize: 13, color: "#6B6860", maxWidth: 200 }}>
                           {p.trigger_metric ? `${p.trigger_metric}${p.threshold_value ? ` ≥ ${p.threshold_value}` : ""}` : "Manual"}
                         </td>
                         <td style={{ padding: "14px 20px", fontSize: 13, fontWeight: 700, color: "#1A1917" }}>
@@ -195,7 +195,7 @@ export default function IncentivesPage() {
                         <td style={{ padding: "14px 20px", minWidth: 160 }}>
                           {p.monthly_budget_cap ? (
                             <div>
-                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#6B7280", marginBottom: 4 }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#6B6860", marginBottom: 4 }}>
                                 <span>${(p.mtd_awarded ?? 0).toFixed(2)} awarded</span>
                                 <span>of ${parseFloat(p.monthly_budget_cap).toFixed(2)}</span>
                               </div>
@@ -220,25 +220,25 @@ export default function IncentivesPage() {
             <div>
               {/* Pending approval queue (owner only) */}
               {isOwner && pending.length > 0 && (
-                <div style={{ borderBottom: "1px solid #EEECE7", background: "#FFFBEB" }}>
+                <div style={{ borderBottom: "1px solid #EEECE7", background: "#FDF3E4" }}>
                   <div style={{ padding: "12px 20px", display: "flex", alignItems: "center", gap: 8 }}>
-                    <AlertTriangle size={14} style={{ color: "#D97706" }} />
-                    <span style={{ fontSize: 13, fontWeight: 700, color: "#92400E" }}>Pending Approval ({pending.length})</span>
+                    <AlertTriangle size={14} style={{ color: "#B45309" }} />
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#B45309" }}>Pending Approval ({pending.length})</span>
                   </div>
                   {pending.map((p: any) => (
-                    <div key={p.id} style={{ padding: "12px 20px", borderTop: "1px solid #FEF3C7", display: "flex", alignItems: "center", gap: 16 }}>
+                    <div key={p.id} style={{ padding: "12px 20px", borderTop: "1px solid #FDF3E4", display: "flex", alignItems: "center", gap: 16 }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{p.employee_name}</div>
-                        <div style={{ fontSize: 12, color: "#6B7280" }}>{p.program_name} · ${parseFloat(p.amount).toFixed(2)} · Submitted by {p.awarded_by_name}</div>
+                        <div style={{ fontSize: 12, color: "#6B6860" }}>{p.program_name} · ${parseFloat(p.amount).toFixed(2)} · Submitted by {p.awarded_by_name}</div>
                         {p.notes && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2 }}>"{p.notes}"</div>}
                       </div>
                       <div style={{ display: "flex", gap: 8 }}>
                         <button onClick={() => approveMut.mutate(p.id)}
-                          style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", background: "#DCFCE7", color: "#166534", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                          style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 12px", background: "#E6F6F1", color: "#0F7A63", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                           <Check size={12} /> Approve
                         </button>
                         <button onClick={() => setRejectModal({ id: p.id, note: "" })}
-                          style={{ padding: "6px 12px", background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                          style={{ padding: "6px 12px", background: "#FCEBEA", color: "#B3261E", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                           Reject
                         </button>
                       </div>
@@ -281,13 +281,13 @@ export default function IncentivesPage() {
                       return (
                         <tr key={e.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
                           <td style={{ padding: "14px 20px", fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{e.employee_name}</td>
-                          <td style={{ padding: "14px 20px", fontSize: 13, color: "#6B7280" }}>{e.program_name}</td>
-                          <td style={{ padding: "14px 20px", fontSize: 13, fontWeight: 700, color: "#166534" }}>${parseFloat(e.amount).toFixed(2)}</td>
-                          <td style={{ padding: "14px 20px", fontSize: 13, color: "#6B7280" }}>{new Date(e.earned_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
+                          <td style={{ padding: "14px 20px", fontSize: 13, color: "#6B6860" }}>{e.program_name}</td>
+                          <td style={{ padding: "14px 20px", fontSize: 13, fontWeight: 700, color: "#0F7A63" }}>${parseFloat(e.amount).toFixed(2)}</td>
+                          <td style={{ padding: "14px 20px", fontSize: 13, color: "#6B6860" }}>{new Date(e.earned_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</td>
                           <td style={{ padding: "14px 20px" }}>
                             <span style={{ padding: "2px 8px", backgroundColor: s.bg, color: s.color, borderRadius: 4, fontSize: 11, fontWeight: 700 }}>{s.label}</span>
                           </td>
-                          <td style={{ padding: "14px 20px", fontSize: 12, color: "#6B7280" }}>{e.awarded_by_name || "—"}</td>
+                          <td style={{ padding: "14px 20px", fontSize: 12, color: "#6B6860" }}>{e.awarded_by_name || "—"}</td>
                         </tr>
                       );
                     })}
@@ -437,7 +437,7 @@ export default function IncentivesPage() {
                 </div>
               )}
               {createAward.isError && (
-                <div style={{ background: "#FEE2E2", border: "1px solid #FCA5A5", borderRadius: 7, padding: "10px 12px", fontSize: 12, color: "#991B1B" }}>
+                <div style={{ background: "#FCEBEA", border: "1px solid #FCA5A5", borderRadius: 7, padding: "10px 12px", fontSize: 12, color: "#B3261E" }}>
                   {(createAward.error as any)?.message || "Failed to award incentive"}
                 </div>
               )}
@@ -469,7 +469,7 @@ export default function IncentivesPage() {
               <button
                 onClick={() => rejectMut.mutate({ id: rejectModal.id, note: rejectModal.note })}
                 disabled={!rejectModal.note || rejectMut.isPending}
-                style={{ padding: "8px 16px", background: "#991B1B", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: rejectModal.note ? "pointer" : "not-allowed", fontFamily: FF }}>
+                style={{ padding: "8px 16px", background: "#B3261E", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: rejectModal.note ? "pointer" : "not-allowed", fontFamily: FF }}>
                 {rejectMut.isPending ? "Rejecting..." : "Confirm Reject"}
               </button>
             </div>

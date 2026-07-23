@@ -125,7 +125,7 @@ function MiniCalendar({ jobs, onPickEmpty, onPickJob }: { jobs: any[]; onPickEmp
     }
   }
 
-  const dotColor: Record<string,string> = { complete:"#16A34A", scheduled:"var(--brand)", assigned:"var(--brand)", cancelled:"#9E9B94", skipped:"#9E9B94" };
+  const dotColor: Record<string,string> = { complete:"#0F7A63", scheduled:"var(--brand)", assigned:"var(--brand)", cancelled:"#9E9B94", skipped:"#9E9B94" };
 
   // [scheduling-engine 2026-04-29] Build today's ISO date once so we
   // can decide whether to allow scheduling on the clicked day.
@@ -140,7 +140,7 @@ function MiniCalendar({ jobs, onPickEmpty, onPickJob }: { jobs: any[]; onPickEmp
     <div style={{ marginTop: "16px" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "8px" }}>
         <button onClick={() => setDt(new Date(year, month - 1))} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: "2px" }}><ChevronLeft size={14} /></button>
-        <span style={{ fontSize: "11px", fontWeight: 600, color: "#6B7280" }}>{monthName}</span>
+        <span style={{ fontSize: "11px", fontWeight: 600, color: "#6B6860" }}>{monthName}</span>
         <button onClick={() => setDt(new Date(year, month + 1))} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: "2px" }}><ChevronRight size={14} /></button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: "2px" }}>
@@ -180,7 +180,7 @@ function MiniCalendar({ jobs, onPickEmpty, onPickJob }: { jobs: any[]; onPickEmp
               onMouseOver={e => { if (clickable) (e.currentTarget as HTMLButtonElement).style.background = "rgba(var(--brand-rgb),0.12)"; }}
               onMouseOut={e => { if (clickable) (e.currentTarget as HTMLButtonElement).style.background = "transparent"; }}
             >
-              <span style={{ fontSize: "11px", color: status ? "#1A1917" : isFuture ? "#6B7280" : "#C4C0BB", fontWeight: status ? 700 : 400 }}>{day}</span>
+              <span style={{ fontSize: "11px", color: status ? "#1A1917" : isFuture ? "#6B6860" : "#C4C0BB", fontWeight: status ? 700 : 400 }}>{day}</span>
               {color && <div style={{ width: "4px", height: "4px", borderRadius: "50%", background: color, margin: "0 auto" }} />}
             </button>
           );
@@ -217,7 +217,7 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
           <h2 style={{ margin: 0, fontSize: "18px", fontWeight: 700, color: "#1A1917", lineHeight: 1.2 }}>
             {client.first_name} {client.last_name}
           </h2>
-          {client.company_name && <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#6B7280" }}>{client.company_name}</p>}
+          {client.company_name && <p style={{ margin: "4px 0 0", fontSize: "12px", color: "#6B6860" }}>{client.company_name}</p>}
           <p style={{ margin: "4px 0 0", fontSize: "11px", color: "#9E9B94" }}>CL-{String(client.id).padStart(4, "0")}</p>
 
           {/* [client-address-header 2026-07-14] Full service address up front so
@@ -229,7 +229,7 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
               href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(formatAddress(client.address, client.city, client.state, client.zip))}`}
               target="_blank"
               rel="noopener noreferrer"
-              style={{ margin: "10px 0 0", fontSize: "12px", color: "#4B5563", lineHeight: 1.45, display: "flex", alignItems: "flex-start", gap: 5, textDecoration: "none" }}
+              style={{ margin: "10px 0 0", fontSize: "12px", color: "#6B6860", lineHeight: 1.45, display: "flex", alignItems: "flex-start", gap: 5, textDecoration: "none" }}
               title="Open in Google Maps"
             >
               <MapPin size={13} style={{ color: "#9E9B94", flexShrink: 0, marginTop: 1 }} />
@@ -244,7 +244,7 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
               </span>
             )}
             {client.service_type && (
-              <span style={{ background: "#F3F4F6", color: "#6B7280", padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              <span style={{ background: "#F0EEE9", color: "#6B6860", padding: "3px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em" }}>
                 {client.service_type === "recurring" ? "Recurring" : "One-Time"}
               </span>
             )}
@@ -259,14 +259,14 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
           {/* Portal pill */}
           <div style={{ marginTop: "12px" }}>
             {portalStatus === "registered" && (
-              <span style={{ background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", padding: "4px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 600 }}>Portal Active</span>
+              <span style={{ background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE", padding: "4px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 600 }}>Portal Active</span>
             )}
             {portalStatus === "invited" && (
-              <span style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", padding: "4px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 600 }}>Invite Sent {fmtDate(client.portal_invite_sent_at)}</span>
+              <span style={{ background: "#FDF3E4", color: "#B45309", border: "1px solid #F2DFB8", padding: "4px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 600 }}>Invite Sent {fmtDate(client.portal_invite_sent_at)}</span>
             )}
             {portalStatus === "none" && (
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-                <span style={{ background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB", padding: "4px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, display: "inline-block" }}>No Portal Access</span>
+                <span style={{ background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC", padding: "4px 10px", borderRadius: "20px", fontSize: "11px", fontWeight: 600, display: "inline-block" }}>No Portal Access</span>
                 <button onClick={onPortalInvite} style={{ display: "flex", alignItems: "center", gap: "6px", padding: "6px 12px", background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: "6px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
                   <Send size={11} /> Send Portal Invite
                 </button>
@@ -309,7 +309,7 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
             ["Total Jobs", stats?.total_jobs || 0],
           ].map(([label, value]) => (
             <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: "1px solid #F0EEE9" }}>
-              <span style={{ fontSize: "12px", color: "#6B7280" }}>{label}</span>
+              <span style={{ fontSize: "12px", color: "#6B6860" }}>{label}</span>
               <span style={{ fontSize: "12px", fontWeight: 600, color: "var(--brand)" }}>{value}</span>
             </div>
           ))}
@@ -317,10 +317,10 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
 
         {/* Rate increase warning */}
         {rateDue && client.base_fee && (
-          <div style={{ backgroundColor: "#FEF3C7", border: "1px solid #FDE68A", borderLeft: "3px solid #F59E0B", borderRadius: "8px", padding: "12px" }}>
+          <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", borderLeft: "3px solid #F59E0B", borderRadius: "8px", padding: "12px" }}>
             <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "6px" }}>
               <AlertTriangle size={13} style={{ color: "#F59E0B" }} />
-              <span style={{ fontSize: "11px", fontWeight: 700, color: "#92400E" }}>Rate Increase Due</span>
+              <span style={{ fontSize: "11px", fontWeight: 700, color: "#B45309" }}>Rate Increase Due</span>
             </div>
             <p style={{ margin: 0, fontSize: "11px", color: "#78350F" }}>
               Last increase: {rateLastDate ? fmtDate(rateLastDate.toISOString()) : "Never"}<br />
@@ -338,7 +338,7 @@ function ClientSidebar({ client, stats, jobs, onPortalInvite }: { client: any; s
           <div style={{ fontSize: "10px", fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: "2px" }}>Job Calendar</div>
           <MiniCalendar jobs={jobs} />
           <div style={{ display: "flex", gap: "10px", marginTop: "10px", flexWrap: "wrap" }}>
-            {[["#16A34A","Complete"],["var(--brand)","Scheduled"],["#9E9B94","Cancelled"]].map(([c,l]) => (
+            {[["#0F7A63","Complete"],["var(--brand)","Scheduled"],["#9E9B94","Cancelled"]].map(([c,l]) => (
               <div key={l} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
                 <div style={{ width: "6px", height: "6px", borderRadius: "50%", background: c }} />
                 <span style={{ fontSize: "10px", color: "#9E9B94" }}>{l}</span>
@@ -356,7 +356,7 @@ function Toast({ message, type = "success", onDone }: { message: string; type?: 
   useEffect(() => { const t = setTimeout(onDone, 3500); return () => clearTimeout(t); }, [onDone]);
   return (
     <div style={{ position: "fixed", bottom: 24, right: 24, zIndex: 9999, background: type === "error" ? "#1A1917" : "#0A0E1A", color: "#fff", padding: "13px 20px", borderRadius: 10, fontSize: 13, fontWeight: 600, fontFamily: FF, boxShadow: "0 8px 30px rgba(0,0,0,0.35)", display: "flex", alignItems: "center", gap: 10, minWidth: 240 }}>
-      {type === "success" ? <Check size={14} style={{ color: "var(--brand)", flexShrink: 0 }} /> : <X size={14} style={{ color: "#EF4444", flexShrink: 0 }} />}
+      {type === "success" ? <Check size={14} style={{ color: "var(--brand)", flexShrink: 0 }} /> : <X size={14} style={{ color: "#B3261E", flexShrink: 0 }} />}
       {message}
     </div>
   );
@@ -428,7 +428,7 @@ function SendMessageDrawer({ client, onClose, onToast }: { client: any; onClose:
                 <textarea value={smsMsg} onChange={e => setSmsMsg(e.target.value)} rows={6} placeholder="Type your message..." style={{ ...inp, resize: "vertical" as const }} />
                 <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 4, textAlign: "right" }}>{smsMsg.length} / 160</div>
               </div>
-              {!client.phone && <div style={{ fontSize: 12, color: "#DC2626", background: "#FEE2E2", borderRadius: 7, padding: "8px 12px" }}>No phone number on file for this client.</div>}
+              {!client.phone && <div style={{ fontSize: 12, color: "#B3261E", background: "#FCEBEA", borderRadius: 7, padding: "8px 12px" }}>No phone number on file for this client.</div>}
               <button onClick={sendSms} disabled={!smsMsg.trim() || !client.phone || sending} style={{ padding: "10px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: (!smsMsg.trim() || !client.phone || sending) ? 0.5 : 1, fontFamily: FF }}>
                 {sending ? "Sending..." : "Send SMS"}
               </button>
@@ -447,7 +447,7 @@ function SendMessageDrawer({ client, onClose, onToast }: { client: any; onClose:
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Message</div>
                 <textarea value={emailBody} onChange={e => setEmailBody(e.target.value)} rows={8} placeholder="Type your message..." style={{ ...inp, resize: "vertical" as const }} />
               </div>
-              {!client.email && <div style={{ fontSize: 12, color: "#DC2626", background: "#FEE2E2", borderRadius: 7, padding: "8px 12px" }}>No email address on file for this client.</div>}
+              {!client.email && <div style={{ fontSize: 12, color: "#B3261E", background: "#FCEBEA", borderRadius: 7, padding: "8px 12px" }}>No email address on file for this client.</div>}
               <button onClick={sendEmail} disabled={!emailBody.trim() || !client.email || sending} style={{ padding: "10px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", opacity: (!emailBody.trim() || !client.email || sending) ? 0.5 : 1, fontFamily: FF }}>
                 {sending ? "Sending..." : "Send Email"}
               </button>
@@ -794,7 +794,7 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
                         Cancel
                       </button>
                     </div>
-                    {sourceError && <div style={{ fontSize: 11, color: "#991B1B" }}>{sourceError}</div>}
+                    {sourceError && <div style={{ fontSize: 11, color: "#B3261E" }}>{sourceError}</div>}
                   </div>
                 )}
               </div>
@@ -816,7 +816,7 @@ function EditProfileDrawer({ client, onClose, onSave, onToast }: { client: any; 
               Leave blank to use the tenant default. Set 0–100 % to override for this client only.
             </div>
             <div style={{ marginBottom: 14 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 4 }}>
                 Notify client via
               </label>
               <select
@@ -918,10 +918,10 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
     : null;
 
   return (
-    <div style={{ background: "#FFFFFF", border: `1px solid ${expired ? "#FCA5A5" : isSuspended ? "#FCD34D" : "#E5E2DC"}`, borderRadius: 10, padding: "18px 20px", fontFamily: FF }}>
+    <div style={{ background: "#FFFFFF", border: `1px solid ${expired ? "#FCA5A5" : isSuspended ? "#F2DFB8" : "#E5E2DC"}`, borderRadius: 10, padding: "18px 20px", fontFamily: FF }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-        <div style={{ width: 40, height: 40, borderRadius: "50%", background: expired ? "#FEE2E2" : isSuspended ? "#FEF3C7" : "#DCFCE7", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <Clock size={18} style={{ color: expired ? "#991B1B" : isSuspended ? "#92400E" : "#166534" }} />
+        <div style={{ width: 40, height: 40, borderRadius: "50%", background: expired ? "#FCEBEA" : isSuspended ? "#FDF3E4" : "#E6F6F1", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <Clock size={18} style={{ color: expired ? "#B3261E" : isSuspended ? "#B45309" : "#0F7A63" }} />
         </div>
         <div style={{ flex: 1, minWidth: 180 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1917" }}>
@@ -943,13 +943,13 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
             </button>
           ) : (
             <button onClick={() => { setErr(null); setUntil(maxDate); setModalOpen(true); }}
-              style={{ padding: "8px 14px", border: "1px solid #FCD34D", borderRadius: 8, background: "#FFFBEB", color: "#92400E", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+              style={{ padding: "8px 14px", border: "1px solid #F2DFB8", borderRadius: 8, background: "#FDF3E4", color: "#B45309", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
               Suspend service
             </button>
           )
         )}
       </div>
-      {isSuspended && err && <div style={{ fontSize: 12, color: "#991B1B", marginTop: 10 }}>{err}</div>}
+      {isSuspended && err && <div style={{ fontSize: 12, color: "#B3261E", marginTop: 10 }}>{err}</div>}
 
       {modalOpen && (
         <div onClick={() => !suspendMut.isPending && setModalOpen(false)}
@@ -962,19 +962,19 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
             </div>
             <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Resume / end date (max 90 days)</label>
             <input type="date" value={until} min={today} max={maxDate} onChange={e => setUntil(e.target.value)}
-              style={{ width: "100%", padding: "9px 11px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", marginBottom: 14, fontFamily: FF }} />
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", marginBottom: 14, fontFamily: FF }} />
             <label style={{ display: "block", fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Reason (optional)</label>
             <textarea value={reason} onChange={e => setReason(e.target.value)} rows={2} maxLength={500}
               placeholder="e.g. Traveling for the summer"
-              style={{ width: "100%", padding: "9px 11px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", resize: "vertical", marginBottom: 14, fontFamily: FF }} />
+              style={{ width: "100%", padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", outline: "none", boxSizing: "border-box", resize: "vertical", marginBottom: 14, fontFamily: FF }} />
             <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#1A1917", marginBottom: 6, cursor: "pointer" }}>
               <input type="checkbox" checked={notify} onChange={e => setNotify(e.target.checked)} />
               Email the customer a suspension confirmation
             </label>
-            {err && <div style={{ fontSize: 12, color: "#991B1B", marginBottom: 8 }}>{err}</div>}
+            {err && <div style={{ fontSize: 12, color: "#B3261E", marginBottom: 8 }}>{err}</div>}
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 12 }}>
               <button onClick={() => setModalOpen(false)} disabled={suspendMut.isPending}
-                style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#6B7280", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
               <button onClick={() => suspendMut.mutate()} disabled={suspendMut.isPending || !until}
                 style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#B45309", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: suspendMut.isPending ? "default" : "pointer", opacity: suspendMut.isPending || !until ? 0.6 : 1, fontFamily: FF }}>
                 {suspendMut.isPending ? "Suspending…" : "Suspend service"}
@@ -1054,7 +1054,7 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
       <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>{label}</label>
       {editing ? (
         <input value={(form as any)[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} type={type}
-          style={{ width: "100%", padding: "8px 10px", border: "1px solid #D1D5DB", borderRadius: "6px", fontSize: "13px", color: "#1A1917", outline: "none", boxSizing: "border-box" }} />
+          style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", color: "#1A1917", outline: "none", boxSizing: "border-box" }} />
       ) : (
         <p style={{ margin: 0, fontSize: "13px", color: value ? "#1A1917" : "#9E9B94" }}>{value || "Not set"}</p>
       )}
@@ -1066,7 +1066,7 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
       <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: "4px" }}>{label}</label>
       {editing ? (
         <select value={(form as any)[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
-          style={{ width: "100%", padding: "8px 10px", border: "1px solid #D1D5DB", borderRadius: "6px", fontSize: "13px", color: "#1A1917", outline: "none", background: "#FFFFFF" }}>
+          style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", color: "#1A1917", outline: "none", background: "#FFFFFF" }}>
           <option value="">Not set</option>
           {opts.map(([v,l]) => <option key={v} value={v}>{l}</option>)}
         </select>
@@ -1081,7 +1081,7 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
         {editing ? (
           <div style={{ display: "flex", gap: "8px" }}>
-            <button onClick={() => setEditing(false)} style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => setEditing(false)} style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
             <button onClick={save} style={{ padding: "7px 14px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>Save Changes</button>
           </div>
         ) : (
@@ -1100,8 +1100,8 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
           {client.latest_nps_score !== null && client.latest_nps_score !== undefined && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>NPS Score</span>
-              <span style={{ fontSize: 16, fontWeight: 800, color: client.latest_nps_score >= 9 ? "#166534" : client.latest_nps_score >= 7 ? "#92400E" : "#991B1B" }}>{client.latest_nps_score}</span>
-              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: client.latest_nps_score >= 9 ? "#DCFCE7" : client.latest_nps_score >= 7 ? "#FEF3C7" : "#FEE2E2", color: client.latest_nps_score >= 9 ? "#166534" : client.latest_nps_score >= 7 ? "#92400E" : "#991B1B" }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: client.latest_nps_score >= 9 ? "#0F7A63" : client.latest_nps_score >= 7 ? "#B45309" : "#B3261E" }}>{client.latest_nps_score}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: client.latest_nps_score >= 9 ? "#E6F6F1" : client.latest_nps_score >= 7 ? "#FDF3E4" : "#FCEBEA", color: client.latest_nps_score >= 9 ? "#0F7A63" : client.latest_nps_score >= 7 ? "#B45309" : "#B3261E" }}>
                 {client.latest_nps_score >= 9 ? "Promoter" : client.latest_nps_score >= 7 ? "Passive" : "Detractor"}
               </span>
             </div>
@@ -1109,8 +1109,8 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
           {client.churn_risk_score !== null && client.churn_risk_score !== undefined && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 16px", backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>Churn Risk</span>
-              <span style={{ fontSize: 16, fontWeight: 800, color: client.churn_risk_score >= 70 ? "#991B1B" : client.churn_risk_score >= 40 ? "#92400E" : "#166534" }}>{client.churn_risk_score}%</span>
-              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: client.churn_risk_score >= 70 ? "#FEE2E2" : client.churn_risk_score >= 40 ? "#FEF3C7" : "#DCFCE7", color: client.churn_risk_score >= 70 ? "#991B1B" : client.churn_risk_score >= 40 ? "#92400E" : "#166534" }}>
+              <span style={{ fontSize: 16, fontWeight: 800, color: client.churn_risk_score >= 70 ? "#B3261E" : client.churn_risk_score >= 40 ? "#B45309" : "#0F7A63" }}>{client.churn_risk_score}%</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, background: client.churn_risk_score >= 70 ? "#FCEBEA" : client.churn_risk_score >= 40 ? "#FDF3E4" : "#E6F6F1", color: client.churn_risk_score >= 70 ? "#B3261E" : client.churn_risk_score >= 40 ? "#B45309" : "#0F7A63" }}>
                 {client.churn_risk_score >= 70 ? "High" : client.churn_risk_score >= 40 ? "Medium" : "Low"}
               </span>
             </div>
@@ -1120,16 +1120,16 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
 
       {/* ── Rate Lock Card ── */}
       {rateLock && (
-        <div style={{ border: `1px solid ${rateLock.active ? "#BFDBFE" : "#E5E2DC"}`, borderRadius: 10, padding: "14px 16px", background: rateLock.active ? "#EFF6FF" : "#FAFAF9" }}>
+        <div style={{ border: `1px solid ${rateLock.active ? "#DEDEE4" : "#E5E2DC"}`, borderRadius: 10, padding: "14px 16px", background: rateLock.active ? "#EFEFF2" : "#F7F6F3" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: rateLock.active ? "#1D4ED8" : "#9E9B94" }}>Rate Lock</span>
-              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: rateLock.active ? "#DBEAFE" : "#F3F4F6", color: rateLock.active ? "#1D4ED8" : "#6B7280" }}>
+              <span style={{ fontSize: 11, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.07em", color: rateLock.active ? "#2F3646" : "#9E9B94" }}>Rate Lock</span>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: rateLock.active ? "#EFEFF2" : "#F0EEE9", color: rateLock.active ? "#2F3646" : "#6B6860" }}>
                 {rateLock.active ? "Active" : "Voided"}
               </span>
             </div>
             {rateLock.active && (
-              <button onClick={() => setVoidModal(true)} style={{ fontSize: 11, fontWeight: 600, color: "#DC2626", background: "none", border: "1px solid #FCA5A5", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+              <button onClick={() => setVoidModal(true)} style={{ fontSize: 11, fontWeight: 600, color: "#B3261E", background: "none", border: "1px solid #FCA5A5", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                 Void Lock
               </button>
             )}
@@ -1156,7 +1156,7 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
             </div>
           </div>
           {!rateLock.active && rateLock.void_reason && (
-            <div style={{ marginTop: 10, fontSize: 11, color: "#6B7280" }}>
+            <div style={{ marginTop: 10, fontSize: 11, color: "#6B6860" }}>
               <strong>Void reason:</strong> {rateLock.void_reason === "manual" ? "Voided manually" : rateLock.void_reason === "time_overrun" ? "Recurring time overruns" : rateLock.void_reason === "service_gap" ? "60+ day service gap" : rateLock.void_reason === "expired" ? "24-month term expired" : rateLock.void_reason}
               {rateLock.void_notes && <span> — {rateLock.void_notes}</span>}
             </div>
@@ -1197,7 +1197,7 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button onClick={() => { setVoidModal(false); setVoidReason("manual"); setVoidNotes(""); }} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>Cancel</button>
-              <button onClick={handleVoidLock} disabled={voiding} style={{ padding: "8px 16px", background: "#DC2626", border: "none", borderRadius: 7, color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", opacity: voiding ? 0.6 : 1 }}>{voiding ? "Voiding..." : "Void Rate Lock"}</button>
+              <button onClick={handleVoidLock} disabled={voiding} style={{ padding: "8px 16px", background: "#B3261E", border: "none", borderRadius: 7, color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", opacity: voiding ? 0.6 : 1 }}>{voiding ? "Voiding..." : "Void Rate Lock"}</button>
             </div>
           </div>
         </div>
@@ -1361,7 +1361,7 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
 
   const F = (field: string, label: string, type = "text", placeholder = "", extraProps?: Record<string, any>) => (
     <div>
-      <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#6B7280", marginBottom: "4px" }}>{label}</label>
+      <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#6B6860", marginBottom: "4px" }}>{label}</label>
       <input value={(form as any)[field]} onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))} type={type} placeholder={placeholder}
         {...(extraProps || {})}
         style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", color: "#1A1917", outline: "none", boxSizing: "border-box" }} />
@@ -1379,7 +1379,7 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
                 {home.is_primary && <span style={{ background: "var(--brand-dim)", color: "var(--brand)", padding: "2px 8px", borderRadius: "4px", fontSize: "10px", fontWeight: 700, textTransform: "uppercase" }}>Main</span>}
               </div>
               <p style={{ margin: "4px 0 0", fontSize: "15px", fontWeight: 700, color: "#0A0E1A" }}>{home.address}</p>
-              <p style={{ margin: "2px 0 0", fontSize: "13px", fontWeight: 500, color: "#374151" }}>{[home.city, home.state, home.zip].filter(Boolean).join(", ")}</p>
+              <p style={{ margin: "2px 0 0", fontSize: "13px", fontWeight: 500, color: "#1A1917" }}>{[home.city, home.state, home.zip].filter(Boolean).join(", ")}</p>
               {/* [per-home zone 2026-06-02] Show THIS address's zone, resolved
                   from its own zip by the API, not the client-level zone — a
                   new address in a different area must reflect its real zone.
@@ -1393,7 +1393,7 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
                 </div>
               ) : (
                 <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}>
-                  <span style={{ width: 11, height: 11, borderRadius: "50%", backgroundColor: "#D1D5DB", display: "inline-block", flexShrink: 0 }} />
+                  <span style={{ width: 11, height: 11, borderRadius: "50%", backgroundColor: "#E5E2DC", display: "inline-block", flexShrink: 0 }} />
                   <span style={{ fontSize: "12px", fontWeight: 600, color: "#9E9B94" }}>No zone for this zip</span>
                 </div>
               )}
@@ -1419,10 +1419,10 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
           </div>
 
           {/* Access notes */}
-          <div style={{ background: "#FAFAF8", border: "1px solid #F0EEE9", borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
+          <div style={{ background: "#F7F6F3", border: "1px solid #F0EEE9", borderRadius: "8px", padding: "12px", display: "flex", flexDirection: "column", gap: "8px" }}>
             {home.alarm_code && (
               <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-                <span style={{ fontSize: "12px", color: "#6B7280", minWidth: "90px" }}>Alarm Code:</span>
+                <span style={{ fontSize: "12px", color: "#6B6860", minWidth: "90px" }}>Alarm Code:</span>
                 <span style={{ fontSize: "12px", fontWeight: 600, color: "#1A1917", fontFamily: "monospace", letterSpacing: "0.1em" }}>
                   {showAlarm === home.id ? home.alarm_code : "•".repeat(home.alarm_code.length)}
                 </span>
@@ -1431,16 +1431,16 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
                 </button>
               </div>
             )}
-            {home.access_notes && <p style={{ margin: 0, fontSize: "12px", color: "#6B7280" }}><span style={{ fontWeight: 600, color: "#1A1917" }}>Access: </span>{home.access_notes}</p>}
-            {home.parking_notes && <p style={{ margin: 0, fontSize: "12px", color: "#6B7280" }}><span style={{ fontWeight: 600, color: "#1A1917" }}>Parking: </span>{home.parking_notes}</p>}
-            {home.has_pets && <p style={{ margin: 0, fontSize: "12px", color: "#6B7280" }}><span style={{ fontWeight: 600, color: "#1A1917" }}>Pets: </span>{home.pet_notes || "Yes"}</p>}
+            {home.access_notes && <p style={{ margin: 0, fontSize: "12px", color: "#6B6860" }}><span style={{ fontWeight: 600, color: "#1A1917" }}>Access: </span>{home.access_notes}</p>}
+            {home.parking_notes && <p style={{ margin: 0, fontSize: "12px", color: "#6B6860" }}><span style={{ fontWeight: 600, color: "#1A1917" }}>Parking: </span>{home.parking_notes}</p>}
+            {home.has_pets && <p style={{ margin: 0, fontSize: "12px", color: "#6B6860" }}><span style={{ fontWeight: 600, color: "#1A1917" }}>Pets: </span>{home.pet_notes || "Yes"}</p>}
           </div>
 
           {/* Service settings */}
           <div style={{ display: "flex", gap: "20px", marginTop: "12px", flexWrap: "wrap" }}>
-            {home.base_fee && <span style={{ fontSize: "12px", color: "#6B7280" }}>Rate: <strong style={{ color: "#1A1917" }}>{fmtCurrency(home.base_fee)}</strong></span>}
-            {home.allowed_hours && <span style={{ fontSize: "12px", color: "#6B7280" }}>Hours: <strong style={{ color: "#1A1917" }}>{home.allowed_hours} hrs</strong></span>}
-            {home.frequency && <span style={{ fontSize: "12px", color: "#6B7280" }}>Freq: <strong style={{ color: "#1A1917" }}>{freqLabel(home.frequency)}</strong></span>}
+            {home.base_fee && <span style={{ fontSize: "12px", color: "#6B6860" }}>Rate: <strong style={{ color: "#1A1917" }}>{fmtCurrency(home.base_fee)}</strong></span>}
+            {home.allowed_hours && <span style={{ fontSize: "12px", color: "#6B6860" }}>Hours: <strong style={{ color: "#1A1917" }}>{home.allowed_hours} hrs</strong></span>}
+            {home.frequency && <span style={{ fontSize: "12px", color: "#6B6860" }}>Freq: <strong style={{ color: "#1A1917" }}>{freqLabel(home.frequency)}</strong></span>}
           </div>
         </div>
       ))}
@@ -1488,14 +1488,14 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
             </label>
           </div>
           <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
-            <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
             <button onClick={() => createMut.mutate(form)} disabled={createMut.isPending} style={{ padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
               {createMut.isPending ? "Saving..." : "Add Home"}
             </button>
           </div>
         </div>
       ) : (
-        <button onClick={() => setShowForm(true)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "12px 16px", border: "1px dashed #D1D5DB", borderRadius: "10px", background: "transparent", color: "#6B7280", fontSize: "13px", cursor: "pointer", width: "100%", justifyContent: "center" }}>
+        <button onClick={() => setShowForm(true)} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "12px 16px", border: "1px dashed #E5E2DC", borderRadius: "10px", background: "transparent", color: "#6B6860", fontSize: "13px", cursor: "pointer", width: "100%", justifyContent: "center" }}>
           <Plus size={14} /> Add Another Home
         </button>
       )}
@@ -1507,10 +1507,10 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
 function BillingTab({ invoices }: { invoices: any[] }) {
   const [, navigate] = useLocation();
   const statusStyle: Record<string, React.CSSProperties> = {
-    paid: { background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0" },
-    overdue: { background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA" },
-    sent: { background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A" },
-    draft: { background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB" },
+    paid: { background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE" },
+    overdue: { background: "#FCEBEA", color: "#B3261E", border: "1px solid #F1D0CB" },
+    sent: { background: "#FDF3E4", color: "#B45309", border: "1px solid #F2DFB8" },
+    draft: { background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC" },
   };
   const TH: React.CSSProperties = { padding: "10px 16px", textAlign: "left", fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #EEECE7" };
   return (
@@ -1518,7 +1518,7 @@ function BillingTab({ invoices }: { invoices: any[] }) {
       <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", overflow: "hidden" }}>
         <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 480 }}>
-          <thead><tr style={{ backgroundColor: "#FAFAF8" }}>
+          <thead><tr style={{ backgroundColor: "#F7F6F3" }}>
             {["Date","Invoice #","Amount","Balance","Status",""].map(h => <th key={h} style={TH}>{h}</th>)}
           </tr></thead>
           <tbody>
@@ -1526,7 +1526,7 @@ function BillingTab({ invoices }: { invoices: any[] }) {
               <tr><td colSpan={6} style={{ padding: "48px", textAlign: "center", color: "#9E9B94", fontSize: "13px" }}>No invoices yet</td></tr>
             ) : invoices.map(inv => (
               <tr key={inv.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
-                <td style={{ padding: "12px 16px", fontSize: "13px", color: "#6B7280" }}>{inv.service_date ? fmtDate(inv.service_date + "T12:00:00") : fmtDate(inv.created_at)}</td>
+                <td style={{ padding: "12px 16px", fontSize: "13px", color: "#6B6860" }}>{inv.service_date ? fmtDate(inv.service_date + "T12:00:00") : fmtDate(inv.created_at)}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{formatInvoiceNumber(inv)}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{fmtCurrency(inv.total)}</td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", color: inv.paid_at ? "#9E9B94" : "#1A1917" }}>{inv.paid_at ? "$0.00" : fmtCurrency(inv.total)}</td>
@@ -1611,7 +1611,7 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
         <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 }}>
           <div style={{ background: "#fff", borderRadius: 12, padding: 28, width: 440, boxShadow: "0 20px 60px rgba(0,0,0,0.2)", maxHeight: "80vh", overflowY: "auto" }}>
             <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Send Agreement</h3>
-            <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 16px" }}>Select one or more document templates to send.</p>
+            <p style={{ fontSize: 13, color: "#6B6860", margin: "0 0 16px" }}>Select one or more document templates to send.</p>
             {sendDone ? (
               <div style={{ textAlign: "center", padding: "20px 0" }}>
                 <Check size={24} color="var(--brand)" style={{ display: "block", margin: "0 auto 8px" }}/>
@@ -1637,7 +1637,7 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
                   </div>
                 )}
                 <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
-                  <button onClick={() => { setShowModal(false); setSelectedTemplates([]); }} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", color: "#6B7280", fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                  <button onClick={() => { setShowModal(false); setSelectedTemplates([]); }} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", color: "#6B6860", fontSize: 13, cursor: "pointer" }}>Cancel</button>
                   <button onClick={handleSend} disabled={sending || !selectedTemplates.length} style={{ padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: 7, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: selectedTemplates.length ? 1 : 0.5 }}>
                     {sending ? "Sending…" : "Send"}
                   </button>
@@ -1650,7 +1650,7 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
 
       <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr style={{ backgroundColor: "#FAFAF8" }}>
+          <thead><tr style={{ backgroundColor: "#F7F6F3" }}>
             {["Agreement","Sent","Status","Signed",""].map(h => <th key={h} style={TH}>{h}</th>)}
           </tr></thead>
           <tbody>
@@ -1662,16 +1662,16 @@ function AgreementsTab({ clientId, agreements, refetch }: { clientId: number; ag
               return (
                 <tr key={`${a._src}-${a.id}`} style={{ borderBottom: "1px solid #F0EEE9" }}>
                   <td style={{ padding: "12px 16px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{a.template_name || "Service Agreement"}</td>
-                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280" }}>{fmtDate(a.sent_at)}</td>
+                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860" }}>{fmtDate(a.sent_at)}</td>
                   <td style={{ padding: "12px 16px" }}>
                     {isSigned
-                      ? <span style={{ background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Signed</span>
+                      ? <span style={{ background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Signed</span>
                       : a.status === "expired"
-                      ? <span style={{ background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Expired</span>
-                      : <span style={{ background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Pending</span>
+                      ? <span style={{ background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Expired</span>
+                      : <span style={{ background: "#FDF3E4", color: "#B45309", border: "1px solid #F2DFB8", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700 }}>Pending</span>
                     }
                   </td>
-                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280" }}>
+                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860" }}>
                     {a._src === "new" && a.signed_at ? fmtDate(a.signed_at) : a.accepted_at ? fmtDate(a.accepted_at) : "—"}
                   </td>
                   <td style={{ padding: "12px 16px" }}>
@@ -1810,12 +1810,12 @@ function ContactsTab({ clientId, notifications, refetch }: { clientId: number; n
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 120px", gap: "10px" }}>
               <div>
-                <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "4px" }}>Contact Info</label>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B6860", display: "block", marginBottom: "4px" }}>Contact Info</label>
                 <input value={form.contact_value} onChange={e => setForm(f => ({ ...f, contact_value: e.target.value }))} placeholder="email@example.com or +1 555-0100"
                   style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", outline: "none", boxSizing: "border-box" }} />
               </div>
               <div>
-                <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "4px" }}>Type</label>
+                <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B6860", display: "block", marginBottom: "4px" }}>Type</label>
                 <select value={form.contact_type} onChange={e => setForm(f => ({ ...f, contact_type: e.target.value }))} style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", outline: "none", background: "#FFFFFF" }}>
                   <option value="email">Email</option>
                   <option value="sms">SMS</option>
@@ -1823,17 +1823,17 @@ function ContactsTab({ clientId, notifications, refetch }: { clientId: number; n
               </div>
             </div>
             <div>
-              <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "8px" }}>Notification Triggers</label>
+              <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B6860", display: "block", marginBottom: "8px" }}>Notification Triggers</label>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
                 {TRIGGERS.map(t => (
-                  <button key={t} onClick={() => toggleTrigger(t)} style={{ padding: "5px 10px", border: `1px solid ${form.triggers.includes(t) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: "20px", background: form.triggers.includes(t) ? "var(--brand-dim)" : "#FFFFFF", color: form.triggers.includes(t) ? "var(--brand)" : "#6B7280", fontSize: "12px", fontWeight: form.triggers.includes(t) ? 600 : 400, cursor: "pointer" }}>
+                  <button key={t} onClick={() => toggleTrigger(t)} style={{ padding: "5px 10px", border: `1px solid ${form.triggers.includes(t) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: "20px", background: form.triggers.includes(t) ? "var(--brand-dim)" : "#FFFFFF", color: form.triggers.includes(t) ? "var(--brand)" : "#6B6860", fontSize: "12px", fontWeight: form.triggers.includes(t) ? 600 : 400, cursor: "pointer" }}>
                     {TRIGGER_LABELS[t]}
                   </button>
                 ))}
               </div>
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
               <button onClick={() => createMut.mutate(form)} disabled={createMut.isPending} style={{ padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>Save</button>
             </div>
           </div>
@@ -1849,7 +1849,7 @@ function ContactsTab({ clientId, notifications, refetch }: { clientId: number; n
               <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" }}>
                 {n.contact_type === "email" ? <Mail size={13} style={{ color: "#9E9B94" }} /> : <Phone size={13} style={{ color: "#9E9B94" }} />}
                 <span style={{ fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{n.contact_value}</span>
-                <span style={{ fontSize: "10px", fontWeight: 600, color: "#9E9B94", background: "#F3F4F6", padding: "2px 6px", borderRadius: "3px", textTransform: "uppercase" }}>{n.contact_type}</span>
+                <span style={{ fontSize: "10px", fontWeight: 600, color: "#9E9B94", background: "#F0EEE9", padding: "2px 6px", borderRadius: "3px", textTransform: "uppercase" }}>{n.contact_type}</span>
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "4px" }}>
                 {(n.triggers || []).map((t: string) => (
@@ -1870,17 +1870,17 @@ function ContactsTab({ clientId, notifications, refetch }: { clientId: number; n
 // ─── Scorecards Tab ────────────────────────────────────────────────────────────
 function ScorecardsTab({ scorecards }: { scorecards: any[] }) {
   const scoreInfo: Record<number, { label: string; style: React.CSSProperties }> = {
-    4: { label: "Excellent", style: { background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0" } },
-    3: { label: "Good - Keep it up", style: { background: "#DBEAFE", color: "#1E40AF", border: "1px solid #BFDBFE" } },
-    2: { label: "A Few Concerns", style: { background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A" } },
+    4: { label: "Excellent", style: { background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE" } },
+    3: { label: "Good - Keep it up", style: { background: "#EFEFF2", color: "#2F3646", border: "1px solid #DEDEE4" } },
+    2: { label: "A Few Concerns", style: { background: "#FDF3E4", color: "#B45309", border: "1px solid #F2DFB8" } },
     1: { label: "Needs Improvement", style: { background: "#FFEDD5", color: "#9A3412", border: "1px solid #FED7AA" } },
-    0: { label: "Unacceptable", style: { background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA" } },
+    0: { label: "Unacceptable", style: { background: "#FCEBEA", color: "#B3261E", border: "1px solid #F1D0CB" } },
   };
   const TH: React.CSSProperties = { padding: "10px 16px", textAlign: "left", fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", borderBottom: "1px solid #EEECE7" };
   return (
     <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", overflow: "hidden" }}>
       <table style={{ width: "100%", borderCollapse: "collapse" }}>
-        <thead><tr style={{ backgroundColor: "#FAFAF8" }}>
+        <thead><tr style={{ backgroundColor: "#F7F6F3" }}>
           {["Job Date","Score","Technician","Comments","Actions"].map(h => <th key={h} style={TH}>{h}</th>)}
         </tr></thead>
         <tbody>
@@ -1890,12 +1890,12 @@ function ScorecardsTab({ scorecards }: { scorecards: any[] }) {
             const info = scoreInfo[sc.score] || scoreInfo[0];
             return (
               <tr key={sc.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
-                <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280" }}>{fmtDate(sc.scheduled_date || sc.created_at)}</td>
+                <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860" }}>{fmtDate(sc.scheduled_date || sc.created_at)}</td>
                 <td style={{ padding: "12px 16px" }}>
                   <span style={{ ...info.style, padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 700, whiteSpace: "nowrap" }}>{sc.score}/4 — {info.label}</span>
                 </td>
                 <td style={{ padding: "12px 16px", fontSize: "13px", color: "#1A1917" }}>{sc.first_name} {sc.last_name}</td>
-                <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280", maxWidth: "250px" }}>{sc.comments || "-"}</td>
+                <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860", maxWidth: "250px" }}>{sc.comments || "-"}</td>
                 <td style={{ padding: "12px 16px" }}>
                   <div style={{ display: "flex", gap: "6px" }}>
                     <button style={{ fontSize: "11px", color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Add to Testimonials</button>
@@ -1935,9 +1935,9 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
   });
 
   const prefStyle: Record<string, React.CSSProperties> = {
-    preferred: { background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0" },
-    do_not_schedule: { background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA" },
-    neutral: { background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB" },
+    preferred: { background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE" },
+    do_not_schedule: { background: "#FCEBEA", color: "#B3261E", border: "1px solid #F1D0CB" },
+    neutral: { background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC" },
   };
   const prefLabels: Record<string, string> = { preferred: "Preferred", do_not_schedule: "Do Not Schedule", neutral: "Neutral" };
 
@@ -1945,7 +1945,7 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-      <div style={{ backgroundColor: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: "8px", padding: "12px", display: "flex", alignItems: "flex-start", gap: "8px" }}>
+      <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: "8px", padding: "12px", display: "flex", alignItems: "flex-start", gap: "8px" }}>
         <AlertTriangle size={14} style={{ color: "#F59E0B", flexShrink: 0, marginTop: "1px" }} />
         <p style={{ margin: 0, fontSize: "12px", color: "#78350F" }}>
           Do Not Schedule preferences are enforced on the dispatch board. A warning will appear before assigning a flagged technician to this client.
@@ -1963,7 +1963,7 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
           <h3 style={{ margin: "0 0 14px", fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>Add Technician Preference</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             <div>
-              <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "4px" }}>Technician</label>
+              <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B6860", display: "block", marginBottom: "4px" }}>Technician</label>
               <select value={form.user_id} onChange={e => setForm(f => ({ ...f, user_id: e.target.value }))} style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", outline: "none", background: "#FFFFFF" }}>
                 <option value="">Select technician...</option>
                 {(employees || []).filter((e: any) => e.role === "technician").map((e: any) => (
@@ -1972,7 +1972,7 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
               </select>
             </div>
             <div>
-              <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "4px" }}>Preference</label>
+              <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B6860", display: "block", marginBottom: "4px" }}>Preference</label>
               <select value={form.preference} onChange={e => setForm(f => ({ ...f, preference: e.target.value }))} style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", outline: "none", background: "#FFFFFF" }}>
                 <option value="preferred">Preferred</option>
                 <option value="do_not_schedule">Do Not Schedule</option>
@@ -1980,12 +1980,12 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
               </select>
             </div>
             <div>
-              <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B7280", display: "block", marginBottom: "4px" }}>Notes (optional)</label>
+              <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B6860", display: "block", marginBottom: "4px" }}>Notes (optional)</label>
               <input value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Reason or details"
                 style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", outline: "none", boxSizing: "border-box" }} />
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
-              <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
               <button onClick={() => createMut.mutate(form)} disabled={createMut.isPending || !form.user_id} style={{ padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>Save</button>
             </div>
           </div>
@@ -1994,7 +1994,7 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
 
       <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr style={{ backgroundColor: "#FAFAF8" }}>
+          <thead><tr style={{ backgroundColor: "#F7F6F3" }}>
             {["Technician","Preference","Notes","Actions"].map(h => <th key={h} style={TH}>{h}</th>)}
           </tr></thead>
           <tbody>
@@ -2008,7 +2008,7 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
                     {prefLabels[p.preference] || p.preference}
                   </span>
                 </td>
-                <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280" }}>{p.notes || "-"}</td>
+                <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860" }}>{p.notes || "-"}</td>
                 <td style={{ padding: "12px 16px" }}>
                   <button onClick={() => deleteMut.mutate(p.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94" }}>
                     <Trash2 size={13} />
@@ -2043,10 +2043,10 @@ function NotesTab({ clientId, client }: { clientId: number; client: any }) {
   const typeIcon: Record<string, { icon: any; color: string }> = {
     sms: { icon: MessageSquare, color: "var(--brand)" },
     email: { icon: Mail, color: "var(--brand)" },
-    note: { icon: StickyNote, color: "#92400E" },
+    note: { icon: StickyNote, color: "#B45309" },
     system: { icon: Check, color: "#9E9B94" },
-    call_log: { icon: Phone, color: "#16A34A" },
-    portal_activity: { icon: Globe, color: "#7C3AED" },
+    call_log: { icon: Phone, color: "#0F7A63" },
+    portal_activity: { icon: Globe, color: "#9C4E2B" },
   };
 
   const directionLabel: Record<string, string> = { inbound: "Inbound", outbound: "Outbound", internal: "Internal" };
@@ -2069,35 +2069,35 @@ function NotesTab({ clientId, client }: { clientId: number; client: any }) {
 
         {compose === "sms" && (
           <div style={{ borderTop: "1px solid #F0EEE9", paddingTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
-            <div style={{ fontSize: "12px", color: "#6B7280" }}>To: <strong style={{ color: "#1A1917" }}>{client.phone || "No phone on file"}</strong></div>
+            <div style={{ fontSize: "12px", color: "#6B6860" }}>To: <strong style={{ color: "#1A1917" }}>{client.phone || "No phone on file"}</strong></div>
             <textarea value={smsBody} onChange={e => setSmsBody(e.target.value)} placeholder="Type your message..." rows={3}
               style={{ width: "100%", padding: "10px", border: "1px solid #E5E2DC", borderRadius: "8px", fontSize: "13px", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
             <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-              <button onClick={() => setCompose(null)} style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setCompose(null)} style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
               <button onClick={() => smsMut.mutate()} disabled={!smsBody || smsMut.isPending} style={{ padding: "7px 14px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>Send SMS</button>
             </div>
           </div>
         )}
         {compose === "email" && (
           <div style={{ borderTop: "1px solid #F0EEE9", paddingTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
-            <div style={{ fontSize: "12px", color: "#6B7280" }}>To: <strong style={{ color: "#1A1917" }}>{client.email || "No email on file"}</strong></div>
+            <div style={{ fontSize: "12px", color: "#6B6860" }}>To: <strong style={{ color: "#1A1917" }}>{client.email || "No email on file"}</strong></div>
             <input value={emailSubject} onChange={e => setEmailSubject(e.target.value)} placeholder="Subject"
               style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", outline: "none", boxSizing: "border-box" }} />
             <textarea value={emailBody} onChange={e => setEmailBody(e.target.value)} placeholder="Message..." rows={4}
               style={{ width: "100%", padding: "10px", border: "1px solid #E5E2DC", borderRadius: "8px", fontSize: "13px", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
             <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-              <button onClick={() => setCompose(null)} style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setCompose(null)} style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
               <button onClick={() => emailMut.mutate()} disabled={!emailBody || emailMut.isPending} style={{ padding: "7px 14px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>Send Email</button>
             </div>
           </div>
         )}
         {compose === "note" && (
           <div style={{ borderTop: "1px solid #F0EEE9", paddingTop: "14px", display: "flex", flexDirection: "column", gap: "10px" }}>
-            <div style={{ fontSize: "12px", color: "#6B7280" }}>Internal note — visible to staff only</div>
+            <div style={{ fontSize: "12px", color: "#6B6860" }}>Internal note — visible to staff only</div>
             <textarea value={noteBody} onChange={e => setNoteBody(e.target.value)} placeholder="Type your note..." rows={3}
               style={{ width: "100%", padding: "10px", border: "1px solid #E5E2DC", borderRadius: "8px", fontSize: "13px", outline: "none", resize: "vertical", boxSizing: "border-box" }} />
             <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-              <button onClick={() => setCompose(null)} style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setCompose(null)} style={{ padding: "7px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
               <button onClick={() => noteMut.mutate()} disabled={!noteBody || noteMut.isPending} style={{ padding: "7px 14px", background: "#1A1917", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>Save Note</button>
             </div>
           </div>
@@ -2109,7 +2109,7 @@ function NotesTab({ clientId, client }: { clientId: number; client: any }) {
         {["all","sms","email","note","system"].map(f => {
           const active = filter === f;
           return (
-            <button key={f} onClick={() => setFilter(f)} style={{ padding: "5px 12px", border: `1px solid ${active ? "var(--brand)" : "transparent"}`, borderRadius: "6px", backgroundColor: active ? "var(--brand-dim)" : "transparent", color: active ? "var(--brand)" : "#6B7280", fontSize: "12px", fontWeight: active ? 600 : 400, cursor: "pointer" }}>
+            <button key={f} onClick={() => setFilter(f)} style={{ padding: "5px 12px", border: `1px solid ${active ? "var(--brand)" : "transparent"}`, borderRadius: "6px", backgroundColor: active ? "var(--brand-dim)" : "transparent", color: active ? "var(--brand)" : "#6B6860", fontSize: "12px", fontWeight: active ? 600 : 400, cursor: "pointer" }}>
               {f.charAt(0).toUpperCase() + f.slice(1)}
             </button>
           );
@@ -2128,7 +2128,7 @@ function NotesTab({ clientId, client }: { clientId: number; client: any }) {
           return (
             <div key={c.id} style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "8px", padding: "14px 16px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "8px" }}>
-                <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: c.type === "note" ? "#FEF3C7" : "var(--brand-dim)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <div style={{ width: "28px", height: "28px", borderRadius: "50%", background: c.type === "note" ? "#FDF3E4" : "var(--brand-dim)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <Icon size={13} style={{ color: ti.color }} />
                 </div>
                 <div style={{ flex: 1 }}>
@@ -2142,7 +2142,7 @@ function NotesTab({ clientId, client }: { clientId: number; client: any }) {
                 </div>
               </div>
               {c.subject && <p style={{ margin: "0 0 4px", fontSize: "12px", fontWeight: 700, color: "#1A1917" }}>{c.subject}</p>}
-              <p style={{ margin: 0, fontSize: "13px", color: c.type === "note" ? "#1A1917" : "#6B7280", lineHeight: 1.5 }}>{c.body}</p>
+              <p style={{ margin: 0, fontSize: "13px", color: c.type === "note" ? "#1A1917" : "#6B6860", lineHeight: 1.5 }}>{c.body}</p>
             </div>
           );
         })}
@@ -2312,22 +2312,22 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
 
         {hasCard ? (
           <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, marginBottom: 16 }}>
-              <div style={{ width: 36, height: 36, background: "#059669", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "14px 16px", background: "#F0FDF4", border: "1px solid #C7E7DE", borderRadius: 8, marginBottom: 16 }}>
+              <div style={{ width: 36, height: 36, background: "#0F7A63", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <CreditCard size={18} color="#fff" />
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, color: "#1A1917", fontFamily: FF }}>
                   {brandIcon} •••• {client.card_last_four}
-                  {client.card_expiry && <span style={{ marginLeft: 8, fontWeight: 400, color: "#6B7280", fontSize: 12 }}>expires {client.card_expiry}</span>}
+                  {client.card_expiry && <span style={{ marginLeft: 8, fontWeight: 400, color: "#6B6860", fontSize: 12 }}>expires {client.card_expiry}</span>}
                 </div>
                 {client.card_saved_at && (
-                  <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginTop: 2 }}>
+                  <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginTop: 2 }}>
                     Saved {new Date(client.card_saved_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </div>
                 )}
               </div>
-              <button onClick={removeCard} style={{ fontSize: 12, color: "#DC2626", background: "none", border: "none", cursor: "pointer", fontFamily: FF, textDecoration: "underline" }}>
+              <button onClick={removeCard} style={{ fontSize: 12, color: "#B3261E", background: "none", border: "none", cursor: "pointer", fontFamily: FF, textDecoration: "underline" }}>
                 Remove
               </button>
             </div>
@@ -2335,17 +2335,17 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
             {/* Charge on command — charge the card on file for any amount, with a confirm */}
             <div style={{ marginBottom: 16 }}>
               {!canCharge ? (
-                <div style={{ padding: "12px 14px", background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, fontSize: 12, color: "#92400E", fontFamily: FF, lineHeight: 1.5 }}>
+                <div style={{ padding: "12px 14px", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, fontSize: 12, color: "#B45309", fontFamily: FF, lineHeight: 1.5 }}>
                   This card can't be charged from Qleno yet — we have the card details on file but not the
                   secure token needed to charge it. Send this client a card-on-file link to re-save it.
                 </div>
               ) : !chargeOpen ? (
                 <button onClick={() => setChargeOpen(true)}
-                  style={{ width: "100%", padding: "11px 0", background: "#ECFDF5", border: "1px solid #6EE7B7", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#065F46", cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  style={{ width: "100%", padding: "11px 0", background: "#E6F6F1", border: "1px solid #6EE7B7", borderRadius: 8, fontSize: 13, fontWeight: 700, color: "#065F46", cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                   <CreditCard size={14} /> Charge this card
                 </button>
               ) : (
-                <div style={{ padding: "14px 16px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8 }}>
+                <div style={{ padding: "14px 16px", background: "#F0FDF4", border: "1px solid #C7E7DE", borderRadius: 8 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 10, fontFamily: FF }}>Charge {brandIcon} •••• {client.card_last_four}</div>
                   <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                     <input type="number" step="0.01" placeholder="Amount" value={chargeAmt} onChange={e => setChargeAmt(e.target.value)}
@@ -2357,7 +2357,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
                     <button onClick={() => { setChargeOpen(false); setChargeAmt(""); setChargeMemo(""); }}
                       style={{ padding: "8px 14px", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
                     <button onClick={chargeCard} disabled={chargeBusy}
-                      style={{ padding: "8px 16px", background: "#059669", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>{chargeBusy ? "Charging…" : "Charge now"}</button>
+                      style={{ padding: "8px 16px", background: "#0F7A63", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>{chargeBusy ? "Charging…" : "Charge now"}</button>
                   </div>
                 </div>
               )}
@@ -2367,14 +2367,14 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", background: "#F7F6F3", borderRadius: 8, marginBottom: 16 }}>
               <div>
                 <div style={{ fontWeight: 600, fontSize: 13, color: "#1A1917", fontFamily: FF }}>Auto-charge on invoice creation</div>
-                <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginTop: 2 }}>Automatically charges this card when an invoice is created</div>
+                <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginTop: 2 }}>Automatically charges this card when an invoice is created</div>
               </div>
               <button
                 onClick={toggleAutoCharge}
                 disabled={togglingAutoCharge}
                 style={{
                   width: 44, height: 24, borderRadius: 12, border: "none", cursor: "pointer",
-                  background: client.auto_charge ? "var(--brand)" : "#D1D5DB",
+                  background: client.auto_charge ? "var(--brand)" : "#E5E2DC",
                   position: "relative", transition: "background 0.2s", flexShrink: 0,
                 }}
               >
@@ -2387,7 +2387,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
             </div>
 
             {/* Send new link */}
-            <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginBottom: 8 }}>Send a new card link to update the saved method:</div>
+            <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginBottom: 8 }}>Send a new card link to update the saved method:</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 onClick={() => sendCardLink("email")}
@@ -2411,7 +2411,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
               <div style={{ width: 36, height: 36, background: "#E5E2DC", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <CreditCard size={18} color="#9E9B94" />
               </div>
-              <div style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>No payment method saved</div>
+              <div style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>No payment method saved</div>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
               <button
@@ -2440,29 +2440,29 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
           <div style={{ fontWeight: 700, fontSize: 14, color: "#1A1917", marginBottom: 16, fontFamily: FF }}>Billing Settings</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, fontSize: 13 }}>
             <div>
-              <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF }}>Payment Terms</div>
+              <div style={{ color: "#6B6860", marginBottom: 3, fontFamily: FF }}>Payment Terms</div>
               <div style={{ fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
                 {client.payment_terms === "net_30" ? "NET 30" : client.payment_terms === "net_15" ? "NET 15" : "Due on Receipt"}
               </div>
             </div>
             <div>
-              <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF }}>PO Required</div>
+              <div style={{ color: "#6B6860", marginBottom: 3, fontFamily: FF }}>PO Required</div>
               <div style={{ fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{client.po_number_required ? "Yes" : "No"}</div>
             </div>
             {/* [AH] Commercial hourly rate — inline editable. */}
             <div>
-              <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ color: "#6B6860", marginBottom: 3, fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
                 Hourly Rate
                 {!editingRate && (
                   <button onClick={() => { setRateValue(client.commercial_hourly_rate != null ? String(client.commercial_hourly_rate) : ""); setEditingRate(true); }}
-                    style={{ background: "none", border: "none", color: "#1D4ED8", fontSize: 11, cursor: "pointer", padding: 0, fontFamily: FF, fontWeight: 600 }}>
+                    style={{ background: "none", border: "none", color: "#2F3646", fontSize: 11, cursor: "pointer", padding: 0, fontFamily: FF, fontWeight: 600 }}>
                     {client.commercial_hourly_rate != null ? "Edit" : "Set"}
                   </button>
                 )}
               </div>
               {editingRate ? (
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 13, color: "#6B7280" }}>$</span>
+                  <span style={{ fontSize: 13, color: "#6B6860" }}>$</span>
                   <input type="number" min={0} step={0.01} value={rateValue}
                     onChange={e => setRateValue(e.target.value)}
                     autoFocus
@@ -2473,7 +2473,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
                     {savingRate ? "…" : "Save"}
                   </button>
                   <button onClick={() => setEditingRate(false)} disabled={savingRate}
-                    style={{ background: "none", border: "none", color: "#6B7280", fontSize: 12, cursor: "pointer", fontFamily: FF }}>
+                    style={{ background: "none", border: "none", color: "#6B6860", fontSize: 12, cursor: "pointer", fontFamily: FF }}>
                     Cancel
                   </button>
                 </div>
@@ -2487,13 +2487,13 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
             </div>
             {client.billing_contact_name && (
               <div>
-                <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF }}>Billing Contact</div>
+                <div style={{ color: "#6B6860", marginBottom: 3, fontFamily: FF }}>Billing Contact</div>
                 <div style={{ fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{client.billing_contact_name}</div>
               </div>
             )}
             {client.billing_contact_email && (
               <div>
-                <div style={{ color: "#6B7280", marginBottom: 3, fontFamily: FF }}>Billing Email</div>
+                <div style={{ color: "#6B6860", marginBottom: 3, fontFamily: FF }}>Billing Email</div>
                 <div style={{ fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{client.billing_contact_email}</div>
               </div>
             )}
@@ -2515,7 +2515,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
               setParkingEnabled(!!client.parking_fee_enabled);
               setEditingParking(true);
             }}
-              style={{ background: "none", border: "none", color: "#1D4ED8", fontSize: 12, cursor: "pointer", padding: 0, fontFamily: FF, fontWeight: 600 }}>
+              style={{ background: "none", border: "none", color: "#2F3646", fontSize: 12, cursor: "pointer", padding: 0, fontFamily: FF, fontWeight: 600 }}>
               {client.parking_fee_enabled || client.parking_fee_amount != null ? "Edit" : "Set"}
             </button>
           )}
@@ -2528,7 +2528,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
               Charge parking by default
             </label>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <span style={{ fontSize: 13, color: "#6B7280" }}>$</span>
+              <span style={{ fontSize: 13, color: "#6B6860" }}>$</span>
               <input type="number" min={0} step={0.01} value={parkingValue}
                 onChange={e => setParkingValue(e.target.value)}
                 placeholder="20.00"
@@ -2538,7 +2538,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
                 {savingParking ? "…" : "Save"}
               </button>
               <button onClick={() => setEditingParking(false)} disabled={savingParking}
-                style={{ background: "none", border: "none", color: "#6B7280", fontSize: 12, cursor: "pointer", fontFamily: FF }}>
+                style={{ background: "none", border: "none", color: "#6B6860", fontSize: 12, cursor: "pointer", fontFamily: FF }}>
                 Cancel
               </button>
             </div>
@@ -2575,12 +2575,12 @@ function PortalTab({ clientId, client, onPortalInvite, refetch }: { clientId: nu
         {portalStatus === "registered" && (
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-              <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#DCFCE7", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <Globe size={18} style={{ color: "#16A34A" }} />
+              <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#E6F6F1", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <Globe size={18} style={{ color: "#0F7A63" }} />
               </div>
               <div>
                 <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#1A1917" }}>Active Portal Account</h3>
-                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B7280" }}>Client can log in and manage their account</p>
+                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B6860" }}>Client can log in and manage their account</p>
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "16px" }}>
@@ -2597,7 +2597,7 @@ function PortalTab({ clientId, client, onPortalInvite, refetch }: { clientId: nu
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
               <button style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#1A1917", fontSize: "13px", cursor: "pointer" }}>Send Password Reset</button>
-              <button onClick={() => deactivateMut.mutate()} style={{ padding: "8px 14px", border: "1px solid #FEE2E2", borderRadius: "7px", background: "#FFFFFF", color: "#991B1B", fontSize: "13px", cursor: "pointer" }}>Deactivate Portal Access</button>
+              <button onClick={() => deactivateMut.mutate()} style={{ padding: "8px 14px", border: "1px solid #FCEBEA", borderRadius: "7px", background: "#FFFFFF", color: "#B3261E", fontSize: "13px", cursor: "pointer" }}>Deactivate Portal Access</button>
             </div>
           </div>
         )}
@@ -2605,17 +2605,17 @@ function PortalTab({ clientId, client, onPortalInvite, refetch }: { clientId: nu
         {portalStatus === "invited" && (
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-              <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#FEF3C7", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#FDF3E4", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Send size={18} style={{ color: "#F59E0B" }} />
               </div>
               <div>
                 <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#1A1917" }}>Invitation Pending</h3>
-                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B7280" }}>Invitation sent {fmtDate(client.portal_invite_sent_at)} — client has not registered yet</p>
+                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B6860" }}>Invitation sent {fmtDate(client.portal_invite_sent_at)} — client has not registered yet</p>
               </div>
             </div>
             <div style={{ display: "flex", gap: "8px" }}>
               <button onClick={onPortalInvite} style={{ padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>Resend Invitation</button>
-              <button style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>Cancel Invitation</button>
+              <button style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel Invitation</button>
             </div>
           </div>
         )}
@@ -2623,15 +2623,15 @@ function PortalTab({ clientId, client, onPortalInvite, refetch }: { clientId: nu
         {portalStatus === "none" && (
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "16px" }}>
-              <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <div style={{ width: "40px", height: "40px", borderRadius: "50%", background: "#F0EEE9", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <Globe size={18} style={{ color: "#9E9B94" }} />
               </div>
               <div>
                 <h3 style={{ margin: 0, fontSize: "16px", fontWeight: 700, color: "#1A1917" }}>No Portal Access</h3>
-                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B7280" }}>Client does not have a portal account</p>
+                <p style={{ margin: "2px 0 0", fontSize: "12px", color: "#6B6860" }}>Client does not have a portal account</p>
               </div>
             </div>
-            <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#6B7280" }}>
+            <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#6B6860" }}>
               Sending a portal invitation will email the client with a link to create their account. They will be able to view job history, upcoming appointments, and manage their profile.
             </p>
             <button onClick={onPortalInvite} style={{ display: "flex", alignItems: "center", gap: "8px", padding: "10px 18px", background: "var(--brand)", border: "none", borderRadius: "8px", color: "#FFFFFF", fontSize: "14px", fontWeight: 600, cursor: "pointer" }}>
@@ -2643,7 +2643,7 @@ function PortalTab({ clientId, client, onPortalInvite, refetch }: { clientId: nu
 
       <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "20px" }}>
         <h3 style={{ margin: "0 0 12px", fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>Portal Preview</h3>
-        <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#6B7280" }}>Open the client portal view to see exactly what this client sees when they log in.</p>
+        <p style={{ margin: "0 0 12px", fontSize: "13px", color: "#6B6860" }}>Open the client portal view to see exactly what this client sees when they log in.</p>
         <a
           href={`${import.meta.env.BASE_URL.replace(/\/$/, "")}/portal/${companySlug}/dashboard`}
           target="_blank"
@@ -2678,8 +2678,8 @@ function CommLogTab({ clientId }: { clientId: number }) {
   }
 
   const DIR_COLORS: Record<string, React.CSSProperties> = {
-    inbound:  { background: "#DCFCE7", color: "#166534" },
-    outbound: { background: "#DBEAFE", color: "#1D4ED8" },
+    inbound:  { background: "#E6F6F1", color: "#0F7A63" },
+    outbound: { background: "#EFEFF2", color: "#2F3646" },
   };
   const CH_LABELS: Record<string, string> = { phone: "Phone", email: "Email", sms: "SMS", in_person: "In Person", other: "Other" };
 
@@ -2731,7 +2731,7 @@ function CommLogTab({ clientId }: { clientId: number }) {
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 3 }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", textTransform: "capitalize" as const }}>{CH_LABELS[log.channel] || log.channel}</span>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#6B6860", textTransform: "capitalize" as const }}>{CH_LABELS[log.channel] || log.channel}</span>
                 <span style={{ fontSize: 11, color: "#9E9B94" }}>·</span>
                 <span style={{ fontSize: 11, color: "#9E9B94" }}>{new Date(log.logged_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
                 {log.logged_by_name && <><span style={{ fontSize: 11, color: "#9E9B94" }}>·</span><span style={{ fontSize: 11, color: "#9E9B94" }}>by {log.logged_by_name}</span></>}
@@ -2796,8 +2796,8 @@ function RecurringTab({ clientId }: { clientId: number }) {
               <div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 4 }}>
                   <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{FREQ_LABELS[s.frequency]}</span>
-                  {s.day_of_week && <span style={{ fontSize: 12, color: "#6B7280" }}>· {DAY_LABELS[s.day_of_week]}</span>}
-                  {s.base_fee && <span style={{ fontSize: 12, fontWeight: 600, color: "#166534" }}>· ${parseFloat(s.base_fee).toFixed(0)}</span>}
+                  {s.day_of_week && <span style={{ fontSize: 12, color: "#6B6860" }}>· {DAY_LABELS[s.day_of_week]}</span>}
+                  {s.base_fee && <span style={{ fontSize: 12, fontWeight: 600, color: "#0F7A63" }}>· ${parseFloat(s.base_fee).toFixed(0)}</span>}
                 </div>
                 <div style={{ fontSize: 11, color: "#9E9B94" }}>
                   Starts {new Date(s.start_date + "T12:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
@@ -2805,8 +2805,8 @@ function RecurringTab({ clientId }: { clientId: number }) {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <span style={{ padding: "2px 8px", backgroundColor: "#DCFCE7", color: "#166534", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Active</span>
-                <button onClick={() => pause(s.id)} style={{ background: "none", border: "1px solid #E5E2DC", cursor: "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#6B7280" }}>Pause</button>
+                <span style={{ padding: "2px 8px", backgroundColor: "#E6F6F1", color: "#0F7A63", borderRadius: 4, fontSize: 11, fontWeight: 600 }}>Active</span>
+                <button onClick={() => pause(s.id)} style={{ background: "none", border: "1px solid #E5E2DC", cursor: "pointer", borderRadius: 6, padding: "4px 10px", fontSize: 11, color: "#6B6860" }}>Pause</button>
               </div>
             </div>
           ))}
@@ -2896,12 +2896,12 @@ interface CancellationHistoryResponse {
 // Match the cancel modal palette so vocabulary stays consistent across
 // the dispatch picker and the client-history feed.
 const ACTIVITY_META: Record<string, { color: string; tint: string }> = {
-  move:           { color: "#7C3AED", tint: "#F5F3FF" },
+  move:           { color: "#9C4E2B", tint: "#F5F3FF" },
   bump:           { color: "#DB2777", tint: "#FDF2F8" },
-  skip:           { color: "#D97706", tint: "#FFFBEB" },
-  cancel:         { color: "#DC2626", tint: "#FEF2F2" },
+  skip:           { color: "#B45309", tint: "#FDF3E4" },
+  cancel:         { color: "#B3261E", tint: "#FCEBEA" },
   lockout:        { color: "#475569", tint: "#F1F5F9" },
-  cancel_service: { color: "#991B1B", tint: "#FEF2F2" },
+  cancel_service: { color: "#B3261E", tint: "#FCEBEA" },
   legacy:         { color: "#6B6860", tint: "#F7F6F3" },
 };
 
@@ -2925,7 +2925,7 @@ function CancellationsActivitySection({ clientId }: { clientId: number }) {
           <div style={{ fontSize: 11, color: "#6B6860" }}>
             {summary.moves + summary.bumps > 0 && <span style={{ marginRight: 10 }}><strong>{summary.moves + summary.bumps}</strong> reschedule{summary.moves + summary.bumps === 1 ? "" : "s"}</span>}
             {summary.cancels + summary.lockouts > 0 && <span style={{ marginRight: 10 }}><strong>{summary.cancels + summary.lockouts}</strong> charged · {fmtCash(summary.total_charged)}</span>}
-            {summary.services_ended > 0 && <span style={{ color: "#991B1B", fontWeight: 700 }}>SERVICE ENDED</span>}
+            {summary.services_ended > 0 && <span style={{ color: "#B3261E", fontWeight: 700 }}>SERVICE ENDED</span>}
           </div>
         )}
       </div>
@@ -2971,7 +2971,7 @@ function CancellationsActivitySection({ clientId }: { clientId: number }) {
                     {e.affects_future_jobs ? ` · all future jobs ended` : ""}
                   </div>
                   {e.notes && (
-                    <div style={{ fontSize: 12, color: "#374151", marginTop: 4, fontStyle: "italic" as const }}>
+                    <div style={{ fontSize: 12, color: "#1A1917", marginTop: 4, fontStyle: "italic" as const }}>
                       "{e.notes}"
                     </div>
                   )}
@@ -3063,7 +3063,7 @@ function AccountHealthCard({ status, checks }: { status?: string; checks?: any }
   if (!checks) return null;
   const st = status === "healthy" ? { label: "Healthy", color: "#06715C", bg: "#EAF9F4", dot: "#00C9A0" }
     : status === "watch" ? { label: "Watch", color: "#9A7B12", bg: "#FBF1E0", dot: "#E0A93B" }
-    : { label: "At risk", color: "#B91C1C", bg: "#FDECEC", dot: "#E25555" };
+    : { label: "At risk", color: "#B3261E", bg: "#FDECEC", dot: "#E25555" };
   const CHECKS = [
     { key: "happy", title: "Happy", c: checks.happy },
     { key: "active", title: "Active", c: checks.active },
@@ -3072,7 +3072,7 @@ function AccountHealthCard({ status, checks }: { status?: string; checks?: any }
   const tagStyle = (kind: string) => kind === "complaint"
     ? { background: "#FBF1E0", color: "#946200" }
     : kind === "cancel" ? { background: "#F1EFEA", color: "#6B6860" }
-    : { background: "#FDECEC", color: "#B91C1C" };
+    : { background: "#FDECEC", color: "#B3261E" };
   return (
     <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
@@ -3093,7 +3093,7 @@ function AccountHealthCard({ status, checks }: { status?: string; checks?: any }
               </span>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{title}</div>
-                <div style={{ fontSize: 11.5, color: c.pass ? "#9E9B94" : "#B91C1C" }}>{c.summary}</div>
+                <div style={{ fontSize: 11.5, color: c.pass ? "#9E9B94" : "#B3261E" }}>{c.summary}</div>
               </div>
               {hasDetail && (isOpen ? <ChevronUp size={15} color="#C9C5BD" /> : <ChevronDown size={15} color="#C9C5BD" />)}
             </div>
@@ -3102,7 +3102,7 @@ function AccountHealthCard({ status, checks }: { status?: string; checks?: any }
                 {key === "money" && c.details && (
                   <div style={{ fontSize: 12.5, color: "#4B4A47", paddingLeft: 33, display: "flex", flexDirection: "column", gap: 6 }}>
                     <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#9E9B94" }}>Revenue</span><b>${Math.round(c.details.revenue || 0).toLocaleString()}</b></div>
-                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#9E9B94" }}>Profit margin</span><b style={{ color: (c.details.net_pct ?? 0) >= 15 ? "#06715C" : "#B91C1C" }}>{Number(c.details.net_pct || 0).toFixed(0)}%</b></div>
+                    <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#9E9B94" }}>Profit margin</span><b style={{ color: (c.details.net_pct ?? 0) >= 15 ? "#06715C" : "#B3261E" }}>{Number(c.details.net_pct || 0).toFixed(0)}%</b></div>
                     <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ color: "#9E9B94" }}>Avg bill</span><b>${Math.round(c.details.avg_bill || 0)}<span style={{ fontWeight: 400, color: "#9E9B94", fontSize: 11 }}> vs ${Math.round(c.details.company_avg_bill || 0)} avg</span></b></div>
                   </div>
                 )}
@@ -3175,9 +3175,9 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
       {/* Rate Increase Banner */}
       {showBanner && (
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px", background: "#FFFBEB", border: "1px solid #F6AD55", borderRadius: 8 }}>
-          <AlertTriangle size={15} style={{ color: "#D97706", flexShrink: 0, marginTop: 1 }} />
-          <div style={{ fontSize: 13, color: "#92400E" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "12px 16px", background: "#FDF3E4", border: "1px solid #F6AD55", borderRadius: 8 }}>
+          <AlertTriangle size={15} style={{ color: "#B45309", flexShrink: 0, marginTop: 1 }} />
+          <div style={{ fontSize: 13, color: "#B45309" }}>
             <strong>This client may be a candidate for a rate increase.</strong>{" "}
             Net profit is {netPct.toFixed(1)}%{healthScore < 60 ? ` and account health is ${healthScore}/100` : ""} — below the healthy threshold of 20%.
           </div>
@@ -3242,11 +3242,11 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
             { key: "net",      label: "Net Profit",            amount: netProfit,     pct: netPct,          opacity: 1    },
           ].map(row => (
             <div key={row.key} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 11 }}>
-              <div style={{ width: 170, fontSize: 12, color: "#374151", flexShrink: 0 }}>{row.label}</div>
+              <div style={{ width: 170, fontSize: 12, color: "#1A1917", flexShrink: 0 }}>{row.label}</div>
               <div style={{ width: 90, fontSize: 12, color: "#1A1917", fontWeight: 600, textAlign: "right" as const, flexShrink: 0 }}>
                 {fmtDollar(row.amount * mm)}<span style={{ fontSize: 10, fontWeight: 400, color: "#9E9B94" }}>/mo</span>
               </div>
-              <div style={{ width: 38, fontSize: 11, color: "#6B7280", textAlign: "right" as const, flexShrink: 0 }}>
+              <div style={{ width: 38, fontSize: 11, color: "#6B6860", textAlign: "right" as const, flexShrink: 0 }}>
                 {row.pct.toFixed(0)}%
               </div>
               <div style={{ flex: 1, background: "#F0EEE9", borderRadius: 3, height: 8, overflow: "hidden" }}>
@@ -3282,7 +3282,7 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
               <text x="55" y="51" textAnchor="middle" fontSize="22" fontWeight="800" fill="#1A1917" fontFamily="'Plus Jakarta Sans', sans-serif">{healthScore}</text>
               <text x="55" y="68" textAnchor="middle" fontSize="11" fill="#9E9B94" fontFamily="'Plus Jakarta Sans', sans-serif">/100</text>
             </svg>
-            <div style={{ marginTop: 8, fontSize: 11, color: "#6B7280" }}>Score</div>
+            <div style={{ marginTop: 8, fontSize: 11, color: "#6B6860" }}>Score</div>
             <div style={{ marginTop: 6, fontSize: 10, fontWeight: 700, color: healthColor, background: `${healthColor}20`, borderRadius: 20, padding: "3px 10px", display: "inline-block" }}>
               {healthScore >= 75 ? "Healthy" : healthScore >= 50 ? "Watch" : "At Risk"}
             </div>
@@ -3296,7 +3296,7 @@ function ProfitabilityTab({ clientId }: { clientId: number }) {
           <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.08em", marginBottom: 14 }}>Top Services by Revenue</div>
           {topServices.map((svc: any, i: number) => (
             <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
-              <div style={{ width: 190, fontSize: 12, color: "#374151", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
+              <div style={{ width: 190, fontSize: 12, color: "#1A1917", flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" as const }}>
                 {SERVICE_LABELS[svc.service_type] || svc.service_type}
               </div>
               <div style={{ flex: 1, background: "#F0EEE9", borderRadius: 3, height: 8 }}>
@@ -3521,7 +3521,7 @@ function ProfileHero({ client, stats, jhStats, recurringSchedule, onSchedule, on
             <h1 style={{ margin: 0, fontSize: 24, fontWeight: 800, color: "#0A0E1A", fontFamily: FF }}>
               {client.first_name} {client.last_name}
             </h1>
-            <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 9px", borderRadius: 4, textTransform: "uppercase" as const, letterSpacing: "0.07em", background: isRecurring ? "#DCFCE7" : "#F3F4F6", color: isRecurring ? "#166534" : "#6B7280" }}>
+            <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 9px", borderRadius: 4, textTransform: "uppercase" as const, letterSpacing: "0.07em", background: isRecurring ? "#E6F6F1" : "#F0EEE9", color: isRecurring ? "#0F7A63" : "#6B6860" }}>
               {isRecurring ? "Recurring" : "One-Time"}
             </span>
             {freqBadge && (
@@ -3530,7 +3530,7 @@ function ProfileHero({ client, stats, jhStats, recurringSchedule, onSchedule, on
               </span>
             )}
             {client.suspended_at && (
-              <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 9px", borderRadius: 4, textTransform: "uppercase" as const, letterSpacing: "0.07em", background: "#FEF3C7", color: "#92400E" }}>
+              <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 9px", borderRadius: 4, textTransform: "uppercase" as const, letterSpacing: "0.07em", background: "#FDF3E4", color: "#B45309" }}>
                 Suspended{client.suspend_until ? ` · until ${fmtDate(client.suspend_until)}` : ""}
               </span>
             )}
@@ -3539,18 +3539,18 @@ function ProfileHero({ client, stats, jhStats, recurringSchedule, onSchedule, on
             <span style={{ fontSize: 11, color: "#9E9B94" }}>CL-{String(client.id).padStart(4, "0")}</span>
             {client.zone_name && (
               <><span style={{ color: "#D0CEC9" }}>·</span>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: "1px 7px", borderRadius: 4, background: client.zone_color ? `${client.zone_color}22` : "#EDE9FE", color: client.zone_color || "#7C3AED" }}>
+              <span style={{ fontSize: 11, fontWeight: 600, padding: "1px 7px", borderRadius: 4, background: client.zone_color ? `${client.zone_color}22` : "#FBF0E9", color: client.zone_color || "#9C4E2B" }}>
                 {client.zone_name}
               </span></>
             )}
             {client.company_name && (
-              <><span style={{ color: "#D0CEC9" }}>·</span><span style={{ fontSize: 11, color: "#6B7280" }}>{client.company_name}</span></>
+              <><span style={{ color: "#D0CEC9" }}>·</span><span style={{ fontSize: 11, color: "#6B6860" }}>{client.company_name}</span></>
             )}
           </div>
         </div>
         <div style={{ background: "#0A0E1A", borderRadius: 10, padding: "12px 20px", textAlign: "center" as const, flexShrink: 0 }}>
           <div style={{ fontSize: 22, fontWeight: 900, color: "var(--brand)", fontFamily: FF }}>${ltv.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginTop: 2 }}>Lifetime Value</div>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginTop: 2 }}>Lifetime Value</div>
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginTop: 18, flexWrap: "wrap" }}>
@@ -3611,7 +3611,7 @@ function ClientDetailsPanel({ client, jhStats, recurringSchedule, noCard }: { cl
       {client.home_access_notes && (
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 2 }}>Entry Instructions</div>
-          <div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-wrap" as const }}>{client.home_access_notes}</div>
+          <div style={{ fontSize: 13, color: "#1A1917", whiteSpace: "pre-wrap" as const }}>{client.home_access_notes}</div>
         </div>
       )}
       {client.alarm_code && (
@@ -3636,13 +3636,13 @@ function ClientDetailsPanel({ client, jhStats, recurringSchedule, noCard }: { cl
       {client.zone_name && (
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 2 }}>Service Zone</div>
-          <span style={{ fontSize: 13, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: client.zone_color ? `${client.zone_color}22` : "#EDE9FE", color: client.zone_color || "#7C3AED" }}>{client.zone_name}</span>
+          <span style={{ fontSize: 13, fontWeight: 600, padding: "2px 8px", borderRadius: 4, background: client.zone_color ? `${client.zone_color}22` : "#FBF0E9", color: client.zone_color || "#9C4E2B" }}>{client.zone_name}</span>
         </div>
       )}
       {client.notes && (
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 2 }}>Internal Notes</div>
-          <div style={{ fontSize: 12, color: "#374151", whiteSpace: "pre-wrap" as const }}>{client.notes}</div>
+          <div style={{ fontSize: 12, color: "#1A1917", whiteSpace: "pre-wrap" as const }}>{client.notes}</div>
         </div>
       )}
     </div>
@@ -3661,10 +3661,10 @@ function JobDetailSlideOver({ row, profile, onClose }: { row: any; profile?: any
   const notesLower = (row.notes || "").toLowerCase();
   const status = notesLower.includes("skip") ? "Skipped" : notesLower.includes("bump") ? "Bumped" : notesLower.includes("cancel") ? "Cancelled" : "Completed";
   const statusColors: Record<string, { bg: string; color: string }> = {
-    Completed: { bg: "#DCFCE7", color: "#16A34A" },
-    Skipped:   { bg: "#FEF3C7", color: "#D97706" },
-    Bumped:    { bg: "#DBEAFE", color: "#2563EB" },
-    Cancelled: { bg: "#FEE2E2", color: "#DC2626" },
+    Completed: { bg: "#E6F6F1", color: "#0F7A63" },
+    Skipped:   { bg: "#FDF3E4", color: "#B45309" },
+    Bumped:    { bg: "#EFEFF2", color: "#2F3646" },
+    Cancelled: { bg: "#FCEBEA", color: "#B3261E" },
   };
   const sc = statusColors[status];
 
@@ -3757,8 +3757,8 @@ function JobDetailSlideOver({ row, profile, onClose }: { row: any; profile?: any
           {scorecard && (
             <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "12px 14px", borderLeft: "3px solid var(--brand)" }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Performance Score</div>
-              <div style={{ fontSize: 20, fontWeight: 900, color: scorecard.score >= 4 ? "#16A34A" : scorecard.score >= 3 ? "#D97706" : "#DC2626" }}>{scorecard.score} / 5</div>
-              {scorecard.comments && <div style={{ fontSize: 12, color: "#374151", marginTop: 4 }}>{scorecard.comments}</div>}
+              <div style={{ fontSize: 20, fontWeight: 900, color: scorecard.score >= 4 ? "#0F7A63" : scorecard.score >= 3 ? "#B45309" : "#B3261E" }}>{scorecard.score} / 5</div>
+              {scorecard.comments && <div style={{ fontSize: 12, color: "#1A1917", marginTop: 4 }}>{scorecard.comments}</div>}
             </div>
           )}
         </div>
@@ -3824,7 +3824,7 @@ function JobHistoryPanel({ clientId: _clientId, jhData, isLoading, profile }: { 
                 <col style={{ width: "68px" }} />
                 <col style={{ width: "64px" }} />
               </colgroup>
-              <thead style={{ position: "sticky" as const, top: 0, zIndex: 1, background: "#FAFAF8" }}>
+              <thead style={{ position: "sticky" as const, top: 0, zIndex: 1, background: "#F7F6F3" }}>
                 <tr>
                   {["Date", "Technician(s)", "Dur.", "Amount"].map(h => (
                     <th key={h} style={TH_STYLE}>{h}</th>
@@ -3866,16 +3866,16 @@ function JobHistoryPanel({ clientId: _clientId, jhData, isLoading, profile }: { 
         )}
 
         {/* Pinned pagination */}
-        <div style={{ borderTop: "1px solid #E5E2DC", padding: "8px 14px", flexShrink: 0, background: "#FAFAF8", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ borderTop: "1px solid #E5E2DC", padding: "8px 14px", flexShrink: 0, background: "#F7F6F3", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-            style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 9px", border: "1px solid #E5E2DC", borderRadius: 5, background: page === 1 ? "#F3F4F6" : "#FFFFFF", color: page === 1 ? "#9E9B94" : "#1A1917", fontSize: 11, cursor: page === 1 ? "default" : "pointer", fontFamily: FF }}>
+            style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 9px", border: "1px solid #E5E2DC", borderRadius: 5, background: page === 1 ? "#F0EEE9" : "#FFFFFF", color: page === 1 ? "#9E9B94" : "#1A1917", fontSize: 11, cursor: page === 1 ? "default" : "pointer", fontFamily: FF }}>
             <ChevronLeft size={12} /> Prev
           </button>
-          <span style={{ fontSize: 11, color: "#6B7280" }}>
+          <span style={{ fontSize: 11, color: "#6B6860" }}>
             {rows.length > 0 ? `Page ${page} of ${totalPages}` : "0 records"}
           </span>
           <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages || rows.length === 0}
-            style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 9px", border: "1px solid #E5E2DC", borderRadius: 5, background: (page === totalPages || rows.length === 0) ? "#F3F4F6" : "#FFFFFF", color: (page === totalPages || rows.length === 0) ? "#9E9B94" : "#1A1917", fontSize: 11, cursor: (page === totalPages || rows.length === 0) ? "default" : "pointer", fontFamily: FF }}>
+            style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 9px", border: "1px solid #E5E2DC", borderRadius: 5, background: (page === totalPages || rows.length === 0) ? "#F0EEE9" : "#FFFFFF", color: (page === totalPages || rows.length === 0) ? "#9E9B94" : "#1A1917", fontSize: 11, cursor: (page === totalPages || rows.length === 0) ? "default" : "pointer", fontFamily: FF }}>
             Next <ChevronRight size={12} />
           </button>
         </div>
@@ -3927,8 +3927,8 @@ function ClientIntelligencePanel({ jhStats, profile, noCard }: { jhStats: any; p
   }
 
   const { total_revenue, total_visits, unique_techs, revenue_last_12mo, avg_bill, revenue_trend_pct, pending_jobs, ecard_pct } = jhStats;
-  const techColor = unique_techs >= 6 ? "#DC2626" : unique_techs >= 3 ? "#D97706" : "#16A34A";
-  const techBg = unique_techs >= 6 ? "#FEE2E2" : unique_techs >= 3 ? "#FEF3C7" : "#DCFCE7";
+  const techColor = unique_techs >= 6 ? "#B3261E" : unique_techs >= 3 ? "#B45309" : "#0F7A63";
+  const techBg = unique_techs >= 6 ? "#FCEBEA" : unique_techs >= 3 ? "#FDF3E4" : "#E6F6F1";
   const trendUp = revenue_trend_pct !== null && revenue_trend_pct >= 0;
 
   const SR = ({ label, value, color }: { label: string; value: string | number; color?: string }) => (
@@ -3958,18 +3958,18 @@ function ClientIntelligencePanel({ jhStats, profile, noCard }: { jhStats: any; p
           <SR label="Pending Jobs" value={pending_jobs} color={pending_jobs > 0 ? "var(--brand)" : "#1A1917"} />
         )}
         {(revenue_trend_pct !== null && revenue_trend_pct !== undefined) && (
-          <SR label="Revenue Trend" value={`${trendUp ? "+" : ""}${revenue_trend_pct.toFixed(0)}% vs prior 6mo`} color={trendUp ? "#16A34A" : "#DC2626"} />
+          <SR label="Revenue Trend" value={`${trendUp ? "+" : ""}${revenue_trend_pct.toFixed(0)}% vs prior 6mo`} color={trendUp ? "#0F7A63" : "#B3261E"} />
         )}
-        <SR label="Skips" value={jhStats.skips ?? 0} color={(jhStats.skips ?? 0) > 0 ? "#DC2626" : "#1A1917"} />
-        <SR label="Bumps" value={jhStats.bumps ?? 0} color={(jhStats.bumps ?? 0) > 0 ? "#D97706" : "#1A1917"} />
+        <SR label="Skips" value={jhStats.skips ?? 0} color={(jhStats.skips ?? 0) > 0 ? "#B3261E" : "#1A1917"} />
+        <SR label="Bumps" value={jhStats.bumps ?? 0} color={(jhStats.bumps ?? 0) > 0 ? "#B45309" : "#1A1917"} />
         {(ecard_pct !== null && ecard_pct !== undefined) && (
-          <SR label="eCard Rate" value={`${ecard_pct}%`} color={ecard_pct >= 50 ? "#16A34A" : "#6B7280"} />
+          <SR label="eCard Rate" value={`${ecard_pct}%`} color={ecard_pct >= 50 ? "#0F7A63" : "#6B6860"} />
         )}
       </div>
       {profile?.stats?.scorecard_avg && (
         <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 14 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em", marginBottom: 6 }}>Avg Performance Score</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: profile.stats.scorecard_avg >= 4 ? "#16A34A" : profile.stats.scorecard_avg >= 3 ? "#D97706" : "#DC2626" }}>
+          <div style={{ fontSize: 20, fontWeight: 800, color: profile.stats.scorecard_avg >= 4 ? "#0F7A63" : profile.stats.scorecard_avg >= 3 ? "#B45309" : "#B3261E" }}>
             {profile.stats.scorecard_avg.toFixed(1)} / 5
           </div>
         </div>
@@ -4200,13 +4200,13 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
           {client.latest_nps_score !== null && client.latest_nps_score !== undefined && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase" as const }}>NPS</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: client.latest_nps_score >= 9 ? "#16A34A" : client.latest_nps_score >= 7 ? "#D97706" : "#DC2626" }}>{client.latest_nps_score}</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: client.latest_nps_score >= 9 ? "#0F7A63" : client.latest_nps_score >= 7 ? "#B45309" : "#B3261E" }}>{client.latest_nps_score}</span>
             </div>
           )}
           {client.churn_risk_score !== null && client.churn_risk_score !== undefined && (
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8 }}>
               <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase" as const }}>Churn Risk</span>
-              <span style={{ fontSize: 15, fontWeight: 800, color: client.churn_risk_score >= 70 ? "#DC2626" : client.churn_risk_score >= 40 ? "#D97706" : "#16A34A" }}>{client.churn_risk_score}%</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: client.churn_risk_score >= 70 ? "#B3261E" : client.churn_risk_score >= 40 ? "#B45309" : "#0F7A63" }}>{client.churn_risk_score}%</span>
             </div>
           )}
         </div>
@@ -4585,10 +4585,10 @@ function ServiceDetailsSection({ client, onUpdate, refetch, recurringSchedule, o
                                 style={{
                                   display: "inline-flex", alignItems: "center", gap: 5,
                                   padding: "6px 10px", borderRadius: 6,
-                                  border: `1.5px solid ${checked ? "#2D9B83" : "#E5E2DC"}`,
+                                  border: `1.5px solid ${checked ? "#0F7A63" : "#E5E2DC"}`,
                                   backgroundColor: checked ? "rgba(45,155,131,0.07)" : "#FFFFFF",
                                   fontSize: 12, fontFamily: FF, cursor: "pointer",
-                                  color: checked ? "#2D9B83" : "#1A1917",
+                                  color: checked ? "#0F7A63" : "#1A1917",
                                   fontWeight: checked ? 700 : 500,
                                   minHeight: 32,
                                 }}>
@@ -4693,7 +4693,7 @@ function BillingSection({ client, invoices, refetch }: { client: any; invoices: 
         </div>
       </div>
       {outstanding > 0 && (
-        <div style={{ padding: "10px 14px", background: "#FEF3C7", borderRadius: 8, fontSize: 12, color: "#92400E", fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ padding: "10px 14px", background: "#FDF3E4", borderRadius: 8, fontSize: 12, color: "#B45309", fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
           <CreditCard size={14} />
           Outstanding balance: ${outstanding.toFixed(2)}
         </div>
@@ -4729,12 +4729,12 @@ function ContactTicketsSection({ clientId }: { clientId: number }) {
   };
 
   const TICKET_COLORS: Record<string, { background: string; color: string }> = {
-    skip: { background: "#FEF3C7", color: "#92400E" },
-    complaint: { background: "#FEE2E2", color: "#991B1B" },
-    compliment: { background: "#DCFCE7", color: "#166534" },
-    schedule_change: { background: "#EDE9FE", color: "#5B21B6" },
-    cancellation: { background: "#FEE2E2", color: "#991B1B" },
-    breakage: { background: "#FEF3C7", color: "#92400E" },
+    skip: { background: "#FDF3E4", color: "#B45309" },
+    complaint: { background: "#FCEBEA", color: "#B3261E" },
+    compliment: { background: "#E6F6F1", color: "#0F7A63" },
+    schedule_change: { background: "#FBF0E9", color: "#9C4E2B" },
+    cancellation: { background: "#FCEBEA", color: "#B3261E" },
+    breakage: { background: "#FDF3E4", color: "#B45309" },
   };
 
   return (
@@ -4749,18 +4749,18 @@ function ContactTicketsSection({ clientId }: { clientId: number }) {
           <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 14 }}>New Contact Ticket</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 4 }}>Ticket Type</label>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 4 }}>Ticket Type</label>
               <select value={form.ticket_type} onChange={e => setForm(f => ({ ...f, ticket_type: e.target.value }))} style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF }}>
                 {Object.entries(TICKET_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
             </div>
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 4 }}>Notes</label>
+              <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 4 }}>Notes</label>
               <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={3}
                 style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, outline: "none", resize: "vertical" as const, boxSizing: "border-box" as const, fontFamily: FF }} />
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button onClick={() => setShowForm(false)} style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B7280", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+              <button onClick={() => setShowForm(false)} style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#FFFFFF", color: "#6B6860", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
               <button onClick={() => createMut.mutate(form)} disabled={createMut.isPending} style={{ padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: 7, color: "#FFFFFF", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                 {createMut.isPending ? "Saving..." : "Save Ticket"}
               </button>
@@ -4774,7 +4774,7 @@ function ContactTicketsSection({ clientId }: { clientId: number }) {
         <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" as const }}>
             <thead>
-              <tr style={{ background: "#FAFAF8" }}>
+              <tr style={{ background: "#F7F6F3" }}>
                 {["Created", "Type", "Job ID", "Notes", "Created By"].map(h => <th key={h} style={TH_STYLE}>{h}</th>)}
               </tr>
             </thead>
@@ -4782,7 +4782,7 @@ function ContactTicketsSection({ clientId }: { clientId: number }) {
               {tickets.length === 0 ? (
                 <tr><td colSpan={5} style={{ padding: "14px 16px", textAlign: "left" as const, color: "#9E9B94", fontSize: 13 }}>No tickets yet</td></tr>
               ) : tickets.map((t: any) => {
-                const tc = TICKET_COLORS[t.ticket_type] || { background: "#F3F4F6", color: "#6B7280" };
+                const tc = TICKET_COLORS[t.ticket_type] || { background: "#F0EEE9", color: "#6B6860" };
                 return (
                   <tr key={t.id}>
                     <td style={TD_STYLE}>{fmtDate(t.created_at)}</td>
@@ -4791,9 +4791,9 @@ function ContactTicketsSection({ clientId }: { clientId: number }) {
                         {TICKET_LABELS[t.ticket_type] || t.ticket_type}
                       </span>
                     </td>
-                    <td style={{ ...TD_STYLE, color: "#6B7280" }}>{t.job_id ? `#${t.job_id}` : "—"}</td>
-                    <td style={{ ...TD_STYLE, fontSize: 12, color: "#374151", maxWidth: 240 }}>{t.notes || "—"}</td>
-                    <td style={{ ...TD_STYLE, fontSize: 12, color: "#6B7280" }}>{t.created_by_first ? `${t.created_by_first} ${t.created_by_last}` : "—"}</td>
+                    <td style={{ ...TD_STYLE, color: "#6B6860" }}>{t.job_id ? `#${t.job_id}` : "—"}</td>
+                    <td style={{ ...TD_STYLE, fontSize: 12, color: "#1A1917", maxWidth: 240 }}>{t.notes || "—"}</td>
+                    <td style={{ ...TD_STYLE, fontSize: 12, color: "#6B6860" }}>{t.created_by_first ? `${t.created_by_first} ${t.created_by_last}` : "—"}</td>
                   </tr>
                 );
               })}
@@ -4817,7 +4817,7 @@ function InspectionsSection() {
       <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" as const }}>
           <thead>
-            <tr style={{ background: "#FAFAF8" }}>
+            <tr style={{ background: "#F7F6F3" }}>
               {["Date", "Inspector", "Score", "Result", "Notes"].map(h => <th key={h} style={TH_STYLE}>{h}</th>)}
             </tr>
           </thead>
@@ -4899,7 +4899,7 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
                 <div key={p.photo_id} style={{ border: "1px solid #E5E2DC", borderRadius: 7, overflow: "hidden", position: "relative" }}>
                   <img src={p.url} alt={`Job ${group.jobId} photo`} style={{ width: "100%", height: 110, objectFit: "cover" as const, display: "block" }} />
                   {p.photo_type && (
-                    <div style={{ position: "absolute", top: 6, left: 6, fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, background: p.photo_type === "before" ? "#FEF3C7" : "#DCFCE7", color: p.photo_type === "before" ? "#92400E" : "#166534", padding: "2px 6px", borderRadius: 4 }}>{p.photo_type}</div>
+                    <div style={{ position: "absolute", top: 6, left: 6, fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, background: p.photo_type === "before" ? "#FDF3E4" : "#E6F6F1", color: p.photo_type === "before" ? "#B45309" : "#0F7A63", padding: "2px 6px", borderRadius: 4 }}>{p.photo_type}</div>
                   )}
                 </div>
               ))}
@@ -5013,7 +5013,7 @@ function LoyaltyProgramCard({ clientId, loyaltyRecord, loyaltyTiers, loyaltyStat
             </div>
           </div>
         ) : (
-          <div style={{ fontSize: 11, color: "#16A34A", fontWeight: 600, marginBottom: 12 }}>Top Tier</div>
+          <div style={{ fontSize: 11, color: "#0F7A63", fontWeight: 600, marginBottom: 12 }}>Top Tier</div>
         )
       ) : (
         <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 12 }}>
@@ -5037,7 +5037,7 @@ function LoyaltyProgramCard({ clientId, loyaltyRecord, loyaltyTiers, loyaltyStat
         onChange={e => setNotes(e.target.value)}
         onBlur={handleSaveNotes}
         placeholder="Loyalty notes..."
-        style={{ width: "100%", resize: "vertical" as const, minHeight: 60, border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 12, fontFamily: FF, color: "#1A1917", background: "#FAFAF8", boxSizing: "border-box" as const }}
+        style={{ width: "100%", resize: "vertical" as const, minHeight: 60, border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 12, fontFamily: FF, color: "#1A1917", background: "#F7F6F3", boxSizing: "border-box" as const }}
       />
 
       {/* Add Points Modal */}
@@ -5099,11 +5099,11 @@ function ReferralsCard({ clientId, referrals, refetch, showToast }: {
   const CS2: React.CSSProperties = { background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: "18px 20px", marginBottom: 14 };
 
   const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-    pending:     { bg: "#FEF3C7", color: "#D97706" },
-    booked:      { bg: "#DBEAFE", color: "#2563EB" },
-    completed:   { bg: "#DCFCE7", color: "#16A34A" },
-    reward_paid: { bg: "#EDE9FE", color: "#7C3AED" },
-    declined:    { bg: "#FEE2E2", color: "#DC2626" },
+    pending:     { bg: "#FDF3E4", color: "#B45309" },
+    booked:      { bg: "#EFEFF2", color: "#2F3646" },
+    completed:   { bg: "#E6F6F1", color: "#0F7A63" },
+    reward_paid: { bg: "#FBF0E9", color: "#9C4E2B" },
+    declined:    { bg: "#FCEBEA", color: "#B3261E" },
   };
 
   async function handleCreate() {
@@ -5193,7 +5193,7 @@ function ReferralsCard({ clientId, referrals, refetch, showToast }: {
                         {r.status === "completed" && !r.reward_issued && (
                           <button
                             onClick={() => handleRewardPaid(r.id)}
-                            style={{ fontSize: 10, fontWeight: 600, color: "#7C3AED", background: "#EDE9FE", border: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" as const }}
+                            style={{ fontSize: 10, fontWeight: 600, color: "#9C4E2B", background: "#FBF0E9", border: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" as const }}
                           >Mark Reward Paid</button>
                         )}
                       </div>
@@ -5240,17 +5240,17 @@ function ReferralsCard({ clientId, referrals, refetch, showToast }: {
 
 // ─── Job Calendar ──────────────────────────────────────────────────────────────
 const STATUS_CHIP: Record<string, { bg: string; border: string; text: string; label: string; tooltip: string }> = {
-  scheduled:  { bg: "#DBEAFE", border: "#3B82F6", text: "#1D4ED8", label: "Scheduled", tooltip: "Scheduled — service appointment booked" },
-  complete:   { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
-  completed:  { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
-  invoiced:   { bg: "#DCFCE7", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
-  cancelled:  { bg: "#FEE2E2", border: "#EF4444", text: "#DC2626", label: "Cancelled", tooltip: "Cancelled — visit cancelled (no fee)" },
+  scheduled:  { bg: "#EFEFF2", border: "#2F3646", text: "#2F3646", label: "Scheduled", tooltip: "Scheduled — service appointment booked" },
+  complete:   { bg: "#E6F6F1", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
+  completed:  { bg: "#E6F6F1", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
+  invoiced:   { bg: "#E6F6F1", border: "#22C55E", text: "#15803D", label: "Done",  tooltip: "Done — Service completed" },
+  cancelled:  { bg: "#FCEBEA", border: "#B3261E", text: "#B3261E", label: "Cancelled", tooltip: "Cancelled — visit cancelled (no fee)" },
   bumped:     { bg: "#FED7AA", border: "#F97316", text: "#C2410C", label: "Moved", tooltip: "Moved — Job rescheduled to another date" },
-  skipped:    { bg: "#F3F4F6", border: "#9CA3AF", text: "#6B7280", label: "Skipped",  tooltip: "Skipped — Client skipped this visit" },
+  skipped:    { bg: "#F0EEE9", border: "#9E9B94", text: "#6B6860", label: "Skipped",  tooltip: "Skipped — Client skipped this visit" },
   lockout:    { bg: "#F3E8E8", border: "#7B2D2D", text: "#7B2D2D", label: "Lockout",  tooltip: "Lockout — Technician could not access the property" },
   // Charged cancel/lockout (job.status stays 'complete' for revenue) — resolved
   // from cancel_action so the calendar reads the truth, not "Done".
-  cancelled_fee: { bg: "#FEF3C7", border: "#F59E0B", text: "#B45309", label: "Cancel fee", tooltip: "Cancelled — fee charged (not a completed visit)" },
+  cancelled_fee: { bg: "#FDF3E4", border: "#F59E0B", text: "#B45309", label: "Cancel fee", tooltip: "Cancelled — fee charged (not a completed visit)" },
 };
 // Resolve a job to its chip key. cancel_action (latest cancellation_log row)
 // adds nuance the bare status can't carry:
@@ -5539,7 +5539,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
         const left = Math.min(hoverCard.x + 8, (typeof window !== "undefined" ? window.innerWidth : 1200) - W - 10);
         const top = Math.max(8, hoverCard.y - 6);
         const Row = ({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) => (
-          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#374151", padding: "3px 0" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12, color: "#1A1917", padding: "3px 0" }}>
             <span style={{ color: "#9E9B94", display: "flex", width: 14, flexShrink: 0 }}>{icon}</span>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{children}</span>
           </div>
@@ -5588,15 +5588,15 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
           {/* Nav */}
           <button
             onClick={() => setAnchor(a => addMonths(a, -1))}
-            style={{ width: 26, height: 26, border: "1px solid #E5E2DC", borderRadius: 5, background: "#FAFAF8", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+            style={{ width: 26, height: 26, border: "1px solid #E5E2DC", borderRadius: 5, background: "#F7F6F3", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
           ><ChevronLeft size={13} /></button>
           <button
             onClick={() => setAnchor(todayRef.current)}
-            style={{ padding: "4px 8px", fontSize: 11, border: "1px solid #E5E2DC", borderRadius: 5, background: "#FAFAF8", cursor: "pointer", fontFamily: FF }}
+            style={{ padding: "4px 8px", fontSize: 11, border: "1px solid #E5E2DC", borderRadius: 5, background: "#F7F6F3", cursor: "pointer", fontFamily: FF }}
           >Today</button>
           <button
             onClick={() => setAnchor(a => addMonths(a, 1))}
-            style={{ width: 26, height: 26, border: "1px solid #E5E2DC", borderRadius: 5, background: "#FAFAF8", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+            style={{ width: 26, height: 26, border: "1px solid #E5E2DC", borderRadius: 5, background: "#F7F6F3", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
           ><ChevronRight size={13} /></button>
         </div>
       </div>
@@ -5649,7 +5649,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
                   </div>
 
                   {/* Job info rows */}
-                  <div style={{ background: "#FAFAF8", borderRadius: 8, padding: "10px 12px", marginBottom: 16, fontSize: 13 }}>
+                  <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "10px 12px", marginBottom: 16, fontSize: 13 }}>
                     {[
                       ["Current date", origDate],
                       ["Service", j.service_type || "—"],
@@ -5669,12 +5669,12 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
                       <button
                         onClick={() => handleStatusChange("void")}
                         disabled={statusSaving}
-                        style={{ flex: 1, padding: "6px 0", fontSize: 12, fontWeight: 700, background: "#FEE2E2", color: "#DC2626", border: "1px solid #EF4444", borderRadius: 6, cursor: "pointer", fontFamily: FF }}
+                        style={{ flex: 1, padding: "6px 0", fontSize: 12, fontWeight: 700, background: "#FCEBEA", color: "#B3261E", border: "1px solid #B3261E", borderRadius: 6, cursor: "pointer", fontFamily: FF }}
                       >Mark Void</button>
                       <button
                         onClick={() => handleStatusChange("skip")}
                         disabled={statusSaving}
-                        style={{ flex: 1, padding: "6px 0", fontSize: 12, fontWeight: 700, background: "#F3F4F6", color: "#6B7280", border: "1px solid #D1D5DB", borderRadius: 6, cursor: "pointer", fontFamily: FF }}
+                        style={{ flex: 1, padding: "6px 0", fontSize: 12, fontWeight: 700, background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC", borderRadius: 6, cursor: "pointer", fontFamily: FF }}
                       >Mark Skip</button>
                     </div>
                   )}
@@ -5684,7 +5684,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
                       <button
                         onClick={() => handleStatusChange("booked")}
                         disabled={statusSaving}
-                        style={{ flex: 1, padding: "6px 0", fontSize: 12, fontWeight: 700, background: "#DBEAFE", color: "#1D4ED8", border: "1px solid #3B82F6", borderRadius: 6, cursor: "pointer", fontFamily: FF }}
+                        style={{ flex: 1, padding: "6px 0", fontSize: 12, fontWeight: 700, background: "#EFEFF2", color: "#2F3646", border: "1px solid #2F3646", borderRadius: 6, cursor: "pointer", fontFamily: FF }}
                       >Restore to Booked</button>
                     </div>
                   )}
@@ -5720,7 +5720,7 @@ function JobCalendar({ clientId, clientName, onScheduleOnDate }: { clientId: num
                           style={{ width: "100%", border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 10px", fontSize: 13, fontFamily: FF, boxSizing: "border-box" as const, resize: "vertical" as const }}
                         />
                       </div>
-                      {saveErr && <div style={{ fontSize: 12, color: "#DC2626", marginBottom: 10 }}>{saveErr}</div>}
+                      {saveErr && <div style={{ fontSize: 12, color: "#B3261E", marginBottom: 10 }}>{saveErr}</div>}
                     </>
                   )}
 
@@ -5800,9 +5800,9 @@ function CustomerMessagesTab({ clientId }: { clientId: number }) {
   };
   const fmtType = (t: string) => TYPE_LABELS[t] || (t || "message").replace(/_/g, " ");
   const statusColor = (s: string) =>
-    s === "sent" || s === "delivered" || s === "received" ? "#16A34A"
-    : s === "failed" || s === "undelivered" ? "#DC2626"
-    : (s || "").startsWith("suppress") || s === "skipped" ? "#B45309" : "#6B7280";
+    s === "sent" || s === "delivered" || s === "received" ? "#0F7A63"
+    : s === "failed" || s === "undelivered" ? "#B3261E"
+    : (s || "").startsWith("suppress") || s === "skipped" ? "#B45309" : "#6B6860";
 
   if (loading) return <div style={{ padding: 24, textAlign: "center", color: "#9E9B94", fontFamily: FF, fontSize: 13 }}>Loading…</div>;
   if (rows.length === 0) return <div style={{ padding: 24, textAlign: "center", color: "#9E9B94", fontFamily: FF, fontSize: 13 }}>No messages sent to this customer yet.</div>;
@@ -5811,10 +5811,10 @@ function CustomerMessagesTab({ clientId }: { clientId: number }) {
     <div style={{ fontFamily: FF, display: "flex", flexDirection: "column", gap: 8 }}>
       {rows.map((m, i) => (
         <div key={i} style={{ display: "flex", gap: 12, padding: "10px 12px", background: "#F7F6F3", borderRadius: 8, alignItems: "flex-start" }}>
-          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: m.channel === "email" ? "#1D4ED8" : "#047857", background: m.channel === "email" ? "#EFF6FF" : "#ECFDF5", padding: "3px 7px", borderRadius: 4, marginTop: 1, flexShrink: 0 }}>{m.channel === "email" ? "EMAIL" : "TEXT"}</span>
+          <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.06em", color: m.channel === "email" ? "#2F3646" : "#047857", background: m.channel === "email" ? "#EFEFF2" : "#E6F6F1", padding: "3px 7px", borderRadius: 4, marginTop: 1, flexShrink: 0 }}>{m.channel === "email" ? "EMAIL" : "TEXT"}</span>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{fmtType(m.type)}{m.direction === "inbound" && <span style={{ fontSize: 10, color: "#7C3AED", marginLeft: 6 }}>FROM CUSTOMER</span>}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{fmtType(m.type)}{m.direction === "inbound" && <span style={{ fontSize: 10, color: "#9C4E2B", marginLeft: 6 }}>FROM CUSTOMER</span>}</span>
               <span style={{ fontSize: 11, color: "#9E9B94", flexShrink: 0 }}>{m.at ? new Date(m.at).toLocaleString() : ""}</span>
             </div>
             {(m.subject || m.body) && (
@@ -5966,7 +5966,7 @@ export default function CustomerProfilePage() {
     const lower = name.toLowerCase();
     if (lower.includes("gold")) return { bg: "#FEF9C3", color: "#CA8A04" };
     if (lower.includes("silver")) return { bg: "#F1F5F9", color: "#64748B" };
-    if (lower.includes("bronze")) return { bg: "#FEF3C7", color: "#D97706" };
+    if (lower.includes("bronze")) return { bg: "#FDF3E4", color: "#B45309" };
     return { bg: "#E5E2DC", color: "#6B6860" };
   }
 
@@ -6017,14 +6017,14 @@ export default function CustomerProfilePage() {
             {profile.zone_color && (
               <span title={profile.zone_name || "Zone"} style={{ width: 14, height: 14, borderRadius: "50%", backgroundColor: profile.zone_color, display: "inline-block", flexShrink: 0, cursor: "default", boxShadow: `0 0 0 3px ${profile.zone_color}30, 0 0 0 1px ${profile.zone_color}80` }} />
             )}
-            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em", background: profile.is_active !== false ? "#DCFCE7" : "#F3F4F6", color: profile.is_active !== false ? "#166534" : "#6B7280" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em", background: profile.is_active !== false ? "#E6F6F1" : "#F0EEE9", color: profile.is_active !== false ? "#0F7A63" : "#6B6860" }}>
               {profile.is_active !== false ? "Active" : "Inactive"}
             </span>
-            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em", background: isRecurring ? "var(--brand-dim)" : "#F3F4F6", color: isRecurring ? "var(--brand)" : "#6B7280" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 4, textTransform: "uppercase" as const, letterSpacing: "0.06em", background: isRecurring ? "var(--brand-dim)" : "#F0EEE9", color: isRecurring ? "var(--brand)" : "#6B6860" }}>
               {isRecurring ? "Recurring" : "One-Time"}
             </span>
             {freqBadge && (
-              <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "#EDE9FE", color: "#7C3AED", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>{freqBadge}</span>
+              <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 4, background: "#FBF0E9", color: "#9C4E2B", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>{freqBadge}</span>
             )}
           </div>
           <div style={{ display: "flex", gap: 12, marginTop: 3, fontSize: 12, color: "#9E9B94", flexWrap: "wrap" }}>
@@ -6113,14 +6113,14 @@ export default function CustomerProfilePage() {
           <SR2 label="Avg Bill (12mo)" value={jhStats.avg_bill != null ? `$${Number(jhStats.avg_bill).toFixed(2)}` : null} />
           <SR2 label="Total Visits" value={jhStats.total_visits ?? 0} />
           <SR2 label="Pending Jobs" value={jhStats.pending_jobs ?? 0} color={(jhStats.pending_jobs ?? 0) > 0 ? "var(--brand)" : undefined} />
-          <SR2 label="Skips" value={jhStats.skips ?? 0} color={(jhStats.skips ?? 0) > 0 ? "#DC2626" : undefined} />
-          <SR2 label="Bumps" value={jhStats.bumps ?? 0} color={(jhStats.bumps ?? 0) > 0 ? "#D97706" : undefined} />
-          {jhStats.ecard_pct != null && <SR2 label="eCard Rate" value={`${jhStats.ecard_pct}%`} color={jhStats.ecard_pct >= 50 ? "#16A34A" : undefined} />}
+          <SR2 label="Skips" value={jhStats.skips ?? 0} color={(jhStats.skips ?? 0) > 0 ? "#B3261E" : undefined} />
+          <SR2 label="Bumps" value={jhStats.bumps ?? 0} color={(jhStats.bumps ?? 0) > 0 ? "#B45309" : undefined} />
+          {jhStats.ecard_pct != null && <SR2 label="eCard Rate" value={`${jhStats.ecard_pct}%`} color={jhStats.ecard_pct >= 50 ? "#0F7A63" : undefined} />}
           {jhStats.unique_techs != null && (
             <SR2
               label="Tech Consistency"
               value={`${jhStats.unique_techs} tech${jhStats.unique_techs !== 1 ? "s" : ""} / ${jhStats.total_visits ?? 0} visits`}
-              color={jhStats.unique_techs >= 6 ? "#DC2626" : jhStats.unique_techs >= 3 ? "#D97706" : "#16A34A"}
+              color={jhStats.unique_techs >= 6 ? "#B3261E" : jhStats.unique_techs >= 3 ? "#B45309" : "#0F7A63"}
             />
           )}
         </>)}
@@ -6128,7 +6128,7 @@ export default function CustomerProfilePage() {
           <SR2
             label="Avg Performance Score"
             value={`${profile.stats.scorecard_avg.toFixed(1)} / 5`}
-            color={profile.stats.scorecard_avg >= 4 ? "#16A34A" : profile.stats.scorecard_avg >= 3 ? "#D97706" : "#DC2626"}
+            color={profile.stats.scorecard_avg >= 4 ? "#0F7A63" : profile.stats.scorecard_avg >= 3 ? "#B45309" : "#B3261E"}
           />
         )}
         {/* Loyalty Tier */}
@@ -6259,9 +6259,9 @@ export default function CustomerProfilePage() {
             <div style={{ ...CS, border: (profile.home_access_notes || profile.alarm_code || profile.pets) ? "1px solid #E5E2DC" : "1px dashed #E5E2DC" }}>
               <SectionHead title="Access & Entry" />
               {profile.home_access_notes ? (
-                <div style={{ background: "#FAFAF8", border: "1px solid #F0EEE9", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
+                <div style={{ background: "#F7F6F3", border: "1px solid #F0EEE9", borderRadius: 8, padding: "10px 12px", marginBottom: 8 }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 4 }}>Entry Instructions</div>
-                  <div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-wrap" as const, lineHeight: 1.5 }}>{profile.home_access_notes}</div>
+                  <div style={{ fontSize: 13, color: "#1A1917", whiteSpace: "pre-wrap" as const, lineHeight: 1.5 }}>{profile.home_access_notes}</div>
                 </div>
               ) : (
                 <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 8 }}>No entry instructions on file</div>
@@ -6281,9 +6281,9 @@ export default function CustomerProfilePage() {
                 <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 8 }}>No alarm / lockbox code on file</div>
               )}
               {profile.pets ? (
-                <div style={{ background: "#FAFAF8", border: "1px solid #F0EEE9", borderRadius: 8, padding: "10px 12px" }}>
+                <div style={{ background: "#F7F6F3", border: "1px solid #F0EEE9", borderRadius: 8, padding: "10px 12px" }}>
                   <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.07em", marginBottom: 4 }}>Pets / Equipment Notes</div>
-                  <div style={{ fontSize: 13, color: "#374151" }}>{profile.pets}</div>
+                  <div style={{ fontSize: 13, color: "#1A1917" }}>{profile.pets}</div>
                 </div>
               ) : (
                 <div style={{ fontSize: 12, color: "#9E9B94" }}>No pets / equipment notes on file</div>
@@ -6315,7 +6315,7 @@ export default function CustomerProfilePage() {
                 }}
                 placeholder="A standing internal note about this client (auto-saves on blur)..."
                 rows={4}
-                style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#374151", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, lineHeight: 1.5, background: "#FAFAF8" }}
+                style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, lineHeight: 1.5, background: "#F7F6F3" }}
               />
               <div style={{ borderTop: "1px solid #F0EEE9", margin: "16px 0 12px" }} />
               <TeamPhotoNotes clientId={clientId} title="Notes & photos" />
@@ -6445,7 +6445,7 @@ export default function CustomerProfilePage() {
               <div style={CS}>
                 <SectionHead title="Technician Preferences" />
                 {(profile.tech_preferences || []).some((p: any) => p.preference === "do_not_schedule") && (
-                  <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#92400E", marginBottom: 10 }}>
+                  <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "8px 12px", fontSize: 12, color: "#B45309", marginBottom: 10 }}>
                     Do Not Schedule preferences are enforced on the dispatch board. A warning will appear before assigning a flagged technician to this client.
                   </div>
                 )}
@@ -6541,12 +6541,12 @@ export default function CustomerProfilePage() {
               </div>
               <div style={{ background: "#0A0E1A", borderRadius: 8, padding: "6px 10px", textAlign: "center" as const, minWidth: 72 }}>
                 <div style={{ fontSize: 14, fontWeight: 900, color: "var(--brand)", lineHeight: 1.2 }}>${ltv.toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
-                <div style={{ fontSize: 8, fontWeight: 700, color: "#9CA3AF", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>LTV</div>
+                <div style={{ fontSize: 8, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>LTV</div>
                 {(jhStats?.ytd_revenue ?? 0) > 0 && (
                   <>
                     <div style={{ borderTop: "1px solid rgba(255,255,255,0.1)", marginTop: 4, paddingTop: 4 }}>
                       <div style={{ fontSize: 12, fontWeight: 800, color: "#60EFCE", lineHeight: 1.2 }}>${(jhStats?.ytd_revenue ?? 0).toLocaleString("en-US", { maximumFractionDigits: 0 })}</div>
-                      <div style={{ fontSize: 7, fontWeight: 700, color: "#6B7280", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>2026</div>
+                      <div style={{ fontSize: 7, fontWeight: 700, color: "#6B6860", textTransform: "uppercase" as const, letterSpacing: "0.06em" }}>2026</div>
                     </div>
                   </>
                 )}
@@ -6612,7 +6612,7 @@ export default function CustomerProfilePage() {
               {(profile.home_access_notes || profile.alarm_code) && (
                 <div style={CS}>
                   <div style={CTitle}>Access & Entry</div>
-                  {profile.home_access_notes && <div style={{ fontSize: 13, color: "#374151", whiteSpace: "pre-wrap" as const, marginBottom: 8 }}>{profile.home_access_notes}</div>}
+                  {profile.home_access_notes && <div style={{ fontSize: 13, color: "#1A1917", whiteSpace: "pre-wrap" as const, marginBottom: 8 }}>{profile.home_access_notes}</div>}
                   {profile.alarm_code && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#FEF9C3", border: "1px solid #FDE047", borderRadius: 8, padding: "8px 12px", marginTop: 4 }}>
                       <ShieldCheck size={13} style={{ color: "#A16207" }} />
@@ -6633,7 +6633,7 @@ export default function CustomerProfilePage() {
               </div>
               <div style={CS}>
                 <div style={CTitle}>Client Notes</div>
-                <textarea defaultValue={profile.notes || ""} onBlur={async (e) => { if (e.target.value !== (profile.notes || "")) { try { await updateMut.mutateAsync({ notes: e.target.value }); showToast("Notes saved"); } catch { showToast("Failed to save notes", "error"); } } }} placeholder="Internal notes..." rows={4} style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#374151", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, background: "#FAFAF8" }} />
+                <textarea defaultValue={profile.notes || ""} onBlur={async (e) => { if (e.target.value !== (profile.notes || "")) { try { await updateMut.mutateAsync({ notes: e.target.value }); showToast("Notes saved"); } catch { showToast("Failed to save notes", "error"); } } }} placeholder="Internal notes..." rows={4} style={{ width: "100%", padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, color: "#1A1917", resize: "vertical" as const, outline: "none", fontFamily: FF, boxSizing: "border-box" as const, background: "#F7F6F3" }} />
               </div>
             </>)}
             {activeTab === "jobs" && (<>

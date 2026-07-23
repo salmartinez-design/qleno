@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
-const INK = "#1A1917", MUTE = "#6B7280", BORDER = "#E5E2DC";
+const INK = "#1A1917", MUTE = "#6B6860", BORDER = "#E5E2DC";
 
 async function apiFetch(path: string, opts: RequestInit = {}) {
   const r = await fetch(`${API}${path}`, { ...opts, headers: { ...(getAuthHeaders() as Record<string, string>), "Content-Type": "application/json", ...opts.headers } });
@@ -110,7 +110,7 @@ export default function CompanyW9Page() {
           </div>
           <div style={{ background: "#F8F7F4", borderRadius: 9, padding: "10px 12px", marginBottom: 18 }}>
             <span style={lbl}>Address (from your company profile)</span>
-            <div style={{ fontSize: 13, color: addr ? INK : "#B91C1C" }}>{addr || "No company address set — add one in company settings."}</div>
+            <div style={{ fontSize: 13, color: addr ? INK : "#B3261E" }}>{addr || "No company address set — add one in company settings."}</div>
           </div>
           <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
             <button onClick={save} disabled={saving} style={{ padding: "9px 16px", border: `1px solid ${BORDER}`, borderRadius: 9, fontSize: 13, fontWeight: 700, background: "#fff", cursor: "pointer", fontFamily: FF }}>{saving ? "Saving…" : "Save"}</button>

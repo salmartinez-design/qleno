@@ -191,12 +191,12 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
           holiday, employee-of-the-month, reimbursements, etc. */}
       {Object.keys(data?.additional_pay || {}).length > 0 && (
         <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 12, padding: "12px 14px" }}>
-          <p style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 8px" }}>Tips, bonuses & extra pay</p>
+          <p style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.05em", margin: "0 0 8px" }}>Tips, bonuses & extra pay</p>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {Object.entries(data!.additional_pay).sort((a, b) => b[1] - a[1]).map(([type, amt]) => (
               <div key={type} style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ fontSize: 13, color: "#1A1917" }}>{fmtScope(type)}</span>
-                <span style={{ fontSize: 13, fontWeight: 700, color: amt < 0 ? "#DC2626" : "#1A1917" }}>{money(amt)}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: amt < 0 ? "#B3261E" : "#1A1917" }}>{money(amt)}</span>
               </div>
             ))}
           </div>
@@ -213,8 +213,8 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
           const dayTotal = jobs.reduce((s, j) => s + j.commission, 0);
           const dayHrs = jobs.reduce((s, j) => s + j.hrs_worked, 0);
           return (
-            <div key={day} style={{ borderBottom: "1px solid #F3F4F6" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#FAFAF8" }}>
+            <div key={day} style={{ borderBottom: "1px solid #F0EEE9" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "#F7F6F3" }}>
                 <span style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>{fmtDay(day)}</span>
                 <span style={{ fontSize: 12, fontWeight: 700, color: "var(--brand)" }}>{money(dayTotal)} <span style={{ color: "#9E9B94", fontWeight: 500 }}>· {dayHrs.toFixed(1)}h</span></span>
               </div>
@@ -241,7 +241,7 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
 function SummaryCard({ icon, label, value, accent, strong, sub }: { icon: React.ReactNode; label: string; value: string; accent?: boolean; strong?: boolean; sub?: string }) {
   return (
     <div style={{ background: "#fff", border: `1px solid ${accent ? "#99E6D5" : "#E5E2DC"}`, borderRadius: 12, padding: "14px 10px", textAlign: "center" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, color: accent ? "var(--brand)" : "#6B7280", marginBottom: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, color: accent ? "var(--brand)" : "#6B6860", marginBottom: 8 }}>
         {icon}
         <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
       </div>

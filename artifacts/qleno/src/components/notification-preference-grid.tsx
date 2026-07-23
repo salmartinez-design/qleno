@@ -43,7 +43,7 @@ export function NotificationPreferenceGrid({
 }: { catalog: PrefCatalogRow[]; offs: Set<string>; disabled?: boolean; onToggle: (key: string) => void }) {
   return (
     <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", overflow: "hidden" }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px", padding: "10px 20px", borderBottom: "1px solid #EEECE7", background: "#FAFAF8" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 80px", padding: "10px 20px", borderBottom: "1px solid #EEECE7", background: "#F7F6F3" }}>
         <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>Message</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "center" }}>SMS</span>
         <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", textAlign: "center" }}>Email</span>

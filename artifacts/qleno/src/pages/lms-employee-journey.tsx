@@ -47,7 +47,7 @@ const LINE = "#E2E8F0";
 const LINE_SOFT = "#F1F5F9";
 const SUCCESS = "#0F766E";
 const WARN = "#B45309";
-const DANGER = "#B91C1C";
+const DANGER = "#B3261E";
 const FONT = "'Plus Jakarta Sans', sans-serif";
 const RADIUS = 10;
 
@@ -509,7 +509,7 @@ export default function LmsEmployeeJourneyPage() {
             style={{
               marginTop: 14,
               padding: "10px 14px",
-              background: "#ECFDF5",
+              background: "#E6F6F1",
               border: `1px solid ${SUCCESS}`,
               color: SUCCESS,
               borderRadius: 8,
@@ -1097,7 +1097,7 @@ function PendingTable({
             gridTemplateColumns: "1fr auto",
             gap: 12,
             padding: "10px 12px",
-            background: "#FFFBEB",
+            background: "#FDF3E4",
             borderLeft: `3px solid ${WARN}`,
             borderRadius: 6,
             alignItems: "center",

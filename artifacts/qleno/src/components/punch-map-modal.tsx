@@ -80,14 +80,14 @@ export function PunchMapModal({ data, onClose }: { data: PunchMapData; onClose: 
         });
         bounds.extend(p);
       };
-      if (hasJob) pin(data.jobLat!, data.jobLng!, "#2563EB", "J", `${data.clientName} (job)`);
+      if (hasJob) pin(data.jobLat!, data.jobLng!, "#2F3646", "J", `${data.clientName} (job)`);
       if (hasIn) pin(data.inLat!, data.inLng!, "#0A7C66", "In", `Clock-in${data.inAt ? ` · ${data.inAt}` : ""}`);
       if (hasOut) pin(data.outLat!, data.outLng!, "#EA580C", "Out", `Clock-out${data.outAt ? ` · ${data.outAt}` : ""}`);
       if (hasJob && hasIn) {
         new maps.Polyline({
           map, geodesic: true,
           path: [{ lat: data.jobLat!, lng: data.jobLng! }, { lat: data.inLat!, lng: data.inLng! }],
-          strokeColor: data.inOutside ? "#B91C1C" : "#0A7C66", strokeOpacity: 0.7, strokeWeight: 2,
+          strokeColor: data.inOutside ? "#B3261E" : "#0A7C66", strokeOpacity: 0.7, strokeWeight: 2,
         });
       }
       if (!bounds.isEmpty()) {
@@ -126,20 +126,20 @@ export function PunchMapModal({ data, onClose }: { data: PunchMapData; onClose: 
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 8 }}>
             <Legend color="#0A7C66" label="Clock-in" show={hasIn} />
             <Legend color="#EA580C" label="Clock-out" show={hasOut} />
-            <Legend color="#2563EB" label="Job location" show={hasJob} />
+            <Legend color="#2F3646" label="Job location" show={hasJob} />
           </div>
           {hasIn && (
             <div style={{ borderTop: "1px solid #F0EEE9", paddingTop: 6 }}>
               {row("Clock-in", data.inAt || "—")}
               {row("Coordinates", coordStr(data.inLat, data.inLng))}
-              {row("Distance from job", data.inFt != null ? `${data.inFt} ft${data.inOutside ? " · outside zone" : " · within zone"}` : "job not geocoded", data.inFt == null ? "#9E9B94" : data.inOutside ? "#B91C1C" : "#0A7C66")}
+              {row("Distance from job", data.inFt != null ? `${data.inFt} ft${data.inOutside ? " · outside zone" : " · within zone"}` : "job not geocoded", data.inFt == null ? "#9E9B94" : data.inOutside ? "#B3261E" : "#0A7C66")}
             </div>
           )}
           {hasOut && (
             <div style={{ borderTop: "1px solid #F0EEE9", paddingTop: 6, marginTop: 6 }}>
               {row("Clock-out", data.outAt || "—")}
               {row("Coordinates", coordStr(data.outLat, data.outLng))}
-              {row("Distance from job", data.outFt != null ? `${data.outFt} ft${data.outOutside ? " · outside zone" : " · within zone"}` : "job not geocoded", data.outFt == null ? "#9E9B94" : data.outOutside ? "#B91C1C" : "#0A7C66")}
+              {row("Distance from job", data.outFt != null ? `${data.outFt} ft${data.outOutside ? " · outside zone" : " · within zone"}` : "job not geocoded", data.outFt == null ? "#9E9B94" : data.outOutside ? "#B3261E" : "#0A7C66")}
             </div>
           )}
           {!hasJob && (

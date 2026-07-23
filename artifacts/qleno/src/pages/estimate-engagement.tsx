@@ -11,7 +11,7 @@ import {
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const INK = "#1A1917";
-const MUTE = "#6B7280";
+const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
 const MINT = "var(--brand)";
 
@@ -25,12 +25,12 @@ const money = (n: any) => `$${Number(n || 0).toLocaleString("en-US", { maximumFr
 const TOTAL_TOUCHES = 8;
 
 const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string }> = {
-  sent:     { bg: "#EFF6FF", fg: "#1D4ED8", label: "Sent" },
-  viewed:   { bg: "#FEF3C7", fg: "#92400E", label: "Viewed" },
-  accepted: { bg: "#ECFDF5", fg: "#047857", label: "Won" },
-  declined: { bg: "#FEF2F2", fg: "#991B1B", label: "Lost" },
-  expired:  { bg: "#F3F4F6", fg: "#6B7280", label: "Expired" },
-  draft:    { bg: "#F3F4F6", fg: "#6B7280", label: "Draft" },
+  sent:     { bg: "#EFEFF2", fg: "#2F3646", label: "Sent" },
+  viewed:   { bg: "#FDF3E4", fg: "#B45309", label: "Viewed" },
+  accepted: { bg: "#E6F6F1", fg: "#047857", label: "Won" },
+  declined: { bg: "#FCEBEA", fg: "#B3261E", label: "Lost" },
+  expired:  { bg: "#F0EEE9", fg: "#6B6860", label: "Expired" },
+  draft:    { bg: "#F0EEE9", fg: "#6B6860", label: "Draft" },
 };
 
 function StatusChip({ status }: { status: string }) {
@@ -40,14 +40,14 @@ function StatusChip({ status }: { status: string }) {
 
 // Timeline event icon + color + label per event type.
 const EVENT_META: Record<string, { icon: any; color: string; label: string }> = {
-  sent:     { icon: Send, color: "#1D4ED8", label: "Touch sent" },
-  opened:   { icon: Eye, color: "#92400E", label: "Email opened" },
-  clicked:  { icon: MousePointerClick, color: "#7C3AED", label: "Link clicked" },
+  sent:     { icon: Send, color: "#2F3646", label: "Touch sent" },
+  opened:   { icon: Eye, color: "#B45309", label: "Email opened" },
+  clicked:  { icon: MousePointerClick, color: "#9C4E2B", label: "Link clicked" },
   viewed:   { icon: Eye, color: "#0891B2", label: "Estimate viewed" },
   replied:  { icon: CornerUpLeft, color: "#0D9488", label: "Customer replied" },
   accepted: { icon: CheckCircle, color: "#047857", label: "Accepted" },
-  declined: { icon: XCircle, color: "#991B1B", label: "Declined" },
-  failed:   { icon: XCircle, color: "#9CA3AF", label: "Send failed" },
+  declined: { icon: XCircle, color: "#B3261E", label: "Declined" },
+  failed:   { icon: XCircle, color: "#9E9B94", label: "Send failed" },
 };
 
 function fmtTime(s: string | null) {
@@ -156,7 +156,7 @@ export default function EstimateEngagementPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ fontFamily: FF, maxWidth: 1100, margin: "0 auto", padding: "8px 4px 80px" }}>
+      <div style={{ fontFamily: FF, margin: "0 auto", padding: "8px 4px 80px" }}>
         <button onClick={() => navigate("/estimates")} style={{ display: "inline-flex", alignItems: "center", gap: 5, background: "none", border: "none", color: MUTE, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, padding: 0, marginBottom: 12 }}>
           <ArrowLeft size={15} /> Estimates
         </button>
@@ -189,7 +189,7 @@ export default function EstimateEngagementPage() {
                 </div>
               ))}
             </div>
-            <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 12, borderTop: `1px solid #EEECE7`, paddingTop: 10 }}>Set a facility type on each estimate (under "Who it's for") to sharpen this breakdown.</div>
+            <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 12, borderTop: `1px solid #EEECE7`, paddingTop: 10 }}>Set a facility type on each estimate (under "Who it's for") to sharpen this breakdown.</div>
           </div>
         )}
 

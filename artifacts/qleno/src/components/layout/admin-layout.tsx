@@ -78,7 +78,7 @@ function AdminSidebar({ mobile, open, onClose }: { mobile?: boolean; open?: bool
           </span>
         </div>
         {mobile && (
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7280", padding: 4 }}>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860", padding: 4 }}>
             <X size={18} />
           </button>
         )}
@@ -103,11 +103,11 @@ function AdminSidebar({ mobile, open, onClose }: { mobile?: boolean; open?: bool
                   borderRadius: "6px", display: "flex", alignItems: "center",
                   gap: "10px", cursor: "pointer", transition: "all 0.15s",
                   backgroundColor: isActive ? `rgba(${PURPLE_RGB}, 0.12)` : "transparent",
-                  color: isActive ? PURPLE : "#6B7280",
+                  color: isActive ? PURPLE : "#6B6860",
                   fontWeight: isActive ? 500 : 400, fontSize: "13px",
                 }}
                 onMouseEnter={e => { if (!isActive) { e.currentTarget.style.backgroundColor = "#EEEDFB"; e.currentTarget.style.color = "#1A1917"; } }}
-                onMouseLeave={e => { if (!isActive) { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "#6B7280"; } }}
+                onMouseLeave={e => { if (!isActive) { e.currentTarget.style.backgroundColor = "transparent"; e.currentTarget.style.color = "#6B6860"; } }}
               >
                 <Icon size={16} strokeWidth={1.5} style={{ flexShrink: 0 }} />
                 <span>{item.title}</span>
@@ -142,7 +142,7 @@ function AdminSidebar({ mobile, open, onClose }: { mobile?: boolean; open?: bool
           }}>{initials}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <p style={{ fontSize: "12px", fontWeight: 500, color: "#1A1917", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{adminUser.firstName} {adminUser.lastName}</p>
-            <p style={{ fontSize: "11px", color: "#6B7280", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{adminUser.email}</p>
+            <p style={{ fontSize: "11px", color: "#6B6860", margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{adminUser.email}</p>
           </div>
           <button
             onClick={logout}
@@ -232,7 +232,7 @@ export function AdminLayout({ children, title }: AdminLayoutProps) {
           {isMobile && (
             <button
               onClick={() => setDrawerOpen(true)}
-              style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7280", padding: 4, display: "flex" }}
+              style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860", padding: 4, display: "flex" }}
             >
               <Menu size={20} />
             </button>

@@ -555,7 +555,7 @@ export function AddonsTab() {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Name <span style={{ color: "#EF4444" }}>*</span></label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Name <span style={{ color: "#B3261E" }}>*</span></label>
                 <input
                   autoFocus
                   style={{ ...inputStyle, width: "100%", boxSizing: "border-box" as const }}
@@ -669,7 +669,7 @@ export function AddonsTab() {
                   <div style={{ display: "flex", gap: 4 }}>
                     <button style={btnGhost} onClick={() => openEditBundle(bundle)}><Edit2 size={12} /> Edit</button>
                     <button
-                      style={{ ...btnGhost, color: "#B91C1C", borderColor: "#E5C4C0" }}
+                      style={{ ...btnGhost, color: "#B3261E", borderColor: "#E5C4C0" }}
                       onClick={() => { if (confirm(`Delete the "${bundle.name}" bundle? This can't be undone.`)) deleteBundle.mutate(bundle.id); }}>
                       <Trash2 size={12} />
                     </button>
@@ -704,13 +704,13 @@ export function AddonsTab() {
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Name <span style={{ color: "#EF4444" }}>*</span></label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Name <span style={{ color: "#B3261E" }}>*</span></label>
                 <input style={inputStyle} value={bundleForm.name} placeholder="Oven + Refrigerator Combo"
                   onChange={e => setBundleForm(p => ({ ...p, name: e.target.value }))} />
               </div>
 
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Included add-ons <span style={{ color: "#EF4444" }}>*</span> <span style={{ fontWeight: 400, color: "#9E9B94" }}>(pick at least 2)</span></label>
+                <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Included add-ons <span style={{ color: "#B3261E" }}>*</span> <span style={{ fontWeight: 400, color: "#9E9B94" }}>(pick at least 2)</span></label>
                 <div style={{ display: "flex", flexWrap: "wrap" as const, gap: 6 }}>
                   {bundleAddonOptions.map(a => {
                     const on = bundleForm.addon_ids.includes(a.id);
@@ -736,7 +736,7 @@ export function AddonsTab() {
                   </select>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 6, width: 130 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Amount <span style={{ color: "#EF4444" }}>*</span></label>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860" }}>Amount <span style={{ color: "#B3261E" }}>*</span></label>
                   <input style={inputStyle} type="number" step="0.01" min="0" value={bundleForm.discount_value}
                     onChange={e => setBundleForm(p => ({ ...p, discount_value: e.target.value }))} />
                 </div>

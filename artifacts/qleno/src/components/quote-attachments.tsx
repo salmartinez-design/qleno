@@ -167,7 +167,7 @@ export function QuoteAttachments({ ensureQuoteId, readOnly, endpointOverride, co
       style={{
         marginTop: 10,
         padding: dragOver ? 10 : 0,
-        border: dragOver ? "2px dashed #2D9B83" : "2px dashed transparent",
+        border: dragOver ? "2px dashed #0F7A63" : "2px dashed transparent",
         borderRadius: 8,
         background: dragOver ? "#EAF9F4" : "transparent",
         transition: "background 0.12s, border-color 0.12s, padding 0.12s",
@@ -207,7 +207,7 @@ export function QuoteAttachments({ ensureQuoteId, readOnly, endpointOverride, co
       )}
 
       {error && (
-        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#DC2626", fontFamily: FF, marginBottom: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: "#B3261E", fontFamily: FF, marginBottom: 8 }}>
           <AlertCircle size={12} /> {error}
         </div>
       )}
@@ -223,7 +223,7 @@ export function QuoteAttachments({ ensureQuoteId, readOnly, endpointOverride, co
                 style={{
                   position: "relative",
                   width: thumbSize, height: thumbSize,
-                  borderRadius: 7, border: "1px solid #E5E2DC", background: "#FAFAF9",
+                  borderRadius: 7, border: "1px solid #E5E2DC", background: "#F7F6F3",
                   overflow: "hidden",
                   display: "flex", alignItems: "center", justifyContent: "center",
                 }}

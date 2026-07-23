@@ -101,7 +101,7 @@ function TemplateDrawer({ template, onClose, onSaved }:
             <textarea value={form.body} onChange={e => set("body", e.target.value)}
               placeholder={"Hi {{first_name}}, just following up on your quote…"}
               style={{ ...taStyle, minHeight: form.channel === "sms" ? 120 : 200 }} />
-            <div style={{ fontSize: 12, color: "#9CA3AF", marginTop: 6, marginBottom: 10 }}>
+            <div style={{ fontSize: 12, color: "#9E9B94", marginTop: 6, marginBottom: 10 }}>
               Merge fields use <code style={{ background: "#F2F1ED", padding: "1px 5px", borderRadius: 4 }}>{"{{first_name}}"}</code>,
               {" "}<code style={{ background: "#F2F1ED", padding: "1px 5px", borderRadius: 4 }}>{"{{quote_amount}}"}</code>, etc.
             </div>
@@ -112,7 +112,7 @@ function TemplateDrawer({ template, onClose, onSaved }:
               <label style={lbl}>Category</label>
               <Input value={form.category} onChange={e => set("category", e.target.value)} placeholder="quote_followup" />
             </div>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#374151",
+            <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#1A1917",
               cursor: "pointer", paddingBottom: 8 }}>
               <input type="checkbox" checked={form.active} onChange={e => set("active", e.target.checked)} />
               Active
@@ -169,7 +169,7 @@ export default function LeadsTemplatesPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 40px" }}>
+      <div style={{ margin: "0 auto", padding: "0 0 40px" }}>
         <Link href="/leads" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, color: "#6B6860",
           textDecoration: "none", marginBottom: 12 }}>
           <ChevronLeft size={14} /> Back to Pipeline
@@ -196,7 +196,7 @@ export default function LeadsTemplatesPage() {
               style={{ padding: "6px 14px", borderRadius: 999, fontSize: 13, fontWeight: channelFilter === k ? 700 : 500,
                 cursor: "pointer", fontFamily: "inherit",
                 background: channelFilter === k ? "#1A1917" : "#F7F6F3",
-                color: channelFilter === k ? "#fff" : "#374151",
+                color: channelFilter === k ? "#fff" : "#1A1917",
                 border: `1px solid ${channelFilter === k ? "#1A1917" : "#E5E2DC"}` }}>
               {l}
             </button>
@@ -210,7 +210,7 @@ export default function LeadsTemplatesPage() {
         ) : templates.length === 0 ? (
           <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "60px 0",
             textAlign: "center" }}>
-            <MessageSquare size={36} color="#D1D5DB" style={{ margin: "0 auto 12px" }} />
+            <MessageSquare size={36} color="#E5E2DC" style={{ margin: "0 auto 12px" }} />
             <div style={{ color: "#6B6860", fontSize: 14 }}>No templates yet — create one or import your set.</div>
           </div>
         ) : (
@@ -221,23 +221,23 @@ export default function LeadsTemplatesPage() {
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     {t.channel === "sms"
-                      ? <MessageSquare size={15} color="#059669" />
+                      ? <MessageSquare size={15} color="#0F7A63" />
                       : <Mail size={15} color="#0369A1" />}
                     <span style={{ fontWeight: 600, fontSize: 14, color: "#1A1917" }}>{t.name}</span>
                   </div>
-                  {!t.active && <span style={{ fontSize: 11, color: "#9CA3AF" }}>Inactive</span>}
+                  {!t.active && <span style={{ fontSize: 11, color: "#9E9B94" }}>Inactive</span>}
                 </div>
                 {t.subject && (
                   <div style={{ fontSize: 12, color: "#6B6860", marginTop: 6, fontWeight: 500 }}>{t.subject}</div>
                 )}
-                <div style={{ fontSize: 13, color: "#374151", marginTop: 8, whiteSpace: "pre-wrap",
+                <div style={{ fontSize: 13, color: "#1A1917", marginTop: 8, whiteSpace: "pre-wrap",
                   display: "-webkit-box", WebkitLineClamp: 4, WebkitBoxOrient: "vertical", overflow: "hidden",
                   flex: 1 }}>
                   {t.body}
                 </div>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between",
-                  marginTop: 12, paddingTop: 10, borderTop: "1px solid #F3F4F6" }}>
-                  <span style={{ fontSize: 11, color: "#9CA3AF" }}>
+                  marginTop: 12, paddingTop: 10, borderTop: "1px solid #F0EEE9" }}>
+                  <span style={{ fontSize: 11, color: "#9E9B94" }}>
                     {t.category || "uncategorized"}
                   </span>
                   <div style={{ display: "flex", gap: 10 }}>
@@ -250,7 +250,7 @@ export default function LeadsTemplatesPage() {
                       <Copy size={15} />
                     </button>
                     <button onClick={() => remove(t)} title="Delete"
-                      style={{ background: "none", border: "none", cursor: "pointer", color: "#DC2626", padding: 0 }}>
+                      style={{ background: "none", border: "none", cursor: "pointer", color: "#B3261E", padding: 0 }}>
                       <Trash2 size={15} />
                     </button>
                   </div>

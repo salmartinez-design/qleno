@@ -7,7 +7,7 @@ import { FrequencyPicker } from "@/components/frequency-picker";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
-const INK = "#1A1917", MUTE = "#6B7280", BORDER = "#E5E2DC", MINT = "var(--brand)";
+const INK = "#1A1917", MUTE = "#6B6860", BORDER = "#E5E2DC", MINT = "var(--brand)";
 
 async function apiFetch(path: string, opts: RequestInit = {}) {
   const r = await fetch(`${API}${path}`, { ...opts, headers: { ...(getAuthHeaders() as Record<string, string>), "Content-Type": "application/json", ...opts.headers } });
@@ -98,7 +98,7 @@ export default function PackagesPage() {
                   <span style={{ fontSize: 15, fontWeight: 800, color: INK }}>{p.name}</span>
                   <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                     <button onClick={() => openEdit(p)} title="Edit" style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 2 }}><Pencil size={14} /></button>
-                    <button onClick={() => { if (confirm(`Delete package "${p.name}"?`)) deleteMut.mutate(p.id); }} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "#EF4444", padding: 2 }}><Trash2 size={14} /></button>
+                    <button onClick={() => { if (confirm(`Delete package "${p.name}"?`)) deleteMut.mutate(p.id); }} title="Delete" style={{ background: "none", border: "none", cursor: "pointer", color: "#B3261E", padding: 2 }}><Trash2 size={14} /></button>
                   </div>
                 </div>
                 <span style={{ fontSize: 20, fontWeight: 800, color: INK }}>{money(p.flat_price)}</span>

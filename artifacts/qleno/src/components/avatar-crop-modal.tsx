@@ -139,7 +139,7 @@ export function AvatarCropModal({
 
         <div style={{ display: "flex", gap: 10 }}>
           <button type="button" onClick={onCancel}
-            style={{ flex: 1, padding: 10, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", color: "#6B7280", fontFamily: FF }}>
+            style={{ flex: 1, padding: 10, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer", color: "#6B6860", fontFamily: FF }}>
             Cancel
           </button>
           <button type="button" onClick={handleSave} disabled={!img || saving}

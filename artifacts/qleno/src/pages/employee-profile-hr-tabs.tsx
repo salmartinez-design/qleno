@@ -18,32 +18,32 @@ async function apiFetch(path: string, opts?: RequestInit) {
 
 function EmptyState({ message }: { message: string }) {
   return (
-    <div style={{ textAlign: "center", padding: "48px 0", color: "#9E9B94", fontSize: 13, fontFamily: FF, background: "#FAFAF9", borderRadius: 10, border: "1px solid #E5E2DC" }}>
+    <div style={{ textAlign: "center", padding: "48px 0", color: "#9E9B94", fontSize: 13, fontFamily: FF, background: "#F7F6F3", borderRadius: 10, border: "1px solid #E5E2DC" }}>
       {message}
     </div>
   );
 }
 
 const ATT_TYPE_STYLES: Record<string, { label: string; bg: string; color: string }> = {
-  tardy:          { label: "Tardy",          bg: "#FEF3C7", color: "#92400E" },
-  absent:         { label: "Absent",         bg: "#FEE2E2", color: "#991B1B" },
+  tardy:          { label: "Tardy",          bg: "#FDF3E4", color: "#B45309" },
+  absent:         { label: "Absent",         bg: "#FCEBEA", color: "#B3261E" },
   ncns:           { label: "NCNS",           bg: "#F3E8FF", color: "#6D28D9" },
-  plawa_leave:    { label: "Leave (PLAWA)",  bg: "#DCFCE7", color: "#166534" },
-  protected_leave:{ label: "Protected Leave",bg: "#DBEAFE", color: "#1E40AF" },
-  present:        { label: "Present",        bg: "#ECFDF5", color: "#065F46" },
+  plawa_leave:    { label: "Leave (PLAWA)",  bg: "#E6F6F1", color: "#0F7A63" },
+  protected_leave:{ label: "Protected Leave",bg: "#EFEFF2", color: "#2F3646" },
+  present:        { label: "Present",        bg: "#E6F6F1", color: "#065F46" },
 };
 
 const DISC_TYPE_STYLES: Record<string, { label: string; bg: string; color: string }> = {
-  tardy_warning:    { label: "Tardy Warning",    bg: "#FEF3C7", color: "#92400E" },
-  absence_warning:  { label: "Absence Warning",  bg: "#FEE2E2", color: "#991B1B" },
-  final_warning:    { label: "Final Warning",    bg: "#FEE2E2", color: "#7F1D1D" },
+  tardy_warning:    { label: "Tardy Warning",    bg: "#FDF3E4", color: "#B45309" },
+  absence_warning:  { label: "Absence Warning",  bg: "#FCEBEA", color: "#B3261E" },
+  final_warning:    { label: "Final Warning",    bg: "#FCEBEA", color: "#7F1D1D" },
   quality_probation:{ label: "Quality Probation",bg: "#F3E8FF", color: "#6D28D9" },
-  termination:      { label: "Termination",      bg: "#FEE2E2", color: "#991B1B" },
-  custom:           { label: "Custom",           bg: "#F3F4F6", color: "#374151" },
+  termination:      { label: "Termination",      bg: "#FCEBEA", color: "#B3261E" },
+  custom:           { label: "Custom",           bg: "#F0EEE9", color: "#1A1917" },
 };
 
 function Tag({ type, map }: { type: string; map: Record<string, { label: string; bg: string; color: string }> }) {
-  const s = map[type] ?? { label: type, bg: "#F3F4F6", color: "#374151" };
+  const s = map[type] ?? { label: type, bg: "#F0EEE9", color: "#1A1917" };
   return (
     <span style={{ display: "inline-flex", alignItems: "center", padding: "2px 8px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: s.bg, color: s.color, fontFamily: FF }}>
       {s.label}
@@ -95,7 +95,7 @@ export function HRAttendanceTab({ employeeId }: { employeeId: number }) {
     return acc;
   }, {} as Record<string, number>);
 
-  if (loading) return <div style={{ padding: 32, textAlign: "center", color: "#9CA3AF", fontFamily: FF }}>Loading…</div>;
+  if (loading) return <div style={{ padding: 32, textAlign: "center", color: "#9E9B94", fontFamily: FF }}>Loading…</div>;
 
   return (
     <div>
@@ -104,8 +104,8 @@ export function HRAttendanceTab({ employeeId }: { employeeId: number }) {
           {Object.entries(yearCounts).map(([type, cnt]: any) => (
             <span key={type} style={{
               fontSize: 12, fontWeight: 600, padding: "4px 10px", borderRadius: 20, fontFamily: FF,
-              background: ATT_TYPE_STYLES[type]?.bg ?? "#F3F4F6",
-              color: ATT_TYPE_STYLES[type]?.color ?? "#374151",
+              background: ATT_TYPE_STYLES[type]?.bg ?? "#F0EEE9",
+              color: ATT_TYPE_STYLES[type]?.color ?? "#1A1917",
             }}>
               {ATT_TYPE_STYLES[type]?.label ?? type}: {cnt}
             </span>
@@ -130,16 +130,16 @@ export function HRAttendanceTab({ employeeId }: { employeeId: number }) {
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
                 <Tag type={l.type} map={ATT_TYPE_STYLES} />
                 {l.protected && (
-                  <span style={{ fontSize: 11, background: "#DBEAFE", color: "#1E40AF", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>
+                  <span style={{ fontSize: 11, background: "#EFEFF2", color: "#2F3646", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>
                     Protected
                   </span>
                 )}
-                <span style={{ fontSize: 12, color: "#6B7280", fontFamily: FF }}>{fmtDate(l.log_date)}</span>
+                <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>{fmtDate(l.log_date)}</span>
               </div>
-              {l.notes && <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF }}>{l.notes}</div>}
+              {l.notes && <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>{l.notes}</div>}
             </div>
             {(l.logger_first_name || l.logger_last_name) && (
-              <div style={{ fontSize: 11, color: "#9CA3AF", fontFamily: FF, textAlign: "right" }}>
+              <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, textAlign: "right" }}>
                 Logged by<br />{l.logger_first_name} {l.logger_last_name}
               </div>
             )}
@@ -153,11 +153,11 @@ export function HRAttendanceTab({ employeeId }: { employeeId: number }) {
             <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Log Attendance Event</h3>
             <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 500, color: "#374151", display: "block", marginBottom: 4, fontFamily: FF }}>Date</label>
+                <label style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", display: "block", marginBottom: 4, fontFamily: FF }}>Date</label>
                 <CalendarPopover value={form.log_date} ariaLabel="Date" onChange={ymd => setForm(p => ({ ...p, log_date: ymd }))} block />
               </div>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 500, color: "#374151", display: "block", marginBottom: 4, fontFamily: FF }}>Type</label>
+                <label style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", display: "block", marginBottom: 4, fontFamily: FF }}>Type</label>
                 <select value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))}
                   style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, background: "#fff", outline: "none" }}>
                   {Object.entries(ATT_TYPE_STYLES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
@@ -165,10 +165,10 @@ export function HRAttendanceTab({ employeeId }: { employeeId: number }) {
               </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                 <input type="checkbox" checked={form.protected} onChange={e => setForm(p => ({ ...p, protected: e.target.checked }))} />
-                <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>Protected absence (does not count toward discipline thresholds)</span>
+                <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>Protected absence (does not count toward discipline thresholds)</span>
               </label>
               <div>
-                <label style={{ fontSize: 12, fontWeight: 500, color: "#374151", display: "block", marginBottom: 4, fontFamily: FF }}>Notes</label>
+                <label style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", display: "block", marginBottom: 4, fontFamily: FF }}>Notes</label>
                 <textarea value={form.notes} onChange={e => setForm(p => ({ ...p, notes: e.target.value }))} rows={3}
                   style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, resize: "vertical", outline: "none", boxSizing: "border-box" }} />
               </div>
@@ -219,17 +219,17 @@ export function LeaveBalanceTab({ employeeId }: { employeeId: number }) {
     return () => { active = false; };
   }, [employeeId]);
 
-  if (loading) return <div style={{ padding: 32, textAlign: "center", color: "#9CA3AF", fontFamily: FF }}>Loading…</div>;
+  if (loading) return <div style={{ padding: 32, textAlign: "center", color: "#9E9B94", fontFamily: FF }}>Loading…</div>;
   if (!buckets) return <EmptyState message="Could not load leave data" />;
 
   return (
     <div>
-      <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginBottom: 16 }}>
+      <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginBottom: 16 }}>
         Balances reset each benefit year on the employee's hire anniversary. Sick (PLAWA) front-loads 40 hrs after 90 days; PTO grants 40 hrs after 1 year, topping up to 80 hrs at 2 years.
       </div>
 
       {!buckets.length && (
-        <div style={{ background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 8, padding: "16px 20px", marginBottom: 20, fontSize: 13, color: "#6B7280", fontFamily: FF }}>
+        <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "16px 20px", marginBottom: 20, fontSize: 13, color: "#6B6860", fontFamily: FF }}>
           No leave buckets configured. Set them up in Company Settings under HR Policies.
         </div>
       )}
@@ -242,14 +242,14 @@ export function LeaveBalanceTab({ employeeId }: { employeeId: number }) {
             return (
               <div key={b.leave_type_id} style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 20px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF }}>{b.display_name}</div>
-                  <span style={{ fontSize: 10, fontWeight: 600, fontFamily: FF, padding: "2px 7px", borderRadius: 999, color: eligible ? "#166534" : "#92400E", background: eligible ? "#DCFCE7" : "#FEF3C7" }}>
+                  <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF }}>{b.display_name}</div>
+                  <span style={{ fontSize: 10, fontWeight: 600, fontFamily: FF, padding: "2px 7px", borderRadius: 999, color: eligible ? "#0F7A63" : "#B45309", background: eligible ? "#E6F6F1" : "#FDF3E4" }}>
                     {eligible ? "Eligible" : "Not yet eligible"}
                   </span>
                 </div>
-                <div style={{ fontSize: 28, fontWeight: 700, color: eligible ? "var(--brand)" : "#9CA3AF", fontFamily: FF }}>{available.toFixed(1)}</div>
-                <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF }}>hours available</div>
-                <div style={{ fontSize: 11, color: "#9CA3AF", fontFamily: FF, marginTop: 8 }}>
+                <div style={{ fontSize: 28, fontWeight: 700, color: eligible ? "var(--brand)" : "#9E9B94", fontFamily: FF }}>{available.toFixed(1)}</div>
+                <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>hours available</div>
+                <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 8 }}>
                   {parseFloat(b.granted ?? "0").toFixed(1)} granted · {parseFloat(b.used ?? "0").toFixed(1)} used
                   {!eligible && b.waiting_period_days > 0 && ` · eligible after ${b.waiting_period_days} days`}
                 </div>
@@ -266,9 +266,9 @@ export function LeaveBalanceTab({ employeeId }: { employeeId: number }) {
           <div key={u.id} style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{fmtDate(u.date_used)}</div>
-              {u.notes && <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginTop: 2 }}>{u.notes}</div>}
+              {u.notes && <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginTop: 2 }}>{u.notes}</div>}
             </div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: "#991B1B", fontFamily: FF }}>−{parseFloat(u.hours).toFixed(1)} hrs</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: "#B3261E", fontFamily: FF }}>−{parseFloat(u.hours).toFixed(1)} hrs</div>
           </div>
         ))}
       </div>
@@ -332,7 +332,7 @@ export function DisciplineTab({ employeeId }: { employeeId: number }) {
     }
   }
 
-  if (loading) return <div style={{ padding: 32, textAlign: "center", color: "#9CA3AF", fontFamily: FF }}>Loading…</div>;
+  if (loading) return <div style={{ padding: 32, textAlign: "center", color: "#9E9B94", fontFamily: FF }}>Loading…</div>;
 
   return (
     <div>
@@ -359,31 +359,31 @@ export function DisciplineTab({ employeeId }: { employeeId: number }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <Tag type={r.discipline_type} map={DISC_TYPE_STYLES} />
-                {r.custom_label && <span style={{ fontSize: 12, color: "#374151", fontFamily: FF }}>{r.custom_label}</span>}
+                {r.custom_label && <span style={{ fontSize: 12, color: "#1A1917", fontFamily: FF }}>{r.custom_label}</span>}
                 {r.pending_review && (
-                  <span style={{ fontSize: 11, background: "#FEF3C7", color: "#92400E", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>
+                  <span style={{ fontSize: 11, background: "#FDF3E4", color: "#B45309", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>
                     Pending Review
                   </span>
                 )}
                 {r.dismissed && (
-                  <span style={{ fontSize: 11, background: "#F3F4F6", color: "#6B7280", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>
+                  <span style={{ fontSize: 11, background: "#F0EEE9", color: "#6B6860", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>
                     Dismissed
                   </span>
                 )}
               </div>
               <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>{fmtDate(r.effective_date)}</span>
             </div>
-            {r.reason && <p style={{ fontSize: 13, color: "#374151", margin: "0 0 6px", fontFamily: FF }}>{r.reason}</p>}
+            {r.reason && <p style={{ fontSize: 13, color: "#1A1917", margin: "0 0 6px", fontFamily: FF }}>{r.reason}</p>}
             {(r.issuer_first_name || r.issuer_last_name) && (
-              <div style={{ fontSize: 11, color: "#9CA3AF", fontFamily: FF }}>Issued by {r.issuer_first_name} {r.issuer_last_name}</div>
+              <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Issued by {r.issuer_first_name} {r.issuer_last_name}</div>
             )}
-            {r.acknowledged && <div style={{ fontSize: 11, color: "#166534", fontFamily: FF, marginTop: 4 }}>Acknowledged {r.acknowledged_at ? new Date(r.acknowledged_at).toLocaleDateString() : ""}</div>}
+            {r.acknowledged && <div style={{ fontSize: 11, color: "#0F7A63", fontFamily: FF, marginTop: 4 }}>Acknowledged {r.acknowledged_at ? new Date(r.acknowledged_at).toLocaleDateString() : ""}</div>}
             {isOwner && r.pending_review && !r.dismissed && (
               <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
                 <button onClick={() => confirm(r.id)} style={{ padding: "5px 12px", fontSize: 12, background: "#0A0E1A", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
                   Confirm
                 </button>
-                <button onClick={() => dismiss(r.id)} style={{ padding: "5px 12px", fontSize: 12, background: "#fff", color: "#374151", border: "1px solid #E5E2DC", borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
+                <button onClick={() => dismiss(r.id)} style={{ padding: "5px 12px", fontSize: 12, background: "#fff", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
                   Dismiss
                 </button>
               </div>
@@ -484,18 +484,18 @@ export function QualityTab({ employeeId }: { employeeId: number }) {
   const validCount = complaints.filter(c => c.valid).length;
   const pendingCount = complaints.filter(c => !c.validated_at).length;
 
-  if (loading) return <div style={{ padding: 32, textAlign: "center", color: "#9CA3AF", fontFamily: FF }}>Loading…</div>;
+  if (loading) return <div style={{ padding: 32, textAlign: "center", color: "#9E9B94", fontFamily: FF }}>Loading…</div>;
 
   return (
     <div>
       <div style={{ display: "flex", gap: 12, marginBottom: 20, flexWrap: "wrap" }}>
-        <div style={{ background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 8, padding: "10px 16px" }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "#991B1B", fontFamily: FF }}>{validCount}</div>
-          <div style={{ fontSize: 11, color: "#991B1B", fontFamily: FF }}>Valid complaints</div>
+        <div style={{ background: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, padding: "10px 16px" }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#B3261E", fontFamily: FF }}>{validCount}</div>
+          <div style={{ fontSize: 11, color: "#B3261E", fontFamily: FF }}>Valid complaints</div>
         </div>
-        <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 16px" }}>
-          <div style={{ fontSize: 20, fontWeight: 700, color: "#92400E", fontFamily: FF }}>{pendingCount}</div>
-          <div style={{ fontSize: 11, color: "#92400E", fontFamily: FF }}>Pending validation</div>
+        <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 16px" }}>
+          <div style={{ fontSize: 20, fontWeight: 700, color: "#B45309", fontFamily: FF }}>{pendingCount}</div>
+          <div style={{ fontSize: 11, color: "#B45309", fontFamily: FF }}>Pending validation</div>
         </div>
         <div style={{ flex: 1 }} />
         {canLog && (
@@ -516,30 +516,30 @@ export function QualityTab({ employeeId }: { employeeId: number }) {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
               <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 {c.valid ? (
-                  <span style={{ fontSize: 11, background: "#FEE2E2", color: "#991B1B", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>Valid</span>
+                  <span style={{ fontSize: 11, background: "#FCEBEA", color: "#B3261E", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>Valid</span>
                 ) : c.validated_at ? (
-                  <span style={{ fontSize: 11, background: "#DCFCE7", color: "#166534", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>Not Valid</span>
+                  <span style={{ fontSize: 11, background: "#E6F6F1", color: "#0F7A63", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>Not Valid</span>
                 ) : (
-                  <span style={{ fontSize: 11, background: "#FEF3C7", color: "#92400E", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>Pending</span>
+                  <span style={{ fontSize: 11, background: "#FDF3E4", color: "#B45309", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>Pending</span>
                 )}
                 {c.re_clean_required && (
-                  <span style={{ fontSize: 11, background: "#FEF3C7", color: "#92400E", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>Re-clean required</span>
+                  <span style={{ fontSize: 11, background: "#FDF3E4", color: "#B45309", padding: "2px 8px", borderRadius: 20, fontWeight: 600, fontFamily: FF }}>Re-clean required</span>
                 )}
               </div>
               <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>{fmtDate(c.complaint_date)}</span>
             </div>
-            {c.description && <p style={{ fontSize: 13, color: "#374151", margin: "0 0 6px", fontFamily: FF }}>{c.description}</p>}
+            {c.description && <p style={{ fontSize: 13, color: "#1A1917", margin: "0 0 6px", fontFamily: FF }}>{c.description}</p>}
             {c.validator_name && (
-              <div style={{ fontSize: 11, color: "#9CA3AF", fontFamily: FF }}>
+              <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
                 Validated by {c.validator_name} {c.validated_at ? `on ${new Date(c.validated_at).toLocaleDateString()}` : ""}
               </div>
             )}
             {canValidate && !c.validated_at && (
               <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                <button onClick={() => validate(c.id, true)} style={{ padding: "5px 12px", fontSize: 12, background: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>
+                <button onClick={() => validate(c.id, true)} style={{ padding: "5px 12px", fontSize: 12, background: "#FCEBEA", color: "#B3261E", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>
                   Mark Valid
                 </button>
-                <button onClick={() => validate(c.id, false)} style={{ padding: "5px 12px", fontSize: 12, background: "#DCFCE7", color: "#166534", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>
+                <button onClick={() => validate(c.id, false)} style={{ padding: "5px 12px", fontSize: 12, background: "#E6F6F1", color: "#0F7A63", border: "none", borderRadius: 6, cursor: "pointer", fontFamily: FF, fontWeight: 600 }}>
                   Mark Not Valid
                 </button>
               </div>
@@ -564,7 +564,7 @@ export function QualityTab({ employeeId }: { employeeId: number }) {
               </div>
               <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer" }}>
                 <input type="checkbox" checked={form.re_clean_required} onChange={e => setForm(p => ({ ...p, re_clean_required: e.target.checked }))} />
-                <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>Re-clean required</span>
+                <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>Re-clean required</span>
               </label>
             </div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>

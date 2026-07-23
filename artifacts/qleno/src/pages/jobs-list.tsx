@@ -17,7 +17,7 @@ const CARD  = "#FFFFFF";
 const TXT   = "#1A1917";
 const TXT2  = "#6B6860";
 const BORDER = "#E5E2DC";
-const ACCENT = "#2D9B83";
+const ACCENT = "#0F7A63";
 const HOVER = "#F7F6F3";
 
 // ── Column definitions ───────────────────────────────────────────────────────
@@ -45,15 +45,15 @@ const ALL_COLUMNS: ColDef[] = [
 
 const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
   scheduled:   { bg: "#EEF2FF", color: "#4338CA", label: "Scheduled" },
-  in_progress: { bg: "#FEF3C7", color: "#92400E", label: "In Progress" },
-  complete:    { bg: "#DCFCE7", color: "#15803D", label: "Complete" },
-  cancelled:   { bg: "#F3F4F6", color: "#6B7280", label: "Cancelled" },
+  in_progress: { bg: "#FDF3E4", color: "#B45309", label: "In Progress" },
+  complete:    { bg: "#E6F6F1", color: "#15803D", label: "Complete" },
+  cancelled:   { bg: "#F0EEE9", color: "#6B6860", label: "Cancelled" },
 };
 
 const PAYMENT_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  paid:    { bg: "#DCFCE7", color: "#15803D", label: "Paid" },
-  unpaid:  { bg: "#FEF3C7", color: "#92400E", label: "Unpaid" },
-  failed:  { bg: "#FEE2E2", color: "#991B1B", label: "Failed" },
+  paid:    { bg: "#E6F6F1", color: "#15803D", label: "Paid" },
+  unpaid:  { bg: "#FDF3E4", color: "#B45309", label: "Unpaid" },
+  failed:  { bg: "#FCEBEA", color: "#B3261E", label: "Failed" },
   pending: { bg: "#EEF2FF", color: "#4338CA", label: "Pending" },
 };
 
@@ -596,7 +596,7 @@ export default function JobsListPage() {
                             </span>
                           )}
                           {col.key === "frequency" && <span style={{ color: TXT2 }}>{FREQ_LABELS[job.frequency] ?? job.frequency}</span>}
-                          {col.key === "flagged" && job.flagged && <span style={{ color: "#DC2626", fontWeight: 600 }}>Yes</span>}
+                          {col.key === "flagged" && job.flagged && <span style={{ color: "#B3261E", fontWeight: 600 }}>Yes</span>}
                           {col.key === "created_at" && <span style={{ color: TXT2, fontSize: 12 }}>{fmtDate(job.created_at?.split("T")[0])}</span>}
                         </td>
                       ))}

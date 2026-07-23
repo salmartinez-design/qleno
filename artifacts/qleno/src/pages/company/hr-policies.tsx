@@ -18,10 +18,10 @@ async function apiFetch(path: string, opts?: RequestInit) {
 
 function Row({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
   return (
-    <div style={{ display: "flex", alignItems: "flex-start", gap: 24, padding: "14px 0", borderBottom: "1px solid #F3F4F6" }}>
+    <div style={{ display: "flex", alignItems: "flex-start", gap: 24, padding: "14px 0", borderBottom: "1px solid #F0EEE9" }}>
       <div style={{ minWidth: 240, flex: "0 0 240px" }}>
         <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>{label}</div>
-        {hint && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 2, fontFamily: FF }}>{hint}</div>}
+        {hint && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF }}>{hint}</div>}
       </div>
       <div style={{ flex: 1 }}>{children}</div>
     </div>
@@ -39,7 +39,7 @@ function Input({ value, onChange, type = "text", min, max, step, style }: any) {
       onChange={e => onChange(type === "number" ? (e.target.value === "" ? "" : parseFloat(e.target.value)) : e.target.value)}
       style={{
         width: "100%", padding: "7px 10px", fontSize: 13, fontFamily: FF,
-        border: "1px solid #E5E7EB", borderRadius: 6, outline: "none",
+        border: "1px solid #E5E2DC", borderRadius: 6, outline: "none",
         background: "#FAFAFA", color: "#1A1917", boxSizing: "border-box", ...style,
       }}
     />
@@ -53,7 +53,7 @@ function Select({ value, onChange, children, style }: any) {
       onChange={e => onChange(e.target.value)}
       style={{
         padding: "7px 10px", fontSize: 13, fontFamily: FF,
-        border: "1px solid #E5E7EB", borderRadius: 6, background: "#FAFAFA",
+        border: "1px solid #E5E2DC", borderRadius: 6, background: "#FAFAFA",
         color: "#1A1917", outline: "none", minWidth: 180, ...style,
       }}
     >
@@ -69,7 +69,7 @@ function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: bool
         onClick={() => onChange(!value)}
         style={{
           width: 36, height: 20, borderRadius: 10, position: "relative", cursor: "pointer", flexShrink: 0,
-          background: value ? "var(--brand)" : "#D1D5DB", transition: "background 0.2s",
+          background: value ? "var(--brand)" : "#E5E2DC", transition: "background 0.2s",
         }}
       >
         <div style={{
@@ -78,7 +78,7 @@ function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: bool
           transition: "left 0.2s", boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
         }} />
       </div>
-      {label && <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>{label}</span>}
+      {label && <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>{label}</span>}
     </label>
   );
 }
@@ -86,7 +86,7 @@ function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: bool
 function Accordion({ title, subtitle, children, defaultOpen = false }: { title: string; subtitle?: string; children: React.ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div style={{ border: "1px solid #E5E7EB", borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
+    <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", marginBottom: 12 }}>
       <button
         onClick={() => setOpen(!open)}
         style={{
@@ -95,10 +95,10 @@ function Accordion({ title, subtitle, children, defaultOpen = false }: { title: 
         }}
       >
         <div>
-          <div style={{ fontSize: 14, fontWeight: 600, color: "#111827", fontFamily: FF }}>{title}</div>
-          {subtitle && <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2, fontFamily: FF }}>{subtitle}</div>}
+          <div style={{ fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{title}</div>
+          {subtitle && <div style={{ fontSize: 12, color: "#6B6860", marginTop: 2, fontFamily: FF }}>{subtitle}</div>}
         </div>
-        {open ? <ChevronUp size={16} color="#6B7280" /> : <ChevronDown size={16} color="#6B7280" />}
+        {open ? <ChevronUp size={16} color="#6B6860" /> : <ChevronDown size={16} color="#6B6860" />}
       </button>
       {open && <div style={{ padding: "4px 20px 20px" }}>{children}</div>}
     </div>
@@ -148,7 +148,7 @@ function StepsEditor({ steps, onChange, typeLabel }: { steps: StepRow[]; onChang
     <div>
       {steps.map((s, i) => (
         <div key={i} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
-          <div style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, minWidth: 60 }}>{typeLabel} #{s.step}</div>
+          <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, minWidth: 60 }}>{typeLabel} #{s.step}</div>
           <Select value={s.action} onChange={(v: string) => updateStep(i, "action", v)} style={{ minWidth: 160 }}>
             <option value="record_only">Record only</option>
             <option value="verbal_warning">Verbal warning</option>
@@ -162,11 +162,11 @@ function StepsEditor({ steps, onChange, typeLabel }: { steps: StepRow[]; onChang
             onChange={e => updateStep(i, "note", e.target.value)}
             style={{
               flex: 1, padding: "7px 10px", fontSize: 12, fontFamily: FF,
-              border: "1px solid #E5E7EB", borderRadius: 6, background: "#FAFAFA", color: "#1A1917", outline: "none",
+              border: "1px solid #E5E2DC", borderRadius: 6, background: "#FAFAFA", color: "#1A1917", outline: "none",
             }}
           />
           <button onClick={() => removeStep(i)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
-            <Trash2 size={14} color="#EF4444" />
+            <Trash2 size={14} color="#B3261E" />
           </button>
         </div>
       ))}
@@ -210,7 +210,7 @@ function HolidayEditor({ holidays, onChange }: { holidays: Holiday[]; onChange: 
             onChange={e => update(i, "name", e.target.value)}
             style={{
               flex: 1, padding: "7px 10px", fontSize: 12, fontFamily: FF,
-              border: "1px solid #E5E7EB", borderRadius: 6, background: "#FAFAFA", color: "#1A1917", outline: "none",
+              border: "1px solid #E5E2DC", borderRadius: 6, background: "#FAFAFA", color: "#1A1917", outline: "none",
             }}
           />
           <CalendarPopover
@@ -219,7 +219,7 @@ function HolidayEditor({ holidays, onChange }: { holidays: Holiday[]; onChange: 
             onChange={ymd => update(i, "date", ymd)}
           />
           <button onClick={() => remove(i)} style={{ background: "none", border: "none", cursor: "pointer", padding: 4 }}>
-            <Trash2 size={14} color="#EF4444" />
+            <Trash2 size={14} color="#B3261E" />
           </button>
         </div>
       ))}
@@ -324,7 +324,7 @@ export function HRPoliciesTab() {
     setLeavePolicy((l: any) => ({ ...l, [field]: val }));
   }
 
-  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#6B7280", fontFamily: FF }}>Loading HR policies…</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: "#6B6860", fontFamily: FF }}>Loading HR policies…</div>;
 
   return (
     <div>
@@ -340,8 +340,8 @@ export function HRPoliciesTab() {
 
       {!isOwner && (
         <div style={{
-          background: "#F9FAFB", border: "1px solid #E5E7EB", borderRadius: 8,
-          padding: "12px 16px", marginBottom: 20, fontFamily: FF, fontSize: 13, color: "#6B7280",
+          background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8,
+          padding: "12px 16px", marginBottom: 20, fontFamily: FF, fontSize: 13, color: "#6B6860",
         }}>
           You can view HR policies but only the account owner can make changes.
         </div>
@@ -350,33 +350,33 @@ export function HRPoliciesTab() {
       <Accordion title="Pay Structure" subtitle="Training rates, commission, mileage, overtime, and job minimums" defaultOpen>
         {payPolicy && (
           <>
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Training Period</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Training Period</div>
             <Row label="Training period length" hint="Weeks before moving to standard pay">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Input type="number" min={0} value={payPolicy.training_period_weeks} onChange={(v: any) => isOwner && setPay("training_period_weeks", v)} style={{ width: 80 }} />
-                <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>weeks</span>
+                <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>weeks</span>
               </div>
             </Row>
             <Row label="Training hourly rate" hint="Rate during training period (owner must verify minimum wage compliance)">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>$</span>
+                <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>$</span>
                 <Input type="number" min={0} step={0.01} value={payPolicy.training_hourly_rate} onChange={(v: any) => isOwner && setPay("training_hourly_rate", v)} style={{ width: 100 }} />
-                <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>/ hr</span>
+                <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>/ hr</span>
               </div>
             </Row>
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Job Minimums</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Job Minimums</div>
             <Row label="Minimum job hours" hint="Ensures minimum pay for short jobs">
               <Toggle value={payPolicy.job_minimum_hours_enabled} onChange={v => isOwner && setPay("job_minimum_hours_enabled", v)} label={payPolicy.job_minimum_hours_enabled ? "Enabled" : "Disabled"} />
               {payPolicy.job_minimum_hours_enabled && (
                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
                   <Input type="number" min={0} step={0.5} value={payPolicy.job_minimum_hours} onChange={(v: any) => isOwner && setPay("job_minimum_hours", v)} style={{ width: 80 }} />
-                  <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>hours minimum per job</span>
+                  <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>hours minimum per job</span>
                 </div>
               )}
             </Row>
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Commission</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Commission</div>
             <Row label="Commission type">
               <Select value={payPolicy.commission_type} onChange={(v: string) => isOwner && setPay("commission_type", v)}>
                 <option value="hourly_only">Hourly only (no commission)</option>
@@ -390,7 +390,7 @@ export function HRPoliciesTab() {
                 <Row label="Commission rate">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Input type="number" min={0} step={0.01} value={payPolicy.commission_rate} onChange={(v: any) => isOwner && setPay("commission_rate", v)} style={{ width: 100 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>{payPolicy.commission_type === "percent_per_job" ? "%" : "$ flat"}</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>{payPolicy.commission_type === "percent_per_job" ? "%" : "$ flat"}</span>
                   </div>
                 </Row>
                 <Row label="Commission condition" hint="Label shown on pay stubs">
@@ -399,19 +399,19 @@ export function HRPoliciesTab() {
               </>
             )}
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Wage Floors</div>
-            <div style={{ background: "#FEF3C7", borderRadius: 6, padding: "10px 14px", marginBottom: 8, fontSize: 12, color: "#92400E", fontFamily: FF }}>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Wage Floors</div>
+            <div style={{ background: "#FDF3E4", borderRadius: 6, padding: "10px 14px", marginBottom: 8, fontSize: 12, color: "#B45309", fontFamily: FF }}>
               These are your internal minimums only. Owner is responsible for ensuring compliance with applicable minimum wage laws.
             </div>
             <Row label="Minimum hourly rate (per period)">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>$</span>
+                <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>$</span>
                 <Input type="number" min={0} step={0.01} value={payPolicy.min_hourly_wage_per_period} onChange={(v: any) => isOwner && setPay("min_hourly_wage_per_period", v)} style={{ width: 100 }} />
-                <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>/ hr (internal floor)</span>
+                <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>/ hr (internal floor)</span>
               </div>
             </Row>
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Mileage Reimbursement</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Mileage Reimbursement</div>
             <Row label="Mileage reimbursement">
               <Toggle value={payPolicy.mileage_reimbursement_enabled} onChange={v => isOwner && setPay("mileage_reimbursement_enabled", v)} label={payPolicy.mileage_reimbursement_enabled ? "Enabled" : "Disabled"} />
             </Row>
@@ -419,9 +419,9 @@ export function HRPoliciesTab() {
               <>
                 <Row label="Rate per mile" hint="Owner must update annually (e.g. IRS standard rate)">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>$</span>
+                    <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>$</span>
                     <Input type="number" min={0} step={0.001} value={payPolicy.mileage_rate_per_mile} onChange={(v: any) => isOwner && setPay("mileage_rate_per_mile", v)} style={{ width: 100 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>/ mile</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>/ mile</span>
                   </div>
                 </Row>
                 <Row label="Job-to-job only">
@@ -430,13 +430,13 @@ export function HRPoliciesTab() {
                 <Row label="Submission deadline">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Input type="number" min={1} value={payPolicy.mileage_submission_deadline_days} onChange={(v: any) => isOwner && setPay("mileage_submission_deadline_days", v)} style={{ width: 80 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>days from service date</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>days from service date</span>
                   </div>
                 </Row>
               </>
             )}
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Overtime</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Overtime</div>
             <Row label="Overtime rule" hint="Defines when overtime kicks in">
               <Select value={payPolicy.overtime_rule} onChange={(v: string) => isOwner && setPay("overtime_rule", v)}>
                 <option value="federal_only">Federal only (40 hrs/week)</option>
@@ -453,7 +453,7 @@ export function HRPoliciesTab() {
             <Row label="Full-time hours threshold">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Input type="number" min={1} value={payPolicy.full_time_hours_threshold} onChange={(v: any) => isOwner && setPay("full_time_hours_threshold", v)} style={{ width: 80 }} />
-                <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>hours / week</span>
+                <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>hours / week</span>
               </div>
             </Row>
 
@@ -473,34 +473,34 @@ export function HRPoliciesTab() {
                 <Row label="Trigger threshold" hint="Number of valid complaints in rolling window">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Input type="number" min={1} value={payPolicy.quality_probation_trigger_count} onChange={(v: any) => isOwner && setPay("quality_probation_trigger_count", v)} style={{ width: 70 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>complaints within</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>complaints within</span>
                     <Input type="number" min={1} value={payPolicy.quality_probation_rolling_days} onChange={(v: any) => isOwner && setPay("quality_probation_rolling_days", v)} style={{ width: 70 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>days</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>days</span>
                   </div>
                 </Row>
                 <Row label="Probation duration">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Input type="number" min={1} value={payPolicy.quality_probation_duration_days} onChange={(v: any) => isOwner && setPay("quality_probation_duration_days", v)} style={{ width: 70 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>days on probation</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>days on probation</span>
                   </div>
                 </Row>
                 <Row label="Probation hourly rate" hint="Rate during quality probation period">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>$</span>
+                    <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>$</span>
                     <Input type="number" min={0} step={0.01} value={payPolicy.quality_probation_hourly_rate} onChange={(v: any) => isOwner && setPay("quality_probation_hourly_rate", v)} style={{ width: 100 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>/ hr</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>/ hr</span>
                   </div>
                 </Row>
                 <Row label="Clean days to exit probation">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Input type="number" min={1} value={payPolicy.return_to_commission_clean_days} onChange={(v: any) => isOwner && setPay("return_to_commission_clean_days", v)} style={{ width: 70 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>consecutive clean days</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>consecutive clean days</span>
                   </div>
                 </Row>
               </>
             )}
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Re-Clean Policy</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Re-Clean Policy</div>
             <Row label="Re-clean pay type" hint="How the original tech is paid when a re-clean occurs">
               <Select value={payPolicy.re_clean_pay_type} onChange={(v: string) => isOwner && setPay("re_clean_pay_type", v)}>
                 <option value="no_additional">No additional pay</option>
@@ -511,14 +511,14 @@ export function HRPoliciesTab() {
             {payPolicy.re_clean_pay_type === "reduced_rate" && (
               <Row label="Reduced rate per re-clean">
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>$</span>
+                  <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>$</span>
                   <Input type="number" min={0} step={0.01} value={payPolicy.re_clean_reduced_rate} onChange={(v: any) => isOwner && setPay("re_clean_reduced_rate", v)} style={{ width: 100 }} />
                 </div>
               </Row>
             )}
             <Row label="Recovery tech rate" hint="Flat rate paid to the tech who does the re-clean">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>$</span>
+                <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>$</span>
                 <Input type="number" min={0} step={0.01} value={payPolicy.recovery_tech_rate} onChange={(v: any) => isOwner && setPay("recovery_tech_rate", v)} style={{ width: 100 }} />
               </div>
             </Row>
@@ -540,25 +540,25 @@ export function HRPoliciesTab() {
             <Row label="Clock-in grace period">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Input type="number" min={0} value={attendancePolicy.grace_period_minutes} onChange={(v: any) => isOwner && setAtt("grace_period_minutes", v)} style={{ width: 70 }} />
-                <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>minutes before marked tardy</span>
+                <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>minutes before marked tardy</span>
               </div>
             </Row>
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 8px", fontWeight: 600 }}>Tardy Progressive Steps</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 8px", fontWeight: 600 }}>Tardy Progressive Steps</div>
             <StepsEditor
               steps={attendancePolicy.tardy_steps}
               onChange={steps => isOwner && setAtt("tardy_steps", steps)}
               typeLabel="Tardy"
             />
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 8px", fontWeight: 600 }}>Absence Progressive Steps</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 8px", fontWeight: 600 }}>Absence Progressive Steps</div>
             <StepsEditor
               steps={attendancePolicy.absence_steps}
               onChange={steps => isOwner && setAtt("absence_steps", steps)}
               typeLabel="Absence"
             />
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>No-Call No-Show (NCNS)</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>No-Call No-Show (NCNS)</div>
             <Row label="NCNS policy">
               <Toggle value={attendancePolicy.ncns_policy_enabled} onChange={v => isOwner && setAtt("ncns_policy_enabled", v)} label={attendancePolicy.ncns_policy_enabled ? "Enabled" : "Disabled"} />
             </Row>
@@ -575,7 +575,7 @@ export function HRPoliciesTab() {
                     rows={3}
                     style={{
                       width: "100%", padding: "8px 10px", fontSize: 13, fontFamily: FF,
-                      border: "1px solid #E5E7EB", borderRadius: 6, resize: "vertical",
+                      border: "1px solid #E5E2DC", borderRadius: 6, resize: "vertical",
                       background: "#FAFAFA", color: "#1A1917", outline: "none", boxSizing: "border-box",
                     }}
                   />
@@ -583,7 +583,7 @@ export function HRPoliciesTab() {
               </>
             )}
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Scheduling Limits</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 4px", fontWeight: 600 }}>Scheduling Limits</div>
             <Row label="Limit simultaneous time-off requests">
               <Toggle value={attendancePolicy.max_simultaneous_off_enabled} onChange={v => isOwner && setAtt("max_simultaneous_off_enabled", v)} label={attendancePolicy.max_simultaneous_off_enabled ? "Enabled" : "Disabled"} />
             </Row>
@@ -619,7 +619,7 @@ export function HRPoliciesTab() {
                   <Row label="Hours granted per year">
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <Input type="number" min={0} step={0.5} value={leavePolicy.leave_hours_granted} onChange={(v: any) => isOwner && setLeave("leave_hours_granted", v)} style={{ width: 80 }} />
-                      <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>hours</span>
+                      <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>hours</span>
                     </div>
                   </Row>
                 )}
@@ -627,14 +627,14 @@ export function HRPoliciesTab() {
                   <Row label="Accrual rate" hint="Hours accrued per hour worked">
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <Input type="number" min={0} step={0.001} value={leavePolicy.accrual_rate_per_hour_worked} onChange={(v: any) => isOwner && setLeave("accrual_rate_per_hour_worked", v)} style={{ width: 90 }} />
-                      <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>hours per hour worked</span>
+                      <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>hours per hour worked</span>
                     </div>
                   </Row>
                 )}
                 <Row label="Eligibility after hire">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Input type="number" min={0} value={leavePolicy.eligibility_trigger_days} onChange={(v: any) => isOwner && setLeave("eligibility_trigger_days", v)} style={{ width: 70 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>days from hire date</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>days from hire date</span>
                   </div>
                 </Row>
                 <Row label="Leave year resets on">
@@ -647,9 +647,9 @@ export function HRPoliciesTab() {
                   <Toggle value={leavePolicy.carryover_enabled} onChange={v => isOwner && setLeave("carryover_enabled", v)} label={leavePolicy.carryover_enabled ? "Enabled" : "Disabled"} />
                   {leavePolicy.carryover_enabled && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                      <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>Max</span>
+                      <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>Max</span>
                       <Input type="number" min={0} step={0.5} value={leavePolicy.carryover_max_hours} onChange={(v: any) => isOwner && setLeave("carryover_max_hours", v)} style={{ width: 80 }} />
-                      <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>hours carried over</span>
+                      <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>hours carried over</span>
                     </div>
                   )}
                 </Row>
@@ -659,39 +659,39 @@ export function HRPoliciesTab() {
                 <Row label="Documentation required after" hint="Number of consecutive sick days before documentation may be requested">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Input type="number" min={1} value={leavePolicy.documentation_required_after_days} onChange={(v: any) => isOwner && setLeave("documentation_required_after_days", v)} style={{ width: 70 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>days</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>days</span>
                   </div>
                 </Row>
                 <Row label="Notice required for foreseeable leave">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Input type="number" min={0} value={leavePolicy.notice_required_foreseeable_days} onChange={(v: any) => isOwner && setLeave("notice_required_foreseeable_days", v)} style={{ width: 70 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>days advance notice</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>days advance notice</span>
                   </div>
                 </Row>
                 <Row label="PTO request deadline">
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <Input type="number" min={0} value={leavePolicy.pto_request_deadline_days} onChange={(v: any) => isOwner && setLeave("pto_request_deadline_days", v)} style={{ width: 70 }} />
-                    <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>days in advance</span>
+                    <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>days in advance</span>
                   </div>
                 </Row>
                 <Row label="Birthday holiday">
                   <Toggle value={leavePolicy.birthday_holiday_enabled} onChange={v => isOwner && setLeave("birthday_holiday_enabled", v)} label={leavePolicy.birthday_holiday_enabled ? "Enabled" : "Disabled"} />
                   {leavePolicy.birthday_holiday_enabled && (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
-                      <span style={{ fontSize: 13, color: "#374151", fontFamily: FF }}>Employee must request</span>
+                      <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>Employee must request</span>
                       <Input type="number" min={1} value={leavePolicy.birthday_advance_notice_days} onChange={(v: any) => isOwner && setLeave("birthday_advance_notice_days", v)} style={{ width: 70 }} />
-                      <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>days in advance</span>
+                      <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>days in advance</span>
                     </div>
                   )}
                 </Row>
               </>
             )}
 
-            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9CA3AF", fontFamily: FF, padding: "16px 0 8px", fontWeight: 600 }}>Company Holidays</div>
+            <div style={{ fontSize: 11, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", fontFamily: FF, padding: "16px 0 8px", fontWeight: 600 }}>Company Holidays</div>
             <Row label="Holiday pay rate" hint="Multiplier applied to regular hourly rate">
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <Input type="number" min={1} step={0.25} value={leavePolicy.holiday_pay_rate_multiplier} onChange={(v: any) => isOwner && setLeave("holiday_pay_rate_multiplier", v)} style={{ width: 80 }} />
-                <span style={{ fontSize: 13, color: "#6B7280", fontFamily: FF }}>× regular rate</span>
+                <span style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>× regular rate</span>
               </div>
             </Row>
             <Row label="Holiday list">

@@ -62,9 +62,9 @@ export default function PayrollReportPage() {
 
         {/* Flags */}
         {((flags?.missing_clocks?.length ?? 0) > 0 || (flags?.unclocked_out?.length ?? 0) > 0) && (
-          <div style={{ backgroundColor: "#FEF3C7", border: "1px solid #F59E0B", borderRadius: 8, padding: "12px 16px", marginBottom: 20, display: "flex", gap: 10 }}>
+          <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F59E0B", borderRadius: 8, padding: "12px 16px", marginBottom: 20, display: "flex", gap: 10 }}>
             <AlertTriangle size={16} color={clr.amber} style={{ flexShrink: 0, marginTop: 1 }} />
-            <div style={{ fontSize: 13, color: "#92400E" }}>
+            <div style={{ fontSize: 13, color: "#B45309" }}>
               {(flags?.missing_clocks?.length ?? 0) > 0 && <p style={{ margin: "0 0 4px" }}><strong>{flags!.missing_clocks.length} job{flags!.missing_clocks.length > 1 ? "s" : ""}</strong> completed with no timeclock entry.</p>}
               {(flags?.unclocked_out?.length ?? 0) > 0 && <p style={{ margin: 0 }}><strong>{flags!.unclocked_out.length} employee{flags!.unclocked_out.length > 1 ? "s" : ""}</strong> clocked in with no clock-out.</p>}
             </div>

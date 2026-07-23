@@ -15,7 +15,7 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
   return r.json();
 }
 
-const card: React.CSSProperties = { backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "20px" };
+const card: React.CSSProperties = { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", padding: 18 };
 const label: React.CSSProperties = { fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" };
 const inputStyle: React.CSSProperties = { width: "100%", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", fontFamily: "inherit", boxSizing: "border-box" };
 
@@ -117,7 +117,7 @@ export default function AgreementTemplatesPage() {
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "24px" }}>
           <div>
             <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#1A1917", margin: 0 }}>Agreement Templates</h1>
-            <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>
+            <div style={{ fontSize: "13px", color: "#6B6860", marginTop: "4px" }}>
               Create service agreement templates that can be sent to clients for electronic signing.
             </div>
           </div>
@@ -145,7 +145,7 @@ export default function AgreementTemplatesPage() {
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginBottom: "8px" }}>
                 {VARIABLES.map(v => (
-                  <button key={v.key} onClick={() => insertVariable(v.key)} title={v.desc} style={{ backgroundColor: "#EFF6FF", color: "#1D4ED8", border: "1px solid #BFDBFE", borderRadius: "4px", padding: "3px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", fontFamily: "monospace" }}>
+                  <button key={v.key} onClick={() => insertVariable(v.key)} title={v.desc} style={{ backgroundColor: "#EFEFF2", color: "#2F3646", border: "1px solid #DEDEE4", borderRadius: "4px", padding: "3px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", fontFamily: "monospace" }}>
                     {v.key}
                   </button>
                 ))}
@@ -153,7 +153,7 @@ export default function AgreementTemplatesPage() {
               <textarea style={{ ...inputStyle, minHeight: "320px", resize: "vertical", fontFamily: "monospace", fontSize: "12px", lineHeight: "1.6" }} value={form.body} onChange={e => setForm(p => ({ ...p, body: e.target.value }))} />
             </div>
             <div style={{ display: "flex", gap: "8px", justifyContent: "flex-end" }}>
-              <button onClick={() => setEditingId(null)} style={{ backgroundColor: "#F3F4F6", color: "#6B7280", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => setEditingId(null)} style={{ backgroundColor: "#F0EEE9", color: "#6B6860", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
               <button onClick={() => setPreview({ name: form.name, body: form.body })} style={{ backgroundColor: "#F7F6F3", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
                 Preview
               </button>
@@ -170,7 +170,7 @@ export default function AgreementTemplatesPage() {
         ) : templates.length === 0 && editingId === null ? (
           <div style={{ ...card, textAlign: "center", padding: "60px" }}>
             <FileText size={40} style={{ color: "#C4C0BB", marginBottom: "12px" }} />
-            <div style={{ fontSize: "15px", fontWeight: 700, color: "#6B7280", marginBottom: "6px" }}>No agreement templates yet</div>
+            <div style={{ fontSize: "15px", fontWeight: 700, color: "#6B6860", marginBottom: "6px" }}>No agreement templates yet</div>
             <div style={{ fontSize: "13px", color: "#9E9B94", marginBottom: "20px" }}>Create a template to send service agreements to clients for electronic signing</div>
             <button onClick={startNew} style={{ backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: "8px", padding: "10px 18px", fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>Create First Template</button>
           </div>
@@ -178,25 +178,25 @@ export default function AgreementTemplatesPage() {
           <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {templates.map((t: any) => (
               <div key={t.id} style={{ ...card, display: "flex", alignItems: "flex-start", gap: "16px" }}>
-                <div style={{ width: "40px", height: "40px", backgroundColor: "#EFF6FF", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <div style={{ width: "40px", height: "40px", backgroundColor: "#EFEFF2", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <FileText size={20} style={{ color: "var(--brand)" }} />
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
                     <div style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>{t.name}</div>
-                    <span style={{ backgroundColor: t.is_active ? "#D1FAE5" : "#F3F4F6", color: t.is_active ? "#065F46" : "#6B7280", fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px" }}>
+                    <span style={{ backgroundColor: t.is_active ? "#D1FAE5" : "#F0EEE9", color: t.is_active ? "#065F46" : "#6B6860", fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px" }}>
                       {t.is_active ? "ACTIVE" : "INACTIVE"}
                     </span>
                   </div>
-                  <div style={{ fontSize: "12px", color: "#6B7280", marginBottom: "4px" }}>
+                  <div style={{ fontSize: "12px", color: "#6B6860", marginBottom: "4px" }}>
                     {t.body.split("\n").slice(0, 2).join(" ").substring(0, 120)}...
                   </div>
                   <div style={{ fontSize: "11px", color: "#9E9B94" }}>Created {fmtDate(t.created_at)} · Updated {fmtDate(t.updated_at)}</div>
                 </div>
                 <div style={{ display: "flex", gap: "6px", flexShrink: 0 }}>
                   <button onClick={() => setPreview(t)} style={{ backgroundColor: "#F7F6F3", color: "#1A1917", border: "1px solid #E5E2DC", borderRadius: "6px", padding: "6px 10px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>Preview</button>
-                  <button onClick={() => startEdit(t)} style={{ backgroundColor: "#EFF6FF", color: "#1D4ED8", border: "none", borderRadius: "6px", padding: "6px 10px", cursor: "pointer" }}><Edit2 size={14} /></button>
-                  <button onClick={() => { if (confirm(`Delete "${t.name}"?`)) deleteMut.mutate(t.id); }} style={{ backgroundColor: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: "6px", padding: "6px 10px", cursor: "pointer" }}><Trash2 size={14} /></button>
+                  <button onClick={() => startEdit(t)} style={{ backgroundColor: "#EFEFF2", color: "#2F3646", border: "none", borderRadius: "6px", padding: "6px 10px", cursor: "pointer" }}><Edit2 size={14} /></button>
+                  <button onClick={() => { if (confirm(`Delete "${t.name}"?`)) deleteMut.mutate(t.id); }} style={{ backgroundColor: "#FCEBEA", color: "#B3261E", border: "none", borderRadius: "6px", padding: "6px 10px", cursor: "pointer" }}><Trash2 size={14} /></button>
                 </div>
               </div>
             ))}
@@ -225,7 +225,7 @@ export default function AgreementTemplatesPage() {
                   </div>
                   <div>
                     <div style={label}>Date</div>
-                    <div style={{ padding: "10px 14px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", color: "#6B7280", backgroundColor: "#FFFFFF" }}>{new Date().toLocaleDateString()}</div>
+                    <div style={{ padding: "10px 14px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", color: "#6B6860", backgroundColor: "#FFFFFF" }}>{new Date().toLocaleDateString()}</div>
                   </div>
                 </div>
               </div>

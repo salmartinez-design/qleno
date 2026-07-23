@@ -108,7 +108,7 @@ function ArticleEditor({ article, onClose, onSaved }: ArticleEditorProps) {
                 height: "30px", padding: "0 16px", borderRadius: "6px",
                 fontSize: "12px", fontWeight: 600, cursor: "pointer",
                 backgroundColor: tab === lang ? `rgba(${PURPLE_RGB}, 0.10)` : "#F7F6F3",
-                color: tab === lang ? PURPLE : "#6B7280",
+                color: tab === lang ? PURPLE : "#6B6860",
                 border: tab === lang ? `1px solid rgba(${PURPLE_RGB}, 0.3)` : "1px solid #E5E2DC",
               }}
             >
@@ -164,7 +164,7 @@ function ArticleEditor({ article, onClose, onSaved }: ArticleEditorProps) {
           </label>
 
           <div style={{ display: "flex", gap: "10px" }}>
-            <button onClick={onClose} style={{ height: "38px", padding: "0 20px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: "8px", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>
+            <button onClick={onClose} style={{ height: "38px", padding: "0 20px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: "8px", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>
               Cancel
             </button>
             <button onClick={save} disabled={saving} style={{ height: "38px", padding: "0 24px", backgroundColor: PURPLE, border: "none", borderRadius: "8px", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.7 : 1 }}>
@@ -238,13 +238,13 @@ export default function AdminCleancyclopedia() {
       {/* Header controls */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px", flexWrap: "wrap", gap: "12px" }}>
         <div style={{ display: "flex", gap: "16px" }}>
-          <span style={{ fontSize: "13px", color: "#6B7280" }}>
+          <span style={{ fontSize: "13px", color: "#6B6860" }}>
             <strong style={{ color: "#1A1917" }}>{articles.length}</strong> articles
           </span>
-          <span style={{ fontSize: "13px", color: "#16A34A" }}>
+          <span style={{ fontSize: "13px", color: "#0F7A63" }}>
             <strong>{publishedCount}</strong> published
           </span>
-          <span style={{ fontSize: "13px", color: "#6B7280" }}>
+          <span style={{ fontSize: "13px", color: "#6B6860" }}>
             <strong>{drafts}</strong> drafts
           </span>
         </div>
@@ -268,10 +268,10 @@ export default function AdminCleancyclopedia() {
       {/* Articles list */}
       <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", overflow: "hidden" }}>
         {loading ? (
-          <div style={{ padding: "60px", textAlign: "center", color: "#6B7280" }}>Loading articles...</div>
+          <div style={{ padding: "60px", textAlign: "center", color: "#6B6860" }}>Loading articles...</div>
         ) : filtered.length === 0 ? (
           <div style={{ padding: "60px", textAlign: "center" }}>
-            <p style={{ color: "#6B7280", margin: "0 0 16px" }}>{search ? "No articles match your search." : "No articles yet."}</p>
+            <p style={{ color: "#6B6860", margin: "0 0 16px" }}>{search ? "No articles match your search." : "No articles yet."}</p>
             {!search && (
               <button onClick={() => setEditing(null)} style={{ display: "inline-flex", alignItems: "center", gap: "6px", height: "38px", padding: "0 20px", backgroundColor: PURPLE, border: "none", borderRadius: "8px", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
                 <Plus size={14} /> Create First Article
@@ -291,13 +291,13 @@ export default function AdminCleancyclopedia() {
               onMouseLeave={e => (e.currentTarget.style.backgroundColor = "transparent")}
             >
               {/* Status dot */}
-              <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: article.published ? "#16A34A" : "#DEDAD4", flexShrink: 0 }} />
+              <div style={{ width: "8px", height: "8px", borderRadius: "50%", backgroundColor: article.published ? "#0F7A63" : "#DEDAD4", flexShrink: 0 }} />
 
               {/* Content */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "2px" }}>
                   <span style={{ fontSize: "13px", fontWeight: 500, color: "#1A1917" }}>{article.title_en}</span>
-                  {article.title_es && <span style={{ fontSize: "10px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: "4px", padding: "1px 6px", color: "#6B7280" }}>ES</span>}
+                  {article.title_es && <span style={{ fontSize: "10px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: "4px", padding: "1px 6px", color: "#6B6860" }}>ES</span>}
                 </div>
                 <div style={{ display: "flex", gap: "12px" }}>
                   {article.category && <span style={{ fontSize: "11px", color: "#9E9B94" }}>{article.category}</span>}
@@ -310,7 +310,7 @@ export default function AdminCleancyclopedia() {
                 <button
                   onClick={() => handleTogglePublish(article)}
                   title={article.published ? "Unpublish" : "Publish"}
-                  style={{ width: "30px", height: "30px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: article.published ? "#F0FDF4" : "#F7F6F3", border: `1px solid ${article.published ? "#BBF7D0" : "#E5E2DC"}`, borderRadius: "6px", color: article.published ? "#16A34A" : "#9E9B94", cursor: "pointer" }}
+                  style={{ width: "30px", height: "30px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: article.published ? "#F0FDF4" : "#F7F6F3", border: `1px solid ${article.published ? "#C7E7DE" : "#E5E2DC"}`, borderRadius: "6px", color: article.published ? "#0F7A63" : "#9E9B94", cursor: "pointer" }}
                 >
                   {article.published ? <Globe size={13} /> : <EyeOff size={13} />}
                 </button>
@@ -324,7 +324,7 @@ export default function AdminCleancyclopedia() {
                 <button
                   onClick={() => handleDelete(article)}
                   title="Delete"
-                  style={{ width: "30px", height: "30px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: "6px", color: "#DC2626", cursor: "pointer" }}
+                  style={{ width: "30px", height: "30px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: "6px", color: "#B3261E", cursor: "pointer" }}
                 >
                   <Trash2 size={13} />
                 </button>

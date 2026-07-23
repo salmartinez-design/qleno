@@ -49,7 +49,7 @@ const LINE = "#E2E8F0";
 const LINE_SOFT = "#F1F5F9";
 const SUCCESS = "#0F766E";
 const WARN = "#B45309";
-const DANGER = "#B91C1C";
+const DANGER = "#B3261E";
 const FONT = "'Plus Jakarta Sans', sans-serif";
 const RADIUS = 10;
 const MOBILE_BREAKPOINT = 768;
@@ -424,8 +424,8 @@ export default function LmsAdminPage() {
         {error && (
           <div
             style={{
-              background: "#FEF2F2",
-              border: `1px solid #FECACA`,
+              background: "#FCEBEA",
+              border: `1px solid #F1D0CB`,
               color: DANGER,
               padding: 12,
               borderRadius: 8,
@@ -1109,7 +1109,7 @@ function ModuleAttemptsGrid({
               key={moduleId}
               style={{
                 background: SURFACE,
-                border: `1px solid ${passed ? "#A7F3D0" : atCap ? "#FECACA" : LINE}`,
+                border: `1px solid ${passed ? "#A7F3D0" : atCap ? "#F1D0CB" : LINE}`,
                 borderRadius: 8,
                 padding: "8px 10px",
                 fontSize: 12,
@@ -1857,14 +1857,14 @@ function StatusPill({ status }: { status: RosterRow["status"] }) {
     },
     completed: {
       color: SUCCESS,
-      bg: "#ECFDF5",
+      bg: "#E6F6F1",
       border: "#A7F3D0",
       label: "Completed",
     },
     expired: {
       color: DANGER,
-      bg: "#FEF2F2",
-      border: "#FECACA",
+      bg: "#FCEBEA",
+      border: "#F1D0CB",
       label: "Expired",
     },
   };
@@ -1901,9 +1901,9 @@ function DaysBadge({ days, status }: { days: number | null; status?: "active" | 
           display: "inline-flex",
           alignItems: "center",
           gap: 6,
-          background: "#ECFDF5",
+          background: "#E6F6F1",
           color: SUCCESS,
-          border: `1px solid #BBF7D0`,
+          border: `1px solid #C7E7DE`,
           padding: "3px 8px",
           borderRadius: 999,
           fontSize: 11,
@@ -1916,7 +1916,7 @@ function DaysBadge({ days, status }: { days: number | null; status?: "active" | 
     );
   }
   let tone = SUCCESS;
-  let bg = "#ECFDF5";
+  let bg = "#E6F6F1";
   let Icon: typeof CircleCheck = CircleCheck;
   // Item 4 (P0 sprint): null = countdown hasn't started.
   if (days === null) {
@@ -1945,17 +1945,17 @@ function DaysBadge({ days, status }: { days: number | null; status?: "active" | 
   let label = `${days} ${isSingular ? "day" : "days"}`;
   if (days < 0) {
     tone = DANGER;
-    bg = "#FEF2F2";
+    bg = "#FCEBEA";
     label = `${Math.abs(days)} ${isSingular ? "day" : "days"} overdue`;
     Icon = AlertTriangle;
   } else if (days === 0) {
     tone = WARN;
-    bg = "#FFFBEB";
+    bg = "#FDF3E4";
     label = "Due today";
     Icon = AlertTriangle;
   } else if (days <= 2) {
     tone = WARN;
-    bg = "#FFFBEB";
+    bg = "#FDF3E4";
     Icon = CalendarClock;
   } else {
     Icon = CalendarClock;
@@ -2325,7 +2325,7 @@ function ResetEnrollmentDialog({
               border: `1px solid ${mode === "full" ? DANGER : LINE}`,
               borderRadius: 8,
               cursor: "pointer",
-              background: mode === "full" ? "#FEF2F2" : "transparent",
+              background: mode === "full" ? "#FCEBEA" : "transparent",
             }}
           >
             <input
@@ -2673,8 +2673,8 @@ function AttemptHistoryDialog({
         {error && (
           <div
             style={{
-              background: "#FEF2F2",
-              border: `1px solid #FECACA`,
+              background: "#FCEBEA",
+              border: `1px solid #F1D0CB`,
               color: DANGER,
               padding: 10,
               borderRadius: 8,
@@ -2792,9 +2792,9 @@ function AttemptHistoryDialog({
                             </span>
                             <span
                               style={{
-                                background: a.passed ? "#ECFDF5" : "#FEF2F2",
+                                background: a.passed ? "#E6F6F1" : "#FCEBEA",
                                 color: a.passed ? SUCCESS : DANGER,
-                                border: `1px solid ${a.passed ? "#A7F3D0" : "#FECACA"}`,
+                                border: `1px solid ${a.passed ? "#A7F3D0" : "#F1D0CB"}`,
                                 padding: "2px 8px",
                                 borderRadius: 999,
                                 fontSize: 11,
@@ -2828,8 +2828,8 @@ function AttemptHistoryDialog({
                                   <div
                                     key={qid + "-" + i}
                                     style={{
-                                      background: ok ? "#F0FDF4" : "#FEF2F2",
-                                      border: `1px solid ${ok ? "#BBF7D0" : "#FECACA"}`,
+                                      background: ok ? "#F0FDF4" : "#FCEBEA",
+                                      border: `1px solid ${ok ? "#C7E7DE" : "#F1D0CB"}`,
                                       borderLeft: `3px solid ${ok ? SUCCESS : DANGER}`,
                                       borderRadius: 6,
                                       padding: "8px 10px",
@@ -3213,7 +3213,7 @@ function ArchiveEmployeeDialog({
             style={{
               marginTop: 14,
               padding: 10,
-              background: "#FEF2F2",
+              background: "#FCEBEA",
               border: `1px solid ${DANGER}`,
               color: DANGER,
               borderRadius: 8,
@@ -3528,7 +3528,7 @@ function AddEmployeeDialog({
             <div
               style={{
                 padding: "10px 12px",
-                background: "#ECFDF5",
+                background: "#E6F6F1",
                 border: `1px solid ${SUCCESS}`,
                 borderRadius: 8,
                 color: SUCCESS,
@@ -3710,8 +3710,8 @@ function AddEmployeeDialog({
             {err && (
               <div
                 style={{
-                  background: "#FEF2F2",
-                  border: `1px solid #FECACA`,
+                  background: "#FCEBEA",
+                  border: `1px solid #F1D0CB`,
                   color: DANGER,
                   padding: "8px 10px",
                   borderRadius: 8,
@@ -4216,7 +4216,7 @@ function EditEmployeeDialog({
                         style={{
                           display: "flex", alignItems: "center", gap: 10,
                           padding: "8px 10px",
-                          background: isMember ? "#ECFDF5" : "#FFFFFF",
+                          background: isMember ? "#E6F6F1" : "#FFFFFF",
                           border: `1px solid ${isMember ? "#A7F3D0" : LINE}`,
                           borderRadius: 8,
                           cursor: disabled ? "default" : "pointer",
@@ -4254,7 +4254,7 @@ function EditEmployeeDialog({
                 {membershipErr && (
                   <div style={{
                     marginTop: 6, padding: "6px 10px",
-                    background: "#FEF2F2", border: `1px solid #FECACA`,
+                    background: "#FCEBEA", border: `1px solid #F1D0CB`,
                     borderRadius: 6, fontSize: 11, color: DANGER, fontWeight: 600,
                   }}>
                     {membershipErr}
@@ -4311,8 +4311,8 @@ function EditEmployeeDialog({
             {err && (
               <div
                 style={{
-                  background: "#FEF2F2",
-                  border: `1px solid #FECACA`,
+                  background: "#FCEBEA",
+                  border: `1px solid #F1D0CB`,
                   color: DANGER,
                   padding: "8px 10px",
                   borderRadius: 8,
@@ -4326,7 +4326,7 @@ function EditEmployeeDialog({
             {savedAt && !err && (
               <div
                 style={{
-                  background: "#ECFDF5",
+                  background: "#E6F6F1",
                   border: `1px solid ${SUCCESS}`,
                   color: SUCCESS,
                   padding: "8px 10px",
@@ -4389,8 +4389,8 @@ function EditEmployeeDialog({
           <div
             style={{
               marginTop: 14,
-              background: "#FEF2F2",
-              border: `1px solid #FECACA`,
+              background: "#FCEBEA",
+              border: `1px solid #F1D0CB`,
               color: DANGER,
               padding: 12,
               borderRadius: 8,
@@ -4628,7 +4628,7 @@ function BulkPasswordDialog({
             style={{
               marginTop: 18,
               padding: "10px 12px",
-              background: "#ECFDF5",
+              background: "#E6F6F1",
               border: `1px solid ${SUCCESS}`,
               borderRadius: 8,
               color: SUCCESS,
@@ -4752,8 +4752,8 @@ function BulkPasswordDialog({
                 style={{
                   marginTop: 14,
                   padding: "8px 10px",
-                  background: "#FEF2F2",
-                  border: `1px solid #FECACA`,
+                  background: "#FCEBEA",
+                  border: `1px solid #F1D0CB`,
                   color: DANGER,
                   borderRadius: 6,
                   fontSize: 12,
@@ -5038,8 +5038,8 @@ function AnnualCyclesDialog({
         {err && (
           <div
             style={{
-              background: "#FEF2F2",
-              border: `1px solid #FECACA`,
+              background: "#FCEBEA",
+              border: `1px solid #F1D0CB`,
               color: DANGER,
               padding: 10,
               borderRadius: 8,
@@ -5223,7 +5223,7 @@ function AnnualCyclesDialog({
                             fontSize: 10.5,
                             fontWeight: 800,
                             color: closed ? INK_MUTE : SUCCESS,
-                            background: closed ? "#F1F5F9" : "#ECFDF5",
+                            background: closed ? "#F1F5F9" : "#E6F6F1",
                             padding: "2px 8px",
                             borderRadius: 999,
                             letterSpacing: "0.04em",
@@ -5545,8 +5545,8 @@ function AuditDashboardDialog({
         {err && (
           <div
             style={{
-              background: "#FEF2F2",
-              border: `1px solid #FECACA`,
+              background: "#FCEBEA",
+              border: `1px solid #F1D0CB`,
               color: DANGER,
               padding: 10,
               borderRadius: 8,
@@ -6066,8 +6066,8 @@ function AuditLearnerDrawer({
         {err && (
           <div
             style={{
-              background: "#FEF2F2",
-              border: `1px solid #FECACA`,
+              background: "#FCEBEA",
+              border: `1px solid #F1D0CB`,
               color: DANGER,
               padding: 10,
               borderRadius: 8,
@@ -6543,8 +6543,8 @@ function LearnerCertificatesPanel({ row }: { row: RosterRow }) {
         style={{
           marginTop: 12,
           padding: 10,
-          background: "#FEF2F2",
-          border: `1px solid #FECACA`,
+          background: "#FCEBEA",
+          border: `1px solid #F1D0CB`,
           color: DANGER,
           borderRadius: 8,
           fontSize: 12,
@@ -6620,7 +6620,7 @@ function LearnerCertificatesPanel({ row }: { row: RosterRow }) {
               key={c.id}
               style={{
                 background: SURFACE,
-                border: `1px solid ${isRevoked ? "#FECACA" : LINE}`,
+                border: `1px solid ${isRevoked ? "#F1D0CB" : LINE}`,
                 borderLeft: `3px solid ${
                   isRevoked ? DANGER : c.passed ? SUCCESS : INK_LIGHT
                 }`,
@@ -6841,8 +6841,8 @@ function LearnerSignedDocumentsPanel({ row }: { row: RosterRow }) {
         style={{
           marginTop: 12,
           padding: 10,
-          background: "#FEF2F2",
-          border: `1px solid #FECACA`,
+          background: "#FCEBEA",
+          border: `1px solid #F1D0CB`,
           color: DANGER,
           borderRadius: 8,
           fontSize: 12,
@@ -6928,7 +6928,7 @@ function LearnerSignedDocumentsPanel({ row }: { row: RosterRow }) {
               key={d.id}
               style={{
                 background: SURFACE,
-                border: `1px solid ${isRevoked ? "#FECACA" : LINE}`,
+                border: `1px solid ${isRevoked ? "#F1D0CB" : LINE}`,
                 borderLeft: `3px solid ${tone}`,
                 borderRadius: 8,
                 padding: "10px 12px",
@@ -7283,8 +7283,8 @@ function LearnerOnboardingIntakePanel({ row }: { row: RosterRow }) {
         style={{
           marginTop: 12,
           padding: 10,
-          background: "#FEF2F2",
-          border: `1px solid #FECACA`,
+          background: "#FCEBEA",
+          border: `1px solid #F1D0CB`,
           color: DANGER,
           borderRadius: 8,
           fontSize: 12,
@@ -7580,12 +7580,12 @@ function IntakeExpiryField({
   const status = expirationStatus(value ?? null);
   const pillBg =
     status === "expired"
-      ? "#FEE2E2"
+      ? "#FCEBEA"
       : status === "expiring"
-      ? "#FEF3C7"
+      ? "#FDF3E4"
       : null;
   const pillColor =
-    status === "expired" ? DANGER : status === "expiring" ? "#92400E" : INK;
+    status === "expired" ? DANGER : status === "expiring" ? "#B45309" : INK;
   const pillText =
     status === "expired"
       ? "Expired"

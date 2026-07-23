@@ -96,13 +96,13 @@ export class ErrorBoundary extends Component<Props, State> {
               width: "48px",
               height: "48px",
               borderRadius: "50%",
-              backgroundColor: "#FEE2E2",
+              backgroundColor: "#FCEBEA",
               display: "flex",
               alignItems: "center",
               justifyContent: "center",
               margin: "0 auto 20px",
             }}>
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#991B1B" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#B3261E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <circle cx="12" cy="12" r="10"/>
                 <line x1="12" y1="8" x2="12" y2="12"/>
                 <line x1="12" y1="16" x2="12.01" y2="16"/>

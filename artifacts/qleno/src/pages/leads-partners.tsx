@@ -159,7 +159,7 @@ export default function LeadsPartnersPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 40px" }}>
+      <div style={{ margin: "0 auto", padding: "0 0 40px" }}>
         <Link href="/leads" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13, color: "#6B6860",
           textDecoration: "none", marginBottom: 12 }}>
           <ChevronLeft size={14} /> Back to Pipeline
@@ -203,28 +203,28 @@ export default function LeadsPartnersPage() {
                 </td></tr>
               ) : partners.length === 0 ? (
                 <tr><td colSpan={7} style={{ padding: "60px 0", textAlign: "center" }}>
-                  <Users size={36} color="#D1D5DB" style={{ margin: "0 auto 12px" }} />
+                  <Users size={36} color="#E5E2DC" style={{ margin: "0 auto 12px" }} />
                   <div style={{ color: "#6B6860", fontSize: 14 }}>No referral partners yet.</div>
                 </td></tr>
               ) : partners.map((p, i) => (
-                <tr key={p.id} style={{ borderBottom: i < partners.length - 1 ? "1px solid #F3F4F6" : "none",
+                <tr key={p.id} style={{ borderBottom: i < partners.length - 1 ? "1px solid #F0EEE9" : "none",
                   opacity: p.is_active ? 1 : 0.55 }}>
                   <td style={{ padding: "12px 14px" }}>
                     <div style={{ fontWeight: 600, color: "#1A1917" }}>{p.name}</div>
-                    {!p.is_active && <span style={{ fontSize: 11, color: "#9CA3AF" }}>Inactive</span>}
+                    {!p.is_active && <span style={{ fontSize: 11, color: "#9E9B94" }}>Inactive</span>}
                   </td>
                   <td style={{ padding: "12px 14px" }}>
                     <span style={{ background: "#F0FDFA", color: "#0D9488", fontSize: 12, fontWeight: 500,
                       padding: "2px 8px", borderRadius: 999 }}>{TYPE_LABELS[p.type] || p.type}</span>
                   </td>
-                  <td style={{ padding: "12px 14px", fontSize: 13, color: "#374151" }}>
+                  <td style={{ padding: "12px 14px", fontSize: 13, color: "#1A1917" }}>
                     {p.contact_name && <div>{p.contact_name}</div>}
-                    {p.contact_phone && <div style={{ fontSize: 12, color: "#9CA3AF" }}>{p.contact_phone}</div>}
-                    {!p.contact_name && !p.contact_phone && <span style={{ color: "#D1D5DB" }}>—</span>}
+                    {p.contact_phone && <div style={{ fontSize: 12, color: "#9E9B94" }}>{p.contact_phone}</div>}
+                    {!p.contact_name && !p.contact_phone && <span style={{ color: "#E5E2DC" }}>—</span>}
                   </td>
-                  <td style={{ padding: "12px 14px", color: "#374151" }}>{Number(p.lead_count) || 0}</td>
-                  <td style={{ padding: "12px 14px", color: "#059669", fontWeight: 600 }}>{Number(p.booked_count) || 0}</td>
-                  <td style={{ padding: "12px 14px", color: "#374151" }}>
+                  <td style={{ padding: "12px 14px", color: "#1A1917" }}>{Number(p.lead_count) || 0}</td>
+                  <td style={{ padding: "12px 14px", color: "#0F7A63", fontWeight: 600 }}>{Number(p.booked_count) || 0}</td>
+                  <td style={{ padding: "12px 14px", color: "#1A1917" }}>
                     ${(Number(p.booked_value) || 0).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                   </td>
                   <td style={{ padding: "12px 14px", whiteSpace: "nowrap", textAlign: "right" }}>
@@ -234,7 +234,7 @@ export default function LeadsPartnersPage() {
                     </button>
                     <button onClick={() => toggleActive(p)}
                       style={{ background: "none", border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600,
-                        fontFamily: "inherit", color: p.is_active ? "#DC2626" : "#059669" }}>
+                        fontFamily: "inherit", color: p.is_active ? "#B3261E" : "#0F7A63" }}>
                       {p.is_active ? "Deactivate" : "Reactivate"}
                     </button>
                   </td>

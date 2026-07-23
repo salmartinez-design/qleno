@@ -812,7 +812,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
     });
     return (
       <div>
-        <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Add-ons</p>
+        <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Add-ons</p>
         {addonsLoading ? (
           <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>Loading add-ons…</p>
         ) : visibleAddons.length === 0 ? (
@@ -1006,7 +1006,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
       <div style={{
         width: 28, height: 28, borderRadius: 14,
-        background: activeStep >= n ? "var(--brand)" : "#F3F4F6",
+        background: activeStep >= n ? "var(--brand)" : "#F0EEE9",
         color: activeStep >= n ? "#fff" : "#9E9B94",
         display: "flex", alignItems: "center", justifyContent: "center",
         fontSize: 12, fontWeight: 700, flexShrink: 0,
@@ -1047,7 +1047,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
     <div style={OVERLAY} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={MODAL}>
         {/* Header */}
-        <div style={{ padding: "22px 24px 16px", borderBottom: "1px solid #F3F4F6" }}>
+        <div style={{ padding: "22px 24px 16px", borderBottom: "1px solid #F0EEE9" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <p style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", margin: "0 0 12px" }}>Create New Job</p>
@@ -1071,7 +1071,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           {/* ── STEP 0: CLIENT TYPE ── */}
           {step === 0 && (
             <div>
-              <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 16px" }}>Who is this job for?</p>
+              <p style={{ fontSize: 13, color: "#6B6860", margin: "0 0 16px" }}>Who is this job for?</p>
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 {[
                   { value: "residential", icon: Home, label: "Residential Client", sublabel: "Individual home, flat-rate billing" },
@@ -1087,7 +1087,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                         cursor: "pointer", textAlign: "left", fontFamily: "inherit", transition: "all 0.15s",
                       }}>
                       <div style={{ marginBottom: 10 }}>
-                        <Icon size={24} color={sel ? "var(--brand)" : "#6B7280"}/>
+                        <Icon size={24} color={sel ? "var(--brand)" : "#6B6860"}/>
                       </div>
                       <p style={{ fontSize: 14, fontWeight: 700, color: sel ? "var(--brand)" : "#1A1917", margin: "0 0 4px" }}>{opt.label}</p>
                       <p style={{ fontSize: 12, color: "#9E9B94", margin: 0, lineHeight: 1.4 }}>{opt.sublabel}</p>
@@ -1122,7 +1122,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
                   {clientResults.map((c, i) => (
                     <button key={c.id} onClick={() => { setSelectedClient(c); setClientQuery(`${c.first_name} ${c.last_name}`); setClientResults([]); }}
-                      style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 14px", background: "#fff", border: "none", borderBottom: i < clientResults.length - 1 ? "1px solid #F3F4F6" : "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+                      style={{ display: "flex", alignItems: "center", gap: 12, width: "100%", padding: "11px 14px", background: "#fff", border: "none", borderBottom: i < clientResults.length - 1 ? "1px solid #F0EEE9" : "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
                       <div style={{ width: 34, height: 34, borderRadius: 17, background: "var(--brand-dim, var(--brand-soft))", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "var(--brand)", flexShrink: 0 }}>
                         {c.first_name?.[0]}{c.last_name?.[0]}
                       </div>
@@ -1142,7 +1142,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   </div>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", margin: "0 0 2px" }}>{selectedClient.first_name} {selectedClient.last_name}</p>
-                    <p style={{ fontSize: 12, color: "#6B7280", margin: 0 }}>{selectedClient.email}{selectedClient.address ? ` · ${selectedClient.address}` : ""}</p>
+                    <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>{selectedClient.email}{selectedClient.address ? ` · ${selectedClient.address}` : ""}</p>
                   </div>
                   <button onClick={() => { setSelectedClient(null); setClientQuery(""); }}
                     style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={14}/></button>
@@ -1153,7 +1153,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 <button
                   type="button"
                   onClick={() => { setShowNewCust(true); setClientQuery(""); setClientResults([]); }}
-                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "11px 14px", background: "#F7F6F3", border: "1px dashed #D1D5DB", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--brand)", fontFamily: "inherit", touchAction: "manipulation" }}>
+                  style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", padding: "11px 14px", background: "#F7F6F3", border: "1px dashed #E5E2DC", borderRadius: 10, cursor: "pointer", fontSize: 13, fontWeight: 600, color: "var(--brand)", fontFamily: "inherit", touchAction: "manipulation" }}>
                   <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> Add New Customer
                 </button>
               )}
@@ -1164,37 +1164,37 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     <p style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", margin: 0 }}>New Customer</p>
                     <button type="button" onClick={() => { setShowNewCust(false); setNewCustError(""); }} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 2 }}><X size={14}/></button>
                   </div>
-                  {newCustError && <p style={{ fontSize: 12, color: "#DC2626", margin: "0 0 10px", padding: "8px 12px", background: "#FEE2E2", borderRadius: 6 }}>{newCustError}</p>}
+                  {newCustError && <p style={{ fontSize: 12, color: "#B3261E", margin: "0 0 10px", padding: "8px 12px", background: "#FCEBEA", borderRadius: 6 }}>{newCustError}</p>}
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
                     <div>
-                      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>First Name *</label>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>First Name *</label>
                       <input value={newCustFirst} onChange={e => setNewCustFirst(e.target.value)} placeholder="First"
                         style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
                     </div>
                     <div>
-                      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Last Name *</label>
+                      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Last Name *</label>
                       <input value={newCustLast} onChange={e => setNewCustLast(e.target.value)} placeholder="Last"
                         style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
                     </div>
                   </div>
                   <div style={{ marginBottom: 10 }}>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Phone *</label>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Phone *</label>
                     <input value={newCustPhone} onChange={e => setNewCustPhone(e.target.value)} placeholder="(555) 555-5555" type="tel"
                       style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
                   </div>
                   <div style={{ marginBottom: 10 }}>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Email</label>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Email</label>
                     <input value={newCustEmail} onChange={e => setNewCustEmail(e.target.value)} placeholder="email@example.com" type="email"
                       style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
                   </div>
                   <div style={{ marginBottom: 14 }}>
-                    <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Address</label>
+                    <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 5 }}>Address</label>
                     <input ref={newCustAddrRef} value={newCustAddress} onChange={e => setNewCustAddress(e.target.value)} placeholder="Start typing an address…"
                       style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
                     <button type="button" onClick={() => { setShowNewCust(false); setNewCustError(""); }}
-                      style={{ flex: 1, padding: "10px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", fontSize: 13, cursor: "pointer", fontFamily: "inherit", color: "#6B7280" }}>
+                      style={{ flex: 1, padding: "10px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", fontSize: 13, cursor: "pointer", fontFamily: "inherit", color: "#6B6860" }}>
                       Cancel
                     </button>
                     <button type="button" disabled={newCustSaving}
@@ -1234,7 +1234,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                         <span style={{ fontSize: 12, color: "#1A1917" }}>{j.service_type?.replace(/_/g, " ")}</span>
                         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                           <span style={{ fontSize: 11, color: "#9E9B94" }}>{formatDate(j.scheduled_date)}</span>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: j.status === "complete" ? "#16A34A" : "#6B7280" }}>{STATUS_LABELS[j.status] || j.status}</span>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: j.status === "complete" ? "#0F7A63" : "#6B6860" }}>{STATUS_LABELS[j.status] || j.status}</span>
                         </div>
                       </div>
                     ))}
@@ -1248,7 +1248,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
           {step === 1 && clientType === "commercial" && (
             <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
               <div>
-                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Account</p>
+                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Account</p>
                 {!selectedAccount ? (
                   <>
                     <div style={{ position: "relative" }}>
@@ -1265,7 +1265,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", marginTop: 8 }}>
                         {accountResults.slice(0, 8).map((a: any, i: number) => (
                           <button key={a.id} onClick={() => { setSelectedAccount(a); setAccountQuery(""); }}
-                            style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", padding: "12px 14px", background: "#fff", border: "none", borderBottom: i < Math.min(accountResults.length, 8) - 1 ? "1px solid #F3F4F6" : "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+                            style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", padding: "12px 14px", background: "#fff", border: "none", borderBottom: i < Math.min(accountResults.length, 8) - 1 ? "1px solid #F0EEE9" : "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
                             <div style={{ width: 32, height: 32, borderRadius: 8, background: "var(--brand-dim, var(--brand-soft))", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                               <Building2 size={15} color="var(--brand)"/>
                             </div>
@@ -1278,7 +1278,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                           </button>
                         ))}
                         <button onClick={() => window.open("/accounts", "_blank")}
-                          style={{ display: "block", width: "100%", padding: "10px 14px", background: "#F9F9F7", border: "none", borderTop: "1px solid #F3F4F6", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 12, color: "var(--brand)", fontWeight: 600 }}>
+                          style={{ display: "block", width: "100%", padding: "10px 14px", background: "#F9F9F7", border: "none", borderTop: "1px solid #F0EEE9", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 12, color: "var(--brand)", fontWeight: 600 }}>
                           + Create new account
                         </button>
                       </div>
@@ -1291,7 +1291,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     </div>
                     <div style={{ flex: 1 }}>
                       <p style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", margin: "0 0 2px" }}>{selectedAccount.account_name}</p>
-                      <p style={{ fontSize: 12, color: "#6B7280", margin: 0 }}>{(selectedAccount.payment_method || "").replace(/_/g, " ")}</p>
+                      <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>{(selectedAccount.payment_method || "").replace(/_/g, " ")}</p>
                     </div>
                     <button onClick={() => { setSelectedAccount(null); setSelectedProperty(null); setProperties([]); }}
                       style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={14}/></button>
@@ -1301,7 +1301,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               {selectedAccount && (
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Property</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Property</p>
                   {!selectedProperty ? (
                     <>
                       <div style={{ position: "relative" }}>
@@ -1321,20 +1321,20 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                             .slice(0, 100)
                             .map((p: any, i: number, arr: any[]) => (
                               <button key={p.id} onClick={() => setSelectedProperty(p)}
-                                style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", padding: "12px 14px", background: "#fff", border: "none", borderBottom: i < arr.length - 1 ? "1px solid #F3F4F6" : "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
+                                style={{ display: "flex", alignItems: "flex-start", gap: 10, width: "100%", padding: "12px 14px", background: "#fff", border: "none", borderBottom: i < arr.length - 1 ? "1px solid #F0EEE9" : "none", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
                                 <MapPin size={14} style={{ color: "#9E9B94", marginTop: 2, flexShrink: 0 }}/>
                                 <div>
                                   <p style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", margin: "0 0 2px" }}>{p.property_name || p.address}</p>
                                   <p style={{ fontSize: 11, color: "#9E9B94", margin: 0 }}>
                                     {formatAddress(p.address, p.city, p.state, (p as any).zip)}
-                                    {p.property_type && <span style={{ marginLeft: 6, padding: "1px 6px", background: "#F3F4F6", borderRadius: 4, fontSize: 10, fontWeight: 600, color: "#6B7280" }}>{p.property_type.replace(/_/g, " ")}</span>}
+                                    {p.property_type && <span style={{ marginLeft: 6, padding: "1px 6px", background: "#F0EEE9", borderRadius: 4, fontSize: 10, fontWeight: 600, color: "#6B6860" }}>{p.property_type.replace(/_/g, " ")}</span>}
                                   </p>
                                 </div>
                               </button>
                             ))}
                           </div>
                           <button onClick={() => window.open(`/accounts/${selectedAccount.id}`, "_blank")}
-                            style={{ display: "block", width: "100%", padding: "10px 14px", background: "#F9F9F7", border: "none", borderTop: "1px solid #F3F4F6", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 12, color: "var(--brand)", fontWeight: 600 }}>
+                            style={{ display: "block", width: "100%", padding: "10px 14px", background: "#F9F9F7", border: "none", borderTop: "1px solid #F0EEE9", cursor: "pointer", textAlign: "left", fontFamily: "inherit", fontSize: 12, color: "var(--brand)", fontWeight: 600 }}>
                             + Add property to this account
                           </button>
                         </div>
@@ -1346,15 +1346,15 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                         <MapPin size={15} style={{ color: "var(--brand)", flexShrink: 0 }}/>
                         <div style={{ flex: 1 }}>
                           <p style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", margin: "0 0 2px" }}>{selectedProperty.property_name || selectedProperty.address}</p>
-                          <p style={{ fontSize: 12, color: "#6B7280", margin: 0 }}>{formatAddress(selectedProperty.address, selectedProperty.city, (selectedProperty as any).state, (selectedProperty as any).zip)}</p>
+                          <p style={{ fontSize: 12, color: "#6B6860", margin: 0 }}>{formatAddress(selectedProperty.address, selectedProperty.city, (selectedProperty as any).state, (selectedProperty as any).zip)}</p>
                         </div>
                         <button onClick={() => setSelectedProperty(null)}
                           style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={14}/></button>
                       </div>
                       {selectedProperty.access_notes && (
-                        <div style={{ marginTop: 8, background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "flex-start", gap: 8 }}>
-                          <AlertTriangle size={14} style={{ color: "#D97706", flexShrink: 0, marginTop: 1 }}/>
-                          <p style={{ fontSize: 12, color: "#92400E", margin: 0 }}>Access: {selectedProperty.access_notes}</p>
+                        <div style={{ marginTop: 8, background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 12px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                          <AlertTriangle size={14} style={{ color: "#B45309", flexShrink: 0, marginTop: 1 }}/>
+                          <p style={{ fontSize: 12, color: "#B45309", margin: 0 }}>Access: {selectedProperty.access_notes}</p>
                         </div>
                       )}
                     </>
@@ -1374,7 +1374,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   protocol. Hidden for plain residential clients. */}
               {(isHybridClient || clientIsCommercial) && (
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Job Type</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Job Type</p>
                   <div style={{ display: "flex", gap: 8 }}>
                     {(["residential", "commercial"] as const).map(p => (
                       <button key={p} type="button" onClick={() => setHybridParentOverride(p)}
@@ -1398,14 +1398,14 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               )}
               {/* Context bar: QB status + payment method — shown when launched from client profile */}
               {preselectedClient && (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "8px 12px", background: "#FAFAF8", border: "1px solid #E5E2DC", borderRadius: 10 }}>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", padding: "8px 12px", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 10 }}>
                   {/* QuickBooks badge */}
                   {preselectedClient.qb_status?.connected && (
                     <span
                       title={preselectedClient.qb_status.synced
                         ? "Customer synced to QuickBooks. Invoice will sync when job is marked complete."
                         : "QuickBooks will sync this customer when the job is saved. Invoice syncs at completion."}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, fontFamily: "inherit", background: preselectedClient.qb_status.synced ? "#DCFCE7" : "#FEF3C7", color: preselectedClient.qb_status.synced ? "#15803D" : "#92400E" }}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 9px", borderRadius: 20, fontSize: 11, fontWeight: 600, fontFamily: "inherit", background: preselectedClient.qb_status.synced ? "#E6F6F1" : "#FDF3E4", color: preselectedClient.qb_status.synced ? "#15803D" : "#B45309" }}
                     >
                       <span>{preselectedClient.qb_status.synced ? "✓" : "○"}</span>
                       QuickBooks: {preselectedClient.qb_status.synced ? "customer synced" : "sync pending"}
@@ -1441,9 +1441,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   {/* #8: confirmation/feedback after a re-book click. */}
                   {rebookNotice && (
                     <div style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.4, padding: "8px 10px", borderRadius: 8, marginBottom: 8,
-                      color: rebookNotice.kind === "warn" ? "#92400E" : "#166534",
-                      background: rebookNotice.kind === "warn" ? "#FEF3C7" : "#DCFCE7",
-                      border: `1px solid ${rebookNotice.kind === "warn" ? "#FDE68A" : "#BBF7D0"}` }}>
+                      color: rebookNotice.kind === "warn" ? "#B45309" : "#0F7A63",
+                      background: rebookNotice.kind === "warn" ? "#FDF3E4" : "#E6F6F1",
+                      border: `1px solid ${rebookNotice.kind === "warn" ? "#F2DFB8" : "#C7E7DE"}` }}>
                       {rebookNotice.msg}
                     </div>
                   )}
@@ -1467,7 +1467,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
                             <span style={{ fontSize: 11, color: "#9E9B94" }}>{String(j.scheduled_date || "")}</span>
                             {j.base_fee != null && <span style={{ fontSize: 11, color: "#6B6860", fontWeight: 600 }}>${parseFloat(String(j.base_fee)).toFixed(0)}</span>}
-                            <span style={{ fontSize: 10, color: "#2D9B83", fontWeight: 700 }}>Re-book ▸</span>
+                            <span style={{ fontSize: 10, color: "#0F7A63", fontWeight: 700 }}>Re-book ▸</span>
                           </div>
                         </div>
                         <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 11, color: "#9E9B94" }}>
@@ -1482,7 +1482,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               )}
 
               <div>
-                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>
+                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>
                 {/* [commercial-workflow PR #3] Residential children
                     fetched from /api/service-types?parent=residential.
                     Loading state shows skeleton; empty state (API
@@ -1498,7 +1498,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     return <p style={{ fontSize: 12, color: "#9E9B94" }}>Loading service types…</p>;
                   }
                   if (children.length === 0) {
-                    return <p style={{ fontSize: 12, color: "#991B1B" }}>No active {effectiveParent} service types configured.</p>;
+                    return <p style={{ fontSize: 12, color: "#B3261E" }}>No active {effectiveParent} service types configured.</p>;
                   }
                   return (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
@@ -1509,9 +1509,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                           <button key={svc.id} onClick={() => setServiceType(svc.slug)}
                             style={{ padding: "12px 8px", border: `2px solid ${selected ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 10, background: selected ? "var(--brand-dim, var(--brand-soft))" : "#fff", cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "all 0.15s" }}>
                             <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                              <Icon size={18} color={selected ? "var(--brand)" : "#6B7280"}/>
+                              <Icon size={18} color={selected ? "var(--brand)" : "#6B6860"}/>
                             </div>
-                            <p style={{ fontSize: 10, fontWeight: 600, color: selected ? "var(--brand)" : "#6B7280", margin: 0, lineHeight: 1.3 }}>{svc.name}</p>
+                            <p style={{ fontSize: 10, fontWeight: 600, color: selected ? "var(--brand)" : "#6B6860", margin: 0, lineHeight: 1.3 }}>{svc.name}</p>
                           </button>
                         );
                       })}
@@ -1522,7 +1522,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Date</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Date</p>
                   <CalendarPopover value={scheduledDate} onChange={(v) => {
                     // Explicit pick re-anchors the cadence, then snaps if monthly_weekday.
                     setMwAnchor(v);
@@ -1530,7 +1530,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   }} block ariaLabel="Service date" />
                 </div>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</p>
                   {/* [FE-polish 2026-06-01] Native time input accepts any
                       minute (e.g. 1:06 PM, 2:45 PM, 5:06 PM) — previously
                       the buttons-only grid limited operators to on-the-hour
@@ -1546,7 +1546,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {TIME_OPTIONS.map(t => (
                       <button key={t} onClick={() => setScheduledTime(t)}
-                        style={{ padding: "5px 10px", border: `1.5px solid ${scheduledTime === t ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 6, background: scheduledTime === t ? "var(--brand-dim, var(--brand-soft))" : "#fff", fontSize: 11, fontWeight: scheduledTime === t ? 700 : 400, color: scheduledTime === t ? "var(--brand)" : "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>
+                        style={{ padding: "5px 10px", border: `1.5px solid ${scheduledTime === t ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 6, background: scheduledTime === t ? "var(--brand-dim, var(--brand-soft))" : "#fff", fontSize: 11, fontWeight: scheduledTime === t ? 700 : 400, color: scheduledTime === t ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: "inherit" }}>
                         {formatTime(t)}
                       </button>
                     ))}
@@ -1556,7 +1556,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Allowed Hours</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Allowed Hours</p>
                   {/* [commercial-workflow PR #3] Allowed-hours stepper.
                       Replaces the 9-option duration pill row. Steps in
                       0.5h increments, range 0.5–12. duration state is
@@ -1573,10 +1573,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     return (
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <button type="button" onClick={() => setHours(hours - 0.5)} disabled={hours <= 0.5}
-                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours <= 0.5 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B7280", fontFamily: "inherit", opacity: hours <= 0.5 ? 0.4 : 1 }}>−</button>
+                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours <= 0.5 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B6860", fontFamily: "inherit", opacity: hours <= 0.5 ? 0.4 : 1 }}>−</button>
                         <div style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: "inherit" }}>{hours}h</div>
                         <button type="button" onClick={() => setHours(hours + 0.5)} disabled={hours >= 12}
-                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours >= 12 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B7280", fontFamily: "inherit", opacity: hours >= 12 ? 0.4 : 1 }}>+</button>
+                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours >= 12 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B6860", fontFamily: "inherit", opacity: hours >= 12 ? 0.4 : 1 }}>+</button>
                       </div>
                     );
                   })()}
@@ -1584,11 +1584,11 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 </div>
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Price</p>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: 0, textTransform: "uppercase", letterSpacing: "0.06em" }}>Price</p>
                     <span style={{ fontSize: 10, color: "#9E9B94" }}>{priceOverridden ? "Custom" : `Auto (${svcConfig?.label})`}</span>
                   </div>
                   <div style={{ position: "relative" }}>
-                    <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#6B7280" }}>$</span>
+                    <span style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#6B6860" }}>$</span>
                     <input type="number" value={price} onChange={e => { setPrice(Number(e.target.value)); setPriceOverridden(true); }}
                       style={{ width: "100%", padding: "9px 12px 9px 24px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
                   </div>
@@ -1597,7 +1597,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Frequency</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Frequency</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                     {FREQ_OPTIONS.filter(f => f.applies_to.includes(effectiveParent)).map(f => (
                       <button key={f.value} onClick={() => {
@@ -1614,7 +1614,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       }}
                         style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: `1.5px solid ${frequency === f.value ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, background: frequency === f.value ? "var(--brand-dim, var(--brand-soft))" : "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                         {frequency === f.value && <Check size={12} color="var(--brand)"/>}
-                        <span style={{ fontSize: 12, fontWeight: frequency === f.value ? 600 : 400, color: frequency === f.value ? "var(--brand)" : "#6B7280" }}>{f.label}</span>
+                        <span style={{ fontSize: 12, fontWeight: frequency === f.value ? 600 : 400, color: frequency === f.value ? "var(--brand)" : "#6B6860" }}>{f.label}</span>
                       </button>
                     ))}
                   </div>
@@ -1641,7 +1641,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   )}
                 </div>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Notes (optional)</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Notes (optional)</p>
                   <textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Special instructions, access codes, etc…"
                     style={{ width: "100%", height: 130, padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", outline: "none", resize: "none", boxSizing: "border-box", lineHeight: 1.5 }}/>
                 </div>
@@ -1666,20 +1666,20 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       </div>
                       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 14 }}>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                          <span style={{ color: "#6B7280" }}>Service</span>
+                          <span style={{ color: "#6B6860" }}>Service</span>
                           <span style={{ fontWeight: 600, color: "#1A1917" }}>{fmtSvcLabel(serviceType)}</span>
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                          <span style={{ color: "#6B7280" }}>Duration</span>
+                          <span style={{ color: "#6B6860" }}>Duration</span>
                           <span style={{ fontWeight: 600, color: "#1A1917" }}>{duration >= 60 ? `${duration / 60}h` : `${duration}m`}</span>
                         </div>
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                          <span style={{ color: "#6B7280" }}>Frequency</span>
+                          <span style={{ color: "#6B6860" }}>Frequency</span>
                           <span style={{ fontWeight: 600, color: "#1A1917" }}>{frequency.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase())}</span>
                         </div>
                         {selectedAddonList.map(a => (
                           <div key={a.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
-                            <span style={{ color: "#6B7280" }}>{a.name}</span>
+                            <span style={{ color: "#6B6860" }}>{a.name}</span>
                             <span style={{ fontWeight: 600, color: "#1A1917" }}>+${(addonUnitPrice(a) * (selectedAddons.get(a.id) || 1)).toFixed(2)}</span>
                           </div>
                         ))}
@@ -1688,9 +1688,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                           <span style={{ fontWeight: 800, color: "var(--brand)" }}>${(Number(price) + addOnsTotal).toFixed(2)}</span>
                         </div>
                       </div>
-                      {quoteError && <p style={{ fontSize: 12, color: "#DC2626", margin: "0 0 10px", padding: "8px 12px", background: "#FEE2E2", borderRadius: 6 }}>{quoteError}</p>}
+                      {quoteError && <p style={{ fontSize: 12, color: "#B3261E", margin: "0 0 10px", padding: "8px 12px", background: "#FCEBEA", borderRadius: 6 }}>{quoteError}</p>}
                       {quoteSent ? (
-                        <p style={{ fontSize: 13, fontWeight: 600, color: "#16A34A", textAlign: "center", padding: "10px 0" }}>Quote sent to client</p>
+                        <p style={{ fontSize: 13, fontWeight: 600, color: "#0F7A63", textAlign: "center", padding: "10px 0" }}>Quote sent to client</p>
                       ) : (
                         <button type="button" disabled={quoteSending || !selectedClient}
                           title={!selectedClient ? "Select a client first" : ""}
@@ -1727,7 +1727,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   step 0. Only rendered for hybrid clients. */}
               {isHybridClient && (
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Job Type</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Job Type</p>
                   <div style={{ display: "flex", gap: 8 }}>
                     {(["residential", "commercial"] as const).map(p => (
                       <button key={p} type="button" onClick={() => setHybridParentOverride(p)}
@@ -1759,7 +1759,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       <p style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", margin: "0 0 2px" }}>
                         Last service here: {fmtSvcLabel(rj.service_type)}
                       </p>
-                      <p style={{ fontSize: 11, color: "#6B7280", margin: 0 }}>
+                      <p style={{ fontSize: 11, color: "#6B6860", margin: 0 }}>
                         {rjHours != null ? `${parseFloat(String(rjHours))} hrs · ` : ""}{rj.scheduled_date || ""}
                       </p>
                     </div>
@@ -1779,7 +1779,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   commercial client stays commercial-only. */}
               {selectedAccount && (
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Category</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Category</p>
                   <div style={{ display: "flex", gap: 8 }}>
                     {(["commercial", "residential"] as const).map(p => (
                       <button key={p} type="button"
@@ -1802,7 +1802,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               )}
 
               <div>
-                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>
+                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 10px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Service Type</p>
                 {/* [commercial-workflow PR #3] Children fetched from
                     /api/service-types (both parents). Tenant-managed
                     (admins add new types in /settings/pricing) so no
@@ -1819,7 +1819,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     return <p style={{ fontSize: 12, color: "#9E9B94" }}>Loading service types…</p>;
                   }
                   if (children.length === 0) {
-                    return <p style={{ fontSize: 12, color: "#991B1B" }}>No active {gridParent} service types configured.</p>;
+                    return <p style={{ fontSize: 12, color: "#B3261E" }}>No active {gridParent} service types configured.</p>;
                   }
                   return (
                     <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
@@ -1830,9 +1830,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                           <button key={svc.id} onClick={() => { setCommercialServiceType(svc.slug); setRateLookup(null); setRateLookupDone(false); setRateOverride(false); }}
                             style={{ padding: "12px 8px", border: `2px solid ${selected ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 10, background: selected ? "var(--brand-dim, var(--brand-soft))" : "#fff", cursor: "pointer", textAlign: "center", fontFamily: "inherit", transition: "all 0.15s" }}>
                             <div style={{ display: "flex", justifyContent: "center", marginBottom: 4 }}>
-                              <Icon size={18} color={selected ? "var(--brand)" : "#6B7280"}/>
+                              <Icon size={18} color={selected ? "var(--brand)" : "#6B6860"}/>
                             </div>
-                            <p style={{ fontSize: 10, fontWeight: 600, color: selected ? "var(--brand)" : "#6B7280", margin: 0, lineHeight: 1.3 }}>{svc.name}</p>
+                            <p style={{ fontSize: 10, fontWeight: 600, color: selected ? "var(--brand)" : "#6B6860", margin: 0, lineHeight: 1.3 }}>{svc.name}</p>
                           </button>
                         );
                       })}
@@ -1849,29 +1849,29 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                 <div style={{ background: "#F0FDF4", border: "1px solid #86EFAC", borderRadius: 8, padding: "12px 14px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
-                      <p style={{ fontSize: 12, fontWeight: 700, color: "#166534", margin: "0 0 2px" }}>
+                      <p style={{ fontSize: 12, fontWeight: 700, color: "#0F7A63", margin: "0 0 2px" }}>
                         Rate: ${parseFloat(rateLookup.rate_amount || "0").toFixed(2)}{rateLookup.billing_method === "hourly" ? "/hr" : rateLookup.billing_method === "per_unit" ? `/${rateLookup.unit_label || "unit"}` : " flat"} — {fmtSvcLabel(rateLookup.service_type)}
                       </p>
-                      <p style={{ fontSize: 11, color: "#166534", margin: 0 }}>From account rate card · {rateLookup.billing_method === "hourly" ? "Hourly" : rateLookup.billing_method === "flat_rate" ? "Flat rate" : "Per unit"}</p>
+                      <p style={{ fontSize: 11, color: "#0F7A63", margin: 0 }}>From account rate card · {rateLookup.billing_method === "hourly" ? "Hourly" : rateLookup.billing_method === "flat_rate" ? "Flat rate" : "Per unit"}</p>
                     </div>
-                    <Check size={16} color="#16A34A"/>
+                    <Check size={16} color="#0F7A63"/>
                   </div>
                   <button onClick={() => setRateOverride(true)}
-                    style={{ marginTop: 8, fontSize: 11, color: "#6B7280", background: "none", border: "1px solid #D1D5DB", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
+                    style={{ marginTop: 8, fontSize: 11, color: "#6B6860", background: "none", border: "1px solid #E5E2DC", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
                     Override for this job
                   </button>
                 </div>
               )}
 
               {rateLookupDone && !rateLookup && (
-                <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "12px 14px" }}>
+                <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "12px 14px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                    <AlertTriangle size={14} color="#D97706"/>
-                    <p style={{ fontSize: 12, fontWeight: 700, color: "#92400E", margin: 0 }}>No rate configured for "{fmtSvcLabel(commercialServiceType)}" on this account.</p>
+                    <AlertTriangle size={14} color="#B45309"/>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: "#B45309", margin: 0 }}>No rate configured for "{fmtSvcLabel(commercialServiceType)}" on this account.</p>
                   </div>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <div>
-                      <p style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", margin: "0 0 6px" }}>Billing Method</p>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", margin: "0 0 6px" }}>Billing Method</p>
                       <select value={manualBillingMethod} onChange={e => setManualBillingMethod(e.target.value)}
                         style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: "inherit", outline: "none", background: "#fff" }}>
                         <option value="hourly">Hourly</option>
@@ -1879,9 +1879,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       </select>
                     </div>
                     <div>
-                      <p style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", margin: "0 0 6px" }}>Rate ($)</p>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", margin: "0 0 6px" }}>Rate ($)</p>
                       <div style={{ position: "relative" }}>
-                        <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: "#6B7280" }}>$</span>
+                        <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: "#6B6860" }}>$</span>
                         <input type="number" value={manualRate} onChange={e => setManualRate(e.target.value)} placeholder="0.00"
                           style={{ width: "100%", padding: "8px 10px 8px 22px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
                       </div>
@@ -1899,7 +1899,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   <p style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", margin: "0 0 10px" }}>Override rate for this job</p>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                     <div>
-                      <p style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", margin: "0 0 6px" }}>Billing Method</p>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", margin: "0 0 6px" }}>Billing Method</p>
                       <select value={manualBillingMethod} onChange={e => setManualBillingMethod(e.target.value)}
                         style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: "inherit", outline: "none", background: "#fff" }}>
                         <option value="hourly">Hourly</option>
@@ -1907,9 +1907,9 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       </select>
                     </div>
                     <div>
-                      <p style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", margin: "0 0 6px" }}>Rate ($)</p>
+                      <p style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", margin: "0 0 6px" }}>Rate ($)</p>
                       <div style={{ position: "relative" }}>
-                        <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: "#6B7280" }}>$</span>
+                        <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 12, color: "#6B6860" }}>$</span>
                         <input type="number" value={overrideRate} onChange={e => setOverrideRate(e.target.value)} placeholder="0.00"
                           style={{ width: "100%", padding: "8px 10px 8px 22px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }}/>
                       </div>
@@ -1924,7 +1924,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               {(effectiveBillingMethod === "hourly") && (
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Allowed Hours</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Allowed Hours</p>
                   {/* [commercial-workflow PR #3] Allowed-hours stepper
                       mirroring the residential branch. estimatedHours
                       is a string (legacy contract — submit body sends
@@ -1940,10 +1940,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                     return (
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                         <button type="button" onClick={() => setHours(hours - 0.5)} disabled={hours <= 0.5}
-                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours <= 0.5 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B7280", fontFamily: "inherit", opacity: hours <= 0.5 ? 0.4 : 1 }}>−</button>
+                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours <= 0.5 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B6860", fontFamily: "inherit", opacity: hours <= 0.5 ? 0.4 : 1 }}>−</button>
                         <div style={{ flex: 1, textAlign: "center", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: "inherit" }}>{hours}h</div>
                         <button type="button" onClick={() => setHours(hours + 0.5)} disabled={hours >= 12}
-                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours >= 12 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B7280", fontFamily: "inherit", opacity: hours >= 12 ? 0.4 : 1 }}>+</button>
+                          style={{ width: 36, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: hours >= 12 ? "not-allowed" : "pointer", fontSize: 16, fontWeight: 700, color: "#6B6860", fontFamily: "inherit", opacity: hours >= 12 ? 0.4 : 1 }}>+</button>
                       </div>
                     );
                   })()}
@@ -1953,14 +1953,14 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Date</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Date</p>
                   <CalendarPopover value={commercialScheduledDate} onChange={(v) => {
                     setCommMwAnchor(v);
                     setCommercialScheduledDate(commercialFrequency === "monthly_weekday" ? snapNthWeekday(v, weekOfMonth, monthlyWeekday) : v);
                   }} block ariaLabel="Service date" />
                 </div>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Time</p>
                   {/* [FE-polish 2026-06-01] Native time input — see residential
                       branch above. Same rationale: free-form minutes. */}
                   <input
@@ -1973,7 +1973,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     {TIME_OPTIONS.map(t => (
                       <button key={t} onClick={() => setCommercialScheduledTime(t)}
-                        style={{ padding: "5px 10px", border: `1.5px solid ${commercialScheduledTime === t ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 6, background: commercialScheduledTime === t ? "var(--brand-dim, var(--brand-soft))" : "#fff", fontSize: 11, fontWeight: commercialScheduledTime === t ? 700 : 400, color: commercialScheduledTime === t ? "var(--brand)" : "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>
+                        style={{ padding: "5px 10px", border: `1.5px solid ${commercialScheduledTime === t ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 6, background: commercialScheduledTime === t ? "var(--brand-dim, var(--brand-soft))" : "#fff", fontSize: 11, fontWeight: commercialScheduledTime === t ? 700 : 400, color: commercialScheduledTime === t ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: "inherit" }}>
                         {formatTime(t)}
                       </button>
                     ))}
@@ -1983,7 +1983,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Frequency</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Frequency</p>
                   <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
                     {FREQ_OPTIONS.filter(f => f.applies_to.includes(effectiveParent)).map(f => (
                       <button key={f.value} onClick={() => {
@@ -1996,7 +1996,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       }}
                         style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", border: `1.5px solid ${commercialFrequency === f.value ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, background: commercialFrequency === f.value ? "var(--brand-dim, var(--brand-soft))" : "#fff", cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                         {commercialFrequency === f.value && <Check size={12} color="var(--brand)"/>}
-                        <span style={{ fontSize: 12, fontWeight: commercialFrequency === f.value ? 600 : 400, color: commercialFrequency === f.value ? "var(--brand)" : "#6B7280" }}>{f.label}</span>
+                        <span style={{ fontSize: 12, fontWeight: commercialFrequency === f.value ? 600 : 400, color: commercialFrequency === f.value ? "var(--brand)" : "#6B6860" }}>{f.label}</span>
                       </button>
                     ))}
                   </div>
@@ -2025,7 +2025,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       a hint and the Schedule step blocks on it. 0=Sun..6=Sat. */}
                   {commercialFrequency === "custom_days" && (
                     <div style={{ marginTop: 10 }}>
-                      <p style={{ fontSize: 11, fontWeight: 700, color: "#6B7280", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Which days</p>
+                      <p style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Which days</p>
                       <div style={{ display: "flex", gap: 4 }}>
                         {["S", "M", "T", "W", "T", "F", "S"].map((lbl, idx) => {
                           const on = commercialDaysOfWeek.includes(idx);
@@ -2035,7 +2035,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                               style={{ flex: 1, padding: "8px 0", borderRadius: 8, cursor: "pointer", fontFamily: "inherit", fontSize: 12, fontWeight: 700,
                                 border: `1.5px solid ${on ? "var(--brand)" : "#E5E2DC"}`,
                                 background: on ? "var(--brand)" : "#fff",
-                                color: on ? "#fff" : "#6B7280" }}>
+                                color: on ? "#fff" : "#6B6860" }}>
                               {lbl}
                             </button>
                           );
@@ -2048,7 +2048,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   )}
                 </div>
                 <div>
-                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Notes (optional)</p>
+                  <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 8px", textTransform: "uppercase", letterSpacing: "0.06em" }}>Notes (optional)</p>
                   <textarea value={commercialNotes} onChange={e => setCommercialNotes(e.target.value)} placeholder="Special instructions…"
                     style={{ width: "100%", height: 130, padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontFamily: "inherit", outline: "none", resize: "none", boxSizing: "border-box", lineHeight: 1.5 }}/>
                 </div>
@@ -2110,11 +2110,11 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               {/* Access notes reminder for commercial */}
               {clientType === "commercial" && selectedProperty?.access_notes && (
-                <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <AlertTriangle size={14} style={{ color: "#D97706", flexShrink: 0, marginTop: 1 }}/>
+                <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <AlertTriangle size={14} style={{ color: "#B45309", flexShrink: 0, marginTop: 1 }}/>
                   <div>
-                    <p style={{ fontSize: 12, fontWeight: 700, color: "#92400E", margin: "0 0 2px" }}>Building access</p>
-                    <p style={{ fontSize: 12, color: "#92400E", margin: 0 }}>{selectedProperty.access_notes}</p>
+                    <p style={{ fontSize: 12, fontWeight: 700, color: "#B45309", margin: "0 0 2px" }}>Building access</p>
+                    <p style={{ fontSize: 12, color: "#B45309", margin: 0 }}>{selectedProperty.access_notes}</p>
                   </div>
                 </div>
               )}
@@ -2142,13 +2142,13 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                   {suggestionsLoading && (
                     <div style={{ display: "flex", flexDirection: "column" }}>
                       {[0, 1, 2].map(i => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", borderBottom: i < 2 ? "1px solid #F3F4F6" : "none" }}>
-                          <div style={{ width: 34, height: 34, borderRadius: 17, background: "#F3F4F6", flexShrink: 0 }}/>
+                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", borderBottom: i < 2 ? "1px solid #F0EEE9" : "none" }}>
+                          <div style={{ width: 34, height: 34, borderRadius: 17, background: "#F0EEE9", flexShrink: 0 }}/>
                           <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
-                            <div style={{ height: 11, width: "55%", background: "#F3F4F6", borderRadius: 4 }}/>
-                            <div style={{ height: 9, width: "35%", background: "#F3F4F6", borderRadius: 4 }}/>
+                            <div style={{ height: 11, width: "55%", background: "#F0EEE9", borderRadius: 4 }}/>
+                            <div style={{ height: 9, width: "35%", background: "#F0EEE9", borderRadius: 4 }}/>
                           </div>
-                          <div style={{ height: 28, width: 58, background: "#F3F4F6", borderRadius: 6 }}/>
+                          <div style={{ height: 28, width: 58, background: "#F0EEE9", borderRadius: 6 }}/>
                         </div>
                       ))}
                     </div>
@@ -2163,12 +2163,12 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                           <div key={s.employee_id} style={{
                             display: "flex", alignItems: "center", gap: 12, padding: "11px 14px",
                             borderLeft: isTop ? "3px solid var(--brand)" : "3px solid transparent",
-                            borderBottom: i < suggestions.length - 1 ? "1px solid #F3F4F6" : "none",
+                            borderBottom: i < suggestions.length - 1 ? "1px solid #F0EEE9" : "none",
                             background: selectedEmployees.includes(s.employee_id) ? "var(--brand-dim, var(--brand-soft))" : "#fff",
                           }}>
                             {s.avatar_url
                               ? <img src={s.avatar_url} style={{ width: 34, height: 34, borderRadius: 17, objectFit: "cover", flexShrink: 0 }}/>
-                              : <div style={{ width: 34, height: 34, borderRadius: 17, background: isTop ? "var(--brand-dim, var(--brand-soft))" : "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: isTop ? "var(--brand)" : "#6B7280", flexShrink: 0 }}>{initials}</div>
+                              : <div style={{ width: 34, height: 34, borderRadius: 17, background: isTop ? "var(--brand-dim, var(--brand-soft))" : "#F0EEE9", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: isTop ? "var(--brand)" : "#6B6860", flexShrink: 0 }}>{initials}</div>
                             }
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
@@ -2182,14 +2182,14 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                               </div>
                               <span style={{
                                 fontSize: 10, fontWeight: 600, padding: "1px 7px", borderRadius: 10,
-                                background: s.tier === 1 ? "#DCFCE7" : s.tier === 2 ? "var(--brand-dim, var(--brand-soft))" : s.tier === 3 ? "#FEF3C7" : "#F3F4F6",
-                                color: s.tier === 1 ? "#16A34A" : s.tier === 2 ? "var(--brand)" : s.tier === 3 ? "#D97706" : "#6B7280",
+                                background: s.tier === 1 ? "#E6F6F1" : s.tier === 2 ? "var(--brand-dim, var(--brand-soft))" : s.tier === 3 ? "#FDF3E4" : "#F0EEE9",
+                                color: s.tier === 1 ? "#0F7A63" : s.tier === 2 ? "var(--brand)" : s.tier === 3 ? "#B45309" : "#6B6860",
                               }}>
                                 {s.reason}
                               </span>
                             </div>
                             <button onClick={() => toggleEmployee(s.employee_id)}
-                              style={{ padding: "6px 14px", border: `1.5px solid ${selectedEmployees.includes(s.employee_id) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, background: selectedEmployees.includes(s.employee_id) ? "var(--brand)" : "#fff", color: selectedEmployees.includes(s.employee_id) ? "#fff" : "#6B7280", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                              style={{ padding: "6px 14px", border: `1.5px solid ${selectedEmployees.includes(s.employee_id) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, background: selectedEmployees.includes(s.employee_id) ? "var(--brand)" : "#fff", color: selectedEmployees.includes(s.employee_id) ? "#fff" : "#6B6860", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                               {selectedEmployees.includes(s.employee_id) ? "Assigned" : "Assign"}
                             </button>
                           </div>
@@ -2202,7 +2202,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
 
               {/* Full employee list */}
               <div>
-                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
+                <p style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", margin: "0 0 4px", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   {suggestions.length > 0 && !suggestionsDismissed ? "All Technicians" : "Choose Assignee(s) — optional"}
                 </p>
                 {suggestions.length > 0 && !suggestionsDismissed && (
@@ -2219,7 +2219,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
                       style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", border: `2px solid ${selectedEmployees.includes(e.id) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 10, background: selectedEmployees.includes(e.id) ? "var(--brand-dim, var(--brand-soft))" : "#fff", cursor: "pointer", textAlign: "left", fontFamily: "inherit" }}>
                       {e.avatar_url
                         ? <img src={e.avatar_url} style={{ width: 36, height: 36, borderRadius: 18, objectFit: "cover", flexShrink: 0 }}/>
-                        : <div style={{ width: 36, height: 36, borderRadius: 18, background: "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#6B7280", flexShrink: 0 }}>
+                        : <div style={{ width: 36, height: 36, borderRadius: 18, background: "#E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, fontWeight: 700, color: "#6B6860", flexShrink: 0 }}>
                             {e.first_name?.[0]}{e.last_name?.[0]}
                           </div>
                       }
@@ -2242,7 +2242,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               </div>
 
               {clientType === "residential" && error && (
-                <p style={{ fontSize: 12, color: "#DC2626", background: "#FEE2E2", borderRadius: 6, padding: "8px 12px", margin: 0 }}>{error}</p>
+                <p style={{ fontSize: 12, color: "#B3261E", background: "#FCEBEA", borderRadius: 6, padding: "8px 12px", margin: 0 }}>{error}</p>
               )}
             </div>
           )}
@@ -2275,20 +2275,20 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
               </div>
 
               {effectiveBillingMethod === "hourly" && (
-                <div style={{ background: "#DBEAFE", border: "1px solid #93C5FD", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <DollarSign size={14} style={{ color: "#1D4ED8", flexShrink: 0, marginTop: 1 }}/>
-                  <p style={{ fontSize: 12, color: "#1E40AF", margin: 0 }}>Final invoice amount calculated from actual clock in/out time on completion.</p>
+                <div style={{ background: "#EFEFF2", border: "1px solid #93C5FD", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <DollarSign size={14} style={{ color: "#2F3646", flexShrink: 0, marginTop: 1 }}/>
+                  <p style={{ fontSize: 12, color: "#2F3646", margin: 0 }}>Final invoice amount calculated from actual clock in/out time on completion.</p>
                 </div>
               )}
 
               {selectedProperty?.access_notes && (
-                <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <AlertTriangle size={14} style={{ color: "#D97706", flexShrink: 0, marginTop: 1 }}/>
-                  <p style={{ fontSize: 12, color: "#92400E", margin: 0 }}>Building access: {selectedProperty.access_notes}</p>
+                <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                  <AlertTriangle size={14} style={{ color: "#B45309", flexShrink: 0, marginTop: 1 }}/>
+                  <p style={{ fontSize: 12, color: "#B45309", margin: 0 }}>Building access: {selectedProperty.access_notes}</p>
                 </div>
               )}
 
-              {error && <p style={{ fontSize: 12, color: "#DC2626", background: "#FEE2E2", borderRadius: 6, padding: "8px 12px", margin: 0 }}>{error}</p>}
+              {error && <p style={{ fontSize: 12, color: "#B3261E", background: "#FCEBEA", borderRadius: 6, padding: "8px 12px", margin: 0 }}>{error}</p>}
             </div>
           )}
         </div>
@@ -2298,7 +2298,7 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
             confirmation). Default Both = the booking confirmation a client
             expects on a real new booking; No = silent internal re-book. */}
         {step === maxStep && clientType !== "commercial" && (
-          <div style={{ padding: "10px 24px", borderTop: "1px solid #F3F4F6", background: "#FCFBF9", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          <div style={{ padding: "10px 24px", borderTop: "1px solid #F0EEE9", background: "#FCFBF9", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ fontSize: 12.5, fontWeight: 600, color: "#1A1917", flex: "1 1 200px" }}>
               Send the client a booking confirmation?
             </span>
@@ -2316,10 +2316,10 @@ export function JobWizard({ open, onClose, onCreated, preselectedClient, presetD
         )}
 
         {/* Footer */}
-        <div style={{ padding: "16px 24px", borderTop: "1px solid #F3F4F6", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ padding: "16px 24px", borderTop: "1px solid #F0EEE9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <button
             onClick={() => step > 0 ? setStep(s => s - 1) : onClose()}
-            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#6B7280", fontFamily: "inherit" }}>
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", cursor: "pointer", fontSize: 13, fontWeight: 600, color: "#6B6860", fontFamily: "inherit" }}>
             <ChevronLeft size={14}/> {step === 0 ? "Cancel" : "Back"}
           </button>
 

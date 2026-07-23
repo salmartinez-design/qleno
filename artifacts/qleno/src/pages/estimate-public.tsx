@@ -218,20 +218,20 @@ export default function EstimatePublicPage() {
 
         {/* Status banner */}
         {isAccepted && (
-          <div style={{ background: "#ECFDF5", border: "1px solid #99E9D3", borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
+          <div style={{ background: "#E6F6F1", border: "1px solid #99E9D3", borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
             <p style={{ fontSize: 14, fontWeight: 700, color: "#047857", margin: 0 }}>
               Accepted{est.accepted_name ? ` by ${est.accepted_name}` : ""} — thank you! We'll be in touch shortly to schedule.
             </p>
           </div>
         )}
         {isDeclined && (
-          <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
-            <p style={{ fontSize: 14, fontWeight: 700, color: "#991B1B", margin: 0 }}>{`This ${docLower} was declined. Contact us if you'd like a revised proposal.`}</p>
+          <div style={{ background: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
+            <p style={{ fontSize: 14, fontWeight: 700, color: "#B3261E", margin: 0 }}>{`This ${docLower} was declined. Contact us if you'd like a revised proposal.`}</p>
           </div>
         )}
         {isExpired && (
-          <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
-            <p style={{ fontSize: 14, fontWeight: 700, color: "#92400E", margin: 0 }}>{`This ${docLower} has expired. Contact us for updated pricing.`}</p>
+          <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 12, padding: "14px 18px", marginBottom: 14 }}>
+            <p style={{ fontSize: 14, fontWeight: 700, color: "#B45309", margin: 0 }}>{`This ${docLower} has expired. Contact us for updated pricing.`}</p>
           </div>
         )}
 
@@ -266,12 +266,12 @@ export default function EstimatePublicPage() {
                 <p style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 5px" }}>Prepared by</p>
                 <p style={{ fontSize: 14, fontWeight: 700, color: INK, margin: 0 }}>{preparedBy}</p>
                 {issueDate && <p style={{ fontSize: 12, color: MUTE, margin: "4px 0 0" }}>Issued {fmtDate(issueDate)}</p>}
-                {validUntil && <p style={{ fontSize: 12, color: isExpired ? "#991B1B" : MUTE, margin: "2px 0 0" }}>Valid until {fmtDate(validUntil)}</p>}
+                {validUntil && <p style={{ fontSize: 12, color: isExpired ? "#B3261E" : MUTE, margin: "2px 0 0" }}>Valid until {fmtDate(validUntil)}</p>}
               </div>
             </div>
 
             {est.title && <h1 style={{ fontSize: 19, fontWeight: 800, color: INK, margin: "0 0 8px" }}>{est.title}</h1>}
-            {est.intro_note && <p style={{ fontSize: 14, color: "#4B5563", margin: "0 0 18px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{est.intro_note}</p>}
+            {est.intro_note && <p style={{ fontSize: 14, color: "#6B6860", margin: "0 0 18px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{est.intro_note}</p>}
 
             {(() => {
               const opts = (Array.isArray(est.options) ? est.options : []).filter(o => o.configured);
@@ -282,7 +282,7 @@ export default function EstimatePublicPage() {
                 return (
                   <>
                     {est.scope_note && (
-                      <p style={{ fontSize: 14, color: "#374151", margin: "0 0 16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{est.scope_note}</p>
+                      <p style={{ fontSize: 14, color: "#1A1917", margin: "0 0 16px", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{est.scope_note}</p>
                     )}
                     {est.items.length > 0 && (
                       <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
@@ -329,7 +329,7 @@ export default function EstimatePublicPage() {
                                   : Number(it.quantity) !== 1 ? `${Number(it.quantity)} × ${money(it.unit_rate)}` : null,
                               ].filter(Boolean).join(" · ")}
                             </p>
-                            {it.description && <p style={{ fontSize: 12, color: "#4B5563", margin: "4px 0 0", lineHeight: 1.5 }}>{it.description}</p>}
+                            {it.description && <p style={{ fontSize: 12, color: "#6B6860", margin: "4px 0 0", lineHeight: 1.5 }}>{it.description}</p>}
                           </div>
                           <p style={{ fontSize: 14, fontWeight: 700, color: INK, margin: 0, flexShrink: 0 }}>{money(it.amount)}</p>
                         </div>
@@ -398,7 +398,7 @@ export default function EstimatePublicPage() {
             {est.terms && (
               <div style={{ background: "#F7F6F3", borderRadius: 10, padding: "12px 14px", marginBottom: 4 }}>
                 <p style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Terms</p>
-                <p style={{ fontSize: 12, color: "#4B5563", margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{est.terms}</p>
+                <p style={{ fontSize: 12, color: "#6B6860", margin: 0, lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{est.terms}</p>
               </div>
             )}
           </div>
@@ -466,7 +466,7 @@ export default function EstimatePublicPage() {
                 <a href="https://phes.io/privacy-policy" target="_blank" rel="noopener noreferrer" style={{ color: "#2199e8", textDecoration: "underline" }}>Privacy Policy</a>.
               </span>
             </label>
-            {actionMsg && <p style={{ fontSize: 12, color: "#991B1B", margin: "0 0 10px" }}>{actionMsg}</p>}
+            {actionMsg && <p style={{ fontSize: 12, color: "#B3261E", margin: "0 0 10px" }}>{actionMsg}</p>}
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => { setShowAccept(false); setActionMsg(null); }} disabled={submitting}
                 style={{ flex: 1, height: 44, background: "#fff", color: INK, border: `1px solid ${BORDER}`, borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>

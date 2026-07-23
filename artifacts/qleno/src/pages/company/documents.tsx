@@ -115,7 +115,7 @@ function TemplateEditor({
         }}>
           <h1 style={{ fontSize: 24, fontWeight: 700, color: "#1A1917", marginBottom: 24 }}>{name || "Untitled Document"}</h1>
           <div
-            style={{ fontSize: 14, lineHeight: 1.7, color: "#374151" }}
+            style={{ fontSize: 14, lineHeight: 1.7, color: "#1A1917" }}
             dangerouslySetInnerHTML={{ __html: content || "<p>No content yet.</p>" }}
           />
           {requiresSignature && (
@@ -180,9 +180,9 @@ function TemplateEditor({
         <RichTextEditor value={content} onChange={setContent} mergeTags={VARIABLES}/>
       </div>
 
-      <div style={{ background: "#FEF9EC", border: "1px solid #FDE68A", borderRadius: 8, padding: "12px 16px", display: "flex", gap: 10, alignItems: "flex-start" }}>
-        <AlertTriangle size={14} style={{ color: "#D97706", flexShrink: 0, marginTop: 2 }}/>
-        <p style={{ fontSize: 12, color: "#92400E", margin: 0, lineHeight: 1.5 }}>
+      <div style={{ background: "#FEF9EC", border: "1px solid #F2DFB8", borderRadius: 8, padding: "12px 16px", display: "flex", gap: 10, alignItems: "flex-start" }}>
+        <AlertTriangle size={14} style={{ color: "#B45309", flexShrink: 0, marginTop: 2 }}/>
+        <p style={{ fontSize: 12, color: "#B45309", margin: 0, lineHeight: 1.5 }}>
           Qleno provides document delivery and signature collection tools only. Document content is your responsibility. Qleno does not provide legal advice and does not verify that your documents comply with applicable law. Consult qualified legal counsel before distributing employment or client agreements.
         </p>
       </div>
@@ -287,7 +287,7 @@ export function DocumentsTab() {
             </thead>
             <tbody>
               {list.map((t, i) => (
-                <tr key={t.id} style={{ borderTop: i > 0 ? "1px solid #F3F4F6" : "none" }}>
+                <tr key={t.id} style={{ borderTop: i > 0 ? "1px solid #F0EEE9" : "none" }}>
                   <td style={{ padding: "12px 14px", fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{t.name}</td>
                   {showRequired && (
                     <td style={{ padding: "12px 14px", textAlign: "center" }}>
@@ -295,7 +295,7 @@ export function DocumentsTab() {
                         onClick={() => updateMutation.mutate({ id: t.id, data: { is_required: !t.is_required } })}
                         style={{ background: "none", border: "none", cursor: "pointer", display: "flex", justifyContent: "center", width: "100%" }}
                       >
-                        {t.is_required ? <CheckSquare size={16} color="var(--brand)"/> : <Square size={16} color="#D1D5DB"/>}
+                        {t.is_required ? <CheckSquare size={16} color="var(--brand)"/> : <Square size={16} color="#E5E2DC"/>}
                       </button>
                     </td>
                   )}
@@ -304,18 +304,18 @@ export function DocumentsTab() {
                       onClick={() => updateMutation.mutate({ id: t.id, data: { requires_signature: !t.requires_signature } })}
                       style={{ background: "none", border: "none", cursor: "pointer", display: "flex", justifyContent: "center", width: "100%" }}
                     >
-                      {t.requires_signature ? <CheckSquare size={16} color="var(--brand)"/> : <Square size={16} color="#D1D5DB"/>}
+                      {t.requires_signature ? <CheckSquare size={16} color="var(--brand)"/> : <Square size={16} color="#E5E2DC"/>}
                     </button>
                   </td>
                   {!showRequired && (
-                    <td style={{ padding: "12px 14px", fontSize: 12, color: "#6B7280" }}>{CATEGORY_LABELS[t.category] || t.category}</td>
+                    <td style={{ padding: "12px 14px", fontSize: 12, color: "#6B6860" }}>{CATEGORY_LABELS[t.category] || t.category}</td>
                   )}
-                  <td style={{ padding: "12px 14px", fontSize: 12, color: "#6B7280" }}>{new Date(t.updated_at).toLocaleDateString("en-US")}</td>
+                  <td style={{ padding: "12px 14px", fontSize: 12, color: "#6B6860" }}>{new Date(t.updated_at).toLocaleDateString("en-US")}</td>
                   <td style={{ padding: "12px 14px", textAlign: "center" }}>
                     <span style={{
                       fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 10,
-                      background: t.is_active ? "#DCFCE7" : "#F3F4F6",
-                      color: t.is_active ? "#166534" : "#6B7280",
+                      background: t.is_active ? "#E6F6F1" : "#F0EEE9",
+                      color: t.is_active ? "#0F7A63" : "#6B6860",
                     }}>
                       {t.is_active ? "Active" : "Draft"}
                     </span>
@@ -331,7 +331,7 @@ export function DocumentsTab() {
                       {t.is_active && (
                         <button
                           onClick={() => { if (confirm("Deactivate this template?")) deactivateMutation.mutate(t.id); }}
-                          style={{ padding: "4px 10px", fontSize: 12, background: "#FEE2E2", color: "#DC2626", border: "1px solid #FECACA", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
+                          style={{ padding: "4px 10px", fontSize: 12, background: "#FCEBEA", color: "#B3261E", border: "1px solid #F1D0CB", borderRadius: 6, cursor: "pointer", fontFamily: "inherit" }}
                         >
                           Deactivate
                         </button>
@@ -351,7 +351,7 @@ export function DocumentsTab() {
     <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
       <div>
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>Document Templates</h2>
-        <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>
+        <p style={{ fontSize: 13, color: "#6B6860", margin: 0 }}>
           Manage reusable documents for employee onboarding and client agreements. All content is your responsibility.
         </p>
       </div>

@@ -71,8 +71,8 @@ const WEEKDAYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 const STATUS_COLOR: Record<string, string> = {
   in_progress: "#F59E0B",
   scheduled: "#00C9A0",
-  complete: "#16A34A",
-  cancelled: "#9CA3AF",
+  complete: "#0F7A63",
+  cancelled: "#9E9B94",
 };
 const STATUS_PRIORITY = ["in_progress", "scheduled", "complete", "cancelled"];
 
@@ -347,7 +347,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
           { label: "Completed", value: String(kpis.done) },
           { label: "Unassigned", value: String(kpis.unassigned), warn: kpis.unassigned > 0 },
         ].map(k => (
-          <div key={k.label} className="rounded-lg border border-[#E5E2DC] bg-[#FAFAF9] px-3 py-2">
+          <div key={k.label} className="rounded-lg border border-[#E5E2DC] bg-[#F7F6F3] px-3 py-2">
             <div className="text-[9px] font-bold uppercase tracking-wide text-gray-400">{k.label}</div>
             <div className={`text-lg font-extrabold ${(k as any).warn ? "text-[#B45309]" : "text-[#1A1917]"}`}>{k.value}</div>
           </div>
@@ -363,7 +363,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
 
       <div className="grid grid-cols-7 gap-1">
         {cells.map((key, i) => {
-          if (!key) return <div key={`b${i}`} className="min-h-[64px] rounded-lg bg-[#FAFAF9]" />;
+          if (!key) return <div key={`b${i}`} className="min-h-[64px] rounded-lg bg-[#F7F6F3]" />;
           const dayJobs = byDate[key] || [];
           const dayNum = parseInt(key.slice(8, 10), 10);
           const isToday = key === todayKey;
@@ -414,7 +414,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                       title={isMovable(j) ? `${chipLabel(j)} — drag to another day to reschedule` : chipLabel(j)}
                       className="rounded px-1 py-0.5 text-[9.5px] font-bold text-white truncate leading-tight"
                       style={{
-                        background: STATUS_COLOR[j.status] || "#9CA3AF",
+                        background: STATUS_COLOR[j.status] || "#9E9B94",
                         cursor: isMovable(j) ? "grab" : "default",
                         opacity: dragJob?.id === j.id ? 0.4 : 1,
                       }}
@@ -466,7 +466,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                             >
                               {jobPlaceLabel(j)}
                             </button>
-                            <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: STATUS_COLOR[j.status] || "#9CA3AF" }} title={j.status} />
+                            <span className="inline-block w-2 h-2 rounded-full flex-shrink-0" style={{ background: STATUS_COLOR[j.status] || "#9E9B94" }} title={j.status} />
                           </div>
                           <div className="text-[10px] text-gray-500 mt-0.5">
                             {fmtTime(j.scheduled_time)}{j.scheduled_time ? " · " : ""}{fmtSvc(j.service_type)}
@@ -478,7 +478,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                           <div className="flex items-center gap-1.5 mt-1.5">
                             <button
                               onClick={() => openJobInDispatch(j)}
-                              className="inline-flex items-center gap-1 text-[10px] font-bold text-[#065F46] bg-[#ECFDF5] border border-[#A7F3D0] rounded-md px-1.5 py-0.5 cursor-pointer"
+                              className="inline-flex items-center gap-1 text-[10px] font-bold text-[#065F46] bg-[#E6F6F1] border border-[#A7F3D0] rounded-md px-1.5 py-0.5 cursor-pointer"
                             >
                               <ExternalLink size={10} /> Edit
                             </button>
@@ -493,7 +493,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                                 <button
                                   onClick={() => moveJob(j, moveDate)}
                                   disabled={moving}
-                                  className="text-[10px] font-bold text-white bg-[#16A34A] rounded-md px-1.5 py-0.5 cursor-pointer disabled:opacity-60"
+                                  className="text-[10px] font-bold text-white bg-[#0F7A63] rounded-md px-1.5 py-0.5 cursor-pointer disabled:opacity-60"
                                 >
                                   {moving ? "…" : "Save"}
                                 </button>
@@ -507,7 +507,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                             ) : (
                               <button
                                 onClick={() => { setMoveJobId(j.id); setMoveDate((j.scheduled_date || "").slice(0, 10)); }}
-                                className="inline-flex items-center gap-1 text-[10px] font-bold text-[#1D4ED8] bg-[#EFF6FF] border border-[#BFDBFE] rounded-md px-1.5 py-0.5 cursor-pointer"
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-[#2F3646] bg-[#EFEFF2] border border-[#DEDEE4] rounded-md px-1.5 py-0.5 cursor-pointer"
                                 title="Move this visit to another date"
                               >
                                 <CalendarClock size={10} /> Move
@@ -517,7 +517,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                               <button
                                 onClick={() => skipJob(j)}
                                 disabled={skippingId === j.id}
-                                className="inline-flex items-center gap-1 text-[10px] font-bold text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-md px-1.5 py-0.5 cursor-pointer disabled:opacity-60"
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-[#B3261E] bg-[#FCEBEA] border border-[#F1D0CB] rounded-md px-1.5 py-0.5 cursor-pointer disabled:opacity-60"
                                 title="Skip this visit — it won't be rescheduled"
                               >
                                 <X size={10} /> {skippingId === j.id ? "…" : "Skip"}
@@ -550,7 +550,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                   <div className="text-[11px] font-bold text-[#1A1917]">{fmtShortDate(j.scheduled_date)}</div>
                   <div className="text-[10px] text-gray-500">{fmtTime(j.scheduled_time) || "—"}</div>
                 </div>
-                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: STATUS_COLOR[j.status] || "#9CA3AF" }} title={j.status} />
+                <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: STATUS_COLOR[j.status] || "#9E9B94" }} title={j.status} />
                 <div className="flex-1 min-w-0">
                   <div className="text-[12px] font-semibold text-[#1A1917] truncate">{jobPlaceLabel(j)}</div>
                   <div className="text-[10px] text-gray-500 truncate">{fmtSvc(j.service_type)} · {j.tech_first_name ? `${j.tech_first_name} ${j.tech_last_name ?? ""}`.trim() : "Unassigned"}</div>
@@ -558,7 +558,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                 <span className="text-[12px] font-bold text-[#065F46] flex-shrink-0">{fmtMoney(j.base_fee)}</span>
                 <button
                   onClick={() => openJobInDispatch(j)}
-                  className="inline-flex items-center gap-1 text-[10px] font-bold text-[#065F46] bg-[#ECFDF5] border border-[#A7F3D0] rounded-md px-2 py-1 cursor-pointer flex-shrink-0"
+                  className="inline-flex items-center gap-1 text-[10px] font-bold text-[#065F46] bg-[#E6F6F1] border border-[#A7F3D0] rounded-md px-2 py-1 cursor-pointer flex-shrink-0"
                   title="Open this job's editor"
                 >
                   <ExternalLink size={10} /> Open

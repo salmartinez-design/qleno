@@ -79,7 +79,7 @@ export default function CompanyPage() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
         <div>
           <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Company Settings</h1>
-          <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', marginTop: '6px' }}>Manage your company profile, branding, and integrations.</p>
+          <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B6860', marginTop: '6px' }}>Manage your company profile, branding, and integrations.</p>
           {branchName && (
             <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 10, backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(var(--brand-rgb),0.3)', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: 'var(--brand)', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--brand)', display: 'inline-block' }} />
@@ -111,7 +111,7 @@ export default function CompanyPage() {
                           cursor: 'pointer',
                           border: 'none',
                           backgroundColor: active ? '#EAF9F4' : 'transparent',
-                          color: active ? '#2D9B83' : '#1A1917',
+                          color: active ? '#0F7A63' : '#1A1917',
                           borderRadius: 7,
                           textAlign: 'left',
                           transition: 'background 0.15s, color 0.15s',
@@ -286,7 +286,7 @@ function BrandingTab() {
               style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '14px', color: '#1A1917', backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '6px', padding: '8px 14px', width: '120px', letterSpacing: '0.08em', outline: 'none' }}
             />
           </div>
-          <p style={{ fontSize: '11px', color: '#6B7280', marginTop: '8px' }}>Affects sidebar, buttons, badges, charts.</p>
+          <p style={{ fontSize: '11px', color: '#6B6860', marginTop: '8px' }}>Affects sidebar, buttons, badges, charts.</p>
           <button
             onClick={handleSave}
             disabled={updateCompany.isPending}
@@ -307,7 +307,7 @@ function BrandingTab() {
                   <img src={displayLogoUrl} alt="Logo dark" style={{ maxHeight: '40px', maxWidth: '100%', objectFit: 'contain' }} />
                   <span style={{ fontSize: '10px', color: '#9E9B94' }}>Dark bg</span>
                 </div>
-                <div style={{ backgroundColor: '#F0EDE8', border: '1px solid #DDD', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
+                <div style={{ backgroundColor: '#F0EEE9', border: '1px solid #DDD', borderRadius: '8px', padding: '14px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}>
                   <img src={displayLogoUrl} alt="Logo light" style={{ maxHeight: '40px', maxWidth: '100%', objectFit: 'contain' }} />
                   <span style={{ fontSize: '10px', color: '#888' }}>Light bg</span>
                 </div>
@@ -347,7 +347,7 @@ function BrandingTab() {
               {selectedFile && (
                 <button
                   onClick={() => { setSelectedFile(null); setUploadPreview(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
-                  style={{ width: '38px', height: '38px', backgroundColor: '#FEE2E2', border: '1px solid #FECACA', borderRadius: '8px', color: '#991B1B', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                  style={{ width: '38px', height: '38px', backgroundColor: '#FCEBEA', border: '1px solid #F1D0CB', borderRadius: '8px', color: '#B3261E', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                 >
                   <X size={14} />
                 </button>
@@ -398,7 +398,7 @@ function BrandingTab() {
               height: '34px', padding: '0 10px', margin: '2px 0',
               borderRadius: '6px', display: 'flex', alignItems: 'center',
               backgroundColor: item.active ? `rgba(${previewRgb}, 0.07)` : 'transparent',
-              color: item.active ? previewColor : '#6B7280',
+              color: item.active ? previewColor : '#6B6860',
               fontSize: '13px', fontWeight: item.active ? 500 : 400,
             }}>
               {item.label}
@@ -453,20 +453,20 @@ function BranchContactCard({ branchId }: { branchId: number }) {
     <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(var(--brand-rgb),0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
         <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 14, color: 'var(--brand)', margin: '0 0 4px' }}>Branch Contact Info</p>
-        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>Name, phone, and email shown on invoices, emails, and booking pages for this branch.</p>
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B6860', margin: 0 }}>Name, phone, and email shown on invoices, emails, and booking pages for this branch.</p>
       </div>
       {isLoading ? <div style={{ fontSize: 13, color: '#9E9B94' }}>Loading…</div> : (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <div>
-            <label style={{ fontFamily: FF, fontSize: 12, fontWeight: 600, color: '#6B7280', display: 'block', marginBottom: 4 }}>Branch Name</label>
+            <label style={{ fontFamily: FF, fontSize: 12, fontWeight: 600, color: '#6B6860', display: 'block', marginBottom: 4 }}>Branch Name</label>
             <input value={bName} onChange={e => setBName(e.target.value)} style={inputStyle} />
           </div>
           <div>
-            <label style={{ fontFamily: FF, fontSize: 12, fontWeight: 600, color: '#6B7280', display: 'block', marginBottom: 4 }}>Phone</label>
+            <label style={{ fontFamily: FF, fontSize: 12, fontWeight: 600, color: '#6B6860', display: 'block', marginBottom: 4 }}>Phone</label>
             <input value={bPhone} onChange={e => setBPhone(e.target.value)} style={inputStyle} />
           </div>
           <div>
-            <label style={{ fontFamily: FF, fontSize: 12, fontWeight: 600, color: '#6B7280', display: 'block', marginBottom: 4 }}>Email</label>
+            <label style={{ fontFamily: FF, fontSize: 12, fontWeight: 600, color: '#6B6860', display: 'block', marginBottom: 4 }}>Email</label>
             <input value={bEmail} onChange={e => setBEmail(e.target.value)} type="email" style={inputStyle} />
           </div>
           <button onClick={handleSave} disabled={saving}
@@ -518,7 +518,7 @@ function CompanyCommsCard() {
     <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(var(--brand-rgb),0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
         <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 14, color: 'var(--brand)', margin: '0 0 4px' }}>Company Communications</p>
-        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B6860', margin: 0 }}>
           Master switch for all SMS &amp; email for this business. When off, NO automated
           notifications are sent to any customer, including booking confirmations and
           appointment reminders. This must be on for any message to send. Defaults off.
@@ -532,7 +532,7 @@ function CompanyCommsCard() {
           <span style={{ position: 'absolute', top: 3, left: enabled ? 23 : 3, width: 20, height: 20,
             borderRadius: '50%', backgroundColor: '#fff', transition: 'left 0.15s' }} />
         </button>
-        <span style={{ fontFamily: FF, fontSize: 13, fontWeight: 600, color: enabled ? 'var(--brand)' : '#6B7280' }}>
+        <span style={{ fontFamily: FF, fontSize: 13, fontWeight: 600, color: enabled ? 'var(--brand)' : '#6B6860' }}>
           {enabled ? 'Sending enabled for this business' : 'Sending OFF — no messages will send'}
         </span>
       </div>
@@ -543,7 +543,7 @@ function CompanyCommsCard() {
         </p>
       )}
       {!canEdit && (
-        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B6860', margin: 0 }}>
           Only an owner or admin can change this.
         </p>
       )}
@@ -583,7 +583,7 @@ function BranchCommsCard({ branchId }: { branchId: number }) {
     <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(var(--brand-rgb),0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
         <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 14, color: 'var(--brand)', margin: '0 0 4px' }}>Location Communications</p>
-        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>
+        <p style={{ fontFamily: FF, fontSize: 12, color: '#6B6860', margin: 0 }}>
           Master switch for SMS &amp; email from this location. A message only sends when the
           company comms master AND this location toggle are both on. Defaults off.
         </p>
@@ -596,7 +596,7 @@ function BranchCommsCard({ branchId }: { branchId: number }) {
           <span style={{ position: 'absolute', top: 3, left: enabled ? 23 : 3, width: 20, height: 20,
             borderRadius: '50%', backgroundColor: '#fff', transition: 'left 0.15s' }} />
         </button>
-        <span style={{ fontFamily: FF, fontSize: 13, fontWeight: 600, color: enabled ? 'var(--brand)' : '#6B7280' }}>
+        <span style={{ fontFamily: FF, fontSize: 13, fontWeight: 600, color: enabled ? 'var(--brand)' : '#6B6860' }}>
           {enabled ? 'Sending enabled for this location' : 'Sending off for this location'}
         </span>
       </div>
@@ -678,7 +678,7 @@ function GeneralTab() {
                 onSuccess: () => toast({ title: "Pay cadence saved", description: `Payroll defaults to ${opt.label.toLowerCase()} periods now.` }),
                 onError: () => toast({ variant: "destructive", title: "Error", description: "Failed to save pay cadence." }),
               });
-            }} style={{ padding: '7px 16px', borderRadius: '6px', fontSize: '12px', fontFamily: FF, cursor: 'pointer', border: payCadence === opt.id ? 'none' : '1px solid #E5E2DC', backgroundColor: payCadence === opt.id ? 'var(--brand)' : 'transparent', color: payCadence === opt.id ? '#FFFFFF' : '#6B7280' }}>
+            }} style={{ padding: '7px 16px', borderRadius: '6px', fontSize: '12px', fontFamily: FF, cursor: 'pointer', border: payCadence === opt.id ? 'none' : '1px solid #E5E2DC', backgroundColor: payCadence === opt.id ? 'var(--brand)' : 'transparent', color: payCadence === opt.id ? '#FFFFFF' : '#6B6860' }}>
               {opt.label}
             </button>
           ))}
@@ -705,7 +705,7 @@ function GeneralTab() {
           style={{ width: '100%', fontFamily: FF, fontSize: '13px', color: '#1A1917', backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '6px', padding: '10px 14px', outline: 'none', boxSizing: 'border-box' }}
         />
         {reviewLink && (
-          <p style={{ fontFamily: FF, fontSize: 11, color: '#6B7280', marginTop: 6 }}>
+          <p style={{ fontFamily: FF, fontSize: 11, color: '#6B6860', marginTop: 6 }}>
             <a href={reviewLink} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--brand)', textDecoration: 'underline' }}>Test link</a>
           </p>
         )}
@@ -718,7 +718,7 @@ function GeneralTab() {
             onChange={e => setOverheadRatePct(parseFloat(e.target.value) || 0)}
             style={{ width: 100, fontFamily: FF, fontSize: '14px', color: '#1A1917', backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '6px', padding: '10px 14px', outline: 'none', textAlign: 'right' as const }}
           />
-          <span style={{ fontFamily: FF, fontSize: 13, color: '#6B7280' }}>% of revenue</span>
+          <span style={{ fontFamily: FF, fontSize: 13, color: '#6B6860' }}>% of revenue</span>
         </div>
         <p style={{ fontFamily: FF, fontSize: 11, color: '#9E9B94', margin: '6px 0 0' }}>
           Typical range: 8–15%. Default is 10%.
@@ -727,14 +727,14 @@ function GeneralTab() {
       <Section title="Dispatch Board Hours" desc="The dispatch timeline will only show this window by default. Jobs outside this range cannot be scheduled from the board.">
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
           <div style={{ flex: 1 }}>
-            <label style={{ display: 'block', fontFamily: FF, fontSize: '11px', fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Start</label>
+            <label style={{ display: 'block', fontFamily: FF, fontSize: '11px', fontWeight: 600, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>Start</label>
             <select value={dispatchStartHour} onChange={e => setDispatchStartHour(parseInt(e.target.value))} style={selectStyle}>
               {HOUR_OPTIONS.filter(o => o.value < dispatchEndHour).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
           <div style={{ paddingTop: 20, color: '#9E9B94', fontFamily: FF, fontSize: 13 }}>to</div>
           <div style={{ flex: 1 }}>
-            <label style={{ display: 'block', fontFamily: FF, fontSize: '11px', fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>End</label>
+            <label style={{ display: 'block', fontFamily: FF, fontSize: '11px', fontWeight: 600, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>End</label>
             <select value={dispatchEndHour} onChange={e => setDispatchEndHour(parseInt(e.target.value))} style={selectStyle}>
               {HOUR_OPTIONS.filter(o => o.value > dispatchStartHour).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
@@ -755,7 +755,7 @@ function Section({ title, desc, children }: { title: string; desc: string; child
   return (
     <div>
       <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 500, fontSize: '13px', color: '#1A1917', margin: '0 0 4px 0' }}>{title}</h3>
-      {desc && <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '12px', color: '#6B7280', margin: '0 0 12px 0' }}>{desc}</p>}
+      {desc && <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '12px', color: '#6B6860', margin: '0 0 12px 0' }}>{desc}</p>}
       {children}
     </div>
   );
@@ -866,19 +866,19 @@ function IntegrationsTab() {
     card: { background: '#fff', border: '1px solid #E5E2DC', borderRadius: '12px', padding: '24px', marginBottom: '16px' },
     row: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' as const, gap: '12px' },
     label: { fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '14px', color: '#1A1917' },
-    sub: { fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 400, fontSize: '13px', color: '#6B7280', marginTop: '2px' },
+    sub: { fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 400, fontSize: '13px', color: '#6B6860', marginTop: '2px' },
     btn: { fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '13px', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' },
     btnPrimary: { background: 'var(--brand)', color: '#fff' },
-    btnDanger: { background: '#FEE2E2', color: '#DC2626' },
+    btnDanger: { background: '#FCEBEA', color: '#B3261E' },
     btnGhost: { background: '#F5F4F1', color: '#1A1917' },
     badge: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, fontFamily: "'Plus Jakarta Sans', sans-serif" },
-    badgeGreen: { background: '#D1FAF0', color: '#059669' },
-    badgeGray: { background: '#F3F4F6', color: '#6B7280' },
+    badgeGreen: { background: '#D1FAF0', color: '#0F7A63' },
+    badgeGray: { background: '#F0EEE9', color: '#6B6860' },
   };
 
   if (loading) {
     return (
-      <div style={{ padding: '48px', textAlign: 'center', fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#6B7280' }}>
+      <div style={{ padding: '48px', textAlign: 'center', fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#6B6860' }}>
         Loading integrations...
       </div>
     );
@@ -939,15 +939,15 @@ function IntegrationsTab() {
           <div style={{ marginTop: '20px', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
             <div style={{ background: '#F9F8F6', borderRadius: '8px', padding: '12px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                <Clock size={13} color="#6B7280" />
-                <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 500, fontSize: '12px', color: '#6B7280' }}>Last Synced</span>
+                <Clock size={13} color="#6B6860" />
+                <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 500, fontSize: '12px', color: '#6B6860' }}>Last Synced</span>
               </div>
               <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '13px', color: '#1A1917' }}>{lastSync}</div>
             </div>
             <div style={{ background: '#F9F8F6', borderRadius: '8px', padding: '12px 16px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
-                <BarChart2 size={13} color="#6B7280" />
-                <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 500, fontSize: '12px', color: '#6B7280' }}>Invoice Start #</span>
+                <BarChart2 size={13} color="#6B6860" />
+                <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 500, fontSize: '12px', color: '#6B6860' }}>Invoice Start #</span>
               </div>
               <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '13px', color: '#1A1917' }}>
                 {status?.invoice_sequence_start ?? "—"}
@@ -976,7 +976,7 @@ function IntegrationsTab() {
                   <span
                     style={{
                       ...S.badge,
-                      ...(entry.status === 'success' ? S.badgeGreen : { background: '#FEE2E2', color: '#DC2626' }),
+                      ...(entry.status === 'success' ? S.badgeGreen : { background: '#FCEBEA', color: '#B3261E' }),
                       flexShrink: 0,
                     }}
                   >
@@ -987,12 +987,12 @@ function IntegrationsTab() {
                     {entry.entity_type.replace(/_/g, ' ')} #{entry.entity_id}
                   </span>
                   {entry.error_message && (
-                    <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '12px', color: '#DC2626', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '12px', color: '#B3261E', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       — {entry.error_message}
                     </span>
                   )}
                 </div>
-                <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '12px', color: '#9CA3AF', flexShrink: 0 }}>
+                <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '12px', color: '#9E9B94', flexShrink: 0 }}>
                   {new Date(entry.created_at).toLocaleString()}
                 </span>
               </div>
@@ -1002,8 +1002,8 @@ function IntegrationsTab() {
       )}
 
       {!connected && (
-        <div style={{ ...S.card, background: '#F9F8F6', border: '1px dashed #D1D5DB' }}>
-          <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '14px', color: '#6B7280', marginBottom: '8px' }}>What syncs automatically</div>
+        <div style={{ ...S.card, background: '#F9F8F6', border: '1px dashed #E5E2DC' }}>
+          <div style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '14px', color: '#6B6860', marginBottom: '8px' }}>What syncs automatically</div>
           {[
             "New clients are created as QuickBooks customers",
             "Invoices are pushed to QuickBooks when created or updated",
@@ -1012,7 +1012,7 @@ function IntegrationsTab() {
           ].map((item) => (
             <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
               <CheckCircle size={14} color="var(--brand)" style={{ marginTop: '1px', flexShrink: 0 }} />
-              <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '13px', color: '#4B5563' }}>{item}</span>
+              <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '13px', color: '#6B6860' }}>{item}</span>
             </div>
           ))}
         </div>
@@ -1025,7 +1025,7 @@ function PlaceholderTab({ title, desc }: { title: string; desc: string }) {
   return (
     <div style={{ padding: '48px 0', textAlign: 'center', border: '1px dashed #E5E2DC', borderRadius: '8px' }}>
       <h3 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: '0 0 8px 0' }}>{title}</h3>
-      <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', margin: 0 }}>{desc}</p>
+      <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B6860', margin: 0 }}>{desc}</p>
     </div>
   );
 }
@@ -1111,7 +1111,7 @@ function OvertimeSettingsCard({ isOwner }: { isOwner: boolean }) {
   const isCustom = source === 'custom';
   const numInput = (v: string, set: (s: string) => void, props: any = {}) => (
     <input type="number" value={v} onChange={e => set(e.target.value)} disabled={!isOwner}
-      style={isOwner ? fieldInput : { ...fieldInput, background: '#F9FAFB', color: '#9CA3AF', cursor: 'not-allowed' }} {...props} />
+      style={isOwner ? fieldInput : { ...fieldInput, background: '#F7F6F3', color: '#9E9B94', cursor: 'not-allowed' }} {...props} />
   );
 
   return (
@@ -1136,31 +1136,31 @@ function OvertimeSettingsCard({ isOwner }: { isOwner: boolean }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <label style={{ ...fieldLabel, width: 240, marginBottom: 0 }}>Weekly overtime after</label>
           {numInput(weekly, setWeekly, { step: '1', min: '1' })}
-          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>hours/week (federal &amp; most states = 40)</span>
+          <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>hours/week (federal &amp; most states = 40)</span>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <label style={{ ...fieldLabel, width: 240, marginBottom: 0 }}>Daily overtime</label>
           <input type="checkbox" checked={dailyEnabled} disabled={!isOwner} onChange={e => setDailyEnabled(e.target.checked)} />
-          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>This state has daily overtime</span>
+          <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>This state has daily overtime</span>
         </div>
         {dailyEnabled && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingLeft: 16, borderLeft: '2px solid #E5E2DC' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <label style={{ ...fieldLabel, width: 224, marginBottom: 0 }}>OT after (per day)</label>
               {numInput(daily, setDaily, { step: '1', min: '1' })}
-              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>hours/day (e.g. CA = 8)</span>
+              <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>hours/day (e.g. CA = 8)</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <label style={{ ...fieldLabel, width: 224, marginBottom: 0 }}>Double-time</label>
               <input type="checkbox" checked={dtEnabled} disabled={!isOwner} onChange={e => setDtEnabled(e.target.checked)} />
               {dtEnabled && numInput(dt, setDt, { step: '1', min: '1' })}
-              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>{dtEnabled ? 'hours/day (e.g. CA = 12)' : 'pay double-time past a daily limit'}</span>
+              <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>{dtEnabled ? 'hours/day (e.g. CA = 12)' : 'pay double-time past a daily limit'}</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <label style={{ ...fieldLabel, width: 224, marginBottom: 0 }}>7th-consecutive-day rule</label>
               <input type="checkbox" checked={seventh} disabled={!isOwner} onChange={e => setSeventh(e.target.checked)} />
-              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>California-style</span>
+              <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>California-style</span>
             </div>
           </div>
         )}
@@ -1168,14 +1168,14 @@ function OvertimeSettingsCard({ isOwner }: { isOwner: boolean }) {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <label style={{ ...fieldLabel, width: 240, marginBottom: 0 }}>Multipliers</label>
           {numInput(otMult, setOtMult, { step: '0.1', min: '1' })}
-          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>× OT</span>
+          <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>× OT</span>
           {numInput(dtMult, setDtMult, { step: '0.1', min: '1' })}
-          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>× double-time</span>
+          <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>× double-time</span>
         </div>
       </div>
 
       {presetNote && (
-        <p style={{ fontSize: 12, color: '#92400E', background: '#FFFBEB', border: '1px solid #FDE68A', borderRadius: 6, padding: '8px 10px', margin: '14px 0 0', fontFamily: FF2 }}>
+        <p style={{ fontSize: 12, color: '#B45309', background: '#FDF3E4', border: '1px solid #F2DFB8', borderRadius: 6, padding: '8px 10px', margin: '14px 0 0', fontFamily: FF2 }}>
           {presetLabel}: {presetNote}
         </p>
       )}
@@ -1193,7 +1193,7 @@ function OvertimeSettingsCard({ isOwner }: { isOwner: boolean }) {
           </button>
           {isCustom && (
             <button onClick={() => save(true)} disabled={saving}
-              style={{ padding: '9px 20px', background: '#fff', color: '#6B7280', border: '1px solid #E5E2DC', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: 'pointer' }}>
+              style={{ padding: '9px 20px', background: '#fff', color: '#6B6860', border: '1px solid #E5E2DC', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: 'pointer' }}>
               Reset to {presetLabel || 'state'} preset
             </button>
           )}
@@ -1298,19 +1298,19 @@ function PayrollOptionsTab() {
   const sectionCard: React.CSSProperties = { background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' };
 
   const inputStyle = (base: React.CSSProperties): React.CSSProperties =>
-    isOwner ? base : { ...base, background: '#F9FAFB', color: '#9CA3AF', cursor: 'not-allowed' };
+    isOwner ? base : { ...base, background: '#F7F6F3', color: '#9E9B94', cursor: 'not-allowed' };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 20, maxWidth: 640 }}>
       <div>
         <h3 style={{ fontSize: 16, fontWeight: 700, color: '#1A1917', margin: '0 0 4px', fontFamily: FF2 }}>Payroll Options</h3>
-        <p style={{ fontSize: 13, color: '#6B7280', margin: 0, fontFamily: FF2 }}>Configure pay cadence, reimbursement, and technician compensation.</p>
+        <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF2 }}>Configure pay cadence, reimbursement, and technician compensation.</p>
       </div>
 
       {!isOwner && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FFFBEB', border: '1px solid #FCD34D', borderRadius: 8, padding: '10px 14px' }}>
-          <Lock size={14} color="#D97706" />
-          <span style={{ fontSize: 13, color: '#92400E', fontFamily: FF2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: '#FDF3E4', border: '1px solid #F2DFB8', borderRadius: 8, padding: '10px 14px' }}>
+          <Lock size={14} color="#B45309" />
+          <span style={{ fontSize: 13, color: '#B45309', fontFamily: FF2 }}>
             Payroll settings are <strong>read-only</strong> for your role. Contact your owner to make changes.
           </span>
         </div>
@@ -1326,7 +1326,7 @@ function PayrollOptionsTab() {
               onChange={e => setResTechPayPct(e.target.value)} style={inputStyle(fieldInput)} placeholder="35"
               disabled={!isOwner}
             />
-            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>%</span>
+            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>%</span>
           </div>
           <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF2 }}>Formula: Job Total × pct ÷ number of techs on job. Default 35%.</p>
         </div>
@@ -1343,7 +1343,7 @@ function PayrollOptionsTab() {
                 type="number" step="0.25" min="0" value={commercialHourlyRate}
                 onChange={e => setCommercialHourlyRate(e.target.value)} style={fieldInput} placeholder="20.00"
               />
-              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+              <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
             </div>
           </div>
           <div>
@@ -1383,7 +1383,7 @@ function PayrollOptionsTab() {
               onChange={e => setLeavePayRate(e.target.value)} style={inputStyle(fieldInput)} placeholder="20.00"
               disabled={!isOwner}
             />
-            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
           </div>
           <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF2 }}>Flat rate paid for approved and office-recorded paid-leave hours (PLAWA sick, PTO). Formula: hours × rate. Default $20/hr.</p>
         </div>
@@ -1411,7 +1411,7 @@ function PayrollOptionsTab() {
           <label style={fieldLabel}>Training Pay Rate</label>
           <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
           <input type="number" step="0.25" min="0" value={trainingPayRate} onChange={e => setTrainingPayRate(e.target.value)} style={fieldInput} placeholder="20.00" />
-          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+          <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
         </div>
       </div>
 
@@ -1421,7 +1421,7 @@ function PayrollOptionsTab() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <label style={fieldLabel}>Minimum Job Pay Hours</label>
           <input type="number" step="0.5" min="1" value={minJobPayHours} onChange={e => setMinJobPayHours(e.target.value)} style={fieldInput} placeholder="3" />
-          <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>hours</span>
+          <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>hours</span>
         </div>
       </div>
 
@@ -1433,19 +1433,19 @@ function PayrollOptionsTab() {
             <label style={{ ...fieldLabel, width: 220 }}>Re-Clean Tech Rate</label>
             <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
             <input type="number" step="0.25" min="0" value={recleanTechRate} onChange={e => setRecleanTechRate(e.target.value)} style={fieldInput} placeholder="20.00" />
-            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <label style={{ ...fieldLabel, width: 220 }}>Company Pay Floor (weekly)</label>
             <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
             <input type="number" step="0.25" min="0" value={companyPayFloor} onChange={e => setCompanyPayFloor(e.target.value)} style={fieldInput} placeholder="18.00" />
-            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <label style={{ ...fieldLabel, width: 220 }}>Unavailable Reclassification Rate</label>
             <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
             <input type="number" step="0.25" min="0" value={unavailableReclassRate} onChange={e => setUnavailableReclassRate(e.target.value)} style={fieldInput} placeholder="20.00" />
-            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr</span>
+            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr</span>
           </div>
         </div>
       </div>
@@ -1457,15 +1457,15 @@ function PayrollOptionsTab() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <label style={{ ...fieldLabel, width: 220 }}>Probation Threshold (complaints)</label>
             <input type="number" step="1" min="1" value={qpThreshold} onChange={e => setQpThreshold(e.target.value)} style={{ ...fieldInput, width: 80 }} placeholder="2" />
-            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>in</span>
+            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>in</span>
             <input type="number" step="1" min="1" value={qpWindowDays} onChange={e => setQpWindowDays(e.target.value)} style={{ ...fieldInput, width: 80 }} placeholder="30" />
-            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>days</span>
+            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>days</span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <label style={{ ...fieldLabel, width: 220 }}>Quality Probation Pay Rate</label>
             <span style={{ fontSize: 14, fontWeight: 600, color: '#1A1917' }}>$</span>
             <input type="number" step="0.25" min="0" value={qpPayRate} onChange={e => setQpPayRate(e.target.value)} style={fieldInput} placeholder="20.00" />
-            <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF2 }}>/hr flat</span>
+            <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF2 }}>/hr flat</span>
           </div>
         </div>
       </div>
@@ -1481,7 +1481,7 @@ function PayrollOptionsTab() {
           {saving ? 'Saving...' : 'Save Payroll Settings'}
         </button>
       ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#9CA3AF', fontSize: 12, fontFamily: FF2 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, color: '#9E9B94', fontSize: 12, fontFamily: FF2 }}>
           <Lock size={12} />
           <span>Owner-only — read-only view</span>
         </div>
@@ -1689,7 +1689,7 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
               <button onClick={() => onTest({ key: `jobstatus_${t.key.replace(/^sms_/, '').replace(/_enabled$/, '')}`, label: t.label, channel: 'sms' })} title="Send a [TEST] copy to yourself"
-                style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
+                style={{ fontSize: 11, color: '#047857', background: '#E6F6F1', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
                 Send Test
               </button>
               <button
@@ -2017,8 +2017,8 @@ function NotificationsTab() {
   const FF = "'Plus Jakarta Sans', sans-serif";
   const CARD: React.CSSProperties = { background: '#fff', border: '1px solid #E5E2DC', borderRadius: 12, padding: '18px 20px', marginBottom: 12 };
   const chTags: Record<string, { label: string; color: string; bg: string }> = {
-    email: { label: 'EMAIL', color: '#1D4ED8', bg: '#EFF6FF' },
-    sms: { label: 'TEXT', color: '#047857', bg: '#ECFDF5' },
+    email: { label: 'EMAIL', color: '#2F3646', bg: '#EFEFF2' },
+    sms: { label: 'TEXT', color: '#047857', bg: '#E6F6F1' },
   };
 
   if (loading) return <div style={{ padding: '40px 0', textAlign: 'center', color: '#9E9B94', fontFamily: FF }}>Loading…</div>;
@@ -2053,7 +2053,7 @@ function NotificationsTab() {
                 <input value={addForm.label} onChange={e => setAddForm({ ...addForm, label: e.target.value })} placeholder="e.g. Two-day follow-up"
                   style={{ width: '100%', padding: '8px 12px', border: '1px solid #E5E2DC', borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: 'border-box' }} />
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13, color: '#374151' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', fontSize: 13, color: '#1A1917' }}>
                 <span>Send</span>
                 <input type="number" min={0} max={60} value={addForm.offset_days} onChange={e => setAddForm({ ...addForm, offset_days: Math.max(0, Math.min(60, parseInt(e.target.value) || 0)) })}
                   style={{ width: 56, padding: '6px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 13 }} />
@@ -2087,7 +2087,7 @@ function NotificationsTab() {
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                 <span style={{ fontSize: 10, color: '#9E9B94', alignSelf: 'center', marginRight: 2 }}>Tags:</span>
                 {(mergeTags.length ? mergeTags : Object.keys(CM_SAMPLE)).map(v => (
-                  <span key={v} style={{ fontSize: 10, color: '#7C3AED', background: '#EDE9FE', borderRadius: 4, padding: '2px 7px' }}>{`{{${v}}}`}</span>
+                  <span key={v} style={{ fontSize: 10, color: '#9C4E2B', background: '#FBF0E9', borderRadius: 4, padding: '2px 7px' }}>{`{{${v}}}`}</span>
                 ))}
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
@@ -2111,7 +2111,7 @@ function NotificationsTab() {
                   <span style={{ fontSize: 11, color: '#9E9B94', marginLeft: 8 }}>{CHANNEL_LABELS[l.channel] || l.channel} → {l.recipient}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span style={{ fontSize: 11, color: l.status === 'sent' ? '#16A34A' : l.status === 'test_sent' ? '#7C3AED' : '#B45309', fontWeight: 600 }}>{l.status}</span>
+                  <span style={{ fontSize: 11, color: l.status === 'sent' ? '#0F7A63' : l.status === 'test_sent' ? '#9C4E2B' : '#B45309', fontWeight: 600 }}>{l.status}</span>
                   <span style={{ fontSize: 10, color: '#9E9B94' }}>{l.sent_at ? new Date(l.sent_at).toLocaleString() : ""}</span>
                 </div>
               </div>
@@ -2156,13 +2156,13 @@ function NotificationsTab() {
                       {msg.channels.map((c: any) => (
                         <span key={c.channel} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: chTags[c.channel]?.color, background: chTags[c.channel]?.bg, padding: '2px 6px', borderRadius: 4 }}>{chTags[c.channel]?.label}</span>
                       ))}
-                      {!msg.is_builtin && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#7C3AED', background: '#EDE9FE', padding: '2px 6px', borderRadius: 4 }}>CUSTOM</span>}
+                      {!msg.is_builtin && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', color: '#9C4E2B', background: '#FBF0E9', padding: '2px 6px', borderRadius: 4 }}>CUSTOM</span>}
                       {!msg.is_builtin && (
-                        <button onClick={() => deleteMessage(msg.key, msg.label)} style={{ marginLeft: 'auto', fontSize: 11, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Delete</button>
+                        <button onClick={() => deleteMessage(msg.key, msg.label)} style={{ marginLeft: 'auto', fontSize: 11, color: '#B3261E', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Delete</button>
                       )}
                     </div>
                     {timingKey === msg.key ? (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: '#374151' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginTop: 6, fontSize: 12, color: '#1A1917' }}>
                         <span>Send</span>
                         <input type="number" min={0} max={60} value={timingDays} onChange={e => setTimingDays(Math.max(0, Math.min(60, parseInt(e.target.value) || 0)))}
                           style={{ width: 52, padding: '5px 8px', border: '1px solid #E5E2DC', borderRadius: 6, fontFamily: FF, fontSize: 12 }} />
@@ -2173,11 +2173,11 @@ function NotificationsTab() {
                         </select>
                         <span>CT</span>
                         <button onClick={() => saveTiming(msg.key)} style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: 'var(--brand)', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontFamily: FF }}>Save</button>
-                        <button onClick={() => setTimingKey(null)} style={{ fontSize: 11, color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Cancel</button>
+                        <button onClick={() => setTimingKey(null)} style={{ fontSize: 11, color: '#6B6860', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Cancel</button>
                       </div>
                     ) : (
-                      <p style={{ fontSize: 11.5, color: '#6B7280', margin: 0, lineHeight: 1.5 }}>
-                        <span style={{ fontWeight: 600, color: '#374151' }}>When:</span> {msg.timing}
+                      <p style={{ fontSize: 11.5, color: '#6B6860', margin: 0, lineHeight: 1.5 }}>
+                        <span style={{ fontWeight: 600, color: '#1A1917' }}>When:</span> {msg.timing}
                         {msg.editable_timing && <button onClick={() => startTiming(msg)} style={{ marginLeft: 8, fontSize: 11, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>Edit timing</button>}
                       </p>
                     )}
@@ -2204,9 +2204,9 @@ function NotificationsTab() {
                       const pkgLabel = (slug: string) => packages.find(p => p.slug === slug)?.label || slug;
                       const usedSlugs = new Set(variants.map((v: any) => v.service_type));
                       const addable = packages.filter(p => !usedSlugs.has(p.slug));
-                      const chip = (active: boolean): any => ({ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: FF, border: active ? '1px solid var(--brand)' : '1px solid #E5E2DC', background: active ? 'var(--brand-soft)' : '#fff', color: active ? '#1D4ED8' : '#6B7280' });
+                      const chip = (active: boolean): any => ({ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: FF, border: active ? '1px solid var(--brand)' : '1px solid #E5E2DC', background: active ? 'var(--brand-soft)' : '#fff', color: active ? '#2F3646' : '#6B6860' });
                       return (
-                      <div key={ch.channel} style={{ border: '1px solid #F0EEE9', borderRadius: 9, padding: '12px 14px', background: effCh.is_active ? '#fff' : '#FAFAF8' }}>
+                      <div key={ch.channel} style={{ border: '1px solid #F0EEE9', borderRadius: 9, padding: '12px 14px', background: effCh.is_active ? '#fff' : '#F7F6F3' }}>
                         {isBookingSms && (
                           <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 10 }}>
                             <span style={{ fontSize: 10, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Package</span>
@@ -2218,13 +2218,13 @@ function NotificationsTab() {
                             ))}
                             {addable.length > 0 && (
                               <select value="" disabled={variantBusy} onChange={e => { if (e.target.value) addVariant(msg, ch, e.target.value); }}
-                                style={{ fontSize: 11, border: '1px dashed #C7C3BC', borderRadius: 999, padding: '4px 8px', color: '#6B7280', background: '#fff', fontFamily: FF, cursor: 'pointer' }}>
+                                style={{ fontSize: 11, border: '1px dashed #C7C3BC', borderRadius: 999, padding: '4px 8px', color: '#6B6860', background: '#fff', fontFamily: FF, cursor: 'pointer' }}>
                                 <option value="">+ Add package…</option>
                                 {addable.map(p => <option key={p.slug} value={p.slug}>{p.label}</option>)}
                               </select>
                             )}
                             {selVar && (
-                              <button onClick={() => removeVariant(ch, selVar.id)} disabled={variantBusy} style={{ fontSize: 11, color: '#DC2626', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, marginLeft: 'auto' }}>Remove package</button>
+                              <button onClick={() => removeVariant(ch, selVar.id)} disabled={variantBusy} style={{ fontSize: 11, color: '#B3261E', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, marginLeft: 'auto' }}>Remove package</button>
                             )}
                           </div>
                         )}
@@ -2232,7 +2232,7 @@ function NotificationsTab() {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.06em', color: chTags[ch.channel]?.color }}>{chTags[ch.channel]?.label}{isBookingSms && sel ? ` · ${pkgLabel(sel)}` : ''}</span>
                             {editingId !== effCh.id && (
-                              <p style={{ fontSize: 12, color: effCh.is_active ? '#374151' : '#9E9B94', margin: '4px 0 0', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
+                              <p style={{ fontSize: 12, color: effCh.is_active ? '#1A1917' : '#9E9B94', margin: '4px 0 0', lineHeight: 1.5, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical' }}>
                                 {ch.channel === 'email' && effCh.subject ? <><strong>{cmFill(effCh.subject)}</strong>{" — "}</> : ""}{ch.channel === 'email' ? cmStrip(cmFill(effCh.body)) : cmFill(effCh.body)}
                               </p>
                             )}
@@ -2247,7 +2247,7 @@ function NotificationsTab() {
                               {editingId === effCh.id ? "Cancel" : "Edit"}
                             </button>
                             <button onClick={() => openTest({ key: msg.key, label: msg.label, channel: ch.channel, ...(isBookingSms && selVar ? { body: effCh.body } : {}) })} title="Send a [TEST] copy to yourself"
-                              style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
+                              style={{ fontSize: 11, color: '#047857', background: '#E6F6F1', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
                               Send Test
                             </button>
                           </div>
@@ -2272,7 +2272,7 @@ function NotificationsTab() {
                       );
                     })}
                     {msg.key === 'review_request' && (
-                      <p style={{ fontSize: 11.5, color: '#6B7280', margin: '2px 0 0', lineHeight: 1.5 }}>
+                      <p style={{ fontSize: 11.5, color: '#6B6860', margin: '2px 0 0', lineHeight: 1.5 }}>
                         The survey <strong>text message</strong> (and the send delay) are configured in <strong>Company Settings → Customer Survey</strong> — both channels carry the same tokenized survey link.
                       </p>
                     )}
@@ -2305,11 +2305,11 @@ function NotificationsTab() {
         <div onClick={() => !testBusy && setTestFor(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}>
           <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 12, padding: 24, width: 400, maxWidth: '100%', fontFamily: FF }}>
             <p style={{ fontSize: 16, fontWeight: 800, color: '#1A1917', margin: '0 0 6px' }}>Send a test {testFor.channel === 'sms' ? 'text' : 'email'}</p>
-            <p style={{ fontSize: 12.5, color: '#6B7280', margin: '0 0 14px', lineHeight: 1.5 }}>
+            <p style={{ fontSize: 12.5, color: '#6B6860', margin: '0 0 14px', lineHeight: 1.5 }}>
               “{testFor.label}” will be sent to YOU with sample data, tagged <strong>[TEST]</strong>. The customer never receives it.
               {testFor.channel === 'sms' && <span style={{ color: '#B45309' }}> This sends a real text via Twilio (about 1¢).</span>}
             </p>
-            <label style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{testFor.channel === 'sms' ? 'Send text to (phone)' : 'Send email to'}</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: '#1A1917' }}>{testFor.channel === 'sms' ? 'Send text to (phone)' : 'Send email to'}</label>
             <input
               type={testFor.channel === 'sms' ? 'tel' : 'email'}
               value={testRecipient}
@@ -2321,7 +2321,7 @@ function NotificationsTab() {
             />
             <p style={{ fontSize: 11, color: '#9E9B94', margin: '0 0 18px' }}>{testFor.channel === 'sms' ? 'Required — the cell you’ll check.' : 'Leave blank to use your login email.'}</p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-              <button disabled={testBusy} onClick={() => setTestFor(null)} style={{ fontSize: 12, color: '#6B7280', background: 'none', border: 'none', cursor: testBusy ? 'not-allowed' : 'pointer', fontFamily: FF }}>Cancel</button>
+              <button disabled={testBusy} onClick={() => setTestFor(null)} style={{ fontSize: 12, color: '#6B6860', background: 'none', border: 'none', cursor: testBusy ? 'not-allowed' : 'pointer', fontFamily: FF }}>Cancel</button>
               <button disabled={testBusy} onClick={sendTest} style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--brand)', border: 'none', borderRadius: 6, padding: '8px 16px', cursor: testBusy ? 'not-allowed' : 'pointer', fontFamily: FF }}>{testBusy ? 'Sending…' : 'Send Test'}</button>
             </div>
           </div>
@@ -2360,7 +2360,7 @@ function TimeOffEmailsCard({ onTest }: { onTest?: (t: { key: string; label: stri
               <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{row.desc}</p>
             </div>
             {onTest && <button onClick={() => onTest({ key: row.key, label: row.label, channel: 'email' })} title="Send a [TEST] copy to yourself"
-              style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600, flexShrink: 0 }}>
+              style={{ fontSize: 11, color: '#047857', background: '#E6F6F1', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600, flexShrink: 0 }}>
               Send Test
             </button>}
           </div>
@@ -2450,7 +2450,7 @@ function OfficeNotificationsCard({ onTest }: { onTest?: (t: { key: string; label
           <p style={{ fontSize: 12, color: '#9E9B94', margin: 0 }}>Controls what appears in the email your office receives when a new booking comes in online.</p>
         </div>
         {onTest && <button onClick={() => onTest({ key: 'office_booking', label: 'Office Booking Notification', channel: 'email' })} title="Send a [TEST] copy to yourself"
-          style={{ fontSize: 11, color: '#047857', background: '#ECFDF5', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600, flexShrink: 0 }}>
+          style={{ fontSize: 11, color: '#047857', background: '#E6F6F1', border: 'none', borderRadius: 5, padding: '4px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600, flexShrink: 0 }}>
           Send Test
         </button>}
       </div>
@@ -2578,7 +2578,7 @@ function ClockInOutTab() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, fontFamily: FF, maxWidth: 640 }}>
-      <p style={{ fontSize: 13, color: '#6B7280', margin: '0 0 20px' }}>
+      <p style={{ fontSize: 13, color: '#6B6860', margin: '0 0 20px' }}>
         Control GPS enforcement for employee clock-in and clock-out. Employees must be within the configured radius of the job address.
       </p>
 
@@ -2586,7 +2586,7 @@ function ClockInOutTab() {
         <div style={ROW}>
           <div>
             <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Enforce Geofencing</p>
-            <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>Employees must be within range of job address to clock in and out</p>
+            <p style={{ fontSize: 12, color: '#6B6860', margin: 0 }}>Employees must be within range of job address to clock in and out</p>
           </div>
           <ToggleSwitch checked={settings.geofence_enabled} onChange={v => setSettings(s => ({ ...s, geofence_enabled: v }))} />
         </div>
@@ -2596,7 +2596,7 @@ function ClockInOutTab() {
         <div style={ROW}>
           <div>
             <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Flag missing GPS on the board</p>
-            <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>Show a "GPS unavailable" flag on a job when a tech clocked in with no location captured</p>
+            <p style={{ fontSize: 12, color: '#6B6860', margin: 0 }}>Show a "GPS unavailable" flag on a job when a tech clocked in with no location captured</p>
           </div>
           <ToggleSwitch checked={settings.flag_missing_gps} onChange={v => setSettings(s => ({ ...s, flag_missing_gps: v }))} />
         </div>
@@ -2606,7 +2606,7 @@ function ClockInOutTab() {
         <div style={ROW}>
           <div>
             <p style={{ fontSize: 14, fontWeight: 700, color: '#1A1917', margin: '0 0 3px' }}>Require after photo before clock-out</p>
-            <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>Block a tech from clocking out of a job until at least one "after" photo is uploaded. Off by default.</p>
+            <p style={{ fontSize: 12, color: '#6B6860', margin: 0 }}>Block a tech from clocking out of a job until at least one "after" photo is uploaded. Off by default.</p>
           </div>
           <ToggleSwitch checked={settings.require_after_photo_for_clockout} onChange={v => setSettings(s => ({ ...s, require_after_photo_for_clockout: v }))} />
         </div>
@@ -2617,7 +2617,7 @@ function ClockInOutTab() {
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
               Clock In Radius (feet)
             </label>
             <input
@@ -2630,7 +2630,7 @@ function ClockInOutTab() {
             <p style={{ fontSize: 11, color: '#9E9B94', margin: '4px 0 0' }}>How close must employee be to clock in. Range: 100–2640 ft</p>
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: '#6B6860', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>
               Clock Out Radius (feet)
             </label>
             <input
@@ -2645,7 +2645,7 @@ function ClockInOutTab() {
         </div>
 
         <div style={{ marginTop: 12, padding: '10px 14px', background: '#F0F7FF', borderRadius: 8 }}>
-          <p style={{ fontSize: 12, color: '#1E40AF', margin: 0 }}>
+          <p style={{ fontSize: 12, color: '#2F3646', margin: 0 }}>
             {(settings.geofence_clockin_radius_ft / 5280).toFixed(2)} mi clock-in radius &nbsp;·&nbsp; {(settings.geofence_clockout_radius_ft / 5280).toFixed(2)} mi clock-out radius
           </p>
         </div>
@@ -2658,22 +2658,22 @@ function ClockInOutTab() {
           <div style={ROW}>
             <div>
               <p style={{ fontSize: 14, fontWeight: 600, color: '#1A1917', margin: '0 0 3px' }}>Allow Override</p>
-              <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>Owner and admins can manually approve a failed geofence check</p>
+              <p style={{ fontSize: 12, color: '#6B6860', margin: 0 }}>Owner and admins can manually approve a failed geofence check</p>
             </div>
             <ToggleSwitch checked={settings.geofence_override_allowed} onChange={v => setSettings(s => ({ ...s, geofence_override_allowed: v }))} />
           </div>
           <div style={{ borderTop: '1px solid #F0EEE9', paddingTop: 16, ...ROW }}>
             <div>
               <p style={{ fontSize: 14, fontWeight: 600, color: '#1A1917', margin: '0 0 3px' }}>Soft Mode</p>
-              <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>Warn employee if outside range but still allow clock in — logs the distance violation</p>
+              <p style={{ fontSize: 12, color: '#6B6860', margin: 0 }}>Warn employee if outside range but still allow clock in — logs the distance violation</p>
             </div>
             <ToggleSwitch checked={settings.geofence_soft_mode} onChange={v => setSettings(s => ({ ...s, geofence_soft_mode: v }))} />
           </div>
         </div>
 
         {settings.geofence_soft_mode && (
-          <div style={{ marginTop: 12, padding: '10px 14px', background: '#FFFBEB', borderLeft: '3px solid #F59E0B', borderRadius: '0 6px 6px 0' }}>
-            <p style={{ fontSize: 12, color: '#92400E', margin: 0 }}>
+          <div style={{ marginTop: 12, padding: '10px 14px', background: '#FDF3E4', borderLeft: '3px solid #F59E0B', borderRadius: '0 6px 6px 0' }}>
+            <p style={{ fontSize: 12, color: '#B45309', margin: 0 }}>
               Soft mode is active. Employees outside the radius will see a warning but can still clock in. All violations are logged.
             </p>
           </div>
@@ -2788,7 +2788,7 @@ function InvoicingTab() {
   ];
 
   const labelStyle: React.CSSProperties = {
-    display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280',
+    display: 'block', fontSize: 12, fontWeight: 600, color: '#6B6860',
     marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', fontFamily: FF,
   };
   const selectStyle: React.CSSProperties = {
@@ -2813,7 +2813,7 @@ function InvoicingTab() {
       {/* Payment Terms */}
       <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' }}>
         <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>Default Payment Terms</div>
-        <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, fontFamily: FF }}>Applied when creating new invoices if not overridden per client.</div>
+        <div style={{ fontSize: 13, color: '#6B6860', marginBottom: 20, fontFamily: FF }}>Applied when creating new invoices if not overridden per client.</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
           <div>
             <label style={labelStyle}>Residential Clients</label>
@@ -2841,7 +2841,7 @@ function InvoicingTab() {
       {/* Default Invoice Notes */}
       <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' }}>
         <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>Default Invoice Notes</div>
-        <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, fontFamily: FF }}>Pre-filled on new invoices for each client type.</div>
+        <div style={{ fontSize: 13, color: '#6B6860', marginBottom: 20, fontFamily: FF }}>Pre-filled on new invoices for each client type.</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div>
             <label style={labelStyle}>Residential</label>
@@ -2871,7 +2871,7 @@ function InvoicingTab() {
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
             <div>
               <div style={{ fontWeight: 600, fontSize: 13, color: '#1A1917', fontFamily: FF }}>Auto-send invoices on job completion</div>
-              <div style={{ fontSize: 12, color: '#6B7280', fontFamily: FF, marginTop: 3 }}>Automatically create and send invoice when a job is marked complete</div>
+              <div style={{ fontSize: 12, color: '#6B6860', fontFamily: FF, marginTop: 3 }}>Automatically create and send invoice when a job is marked complete</div>
             </div>
             <ToggleSwitch
               checked={settings.auto_send_invoices}
@@ -2881,7 +2881,7 @@ function InvoicingTab() {
           <div style={{ borderTop: '1px solid #F0EEE9', paddingTop: 16, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
             <div>
               <div style={{ fontWeight: 600, fontSize: 13, color: '#1A1917', fontFamily: FF }}>Auto-charge on invoice creation</div>
-              <div style={{ fontSize: 12, color: '#6B7280', fontFamily: FF, marginTop: 3 }}>Automatically charge card on file when invoice is created for clients with auto-charge enabled</div>
+              <div style={{ fontSize: 12, color: '#6B6860', fontFamily: FF, marginTop: 3 }}>Automatically charge card on file when invoice is created for clients with auto-charge enabled</div>
             </div>
             <ToggleSwitch
               checked={settings.auto_charge_on_invoice}
@@ -2894,7 +2894,7 @@ function InvoicingTab() {
       {/* Invoice Header & Footer (shown on every customer invoice) */}
       <div style={{ background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' }}>
         <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>Invoice Header &amp; Footer</div>
-        <div style={{ fontSize: 13, color: '#6B7280', marginBottom: 20, fontFamily: FF }}>
+        <div style={{ fontSize: 13, color: '#6B6860', marginBottom: 20, fontFamily: FF }}>
           Shown on every invoice your customers receive. Upload your logo in the Branding tab. Leave a field blank to use a generic default.
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -3112,7 +3112,7 @@ function OnlineBookingTab() {
   }
 
   const cardStyle = { background: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '20px 24px' };
-  const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#6B7280', marginBottom: 6, fontFamily: FF };
+  const labelStyle: React.CSSProperties = { display: 'block', fontSize: 12, fontWeight: 600, color: '#6B6860', marginBottom: 6, fontFamily: FF };
   const numInputStyle: React.CSSProperties = {
     width: 90, padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
     fontSize: 14, color: '#1A1917', background: '#fff', outline: 'none', fontFamily: FF,
@@ -3133,7 +3133,7 @@ function OnlineBookingTab() {
                 onChange={e => setLeadDays(Math.max(1, Math.min(60, parseInt(e.target.value) || 1)))}
                 style={numInputStyle}
               />
-              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF }}>days from today</span>
+              <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF }}>days from today</span>
             </div>
             <p style={{ fontSize: 12, color: '#9E9B94', marginTop: 8, fontFamily: FF }}>
               Dates within this window are blocked on the booking calendar.
@@ -3147,7 +3147,7 @@ function OnlineBookingTab() {
                 onChange={e => setMaxAdvanceDays(Math.max(14, Math.min(365, parseInt(e.target.value) || 60)))}
                 style={numInputStyle}
               />
-              <span style={{ fontSize: 13, color: '#6B7280', fontFamily: FF }}>days out</span>
+              <span style={{ fontSize: 13, color: '#6B6860', fontFamily: FF }}>days out</span>
             </div>
           </div>
         </div>
@@ -3155,7 +3155,7 @@ function OnlineBookingTab() {
 
       <div style={cardStyle}>
         <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>Available Days</div>
-        <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 18, fontFamily: FF }}>
+        <p style={{ fontSize: 12, color: '#6B6860', marginBottom: 18, fontFamily: FF }}>
           Select which days of the week clients can book. Unavailable days are hidden on the calendar.
         </p>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -3169,7 +3169,7 @@ function OnlineBookingTab() {
                   padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: FF,
                   border: `2px solid ${on ? 'var(--brand)' : '#E5E2DC'}`,
                   background: on ? 'var(--brand)' : '#fff',
-                  color: on ? '#fff' : '#6B7280',
+                  color: on ? '#fff' : '#6B6860',
                   cursor: 'pointer', transition: 'all 0.1s',
                 }}
               >
@@ -3183,7 +3183,7 @@ function OnlineBookingTab() {
       <div style={cardStyle}>
         <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 8, fontFamily: FF }}>New Booking Assignment</div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
-          <div style={{ fontSize: 12, color: '#6B7280', fontFamily: FF }}>
+          <div style={{ fontSize: 12, color: '#6B6860', fontFamily: FF }}>
             All bookings submitted through the widget are placed in the Unassigned queue for manual dispatch. This cannot be changed.
           </div>
           <div style={{ padding: '6px 14px', background: '#F7F6F3', border: '1px solid #E5E2DC', borderRadius: 8, fontSize: 13, fontWeight: 700, color: '#1A1917', fontFamily: FF, flexShrink: 0 }}>
@@ -3194,7 +3194,7 @@ function OnlineBookingTab() {
 
       <div style={cardStyle}>
         <div style={{ fontWeight: 700, fontSize: 14, color: '#1A1917', marginBottom: 4, fontFamily: FF }}>"How did you hear about us?" Options</div>
-        <p style={{ fontSize: 12, color: '#6B7280', marginBottom: 16, fontFamily: FF }}>
+        <p style={{ fontSize: 12, color: '#6B6860', marginBottom: 16, fontFamily: FF }}>
           These appear in the referral dropdown on your booking form. Toggle off to hide a source without deleting it.
         </p>
         {!refLoaded ? (
@@ -3210,7 +3210,7 @@ function OnlineBookingTab() {
                     padding: '5px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: FF,
                     border: `1.5px solid ${src.is_active ? '#E5E2DC' : 'var(--brand)'}`,
                     background: src.is_active ? '#fff' : 'transparent',
-                    color: src.is_active ? '#6B7280' : 'var(--brand)',
+                    color: src.is_active ? '#6B6860' : 'var(--brand)',
                     cursor: 'pointer',
                   }}
                 >
@@ -3396,7 +3396,7 @@ function ServiceZonesTab() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <h2 style={{ fontFamily: FF, fontWeight: 700, fontSize: 22, color: "#1A1917", margin: 0 }}>Service Zones</h2>
-          <p style={{ fontFamily: FF, fontSize: 13, color: "#6B7280", margin: "4px 0 0" }}>Manage zip code coverage for each location. No zip can exist in two zones.</p>
+          <p style={{ fontFamily: FF, fontSize: 13, color: "#6B6860", margin: "4px 0 0" }}>Manage zip code coverage for each location. No zip can exist in two zones.</p>
         </div>
         <button
           onClick={openAdd}
@@ -3411,7 +3411,7 @@ function ServiceZonesTab() {
         {([["all", "All Zones"], ["oak_lawn", "Oak Lawn"], ["schaumburg", "Schaumburg"]] as const).map(([val, label]) => (
           <button key={val} onClick={() => setLocFilter(val)} style={{
             padding: "8px 16px", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 13, fontWeight: locFilter === val ? 500 : 400,
-            color: locFilter === val ? "var(--brand)" : "#6B7280", backgroundColor: "transparent",
+            color: locFilter === val ? "var(--brand)" : "#6B6860", backgroundColor: "transparent",
             borderBottom: `2px solid ${locFilter === val ? "var(--brand)" : "transparent"}`, marginBottom: -1, transition: "color 0.15s",
           }}>{label}</button>
         ))}
@@ -3432,8 +3432,8 @@ function ServiceZonesTab() {
             <span style={{ fontFamily: FF, fontSize: 12, color: "#6B7860", marginLeft: 8 }}>
               {(z.zip_codes || []).length} zip{(z.zip_codes || []).length !== 1 ? "s" : ""}
             </span>
-            <button onClick={e => { e.stopPropagation(); openEdit(z); }} style={{ padding: "4px 10px", background: "transparent", border: "1px solid #E5E2DC", borderRadius: 6, fontFamily: FF, fontSize: 12, color: "#6B7280", cursor: "pointer" }}>Edit</button>
-            <button onClick={e => { e.stopPropagation(); deleteZone(z); }} style={{ padding: "4px 10px", background: "transparent", border: "1px solid #E5E2DC", borderRadius: 6, fontFamily: FF, fontSize: 12, color: "#EF4444", cursor: "pointer" }}>Delete</button>
+            <button onClick={e => { e.stopPropagation(); openEdit(z); }} style={{ padding: "4px 10px", background: "transparent", border: "1px solid #E5E2DC", borderRadius: 6, fontFamily: FF, fontSize: 12, color: "#6B6860", cursor: "pointer" }}>Edit</button>
+            <button onClick={e => { e.stopPropagation(); deleteZone(z); }} style={{ padding: "4px 10px", background: "transparent", border: "1px solid #E5E2DC", borderRadius: 6, fontFamily: FF, fontSize: 12, color: "#B3261E", cursor: "pointer" }}>Delete</button>
             <span style={{ color: "#9E9B94", fontSize: 14, marginLeft: 4, userSelect: "none" }}>{expanded[z.id] ? "▲" : "▼"}</span>
           </div>
 
@@ -3459,7 +3459,7 @@ function ServiceZonesTab() {
                   />
                   <button onClick={() => addZip(z.id)} style={{ padding: "3px 8px", background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 6, fontFamily: FF, fontSize: 12, cursor: "pointer" }}>Add</button>
                 </div>
-                {addZipErrors[z.id] && <p style={{ fontFamily: FF, fontSize: 11, color: "#EF4444", margin: 0 }}>{addZipErrors[z.id]}</p>}
+                {addZipErrors[z.id] && <p style={{ fontFamily: FF, fontSize: 11, color: "#B3261E", margin: 0 }}>{addZipErrors[z.id]}</p>}
               </div>
             </div>
           )}
@@ -3492,8 +3492,8 @@ function ServiceZonesTab() {
                 {([["oak_lawn", "Oak Lawn"], ["schaumburg", "Schaumburg"]] as const).map(([val, label]) => (
                   <button key={val} onClick={() => setMLoc(val)} style={{
                     flex: 1, padding: "9px 0", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 13, fontWeight: 500,
-                    backgroundColor: mLoc === val ? (val === "schaumburg" ? "#2D6A4F" : "#5B9BD5") : "#FAFAF9",
-                    color: mLoc === val ? "#FFFFFF" : "#6B7280", transition: "all 0.15s",
+                    backgroundColor: mLoc === val ? (val === "schaumburg" ? "#2D6A4F" : "#5B9BD5") : "#F7F6F3",
+                    color: mLoc === val ? "#FFFFFF" : "#6B6860", transition: "all 0.15s",
                   }}>{label}</button>
                 ))}
               </div>
@@ -3542,7 +3542,7 @@ function ServiceZonesTab() {
                 borderRadius: 8, fontFamily: FF, fontSize: 14, fontWeight: 600, cursor: mSaving ? "not-allowed" : "pointer", opacity: mSaving ? 0.7 : 1,
               }}>{mSaving ? "Saving..." : "Save Zone"}</button>
               <button onClick={() => setModalOpen(false)} style={{
-                padding: "10px 18px", backgroundColor: "transparent", color: "#6B7280", border: "1px solid #E5E2DC",
+                padding: "10px 18px", backgroundColor: "transparent", color: "#6B6860", border: "1px solid #E5E2DC",
                 borderRadius: 8, fontFamily: FF, fontSize: 14, cursor: "pointer",
               }}>Cancel</button>
             </div>
@@ -3681,7 +3681,7 @@ function FollowUpSequencesTab({ onTest, only }: { onTest?: (t: { key: string; la
                   onClick={() => toggleActive(seq)}
                   style={{
                     width: 40, height: 22, borderRadius: 11, cursor: "pointer", position: "relative", flexShrink: 0,
-                    background: seq.is_active ? "var(--brand)" : "#D1D5DB", transition: "background 0.2s",
+                    background: seq.is_active ? "var(--brand)" : "#E5E2DC", transition: "background 0.2s",
                   }}
                 >
                   <div style={{
@@ -3698,8 +3698,8 @@ function FollowUpSequencesTab({ onTest, only }: { onTest?: (t: { key: string; la
                     </span>
                     <span style={{
                       padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 600, fontFamily: FFF,
-                      background: seq.is_active ? "#DCFCE7" : "#F3F4F6",
-                      color: seq.is_active ? "#166534" : "#6B7280",
+                      background: seq.is_active ? "#E6F6F1" : "#F0EEE9",
+                      color: seq.is_active ? "#0F7A63" : "#6B6860",
                     }}>
                       {seq.is_active ? "ACTIVE" : "PAUSED"}
                     </span>
@@ -3724,7 +3724,7 @@ function FollowUpSequencesTab({ onTest, only }: { onTest?: (t: { key: string; la
 
               {/* Steps */}
               {isExpanded && (
-                <div style={{ borderTop: "1px solid #F0EDE8" }}>
+                <div style={{ borderTop: "1px solid #F0EEE9" }}>
                   {seq.steps.map((step, idx) => {
                     const isEditing = editingStep === step.id;
                     return (
@@ -3736,7 +3736,7 @@ function FollowUpSequencesTab({ onTest, only }: { onTest?: (t: { key: string; la
                         <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
                           {/* Step number */}
                           <div style={{
-                            width: 26, height: 26, borderRadius: "50%", background: "#F0EDE8",
+                            width: 26, height: 26, borderRadius: "50%", background: "#F0EEE9",
                             display: "flex", alignItems: "center", justifyContent: "center",
                             fontFamily: FFF, fontSize: 11, fontWeight: 700, color: "#6B6860", flexShrink: 0,
                           }}>
@@ -3747,7 +3747,7 @@ function FollowUpSequencesTab({ onTest, only }: { onTest?: (t: { key: string; la
                             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
                               {step.channel === "email"
                                 ? <Mail size={13} color="#2D6A4F" />
-                                : <MessageSquare size={13} color="#1D4ED8" />}
+                                : <MessageSquare size={13} color="#2F3646" />}
                               <span style={{ fontFamily: FFF, fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
                                 {step.channel === "email" ? "Email" : "SMS"} — {delayLabel(step.delay_hours)}
                               </span>
@@ -3824,7 +3824,7 @@ function FollowUpSequencesTab({ onTest, only }: { onTest?: (t: { key: string; la
                                           : { key: "custom_dripstep", label: `${SEQ_LABELS[seq.sequence_type] ?? seq.name} · Step ${step.step_number}`, channel: step.channel === "email" ? "email" : "sms", body: step.message_template, subject: step.subject });
                                       }}
                                       title="Send a [TEST] copy to yourself"
-                                      style={{ display: "inline-flex", alignItems: "center", padding: "4px 10px", background: "#ECFDF5", border: "none", borderRadius: 5, fontFamily: FFF, fontSize: 11, fontWeight: 600, color: "#047857", cursor: "pointer" }}
+                                      style={{ display: "inline-flex", alignItems: "center", padding: "4px 10px", background: "#E6F6F1", border: "none", borderRadius: 5, fontFamily: FFF, fontSize: 11, fontWeight: 600, color: "#047857", cursor: "pointer" }}
                                     >
                                       Send Test
                                     </button>
@@ -3913,7 +3913,7 @@ function CustomerSurveyTab() {
   return (
     <div style={{ maxWidth: 640 }}>
       <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>Customer Survey</h2>
-      <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 20px" }}>
+      <p style={{ fontSize: 13, color: "#6B6860", margin: "0 0 20px" }}>
         Text a 0–4 satisfaction survey after each job. Responses feed each tech's scorecard. Sending stays off until Twilio is connected and enabled below.
       </p>
 

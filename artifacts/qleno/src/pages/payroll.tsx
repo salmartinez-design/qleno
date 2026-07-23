@@ -278,7 +278,7 @@ function AddPayModal({ employees, period, onClose, onSaved }:
           </div>
         </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, padding: '0 20px 20px' }}>
-          <button onClick={onClose} style={{ padding: '9px 16px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#6B7280', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
+          <button onClick={onClose} style={{ padding: '9px 16px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', color: '#6B6860', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Cancel</button>
           <button onClick={save} disabled={!valid || saving} style={{ padding: '9px 18px', border: 'none', borderRadius: 8, background: valid && !saving ? 'var(--brand)' : '#C4C0B8', color: '#fff', fontSize: 13, fontWeight: 700, cursor: valid && !saving ? 'pointer' : 'default', fontFamily: 'inherit' }}>{saving ? 'Saving…' : (mode === 'bulk' ? `Add pay · ${bulkIds.length}` : 'Add pay')}</button>
         </div>
       </div>
@@ -296,7 +296,7 @@ function useCadence(): string {
 // Customer-quality score is 0–4 (matches the Scorecards report scale):
 // ≥3.5 green, ≥2.5 amber, else red; muted when nothing's been rated.
 const qualityColor = (q: number | null | undefined) =>
-  q == null ? '#9E9B94' : q >= 3.5 ? '#16A34A' : q >= 2.5 ? '#D97706' : '#DC2626';
+  q == null ? '#9E9B94' : q >= 3.5 ? '#0F7A63' : q >= 2.5 ? '#B45309' : '#B3261E';
 
 // [period-sync 2026-06-12] Period state lives in PayrollPage now (shared with
 // the Summary tab, banners, and the top-right label) — this view just reads
@@ -343,7 +343,7 @@ function HoursOverrideControl({ userId, jobId, clockedHours, overridden, onChang
         style={{
           fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
           color: overridden ? '#B45309' : '#6B6860',
-          background: overridden ? '#FEF3C7' : '#F4F2EE',
+          background: overridden ? '#FDF3E4' : '#F4F2EE',
           border: '1px solid ' + (overridden ? '#F2D08A' : '#E5E2DC'),
           borderRadius: 6, padding: '2px 8px',
         }}>
@@ -366,7 +366,7 @@ function HoursOverrideControl({ userId, jobId, clockedHours, overridden, onChang
                 Use clocked: {clockedHours.toFixed(2)}h
               </button>
             )}
-            {err && <div style={{ fontSize: 11, color: '#DC2626', marginTop: 6 }}>{err}</div>}
+            {err && <div style={{ fontSize: 11, color: '#B3261E', marginTop: 6 }}>{err}</div>}
             <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
               <button disabled={busy} onClick={save}
                 style={{ flex: 1, padding: '7px 0', background: '#0A0E1A', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: busy ? 'default' : 'pointer', fontFamily: 'inherit', opacity: busy ? 0.6 : 1 }}>
@@ -422,7 +422,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
   // Payroll as % of revenue — the labor-cost target to "stay under" (MC parity).
   // <40% healthy (mint), 40–50% watch (amber), >50% hot (red).
   const payrollPct = dayTotals.revenue > 0 ? Math.round((dayTotals.payroll / dayTotals.revenue) * 1000) / 10 : null;
-  const payrollPctColor = payrollPct == null ? '#9E9B94' : payrollPct < 40 ? '#16A34A' : payrollPct <= 50 ? '#D97706' : '#DC2626';
+  const payrollPctColor = payrollPct == null ? '#9E9B94' : payrollPct < 40 ? '#0F7A63' : payrollPct <= 50 ? '#B45309' : '#B3261E';
 
   const th: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', padding: '0 10px 8px 0', textAlign: 'left', whiteSpace: 'nowrap' };
   const td: React.CSSProperties = { fontSize: 12, color: '#1A1917', padding: '6px 10px 6px 0', borderTop: '1px solid #F4F3F0', verticalAlign: 'middle' };
@@ -617,7 +617,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                       }
                       const e = Math.round((job.hrs_scheduled / job.hrs_worked) * 100);
                       const good = e >= 100;
-                      return <span style={{ display: 'inline-block', minWidth: 46, textAlign: 'center', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: good ? '#E7F7F1' : '#FEF3C7', color: good ? '#0A7C66' : '#B45309' }} title="Allowed ÷ actual — under 100% ran over budget">{e}%</span>;
+                      return <span style={{ display: 'inline-block', minWidth: 46, textAlign: 'center', fontSize: 11, fontWeight: 700, padding: '3px 9px', borderRadius: 999, background: good ? '#E7F7F1' : '#FDF3E4', color: good ? '#0A7C66' : '#B45309' }} title="Allowed ÷ actual — under 100% ran over budget">{e}%</span>;
                     };
                     const laborOf = (billed: number, pay: number) => billed > 0 ? `${Math.round((pay / billed) * 100)}%` : '—';
                     return (
@@ -746,7 +746,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap' }}>
                       {addlEntries.map(([type, amount]) => (
                         <span key={type} style={{ fontSize: 12, color: '#6B6860' }}>
-                          {labelType(type)}: <b style={{ color: (amount as number) < 0 ? '#EF4444' : '#1A1917' }}>${(amount as number).toFixed(2)}</b>
+                          {labelType(type)}: <b style={{ color: (amount as number) < 0 ? '#B3261E' : '#1A1917' }}>${(amount as number).toFixed(2)}</b>
                         </span>
                       ))}
                     </div>
@@ -793,17 +793,17 @@ function OvertimeBanner({ from, to }: { from: string; to: string }) {
   const money = (n: number) => `$${(n ?? 0).toFixed(2)}`;
   const totalPremium = data.total_premium_estimate ?? 0;
   return (
-    <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 10, padding: '12px 16px' }}>
+    <div style={{ background: '#FDF3E4', border: '1px solid #F2DFB8', borderRadius: 10, padding: '12px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <AlertTriangle size={15} color="#92400E" />
-        <span style={{ fontWeight: 800, color: '#92400E', fontSize: 13 }}>
+        <AlertTriangle size={15} color="#B45309" />
+        <span style={{ fontWeight: 800, color: '#B45309', fontSize: 13 }}>
           Overtime review — {data.count} {data.count === 1 ? 'week' : 'weeks'} over the limit
           {totalPremium > 0 && <> · est. premium {money(totalPremium)}</>}
         </span>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         {data.weeks.map((w: any, i: number) => (
-          <div key={i} style={{ fontSize: 12, color: '#92400E' }}>
+          <div key={i} style={{ fontSize: 12, color: '#B45309' }}>
             <b>{w.name}</b> · week of {w.week_start}: <b>{w.total_hours}h</b>{' '}
             ({w.job_hours}h job + {w.drive_hours}h drive) —{' '}
             <b>{w.ot_hours}h OT</b>{w.dt_hours > 0 ? <> + <b>{w.dt_hours}h double-time</b></> : null}
@@ -813,7 +813,7 @@ function OvertimeBanner({ from, to }: { from: string; to: string }) {
           </div>
         ))}
       </div>
-      <div style={{ fontSize: 11, color: '#92400E', opacity: 0.85, marginTop: 6, lineHeight: 1.5 }}>
+      <div style={{ fontSize: 11, color: '#B45309', opacity: 0.85, marginTop: 6, lineHeight: 1.5 }}>
         Hours worked = job clock time + between-jobs drive (home↔job commute excluded). Premium is the
         extra owed over commission ({data.has_daily_overtime ? 'daily + weekly' : 'weekly'} rules
         {data.rules_source ? ` · ${String(data.rules_source).replace(/^preset:/, '')}` : ''}).
@@ -846,10 +846,10 @@ function PreflightBanner({ from, to }: { from: string; to: string }) {
   const blocking = issues.filter(i => i.severity === 'block');
   const hasBlock = blocking.length > 0;
   return (
-    <div style={{ background: hasBlock ? '#FEF2F2' : '#FEF3C7', border: `1px solid ${hasBlock ? '#FCA5A5' : '#FCD34D'}`, borderRadius: 10, padding: '12px 16px' }}>
+    <div style={{ background: hasBlock ? '#FCEBEA' : '#FDF3E4', border: `1px solid ${hasBlock ? '#FCA5A5' : '#F2DFB8'}`, borderRadius: 10, padding: '12px 16px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-        <AlertTriangle size={15} color={hasBlock ? '#B91C1C' : '#92400E'} />
-        <span style={{ fontWeight: 800, color: hasBlock ? '#B91C1C' : '#92400E', fontSize: 13 }}>
+        <AlertTriangle size={15} color={hasBlock ? '#B3261E' : '#B45309'} />
+        <span style={{ fontWeight: 800, color: hasBlock ? '#B3261E' : '#B45309', fontSize: 13 }}>
           {hasBlock
             ? `${blocking.length} thing${blocking.length > 1 ? 's' : ''} to fix before you run payroll`
             : 'Heads up before you run payroll'}
@@ -857,7 +857,7 @@ function PreflightBanner({ from, to }: { from: string; to: string }) {
       </div>
       <ul style={{ margin: 0, padding: '0 0 0 20px', display: 'flex', flexDirection: 'column', gap: 3 }}>
         {issues.map((i, idx) => (
-          <li key={idx} style={{ fontSize: 12, color: i.severity === 'block' ? '#991B1B' : '#92400E' }}>
+          <li key={idx} style={{ fontSize: 12, color: i.severity === 'block' ? '#B3261E' : '#B45309' }}>
             <b>{i.count}</b> {i.label} <span style={{ opacity: 0.8 }}>— {i.action}</span>
           </li>
         ))}
@@ -881,7 +881,7 @@ function PayrollToRevenueChart() {
   const money0 = (n: number) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
   const pct = data?.payroll_pct;
   // Payroll % of revenue: <40% healthy (mint), 40–50% watch (amber), >50% hot (red).
-  const pctColor = pct == null ? '#9E9B94' : pct < 40 ? '#16A34A' : pct <= 50 ? '#D97706' : '#DC2626';
+  const pctColor = pct == null ? '#9E9B94' : pct < 40 ? '#0F7A63' : pct <= 50 ? '#B45309' : '#B3261E';
 
   return (
     <div style={{ backgroundColor: '#fff', border: '1px solid #E5E2DC', borderRadius: 10, padding: '16px 20px' }}>
@@ -919,7 +919,7 @@ function PayrollToRevenueChart() {
       ) : (
         <ResponsiveContainer width="100%" height={260}>
           <LineChart data={series} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#F0EDE8" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#F0EEE9" vertical={false} />
             <XAxis dataKey="label" tick={{ fontSize: 11, fill: '#9E9B94' }} interval="preserveStartEnd" minTickGap={24} />
             <YAxis tick={{ fontSize: 11, fill: '#9E9B94' }} tickFormatter={(v: number) => `$${(v / 1000).toFixed(0)}k`} width={44} />
             <Tooltip formatter={(v: any, name: string) => [money0(Number(v)), name]} labelFormatter={(l: string) => `Week of ${l}`}
@@ -1105,7 +1105,7 @@ export default function PayrollPage() {
             ))}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ fontSize: 13, color: '#6B7280', fontWeight: 500, fontFamily: 'inherit' }}>
+            <div style={{ fontSize: 13, color: '#6B6860', fontWeight: 500, fontFamily: 'inherit' }}>
               Pay period: <span style={{ color: '#1A1917', fontWeight: 700 }}>{periodLabel}</span>
             </div>
             {canManagePayroll && (
@@ -1154,7 +1154,7 @@ export default function PayrollPage() {
         {activeView === 'overview' && <>
         {/* Controls */}
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-          <button style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', border: '1px solid #E5E2DC', borderRadius: '8px', backgroundColor: 'transparent', color: '#6B7280', fontSize: '13px', cursor: 'pointer', fontFamily:'inherit' }}>
+          <button style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '8px 16px', border: '1px solid #E5E2DC', borderRadius: '8px', backgroundColor: 'transparent', color: '#6B6860', fontSize: '13px', cursor: 'pointer', fontFamily:'inherit' }}>
             <Calendar size={14} strokeWidth={1.5} />
             {periodLabel}
           </button>
@@ -1192,7 +1192,7 @@ export default function PayrollPage() {
         <div style={{ backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '10px', overflowX: 'auto', WebkitOverflowScrolling: 'touch' as any }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid #EEECE7', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <p style={{ fontSize: '15px', fontWeight: 600, color: '#1A1917', margin: 0 }}>Employee Payroll Summary</p>
-            <span style={{ fontSize: '12px', color: '#6B7280' }}>{CADENCE_LABEL[cadence] || 'Weekly'} · {periodLabel}</span>
+            <span style={{ fontSize: '12px', color: '#6B6860' }}>{CADENCE_LABEL[cadence] || 'Weekly'} · {periodLabel}</span>
           </div>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
@@ -1204,7 +1204,7 @@ export default function PayrollPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#6B7280', fontSize: '13px' }}>Loading payroll data...</td></tr>
+                <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#6B6860', fontSize: '13px' }}>Loading payroll data...</td></tr>
               ) : billableEmployees.length > 0 ? billableEmployees.map((emp: any) => {
                 const pay = payMap[emp.id] || { hours: 0, gross: 0 };
                 const effRate = pay.hours > 0 ? pay.gross / pay.hours : null;
@@ -1229,7 +1229,7 @@ export default function PayrollPage() {
 
                         <div>
                           <p style={{ fontSize: '13px', fontWeight: 600, color: '#1A1917', margin: 0 }}>{emp.first_name} {emp.last_name}</p>
-                          <p style={{ fontSize: '12px', color: '#6B7280', margin: 0 }}>{emp.email}</p>
+                          <p style={{ fontSize: '12px', color: '#6B6860', margin: 0 }}>{emp.email}</p>
                         </div>
                       </div>
                     </td>
@@ -1243,8 +1243,8 @@ export default function PayrollPage() {
                     <td style={{ padding: '14px 20px', fontSize: '22px', fontWeight: 700, color: '#1A1917' }}>${pay.gross.toFixed(2)}</td>
                     <td style={{ padding: '14px 20px' }}>
                       {pay.gross > 0
-                        ? <span style={{ background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0', display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Ready</span>
-                        : <span style={{ background: '#F3F4F6', color: '#6B7280', border: '1px solid #E5E2DC', display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>No pay yet</span>}
+                        ? <span style={{ background: '#E6F6F1', color: '#0F7A63', border: '1px solid #C7E7DE', display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>Ready</span>
+                        : <span style={{ background: '#F0EEE9', color: '#6B6860', border: '1px solid #E5E2DC', display: 'inline-flex', alignItems: 'center', padding: '3px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>No pay yet</span>}
                     </td>
                   </tr>
                   {isOpen && (
@@ -1283,7 +1283,7 @@ export default function PayrollPage() {
                   </Fragment>
                 );
               }) : (
-                <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#6B7280', fontSize: '13px' }}>No employees found.</td></tr>
+                <tr><td colSpan={6} style={{ padding: '40px', textAlign: 'center', color: '#6B6860', fontSize: '13px' }}>No employees found.</td></tr>
               )}
             </tbody>
           </table>

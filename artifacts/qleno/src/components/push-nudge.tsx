@@ -73,7 +73,7 @@ export function PushNudge() {
             ? "Add Qleno to your Home Screen first, then get a notification the moment a job is assigned — even when the app is closed."
             : "Get a notification the moment a job is assigned to you — even when the app is closed."}
         </div>
-        {msg && <div style={{ fontSize: 11.5, color: "#92400E", marginTop: 6, lineHeight: 1.4 }}>{msg}</div>}
+        {msg && <div style={{ fontSize: 11.5, color: "#B45309", marginTop: 6, lineHeight: 1.4 }}>{msg}</div>}
         <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
           {!needsInstall && (
             <button onClick={turnOn} disabled={busy}

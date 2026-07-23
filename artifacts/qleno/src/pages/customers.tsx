@@ -35,7 +35,7 @@ function freqLabel(f?: string | null) {
 
 function tierColor(tier: string) {
   if (tier === "vip") return { bg: "#FEF9C3", text: "#713F12", label: "VIP" };
-  if (tier === "gold") return { bg: "#FEF3C7", text: "#92400E", label: "GOLD" };
+  if (tier === "gold") return { bg: "#FDF3E4", text: "#B45309", label: "GOLD" };
   if (tier === "silver") return { bg: "#F1F5F9", text: "#475569", label: "SILVER" };
   return null; // Standard — hide badge
 }
@@ -125,7 +125,7 @@ export default function CustomersPage() {
   const filterBtn = (active: boolean): React.CSSProperties => ({
     padding: "6px 12px", border: `1px solid ${active ? "var(--brand)" : "#E5E2DC"}`,
     borderRadius: "6px", backgroundColor: active ? "var(--brand-dim)" : "#FFFFFF",
-    color: active ? "var(--brand)" : "#6B7280", fontSize: "12px", fontWeight: active ? 600 : 400,
+    color: active ? "var(--brand)" : "#6B6860", fontSize: "12px", fontWeight: active ? 600 : 400,
     cursor: "pointer", whiteSpace: "nowrap",
   });
 
@@ -253,7 +253,7 @@ export default function CustomersPage() {
                         {client.first_name} {client.last_name}
                       </span>
                       {!client.is_active && (
-                        <span style={{ background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB", padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: 600, flexShrink: 0 }}>Inactive</span>
+                        <span style={{ background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC", padding: "2px 6px", borderRadius: "4px", fontSize: "10px", fontWeight: 600, flexShrink: 0 }}>Inactive</span>
                       )}
                     </div>
                     {/* Sub-row: frequency + city */}
@@ -313,7 +313,7 @@ export default function CustomersPage() {
             <div style={{ overflowX: "auto" }}>
               <table style={{ width: "100%", borderCollapse: "collapse", minWidth: "860px" }}>
                 <thead>
-                  <tr style={{ backgroundColor: "#FAFAF8" }}>
+                  <tr style={{ backgroundColor: "#F7F6F3" }}>
                     <th style={{ ...TH, width: "44px" }}>
                       <button
                         onClick={toggleAll}
@@ -370,15 +370,15 @@ export default function CustomersPage() {
                         {/* Phone + Email */}
                         <td style={{ padding: "14px 16px" }}>
                           <div style={{ display: "flex", flexDirection: "column", gap: "3px" }}>
-                            {client.phone && <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "12px", color: "#6B7280" }}><Phone size={10} strokeWidth={1.5} />{client.phone}</div>}
-                            {client.email && <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "12px", color: "#6B7280" }}><Mail size={10} strokeWidth={1.5} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "160px" }}>{client.email}</span></div>}
+                            {client.phone && <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "12px", color: "#6B6860" }}><Phone size={10} strokeWidth={1.5} />{client.phone}</div>}
+                            {client.email && <div style={{ display: "flex", alignItems: "center", gap: "5px", fontSize: "12px", color: "#6B6860" }}><Mail size={10} strokeWidth={1.5} /><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: "160px" }}>{client.email}</span></div>}
                           </div>
                         </td>
 
                         {/* City */}
                         <td style={{ padding: "14px 16px" }}>
                           {client.city ? (
-                            <span style={{ fontSize: "12px", color: "#6B7280" }}>{client.city}</span>
+                            <span style={{ fontSize: "12px", color: "#6B6860" }}>{client.city}</span>
                           ) : (
                             <span style={{ color: "#C4C0BB", fontSize: "12px" }}>—</span>
                           )}
@@ -395,8 +395,8 @@ export default function CustomersPage() {
 
                         {/* Last / Next */}
                         <td style={{ padding: "14px 16px" }}>
-                          <p style={{ fontSize: "12px", color: "#6B7280", margin: 0 }}>Last: <span style={{ color: "#1A1917", fontWeight: 500 }}>{fmtDate(client.last_service_date)}</span></p>
-                          <p style={{ fontSize: "12px", color: "#6B7280", margin: "2px 0 0" }}>Next: <span style={{ color: client.next_service_date ? "var(--brand)" : "#9E9B94", fontWeight: client.next_service_date ? 500 : 400 }}>{client.next_service_date ? fmtDate(client.next_service_date) : "Not scheduled"}</span></p>
+                          <p style={{ fontSize: "12px", color: "#6B6860", margin: 0 }}>Last: <span style={{ color: "#1A1917", fontWeight: 500 }}>{fmtDate(client.last_service_date)}</span></p>
+                          <p style={{ fontSize: "12px", color: "#6B6860", margin: "2px 0 0" }}>Next: <span style={{ color: client.next_service_date ? "var(--brand)" : "#9E9B94", fontWeight: client.next_service_date ? 500 : 400 }}>{client.next_service_date ? fmtDate(client.next_service_date) : "Not scheduled"}</span></p>
                         </td>
 
                         {/* Loyalty */}
@@ -410,8 +410,8 @@ export default function CustomersPage() {
                         {/* Status */}
                         <td style={{ padding: "14px 16px" }}>
                           {client.is_active
-                            ? <span style={{ background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Active</span>
-                            : <span style={{ background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Inactive</span>
+                            ? <span style={{ background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Active</span>
+                            : <span style={{ background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC", padding: "3px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" }}>Inactive</span>
                           }
                         </td>
                       </tr>

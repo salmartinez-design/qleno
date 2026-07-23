@@ -284,7 +284,7 @@ export function EasyMessageEditor({
     .filter((t) => channel === "email" || t !== "services_breakdown");
   const tb = (onClick: () => void, icon: React.ReactNode, title: string) => (
     <button type="button" key={title} title={title} onMouseDown={(e) => { e.preventDefault(); onClick(); }}
-      style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 5, cursor: "pointer", color: "#6B7280" }}>{icon}</button>
+      style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 5, cursor: "pointer", color: "#6B6860" }}>{icon}</button>
   );
   const previewText = channel === "sms" ? (new DOMParser().parseFromString(previewBody, "text/html").body.textContent || "").trim() : "";
 
@@ -308,7 +308,7 @@ export function EasyMessageEditor({
                 {tb(() => exec("bold"), <Bold size={13} />, "Bold")}
                 {tb(() => exec("italic"), <Italic size={13} />, "Italic")}
                 <button type="button" key="h3" title="Heading (Cmd/Ctrl+Alt+3)" onMouseDown={(e) => { e.preventDefault(); toggleH3(); }}
-                  style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: activeH3 ? "#E8FDF8" : "#fff", border: `1px solid ${activeH3 ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 5, cursor: "pointer", color: activeH3 ? "#0F6E56" : "#6B7280", fontSize: 11, fontWeight: 800, fontFamily: "inherit" }}>H3</button>
+                  style={{ width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", background: activeH3 ? "#E8FDF8" : "#fff", border: `1px solid ${activeH3 ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 5, cursor: "pointer", color: activeH3 ? "#0F6E56" : "#6B6860", fontSize: 11, fontWeight: 800, fontFamily: "inherit" }}>H3</button>
                 {tb(() => exec("insertUnorderedList"), <List size={13} />, "Bullet list")}
                 {tb(() => exec("insertOrderedList"), <ListOrdered size={13} />, "Numbered list")}
                 {tb(addLink, <Link2 size={13} />, "Add link")}
@@ -350,7 +350,7 @@ export function EasyMessageEditor({
                   : <span style={{ display: "inline-block", background: "var(--brand,var(--brand))", color: "#fff", fontWeight: 800, fontSize: 14, padding: "5px 12px", borderRadius: 6 }}>{companyName}</span>}
               </div>
               {subject && <div style={{ padding: "10px 16px 0", fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{subject.replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_, k) => SAMPLE[String(k).trim()] || "")}</div>}
-              <div className="cm-pv" style={{ padding: "12px 16px", fontSize: 13, color: "#374151", lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: previewBody || "<span style='color:#B4B2A9'>Nothing yet</span>" }} />
+              <div className="cm-pv" style={{ padding: "12px 16px", fontSize: 13, color: "#1A1917", lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: previewBody || "<span style='color:#B4B2A9'>Nothing yet</span>" }} />
             </div>
           ) : (
             <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: 14 }}>
@@ -368,7 +368,7 @@ export function EasyMessageEditor({
           {templateKey && (
             <>
               <button type="button" disabled={testing} onClick={sendTest} title="Send this message to your own inbox"
-                style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", fontSize: 13, fontWeight: 600, color: "#374151", cursor: testing ? "default" : "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                style={{ padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", fontSize: 13, fontWeight: 600, color: "#1A1917", cursor: testing ? "default" : "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 6 }}>
                 {testing && <Loader2 size={12} className="spin" />}{testing ? "Sending…" : "Send test"}
               </button>
               <span style={{ fontSize: 11, fontWeight: 700, color: dirty ? "#C2410C" : "#9E9B94" }}>
@@ -379,7 +379,7 @@ export function EasyMessageEditor({
           )}
         </div>
         <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" onClick={onCancel} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", fontSize: 13, color: "#374151", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
+          <button type="button" onClick={onCancel} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", fontSize: 13, color: "#1A1917", cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
           <button type="button" disabled={saving} onClick={() => ref.current && onSave(subject, editableToBody(ref.current, channel))}
             style={{ padding: "8px 18px", border: "none", borderRadius: 7, background: "var(--brand,var(--brand))", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
             {saving ? "Saving…" : "Save"}

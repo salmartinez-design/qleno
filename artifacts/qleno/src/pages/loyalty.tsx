@@ -82,7 +82,7 @@ export default function LoyaltyPage() {
         {/* Header */}
         <div>
           <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Loyalty Program</h1>
-          <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', marginTop: '6px' }}>Configure your CleanRewards program style, earn rules, and rewards.</p>
+          <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B6860', marginTop: '6px' }}>Configure your CleanRewards program style, earn rules, and rewards.</p>
         </div>
 
         {/* Section 1: Program Style */}
@@ -104,7 +104,7 @@ export default function LoyaltyPage() {
                 }}
               >
                 <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '16px', color: programStyle === style.id ? 'var(--brand)' : '#1A1917', margin: '0 0 6px 0' }}>{style.label}</p>
-                <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '12px', color: '#6B7280', margin: 0 }}>{style.desc}</p>
+                <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '12px', color: '#6B6860', margin: 0 }}>{style.desc}</p>
               </button>
             ))}
           </div>
@@ -149,7 +149,7 @@ export default function LoyaltyPage() {
                   <Toggle on={rewardToggles[reward.id]} onChange={v => setRewardToggles(prev => ({ ...prev, [reward.id]: v }))} />
                   <span style={{ fontSize: '13px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, color: rewardToggles[reward.id] ? '#1A1917' : '#9E9B94' }}>{reward.label}</span>
                 </div>
-                <span style={{ backgroundColor: '#F7F6F3', border: '1px solid #EEECE7', color: '#6B7280', padding: '3px 12px', borderRadius: '4px', fontSize: '12px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                <span style={{ backgroundColor: '#F7F6F3', border: '1px solid #EEECE7', color: '#6B6860', padding: '3px 12px', borderRadius: '4px', fontSize: '12px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                   {reward.pts.toLocaleString()} pts
                 </span>
               </div>

@@ -70,7 +70,7 @@ interface Stats {
 }
 
 const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
-  draft:    { label: "Draft",     className: "bg-[#F7F6F3] text-[#6B7280] border border-[#E5E2DC]" },
+  draft:    { label: "Draft",     className: "bg-[#F7F6F3] text-[#6B6860] border border-[#E5E2DC]" },
   sent:     { label: "Sent",      className: "bg-blue-50 text-blue-700 border border-blue-200" },
   viewed:   { label: "Viewed",    className: "bg-purple-50 text-purple-700 border border-purple-200" },
   accepted: { label: "Accepted",  className: "bg-green-50 text-green-700 border border-green-200" },
@@ -112,14 +112,14 @@ function SkeletonCard() {
   return (
     <div style={{ borderBottom: "1px solid #F0EEE9", padding: "16px", display: "flex", flexDirection: "column", gap: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <div style={{ width: 130, height: 14, background: "#F0EDE8", borderRadius: 4 }} className="animate-pulse" />
-        <div style={{ width: 60, height: 14, background: "#F0EDE8", borderRadius: 4 }} className="animate-pulse" />
+        <div style={{ width: 130, height: 14, background: "#F0EEE9", borderRadius: 4 }} className="animate-pulse" />
+        <div style={{ width: 60, height: 14, background: "#F0EEE9", borderRadius: 4 }} className="animate-pulse" />
       </div>
       <div style={{ display: "flex", justifyContent: "space-between" }}>
-        <div style={{ width: 100, height: 12, background: "#F0EDE8", borderRadius: 4 }} className="animate-pulse" />
-        <div style={{ width: 50, height: 12, background: "#F0EDE8", borderRadius: 4 }} className="animate-pulse" />
+        <div style={{ width: 100, height: 12, background: "#F0EEE9", borderRadius: 4 }} className="animate-pulse" />
+        <div style={{ width: 50, height: 12, background: "#F0EEE9", borderRadius: 4 }} className="animate-pulse" />
       </div>
-      <div style={{ width: 80, height: 11, background: "#F0EDE8", borderRadius: 4 }} className="animate-pulse" />
+      <div style={{ width: 80, height: 11, background: "#F0EEE9", borderRadius: 4 }} className="animate-pulse" />
     </div>
   );
 }
@@ -341,11 +341,11 @@ export default function QuotesPage() {
       <div className="space-y-6">
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <button onClick={() => navigate("/leads")} className="text-xs font-semibold text-[#6B7280] hover:text-[#1A1917] mb-1 flex items-center gap-1">
+            <button onClick={() => navigate("/leads")} className="text-xs font-semibold text-[#6B6860] hover:text-[#1A1917] mb-1 flex items-center gap-1">
               <ArrowRight className="w-3 h-3 rotate-180" /> Leads
             </button>
             <h1 className="text-2xl font-bold text-[#1A1917]">Quotes</h1>
-            <p className="text-sm text-[#6B7280] mt-1">Manage and track client quotes — part of Leads.</p>
+            <p className="text-sm text-[#6B6860] mt-1">Manage and track client quotes — part of Leads.</p>
           </div>
           <Button
             className={`gap-2 text-white ${activeBranchId === "all" ? "bg-gray-400 cursor-not-allowed hover:bg-gray-400" : "bg-[var(--brand)] hover:opacity-90"}`}
@@ -375,7 +375,7 @@ export default function QuotesPage() {
             <div className="flex gap-1 overflow-x-auto">
               {TABS.map(tab => (
                 <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ whiteSpace: "nowrap" }}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex-shrink-0 ${activeTab === tab.key ? "bg-[var(--brand)] text-white" : "text-[#6B7280] hover:bg-[#F7F6F3]"}`}>
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex-shrink-0 ${activeTab === tab.key ? "bg-[var(--brand)] text-white" : "text-[#6B6860] hover:bg-[#F7F6F3]"}`}>
                   {tab.label}
                 </button>
               ))}
@@ -391,7 +391,7 @@ export default function QuotesPage() {
           ) : filtered.length === 0 ? (
             <div className="p-12 text-center space-y-3">
               <FileText className="w-10 h-10 text-[#9E9B94] mx-auto" />
-              <p className="text-[#6B7280]">No quotes found.</p>
+              <p className="text-[#6B6860]">No quotes found.</p>
               <Button
                 size="sm"
                 className={`text-white gap-1.5 ${activeBranchId === "all" ? "bg-gray-400 cursor-not-allowed hover:bg-gray-400" : "bg-[var(--brand)] hover:opacity-90"}`}
@@ -423,9 +423,9 @@ export default function QuotesPage() {
                         <p className="font-medium text-[#1A1917] text-sm">{clientName(quote)}</p>
                         {(quote.client_email || quote.lead_email) && <p className="text-xs text-[#9E9B94]">{quote.client_email || quote.lead_email}</p>}
                       </TableCell>
-                      <TableCell className="text-sm text-[#6B7280]">{quote.scope_name || "—"}</TableCell>
-                      <TableCell className="text-sm text-[#6B7280]">{quote.frequency || "—"}</TableCell>
-                      <TableCell className="text-sm text-[#6B7280] max-w-[180px] truncate">{quote.address || "—"}</TableCell>
+                      <TableCell className="text-sm text-[#6B6860]">{quote.scope_name || "—"}</TableCell>
+                      <TableCell className="text-sm text-[#6B6860]">{quote.frequency || "—"}</TableCell>
+                      <TableCell className="text-sm text-[#6B6860] max-w-[180px] truncate">{quote.address || "—"}</TableCell>
                       <TableCell className="text-sm font-semibold text-[#1A1917]">{displayPrice(quote)}</TableCell>
                       <TableCell><span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cfg.className}`}>{cfg.label}</span></TableCell>
                       <TableCell className="text-sm text-[#9E9B94]">{safeDate(quote.created_at)}</TableCell>

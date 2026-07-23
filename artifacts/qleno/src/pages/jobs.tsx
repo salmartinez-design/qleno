@@ -68,11 +68,11 @@ const fmtUSD = (n: number | null | undefined) =>
   Number(n ?? 0).toLocaleString("en-US", { style: "currency", currency: "USD" });
 
 const STATUS: Record<string, { bg: string; border: string; text: string; dot: string }> = {
-  scheduled:   { bg: "#DBEAFE", border: "#93C5FD", text: "#1D4ED8", dot: "#3B82F6" },
-  in_progress: { bg: "#FEF3C7", border: "#FCD34D", text: "#92400E", dot: "#F59E0B" },
-  complete:    { bg: "#DCFCE7", border: "#86EFAC", text: "#15803D", dot: "#22C55E" },
-  cancelled:   { bg: "#F3F4F6", border: "#D1D5DB", text: "#6B7280", dot: "#9CA3AF" },
-  flagged:     { bg: "#FEE2E2", border: "#FCA5A5", text: "#991B1B", dot: "#EF4444" },
+  scheduled:   { bg: "#EFEFF2", border: "#93C5FD", text: "#2F3646", dot: "#2F3646" },
+  in_progress: { bg: "#FDF3E4", border: "#F2DFB8", text: "#B45309", dot: "#F59E0B" },
+  complete:    { bg: "#E6F6F1", border: "#86EFAC", text: "#15803D", dot: "#22C55E" },
+  cancelled:   { bg: "#F0EEE9", border: "#E5E2DC", text: "#6B6860", dot: "#9E9B94" },
+  flagged:     { bg: "#FCEBEA", border: "#FCA5A5", text: "#B3261E", dot: "#B3261E" },
 };
 
 // ─── TYPES ────────────────────────────────────────────────────────────────────
@@ -387,8 +387,8 @@ function centralWallNowMs(): number {
   const hh = p.hour === "24" ? "00" : p.hour; // hour12:false can emit "24" at midnight
   return Date.UTC(+p.year, +p.month - 1, +p.day, +hh, +p.minute, +p.second);
 }
-function slotBg(count: number) { if (count === 0) return "#DCFCE7"; if (count <= 2) return "#FEF3C7"; return "#FEE2E2"; }
-function slotTxt(count: number) { if (count === 0) return "#15803D"; if (count <= 2) return "#92400E"; return "#991B1B"; }
+function slotBg(count: number) { if (count === 0) return "#E6F6F1"; if (count <= 2) return "#FDF3E4"; return "#FCEBEA"; }
+function slotTxt(count: number) { if (count === 0) return "#15803D"; if (count <= 2) return "#B45309"; return "#B3261E"; }
 // Honest labels: the count is total jobs booked that hour across the whole
 // team — NOT a hard capacity. "Full" wrongly implied the slot was blocked, so
 // we show the real count and let colour carry the busy signal.
@@ -446,10 +446,10 @@ function ClockEditor({ entry, canEdit, onUpdate }: { entry: ClockEntry; canEdit:
   }
   return (
     <div style={{ marginTop: 10, padding: 10, background: "#F7F6F3", borderRadius: 8, display: "flex", flexDirection: "column", gap: 8 }}>
-      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280" }}>Clock in
+      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860" }}>Clock in
         <input type="datetime-local" value={inVal} onChange={e => setInVal(e.target.value)} style={inp} />
       </label>
-      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B7280" }}>Clock out <span style={{ fontWeight: 400 }}>(blank = still on the clock)</span>
+      <label style={{ fontSize: 11, fontWeight: 700, color: "#6B6860" }}>Clock out <span style={{ fontWeight: 400 }}>(blank = still on the clock)</span>
         <input type="datetime-local" value={outVal} onChange={e => setOutVal(e.target.value)} style={inp} />
       </label>
       <div style={{ display: "flex", gap: 8 }}>
@@ -496,10 +496,10 @@ function TranslateNote({ text }: { text: string }) {
   return (
     <div style={{ marginTop: 6 }}>
       <button type="button" onClick={run} disabled={busy}
-        style={{ display: "inline-flex", alignItems: "center", gap: 5, border: "none", background: "none", padding: 0, cursor: busy ? "wait" : "pointer", color: "#2D9B83", fontSize: 12, fontWeight: 600, fontFamily: FF }}>
+        style={{ display: "inline-flex", alignItems: "center", gap: 5, border: "none", background: "none", padding: 0, cursor: busy ? "wait" : "pointer", color: "#0F7A63", fontSize: 12, fontWeight: 600, fontFamily: FF }}>
         <Languages size={13} /> {label}
       </button>
-      {err && <div style={{ marginTop: 4, fontSize: 11, color: "#B91C1C" }}>{err}</div>}
+      {err && <div style={{ marginTop: 4, fontSize: 11, color: "#B3261E" }}>{err}</div>}
       {open && translated && (
         <div style={{ marginTop: 6, padding: "8px 10px", background: "#F0F9FF", border: "1px solid #BAE6FD", borderRadius: 8 }}>
           <p style={{ margin: 0, fontSize: 13, color: "#0C4A6E", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{translated}</p>
@@ -965,7 +965,7 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
         <button
           onClick={open}
           style={{
-            fontSize: 11, fontWeight: 600, color: "#2D9B83",
+            fontSize: 11, fontWeight: 600, color: "#0F7A63",
             background: "transparent", border: "1px solid #A7F3D0",
             borderRadius: 6, padding: "2px 8px", cursor: "pointer",
             fontFamily: FF, flexShrink: 0,
@@ -1002,12 +1002,12 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
         {pickedAddress && (
           <div style={{
             fontSize: 12, color: "#1A1917", lineHeight: 1.4,
-            background: "#F0FDF4", border: "1px solid #BBF7D0",
+            background: "#F0FDF4", border: "1px solid #C7E7DE",
             borderRadius: 6, padding: "8px 10px",
           }}>
             <div style={{ fontWeight: 600, marginBottom: 2 }}>Verified address:</div>
             <div>{pickedAddress.address || "(no street)"}</div>
-            <div style={{ color: "#4B5563" }}>
+            <div style={{ color: "#6B6860" }}>
               {pickedAddress.city}{pickedAddress.state ? `, ${pickedAddress.state}` : ""}{pickedAddress.zip ? ` ${pickedAddress.zip}` : ""}
             </div>
           </div>
@@ -1031,7 +1031,7 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
               checked={permanent}
               onChange={e => setPermanent(e.target.checked)}
               disabled={saving}
-              style={{ marginTop: 2, flexShrink: 0, accentColor: "#2D9B83" }}
+              style={{ marginTop: 2, flexShrink: 0, accentColor: "#0F7A63" }}
             />
             <span>
               <span style={{ fontWeight: 600 }}>Save permanently for this client.</span>
@@ -1047,7 +1047,7 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
               : "This is a one-time override for this job only."}
         </div>
         {error && (
-          <div style={{ fontSize: 12, color: "#991B1B", background: "#FEE2E2", border: "1px solid #FCA5A5", borderRadius: 6, padding: "6px 8px" }}>
+          <div style={{ fontSize: 12, color: "#B3261E", background: "#FCEBEA", border: "1px solid #FCA5A5", borderRadius: 6, padding: "6px 8px" }}>
             {error}
           </div>
         )}
@@ -1056,23 +1056,23 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
              jobs already on the calendar. Jobs without their own saved
              address inherit the client change automatically and aren't
              counted here. */
-          <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ background: "#F0FDF4", border: "1px solid #C7E7DE", borderRadius: 6, padding: "10px 12px", display: "flex", flexDirection: "column", gap: 4 }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917" }}>
               {cascadePrompt.total} upcoming job{cascadePrompt.total === 1 ? "" : "s"} {cascadePrompt.total === 1 ? "has" : "have"} their own saved address.
             </div>
-            <div style={{ fontSize: 11, color: "#4B5563", lineHeight: 1.4 }}>
+            <div style={{ fontSize: 11, color: "#6B6860", lineHeight: 1.4 }}>
               {cascadePrompt.diff > 0
                 ? `${cascadePrompt.diff} ${cascadePrompt.diff === 1 ? "is" : "are"} at a different address than the current one. Update them to the new address too?`
                 : "Update those to the new address as well?"}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 6 }}>
               <button onClick={() => doSave("client", "all")} disabled={saving}
-                style={{ fontSize: 12, fontWeight: 700, color: "#FFFFFF", background: saving ? "#9CA3AF" : "#2D9B83", border: "none", borderRadius: 6, padding: "7px 12px", cursor: saving ? "not-allowed" : "pointer", fontFamily: FF, textAlign: "left" }}>
+                style={{ fontSize: 12, fontWeight: 700, color: "#FFFFFF", background: saving ? "#9E9B94" : "#0F7A63", border: "none", borderRadius: 6, padding: "7px 12px", cursor: saving ? "not-allowed" : "pointer", fontFamily: FF, textAlign: "left" }}>
                 {saving ? "Saving…" : `Update all ${cascadePrompt.total} upcoming job${cascadePrompt.total === 1 ? "" : "s"}`}
               </button>
               {cascadePrompt.diff > 0 && cascadePrompt.same > 0 && (
                 <button onClick={() => doSave("client", "matching")} disabled={saving}
-                  style={{ fontSize: 12, fontWeight: 600, color: "#2D9B83", background: "#FFFFFF", border: "1px solid #A7F3D0", borderRadius: 6, padding: "7px 12px", cursor: saving ? "not-allowed" : "pointer", fontFamily: FF, textAlign: "left" }}>
+                  style={{ fontSize: 12, fontWeight: 600, color: "#0F7A63", background: "#FFFFFF", border: "1px solid #A7F3D0", borderRadius: 6, padding: "7px 12px", cursor: saving ? "not-allowed" : "pointer", fontFamily: FF, textAlign: "left" }}>
                   Update only the {cascadePrompt.same} at the old address (leave the {cascadePrompt.diff} different)
                 </button>
               )}
@@ -1093,7 +1093,7 @@ function InlineAddressEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () =
               disabled={saving || !pickedAddress}
               style={{
                 fontSize: 12, fontWeight: 700, color: "#FFFFFF",
-                background: (saving || !pickedAddress) ? "#9CA3AF" : "#2D9B83",
+                background: (saving || !pickedAddress) ? "#9E9B94" : "#0F7A63",
                 border: "none", borderRadius: 6, padding: "6px 14px",
                 cursor: (saving || !pickedAddress) ? "not-allowed" : "pointer", fontFamily: FF,
               }}
@@ -1306,18 +1306,18 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
               ))}
             </div>
             {dow !== initialDow && (
-              <div style={{ fontSize: 11, color: "#92400E", marginTop: 4 }}>
+              <div style={{ fontSize: 11, color: "#B45309", marginTop: 4 }}>
                 Day-of-week changes apply to the schedule template — choose "This and future" or "All visits" to cascade.
               </div>
             )}
           </div>
         )}
         {error && (
-          <div style={{ fontSize: 12, color: "#991B1B" }}>{error}</div>
+          <div style={{ fontSize: 12, color: "#B3261E" }}>{error}</div>
         )}
         <div style={{ display: "flex", gap: 6, marginTop: 4 }}>
           <button onClick={() => setEditing(false)} disabled={saving}
-            style={{ flex: 1, padding: "7px", borderRadius: 6, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+            style={{ flex: 1, padding: "7px", borderRadius: 6, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
             Cancel
           </button>
           <button onClick={onSaveClick} disabled={saving}
@@ -1343,9 +1343,9 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
             <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", marginBottom: 6 }}>Apply this change to:</div>
             <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 14 }}>This is a recurring job. Pick how broadly the time change should apply.</div>
             {pendingScope && (
-              <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, marginBottom: 12 }}>
-                <AlertTriangle size={16} color="#B91C1C" style={{ flexShrink: 0, marginTop: 1 }} />
-                <span style={{ fontSize: 12, color: "#991B1B", lineHeight: 1.4 }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", background: "#FCEBEA", border: "1px solid #FCA5A5", borderRadius: 8, marginBottom: 12 }}>
+                <AlertTriangle size={16} color="#B3261E" style={{ flexShrink: 0, marginTop: 1 }} />
+                <span style={{ fontSize: 12, color: "#B3261E", lineHeight: 1.4 }}>
                   This applies to <strong>{pendingScope === "all" ? "every visit (past + future)" : "every future visit"}</strong> of this recurring job. If you changed the day, occurrences that no longer match are <strong>removed</strong> and recreated. Continue?
                 </span>
               </div>
@@ -1353,9 +1353,9 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
             {pendingScope ? (
               <div style={{ display: "flex", gap: 8, marginBottom: 4 }}>
                 <button type="button" onClick={() => setPendingScope(null)} disabled={saving}
-                  style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Back</button>
+                  style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Back</button>
                 <button type="button" onClick={() => submit(pendingScope)} disabled={saving}
-                  style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "#DC2626", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+                  style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: "#B3261E", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
                   {saving ? "Applying…" : "Yes, apply to the series"}
                 </button>
               </div>
@@ -1382,7 +1382,7 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
             </div>
             )}
             <button onClick={() => { setPendingScope(null); setCascadePrompt(null); }} disabled={saving}
-              style={{ width: "100%", padding: "8px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+              style={{ width: "100%", padding: "8px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
               Cancel
             </button>
           </div>
@@ -1536,7 +1536,7 @@ function InlinePricingEditor({ job, canEdit, onUpdate, adjustments }: { job: Dis
           ? line(`${fmtSvc(job.service_type)} · $${(job.hourly_rate ?? 0).toFixed(0)}/hr × ${(job as any).allowed_hours}h`, num(baseInit))
           : line(fmtSvc(job.service_type), num(baseInit))}
         {positives.map((a, i) => <div key={`p${i}`}>{line(`Add-on · ${a.name}`, num(Number(a.subtotal)))}</div>)}
-        {discounts.map((a, i) => <div key={`d${i}`}>{line(a.name, `−$${Math.abs(Number(a.subtotal)).toFixed(2)}`, "#2D9B83")}</div>)}
+        {discounts.map((a, i) => <div key={`d${i}`}>{line(a.name, `−$${Math.abs(Number(a.subtotal)).toFixed(2)}`, "#0F7A63")}</div>)}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 6, paddingTop: 8 }}>
           <span style={{ fontWeight: 700, color: "#1A1917" }}>Total</span>
           <span style={{ fontWeight: 800, color: "#1A1917" }}>{num(total)}</span>
@@ -1580,7 +1580,7 @@ function InlinePricingEditor({ job, canEdit, onUpdate, adjustments }: { job: Dis
               onChange={e => { const v = parseFloat(e.target.value) || 0; setItems(prev => prev.map((it, idx) => idx === i ? { ...it, subtotal: v, unit_price: (it.quantity && it.quantity > 0) ? v / it.quantity : v } : it)); }}
               style={inputStyle} />
             <button onClick={() => setItems(prev => prev.filter((_, idx) => idx !== i))} title={`Remove ${a.name || "line"}`} aria-label={`Remove ${a.name || "line"}`}
-              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, color: "#B91C1C", border: "1px solid #F3D2D2", background: "#FEF2F2", borderRadius: 5, cursor: "pointer", flexShrink: 0 }}>
+              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24, color: "#B3261E", border: "1px solid #F3D2D2", background: "#FCEBEA", borderRadius: 5, cursor: "pointer", flexShrink: 0 }}>
               <X size={12} />
             </button>
           </div>
@@ -2689,8 +2689,8 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       {!confirmDelete ? (
                         <button
                           onClick={() => setConfirmDelete(true)}
-                          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", background: "none", cursor: "pointer", color: "#DC2626", fontSize: 13, fontWeight: 600, fontFamily: FF, padding: "9px 10px", borderRadius: 6 }}
-                          onMouseEnter={e => (e.currentTarget.style.background = "#FEF2F2")}
+                          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", border: "none", background: "none", cursor: "pointer", color: "#B3261E", fontSize: 13, fontWeight: 600, fontFamily: FF, padding: "9px 10px", borderRadius: 6 }}
+                          onMouseEnter={e => (e.currentTarget.style.background = "#FCEBEA")}
                           onMouseLeave={e => (e.currentTarget.style.background = "none")}
                         >
                           <Trash2 size={14} /> Delete job
@@ -2703,7 +2703,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           <div style={{ display: "flex", gap: 6 }}>
                             <button
                               onClick={() => { setConfirmDelete(false); setMenuOpen(false); handleDeleteJob(); }}
-                              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, border: "none", background: "#DC2626", cursor: "pointer", color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: FF, padding: "8px 10px", borderRadius: 6 }}
+                              style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, border: "none", background: "#B3261E", cursor: "pointer", color: "#fff", fontSize: 12, fontWeight: 700, fontFamily: FF, padding: "8px 10px", borderRadius: 6 }}
                             >
                               <Trash2 size={13} /> Confirm delete
                             </button>
@@ -2731,16 +2731,16 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               keep control, don't auto-send). A cross-day reschedule doesn't show
               this — that's the separate email flow. */}
           {job.time_change_pending && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12, padding: "10px 12px", background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 10 }}>
-              <span style={{ fontSize: 12.5, color: "#92400E", flex: 1, minWidth: 150 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12, padding: "10px 12px", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 10 }}>
+              <span style={{ fontSize: 12.5, color: "#B45309", flex: 1, minWidth: 150 }}>
                 Time updated{job.time_change_from ? ` from ${fmtMins(timeToMins(job.time_change_from))}` : ""}{job.scheduled_time ? ` to ${fmtMins(timeToMins(job.scheduled_time))}` : ""} — notify the client of the new arrival time?
               </span>
               <button onClick={sendTimeChangeNotice} disabled={timeNoticeBusy}
-                style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 6, border: "none", cursor: timeNoticeBusy ? "default" : "pointer", color: "#fff", background: "#92400E", opacity: timeNoticeBusy ? 0.6 : 1, whiteSpace: "nowrap" }}>
+                style={{ fontSize: 12, fontWeight: 700, padding: "6px 12px", borderRadius: 6, border: "none", cursor: timeNoticeBusy ? "default" : "pointer", color: "#fff", background: "#B45309", opacity: timeNoticeBusy ? 0.6 : 1, whiteSpace: "nowrap" }}>
                 Send notification
               </button>
               <button onClick={dismissTimeChangeNotice} disabled={timeNoticeBusy} title="Dismiss without sending"
-                style={{ fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 6, border: "1px solid #FCD34D", cursor: timeNoticeBusy ? "default" : "pointer", color: "#92400E", background: "transparent", whiteSpace: "nowrap" }}>
+                style={{ fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 6, border: "1px solid #F2DFB8", cursor: timeNoticeBusy ? "default" : "pointer", color: "#B45309", background: "transparent", whiteSpace: "nowrap" }}>
                 Dismiss
               </button>
             </div>
@@ -2761,7 +2761,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 </span>
               );
             })()}
-            <span style={{ padding: "4px 10px", borderRadius: 20, background: "#F2F0EC", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B6860" }}>
+            <span style={{ padding: "4px 10px", borderRadius: 20, background: "#F0EEE9", fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#6B6860" }}>
               {(job.client_type === "commercial" || job.account_id != null) ? "Commercial" : "Residential"}
             </span>
           </div>
@@ -2842,8 +2842,8 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     <div style={{ fontSize: 10, fontWeight: 700, color: canEditComm ? "#06715C" : "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "flex", alignItems: "center", gap: 4 }}>
                       Commission {canEditComm && <Pencil size={10} />}
                     </div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: "#2D9B83", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{hasComm ? fmtUSD(commTotal) : "—"}</div>
-                    {overridden && <div style={{ fontSize: 10, color: "#D97706", marginTop: 1, fontWeight: 700 }}>override</div>}
+                    <div style={{ fontSize: 18, fontWeight: 800, color: "#0F7A63", marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{hasComm ? fmtUSD(commTotal) : "—"}</div>
+                    {overridden && <div style={{ fontSize: 10, color: "#B45309", marginTop: 1, fontWeight: 700 }}>override</div>}
                   </div>
                   {/* [rebook-preserve 2026-06-20] Lead with the time ON THE CLOCK
                       (allowed ÷ techs) like MaidCentral, not the summed person-
@@ -2869,7 +2869,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       Set commission for {primaryTech.name}
                     </div>
                     <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 13, color: "#6B7280" }}>$</span>
+                      <span style={{ fontSize: 13, color: "#6B6860" }}>$</span>
                       <input
                         type="number" step="0.01" min="0"
                         value={overrideVal[primaryTech.user_id] ?? ""}
@@ -2884,7 +2884,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       </button>
                       {overridden && (
                         <button onClick={() => { setOverrideVal(v => ({ ...v, [primaryTech.user_id]: "" })); saveOverride(primaryTech.user_id); setTileCommEdit(false); }} disabled={overrideBusy}
-                          style={{ fontSize: 12, color: "#EF4444", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}>
+                          style={{ fontSize: 12, color: "#B3261E", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}>
                           Reset to calculated
                         </button>
                       )}
@@ -2947,7 +2947,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           disabled={removeTechBusy === t.user_id}
                           title="Remove helper"
                           aria-label={`Remove ${t.name}`}
-                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, color: "#B91C1C", border: "none", background: "transparent", borderRadius: 999, cursor: removeTechBusy === t.user_id ? "wait" : "pointer", opacity: removeTechBusy === t.user_id ? 0.6 : 1 }}
+                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, color: "#B3261E", border: "none", background: "transparent", borderRadius: 999, cursor: removeTechBusy === t.user_id ? "wait" : "pointer", opacity: removeTechBusy === t.user_id ? 0.6 : 1 }}
                         >
                           <X size={11} />
                         </button>
@@ -2957,7 +2957,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   {canManageCommission && (
                     <button onClick={() => job.status !== "cancelled" && setAddTechOpen(true)}
                       disabled={job.status === "cancelled"}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", fontSize: 11, fontWeight: 700, color: job.status === "cancelled" ? "#9E9B94" : "#2D9B83", border: `1px dashed ${job.status === "cancelled" ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 999, background: "transparent", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", fontSize: 11, fontWeight: 700, color: job.status === "cancelled" ? "#9E9B94" : "#0F7A63", border: `1px dashed ${job.status === "cancelled" ? "#E5E2DC" : "#0F7A63"}`, borderRadius: 999, background: "transparent", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
                       <Plus size={11} /> Add tech
                     </button>
                   )}
@@ -2993,7 +2993,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               stays read-only — see InlinePricingEditor). */}
           <InlinePricingEditor job={job} canEdit={canEditOfficeNotes} onUpdate={onUpdate}
             adjustments={canManageMods ? (
-              <div style={{ marginTop: 14, borderTop: "1px solid #F0EDE8", paddingTop: 12 }}>
+              <div style={{ marginTop: 14, borderTop: "1px solid #F0EEE9", paddingTop: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Adjustments</div>
                 {rateMods.length === 0 ? (
                   <div style={{ fontSize: 12, color: "#9E9B94", marginBottom: 8 }}>
@@ -3014,7 +3014,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                             <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
                               {detail} · {sign}${abs}
                             </div>
-                            <div style={{ fontSize: 11, color: "#6B7280", marginTop: 2, wordBreak: "break-word" }}>
+                            <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2, wordBreak: "break-word" }}>
                               {m.reason}
                             </div>
                           </div>
@@ -3033,18 +3033,18 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 {!modAddOpen ? (
                   <button onClick={() => adjUnlocked && setModAddOpen(true)}
                     disabled={!adjUnlocked}
-                    style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: !adjUnlocked ? "#9E9B94" : "#2D9B83", border: `1px dashed ${!adjUnlocked ? "#D1D5DB" : "#2D9B83"}`, borderRadius: 8, background: "transparent", cursor: !adjUnlocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: !adjUnlocked ? 0.6 : 1 }}>
+                    style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: !adjUnlocked ? "#9E9B94" : "#0F7A63", border: `1px dashed ${!adjUnlocked ? "#E5E2DC" : "#0F7A63"}`, borderRadius: 8, background: "transparent", cursor: !adjUnlocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: !adjUnlocked ? 0.6 : 1 }}>
                     <Plus size={12} /> Add adjustment
                   </button>
                 ) : (
                   <div style={{ padding: 10, border: "1px solid #E5E2DC", borderRadius: 8, background: "#FAFAF7" }}>
                     <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                       <button onClick={() => setModType("flat")}
-                        style={{ flex: 1, padding: "6px 8px", border: `1px solid ${modType === "flat" ? "#2D9B83" : "#E5E2DC"}`, borderRadius: 6, background: modType === "flat" ? "#2D9B83" : "#FFFFFF", color: modType === "flat" ? "#FFFFFF" : "#1A1917", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        style={{ flex: 1, padding: "6px 8px", border: `1px solid ${modType === "flat" ? "#0F7A63" : "#E5E2DC"}`, borderRadius: 6, background: modType === "flat" ? "#0F7A63" : "#FFFFFF", color: modType === "flat" ? "#FFFFFF" : "#1A1917", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                         Fee / discount
                       </button>
                       <button onClick={() => setModType("time")}
-                        style={{ flex: 1, padding: "6px 8px", border: `1px solid ${modType === "time" ? "#2D9B83" : "#E5E2DC"}`, borderRadius: 6, background: modType === "time" ? "#2D9B83" : "#FFFFFF", color: modType === "time" ? "#FFFFFF" : "#1A1917", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        style={{ flex: 1, padding: "6px 8px", border: `1px solid ${modType === "time" ? "#0F7A63" : "#E5E2DC"}`, borderRadius: 6, background: modType === "time" ? "#0F7A63" : "#FFFFFF", color: modType === "time" ? "#FFFFFF" : "#1A1917", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                         Extra time
                       </button>
                     </div>
@@ -3062,7 +3062,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     <label style={{ display: "flex", alignItems: "flex-start", gap: 6, marginBottom: 8, cursor: "pointer" }}>
                       <input type="checkbox" checked={modAffectsCommission}
                         onChange={e => setModAffectsCommission(e.target.checked)}
-                        style={{ width: 14, height: 14, marginTop: 1, accentColor: "#16A34A", flexShrink: 0, cursor: "pointer" }} />
+                        style={{ width: 14, height: 14, marginTop: 1, accentColor: "#0F7A63", flexShrink: 0, cursor: "pointer" }} />
                       <span style={{ fontSize: 11, color: "#1A1917", userSelect: "none" }}>
                         Counts toward the tech's commission / fee split
                         <span style={{ display: "block", color: "#9E9B94", fontSize: 10.5 }}>
@@ -3070,14 +3070,14 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         </span>
                       </span>
                     </label>
-                    {modError && <div style={{ color: "#DC2626", fontSize: 11, marginBottom: 6 }}>{modError}</div>}
+                    {modError && <div style={{ color: "#B3261E", fontSize: 11, marginBottom: 6 }}>{modError}</div>}
                     <div style={{ display: "flex", gap: 6 }}>
                       <button onClick={addRateMod} disabled={modBusy}
-                        style={{ flex: 1, padding: "6px 8px", border: "none", borderRadius: 6, background: "#16A34A", color: "#FFFFFF", fontSize: 12, fontWeight: 600, cursor: modBusy ? "wait" : "pointer", fontFamily: FF }}>
+                        style={{ flex: 1, padding: "6px 8px", border: "none", borderRadius: 6, background: "#0F7A63", color: "#FFFFFF", fontSize: 12, fontWeight: 600, cursor: modBusy ? "wait" : "pointer", fontFamily: FF }}>
                         {modBusy ? "Saving…" : "Save"}
                       </button>
                       <button onClick={() => { setModAddOpen(false); setModError(""); }} disabled={modBusy}
-                        style={{ padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF", color: "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        style={{ padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                         Cancel
                       </button>
                     </div>
@@ -3091,13 +3091,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               charged cancellation/lockout — make that unmistakable in the
               drawer (it was the surface Sal opened and saw "no indication"). */}
           {(job.cancel_action === "cancel" || job.cancel_action === "lockout") && (
-            <div style={{ background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
+            <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
               <AlertTriangle size={14} style={{ color: "#B45309", flexShrink: 0, marginTop: 1 }} />
               <div>
-                <p style={{ fontSize: 10, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 3px" }}>
+                <p style={{ fontSize: 10, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 3px" }}>
                   {job.cancel_action === "lockout" ? "Lockout — fee charged" : "Cancellation — fee charged"}
                 </p>
-                <p style={{ margin: 0, fontSize: 12, color: "#92400E", lineHeight: 1.5 }}>
+                <p style={{ margin: 0, fontSize: 12, color: "#B45309", lineHeight: 1.5 }}>
                   Billed as a {job.cancel_action === "lockout" ? "lockout" : "cancellation"} fee{job.billed_amount != null ? ` of $${Number(job.billed_amount).toFixed(2)}` : ""}, not a service visit. The assigned tech is paid the cancellation fee only (no commission on this job).
                 </p>
                 <button
@@ -3105,7 +3105,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     if (window.confirm("Undo this cancellation? This removes the fee and the tech's cancellation pay, and restores the job.")) undoCancellation();
                   }}
                   disabled={busy}
-                  style={{ marginTop: 9, height: 28, padding: "0 12px", border: "1px solid #B45309", background: "#fff", color: "#92400E", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: busy ? "default" : "pointer" }}
+                  style={{ marginTop: 9, height: 28, padding: "0 12px", border: "1px solid #B45309", background: "#fff", color: "#B45309", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: busy ? "default" : "pointer" }}
                 >
                   Undo cancellation
                 </button>
@@ -3114,11 +3114,11 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           )}
 
           {job.property_access_notes && (
-            <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
-              <AlertTriangle size={14} style={{ color: "#D97706", flexShrink: 0, marginTop: 1 }} />
+            <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
+              <AlertTriangle size={14} style={{ color: "#B45309", flexShrink: 0, marginTop: 1 }} />
               <div>
-                <p style={{ fontSize: 10, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 3px" }}>Building Access</p>
-                <p style={{ margin: 0, fontSize: 12, color: "#92400E", lineHeight: 1.5 }}>{job.property_access_notes}</p>
+                <p style={{ fontSize: 10, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 3px" }}>Building Access</p>
+                <p style={{ margin: 0, fontSize: 12, color: "#B45309", lineHeight: 1.5 }}>{job.property_access_notes}</p>
               </div>
             </div>
           )}
@@ -3135,9 +3135,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           )}
 
           {job.billing_method === "hourly" && job.billed_hours != null && job.estimated_hours != null && job.billed_hours > job.estimated_hours + 0.5 && (
-            <div style={{ background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
-              <AlertTriangle size={14} style={{ color: "#92400E", flexShrink: 0, marginTop: 1 }} />
-              <p style={{ margin: 0, fontSize: 12, color: "#92400E", lineHeight: 1.5 }}>
+            <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 14 }}>
+              <AlertTriangle size={14} style={{ color: "#B45309", flexShrink: 0, marginTop: 1 }} />
+              <p style={{ margin: 0, fontSize: 12, color: "#B45309", lineHeight: 1.5 }}>
                 Hours over budget: {(job.billed_hours - job.estimated_hours).toFixed(1)}h over estimate
                 {job.hourly_rate ? ` · ~$${((job.billed_hours - job.estimated_hours) * job.hourly_rate).toFixed(2)} additional` : ""}
               </p>
@@ -3145,9 +3145,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           )}
 
           {job.charge_failed_at && !job.charge_succeeded_at && (
-            <div style={{ background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
-              <AlertTriangle size={14} style={{ color: "#EF4444", flexShrink: 0 }} />
-              <p style={{ margin: 0, fontSize: 12, color: "#991B1B" }}>
+            <div style={{ background: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+              <AlertTriangle size={14} style={{ color: "#B3261E", flexShrink: 0 }} />
+              <p style={{ margin: 0, fontSize: 12, color: "#B3261E" }}>
                 Charge failed{job.billed_amount ? ` — $${Number(job.billed_amount).toFixed(2)}` : ""} · Check card on file
               </p>
             </div>
@@ -3162,7 +3162,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94" }}>Cleaner Notes (tech sees this)</span>
                 </div>
                 {cleanerNotesSaving && <span style={{ fontSize: 10, color: "#9E9B94" }}>Saving...</span>}
-                {!cleanerNotesSaving && cleanerNotesSaved && <span style={{ fontSize: 10, color: "#16A34A", fontWeight: 600 }}>✓ Saved</span>}
+                {!cleanerNotesSaving && cleanerNotesSaved && <span style={{ fontSize: 10, color: "#0F7A63", fontWeight: 600 }}>✓ Saved</span>}
               </div>
               <textarea
                 value={cleanerNotes}
@@ -3173,7 +3173,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   width: "100%", boxSizing: "border-box" as const, resize: "vertical" as const,
                   border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 10px",
                   fontSize: 12, fontFamily: FF, color: "#1A1917", lineHeight: 1.6,
-                  outline: "none", background: "#FAFAF8",
+                  outline: "none", background: "#F7F6F3",
                 }}
                 onFocus={e => (e.target.style.borderColor = "var(--brand)")}
                 onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
@@ -3184,7 +3184,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           ) : (
             job.notes && (
               <PS label="Cleaner Notes (tech sees this)">
-                <p style={{ margin: 0, fontSize: 13, color: "#6B7280", lineHeight: 1.6 }}>{job.notes}</p>
+                <p style={{ margin: 0, fontSize: 13, color: "#6B6860", lineHeight: 1.6 }}>{job.notes}</p>
                 <TranslateNote text={job.notes} />
               </PS>
             )
@@ -3199,7 +3199,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "#9E9B94" }}>Office Notes</span>
                 </div>
                 {officeNotesSaving && <span style={{ fontSize: 10, color: "#9E9B94" }}>Saving...</span>}
-                {!officeNotesSaving && officeNotesSaved && <span style={{ fontSize: 10, color: "#16A34A", fontWeight: 600 }}>✓ Saved</span>}
+                {!officeNotesSaving && officeNotesSaved && <span style={{ fontSize: 10, color: "#0F7A63", fontWeight: 600 }}>✓ Saved</span>}
               </div>
               <textarea
                 value={officeNotes}
@@ -3210,7 +3210,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   width: "100%", boxSizing: "border-box" as const, resize: "vertical" as const,
                   border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 10px",
                   fontSize: 12, fontFamily: FF, color: "#1A1917", lineHeight: 1.6,
-                  outline: "none", background: "#FAFAF8",
+                  outline: "none", background: "#F7F6F3",
                 }}
                 onFocus={e => (e.target.style.borderColor = "var(--brand)")}
                 onBlur={e => (e.target.style.borderColor = "#E5E2DC")}
@@ -3254,18 +3254,18 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 {variance != null && (
                   <KV label="Variance"
                     value={`${variance > 0 ? "+" : ""}${variance.toFixed(1)}h`}
-                    color={variance > 0.25 ? "#D97706" : variance < -0.25 ? "#16A34A" : undefined} />
+                    color={variance > 0.25 ? "#B45309" : variance < -0.25 ? "#0F7A63" : undefined} />
                 )}
                 {ce?.clock_in_at && <KV label="Clock in" value={fmtClock(ce.clock_in_at)} />}
                 {ce?.clock_out_at && <KV label="Clock out" value={fmtClock(ce.clock_out_at)} />}
                 {ce && inDist != null && (
-                  <KV label="Distance at clock-in" value={`${Math.round(inDist)} ft${ce.clock_in_outside_geofence ? " (outside)" : ""}`} color={ce.clock_in_outside_geofence ? "#D97706" : undefined} />
+                  <KV label="Distance at clock-in" value={`${Math.round(inDist)} ft${ce.clock_in_outside_geofence ? " (outside)" : ""}`} color={ce.clock_in_outside_geofence ? "#B45309" : undefined} />
                 )}
                 {ce?.clock_out_distance_ft != null && (
-                  <KV label="Distance at clock-out" value={`${Math.round(ce.clock_out_distance_ft)} ft${ce.clock_out_outside_geofence ? " (outside)" : ""}`} color={ce.clock_out_outside_geofence ? "#D97706" : undefined} />
+                  <KV label="Distance at clock-out" value={`${Math.round(ce.clock_out_distance_ft)} ft${ce.clock_out_outside_geofence ? " (outside)" : ""}`} color={ce.clock_out_outside_geofence ? "#B45309" : undefined} />
                 )}
                 {ce?.gps_missing && (
-                  <KV label="GPS" value="Unavailable — location not captured" color="#DC2626" />
+                  <KV label="GPS" value="Unavailable — location not captured" color="#B3261E" />
                 )}
                 {ce && <ClockEditor entry={ce} canEdit={canEditOfficeNotes} onUpdate={onUpdate} />}
               </PS>
@@ -3276,7 +3276,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             <PS label="Photos">
               <div onClick={() => setPhotosOpen(true)} title="View photos" style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
                 {job.before_photo_count > 0 && <PBadge count={job.before_photo_count} label="before" color="#0284C7" bg="#F0F9FF" border="#BAE6FD" />}
-                {job.after_photo_count > 0 && <PBadge count={job.after_photo_count} label="after" color="#16A34A" bg="#F0FDF4" border="#BBF7D0" />}
+                {job.after_photo_count > 0 && <PBadge count={job.after_photo_count} label="after" color="#0F7A63" bg="#F0FDF4" border="#C7E7DE" />}
                 <span style={{ fontSize: 11, color: "var(--brand)", fontWeight: 600 }}>View →</span>
               </div>
             </PS>
@@ -3303,7 +3303,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             return (
             <PS label={bothTabs ? "Time Clock & Commission" : (commissionAvail ? "Commission" : "Time Clock")}>
               {bothTabs && (
-                <div style={{ display: "flex", gap: 4, marginBottom: 12, background: "#F2F0EC", borderRadius: 8, padding: 3 }}>
+                <div style={{ display: "flex", gap: 4, marginBottom: 12, background: "#F0EEE9", borderRadius: 8, padding: 3 }}>
                   {(["commission", "clock"] as const).map(k => (
                     <button key={k} onClick={() => setPayClockTab(k)}
                       style={{ flex: 1, padding: "6px 8px", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: FF, cursor: "pointer", background: tab === k ? "#FFFFFF" : "transparent", color: tab === k ? "#1A1917" : "#6B6860", boxShadow: tab === k ? "0 1px 2px rgba(0,0,0,0.08)" : "none" }}>
@@ -3320,20 +3320,20 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   : (job.company_res_pct ?? 0.32);
                 const isOverridden = job.commission_override_pct != null;
                 return (
-                  <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #F0EDE8" }}>
+                  <div style={{ marginBottom: 10, paddingBottom: 10, borderBottom: "1px solid #F0EEE9" }}>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <span style={{ fontSize: 11, color: "#9E9B94" }}>Pool rate</span>
                       <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: isOverridden ? "#D97706" : "#1A1917" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: isOverridden ? "#B45309" : "#1A1917" }}>
                           {(effectivePct * 100).toFixed(0)}%
                         </span>
                         {isOverridden && (
-                          <span style={{ fontSize: 9, fontWeight: 800, background: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 4, padding: "1px 5px" }}>OVERRIDE</span>
+                          <span style={{ fontSize: 9, fontWeight: 800, background: "#FDF3E4", color: "#B45309", border: "1px solid #F2DFB8", borderRadius: 4, padding: "1px 5px" }}>OVERRIDE</span>
                         )}
                         {canManageCommission && !isLocked && (
                           <button
                             onClick={() => { setRateEditOpen(o => !o); setRateVal(isOverridden ? String((effectivePct * 100).toFixed(0)) : ""); }}
-                            style={{ fontSize: 10, color: "#6B7280", border: "1px solid #E5E2DC", background: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF }}
+                            style={{ fontSize: 10, color: "#6B6860", border: "1px solid #E5E2DC", background: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF }}
                           >
                             {rateEditOpen ? "Cancel" : "Override"}
                           </button>
@@ -3359,7 +3359,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           <button
                             onClick={() => savePoolRate(true)}
                             disabled={rateBusy}
-                            style={{ fontSize: 11, color: "#EF4444", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}
+                            style={{ fontSize: 11, color: "#B3261E", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}
                           >Reset</button>
                         )}
                       </div>
@@ -3372,16 +3372,16 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 2 }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</span>
-                      {t.is_primary && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#2D9B83", background: "rgba(45,155,131,0.1)", padding: "2px 6px", borderRadius: 10, letterSpacing: "0.04em" }}>PRIMARY</span>}
+                      {t.is_primary && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#0F7A63", background: "rgba(45,155,131,0.1)", padding: "2px 6px", borderRadius: 10, letterSpacing: "0.04em" }}>PRIMARY</span>}
                     </span>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ fontSize: 12, color: t.pay_override != null ? "#D97706" : "#16A34A", fontWeight: 700 }}>
+                      <span style={{ fontSize: 12, color: t.pay_override != null ? "#B45309" : "#0F7A63", fontWeight: 700 }}>
                         ${t.final_pay.toFixed(2)}{t.pay_override != null ? " (override)" : ""}
                       </span>
                       {canManageCommission ? (
                         <button
                           onClick={() => { setOverrideOpen(o => ({ ...o, [t.user_id]: !o[t.user_id] })); setOverrideVal(v => ({ ...v, [t.user_id]: t.pay_override != null ? String(t.pay_override) : "" })); }}
-                          style={{ fontSize: 10, color: "#6B7280", border: "1px solid #E5E2DC", background: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF }}
+                          style={{ fontSize: 10, color: "#6B6860", border: "1px solid #E5E2DC", background: "none", borderRadius: 4, padding: "2px 6px", cursor: "pointer", fontFamily: FF }}
                         >
                           {overrideOpen[t.user_id] ? "Cancel" : "Override"}
                         </button>
@@ -3392,7 +3392,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           disabled={removeTechBusy === t.user_id}
                           title="Remove from job"
                           aria-label={`Remove ${t.name}`}
-                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "#B91C1C", border: "1px solid #F3D2D2", background: "#FEF2F2", borderRadius: 5, cursor: removeTechBusy === t.user_id ? "wait" : "pointer", flexShrink: 0, opacity: removeTechBusy === t.user_id ? 0.6 : 1 }}
+                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "#B3261E", border: "1px solid #F3D2D2", background: "#FCEBEA", borderRadius: 5, cursor: removeTechBusy === t.user_id ? "wait" : "pointer", flexShrink: 0, opacity: removeTechBusy === t.user_id ? 0.6 : 1 }}
                         >
                           <X size={13} />
                         </button>
@@ -3411,7 +3411,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   </div>
                   {overrideOpen[t.user_id] && (
                     <div style={{ display: "flex", gap: 6, marginTop: 4, alignItems: "center" }}>
-                      <span style={{ fontSize: 11, color: "#6B7280" }}>$</span>
+                      <span style={{ fontSize: 11, color: "#6B6860" }}>$</span>
                       <input
                         type="number" step="0.01" min="0"
                         value={overrideVal[t.user_id] ?? ""}
@@ -3430,7 +3430,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         <button
                           onClick={() => { setOverrideVal(v => ({ ...v, [t.user_id]: "" })); saveOverride(t.user_id); }}
                           disabled={overrideBusy}
-                          style={{ fontSize: 11, color: "#EF4444", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}
+                          style={{ fontSize: 11, color: "#B3261E", border: "none", background: "none", cursor: "pointer", fontFamily: FF }}
                         >
                           Clear
                         </button>
@@ -3440,10 +3440,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 </div>
               )) : (
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 12, color: "#6B7280" }}>
+                  <span style={{ fontSize: 12, color: "#6B6860" }}>
                     {assignedEmp?.name || job.assigned_user_name || "Unassigned"} · Est. {(job.est_hours_per_tech ?? job.estimated_hours ?? 0).toFixed(1)} hrs
                   </span>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#16A34A" }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#0F7A63" }}>
                     {/* [pay-matrix 2026-04-29] Display est_pay_per_tech
                         as-is. The server now computes it per-tech via
                         the 4-cell matrix; the no-techs-yet branch
@@ -3489,7 +3489,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     <div key={t.user_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 8 }}>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
-                        <div style={{ fontSize: 11, color: clockedIn ? "#B5710C" : done ? "#16A34A" : "#9E9B94", fontWeight: clockedIn || done ? 600 : 400 }}>
+                        <div style={{ fontSize: 11, color: clockedIn ? "#B5710C" : done ? "#0F7A63" : "#9E9B94", fontWeight: clockedIn || done ? 600 : 400 }}>
                           {clockedIn
                             ? `On the clock since ${fmtClock(entry!.clock_in_at)}`
                             : done
@@ -3505,7 +3505,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700,
                           padding: "6px 12px", borderRadius: 7, fontFamily: FF, border: "none", color: "#FFFFFF",
                           cursor: busy || done ? "default" : "pointer", opacity: busy ? 0.6 : 1,
-                          background: done ? "#C4C0BB" : clockedIn ? "#D85A30" : "#2D9B83",
+                          background: done ? "#C4C0BB" : clockedIn ? "#D85A30" : "#0F7A63",
                         }}>
                         <Clock size={12} />
                         {done ? "Done" : clockedIn ? "Clock Out" : "Clock In"}
@@ -3526,7 +3526,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                   tip after the visit, split across the tech(s) by clocked time;
                   pass-through pay, never commission. Works on completed jobs. */}
               {canManageCommission && (<>
-                <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", margin: "16px 0 8px", borderTop: "1px solid #F0EDE8", paddingTop: 14 }}>Tips</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", margin: "16px 0 8px", borderTop: "1px solid #F0EEE9", paddingTop: 14 }}>Tips</div>
               {tips.length > 0 && (
                 <div style={{ marginBottom: tipFormOpen ? 10 : 8 }}>
                   {tips.map(t => (
@@ -3535,29 +3535,29 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         {t.name}{t.notes ? <span style={{ color: "#9E9B94" }}> · {t.notes}</span> : null}
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: "#16A34A" }}>${t.amount.toFixed(2)}</span>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: "#0F7A63" }}>${t.amount.toFixed(2)}</span>
                         <button onClick={() => removeTip(t.id)} disabled={tipRemoving === t.id} title="Remove tip" aria-label={`Remove tip for ${t.name}`}
-                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "#B91C1C", border: "1px solid #F3D2D2", background: "#FEF2F2", borderRadius: 5, cursor: tipRemoving === t.id ? "wait" : "pointer", opacity: tipRemoving === t.id ? 0.6 : 1 }}>
+                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 22, height: 22, color: "#B3261E", border: "1px solid #F3D2D2", background: "#FCEBEA", borderRadius: 5, cursor: tipRemoving === t.id ? "wait" : "pointer", opacity: tipRemoving === t.id ? 0.6 : 1 }}>
                           <X size={13} />
                         </button>
                       </div>
                     </div>
                   ))}
-                  <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #F0EDE8", paddingTop: 4, marginTop: 2 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", borderTop: "1px solid #F0EEE9", paddingTop: 4, marginTop: 2 }}>
                     <span style={{ fontSize: 11, color: "#9E9B94" }}>Total tips</span>
-                    <span style={{ fontSize: 12, fontWeight: 800, color: "#16A34A" }}>${tipsTotal.toFixed(2)}</span>
+                    <span style={{ fontSize: 12, fontWeight: 800, color: "#0F7A63" }}>${tipsTotal.toFixed(2)}</span>
                   </div>
                 </div>
               )}
               {!tipFormOpen ? (
                 <button onClick={openTipForm}
-                  style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#2D9B83", border: "1px dashed #2D9B83", borderRadius: 8, background: "transparent", cursor: "pointer", fontFamily: FF }}>
+                  style={{ width: "100%", height: 32, display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, fontWeight: 600, color: "#0F7A63", border: "1px dashed #0F7A63", borderRadius: 8, background: "transparent", cursor: "pointer", fontFamily: FF }}>
                   <Plus size={12} /> Add tip
                 </button>
               ) : (
                 <div style={{ border: "1px solid #E5E2DC", borderRadius: 8, padding: 10 }}>
                   <div style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 11, color: "#6B7280" }}>Tip $</span>
+                    <span style={{ fontSize: 11, color: "#6B6860" }}>Tip $</span>
                     <input type="number" step="0.01" min="0" value={tipAmount} autoFocus
                       onChange={e => { setTipAmount(e.target.value); refreshTipSplit(e.target.value); }}
                       placeholder="0.00"
@@ -3571,11 +3571,11 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     <div key={a.user_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                       <span style={{ fontSize: 12, color: "#1A1917", display: "inline-flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.name}</span>
-                        {a.is_primary && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#2D9B83", background: "rgba(45,155,131,0.1)", padding: "1px 5px", borderRadius: 10 }}>PRIMARY</span>}
+                        {a.is_primary && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#0F7A63", background: "rgba(45,155,131,0.1)", padding: "1px 5px", borderRadius: 10 }}>PRIMARY</span>}
                         <span style={{ flexShrink: 0, fontSize: 10, color: "#C4C0BB" }}>{a.hours > 0 ? `${a.hours.toFixed(2)}h` : "no clock"}</span>
                       </span>
                       <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-                        <span style={{ fontSize: 11, color: "#6B7280" }}>$</span>
+                        <span style={{ fontSize: 11, color: "#6B6860" }}>$</span>
                         <input type="number" step="0.01" min="0" value={a.amount}
                           onChange={e => setTipAllocs(prev => prev.map((x, xi) => xi === i ? { ...x, amount: e.target.value } : x))}
                           placeholder="0.00"
@@ -3616,7 +3616,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         <span style={{ fontSize: 11, color: "#9E9B94" }}>Allocated: <strong style={{ color: "#1A1917" }}>${allocSum.toFixed(2)}</strong></span>
                         <div style={{ display: "flex", gap: 6 }}>
                           <button onClick={() => setTipFormOpen(false)} disabled={tipBusy}
-                            style={{ fontSize: 11, color: "#6B7280", border: "1px solid #E5E2DC", background: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                            style={{ fontSize: 11, color: "#6B6860", border: "1px solid #E5E2DC", background: "none", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontFamily: FF }}>Cancel</button>
                           <button onClick={saveTip} disabled={tipBusy}
                             style={{ fontSize: 11, fontWeight: 700, color: "#fff", background: "var(--brand)", border: "none", borderRadius: 6, padding: "5px 12px", cursor: tipBusy ? "wait" : "pointer", fontFamily: FF }}>Save tip</button>
                         </div>
@@ -3875,7 +3875,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         <div style={{ padding: "12px 20px 20px", borderTop: "1px solid #EEECE7", display: "flex", gap: 8, flexShrink: 0, flexWrap: "wrap" }}>
           {isLocked ? (
             <div style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B6860", fontSize: 12, fontWeight: 600, fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-              <CheckCircle size={13} color="#16A34A" />
+              <CheckCircle size={13} color="#0F7A63" />
               {job.status === "cancelled"
                 ? "Cancelled"
                 : completedAtLabel ? `Completed at ${completedAtLabel}` : "Completed"}
@@ -3883,11 +3883,11 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           ) : confirmComplete ? (
             <>
               <button onClick={() => setStatus("complete")} disabled={busy}
-                style={{ flex: 1, minWidth: 120, padding: "10px 12px", border: "none", borderRadius: 8, backgroundColor: "#16A34A", color: "#fff", fontSize: 13, fontWeight: 700, cursor: busy ? "wait" : "pointer", fontFamily: FF }}>
+                style={{ flex: 1, minWidth: 120, padding: "10px 12px", border: "none", borderRadius: 8, backgroundColor: "#0F7A63", color: "#fff", fontSize: 13, fontWeight: 700, cursor: busy ? "wait" : "pointer", fontFamily: FF }}>
                 {busy ? "..." : "Yes, complete"}
               </button>
               <button onClick={() => setConfirmComplete(false)} disabled={busy}
-                style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                 Cancel
               </button>
             </>
@@ -3899,14 +3899,14 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           )}
           {!isLocked && job.status !== "in_progress" && !confirmComplete && (
             <button onClick={() => setStatus("in_progress")} disabled={busy}
-              style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "1px solid #FCD34D", borderRadius: 8, backgroundColor: "#FEF3C7", color: "#92400E", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+              style={{ flex: 1, minWidth: 100, padding: "10px 12px", border: "1px solid #F2DFB8", borderRadius: 8, backgroundColor: "#FDF3E4", color: "#B45309", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
               Start Job
             </button>
           )}
           {/* Charge Client — owner/admin only, completed Stripe jobs not yet charged */}
           {canCharge && job.status === "complete" && !job.charge_succeeded_at && (
             <button onClick={openChargeModal}
-              style={{ padding: "10px 12px", border: "1px solid #6EE7B7", borderRadius: 8, backgroundColor: "#ECFDF5", color: "#065F46", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
+              style={{ padding: "10px 12px", border: "1px solid #6EE7B7", borderRadius: 8, backgroundColor: "#E6F6F1", color: "#065F46", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
               <DollarSign size={13} /> Charge Client
             </button>
           )}
@@ -3916,10 +3916,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             const st = job.invoice_status || "sent";
             const total = job.invoice_total ? `$${parseFloat(job.invoice_total).toFixed(2)}` : "";
             const { bg, color, border, label } =
-              st === "paid"    ? { bg: "#DCFCE7", color: "#166534", border: "#BBF7D0", label: "PAID" } :
-              st === "overdue" ? { bg: "#FEE2E2", color: "#991B1B", border: "#FECACA", label: "OVERDUE" } :
-              st === "draft"   ? { bg: "#F3F4F6", color: "#374151", border: "#D1D5DB", label: "DRAFT" } :
-                                 { bg: "#FEF3C7", color: "#92400E", border: "#FDE68A", label: "UNPAID" };
+              st === "paid"    ? { bg: "#E6F6F1", color: "#0F7A63", border: "#C7E7DE", label: "PAID" } :
+              st === "overdue" ? { bg: "#FCEBEA", color: "#B3261E", border: "#F1D0CB", label: "OVERDUE" } :
+              st === "draft"   ? { bg: "#F0EEE9", color: "#1A1917", border: "#E5E2DC", label: "DRAFT" } :
+                                 { bg: "#FDF3E4", color: "#B45309", border: "#F2DFB8", label: "UNPAID" };
             return (
               <div>
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F7F6F3" }}>
@@ -3941,7 +3941,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             );
           })()}
           {job.status === "complete" && !job.invoice_id && job.scheduled_date >= "2026-07-01" && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "1px solid #FDE68A", borderRadius: 8, backgroundColor: "#FFFBEB", fontSize: 12, color: "#92400E", fontFamily: FF }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "1px solid #F2DFB8", borderRadius: 8, backgroundColor: "#FDF3E4", fontSize: 12, color: "#B45309", fontFamily: FF }}>
               <span>No invoice yet</span>
               <button onClick={createInvoiceForJob} disabled={creatingInvoice}
                 style={{ marginLeft: "auto", padding: "5px 12px", border: "none", borderRadius: 7, backgroundColor: creatingInvoice ? "#D0CEC9" : "var(--brand)", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: creatingInvoice ? "default" : "pointer", fontFamily: FF }}>
@@ -3961,7 +3961,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               for payroll. Audit log captures every unlocked edit. */}
           <button
             onClick={() => setEditOpen(true)}
-            style={{ padding: "10px 12px", border: "1px solid #A7F3D0", borderRadius: 8, backgroundColor: "#ECFDF5", color: "#065F46", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+            style={{ padding: "10px 12px", border: "1px solid #A7F3D0", borderRadius: 8, backgroundColor: "#E6F6F1", color: "#065F46", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
             Edit
           </button>
           <button
@@ -3972,7 +3972,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               setDuplicateTime(job.scheduled_time || "");
               setDuplicateOpen(true);
             }}
-            style={{ padding: "10px 12px", border: "1px solid #DDD6FE", borderRadius: 8, backgroundColor: "#F5F3FF", color: "#6D28D9", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+            style={{ padding: "10px 12px", border: "1px solid #EFDCCE", borderRadius: 8, backgroundColor: "#F5F3FF", color: "#6D28D9", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
             Duplicate
           </button>
           {canManageCommission && (
@@ -3999,12 +3999,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               setRescheduleDate(job.scheduled_date || ""); setRescheduleHour(null);
               setAvailSlots([]); setTechList([]); setSelectedTechId(job.assigned_user_id); setRescheduleCount(null);
             }}
-            style={{ padding: "10px 12px", border: `1px solid ${isLocked ? "#E5E2DC" : "#BFDBFE"}`, borderRadius: 8, backgroundColor: isLocked ? "#F8F7F4" : "#EFF6FF", color: isLocked ? "#9E9B94" : "#1D4ED8", fontSize: 13, fontWeight: 600, cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
+            style={{ padding: "10px 12px", border: `1px solid ${isLocked ? "#E5E2DC" : "#DEDEE4"}`, borderRadius: 8, backgroundColor: isLocked ? "#F8F7F4" : "#EFEFF2", color: isLocked ? "#9E9B94" : "#2F3646", fontSize: 13, fontWeight: 600, cursor: isLocked ? "not-allowed" : "pointer", fontFamily: FF, opacity: isLocked ? 0.6 : 1 }}>
             Reschedule
           </button>
           {!isLocked && (
             <button onClick={() => setCancelOpen(true)} disabled={busy}
-              style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+              style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
               Cancel Job
             </button>
           )}
@@ -4061,7 +4061,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 return <button key={t.id} type="button" onClick={() => setRedoAccountable(on ? redoAccountable.filter(x => x !== t.id) : [...redoAccountable, t.id])}
                   style={{ padding: "6px 12px", borderRadius: 999, border: `1.5px solid ${on ? "var(--brand)" : "#E5E2DC"}`, background: on ? "#E6F8F3" : "#fff", color: on ? "#065f46" : "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>{t.name}</button>;
               })}
-              {!redoJobTechs.length && <span style={{ fontSize: 12, color: "#DC2626" }}>This job has no assigned cleaner to attach the ticket to.</span>}
+              {!redoJobTechs.length && <span style={{ fontSize: 12, color: "#B3261E" }}>This job has no assigned cleaner to attach the ticket to.</span>}
             </div>
 
             <label style={redoLbl}>Who&rsquo;s doing the redo visit?</label>
@@ -4102,7 +4102,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               </div>
             </div>
 
-            {redoMsg && <div style={{ fontSize: 12, color: "#DC2626", marginTop: 8 }}>{redoMsg}</div>}
+            {redoMsg && <div style={{ fontSize: 12, color: "#B3261E", marginTop: 8 }}>{redoMsg}</div>}
             <div style={{ fontSize: 10.5, color: "#9E9B94", marginTop: 8, lineHeight: 1.4 }}>Client isn&rsquo;t charged and isn&rsquo;t messaged. The ticket counts toward the 2-in-30 probation rule.</div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 16 }}>
               <button type="button" onClick={() => setRedoOpen(false)} disabled={redoBusy} style={{ padding: "9px 16px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#fff", fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
@@ -4124,7 +4124,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Duplicate Job</span>
               <button onClick={() => !duplicateBusy && setDuplicateOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", padding: 6, display: "flex" }} type="button"><X size={18} /></button>
             </div>
-            <p style={{ margin: "0 0 16px", fontSize: 12, color: "#6B7280" }}>
+            <p style={{ margin: "0 0 16px", fontSize: 12, color: "#6B6860" }}>
               Creates a new job with the same service, price, tech, and add-ons — just pick the new date.
             </p>
             <label style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6 }}>New date</label>
@@ -4135,7 +4135,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               style={{ width: "100%", height: 42, padding: "0 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, color: "#1A1917", fontFamily: FF, marginBottom: 18, boxSizing: "border-box" }} />
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button type="button" onClick={() => setDuplicateOpen(false)} disabled={duplicateBusy}
-                style={{ padding: "10px 16px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                style={{ padding: "10px 16px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Cancel</button>
               <button type="button" disabled={!duplicateDate || duplicateBusy}
                 onClick={async () => {
                   if (!duplicateDate) return;
@@ -4169,14 +4169,14 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
         <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.5)", zIndex: 300, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, padding: 28, width: "100%", maxWidth: 400, fontFamily: FF }}>
             <h3 style={{ margin: "0 0 4px", fontSize: 17, fontWeight: 800, color: "#1A1917" }}>Confirm Payment</h3>
-            <p style={{ margin: "0 0 20px", fontSize: 13, color: "#6B7280" }}>Charge the card on file for this completed job.</p>
+            <p style={{ margin: "0 0 20px", fontSize: 13, color: "#6B6860" }}>Charge the card on file for this completed job.</p>
             <div style={{ background: "#F7F6F3", borderRadius: 8, padding: "14px 16px", marginBottom: 20 }}>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: "#6B7280" }}>Client</span>
+                <span style={{ fontSize: 12, color: "#6B6860" }}>Client</span>
                 <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>{job.display_name ?? job.client_name}</span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                <span style={{ fontSize: 12, color: "#6B7280" }}>Card</span>
+                <span style={{ fontSize: 12, color: "#6B6860" }}>Card</span>
                 <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>
                   {chargeClientData
                     ? (chargeClientData.card_brand ? `${chargeClientData.card_brand.charAt(0).toUpperCase()}${chargeClientData.card_brand.slice(1)} ending in ${chargeClientData.card_last_four || "????"}` : "Card on file")
@@ -4184,18 +4184,18 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 </span>
               </div>
               <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <span style={{ fontSize: 12, color: "#6B7280" }}>Amount</span>
+                <span style={{ fontSize: 12, color: "#6B6860" }}>Amount</span>
                 <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>${chargeAmount.toFixed(2)}</span>
               </div>
             </div>
             {chargeError && (
-              <div style={{ marginBottom: 16, padding: "10px 14px", background: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 12, color: "#DC2626", lineHeight: 1.5 }}>
+              <div style={{ marginBottom: 16, padding: "10px 14px", background: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, fontSize: 12, color: "#B3261E", lineHeight: 1.5 }}>
                 {chargeError}
               </div>
             )}
             <div style={{ display: "flex", gap: 8 }}>
               <button onClick={() => setChargeOpen(false)} disabled={chargeBusy}
-                style={{ flex: 1, padding: "10px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                style={{ flex: 1, padding: "10px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F8F7F4", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                 Cancel
               </button>
               <button onClick={confirmCharge} disabled={chargeBusy}
@@ -4276,10 +4276,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <div style={{ overflowY: "auto", flex: 1, padding: "0 0 8px" }}>
                 {rescheduleSuccess ? (
                   <div style={{ padding: "32px 20px", textAlign: "center" }}>
-                    <CheckCircle size={40} color="#16A34A" style={{ marginBottom: 12 }} />
+                    <CheckCircle size={40} color="#0F7A63" style={{ marginBottom: 12 }} />
                     <p style={{ fontSize: 15, fontWeight: 600, color: "#15803D", marginBottom: 20 }}>{rescheduleSuccess}</p>
                     <button onClick={() => { setRescheduleOpen(false); setRescheduleSuccess(""); onClose(); }}
-                      style={{ width: "100%", padding: "12px", border: "none", borderRadius: 10, background: "#16A34A", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                      style={{ width: "100%", padding: "12px", border: "none", borderRadius: 10, background: "#0F7A63", color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
                       Done
                     </button>
                   </div>
@@ -4299,9 +4299,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       </div>
                       {rescheduleCount !== null && rescheduleCount > 0 && (() => {
                         const rc = rescheduleCount;
-                        const bg = rc >= 4 ? "#FEE2E2" : rc >= 2 ? "#FEF3C7" : "#DCFCE7";
-                        const txt = rc >= 4 ? "#991B1B" : rc >= 2 ? "#92400E" : "#15803D";
-                        const border = rc >= 4 ? "#FCA5A5" : rc >= 2 ? "#FCD34D" : "#86EFAC";
+                        const bg = rc >= 4 ? "#FCEBEA" : rc >= 2 ? "#FDF3E4" : "#E6F6F1";
+                        const txt = rc >= 4 ? "#B3261E" : rc >= 2 ? "#B45309" : "#15803D";
+                        const border = rc >= 4 ? "#FCA5A5" : rc >= 2 ? "#F2DFB8" : "#86EFAC";
                         return (
                           <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 8, backgroundColor: bg, border: `1px solid ${border}`, display: "inline-flex", alignItems: "center", gap: 6 }}>
                             <AlertTriangle size={12} color={txt} />
@@ -4315,7 +4315,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 
                     {/* Section 2 — Reason */}
                     <div style={{ margin: "14px 20px 0", backgroundColor: "#FFFFFF", borderRadius: 12, border: "1px solid #E5E2DC", padding: "14px 16px" }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 10 }}>Reason for Reschedule <span style={{ color: "#EF4444" }}>*</span></span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 10 }}>Reason for Reschedule <span style={{ color: "#B3261E" }}>*</span></span>
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         {REASONS.map(r => (
                           <button key={r.value} type="button" onClick={() => setRescheduleReason(r.value)}
@@ -4333,7 +4333,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
 
                     {/* Section 3 — New Date + Availability */}
                     <div style={{ margin: "14px 20px 0", backgroundColor: "#FFFFFF", borderRadius: 12, border: "1px solid #E5E2DC", padding: "14px 16px" }}>
-                      <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 10 }}>New Date & Time <span style={{ color: "#EF4444" }}>*</span></span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 10 }}>New Date & Time <span style={{ color: "#B3261E" }}>*</span></span>
                       <input type="date" value={rescheduleDate} onChange={e => { setRescheduleDate(e.target.value); setRescheduleHour(null); }}
                         style={{ width: "100%", height: 44, padding: "0 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: FF, backgroundColor: "#F7F6F3" }} />
                       {rescheduleDate && (
@@ -4343,7 +4343,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           </span>
                           {!availLoading && (
                             <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "4px 12px", marginBottom: 10 }}>
-                              {([["#16A34A", "Open"], ["#92400E", "1–2 jobs"], ["#991B1B", "3+ jobs (busy)"]] as [string, string][]).map(([c, l]) => (
+                              {([["#0F7A63", "Open"], ["#B45309", "1–2 jobs"], ["#B3261E", "3+ jobs (busy)"]] as [string, string][]).map(([c, l]) => (
                                 <span key={l} style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11, color: "#6B6860" }}>
                                   <span style={{ width: 9, height: 9, borderRadius: 3, backgroundColor: slotBg(l === "Open" ? 0 : l.startsWith("1") ? 1 : 3), border: `1px solid ${c}33` }} />
                                   {l}
@@ -4375,7 +4375,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       <div style={{ margin: "14px 20px 0", backgroundColor: "#FFFFFF", borderRadius: 12, border: "1px solid #E5E2DC", padding: "14px 16px" }}>
                         <span style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.07em", display: "block", marginBottom: 6 }}>Team Assignment</span>
                         <span style={{ fontSize: 11, color: "#9E9B94", display: "block", marginBottom: 10 }}>
-                          "<span style={{ color: "#991B1B", fontWeight: 600 }}>Conflict</span>" means the tech already has a job overlapping {fmtHour(rescheduleHour)}. You can still assign them.
+                          "<span style={{ color: "#B3261E", fontWeight: 600 }}>Conflict</span>" means the tech already has a job overlapping {fmtHour(rescheduleHour)}. You can still assign them.
                         </span>
                         {techLoading ? (
                           <p style={{ fontSize: 13, color: "#6B6860", margin: 0 }}>Loading team availability...</p>
@@ -4397,9 +4397,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                                     <span style={{ fontSize: 11, color: "#9E9B94" }}>{tech.jobs_today} job{tech.jobs_today !== 1 ? "s" : ""} today</span>
                                   </div>
                                   {tech.has_conflict && (
-                                    <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px", borderRadius: 6, backgroundColor: "#FEE2E2", border: "1px solid #FCA5A5" }}>
-                                      <AlertTriangle size={12} color="#991B1B" />
-                                      <span style={{ fontSize: 11, fontWeight: 600, color: "#991B1B" }}>Conflict</span>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 8px", borderRadius: 6, backgroundColor: "#FCEBEA", border: "1px solid #FCA5A5" }}>
+                                      <AlertTriangle size={12} color="#B3261E" />
+                                      <span style={{ fontSize: 11, fontWeight: 600, color: "#B3261E" }}>Conflict</span>
                                     </div>
                                   )}
                                 </button>
@@ -4408,9 +4408,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           </div>
                         )}
                         {selectedTechId !== null && techList.find(t => t.id === selectedTechId)?.has_conflict && (
-                          <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, backgroundColor: "#FEF3C7", border: "1px solid #FCD34D", display: "flex", alignItems: "flex-start", gap: 6 }}>
-                            <AlertTriangle size={13} color="#92400E" style={{ flexShrink: 0, marginTop: 1 }} />
-                            <span style={{ fontSize: 12, color: "#92400E", lineHeight: 1.4 }}>
+                          <div style={{ marginTop: 10, padding: "8px 12px", borderRadius: 8, backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", display: "flex", alignItems: "flex-start", gap: 6 }}>
+                            <AlertTriangle size={13} color="#B45309" style={{ flexShrink: 0, marginTop: 1 }} />
+                            <span style={{ fontSize: 12, color: "#B45309", lineHeight: 1.4 }}>
                               {techList.find(t => t.id === selectedTechId)?.name?.split(" ")[0]} already has a job at this time. Confirming will double-book them.
                             </span>
                           </div>
@@ -4538,22 +4538,22 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               </div>
               <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
                 {smsTwilioOk === false && (
-                  <div style={{ marginBottom: 14, padding: "10px 14px", backgroundColor: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8 }}>
-                    <p style={{ margin: 0, fontSize: 12, color: "#92400E", lineHeight: 1.5 }}>
+                  <div style={{ marginBottom: 14, padding: "10px 14px", backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8 }}>
+                    <p style={{ margin: 0, fontSize: 12, color: "#B45309", lineHeight: 1.5 }}>
                       SMS not configured — add Twilio keys in Company Settings to enable messaging.
                     </p>
                   </div>
                 )}
                 <div style={{ marginBottom: 14, padding: "10px 14px", backgroundColor: "#F9F8F7", borderRadius: 8, border: "1px solid #E5E2DC" }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>To</span>
-                  <p style={{ margin: "4px 0 0", fontSize: 14, color: "#1A1917", fontWeight: 600 }}>{job.display_name ?? job.client_name} <span style={{ fontWeight: 400, color: "#6B7280" }}>({job.client_phone})</span></p>
+                  <p style={{ margin: "4px 0 0", fontSize: 14, color: "#1A1917", fontWeight: 600 }}>{job.display_name ?? job.client_name} <span style={{ fontWeight: 400, color: "#6B6860" }}>({job.client_phone})</span></p>
                 </div>
                 <div style={{ marginBottom: 12 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 8 }}>Quick Messages</span>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                     {CHIPS.map(chip => (
                       <button key={chip} onClick={() => setSmsMessage(chip)}
-                        style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #E5E2DC", backgroundColor: smsMessage === chip ? "#ECFDF5" : "#F9F8F7", color: smsMessage === chip ? "#059669" : "#4B4A47", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        style={{ padding: "6px 12px", borderRadius: 20, border: "1px solid #E5E2DC", backgroundColor: smsMessage === chip ? "#E6F6F1" : "#F9F8F7", color: smsMessage === chip ? "#0F7A63" : "#4B4A47", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                         {chip}
                       </button>
                     ))}
@@ -4570,7 +4570,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     <div style={{ display: "flex", gap: 6 }}>
                       <button onClick={() => smsFileInputRef.current?.click()}
                         title="Attach photo"
-                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid #E5E2DC", background: smsAttachments.length > 0 ? "#ECFDF5" : "#F9F8F7", color: smsAttachments.length > 0 ? "#059669" : "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid #E5E2DC", background: smsAttachments.length > 0 ? "#E6F6F1" : "#F9F8F7", color: smsAttachments.length > 0 ? "#0F7A63" : "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                         <Paperclip size={13} /> {smsAttachments.length > 0 ? `${smsAttachments.length} photo${smsAttachments.length > 1 ? "s" : ""}` : "Attach"}
                       </button>
                       <button onClick={() => {
@@ -4587,7 +4587,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                           setSmsScheduleOpen(o => !o);
                         }}
                         title="Schedule for later"
-                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid #E5E2DC", background: smsScheduleOpen ? "#EFF6FF" : "#F9F8F7", color: smsScheduleOpen ? "#2563EB" : "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                        style={{ display: "flex", alignItems: "center", gap: 5, padding: "6px 10px", borderRadius: 8, border: "1px solid #E5E2DC", background: smsScheduleOpen ? "#EFEFF2" : "#F9F8F7", color: smsScheduleOpen ? "#2F3646" : "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                         <Clock size={13} /> Schedule
                       </button>
                     </div>
@@ -4602,7 +4602,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         <img src={a.objectUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: a.uploading ? 0.5 : 1 }} />
                         {a.uploading && (
                           <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.6)" }}>
-                            <div style={{ width: 16, height: 16, border: "2px solid #E5E2DC", borderTopColor: "#059669", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
+                            <div style={{ width: 16, height: 16, border: "2px solid #E5E2DC", borderTopColor: "#0F7A63", borderRadius: "50%", animation: "spin 0.6s linear infinite" }} />
                           </div>
                         )}
                         {!a.uploading && (
@@ -4617,14 +4617,14 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 )}
                 {/* Schedule picker */}
                 {smsScheduleOpen && (
-                  <div style={{ marginBottom: 12, padding: "12px 14px", background: "#F0F4FF", border: "1px solid #BFDBFE", borderRadius: 10 }}>
-                    <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 700, color: "#1E40AF" }}>Schedule for later</p>
+                  <div style={{ marginBottom: 12, padding: "12px 14px", background: "#F0F4FF", border: "1px solid #DEDEE4", borderRadius: 10 }}>
+                    <p style={{ margin: "0 0 10px", fontSize: 12, fontWeight: 700, color: "#2F3646" }}>Schedule for later</p>
                     <div style={{ display: "flex", gap: 8 }}>
                       <input type="date" value={smsScheduleDate} onChange={e => setSmsScheduleDate(e.target.value)}
                         min={new Date().toISOString().slice(0, 10)}
-                        style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #BFDBFE", fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#fff", outline: "none" }} />
+                        style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #DEDEE4", fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#fff", outline: "none" }} />
                       <input type="time" value={smsScheduleTime} onChange={e => setSmsScheduleTime(e.target.value)}
-                        style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #BFDBFE", fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#fff", outline: "none" }} />
+                        style={{ flex: 1, padding: "8px 10px", borderRadius: 8, border: "1px solid #DEDEE4", fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#fff", outline: "none" }} />
                     </div>
                   </div>
                 )}
@@ -4632,13 +4632,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               <div style={{ padding: "12px 20px 28px", borderTop: "1px solid #EEECE7", flexShrink: 0, display: "flex", flexDirection: "column", gap: 8 }}>
                 {smsScheduleOpen ? (
                   <button onClick={handleSchedule} disabled={!smsScheduleDate || !smsScheduleTime || !canSend || smsScheduling || pendingUploads}
-                    style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", backgroundColor: smsScheduleDate && smsScheduleTime && canSend && !pendingUploads ? "#2563EB" : "#E5E2DC", color: smsScheduleDate && smsScheduleTime && canSend && !pendingUploads ? "#FFFFFF" : "#9E9B94", fontSize: 15, fontWeight: 700, cursor: smsScheduleDate && smsScheduleTime && canSend && !pendingUploads ? "pointer" : "not-allowed", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+                    style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", backgroundColor: smsScheduleDate && smsScheduleTime && canSend && !pendingUploads ? "#2F3646" : "#E5E2DC", color: smsScheduleDate && smsScheduleTime && canSend && !pendingUploads ? "#FFFFFF" : "#9E9B94", fontSize: 15, fontWeight: 700, cursor: smsScheduleDate && smsScheduleTime && canSend && !pendingUploads ? "pointer" : "not-allowed", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                     <Clock size={16} />
                     {smsScheduling ? "Scheduling..." : "Schedule Message"}
                   </button>
                 ) : (
                   <button onClick={handleSend} disabled={!canSend || pendingUploads}
-                    style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", backgroundColor: canSend && !pendingUploads ? "#059669" : "#E5E2DC", color: canSend && !pendingUploads ? "#FFFFFF" : "#9E9B94", fontSize: 15, fontWeight: 700, cursor: canSend && !pendingUploads ? "pointer" : "not-allowed", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "background 0.15s" }}>
+                    style={{ width: "100%", padding: "14px 0", borderRadius: 12, border: "none", backgroundColor: canSend && !pendingUploads ? "#0F7A63" : "#E5E2DC", color: canSend && !pendingUploads ? "#FFFFFF" : "#9E9B94", fontSize: 15, fontWeight: 700, cursor: canSend && !pendingUploads ? "pointer" : "not-allowed", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 8, transition: "background 0.15s" }}>
                     <Send size={16} />
                     {smsBusy ? "Sending..." : pendingUploads ? "Uploading..." : "Send Message"}
                   </button>
@@ -4662,13 +4662,13 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           key: "modify" | "move" | "bump" | "skip" | "cancel" | "lockout" | "cancel_service";
           label: string; sub: string; accent: string; tint: string; charges: boolean; ends_service?: boolean; ui_only?: boolean; reschedules?: boolean;
         }> = [
-          { key: "modify",         label: "Modify",         sub: "Change time, tech, or scope",  accent: "#2563EB", tint: "#EFF6FF", charges: false, ui_only: true },
-          { key: "move",           label: "Move",           sub: "Customer picks a new date",    accent: "#7C3AED", tint: "#F5F3FF", charges: false, reschedules: true },
+          { key: "modify",         label: "Modify",         sub: "Change time, tech, or scope",  accent: "#2F3646", tint: "#EFEFF2", charges: false, ui_only: true },
+          { key: "move",           label: "Move",           sub: "Customer picks a new date",    accent: "#9C4E2B", tint: "#F5F3FF", charges: false, reschedules: true },
           { key: "bump",           label: "Bump",           sub: "We pick a new date",           accent: "#DB2777", tint: "#FDF2F8", charges: false, reschedules: true },
-          { key: "skip",           label: "Skip",           sub: "Customer skips this visit",    accent: "#D97706", tint: "#FFFBEB", charges: false },
-          { key: "cancel",         label: "Cancel",         sub: "Customer cancels (full fee)",  accent: "#DC2626", tint: "#FEF2F2", charges: true },
+          { key: "skip",           label: "Skip",           sub: "Customer skips this visit",    accent: "#B45309", tint: "#FDF3E4", charges: false },
+          { key: "cancel",         label: "Cancel",         sub: "Customer cancels (full fee)",  accent: "#B3261E", tint: "#FCEBEA", charges: true },
           { key: "lockout",        label: "Lockout",        sub: "Couldn't get in (full fee)",   accent: "#475569", tint: "#F1F5F9", charges: true },
-          { key: "cancel_service", label: "Cancel Service", sub: "End all future visits",        accent: "#991B1B", tint: "#FEF2F2", charges: false, ends_service: true },
+          { key: "cancel_service", label: "Cancel Service", sub: "End all future visits",        accent: "#B3261E", tint: "#FCEBEA", charges: false, ends_service: true },
         ];
         // [reclassify-lockout] When the job is already complete the operator
         // is reclassifying a finished job as a lockout / cancellation — only
@@ -4808,7 +4808,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                     {/* Charging actions */}
                     {selected.charges && (
                       <>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: cancelFeeWaived ? "#B91C1C" : selected.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: cancelFeeWaived ? "#B3261E" : selected.accent, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.04em" }}>
                           {cancelFeeWaived ? "Fee waived" : "Customer will be charged"}
                         </div>
                         <div style={{ fontSize: 24, fontWeight: 800, color: "#0A0E1A", lineHeight: 1.1 }}>
@@ -4889,9 +4889,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                             <button key={opt.m} type="button"
                               onClick={() => { setCancelFeeMode(opt.m); if (opt.m === "waive") setPayTechForCancel(false); else setPayTechForCancel(true); }}
                               style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 600, fontFamily: FF, cursor: "pointer",
-                                border: `1px solid ${on ? (opt.m === "waive" ? "#DC2626" : "var(--brand)") : "#E5E2DC"}`,
-                                background: on ? (opt.m === "waive" ? "#FEF2F2" : "#F0FBF8") : "#FFFFFF",
-                                color: on ? (opt.m === "waive" ? "#B91C1C" : "#0A6E5A") : "#6B6860" }}>
+                                border: `1px solid ${on ? (opt.m === "waive" ? "#B3261E" : "var(--brand)") : "#E5E2DC"}`,
+                                background: on ? (opt.m === "waive" ? "#FCEBEA" : "#F0FBF8") : "#FFFFFF",
+                                color: on ? (opt.m === "waive" ? "#B3261E" : "#0A6E5A") : "#6B6860" }}>
                               {opt.label}
                             </button>
                           );
@@ -4915,7 +4915,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                             style={{ width: 120, height: 36, padding: "0 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", background: "#FFFFFF", fontFamily: FF, boxSizing: "border-box" }} />
                         </div>
                       )}
-                      <div style={{ fontSize: 12.5, color: cancelFeeWaived ? "#B91C1C" : "#1A1917", fontWeight: 600 }}>
+                      <div style={{ fontSize: 12.5, color: cancelFeeWaived ? "#B3261E" : "#1A1917", fontWeight: 600 }}>
                         {cancelFeeWaived ? "Customer will not be charged (fee waived)." : `Customer charged $${cancelFeeAmount.toFixed(2)}.`}
                       </div>
 
@@ -5044,7 +5044,7 @@ function PS({ label, children }: { label: string; children: React.ReactNode }) {
   return <div style={{ marginBottom: 16 }}><div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em", color: "#9E9B94", marginBottom: 8 }}>{label}</div>{children}</div>;
 }
 function KV({ label, value, color }: { label: string; value: string; color?: string }) {
-  return <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: "#6B7280" }}>{label}</span><span style={{ color: color || "#1A1917", fontWeight: 600 }}>{value}</span></div>;
+  return <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}><span style={{ color: "#6B6860" }}>{label}</span><span style={{ color: color || "#1A1917", fontWeight: 600 }}>{value}</span></div>;
 }
 function PBadge({ count, label, color, bg, border }: { count: number; label: string; color: string; bg: string; border: string }) {
   return <div style={{ display: "flex", alignItems: "center", gap: 4, padding: "4px 10px", borderRadius: 6, backgroundColor: bg, border: `1px solid ${border}` }}><Camera size={12} style={{ color }} /><span style={{ fontSize: 11, color, fontWeight: 600 }}>{count} {label}</span></div>;
@@ -5090,7 +5090,7 @@ function JobPhotosModal({ jobId, onClose }: { jobId: number; onClose: () => void
       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 12, maxWidth: 900, width: "100%", maxHeight: "90vh", overflow: "auto", padding: 20, fontFamily: FF }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div style={{ fontSize: 15, fontWeight: 700, color: "#1A1917" }}>Job #{jobId} photos</div>
-          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#6B7280", lineHeight: 1 }}>×</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20, color: "#6B6860", lineHeight: 1 }}>×</button>
         </div>
         {loading ? (
           <div style={{ padding: 32, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>Loading photos…</div>
@@ -5154,10 +5154,10 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
       // same source the desktop Gantt chip fills with — so the whole card
       // outlines in the color that's on the board (a purple-zone job reads
       // purple on both). 2px for prominence. No-zone falls back to GRAY
-      // (#9CA3AF, desktop's ZONE_FALLBACK), NOT status-blue. Special-state
+      // (#9E9B94, desktop's ZONE_FALLBACK), NOT status-blue. Special-state
       // overrides (late red, unpaid amber, no-show dark-red) still win; the
       // animated active stripe rides inside the border.
-      border: `2px solid ${visual.borderOverride ?? job.zone_color ?? "#9CA3AF"}`,
+      border: `2px solid ${visual.borderOverride ?? job.zone_color ?? "#9E9B94"}`,
       fontFamily: FF, opacity: visual.bodyOpacity,
       filter: visual.desaturate ? "grayscale(1)" : "none", overflow: "hidden",
     }}>
@@ -5168,12 +5168,12 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
         }} />
       )}
       {visual.showCheckmark && (
-        <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
+        <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", backgroundColor: "#0F7A63", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2 }}>
           <Check size={11} color="#FFFFFF" strokeWidth={3} />
         </div>
       )}
       {visual.showNoShowBadge && (
-        <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "3px 7px", borderRadius: 4, letterSpacing: "0.05em", zIndex: 2 }}>
+        <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "3px 7px", borderRadius: 4, letterSpacing: "0.05em", zIndex: 2 }}>
           NO SHOW
         </div>
       )}
@@ -5216,7 +5216,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
               <span style={{
                 display: "inline-flex", alignItems: "center", gap: 4,
                 fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 12,
-                backgroundColor: "#FEE2E2", color: "#991B1B", border: "1px solid #FCA5A5",
+                backgroundColor: "#FCEBEA", color: "#B3261E", border: "1px solid #FCA5A5",
               }}>
                 <AlertTriangle size={10} />
                 {job.client_zip ? `Unmapped zip ${job.client_zip}` : "Zone missing"}
@@ -5256,7 +5256,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
           </span>
         )}
         {job.address && (
-          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B7280", flex: 1, minWidth: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B6860", flex: 1, minWidth: 0 }}>
             <MapPin size={12} style={{ color: "#9E9B94", flexShrink: 0 }} />
             <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{job.address}</span>
           </div>
@@ -5265,13 +5265,13 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
       {(job.assigned_user_name || job.clock_entry?.clock_in_at) && (
         <div style={{ display: "flex", gap: 12, marginTop: 8, alignItems: "center" }}>
           {job.assigned_user_name && (
-            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B7280" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B6860" }}>
               <User size={12} style={{ color: "#9E9B94" }} />
               {job.assigned_user_name}
             </div>
           )}
           {job.clock_entry?.clock_in_at && (
-            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#16A34A", fontWeight: 600 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#0F7A63", fontWeight: 600 }}>
               <Clock size={11} />
               Clocked in {fmtClock(job.clock_entry.clock_in_at)}
             </div>
@@ -5281,7 +5281,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
       {(job.before_photo_count > 0 || job.after_photo_count > 0) && (
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           {job.before_photo_count > 0 && <span style={{ fontSize: 11, color: "#0284C7", fontWeight: 600 }}><Camera size={10} style={{ display: "inline", marginRight: 3 }} />{job.before_photo_count} before</span>}
-          {job.after_photo_count > 0 && <span style={{ fontSize: 11, color: "#16A34A", fontWeight: 600 }}><Camera size={10} style={{ display: "inline", marginRight: 3 }} />{job.after_photo_count} after</span>}
+          {job.after_photo_count > 0 && <span style={{ fontSize: 11, color: "#0F7A63", fontWeight: 600 }}><Camera size={10} style={{ display: "inline", marginRight: 3 }} />{job.after_photo_count} after</span>}
         </div>
       )}
       <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid #F0EEE9", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -5313,15 +5313,15 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
             return <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>${total}</span>;
           })()}
           {job.est_pay_per_tech != null && job.est_pay_per_tech > 0 && (
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#16A34A" }}>· ${job.est_pay_per_tech.toFixed(2)} comm.</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: "#0F7A63" }}>· ${job.est_pay_per_tech.toFixed(2)} comm.</span>
           )}
           {job.charge_failed_at && !job.charge_succeeded_at && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#FEE2E2", color: "#991B1B" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#FCEBEA", color: "#B3261E" }}>
               <AlertTriangle size={9}/> Charge failed
             </span>
           )}
           {isCommercial && job.property_access_notes && (
-            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#FFFBEB", color: "#92400E" }}>
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "2px 6px", borderRadius: 4, background: "#FDF3E4", color: "#B45309" }}>
               <AlertTriangle size={9}/> Access req.
             </span>
           )}
@@ -5365,7 +5365,7 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
 
   const Row = ({ j }: { j: DispatchJob }) => {
     const visual = STATUS_VISUALS[getJobVisualStatus(j)];
-    const baseColor = j.zone_color || "#9CA3AF";
+    const baseColor = j.zone_color || "#9E9B94";
     // fillMuted (completed) drains the fill toward gray; text stays crisp.
     const color = visual.fillMuted ? muteZone(baseColor) : baseColor;
     const onDark = zoneLuminance(color) < 0.62;
@@ -5403,7 +5403,7 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
               {j.display_name ?? j.client_name}
             </div>
             {visual.showCheckmark && <Check size={15} color={ink} strokeWidth={3} style={{ flexShrink: 0, marginTop: 2 }} />}
-            {visual.showNoShowBadge && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "2px 6px", borderRadius: 4, letterSpacing: "0.03em" }}>NO SHOW</span>}
+            {visual.showNoShowBadge && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "2px 6px", borderRadius: 4, letterSpacing: "0.03em" }}>NO SHOW</span>}
             {amount && !visual.showNoShowBadge && <div style={{ flexShrink: 0, fontSize: 14, fontWeight: 800, color: ink }}>{amount}</div>}
           </div>
           {/* WHO — assigned tech (or Unassigned). */}
@@ -5426,10 +5426,10 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
   // NOW divider — inserted before the first job that starts at/after now.
   const NowMarker = () => (
     <div style={{ display: "flex", alignItems: "center", margin: "2px 0 10px" }}>
-      <div style={{ width: RAIL, flexShrink: 0, paddingRight: 10, textAlign: "right", fontSize: 10, fontWeight: 800, color: "#EF4444", letterSpacing: "0.04em" }}>NOW</div>
+      <div style={{ width: RAIL, flexShrink: 0, paddingRight: 10, textAlign: "right", fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</div>
       <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 0 }}>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#EF4444", flexShrink: 0 }} />
-        <div style={{ flex: 1, height: 2, backgroundColor: "#EF4444" }} />
+        <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
+        <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
       </div>
     </div>
   );
@@ -5481,7 +5481,7 @@ function muteZone(hex: string): string {
 // tech's name. Job colors in this app are ZONE-based (not per-tech), so this is
 // purely to visually distinguish people in the By-Employee grouping. Hashing the
 // name keeps each tech on one color across renders. Tenant-generic.
-const TECH_AVATAR_COLORS = ["#0FA3A3", "#8B3FBF", "#2D6BE0", "#D2691E", "#2D9B83", "#C2410C", "#6D28D9", "#0E7490", "#B45309", "#9D174D"];
+const TECH_AVATAR_COLORS = ["#0FA3A3", "#8B3FBF", "#2D6BE0", "#D2691E", "#0F7A63", "#C2410C", "#6D28D9", "#0E7490", "#B45309", "#9D174D"];
 function techAvatarColor(name: string): string {
   let h = 0;
   for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
@@ -5527,10 +5527,10 @@ function MiniCalendar({ value, onChange, jobDates }: { value: Date; onChange: (d
 // ─── DESKTOP: JOB HOVER CARD ────────────────────────────────────────────────
 // [Q2] Status pill — colored chip next to client name
 const STATUS_PILL: Record<string, { bg: string; fg: string; label: string }> = {
-  scheduled:   { bg: "#DBEAFE", fg: "#1D4ED8", label: "Scheduled" },
-  in_progress: { bg: "#FEF3C7", fg: "#92400E", label: "In Progress" },
-  complete:    { bg: "#DCFCE7", fg: "#15803D", label: "Complete" },
-  cancelled:   { bg: "#F3F4F6", fg: "#6B7280", label: "Cancelled" },
+  scheduled:   { bg: "#EFEFF2", fg: "#2F3646", label: "Scheduled" },
+  in_progress: { bg: "#FDF3E4", fg: "#B45309", label: "In Progress" },
+  complete:    { bg: "#E6F6F1", fg: "#15803D", label: "Complete" },
+  cancelled:   { bg: "#F0EEE9", fg: "#6B6860", label: "Cancelled" },
 };
 
 // [Q2] Human-readable payment_method labels. `manual` returns null → hide section.
@@ -5682,10 +5682,10 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
   // chip uses the raw zone_color at full opacity, with text color
   // flipping to dark on light zones (gold etc.) the same way the tile
   // does via zoneLuminance. Gray fallback when unmapped, dark text.
-  const zoneChipBg = job.zone_color || "#F3F4F6";
+  const zoneChipBg = job.zone_color || "#F0EEE9";
   const zoneChipIsLight = !job.zone_color || zoneLuminance(job.zone_color) > 0.65;
   const zoneChipFg = zoneChipIsLight ? "#1A1917" : "#FFFFFF";
-  const zoneChipMutedFg = zoneChipIsLight ? "#4B5563" : "rgba(255,255,255,0.85)";
+  const zoneChipMutedFg = zoneChipIsLight ? "#6B6860" : "rgba(255,255,255,0.85)";
   const zoneChipDot = zoneChipIsLight ? "rgba(0,0,0,0.55)" : "rgba(255,255,255,0.85)";
 
   return (
@@ -5724,7 +5724,7 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
           mapsDirectionsUrl(job.address) ? (
             <a href={mapsDirectionsUrl(job.address)!} target="_blank" rel="noreferrer"
               title="Tap to navigate in Google Maps"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 500, color: "#1D4ED8", lineHeight: 1.35, marginBottom: 8, textDecoration: "none" }}>
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 500, color: "#2F3646", lineHeight: 1.35, marginBottom: 8, textDecoration: "none" }}>
               <MapPin size={14} style={{ flexShrink: 0 }} />
               <span style={{ textDecoration: "underline" }}>{job.address}</span>
             </a>
@@ -5738,7 +5738,7 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
           <a
             href={`tel:${job.client_phone}`}
             onClick={e => e.stopPropagation()}
-            style={{ fontSize: 13, color: "#2D9B83", textDecoration: "none", fontWeight: 600, display: "inline-block" }}
+            style={{ fontSize: 13, color: "#0F7A63", textDecoration: "none", fontWeight: 600, display: "inline-block" }}
           >
             {job.client_phone}
           </a>
@@ -5779,8 +5779,8 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
 
       {/* ─── ENTRY INSTRUCTIONS (conditional) ─── */}
       {entryInstructions && (
-        <div style={{ padding: "16px 20px", borderBottom: sectionBorder, backgroundColor: "#FFFBEB" }}>
-          <div style={{ ...labelStyle, color: "#92400E" }}>Entry</div>
+        <div style={{ padding: "16px 20px", borderBottom: sectionBorder, backgroundColor: "#FDF3E4" }}>
+          <div style={{ ...labelStyle, color: "#B45309" }}>Entry</div>
           <div style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.45 }}>
             {entryInstructions.length > 180 ? entryInstructions.slice(0, 180) + "…" : entryInstructions}
           </div>
@@ -5850,8 +5850,8 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
               <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 17 }}>
                 <div style={{
                   width: 26, height: 26, borderRadius: "50%",
-                  backgroundColor: t.is_primary ? "#DCFCE7" : "#F3F4F6",
-                  color: t.is_primary ? "#15803D" : "#6B7280",
+                  backgroundColor: t.is_primary ? "#E6F6F1" : "#F0EEE9",
+                  color: t.is_primary ? "#15803D" : "#6B6860",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: 11, fontWeight: 700, flexShrink: 0,
                 }}>
@@ -5867,7 +5867,7 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
         ) : assignedName ? (
           <div style={valueStyle}>{assignedName}</div>
         ) : (
-          <div style={{ ...valueStyle, color: "#D97706" }}>Unassigned</div>
+          <div style={{ ...valueStyle, color: "#B45309" }}>Unassigned</div>
         )}
       </div>
 
@@ -5883,7 +5883,7 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
                   <span style={{ color: "#9E9B94" }}>In:</span>{" "}
                   {fmtClock(liveClock.clock_in_at)}
                   {d != null && (
-                    <span style={{ color: liveClock.clock_in_outside_geofence ? "#D97706" : "#9E9B94", marginLeft: 6 }}>
+                    <span style={{ color: liveClock.clock_in_outside_geofence ? "#B45309" : "#9E9B94", marginLeft: 6 }}>
                       ({Math.round(d)} ft{liveClock.clock_in_outside_geofence ? " · outside" : ""})
                     </span>
                   )}
@@ -5895,19 +5895,19 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
                 <span style={{ color: "#9E9B94" }}>Out:</span>{" "}
                 {fmtClock(liveClock.clock_out_at)}
                 {liveClock.clock_out_distance_ft != null && (
-                  <span style={{ color: liveClock.clock_out_outside_geofence ? "#D97706" : "#9E9B94", marginLeft: 6 }}>
+                  <span style={{ color: liveClock.clock_out_outside_geofence ? "#B45309" : "#9E9B94", marginLeft: 6 }}>
                     ({Math.round(liveClock.clock_out_distance_ft)} ft{liveClock.clock_out_outside_geofence ? " · outside" : ""})
                   </span>
                 )}
               </div>
             )}
             {liveClock.gps_missing && (
-              <div style={{ display: "flex", alignItems: "center", gap: 4, color: "#DC2626", fontWeight: 700, marginTop: 4 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 4, color: "#B3261E", fontWeight: 700, marginTop: 4 }}>
                 <AlertTriangle size={12} /> GPS unavailable — location not captured
               </div>
             )}
             {liveClock.is_flagged && !liveClock.gps_missing && (
-              <div style={{ color: "#D97706", fontWeight: 600, marginTop: 4 }}>Flagged</div>
+              <div style={{ color: "#B45309", fontWeight: 600, marginTop: 4 }}>Flagged</div>
             )}
           </div>
         </div>
@@ -6000,7 +6000,7 @@ function JobChip({
   const status = forceStatus ?? getJobVisualStatus(job);
   const visual = STATUS_VISUALS[status];
 
-  const ZONE_FALLBACK = "#9CA3AF";
+  const ZONE_FALLBACK = "#9E9B94";
   const bgColor = job.zone_color || ZONE_FALLBACK;
   const isLightZone = zoneLuminance(job.zone_color) > 0.65;
   // [2026-06-04] Completed bars drain their color (fillMuted) but keep the
@@ -6014,8 +6014,8 @@ function JobChip({
   // List sits on white, so always dark-on-white.
   const onZoneText = {
     primary:   isLightZone ? "#1A1917" : "#FFFFFF",
-    secondary: isLightZone ? "#4B5563" : "rgba(255,255,255,0.90)",
-    icon:      isLightZone ? "#6B7280" : "rgba(255,255,255,0.90)",
+    secondary: isLightZone ? "#6B6860" : "rgba(255,255,255,0.90)",
+    icon:      isLightZone ? "#6B6860" : "rgba(255,255,255,0.90)",
     pillBg:    isLightZone ? "rgba(0,0,0,0.10)" : "rgba(255,255,255,0.20)",
   };
   const onWhiteText = {
@@ -6170,12 +6170,12 @@ function JobChip({
           }} />
         )}
         {visual.showCheckmark && (
-          <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", zIndex: 3 }}>
+          <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", backgroundColor: "#0F7A63", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", zIndex: 3 }}>
             <Check size={11} color="#FFFFFF" strokeWidth={3} />
           </div>
         )}
         {visual.showNoShowBadge && (
-          <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "3px 7px", borderRadius: 4, letterSpacing: "0.05em", zIndex: 3 }}>
+          <div style={{ position: "absolute", top: 8, right: 8, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "3px 7px", borderRadius: 4, letterSpacing: "0.05em", zIndex: 3 }}>
             NO SHOW
           </div>
         )}
@@ -6188,7 +6188,7 @@ function JobChip({
           {body}
         </div>
         {/* Metadata footer — list-only context */}
-        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", paddingLeft: visual.stripe ? 8 : 0, fontSize: 12, color: "#6B7280" }}>
+        <div style={{ display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", paddingLeft: visual.stripe ? 8 : 0, fontSize: 12, color: "#6B6860" }}>
           {job.scheduled_time && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
               <Clock size={11} style={{ color: "#9E9B94" }} />
@@ -6203,7 +6203,7 @@ function JobChip({
           )}
           {job.zone_name && (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-              <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: job.zone_color || "#9CA3AF" }} />
+              <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: job.zone_color || "#9E9B94" }} />
               {job.zone_name}
             </span>
           )}
@@ -6236,7 +6236,7 @@ function JobChip({
         )}
         {body}
         {visual.showCheckmark && (
-          <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", zIndex: 3 }}>
+          <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", backgroundColor: "#0F7A63", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", zIndex: 3 }}>
             <Check size={10} color="#FFFFFF" strokeWidth={3} />
           </div>
         )}
@@ -6288,12 +6288,12 @@ function JobChip({
       )}
       {body}
       {visual.showCheckmark && (
-        <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", zIndex: 3 }}>
+        <div style={{ position: "absolute", top: -4, right: -4, width: 16, height: 16, borderRadius: "50%", backgroundColor: "#0F7A63", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 1px 3px rgba(0,0,0,0.2)", zIndex: 3 }}>
           <Check size={10} color="#FFFFFF" strokeWidth={3} />
         </div>
       )}
       {visual.showNoShowBadge && (
-        <div style={{ position: "absolute", top: -6, right: -2, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.05em", zIndex: 3, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
+        <div style={{ position: "absolute", top: -6, right: -2, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.05em", zIndex: 3, boxShadow: "0 1px 3px rgba(0,0,0,0.2)" }}>
           NO SHOW
         </div>
       )}
@@ -6367,7 +6367,7 @@ function JobChipBody({
               <span style={{
                 flexShrink: 0, fontSize: 8, fontWeight: 800,
                 padding: "1px 5px", borderRadius: 4,
-                backgroundColor: "#DC2626", color: "#FFFFFF",
+                backgroundColor: "#B3261E", color: "#FFFFFF",
                 letterSpacing: "0.05em", lineHeight: 1.2,
               }}>
                 LATE {lateMin}m
@@ -6680,7 +6680,7 @@ function EventChip({ ev, top, onDelete, onOpen }: { ev: DispatchEvent; top: numb
           title="Remove event"
           aria-label="Remove event"
           style={{ flexShrink: 0, border: "none", background: "none", padding: 0, cursor: "pointer", color: "#A39D90", display: "flex", alignItems: "center" }}
-          onMouseEnter={(e) => (e.currentTarget.style.color = "#B91C1C")}
+          onMouseEnter={(e) => (e.currentTarget.style.color = "#B3261E")}
           onMouseLeave={(e) => (e.currentTarget.style.color = "#A39D90")}
         >
           <X size={12} />
@@ -6708,7 +6708,7 @@ function CompanyDayBanner({ events, onDelete }: { events: DispatchEvent[]; onDel
               title="Remove event"
               aria-label="Remove event"
               style={{ marginLeft: "auto", border: "none", background: "none", padding: 4, cursor: "pointer", color: "#A39D90", display: "flex", alignItems: "center", flexShrink: 0 }}
-              onMouseEnter={(e) => (e.currentTarget.style.color = "#B91C1C")}
+              onMouseEnter={(e) => (e.currentTarget.style.color = "#B3261E")}
               onMouseLeave={(e) => (e.currentTarget.style.color = "#A39D90")}
             >
               <X size={14} />
@@ -6832,7 +6832,7 @@ function EmployeeRow({ employee, onChipClick, nowLine, events = [], onDeleteEven
               onMouseLeave={(e) => { e.currentTarget.style.textDecoration = "none"; }}
             >{employee.name}</span>
             {employee.is_trainee && (
-              <span title="In training — first 3 weeks from hire date" style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, letterSpacing: "0.05em", color: "#92400E", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 4, padding: "1px 5px", textTransform: "uppercase" }}>Trainee</span>
+              <span title="In training — first 3 weeks from hire date" style={{ flexShrink: 0, fontSize: 8, fontWeight: 800, letterSpacing: "0.05em", color: "#B45309", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 4, padding: "1px 5px", textTransform: "uppercase" }}>Trainee</span>
             )}
             {employee.zone && <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: employee.zone.zone_color, flexShrink: 0 }} title={employee.zone.zone_name} />}
           </div>
@@ -6847,7 +6847,7 @@ function EmployeeRow({ employee, onChipClick, nowLine, events = [], onDeleteEven
           <div style={{ fontSize: 10, color: "#6B6860", marginTop: 1, whiteSpace: "nowrap" }}>
             {employee.jobs.length}j · {(totalMins / 60).toFixed(1)}h · {fmtUSD(revenue)}
           </div>
-          <div style={{ fontSize: 10, color: "#2D9B83", fontWeight: 700, marginTop: 1, display: "flex", alignItems: "baseline", gap: 4 }}>
+          <div style={{ fontSize: 10, color: "#0F7A63", fontWeight: 700, marginTop: 1, display: "flex", alignItems: "baseline", gap: 4 }}>
             {fmtUSD(pay)}
             <span style={{ fontSize: 8, fontWeight: 800, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em" }}>pay</span>
           </div>
@@ -6866,7 +6866,7 @@ function EmployeeRow({ employee, onChipClick, nowLine, events = [], onDeleteEven
           if (band.width <= 0) return null;
           return <div style={{ position: "absolute", left: band.left, width: band.width, top: 0, bottom: 0, backgroundColor: timeOffBg, zIndex: 0, pointerEvents: "none" }} />;
         })()}
-        {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
+        {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#B3261E", zIndex: 3, pointerEvents: "none" }} />}
         {employee.jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} assignedName={employee.name} top={topById.get(j.id) ?? 10} />)}
         {events.map(ev => <EventChip key={`ev-${ev.id}`} ev={ev} top={eventTop(eventLaneById.get(ev.id) ?? 0)} onDelete={(e) => onDeleteEvent?.(e)} onOpen={onOpenEvent} />)}
         {employee.jobs.length === 0 && events.length === 0 && (
@@ -6893,17 +6893,17 @@ function UnassignedGanttRow({ jobs, onChipClick, nowLine }: { jobs: DispatchJob[
   // lane is the most overlap-prone (fresh imports land here clustered).
   const { topById, rowHeight } = packLanes(jobs);
   return (
-    <div style={{ display: "flex", borderBottom: "2px solid #FCD34D", height: rowHeight }}>
-      <div style={{ position: "sticky", left: 0, zIndex: 5, width: COL_W, flexShrink: 0, backgroundColor: "#FFFBEB", borderRight: "1px solid #FCD34D", display: "flex", alignItems: "center", padding: "0 12px", gap: 9 }}>
-        <div style={{ width: 32, height: 32, borderRadius: "50%", backgroundColor: "#FEF3C7", color: "#92400E", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, flexShrink: 0 }}>?</div>
+    <div style={{ display: "flex", borderBottom: "2px solid #F2DFB8", height: rowHeight }}>
+      <div style={{ position: "sticky", left: 0, zIndex: 5, width: COL_W, flexShrink: 0, backgroundColor: "#FDF3E4", borderRight: "1px solid #F2DFB8", display: "flex", alignItems: "center", padding: "0 12px", gap: 9 }}>
+        <div style={{ width: 32, height: 32, borderRadius: "50%", backgroundColor: "#FDF3E4", color: "#B45309", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 800, flexShrink: 0 }}>?</div>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: "#92400E" }}>Unassigned</div>
-          <div style={{ fontSize: 10, color: "#D97706", marginTop: 1 }}>{jobs.length} job{jobs.length !== 1 ? "s" : ""} · needs assignment</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: "#B45309" }}>Unassigned</div>
+          <div style={{ fontSize: 10, color: "#B45309", marginTop: 1 }}>{jobs.length} job{jobs.length !== 1 ? "s" : ""} · needs assignment</div>
         </div>
       </div>
-      <div style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: rowHeight, backgroundColor: "#FFFBEB88" }}>
+      <div style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: rowHeight, backgroundColor: "#FDF3E488" }}>
         {TIMES.map((_, i) => <div key={i} style={{ position: "absolute", left: i * SLOT_W, top: 0, bottom: 0, width: SLOT_W, pointerEvents: "none", backgroundColor: Math.floor(i / 2) % 2 === 1 ? "rgba(180,120,20,0.05)" : "transparent", borderRight: i % 2 === 1 ? "1px solid #F2CE73" : "1px dotted #FCEBB8" }} />)}
-        {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#EF4444", zIndex: 3, pointerEvents: "none" }} />}
+        {nowLine >= 0 && nowLine <= TOTAL_SLOTS * SLOT_W && <div style={{ position: "absolute", left: nowLine, top: 0, bottom: 0, width: 2, backgroundColor: "#B3261E", zIndex: 3, pointerEvents: "none" }} />}
         {jobs.map(j => <JobChip key={j.id} job={j} onClick={onChipClick} isUnassigned top={topById.get(j.id) ?? 10} />)}
       </div>
     </div>
@@ -6967,9 +6967,9 @@ const ATTENDANCE_KIND_VISUALS: Record<
   AttendanceProposalRow["kind"],
   { swatch: string; border: string; label: string }
 > = {
-  late: { swatch: STATUS_VISUALS.late_clockin.borderOverride ?? "#DC2626", border: "#DC2626", label: "Late" },
+  late: { swatch: STATUS_VISUALS.late_clockin.borderOverride ?? "#B3261E", border: "#B3261E", label: "Late" },
   short: { swatch: "#F59E0B", border: "#F59E0B", label: "Short" },
-  no_show: { swatch: STATUS_VISUALS.no_show.swatch, border: STATUS_VISUALS.no_show.borderOverride ?? "#991B1B", label: "No-show" },
+  no_show: { swatch: STATUS_VISUALS.no_show.swatch, border: STATUS_VISUALS.no_show.borderOverride ?? "#B3261E", label: "No-show" },
   missing_clockout: { swatch: "#BA7517", border: "#BA7517", label: "Missing clock-out" },
 };
 
@@ -7131,7 +7131,7 @@ function AttendanceOverlayDrawer({
               style={{
                 padding: "6px 12px",
                 border: "1.5px solid #E5E2DC",
-                backgroundColor: "#FAFAF9",
+                backgroundColor: "#F7F6F3",
                 color: "#1A1917",
                 borderRadius: 7,
                 fontSize: 12,
@@ -7499,7 +7499,7 @@ function AttendanceProposalCard({
             style={{
               padding: "6px 12px",
               border: "1.5px solid #E5E2DC",
-              backgroundColor: busy ? "#E5E2DC" : "#FAFAF9",
+              backgroundColor: busy ? "#E5E2DC" : "#F7F6F3",
               color: "#1A1917",
               borderRadius: 6,
               fontSize: 12,
@@ -8213,7 +8213,7 @@ export default function JobsPage() {
             <div style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", marginBottom: 10 }}>Jobs</div>
             {/* Date navigation */}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <button onClick={() => setSelectedDate(d => addDays(d, -1))} style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#6B7280" }}><ChevronLeft size={16} /></button>
+              <button onClick={() => setSelectedDate(d => addDays(d, -1))} style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#6B6860" }}><ChevronLeft size={16} /></button>
               {/* Tap the date label to open the month picker — saves
                   chevron-stepping a day at a time. */}
               <button
@@ -8226,7 +8226,7 @@ export default function JobsPage() {
                 </div>
                 {isToday && <div style={{ fontSize: 11, color: "#9E9B94" }}>{selectedDate.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}</div>}
               </button>
-              <button onClick={() => setSelectedDate(d => addDays(d, 1))} style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#6B7280" }}><ChevronRight size={16} /></button>
+              <button onClick={() => setSelectedDate(d => addDays(d, 1))} style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: "#6B6860" }}><ChevronRight size={16} /></button>
             </div>
           </div>
 
@@ -8255,7 +8255,7 @@ export default function JobsPage() {
                 <div style={{ fontSize: 12, color: "#6B6860", fontWeight: 600 }}>
                   · {weekSummary.total_jobs} jobs
                   {weekSummary.total_unassigned > 0 && (
-                    <span style={{ color: "#DC2626", marginLeft: 6 }}>· {weekSummary.total_unassigned} unassigned</span>
+                    <span style={{ color: "#B3261E", marginLeft: 6 }}>· {weekSummary.total_unassigned} unassigned</span>
                   )}
                 </div>
               </div>
@@ -8305,8 +8305,8 @@ export default function JobsPage() {
           {/* [AI.7] NEEDS ATTENTION — only renders when items exist for today.
               Tappable rows deep-link to the job/dispatch action. */}
           {isToday && attentionCount > 0 && (
-            <div style={{ backgroundColor: "#FEF3C7", borderBottom: "1px solid #FCD34D", padding: "10px 16px" }}>
-              <div style={{ fontSize: 10, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
+            <div style={{ backgroundColor: "#FDF3E4", borderBottom: "1px solid #F2DFB8", padding: "10px 16px" }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8 }}>
                 Needs Attention ({attentionCount})
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -8317,7 +8317,7 @@ export default function JobsPage() {
                   return (
                     <button key={`late-${job.id}`} onClick={() => setSelectedJob(job)}
                       style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, border: "none", background: "rgba(255,255,255,0.6)", cursor: "pointer", textAlign: "left", fontFamily: FF, width: "100%" }}>
-                      <Clock size={14} color="#DC2626" />
+                      <Clock size={14} color="#B3261E" />
                       {hasZoneL && (
                         <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: job.zone_color!, flexShrink: 0 }} title={job.zone_name!} />
                       )}
@@ -8337,7 +8337,7 @@ export default function JobsPage() {
                   return (
                     <button key={`unassigned-${job.id}`} onClick={() => setSelectedJob(job)}
                       style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, border: "none", background: "rgba(255,255,255,0.6)", cursor: "pointer", textAlign: "left", fontFamily: FF, width: "100%" }}>
-                      <AlertTriangle size={14} color="#D97706" />
+                      <AlertTriangle size={14} color="#B45309" />
                       {hasZoneU && (
                         <span style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: job.zone_color!, flexShrink: 0 }} title={job.zone_name!} />
                       )}
@@ -8350,7 +8350,7 @@ export default function JobsPage() {
                 })}
                 {missingAddress.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: "rgba(255,255,255,0.6)" }}>
-                    <AlertTriangle size={14} color="#DC2626" />
+                    <AlertTriangle size={14} color="#B3261E" />
                     <span style={{ fontSize: 12, color: "#1A1917", fontWeight: 600 }}>
                       {missingAddress.length} job{missingAddress.length !== 1 ? "s" : ""} missing address
                     </span>
@@ -8358,7 +8358,7 @@ export default function JobsPage() {
                 )}
                 {missingZone.length > 0 && (
                   <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, background: "rgba(255,255,255,0.6)" }}>
-                    <AlertTriangle size={14} color="#DC2626" />
+                    <AlertTriangle size={14} color="#B3261E" />
                     <span style={{ fontSize: 12, color: "#1A1917", fontWeight: 600 }}>
                       {missingZone.length} job{missingZone.length !== 1 ? "s" : ""} missing zone — fix client zip
                     </span>
@@ -8373,7 +8373,7 @@ export default function JobsPage() {
             {/* Zone dropdown */}
             {zones.length > 0 && (
               <div ref={zoneDropdownRef} style={{ position: "relative" }}>
-                <button onClick={() => setZoneDropdownOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: "#FAFAF9", color: "#6B7280", cursor: "pointer", fontFamily: FF }}>
+                <button onClick={() => setZoneDropdownOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: "#F7F6F3", color: "#6B6860", cursor: "pointer", fontFamily: FF }}>
                   {selectedZoneFilter !== null ? (
                     <>
                       <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: zones.find(z => z.id === selectedZoneFilter)?.color, flexShrink: 0 }} />
@@ -8387,7 +8387,7 @@ export default function JobsPage() {
                     <button onClick={() => { setSelectedZoneFilter(null); setZoneDropdownOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "transparent", color: selectedZoneFilter === null ? "var(--brand)" : "#1A1917", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>All Zones</button>
                     {zoneGroups.map((g, gi) => (
                       <div key={gi}>
-                        {g.label && <div style={{ padding: "6px 12px 3px", fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", backgroundColor: "#FAFAF9", borderTop: gi > 0 ? "1px solid #F0EEE9" : "none" }}>{g.label}</div>}
+                        {g.label && <div style={{ padding: "6px 12px 3px", fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", backgroundColor: "#F7F6F3", borderTop: gi > 0 ? "1px solid #F0EEE9" : "none" }}>{g.label}</div>}
                         {g.zones.map(z => (
                           <button key={z.id} onClick={() => { setSelectedZoneFilter(z.id); setZoneDropdownOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === z.id ? `${z.color}18` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                             <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
@@ -8404,7 +8404,7 @@ export default function JobsPage() {
             {/* [AI.7.5] Mobile Legend button — opens bottom-sheet popover. */}
             <button
               onClick={() => setLegendOpen(o => !o)}
-              style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: "#FAFAF9", color: "#6B7280", cursor: "pointer", fontFamily: FF, marginLeft: "auto" }}
+              style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: "#F7F6F3", color: "#6B6860", cursor: "pointer", fontFamily: FF, marginLeft: "auto" }}
               title="Show status legend"
             >
               <Info size={11} />
@@ -8422,7 +8422,7 @@ export default function JobsPage() {
                   flex: 1, textAlign: "center", border: "none", cursor: "pointer", fontFamily: FF,
                   fontSize: 12, fontWeight: 700, padding: "7px 0", borderRadius: 7,
                   backgroundColor: mobileViewMode === val ? "#FFFFFF" : "transparent",
-                  color: mobileViewMode === val ? "#1A1917" : "#6B7280",
+                  color: mobileViewMode === val ? "#1A1917" : "#6B6860",
                   boxShadow: mobileViewMode === val ? "0 1px 2px rgba(0,0,0,0.08)" : "none",
                   transition: "background 0.15s",
                 }}>{label}</button>
@@ -8456,7 +8456,7 @@ export default function JobsPage() {
             ) : allJobs.length === 0 ? (
               <div style={{ textAlign: "center", padding: 32 }}>
                 <Calendar size={32} style={{ color: "#D0CEC9", marginBottom: 10 }} />
-                <div style={{ fontSize: 14, fontWeight: 700, color: "#6B7280", marginBottom: 4 }}>No jobs {isToday ? "today" : "this day"}{selectedZoneFilter !== null ? " in this zone" : ""}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: "#6B6860", marginBottom: 4 }}>No jobs {isToday ? "today" : "this day"}{selectedZoneFilter !== null ? " in this zone" : ""}</div>
                 <div style={{ fontSize: 12, color: "#9E9B94" }}>Tap "+ New Job" to schedule one</div>
               </div>
             ) : mobileViewMode === "grid" ? (
@@ -8483,7 +8483,7 @@ export default function JobsPage() {
                   return (
                     <div key={name} style={{ marginBottom: 4 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 9, margin: "12px 2px 8px" }}>
-                        <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isUn ? "#9CA3AF" : techAvatarColor(name) }}>
+                        <div style={{ width: 26, height: 26, borderRadius: "50%", flexShrink: 0, color: "#fff", fontSize: 11, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: isUn ? "#9E9B94" : techAvatarColor(name) }}>
                           {isUn ? "?" : techInitials(name)}
                         </div>
                         <div style={{ fontSize: 14, fontWeight: 700, color: isUn ? "#B45309" : "#1A1917", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{name}</div>
@@ -8546,7 +8546,7 @@ export default function JobsPage() {
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 11, color: "#6B6860", fontWeight: 700 }}>
                           {d.unassigned_count > 0 && (
-                            <span style={{ fontSize: 10, fontWeight: 800, color: "#991B1B", background: "#FEE2E2", padding: "2px 6px", borderRadius: 4 }}>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: "#B3261E", background: "#FCEBEA", padding: "2px 6px", borderRadius: 4 }}>
                               {d.unassigned_count} unass
                             </span>
                           )}
@@ -8555,7 +8555,7 @@ export default function JobsPage() {
                         </div>
                       </button>
                       {isOpen && (
-                        <div style={{ borderTop: "1px solid #F0EEE9", backgroundColor: "#FAFAF9" }}>
+                        <div style={{ borderTop: "1px solid #F0EEE9", backgroundColor: "#F7F6F3" }}>
                           {isLoadingDay && !dayData ? (
                             <div style={{ padding: 14, textAlign: "center", fontSize: 12, color: "#9E9B94" }}>Loading...</div>
                           ) : !dayData ? (
@@ -8591,7 +8591,7 @@ export default function JobsPage() {
                                   {hasZoneRow ? (
                                     <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: j.zone_color!, flexShrink: 0 }} />
                                   ) : (
-                                    <AlertTriangle size={10} color="#DC2626" style={{ flexShrink: 0 }} />
+                                    <AlertTriangle size={10} color="#B3261E" style={{ flexShrink: 0 }} />
                                   )}
                                   <span style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", width: 56, flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>
                                     {j.scheduled_time ? fmtTime(j.scheduled_time) : "—"}
@@ -8605,14 +8605,14 @@ export default function JobsPage() {
                                         {tech}
                                       </div>
                                     ) : (
-                                      <div style={{ fontSize: 10, color: "#DC2626", fontWeight: 700 }}>Unassigned</div>
+                                      <div style={{ fontSize: 10, color: "#B3261E", fontWeight: 700 }}>Unassigned</div>
                                     )}
                                   </div>
                                   {visualRow.showCheckmark && (
-                                    <Check size={12} color="#16A34A" strokeWidth={3} style={{ flexShrink: 0 }} />
+                                    <Check size={12} color="#0F7A63" strokeWidth={3} style={{ flexShrink: 0 }} />
                                   )}
                                   {visualRow.showNoShowBadge && (
-                                    <span style={{ fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.05em", flexShrink: 0 }}>
+                                    <span style={{ fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "2px 5px", borderRadius: 3, letterSpacing: "0.05em", flexShrink: 0 }}>
                                       NO SHOW
                                     </span>
                                   )}
@@ -8679,12 +8679,12 @@ export default function JobsPage() {
               <div style={{ width: 58, flexShrink: 0, display: "flex" }}>
                 {!isToday && <button onClick={() => { const t = new Date(); t.setHours(0,0,0,0); setSelectedDate(t); }} style={{ border: "1px solid var(--brand)", background: "var(--brand-dim)", borderRadius: 6, padding: "5px 10px", cursor: "pointer", fontSize: 11, fontWeight: 700, color: "var(--brand)" }}>Today</button>}
               </div>
-              <button onClick={() => setSelectedDate(d => addDays(d, -1))} style={{ border: "1px solid #E5E2DC", background: "#FAFAF9", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", color: "#6B7280" }}><ChevronLeft size={14} /></button>
+              <button onClick={() => setSelectedDate(d => addDays(d, -1))} style={{ border: "1px solid #E5E2DC", background: "#F7F6F3", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", color: "#6B6860" }}><ChevronLeft size={14} /></button>
 
               {/* Calendar popover trigger */}
               <div style={{ position: "relative" }}>
                 <button onClick={() => setCalendarOpen(o => !o)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E5E2DC", background: calendarOpen ? "var(--brand-dim)" : "#FAFAF9", borderRadius: 6, padding: "5px 12px", cursor: "pointer", minWidth: 170, justifyContent: "center" }}>
+                  style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid #E5E2DC", background: calendarOpen ? "var(--brand-dim)" : "#F7F6F3", borderRadius: 6, padding: "5px 12px", cursor: "pointer", minWidth: 170, justifyContent: "center" }}>
                   <Calendar size={13} style={{ color: "var(--brand)", flexShrink: 0 }} />
                   <span style={{ fontSize: 13, fontWeight: 800, color: "#1A1917" }}>{isToday ? "Today — " : ""}{dayLabel}</span>
                 </button>
@@ -8698,17 +8698,17 @@ export default function JobsPage() {
                 )}
               </div>
 
-              <button onClick={() => setSelectedDate(d => addDays(d, 1))} style={{ border: "1px solid #E5E2DC", background: "#FAFAF9", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", color: "#6B7280" }}><ChevronRight size={14} /></button>
+              <button onClick={() => setSelectedDate(d => addDays(d, 1))} style={{ border: "1px solid #E5E2DC", background: "#F7F6F3", borderRadius: 6, padding: "5px 8px", cursor: "pointer", display: "flex", color: "#6B6860" }}><ChevronRight size={14} /></button>
             </div>
 
             <div style={{ display: "flex", gap: 8, marginLeft: "auto", alignItems: "center", flexWrap: "nowrap" }}>
               {/* Stats pills */}
               {data && [
                 { label: `${stats.total} jobs`, color: "#1A1917", bg: "#F7F6F3" },
-                { label: `${stats.complete} done`, color: "#16A34A", bg: "#DCFCE7" },
-                ...(stats.inProgress > 0 ? [{ label: `${stats.inProgress} active`, color: "#D97706", bg: "#FEF3C7" }] : []),
+                { label: `${stats.complete} done`, color: "#0F7A63", bg: "#E6F6F1" },
+                ...(stats.inProgress > 0 ? [{ label: `${stats.inProgress} active`, color: "#B45309", bg: "#FDF3E4" }] : []),
                 { label: `$${stats.revenue.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} rev`, color: "var(--brand)", bg: "var(--brand-dim)" },
-                ...(stats.unassigned > 0 ? [{ label: `${stats.unassigned} unassigned`, color: "#DC2626", bg: "#FEE2E2" }] : []),
+                ...(stats.unassigned > 0 ? [{ label: `${stats.unassigned} unassigned`, color: "#B3261E", bg: "#FCEBEA" }] : []),
               ].map(s => (
                 <span key={s.label} style={{ fontSize: 11, fontWeight: 700, color: s.color, backgroundColor: s.bg, padding: "3px 8px", borderRadius: 20, whiteSpace: "nowrap" }}>{s.label}</span>
               ))}
@@ -8718,7 +8718,7 @@ export default function JobsPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <div style={{ width: 1, height: 18, backgroundColor: "#E5E2DC" }} />
                   <div ref={branchDropdownRef} style={{ position: "relative" }}>
-                    <button onClick={() => setBranchDropdownOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: selectedBranchFilter !== "all" ? "var(--brand-dim)" : "#FAFAF9", color: selectedBranchFilter !== "all" ? "var(--brand)" : "#6B7280", cursor: "pointer", fontFamily: FF }}>
+                    <button onClick={() => setBranchDropdownOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: selectedBranchFilter !== "all" ? "var(--brand-dim)" : "#F7F6F3", color: selectedBranchFilter !== "all" ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF }}>
                       {selectedBranchFilter === "oak_lawn" ? "Oak Lawn" : selectedBranchFilter === "schaumburg" ? "Schaumburg" : "All Branches"}
                       <ChevronDown size={11} />
                     </button>
@@ -8738,7 +8738,7 @@ export default function JobsPage() {
                 <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
                   <div style={{ width: 1, height: 18, backgroundColor: "#E5E2DC" }} />
                   <div ref={zoneDropdownRef} style={{ position: "relative" }}>
-                    <button onClick={() => setZoneDropdownOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: "#FAFAF9", color: "#6B7280", cursor: "pointer", fontFamily: FF }}>
+                    <button onClick={() => setZoneDropdownOpen(v => !v)} style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "4px 9px", borderRadius: 6, border: "1.5px solid #E5E2DC", backgroundColor: "#F7F6F3", color: "#6B6860", cursor: "pointer", fontFamily: FF }}>
                       {selectedZoneFilter !== null ? (
                         <>
                           <div style={{ width: 7, height: 7, borderRadius: "50%", backgroundColor: zones.find(z => z.id === selectedZoneFilter)?.color, flexShrink: 0 }} />
@@ -8752,7 +8752,7 @@ export default function JobsPage() {
                         <button onClick={() => { setSelectedZoneFilter(null); setZoneDropdownOpen(false); }} style={{ display: "block", width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === null ? "var(--brand-dim)" : "transparent", color: selectedZoneFilter === null ? "var(--brand)" : "#1A1917", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>All Zones</button>
                         {zoneGroups.map((g, gi) => (
                           <div key={gi}>
-                            {g.label && <div style={{ padding: "6px 12px 3px", fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", backgroundColor: "#FAFAF9", borderTop: gi > 0 ? "1px solid #F0EEE9" : "none" }}>{g.label}</div>}
+                            {g.label && <div style={{ padding: "6px 12px 3px", fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94", backgroundColor: "#F7F6F3", borderTop: gi > 0 ? "1px solid #F0EEE9" : "none" }}>{g.label}</div>}
                             {g.zones.map(z => (
                               <button key={z.id} onClick={() => { setSelectedZoneFilter(z.id); setZoneDropdownOpen(false); }} style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 12px", border: "none", backgroundColor: selectedZoneFilter === z.id ? `${z.color}18` : "transparent", color: selectedZoneFilter === z.id ? z.color : "#1A1917", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                                 <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: z.color, flexShrink: 0 }} />
@@ -8776,7 +8776,7 @@ export default function JobsPage() {
                   setLegendAnchor(legendBtnRef.current?.getBoundingClientRect() ?? null);
                   setLegendOpen(o => !o);
                 }}
-                style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 7, border: "1.5px solid #E5E2DC", backgroundColor: legendOpen ? "var(--brand-dim)" : "#FAFAF9", color: legendOpen ? "var(--brand)" : "#6B7280", cursor: "pointer", fontFamily: FF, flexShrink: 0 }}
+                style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, fontWeight: 700, padding: "5px 10px", borderRadius: 7, border: "1.5px solid #E5E2DC", backgroundColor: legendOpen ? "var(--brand-dim)" : "#F7F6F3", color: legendOpen ? "var(--brand)" : "#6B6860", cursor: "pointer", fontFamily: FF, flexShrink: 0 }}
                 title="Show status legend"
               >
                 <Info size={12} />
@@ -8785,8 +8785,8 @@ export default function JobsPage() {
 
               {/* View toggle */}
               <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
-                <button title="Timeline view — techs as rows, time across the top" onClick={() => setDesktopView("timeline")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "timeline" ? "var(--brand)" : "#FAFAF9", color: desktopView === "timeline" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><Calendar size={14} /> Timeline</button>
-                <button title="List view — one card per job, stacked" onClick={() => setDesktopView("list")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "list" ? "var(--brand)" : "#FAFAF9", color: desktopView === "list" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><List size={14} /> List</button>
+                <button title="Timeline view — techs as rows, time across the top" onClick={() => setDesktopView("timeline")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "timeline" ? "var(--brand)" : "#F7F6F3", color: desktopView === "timeline" ? "#fff" : "#6B6860", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><Calendar size={14} /> Timeline</button>
+                <button title="List view — one card per job, stacked" onClick={() => setDesktopView("list")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: desktopView === "list" ? "var(--brand)" : "#F7F6F3", color: desktopView === "list" ? "#fff" : "#6B6860", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600 }}><List size={14} /> List</button>
               </div>
 
               {/* Tech-row sort toggle. "By time" floats whoever starts first
@@ -8796,8 +8796,8 @@ export default function JobsPage() {
                   sticks per browser. */}
               {desktopView === "timeline" && (
                 <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
-                  <button title="Sort tech rows by their earliest scheduled job" onClick={() => setTechSortMode("by_time")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: techSortMode === "by_time" ? "var(--brand)" : "#FAFAF9", color: techSortMode === "by_time" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, fontFamily: FF }}>By time</button>
-                  <button title="Sort tech rows alphabetically (MaidCentral parity — same tech, same place every day)" onClick={() => setTechSortMode("static")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: techSortMode === "static" ? "var(--brand)" : "#FAFAF9", color: techSortMode === "static" ? "#fff" : "#6B7280", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, fontFamily: FF }}>Static</button>
+                  <button title="Sort tech rows by their earliest scheduled job" onClick={() => setTechSortMode("by_time")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: techSortMode === "by_time" ? "var(--brand)" : "#F7F6F3", color: techSortMode === "by_time" ? "#fff" : "#6B6860", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, fontFamily: FF }}>By time</button>
+                  <button title="Sort tech rows alphabetically (MaidCentral parity — same tech, same place every day)" onClick={() => setTechSortMode("static")} style={{ padding: "5px 10px", border: "none", cursor: "pointer", backgroundColor: techSortMode === "static" ? "var(--brand)" : "#F7F6F3", color: techSortMode === "static" ? "#fff" : "#6B6860", display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, fontFamily: FF }}>Static</button>
                 </div>
               )}
 
@@ -8813,7 +8813,7 @@ export default function JobsPage() {
                     border: "1.5px solid #E5E2DC",
                     borderRadius: 7,
                     cursor: "pointer",
-                    backgroundColor: "#FAFAF9",
+                    backgroundColor: "#F7F6F3",
                     color: "#1A1917",
                     display: "flex",
                     alignItems: "center",
@@ -8907,8 +8907,8 @@ export default function JobsPage() {
             ) : desktopView === "timeline" ? (
               <div ref={timelineRef} style={{ flex: 1, overflow: "auto" }}>
                 {/* Time header */}
-                <div style={{ display: "flex", position: "sticky", top: 0, zIndex: 10, backgroundColor: "#FAFAF9", borderBottom: "1px solid #E5E2DC" }}>
-                  <div style={{ width: COL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 11, backgroundColor: "#FAFAF9", borderRight: "1px solid #E5E2DC", padding: "8px 12px" }}>
+                <div style={{ display: "flex", position: "sticky", top: 0, zIndex: 10, backgroundColor: "#F7F6F3", borderBottom: "1px solid #E5E2DC" }}>
+                  <div style={{ width: COL_W, flexShrink: 0, position: "sticky", left: 0, zIndex: 11, backgroundColor: "#F7F6F3", borderRight: "1px solid #E5E2DC", padding: "8px 12px" }}>
                     <span style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", color: "#9E9B94" }}>Technician</span>
                   </div>
                   {TIMES.map((t, i) => (
@@ -8920,7 +8920,7 @@ export default function JobsPage() {
                 {filteredData && filteredData.employees.every(e => e.jobs.length === 0) && filteredData.unassigned_jobs.length === 0 && events.length === 0 ? (
                   <div style={{ padding: 60, textAlign: "center" }}>
                     <Calendar size={40} style={{ color: "#D0CEC9", marginBottom: 14 }} />
-                    <div style={{ fontSize: 16, fontWeight: 700, color: "#6B7280", marginBottom: 6 }}>No jobs scheduled {isToday ? "today" : "this day"}{selectedZoneFilter !== null ? ` in this zone` : ""}</div>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: "#6B6860", marginBottom: 6 }}>No jobs scheduled {isToday ? "today" : "this day"}{selectedZoneFilter !== null ? ` in this zone` : ""}</div>
                     <div style={{ fontSize: 13, color: "#9E9B94" }}>{selectedZoneFilter !== null ? "Try clearing the zone filter or pick a different day" : "Click \"+ New Job\" to get started"}</div>
                   </div>
                 ) : (
@@ -9012,7 +9012,7 @@ export default function JobsPage() {
                                 Est. {(estH ?? 0).toFixed(1)} hrs
                               </span>
                               {payValue != null && payValue > 0 && (
-                                <span style={{ fontWeight: 700, color: "#16A34A" }}>
+                                <span style={{ fontWeight: 700, color: "#0F7A63" }}>
                                   · ${payValue.toFixed(2)} {payLabel}
                                 </span>
                               )}

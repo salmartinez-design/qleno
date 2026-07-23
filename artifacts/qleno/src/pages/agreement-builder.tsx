@@ -48,7 +48,7 @@ function MergeVariablesPanel() {
               fontSize: 11, fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
               padding: "4px 8px", borderRadius: 6, cursor: "pointer",
               border: `1px solid ${copied === v.token ? "var(--brand)" : "#E5E2DC"}`,
-              background: copied === v.token ? "#ECFDF5" : "#fff",
+              background: copied === v.token ? "#E6F6F1" : "#fff",
               color: copied === v.token ? "#065F46" : "#1A1917",
             }}
           >
@@ -69,7 +69,7 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
 const CATEGORY_LABELS: Record<string, { label: string; color: string }> = {
   residential: { label: "Residential", color: "var(--brand)" },
   commercial: { label: "Commercial", color: "#7F77DD" },
-  both: { label: "Both", color: "#6B7280" },
+  both: { label: "Both", color: "#6B6860" },
 };
 
 const TYPE_LABELS: Record<string, { label: string; icon: any }> = {
@@ -82,9 +82,9 @@ const TYPE_LABELS: Record<string, { label: string; icon: any }> = {
 
 const STATUS_CONFIG = {
   signed: { label: "SIGNED", bg: "#D1FAE5", color: "#065F46" },
-  pending: { label: "PENDING", bg: "#FEF3C7", color: "#92400E" },
-  expired: { label: "EXPIRED", bg: "#F3F4F6", color: "#6B7280" },
-  draft: { label: "DRAFT", bg: "#EFF6FF", color: "#1E40AF" },
+  pending: { label: "PENDING", bg: "#FDF3E4", color: "#B45309" },
+  expired: { label: "EXPIRED", bg: "#F0EEE9", color: "#6B6860" },
+  draft: { label: "DRAFT", bg: "#EFEFF2", color: "#2F3646" },
 };
 
 function TemplateCard({ template, onEdit, onDuplicate, onDelete, onSend }: any) {
@@ -96,17 +96,17 @@ function TemplateCard({ template, onEdit, onDuplicate, onDelete, onSend }: any) 
     <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "16px 20px", display: "flex", flexDirection: "column", gap: 12 }}>
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flex: 1, minWidth: 0 }}>
-          <div style={{ width: 36, height: 36, borderRadius: 8, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: "#EFEFF2", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
             <Icon size={18} color="var(--brand)" />
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
               <span style={{ fontWeight: 700, fontSize: 14, color: "#1A1917" }}>{template.name}</span>
               {template.is_default && (
-                <span style={{ fontSize: 9, fontWeight: 700, background: "#FEF3C7", color: "#92400E", padding: "2px 6px", borderRadius: 4, letterSpacing: 0.5 }}>DEFAULT</span>
+                <span style={{ fontSize: 9, fontWeight: 700, background: "#FDF3E4", color: "#B45309", padding: "2px 6px", borderRadius: 4, letterSpacing: 0.5 }}>DEFAULT</span>
               )}
               {!template.is_active && (
-                <span style={{ fontSize: 9, fontWeight: 700, background: "#F3F4F6", color: "#6B7280", padding: "2px 6px", borderRadius: 4, letterSpacing: 0.5 }}>INACTIVE</span>
+                <span style={{ fontSize: 9, fontWeight: 700, background: "#F0EEE9", color: "#6B6860", padding: "2px 6px", borderRadius: 4, letterSpacing: 0.5 }}>INACTIVE</span>
               )}
             </div>
             <div style={{ display: "flex", gap: 8, marginTop: 4, flexWrap: "wrap" }}>
@@ -120,8 +120,8 @@ function TemplateCard({ template, onEdit, onDuplicate, onDelete, onSend }: any) 
           <button onClick={() => onSend(template)} style={{ background: "var(--brand)", color: "#fff", border: "none", borderRadius: 6, padding: "6px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
             <Send size={12} /> Send
           </button>
-          <button onClick={() => onEdit(template)} style={{ background: "none", border: "1px solid #E5E2DC", borderRadius: 6, padding: "6px 10px", cursor: "pointer", color: "#6B7280" }} title="Edit"><Edit2 size={13} /></button>
-          <button onClick={() => onDuplicate(template.id)} style={{ background: "none", border: "1px solid #E5E2DC", borderRadius: 6, padding: "6px 10px", cursor: "pointer", color: "#6B7280" }} title="Duplicate"><Copy size={13} /></button>
+          <button onClick={() => onEdit(template)} style={{ background: "none", border: "1px solid #E5E2DC", borderRadius: 6, padding: "6px 10px", cursor: "pointer", color: "#6B6860" }} title="Edit"><Edit2 size={13} /></button>
+          <button onClick={() => onDuplicate(template.id)} style={{ background: "none", border: "1px solid #E5E2DC", borderRadius: 6, padding: "6px 10px", cursor: "pointer", color: "#6B6860" }} title="Duplicate"><Copy size={13} /></button>
           <button onClick={() => onDelete(template.id)} style={{ background: "none", border: "1px solid #E5E2DC", borderRadius: 6, padding: "6px 10px", cursor: "pointer", color: "#E53E3E" }} title="Delete"><Trash2 size={13} /></button>
         </div>
       </div>
@@ -193,7 +193,7 @@ function TemplateEditor({ template, onClose, onSave }: any) {
   };
 
   const inputStyle: React.CSSProperties = { width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif", boxSizing: "border-box" };
-  const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: "#6B7280", marginBottom: 4, display: "block", textTransform: "uppercase", letterSpacing: 0.5 };
+  const labelStyle: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, display: "block", textTransform: "uppercase", letterSpacing: 0.5 };
 
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 200, display: "flex" }}>
@@ -213,7 +213,7 @@ function TemplateEditor({ template, onClose, onSave }: any) {
               ))}
             </div>
             <button onClick={() => saveMutation.mutate()} style={{ background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", cursor: "pointer", fontWeight: 600, fontSize: 13 }}>Save Template</button>
-            <button onClick={onClose} style={{ background: "none", border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 12px", cursor: "pointer", color: "#6B7280" }}><X size={16} /></button>
+            <button onClick={onClose} style={{ background: "none", border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 12px", cursor: "pointer", color: "#6B6860" }}><X size={16} /></button>
           </div>
         </div>
 
@@ -255,9 +255,9 @@ function TemplateEditor({ template, onClose, onSave }: any) {
                     <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                       {POLICY_BLOCKS.map(block => (
                         <div key={block.key} style={{ border: "1px solid #E5E2DC", borderRadius: 7, overflow: "hidden" }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: activeBlocks.has(block.key) ? "#EFF6FF" : "#F7F6F3", cursor: "pointer" }}
+                          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: activeBlocks.has(block.key) ? "#EFEFF2" : "#F7F6F3", cursor: "pointer" }}
                             onClick={() => { if (activeBlocks.has(block.key)) setExpandedBlock(expandedBlock === block.key ? null : block.key); }}>
-                            <button onClick={e => { e.stopPropagation(); toggleBlock(block.key); }} style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${activeBlocks.has(block.key) ? "var(--brand)" : "#D1D5DB"}`, background: activeBlocks.has(block.key) ? "var(--brand)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                            <button onClick={e => { e.stopPropagation(); toggleBlock(block.key); }} style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${activeBlocks.has(block.key) ? "var(--brand)" : "#E5E2DC"}`, background: activeBlocks.has(block.key) ? "var(--brand)" : "transparent", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                               {activeBlocks.has(block.key) && <Check size={11} color="#fff" />}
                             </button>
                             <div style={{ flex: 1, minWidth: 0 }}>
@@ -307,7 +307,7 @@ function TemplateEditor({ template, onClose, onSave }: any) {
                       {["Full Name", "Service Address", "Phone", "Email", "Service Frequency", "Entry Method"].map(f => (
                         <div key={f} style={{ padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: 6 }}>
                           <div style={{ fontSize: 9, color: "#9E9B94", fontWeight: 600, textTransform: "uppercase", marginBottom: 2 }}>{f}</div>
-                          <div style={{ fontSize: 12, color: "#D1D5DB" }}>_____________________</div>
+                          <div style={{ fontSize: 12, color: "#E5E2DC" }}>_____________________</div>
                         </div>
                       ))}
                     </div>
@@ -317,15 +317,15 @@ function TemplateEditor({ template, onClose, onSave }: any) {
                         {POLICY_BLOCKS.filter(b => activeBlocks.has(b.key)).map(block => (
                           <div key={block.key} style={{ marginBottom: 16 }}>
                             <div style={{ fontWeight: 700, fontSize: 11, color: "#1A1917", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 }}>{block.label}</div>
-                            <div style={{ fontSize: 11, color: "#6B7280", lineHeight: 1.6 }}>{blockText[block.key] || `${block.description} — default policy text applies.`}</div>
+                            <div style={{ fontSize: 11, color: "#6B6860", lineHeight: 1.6 }}>{blockText[block.key] || `${block.description} — default policy text applies.`}</div>
                           </div>
                         ))}
                       </>
                     )}
                     <div style={{ borderTop: "2px solid var(--brand)", marginTop: 24, paddingTop: 20 }}>
                       <div style={{ fontWeight: 700, fontSize: 13, color: "var(--brand)", marginBottom: 12, textTransform: "uppercase", letterSpacing: 0.5 }}>Electronic Signature</div>
-                      <div style={{ fontSize: 11, color: "#6B7280", marginBottom: 16 }}>By signing below, the client fully understands and agrees to the contents of this agreement.</div>
-                      <div style={{ borderBottom: "1px solid #1A1917", padding: "8px 0", marginBottom: 4, fontSize: 13, color: "#D1D5DB" }}>Client typed name here</div>
+                      <div style={{ fontSize: 11, color: "#6B6860", marginBottom: 16 }}>By signing below, the client fully understands and agrees to the contents of this agreement.</div>
+                      <div style={{ borderBottom: "1px solid #1A1917", padding: "8px 0", marginBottom: 4, fontSize: 13, color: "#E5E2DC" }}>Client typed name here</div>
                       <div style={{ fontSize: 9, color: "#9E9B94", textTransform: "uppercase", letterSpacing: 0.5 }}>Typed Name · Date & Time · IP Address</div>
                     </div>
                   </div>
@@ -338,7 +338,7 @@ function TemplateEditor({ template, onClose, onSave }: any) {
                 <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 2px 20px rgba(0,0,0,0.08)", padding: 40 }}>
                   <div style={{ textAlign: "center", marginBottom: 32 }}>
                     <div style={{ fontSize: 22, fontWeight: 700, color: "#1A1917" }}>{name}</div>
-                    <div style={{ fontSize: 13, color: "#6B7280", marginTop: 6 }}>Please review and sign this service agreement</div>
+                    <div style={{ fontSize: 13, color: "#6B6860", marginTop: 6 }}>Please review and sign this service agreement</div>
                   </div>
                   <div style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.8, whiteSpace: "pre-line" }}>{termsBody || "Agreement content will appear here based on selected policy blocks."}</div>
                 </div>
@@ -371,7 +371,7 @@ function SendAgreementModal({ template, onClose }: any) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div>
             <div style={{ fontWeight: 700, fontSize: 17, color: "#1A1917" }}>Send Agreement</div>
-            <div style={{ fontSize: 12, color: "#6B7280", marginTop: 2 }}>{template.name}</div>
+            <div style={{ fontSize: 12, color: "#6B6860", marginTop: 2 }}>{template.name}</div>
           </div>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94" }}><X size={18} /></button>
         </div>
@@ -382,7 +382,7 @@ function SendAgreementModal({ template, onClose }: any) {
               <Check size={28} color="#065F46" />
             </div>
             <div style={{ fontWeight: 700, fontSize: 16, color: "#1A1917", marginBottom: 8 }}>Agreement Sent!</div>
-            <div style={{ fontSize: 13, color: "#6B7280", marginBottom: 20 }}>Sent to <strong>{sent.sent_to}</strong></div>
+            <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 20 }}>Sent to <strong>{sent.sent_to}</strong></div>
             <div style={{ background: "#F7F6F3", borderRadius: 8, padding: 12, marginBottom: 16 }}>
               <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6 }}>Signing Link</div>
               <div style={{ fontSize: 12, color: "var(--brand)", wordBreak: "break-all" }}>{window.location.origin}{sent.signing_url?.replace(/^https?:\/\/[^/]+/, "")}</div>
@@ -395,16 +395,16 @@ function SendAgreementModal({ template, onClose }: any) {
           <>
             <div style={{ display: "flex", flexDirection: "column", gap: 14, marginBottom: 20 }}>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 5 }}>Client Name</label>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 5 }}>Client Name</label>
                 <input value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Full name" style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, boxSizing: "border-box", fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
               </div>
               <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 5 }}>Email Address</label>
+                <label style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: 0.5, display: "block", marginBottom: 5 }}>Email Address</label>
                 <input type="email" value={clientEmail} onChange={e => setClientEmail(e.target.value)} placeholder="client@email.com" style={{ width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, boxSizing: "border-box", fontFamily: "'Plus Jakarta Sans', sans-serif" }} />
               </div>
             </div>
             <div style={{ display: "flex", gap: 10 }}>
-              <button onClick={onClose} style={{ flex: 1, padding: "10px", border: "1px solid #E5E2DC", borderRadius: 8, cursor: "pointer", fontSize: 13, background: "none", color: "#6B7280" }}>Cancel</button>
+              <button onClick={onClose} style={{ flex: 1, padding: "10px", border: "1px solid #E5E2DC", borderRadius: 8, cursor: "pointer", fontSize: 13, background: "none", color: "#6B6860" }}>Cancel</button>
               <button onClick={() => sendMutation.mutate()} disabled={!clientEmail || sendMutation.isPending} style={{ flex: 2, padding: "10px", background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 700, opacity: (!clientEmail || sendMutation.isPending) ? 0.6 : 1 }}>
                 {sendMutation.isPending ? "Sending..." : "Send Agreement"}
               </button>
@@ -455,7 +455,7 @@ function SentAgreementsTab() {
               <tr><td colSpan={7} style={{ ...tdStyle, textAlign: "center", color: "#9E9B94" }}>Loading...</td></tr>
             ) : filtered.length === 0 ? (
               <tr><td colSpan={7} style={{ ...tdStyle, textAlign: "center", color: "#9E9B94", padding: 32 }}>
-                <FileSignature size={32} color="#D1D5DB" style={{ marginBottom: 8, display: "block", margin: "0 auto 8px" }} />
+                <FileSignature size={32} color="#E5E2DC" style={{ marginBottom: 8, display: "block", margin: "0 auto 8px" }} />
                 No agreements sent yet
               </td></tr>
             ) : filtered.map((s: any) => {
@@ -467,7 +467,7 @@ function SentAgreementsTab() {
                   <td style={tdStyle}><div style={{ fontWeight: 600 }}>{s.client_name || "—"}</div><div style={{ fontSize: 11, color: "#9E9B94" }}>ID #{s.client_id}</div></td>
                   <td style={tdStyle}>{s.form_name || "—"}</td>
                   <td style={tdStyle}>{s.sent_at ? new Date(s.sent_at).toLocaleDateString() : "—"}</td>
-                  <td style={{ ...tdStyle, fontSize: 12, color: "#6B7280" }}>{s.sent_to || "—"}</td>
+                  <td style={{ ...tdStyle, fontSize: 12, color: "#6B6860" }}>{s.sent_to || "—"}</td>
                   <td style={tdStyle}>{s.signature_at ? new Date(s.signature_at).toLocaleString() : "—"}</td>
                   <td style={tdStyle}>
                     <span style={{ background: displayCfg.bg, color: displayCfg.color, padding: "3px 8px", borderRadius: 10, fontSize: 10, fontWeight: 700 }}>{isExpired ? "EXPIRED" : displayCfg.label}</span>
@@ -475,8 +475,8 @@ function SentAgreementsTab() {
                   <td style={tdStyle}>
                     <div style={{ display: "flex", gap: 6 }}>
                       {s.pdf_url && <a href={s.pdf_url} target="_blank" rel="noreferrer" title="Download PDF" style={{ color: "var(--brand)", display: "flex" }}><Download size={14} /></a>}
-                      {s.status !== "signed" && <a href={`/sign/${s.sign_token}`} target="_blank" rel="noreferrer" title="View signing link" style={{ color: "#6B7280", display: "flex" }}><ExternalLink size={14} /></a>}
-                      {s.content_hash && <span title={`SHA-256: ${s.content_hash}`} style={{ color: "#6B7280", display: "flex" }}><Shield size={14} /></span>}
+                      {s.status !== "signed" && <a href={`/sign/${s.sign_token}`} target="_blank" rel="noreferrer" title="View signing link" style={{ color: "#6B6860", display: "flex" }}><ExternalLink size={14} /></a>}
+                      {s.content_hash && <span title={`SHA-256: ${s.content_hash}`} style={{ color: "#6B6860", display: "flex" }}><Shield size={14} /></span>}
                     </div>
                   </td>
                 </tr>
@@ -527,7 +527,7 @@ export default function AgreementBuilderPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#1A1917" }}>Service Agreements</h1>
-            <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B7280" }}>Build and send legally binding service agreements to clients. No Jotform. No DocuSign.</p>
+            <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B6860" }}>Build and send legally binding service agreements to clients. No Jotform. No DocuSign.</p>
           </div>
           <button onClick={() => setCreatingNew(true)} style={{ ...cardStyle, background: "var(--brand)", color: "#fff", display: "flex", alignItems: "center", gap: 6 }}>
             <Plus size={15} /> New Agreement

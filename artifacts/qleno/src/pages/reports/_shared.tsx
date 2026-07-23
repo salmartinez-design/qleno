@@ -14,8 +14,8 @@ export const fmtDate = (d: string | Date | null) => d ? new Date(typeof d === "s
 export const fmtSvc = (s: string) => (s || "").replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase());
 export const clr = {
   base: "#F7F6F3", card: "#FFFFFF", border: "#E5E2DC",
-  text: "#1A1917", secondary: "#6B7280", muted: "#9E9B94",
-  brand: "var(--brand)", green: "#10B981", amber: "#F59E0B", red: "#EF4444",
+  text: "#1A1917", secondary: "#6B6860", muted: "#9E9B94",
+  brand: "var(--brand)", green: "#10B981", amber: "#F59E0B", red: "#B3261E",
 };
 
 interface KpiCardProps { label: string; value: string; sub?: string; color?: string; }
@@ -109,7 +109,7 @@ export function DataTable<T extends object>({ cols, rows, emptyMsg = "No data fo
 }
 
 export function ScoreBadge({ score }: { score: number }) {
-  const colors: Record<number, string> = { 4: "#10B981", 3: "#3B82F6", 2: "#F59E0B", 1: "#EF4444", 0: "#9E9B94" };
+  const colors: Record<number, string> = { 4: "#10B981", 3: "#2F3646", 2: "#F59E0B", 1: "#B3261E", 0: "#9E9B94" };
   const labels: Record<number, string> = { 4: "Excellent", 3: "Good", 2: "Fair", 1: "Poor", 0: "N/A" };
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 600, color: colors[score] ?? clr.muted }}>

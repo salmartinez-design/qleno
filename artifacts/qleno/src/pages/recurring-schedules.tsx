@@ -124,8 +124,8 @@ export default function RecurringSchedulesPage() {
     } finally { setSaving(false); }
   }
 
-  const th: React.CSSProperties = { textAlign: "left", fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.05em", padding: "8px 12px", borderBottom: "1px solid #E5E2DC" };
-  const td: React.CSSProperties = { fontSize: 13, color: "#1A1917", padding: "10px 12px", borderBottom: "1px solid #F3F4F6" };
+  const th: React.CSSProperties = { textAlign: "left", fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.05em", padding: "8px 12px", borderBottom: "1px solid #E5E2DC" };
+  const td: React.CSSProperties = { fontSize: 13, color: "#1A1917", padding: "10px 12px", borderBottom: "1px solid #F0EEE9" };
 
   return (
     <DashboardLayout>
@@ -134,7 +134,7 @@ export default function RecurringSchedulesPage() {
           <RefreshCw size={20} style={{ color: "var(--brand)" }} />
           <h1 style={{ fontSize: 22, fontWeight: 800, color: "#1A1917", margin: 0 }}>Recurring Schedules</h1>
         </div>
-        <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 16px" }}>
+        <p style={{ fontSize: 13, color: "#6B6860", margin: "0 0 16px" }}>
           Set the visit time on many schedules at once. Pick the schedules, choose a time, and apply.
         </p>
 
@@ -155,11 +155,11 @@ export default function RecurringSchedulesPage() {
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", padding: "10px 14px", background: selected.size ? "#F0FDFB" : "#F7F6F3", border: `1px solid ${selected.size ? "#99E6D5" : "#E5E2DC"}`, borderRadius: 10, marginBottom: 12 }}>
           <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{selected.size} selected</span>
           <span style={{ color: "#9E9B94" }}>·</span>
-          <Clock size={14} style={{ color: "#6B7280" }} />
+          <Clock size={14} style={{ color: "#6B6860" }} />
           <input type="time" value={bulkTime} onChange={e => setBulkTime(e.target.value)}
             style={{ padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: "inherit", outline: "none" }} />
           <button onClick={applyBulkTime} disabled={selected.size === 0 || saving}
-            style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: selected.size && !saving ? "var(--brand)" : "#D1D5DB", color: "#fff", fontSize: 13, fontWeight: 700, cursor: selected.size && !saving ? "pointer" : "default", fontFamily: "inherit" }}>
+            style={{ padding: "7px 14px", borderRadius: 8, border: "none", background: selected.size && !saving ? "var(--brand)" : "#E5E2DC", color: "#fff", fontSize: 13, fontWeight: 700, cursor: selected.size && !saving ? "pointer" : "default", fontFamily: "inherit" }}>
             {saving ? "Applying…" : "Set time for selected"}
           </button>
         </div>
@@ -177,11 +177,11 @@ export default function RecurringSchedulesPage() {
                 <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggle(r.id)} onClick={e => e.stopPropagation()} style={{ marginTop: 3, width: 18, height: 18, flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <p style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>{r.client_name?.trim() || `#${r.customer_id}`}</p>
-                  <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 2px" }}>
+                  <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 2px" }}>
                     {FREQ_LABEL[r.frequency] ?? r.frequency}{r.day_of_week ? ` · ${r.day_of_week}` : ""} · {r.base_fee ? `$${parseFloat(r.base_fee).toFixed(2)}` : "—"}
                   </p>
                   {anchorMismatch(r) && (
-                    <p style={{ display: "inline-flex", alignItems: "flex-start", gap: 5, fontSize: 11, fontWeight: 600, color: "#92400E", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 6, padding: "4px 8px", margin: "2px 0 4px", lineHeight: 1.4 }}>
+                    <p style={{ display: "inline-flex", alignItems: "flex-start", gap: 5, fontSize: 11, fontWeight: 600, color: "#B45309", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 6, padding: "4px 8px", margin: "2px 0 4px", lineHeight: 1.4 }}>
                       <AlertTriangle size={12} style={{ flexShrink: 0, marginTop: 1 }} /> {anchorMismatch(r)}
                     </p>
                   )}
@@ -223,7 +223,7 @@ export default function RecurringSchedulesPage() {
                   <td style={{ ...td, textTransform: "capitalize" }}>
                     {r.day_of_week || "—"}
                     {anchorMismatch(r) && (
-                      <span title={anchorMismatch(r)!} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#92400E", background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 6, padding: "1px 6px", textTransform: "none", cursor: "help" }}>
+                      <span title={anchorMismatch(r)!} style={{ display: "inline-flex", alignItems: "center", gap: 4, marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 6, padding: "1px 6px", textTransform: "none", cursor: "help" }}>
                         <AlertTriangle size={11} /> Wrong day
                       </span>
                     )}

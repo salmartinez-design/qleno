@@ -24,7 +24,7 @@ export default function HotSheetPage() {
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontWeight: 600 }}>{r.client_name}</span>
           {r.is_first_time && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: "var(--brand-dim)", color: clr.brand, borderRadius: 4, padding: "1px 5px" }}>FIRST</span>}
-          {r.last_score !== null && r.last_score <= 2 && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: "#FEF2F2", color: clr.red, borderRadius: 4, padding: "1px 5px" }}>LOW SCORE</span>}
+          {r.last_score !== null && r.last_score <= 2 && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: "#FCEBEA", color: clr.red, borderRadius: 4, padding: "1px 5px" }}>LOW SCORE</span>}
         </div>
         {r.address && <div style={{ fontSize: 11, color: clr.secondary, display: "flex", alignItems: "center", gap: 3, marginTop: 2 }}><MapPin size={10} />{formatAddress(r.address, r.city, r.state, r.zip)}</div>}
       </div>
@@ -68,9 +68,9 @@ export default function HotSheetPage() {
         </div>
 
         {firstTimeCount > 0 && (
-          <div style={{ backgroundColor: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 8, padding: "10px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ backgroundColor: "#EFEFF2", border: "1px solid #DEDEE4", borderRadius: 8, padding: "10px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
             <Star size={14} color={clr.brand} />
-            <span style={{ fontSize: 13, color: "#1D4ED8", fontWeight: 500 }}>{firstTimeCount} first-time client{firstTimeCount > 1 ? "s" : ""} today — ensure extra quality and proper introduction.</span>
+            <span style={{ fontSize: 13, color: "#2F3646", fontWeight: 500 }}>{firstTimeCount} first-time client{firstTimeCount > 1 ? "s" : ""} today — ensure extra quality and proper introduction.</span>
           </div>
         )}
 

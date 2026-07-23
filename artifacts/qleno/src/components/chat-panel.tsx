@@ -92,7 +92,7 @@ export function ChatPanel({ onClose, userId }: Props) {
           </>
         ) : (
           <>
-            <button onClick={() => setView('channels')} style={{ background:'none', border:'none', cursor:'pointer', color:'#6B7280', padding:2 }}><ChevronLeft size={16}/></button>
+            <button onClick={() => setView('channels')} style={{ background:'none', border:'none', cursor:'pointer', color:'#6B6860', padding:2 }}><ChevronLeft size={16}/></button>
             <span style={{ fontSize:13, fontWeight:600, color:'#1A1917', flex:1 }}>{channelLabel}</span>
             <button onClick={() => setView('channels')} style={{ background:'none', border:'none', cursor:'pointer', color:'#9E9B94', padding:2 }}><Users size={15}/></button>
             <button onClick={onClose} style={{ background:'none', border:'none', cursor:'pointer', color:'#9E9B94', padding:2 }}><X size={16}/></button>
@@ -117,7 +117,7 @@ export function ChatPanel({ onClose, userId }: Props) {
             return (
               <button key={u.id} onClick={() => { setActiveChannel(ch); setView('chat'); }}
                 style={{ width:'100%', display:'flex', alignItems:'center', gap:8, padding:'8px 16px', background: activeChannel===ch?'var(--brand-soft)':'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
-                <div style={{ width:24, height:24, borderRadius:12, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'#6B7280', flexShrink:0 }}>
+                <div style={{ width:24, height:24, borderRadius:12, background:'#F0EEE9', display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:700, color:'#6B6860', flexShrink:0 }}>
                   {u.first_name?.[0]}{u.last_name?.[0]}
                 </div>
                 <span style={{ fontSize:13, color:'#1A1917' }}>{u.first_name} {u.last_name}</span>
@@ -146,7 +146,7 @@ export function ChatPanel({ onClose, userId }: Props) {
                     {!isMe && <p style={{ fontSize:10, color:'#9E9B94', margin:'0 0 2px 4px', fontWeight:600 }}>{m.sender_name?.split(' ')[0]}</p>}
                     <div style={{
                       padding:'8px 12px', borderRadius: isMe?'12px 12px 4px 12px':'12px 12px 12px 4px',
-                      background: isMe?'var(--brand)':'#F3F4F6',
+                      background: isMe?'var(--brand)':'#F0EEE9',
                       color: isMe?'#FFFFFF':'#1A1917',
                     }}>
                       <p style={{ fontSize:13, margin:0, lineHeight:1.4 }}>{m.body}</p>

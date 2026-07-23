@@ -10,14 +10,14 @@ interface StatusBadgeProps {
 }
 
 const BADGE_STYLES: Record<string, React.CSSProperties> = {
-  complete:    { background: '#0F2A1A', color: '#4ADE80', border: '1px solid #166534' },
-  paid:        { background: '#0F2A1A', color: '#4ADE80', border: '1px solid #166534' },
-  active:      { background: '#0F2A1A', color: '#4ADE80', border: '1px solid #166534' },
-  scheduled:   { background: '#0F1E2A', color: '#60A5FA', border: '1px solid #1D4ED8' },
-  sent:        { background: '#0F1E2A', color: '#60A5FA', border: '1px solid #1D4ED8' },
-  in_progress: { background: '#2A1F0A', color: '#FBBF24', border: '1px solid #92400E' },
-  overdue:     { background: '#2A0F0F', color: '#F87171', border: '1px solid #991B1B' },
-  cancelled:   { background: '#2A0F0F', color: '#F87171', border: '1px solid #991B1B' },
+  complete:    { background: '#0F2A1A', color: '#4ADE80', border: '1px solid #0F7A63' },
+  paid:        { background: '#0F2A1A', color: '#4ADE80', border: '1px solid #0F7A63' },
+  active:      { background: '#0F2A1A', color: '#4ADE80', border: '1px solid #0F7A63' },
+  scheduled:   { background: '#0F1E2A', color: '#60A5FA', border: '1px solid #2F3646' },
+  sent:        { background: '#0F1E2A', color: '#60A5FA', border: '1px solid #2F3646' },
+  in_progress: { background: '#2A1F0A', color: '#FBBF24', border: '1px solid #B45309' },
+  overdue:     { background: '#2A0F0F', color: '#F87171', border: '1px solid #B3261E' },
+  cancelled:   { background: '#2A0F0F', color: '#F87171', border: '1px solid #B3261E' },
   draft:       { background: '#1A1A1A', color: '#7A7873', border: '1px solid #333' },
   inactive:    { background: '#1A1A1A', color: '#7A7873', border: '1px solid #333' },
 };

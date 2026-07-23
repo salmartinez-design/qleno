@@ -26,11 +26,11 @@ interface CancelData {
 const ACTION_META: Record<string, { label: string; color: string }> = {
   move:           { label: "Move",           color: "#7E22CE" },
   bump:           { label: "Bump",           color: "#BE185D" },
-  skip:           { label: "Skip",           color: "#B91C1C" },
+  skip:           { label: "Skip",           color: "#B3261E" },
   cancel:         { label: "Cancel",         color: "#7F1D1D" },
   lockout:        { label: "Lockout",        color: "#1E293B" },
-  cancel_service: { label: "Cancel Service", color: "#DC2626" },
-  legacy:         { label: "Legacy (no action)", color: "#9CA3AF" },
+  cancel_service: { label: "Cancel Service", color: "#B3261E" },
+  legacy:         { label: "Legacy (no action)", color: "#9E9B94" },
 };
 
 export default function CancellationsPage() {

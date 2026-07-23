@@ -169,7 +169,7 @@ export function CalendarPopover({
               type="button"
               onClick={() => setVisibleMonth((m) => addMonths(m, -1))}
               aria-label="Previous month"
-              style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "5px 9px", cursor: "pointer", color: "#6B7280" }}
+              style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "5px 9px", cursor: "pointer", color: "#6B6860" }}
             >
               <ChevronLeft size={16} />
             </button>
@@ -178,7 +178,7 @@ export function CalendarPopover({
               type="button"
               onClick={() => setVisibleMonth((m) => addMonths(m, 1))}
               aria-label="Next month"
-              style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "5px 9px", cursor: "pointer", color: "#6B7280" }}
+              style={{ border: "none", background: "#F7F6F3", borderRadius: 8, padding: "5px 9px", cursor: "pointer", color: "#6B6860" }}
             >
               <ChevronRight size={16} />
             </button>

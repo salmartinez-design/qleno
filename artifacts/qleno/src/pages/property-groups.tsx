@@ -15,7 +15,7 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
   return r.json();
 }
 
-const card: React.CSSProperties = { backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "20px" };
+const card: React.CSSProperties = { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", padding: 18 };
 const label: React.CSSProperties = { fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: "4px" };
 const inputStyle: React.CSSProperties = { width: "100%", padding: "8px 12px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", fontFamily: "inherit", boxSizing: "border-box" };
 
@@ -78,7 +78,7 @@ export default function PropertyGroupsPage() {
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "24px" }}>
           <div>
             <h1 style={{ fontSize: "22px", fontWeight: 800, color: "#1A1917", margin: 0 }}>Property Management Groups</h1>
-            <div style={{ fontSize: "13px", color: "#6B7280", marginTop: "4px" }}>
+            <div style={{ fontSize: "13px", color: "#6B6860", marginTop: "4px" }}>
               Group clients under a property management company or parent account. {groups.length} groups, {totalClients} clients.
             </div>
           </div>
@@ -118,7 +118,7 @@ export default function PropertyGroupsPage() {
               </div>
             </div>
             <div style={{ display: "flex", gap: "8px", marginTop: "16px", justifyContent: "flex-end" }}>
-              <button onClick={() => { setShowForm(false); setEditId(null); setForm({ ...EMPTY_FORM }); }} style={{ backgroundColor: "#F3F4F6", color: "#6B7280", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+              <button onClick={() => { setShowForm(false); setEditId(null); setForm({ ...EMPTY_FORM }); }} style={{ backgroundColor: "#F0EEE9", color: "#6B6860", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
               <button onClick={handleSubmit} disabled={createMut.isPending || updateMut.isPending} style={{ backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 700, cursor: "pointer" }}>
                 {createMut.isPending || updateMut.isPending ? "Saving..." : editId ? "Save Changes" : "Create Group"}
               </button>
@@ -132,7 +132,7 @@ export default function PropertyGroupsPage() {
         ) : groups.length === 0 ? (
           <div style={{ ...card, textAlign: "center", padding: "60px" }}>
             <Building2 size={40} style={{ color: "#C4C0BB", marginBottom: "12px" }} />
-            <div style={{ fontSize: "15px", fontWeight: 700, color: "#6B7280", marginBottom: "6px" }}>No property groups yet</div>
+            <div style={{ fontSize: "15px", fontWeight: 700, color: "#6B6860", marginBottom: "6px" }}>No property groups yet</div>
             <div style={{ fontSize: "13px", color: "#9E9B94" }}>Create a group to manage clients under a property management company</div>
           </div>
         ) : (
@@ -140,15 +140,15 @@ export default function PropertyGroupsPage() {
             {groups.map((g: any) => (
               <div key={g.id} style={{ ...card, padding: 0, overflow: "hidden" }}>
                 <div style={{ padding: "16px 20px", display: "flex", alignItems: "center", gap: "16px" }}>
-                  <div style={{ width: "40px", height: "40px", backgroundColor: "#EFF6FF", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <div style={{ width: "40px", height: "40px", backgroundColor: "#EFEFF2", borderRadius: "8px", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Building2 size={20} style={{ color: "var(--brand)" }} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
                       <div style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>{g.name}</div>
-                      {g.billing_centralized && <span style={{ backgroundColor: "#FEF3C7", color: "#92400E", fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px" }}>CENTRALIZED BILLING</span>}
+                      {g.billing_centralized && <span style={{ backgroundColor: "#FDF3E4", color: "#B45309", fontSize: "10px", fontWeight: 700, padding: "2px 6px", borderRadius: "4px" }}>CENTRALIZED BILLING</span>}
                     </div>
-                    <div style={{ display: "flex", gap: "16px", fontSize: "12px", color: "#6B7280", flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", gap: "16px", fontSize: "12px", color: "#6B6860", flexWrap: "wrap" }}>
                       {g.contact_name && <span>{g.contact_name}</span>}
                       {g.contact_email && <span>{g.contact_email}</span>}
                       {g.contact_phone && <span>{g.contact_phone}</span>}
@@ -159,19 +159,19 @@ export default function PropertyGroupsPage() {
                       <div style={{ fontSize: "18px", fontWeight: 800, color: "var(--brand)" }}>{g.client_count || 0}</div>
                       <div style={{ fontSize: "10px", color: "#9E9B94", fontWeight: 600 }}>CLIENTS</div>
                     </div>
-                    <button onClick={() => startEdit(g)} style={{ backgroundColor: "#F7F6F3", color: "#6B7280", border: "none", borderRadius: "6px", padding: "8px", cursor: "pointer" }}>
+                    <button onClick={() => startEdit(g)} style={{ backgroundColor: "#F7F6F3", color: "#6B6860", border: "none", borderRadius: "6px", padding: "8px", cursor: "pointer" }}>
                       <Edit2 size={14} />
                     </button>
-                    <button onClick={() => { if (confirm(`Delete "${g.name}"? Clients will be unassigned.`)) deleteMut.mutate(g.id); }} style={{ backgroundColor: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: "6px", padding: "8px", cursor: "pointer" }}>
+                    <button onClick={() => { if (confirm(`Delete "${g.name}"? Clients will be unassigned.`)) deleteMut.mutate(g.id); }} style={{ backgroundColor: "#FCEBEA", color: "#B3261E", border: "none", borderRadius: "6px", padding: "8px", cursor: "pointer" }}>
                       <Trash2 size={14} />
                     </button>
-                    <button onClick={() => setExpandedId(expandedId === g.id ? null : g.id)} style={{ backgroundColor: "#F7F6F3", color: "#6B7280", border: "none", borderRadius: "6px", padding: "8px", cursor: "pointer" }}>
+                    <button onClick={() => setExpandedId(expandedId === g.id ? null : g.id)} style={{ backgroundColor: "#F7F6F3", color: "#6B6860", border: "none", borderRadius: "6px", padding: "8px", cursor: "pointer" }}>
                       <ChevronRight size={14} style={{ transform: expandedId === g.id ? "rotate(90deg)" : "none", transition: "transform 0.15s" }} />
                     </button>
                   </div>
                 </div>
                 {expandedId === g.id && (
-                  <div style={{ borderTop: "1px solid #F0EDE8", padding: "16px 20px", backgroundColor: "#F7F6F3" }}>
+                  <div style={{ borderTop: "1px solid #F0EEE9", padding: "16px 20px", backgroundColor: "#F7F6F3" }}>
                     <div style={{ fontSize: "12px", fontWeight: 700, color: "#9E9B94", marginBottom: "10px", textTransform: "uppercase", letterSpacing: "0.05em" }}>Clients in this group</div>
                     {groupClients.length === 0 ? (
                       <div style={{ fontSize: "13px", color: "#9E9B94" }}>No clients assigned to this group. Assign clients from their profile portal tab.</div>
@@ -185,7 +185,7 @@ export default function PropertyGroupsPage() {
                         ))}
                       </div>
                     )}
-                    {g.notes && <div style={{ marginTop: "10px", fontSize: "12px", color: "#6B7280", fontStyle: "italic" }}>{g.notes}</div>}
+                    {g.notes && <div style={{ marginTop: "10px", fontSize: "12px", color: "#6B6860", fontStyle: "italic" }}>{g.notes}</div>}
                   </div>
                 )}
               </div>

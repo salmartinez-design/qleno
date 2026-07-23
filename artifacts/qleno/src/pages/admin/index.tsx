@@ -34,11 +34,11 @@ interface TenantRow {
 
 function TierBadge({ tier, slug }: { tier: string | null; slug: string | null }) {
   const colors: Record<string, { color: string; bg: string }> = {
-    solo:  { color: "#374151", bg: "#F3F4F6" },
-    team:  { color: "#1D4ED8", bg: "#DBEAFE" },
-    pro:   { color: "#7C3AED", bg: "#F5F3FF" },
+    solo:  { color: "#1A1917", bg: "#F0EEE9" },
+    team:  { color: "#2F3646", bg: "#EFEFF2" },
+    pro:   { color: "#9C4E2B", bg: "#F5F3FF" },
   };
-  const c = colors[slug ?? "solo"] ?? { color: "#374151", bg: "#F3F4F6" };
+  const c = colors[slug ?? "solo"] ?? { color: "#1A1917", bg: "#F0EEE9" };
   return (
     <span style={{ background: c.bg, color: c.color, fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999 }}>
       {tier ?? "—"}
@@ -48,12 +48,12 @@ function TierBadge({ tier, slug }: { tier: string | null; slug: string | null })
 
 function SubStatusBadge({ status }: { status: string }) {
   const map: Record<string, { color: string; bg: string }> = {
-    active:    { color: "#059669", bg: "#ECFDF5" },
-    trialing:  { color: "#1D4ED8", bg: "#DBEAFE" },
-    past_due:  { color: "#D97706", bg: "#FFFBEB" },
-    canceled:  { color: "#DC2626", bg: "#FEF2F2" },
+    active:    { color: "#0F7A63", bg: "#E6F6F1" },
+    trialing:  { color: "#2F3646", bg: "#EFEFF2" },
+    past_due:  { color: "#B45309", bg: "#FDF3E4" },
+    canceled:  { color: "#B3261E", bg: "#FCEBEA" },
   };
-  const c = map[status] ?? { color: "#6B7280", bg: "#F9FAFB" };
+  const c = map[status] ?? { color: "#6B6860", bg: "#F7F6F3" };
   return (
     <span style={{ background: c.bg, color: c.color, fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 999 }}>
       {status.replace("_", " ")}
@@ -88,31 +88,31 @@ function TenantList() {
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "13px" }}>
             <thead>
-              <tr style={{ background: "#FAFAF9" }}>
+              <tr style={{ background: "#F7F6F3" }}>
                 {["ID","Company","Tier","Status","Techs","Office","Total Users","MRR","Early","Created"].map(h => (
-                  <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #F0EEE9", whiteSpace: "nowrap" }}>{h}</th>
+                  <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontWeight: 600, color: "#6B6860", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #F0EEE9", whiteSpace: "nowrap" }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {tenants.map((t, i) => (
-                <tr key={t.id} style={{ background: i % 2 === 0 ? "#FFFFFF" : "#FAFAF9", borderBottom: "1px solid #F5F3F0" }}>
+                <tr key={t.id} style={{ background: i % 2 === 0 ? "#FFFFFF" : "#F7F6F3", borderBottom: "1px solid #F5F3F0" }}>
                   <td style={{ padding: "10px 16px", color: "#9E9B94", fontWeight: 500 }}>#{t.id}</td>
                   <td style={{ padding: "10px 16px", fontWeight: 600, color: "#1A1917", whiteSpace: "nowrap" }}>
                     {t.name}
                   </td>
                   <td style={{ padding: "10px 16px" }}><TierBadge tier={t.tier_name} slug={t.tier_slug} /></td>
                   <td style={{ padding: "10px 16px" }}><SubStatusBadge status={t.subscription_status ?? "unknown"} /></td>
-                  <td style={{ padding: "10px 16px", color: "#374151", textAlign: "center" }}>{t.active_techs}</td>
-                  <td style={{ padding: "10px 16px", color: "#374151", textAlign: "center" }}>{t.active_office}</td>
-                  <td style={{ padding: "10px 16px", color: "#374151", textAlign: "center" }}>{t.total_users}</td>
-                  <td style={{ padding: "10px 16px", fontWeight: 600, color: "#059669" }}>${parseFloat(String(t.mrr || 0)).toLocaleString()}</td>
+                  <td style={{ padding: "10px 16px", color: "#1A1917", textAlign: "center" }}>{t.active_techs}</td>
+                  <td style={{ padding: "10px 16px", color: "#1A1917", textAlign: "center" }}>{t.active_office}</td>
+                  <td style={{ padding: "10px 16px", color: "#1A1917", textAlign: "center" }}>{t.total_users}</td>
+                  <td style={{ padding: "10px 16px", fontWeight: 600, color: "#0F7A63" }}>${parseFloat(String(t.mrr || 0)).toLocaleString()}</td>
                   <td style={{ padding: "10px 16px" }}>
                     {t.early_tenant ? (
-                      <span style={{ fontSize: 11, fontWeight: 600, color: "#7C3AED", background: "#F5F3FF", padding: "2px 7px", borderRadius: 999 }}>Early</span>
-                    ) : <span style={{ color: "#D1D5DB" }}>—</span>}
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#9C4E2B", background: "#F5F3FF", padding: "2px 7px", borderRadius: 999 }}>Early</span>
+                    ) : <span style={{ color: "#E5E2DC" }}>—</span>}
                   </td>
-                  <td style={{ padding: "10px 16px", color: "#6B7280", whiteSpace: "nowrap" }}>
+                  <td style={{ padding: "10px 16px", color: "#6B6860", whiteSpace: "nowrap" }}>
                     {new Date(t.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                   </td>
                 </tr>
@@ -195,7 +195,7 @@ function SmokeTestWidget() {
     <div style={{
       backgroundColor: "#FFFFFF",
       border: "1px solid #E5E2DC",
-      borderLeft: latest ? (allPassed ? "4px solid #16A34A" : "4px solid #DC2626") : "4px solid #D1D5DB",
+      borderLeft: latest ? (allPassed ? "4px solid #0F7A63" : "4px solid #B3261E") : "4px solid #E5E2DC",
       borderRadius: "10px",
       overflow: "hidden",
     }}>
@@ -205,14 +205,14 @@ function SmokeTestWidget() {
           {loading ? (
             <p style={{ fontSize: "12px", color: "#9E9B94", margin: "2px 0 0" }}>Loading...</p>
           ) : latest ? (
-            <p style={{ fontSize: "12px", color: allPassed ? "#16A34A" : "#DC2626", margin: "2px 0 0", fontWeight: 500 }}>
+            <p style={{ fontSize: "12px", color: allPassed ? "#0F7A63" : "#B3261E", margin: "2px 0 0", fontWeight: 500 }}>
               Last run: {fmt(latest.run_at)} · {latest.passed}/{latest.total_tests} passed · {latest.duration_ms}ms
             </p>
           ) : (
             <p style={{ fontSize: "12px", color: "#9E9B94", margin: "2px 0 0" }}>No runs yet</p>
           )}
           {auditResult && (
-            <p style={{ fontSize: "12px", color: auditResult.healthy ? "#16A34A" : "#DC2626", margin: "4px 0 0", fontWeight: 500 }}>
+            <p style={{ fontSize: "12px", color: auditResult.healthy ? "#0F7A63" : "#B3261E", margin: "4px 0 0", fontWeight: 500 }}>
               {auditResult.healthy ? "✓" : "✗"} {auditResult.msg}
             </p>
           )}
@@ -221,14 +221,14 @@ function SmokeTestWidget() {
           <button
             onClick={triggerAuditTest}
             disabled={auditTesting}
-            style={{ padding: "7px 14px", backgroundColor: "transparent", color: auditTesting ? "#9E9B94" : "#374151", border: "1px solid #D1D5DB", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: auditTesting ? "default" : "pointer" }}
+            style={{ padding: "7px 14px", backgroundColor: "transparent", color: auditTesting ? "#9E9B94" : "#1A1917", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: auditTesting ? "default" : "pointer" }}
           >
             {auditTesting ? "Testing…" : "Test audit logging"}
           </button>
           <button
             onClick={triggerRun}
             disabled={running}
-            style={{ padding: "7px 14px", backgroundColor: running ? "#F3F4F6" : "#1A1917", color: running ? "#9E9B94" : "#FFFFFF", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: running ? "default" : "pointer" }}
+            style={{ padding: "7px 14px", backgroundColor: running ? "#F0EEE9" : "#1A1917", color: running ? "#9E9B94" : "#FFFFFF", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: running ? "default" : "pointer" }}
           >
             {running ? "Running…" : "Run now"}
           </button>
@@ -236,11 +236,11 @@ function SmokeTestWidget() {
       </div>
 
       {latest && !allPassed && (
-        <div style={{ padding: "10px 20px", backgroundColor: "#FEF2F2", borderBottom: "1px solid #FECACA" }}>
-          <p style={{ fontSize: 12, color: "#DC2626", margin: 0, fontWeight: 600 }}>Failed tests:</p>
+        <div style={{ padding: "10px 20px", backgroundColor: "#FCEBEA", borderBottom: "1px solid #F1D0CB" }}>
+          <p style={{ fontSize: 12, color: "#B3261E", margin: 0, fontWeight: 600 }}>Failed tests:</p>
           {(latest.results || []).filter(r => r.status === "fail").map(r => (
             <div key={r.name} style={{ margin: "4px 0 0" }}>
-              <p style={{ fontSize: 12, color: "#DC2626", margin: 0 }}>✗ {r.name}</p>
+              <p style={{ fontSize: 12, color: "#B3261E", margin: 0 }}>✗ {r.name}</p>
               {r.error && (
                 <p style={{ fontSize: 11, color: "#A32D2D", margin: "1px 0 0 12px" }}>→ {r.error}</p>
               )}
@@ -253,9 +253,9 @@ function SmokeTestWidget() {
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: "12px" }}>
             <thead>
-              <tr style={{ background: "#FAFAF9" }}>
+              <tr style={{ background: "#F7F6F3" }}>
                 {["Date", "Passed", "Failed", "Duration"].map(h => (
-                  <th key={h} style={{ padding: "8px 16px", textAlign: "left", fontWeight: 600, color: "#6B7280", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #F0EEE9" }}>{h}</th>
+                  <th key={h} style={{ padding: "8px 16px", textAlign: "left", fontWeight: 600, color: "#6B6860", fontSize: 11, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: "1px solid #F0EEE9" }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -264,13 +264,13 @@ function SmokeTestWidget() {
                 const ok = run.failed === 0;
                 const failedTests = (run.results || []).filter(r => r.status === "fail");
                 return (
-                  <tr key={run.id} style={{ background: i % 2 === 0 ? "#FFFFFF" : "#FAFAF9", borderBottom: "1px solid #F5F3F0" }}>
-                    <td style={{ padding: "8px 16px", color: "#374151", whiteSpace: "nowrap" }}>{fmt(run.run_at)}</td>
-                    <td style={{ padding: "8px 16px", color: "#16A34A", fontWeight: 600 }}>{run.passed}/{run.total_tests}</td>
+                  <tr key={run.id} style={{ background: i % 2 === 0 ? "#FFFFFF" : "#F7F6F3", borderBottom: "1px solid #F5F3F0" }}>
+                    <td style={{ padding: "8px 16px", color: "#1A1917", whiteSpace: "nowrap" }}>{fmt(run.run_at)}</td>
+                    <td style={{ padding: "8px 16px", color: "#0F7A63", fontWeight: 600 }}>{run.passed}/{run.total_tests}</td>
                     <td style={{ padding: "8px 16px" }}>
                       {run.failed > 0 ? (
                         <span
-                          style={{ color: "#DC2626", fontWeight: 600, cursor: "pointer", textDecoration: "underline dotted" }}
+                          style={{ color: "#B3261E", fontWeight: 600, cursor: "pointer", textDecoration: "underline dotted" }}
                           onClick={() => setExpanded(expanded === run.id ? null : run.id)}
                         >
                           {run.failed} ⚠
@@ -279,12 +279,12 @@ function SmokeTestWidget() {
                         <span style={{ color: "#9E9B94" }}>0</span>
                       )}
                       {expanded === run.id && failedTests.length > 0 && (
-                        <div style={{ marginTop: 4, fontSize: 11, color: "#DC2626" }}>
+                        <div style={{ marginTop: 4, fontSize: 11, color: "#B3261E" }}>
                           {failedTests.map(t => <div key={t.name}>✗ {t.name}</div>)}
                         </div>
                       )}
                     </td>
-                    <td style={{ padding: "8px 16px", color: "#374151" }}>{run.duration_ms}ms</td>
+                    <td style={{ padding: "8px 16px", color: "#1A1917" }}>{run.duration_ms}ms</td>
                   </tr>
                 );
               })}
@@ -309,7 +309,7 @@ function MetricCard({ label, value, sub, accent }: { label: string; value: strin
     }}>
       <p style={{ fontSize: "11px", fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 8px" }}>{label}</p>
       <p style={{ fontSize: "22px", fontWeight: 700, color: "#1A1917", margin: 0, letterSpacing: "-0.02em" }}>{value}</p>
-      {sub && <p style={{ fontSize: "12px", color: "#6B7280", margin: "4px 0 0" }}>{sub}</p>}
+      {sub && <p style={{ fontSize: "12px", color: "#6B6860", margin: "4px 0 0" }}>{sub}</p>}
     </div>
   );
 }
@@ -328,7 +328,7 @@ export default function AdminDashboard() {
   return (
     <AdminLayout title="Platform Dashboard">
       {loading ? (
-        <div style={{ color: "#6B7280", textAlign: "center", paddingTop: "60px" }}>Loading platform data...</div>
+        <div style={{ color: "#6B6860", textAlign: "center", paddingTop: "60px" }}>Loading platform data...</div>
       ) : data ? (
         <div style={{ display: "flex", flexDirection: "column", gap: "24px" }}>
           {/* Metric grid */}
@@ -346,16 +346,16 @@ export default function AdminDashboard() {
             <p style={{ fontSize: "13px", fontWeight: 600, color: "#1A1917", margin: "0 0 16px" }}>Subscription Status Breakdown</p>
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {[
-                { label: "Active",    count: data.activeSubs,    color: "#16A34A" },
-                { label: "Trialing",  count: data.trialSubs,     color: "#1E40AF" },
-                { label: "Past Due",  count: data.pastDueSubs,   color: "#D97706" },
-                { label: "Canceled",  count: data.canceledSubs,  color: "#DC2626" },
+                { label: "Active",    count: data.activeSubs,    color: "#0F7A63" },
+                { label: "Trialing",  count: data.trialSubs,     color: "#2F3646" },
+                { label: "Past Due",  count: data.pastDueSubs,   color: "#B45309" },
+                { label: "Canceled",  count: data.canceledSubs,  color: "#B3261E" },
               ].map(row => {
                 const pct = data.totalCompanies > 0 ? Math.round((row.count / data.totalCompanies) * 100) : 0;
                 return (
                   <div key={row.label}>
                     <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "4px" }}>
-                      <span style={{ fontSize: "12px", color: "#6B7280" }}>{row.label}</span>
+                      <span style={{ fontSize: "12px", color: "#6B6860" }}>{row.label}</span>
                       <span style={{ fontSize: "12px", color: "#1A1917", fontWeight: 500 }}>{row.count} ({pct}%)</span>
                     </div>
                     <div style={{ height: "6px", backgroundColor: "#F0EEE9", borderRadius: "3px" }}>
@@ -369,8 +369,8 @@ export default function AdminDashboard() {
 
           {/* Flagged companies */}
           {data.flagged.length > 0 && (
-            <div style={{ backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: "10px", padding: "20px" }}>
-              <p style={{ fontSize: "13px", fontWeight: 600, color: "#DC2626", margin: "0 0 12px" }}>
+            <div style={{ backgroundColor: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: "10px", padding: "20px" }}>
+              <p style={{ fontSize: "13px", fontWeight: 600, color: "#B3261E", margin: "0 0 12px" }}>
                 Flagged Companies ({data.flagged.length})
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
@@ -391,7 +391,7 @@ export default function AdminDashboard() {
           <TenantList />
         </div>
       ) : (
-        <div style={{ color: "#DC2626", textAlign: "center", paddingTop: "60px" }}>Failed to load dashboard data.</div>
+        <div style={{ color: "#B3261E", textAlign: "center", paddingTop: "60px" }}>Failed to load dashboard data.</div>
       )}
     </AdminLayout>
   );

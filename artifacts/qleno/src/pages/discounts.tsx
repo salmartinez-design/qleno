@@ -171,7 +171,7 @@ export default function DiscountsPage() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div>
             <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Discounts</h1>
-            <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', marginTop: '6px' }}>Create and manage promo codes and discount rules.</p>
+            <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B6860', marginTop: '6px' }}>Create and manage promo codes and discount rules.</p>
           </div>
           <button
             onClick={() => setShowForm(v => !v)}
@@ -186,7 +186,7 @@ export default function DiscountsPage() {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '12px' }}>
           {[
             { label: 'Total Discounts', value: discounts.length },
-            { label: 'Active', value: activeCount, color: '#16A34A' },
+            { label: 'Active', value: activeCount, color: '#0F7A63' },
             { label: 'Total Uses', value: totalUses },
           ].map(c => (
             <div key={c.label} style={CARD}>
@@ -256,7 +256,7 @@ export default function DiscountsPage() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-              <button onClick={() => { setShowForm(false); setForm(DEFAULT_FORM); }} style={{ padding: '9px 18px', border: '1px solid #E5E2DC', borderRadius: '8px', backgroundColor: 'transparent', color: '#6B7280', fontSize: '13px', cursor: 'pointer' }}>Cancel</button>
+              <button onClick={() => { setShowForm(false); setForm(DEFAULT_FORM); }} style={{ padding: '9px 18px', border: '1px solid #E5E2DC', borderRadius: '8px', backgroundColor: 'transparent', color: '#6B6860', fontSize: '13px', cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleCreate} disabled={saving} style={{ padding: '9px 24px', backgroundColor: 'var(--brand)', color: '#FFFFFF', borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer', opacity: saving ? 0.7 : 1 }}>
                 {saving ? 'Creating...' : 'Create Discount'}
               </button>
@@ -267,12 +267,12 @@ export default function DiscountsPage() {
         {/* Discounts list */}
         <div style={CARD}>
           {isLoading ? (
-            <div style={{ padding: '48px', textAlign: 'center', color: '#6B7280', fontSize: '13px' }}>Loading discounts...</div>
+            <div style={{ padding: '48px', textAlign: 'center', color: '#6B6860', fontSize: '13px' }}>Loading discounts...</div>
           ) : discounts.length === 0 ? (
             <div style={{ padding: '64px', textAlign: 'center' }}>
               <Tag size={40} strokeWidth={1} style={{ color: '#DEDAD4', display: 'block', margin: '0 auto 16px' }} />
               <p style={{ fontSize: '16px', fontWeight: 500, color: '#1A1917', margin: '0 0 6px' }}>No discounts yet</p>
-              <p style={{ fontSize: '13px', color: '#6B7280', margin: '0 0 20px' }}>Create your first promo code to get started.</p>
+              <p style={{ fontSize: '13px', color: '#6B6860', margin: '0 0 20px' }}>Create your first promo code to get started.</p>
               <button onClick={() => setShowForm(true)} style={{ padding: '9px 20px', backgroundColor: 'var(--brand)', color: '#FFFFFF', borderRadius: '8px', fontSize: '13px', fontWeight: 600, border: 'none', cursor: 'pointer' }}>
                 Create Discount
               </button>
@@ -314,7 +314,7 @@ export default function DiscountsPage() {
                   </div>
 
                   {/* Scope */}
-                  <div style={{ padding: '14px 16px', fontSize: '12px', color: '#6B7280' }}>
+                  <div style={{ padding: '14px 16px', fontSize: '12px', color: '#6B6860' }}>
                     {scopeLabel(d.scope)}
                   </div>
 
@@ -324,7 +324,7 @@ export default function DiscountsPage() {
                   </div>
 
                   {/* Expires */}
-                  <div style={{ padding: '14px 16px', fontSize: '12px', color: '#6B7280' }}>
+                  <div style={{ padding: '14px 16px', fontSize: '12px', color: '#6B6860' }}>
                     {d.expires_at ? new Date(d.expires_at).toLocaleDateString() : 'Never'}
                   </div>
 
@@ -339,7 +339,7 @@ export default function DiscountsPage() {
                   <div style={{ padding: '14px 12px' }}>
                     <button
                       onClick={() => handleDelete(d.id, d.name)}
-                      style={{ width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FEF2F2', border: '1px solid #FECACA', borderRadius: '6px', color: '#DC2626', cursor: 'pointer' }}
+                      style={{ width: '28px', height: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#FCEBEA', border: '1px solid #F1D0CB', borderRadius: '6px', color: '#B3261E', cursor: 'pointer' }}
                     >
                       <Trash2 size={12} />
                     </button>

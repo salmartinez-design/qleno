@@ -57,7 +57,7 @@ const baseRes: DispatchJob = {
   after_photo_count: 0,
   clock_entry: null,
   zone_id: 7,
-  zone_color: "#7C3AED",   // Cook Central — purple
+  zone_color: "#9C4E2B",   // Cook Central — purple
   zone_name: "Chicago Central",
   add_ons: [
     { name: "Inside Oven",  quantity: 1, unit_price: 35, subtotal: 35 },
@@ -102,7 +102,7 @@ const baseCom: DispatchJob = {
   billed_amount: null,
   duration_minutes: 180,
   zone_id: 11,
-  zone_color: "#2563EB",   // West/Riverside — blue
+  zone_color: "#2F3646",   // West/Riverside — blue
   zone_name: "West Suburbs",
   add_ons: [],
   is_new_client: false,
@@ -197,7 +197,7 @@ function StateRow({ status, label, note, narrow, newClient }: { status: JobVisua
     <div style={{ borderBottom: "1px solid #EAE6DF", padding: "16px 0" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 6 }}>
         <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>{label}</div>
-        {newClient && <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#FFF1B8", color: "#92400E" }}>NEW-CLIENT OVERLAY</span>}
+        {newClient && <span style={{ fontSize: 11, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#FFF1B8", color: "#B45309" }}>NEW-CLIENT OVERLAY</span>}
         {note && <div style={{ fontSize: 12, color: "#6B6860" }}>{note}</div>}
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>

@@ -22,12 +22,12 @@ interface SearchResults {
 
 // Lead pipeline stage → short label + chip colors for the search row badge.
 const LEAD_STATUS: Record<string, { label: string; bg: string; color: string }> = {
-  needs_contacted: { label: 'New', bg: '#F3F4F6', color: '#6B7280' },
-  contacted: { label: 'Contacted', bg: '#DBEAFE', color: '#1D4ED8' },
-  quoted: { label: 'Quoted', bg: '#FEF3C7', color: '#92400E' },
-  booked: { label: 'Booked', bg: '#DCFCE7', color: '#166534' },
-  closed: { label: 'Lost', bg: '#FEE2E2', color: '#B91C1C' },
-  lost: { label: 'Lost', bg: '#FEE2E2', color: '#B91C1C' },
+  needs_contacted: { label: 'New', bg: '#F0EEE9', color: '#6B6860' },
+  contacted: { label: 'Contacted', bg: '#EFEFF2', color: '#2F3646' },
+  quoted: { label: 'Quoted', bg: '#FDF3E4', color: '#B45309' },
+  booked: { label: 'Booked', bg: '#E6F6F1', color: '#0F7A63' },
+  closed: { label: 'Lost', bg: '#FCEBEA', color: '#B3261E' },
+  lost: { label: 'Lost', bg: '#FCEBEA', color: '#B3261E' },
 };
 
 interface Props {
@@ -186,13 +186,13 @@ export function GlobalSearch({ onClose }: Props) {
               {results.leads.map(l => {
                 const idx = itemIndex++;
                 const active = idx === highlighted;
-                const st = LEAD_STATUS[l.status] || { label: l.status || '—', bg:'#F3F4F6', color:'#6B7280' };
+                const st = LEAD_STATUS[l.status] || { label: l.status || '—', bg:'#F0EEE9', color:'#6B6860' };
                 const name = `${l.first_name || ''} ${l.last_name || ''}`.trim() || l.email || l.phone || `Lead #${l.id}`;
                 return (
                   <button key={l.id} onClick={() => go(`/leads?lead=${l.id}`)}
                     style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: active ? '#F5F4F1' : 'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
                     <div style={{ width:32, height:32, borderRadius:8, background:'#F5F3FF', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                      <UserPlus size={15} color="#7C3AED"/>
+                      <UserPlus size={15} color="#9C4E2B"/>
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0, overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{name}</p>
@@ -216,7 +216,7 @@ export function GlobalSearch({ onClose }: Props) {
                     style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: active ? '#F5F4F1' : 'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
                     {e.avatar_url
                       ? <img src={e.avatar_url} style={{ width:32, height:32, borderRadius:16, objectFit:'cover', flexShrink:0 }}/>
-                      : <div style={{ width:32, height:32, borderRadius:16, background:'#F3F4F6', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#6B7280', flexShrink:0 }}>{e.first_name?.[0]}{e.last_name?.[0]}</div>
+                      : <div style={{ width:32, height:32, borderRadius:16, background:'#F0EEE9', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:'#6B6860', flexShrink:0 }}>{e.first_name?.[0]}{e.last_name?.[0]}</div>
                     }
                     <div>
                       <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{e.first_name} {e.last_name}</p>
@@ -238,13 +238,13 @@ export function GlobalSearch({ onClose }: Props) {
                   <button key={j.id} onClick={() => go(`/customers/${j.client_id}`)}
                     style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: active ? '#F5F4F1' : 'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
                     <div style={{ width:32, height:32, borderRadius:8, background:'#F0FDF4', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                      <Briefcase size={15} color="#16A34A"/>
+                      <Briefcase size={15} color="#0F7A63"/>
                     </div>
                     <div style={{ flex:1 }}>
                       <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{j.client_name}</p>
                       <p style={{ fontSize:11, color:'#9E9B94', margin:0 }}>{SERVICE_LABELS[j.service_type] || j.service_type} · {new Date(j.scheduled_date + 'T00:00:00').toLocaleDateString()}</p>
                     </div>
-                    <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:10, background: j.status==='complete'?'#DCFCE7': j.status==='in_progress'?'#DBEAFE':'#F3F4F6', color: j.status==='complete'?'#166534': j.status==='in_progress'?'#1D4ED8':'#6B7280' }}>
+                    <span style={{ fontSize:10, fontWeight:600, padding:'2px 8px', borderRadius:10, background: j.status==='complete'?'#E6F6F1': j.status==='in_progress'?'#EFEFF2':'#F0EEE9', color: j.status==='complete'?'#0F7A63': j.status==='in_progress'?'#2F3646':'#6B6860' }}>
                       {j.status.toUpperCase().replace('_',' ')}
                     </span>
                   </button>
@@ -262,8 +262,8 @@ export function GlobalSearch({ onClose }: Props) {
                 return (
                   <button key={i.id} onClick={() => go(`/invoices`)}
                     style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'10px 16px', background: active ? '#F5F4F1' : 'none', border:'none', cursor:'pointer', textAlign:'left', fontFamily:'inherit' }}>
-                    <div style={{ width:32, height:32, borderRadius:8, background:'#FFFBEB', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
-                      <FileText size={15} color="#D97706"/>
+                    <div style={{ width:32, height:32, borderRadius:8, background:'#FDF3E4', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+                      <FileText size={15} color="#B45309"/>
                     </div>
                     <div style={{ flex:1 }}>
                       <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0 }}>{formatInvoiceNumber(i)} · {i.client_name}</p>
@@ -300,7 +300,7 @@ export function GlobalSearch({ onClose }: Props) {
         <div style={{ padding:'8px 16px', borderTop:'1px solid #E5E2DC', display:'flex', gap:16 }}>
           {[['↵','Select'],['↑↓','Navigate'],['ESC','Close']].map(([k,l]) => (
             <span key={k} style={{ fontSize:11, color:'#9E9B94', display:'flex', alignItems:'center', gap:4 }}>
-              <kbd style={{ fontSize:10, border:'1px solid #E5E2DC', borderRadius:3, padding:'1px 5px', color:'#6B7280' }}>{k}</kbd>{l}
+              <kbd style={{ fontSize:10, border:'1px solid #E5E2DC', borderRadius:3, padding:'1px 5px', color:'#6B6860' }}>{k}</kbd>{l}
             </span>
           ))}
         </div>

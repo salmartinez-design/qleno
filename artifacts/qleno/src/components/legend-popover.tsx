@@ -72,12 +72,12 @@ function ExampleTile({ status }: { status: JobVisualStatus }) {
         <div style={{ fontSize: 9, fontWeight: 600, opacity: 0.7, marginTop: 1 }}>9:00 AM</div>
       </div>
       {v.showCheckmark && (
-        <div style={{ position: "absolute", top: 3, right: 3, width: 14, height: 14, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ position: "absolute", top: 3, right: 3, width: 14, height: 14, borderRadius: "50%", backgroundColor: "#0F7A63", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Check size={9} color="#FFFFFF" strokeWidth={3} />
         </div>
       )}
       {v.showNoShowBadge && (
-        <div style={{ position: "absolute", top: 3, right: 3, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "1px 4px", borderRadius: 3 }}>
+        <div style={{ position: "absolute", top: 3, right: 3, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "1px 4px", borderRadius: 3 }}>
           NO SHOW
         </div>
       )}
@@ -96,7 +96,7 @@ function ExampleTile({ status }: { status: JobVisualStatus }) {
       )}
       {/* [job-card-redesign] LATE badge mirrors the chip pill. */}
       {status === "late_clockin" && (
-        <div style={{ position: "absolute", top: 3, left: 7, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#DC2626", padding: "1px 4px", borderRadius: 3, letterSpacing: "0.05em" }}>
+        <div style={{ position: "absolute", top: 3, left: 7, fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "1px 4px", borderRadius: 3, letterSpacing: "0.05em" }}>
           LATE
         </div>
       )}

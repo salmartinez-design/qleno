@@ -116,7 +116,7 @@ export default function Login() {
               onBlur={e => (e.target.style.borderColor = '#DEDAD4')}
               {...register("email")}
             />
-            {errors.email && <p style={{ fontSize: '11px', color: '#DC2626', marginTop: '4px' }}>{errors.email.message}</p>}
+            {errors.email && <p style={{ fontSize: '11px', color: '#B3261E', marginTop: '4px' }}>{errors.email.message}</p>}
           </div>
 
           <div>
@@ -147,7 +147,7 @@ export default function Login() {
                 {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
-            {errors.password && <p style={{ fontSize: '11px', color: '#DC2626', marginTop: '4px' }}>{errors.password.message}</p>}
+            {errors.password && <p style={{ fontSize: '11px', color: '#B3261E', marginTop: '4px' }}>{errors.password.message}</p>}
           </div>
 
           <button

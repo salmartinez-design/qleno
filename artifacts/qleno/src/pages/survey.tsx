@@ -9,11 +9,11 @@ const FF = "'Plus Jakarta Sans', sans-serif";
 // MaidCentral 0–4 satisfaction scale — the single question that feeds the
 // employee Performance Score. Highest first (reads top-down on a phone).
 const OPTIONS: { score: number; label: string; sub: string; color: string }[] = [
-  { score: 4, label: "Thrilled — Great Work", sub: "Everything was excellent", color: "#16A34A" },
+  { score: 4, label: "Thrilled — Great Work", sub: "Everything was excellent", color: "#0F7A63" },
   { score: 3, label: "Happy — Good Work", sub: "A good cleaning", color: "#65A30D" },
-  { score: 2, label: "A Few Concerns", sub: "Some things to improve", color: "#D97706" },
-  { score: 1, label: "Major Concerns", sub: "Several problems", color: "#DC2626" },
-  { score: 0, label: "Considering Another Company", sub: "Strongly dissatisfied", color: "#991B1B" },
+  { score: 2, label: "A Few Concerns", sub: "Some things to improve", color: "#B45309" },
+  { score: 1, label: "Major Concerns", sub: "Several problems", color: "#B3261E" },
+  { score: 0, label: "Considering Another Company", sub: "Strongly dissatisfied", color: "#B3261E" },
 ];
 
 export default function SurveyPage() {
@@ -146,7 +146,7 @@ export default function SurveyPage() {
             {happy ? "So glad we hit the mark!" : "Thank you for your feedback."}
           </h2>
           {chosen && (
-            <p style={{ fontSize: 14, color: "#6B7280", margin: "0 0 16px" }}>
+            <p style={{ fontSize: 14, color: "#6B6860", margin: "0 0 16px" }}>
               You rated us <span style={{ color: chosen.color, fontWeight: 700 }}>{chosen.label}</span>.
             </p>
           )}
@@ -167,7 +167,7 @@ export default function SurveyPage() {
           )}
 
           {!happy && (
-            <p style={{ fontSize: 14, color: "#6B7280", margin: "0 0 22px", lineHeight: "1.6" }}>
+            <p style={{ fontSize: 14, color: "#6B6860", margin: "0 0 22px", lineHeight: "1.6" }}>
               We're sorry we missed the mark — we'd like to make it right.
             </p>
           )}
@@ -191,7 +191,7 @@ export default function SurveyPage() {
               </button>
             </div>
           ) : (
-            <p style={{ fontSize: 13, color: "#16A34A", fontWeight: 600, margin: 0 }}>Thanks — your note was sent.</p>
+            <p style={{ fontSize: 13, color: "#0F7A63", fontWeight: 600, margin: 0 }}>Thanks — your note was sent.</p>
           )}
         </div>
         <style>{`@keyframes spin { from{transform:rotate(0deg)} to{transform:rotate(360deg)} }`}</style>
@@ -230,7 +230,7 @@ export default function SurveyPage() {
               }}>
                 <div style={{
                   width: 34, height: 34, borderRadius: "50%", flexShrink: 0,
-                  backgroundColor: busy ? o.color : "#F3F4F6", color: busy ? "#FFFFFF" : "#6B7280",
+                  backgroundColor: busy ? o.color : "#F0EEE9", color: busy ? "#FFFFFF" : "#6B6860",
                   display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800,
                 }}>{busy ? <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> : o.score}</div>
                 <div>
@@ -243,7 +243,7 @@ export default function SurveyPage() {
         </div>
 
         {submitError && (
-          <div style={{ marginTop: 16, padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, fontSize: 13, color: "#991B1B" }}>
+          <div style={{ marginTop: 16, padding: "10px 12px", background: "#FCEBEA", border: "1px solid #FCA5A5", borderRadius: 8, fontSize: 13, color: "#B3261E" }}>
             {submitError}
           </div>
         )}

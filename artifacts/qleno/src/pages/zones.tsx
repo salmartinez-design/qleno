@@ -83,11 +83,11 @@ function ZipTagInput({ zips, onChange }: { zips: string[]; onChange: (z: string[
 
   return (
     <div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#FAFAF9", minHeight: 44 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F7F6F3", minHeight: 44 }}>
         {zips.map(z => (
-          <span key={z} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 8px", backgroundColor: "#E8F0F8", color: "#1D4ED8", borderRadius: 12, fontSize: 12, fontFamily: FF, fontWeight: 500 }}>
+          <span key={z} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 8px", backgroundColor: "#E8F0F8", color: "#2F3646", borderRadius: 12, fontSize: 12, fontFamily: FF, fontWeight: 500 }}>
             {z}
-            <button onClick={() => removeZip(z)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "#6B7280", display: "flex", alignItems: "center" }}>
+            <button onClick={() => removeZip(z)} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "#6B6860", display: "flex", alignItems: "center" }}>
               <X size={10} />
             </button>
           </span>
@@ -101,7 +101,7 @@ function ZipTagInput({ zips, onChange }: { zips: string[]; onChange: (z: string[
           style={{ border: "none", outline: "none", background: "transparent", fontSize: 13, fontFamily: FF, color: "#1A1917", minWidth: 140, flex: 1 }}
         />
       </div>
-      {err && <p style={{ fontSize: 11, color: "#EF4444", margin: "4px 0 0", fontFamily: FF }}>{err}</p>}
+      {err && <p style={{ fontSize: 11, color: "#B3261E", margin: "4px 0 0", fontFamily: FF }}>{err}</p>}
       <p style={{ fontSize: 11, color: "#9E9B94", margin: "4px 0 0", fontFamily: FF }}>{zips.length} zip code{zips.length !== 1 ? "s" : ""} added</p>
     </div>
   );
@@ -133,7 +133,7 @@ function EmployeeMultiSelect({ employees, selected, onChange }: {
     <div ref={ref} style={{ position: "relative" }}>
       <div
         onClick={() => setOpen(p => !p)}
-        style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, cursor: "pointer", backgroundColor: "#FAFAF9", minHeight: 40 }}
+        style={{ display: "flex", flexWrap: "wrap", gap: 4, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, cursor: "pointer", backgroundColor: "#F7F6F3", minHeight: 40 }}
       >
         {selectedEmps.length === 0 && (
           <span style={{ fontSize: 13, color: "#9E9B94", fontFamily: FF }}>Select employees...</span>
@@ -141,7 +141,7 @@ function EmployeeMultiSelect({ employees, selected, onChange }: {
         {selectedEmps.map(e => (
           <span key={e.id} style={{ display: "flex", alignItems: "center", gap: 4, padding: "2px 8px", backgroundColor: "#F0EEE9", color: "#1A1917", borderRadius: 12, fontSize: 12, fontFamily: FF }}>
             {e.name}
-            <button onClick={ev => { ev.stopPropagation(); toggle(e.id); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "#6B7280", display: "flex", alignItems: "center" }}>
+            <button onClick={ev => { ev.stopPropagation(); toggle(e.id); }} style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: "#6B6860", display: "flex", alignItems: "center" }}>
               <X size={10} />
             </button>
           </span>
@@ -262,7 +262,7 @@ function ZoneDrawer({ zone, employees, open, onClose, onSave }: {
             value={name}
             onChange={e => setName(e.target.value)}
             placeholder="e.g. Southwest Zone"
-            style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontFamily: FF, fontSize: 13, color: "#1A1917", outline: "none", backgroundColor: "#FAFAF9" }}
+            style={{ padding: "10px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontFamily: FF, fontSize: 13, color: "#1A1917", outline: "none", backgroundColor: "#F7F6F3" }}
           />
         </div>
 
@@ -276,8 +276,8 @@ function ZoneDrawer({ zone, employees, open, onClose, onSave }: {
                 onClick={() => setLocation(val)}
                 style={{
                   flex: 1, padding: "9px 0", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 13, fontWeight: 500,
-                  backgroundColor: location === val ? (val === "schaumburg" ? "#2D6A4F" : "#5B9BD5") : "#FAFAF9",
-                  color: location === val ? "#FFFFFF" : "#6B7280",
+                  backgroundColor: location === val ? (val === "schaumburg" ? "#2D6A4F" : "#5B9BD5") : "#F7F6F3",
+                  color: location === val ? "#FFFFFF" : "#6B6860",
                   transition: "all 0.15s",
                 }}
               >
@@ -331,7 +331,7 @@ function ZoneDrawer({ zone, employees, open, onClose, onSave }: {
           </button>
           <button
             onClick={onClose}
-            style={{ padding: "10px 18px", backgroundColor: "transparent", color: "#6B7280", border: "1px solid #E5E2DC", borderRadius: 8, fontFamily: FF, fontSize: 14, cursor: "pointer" }}
+            style={{ padding: "10px 18px", backgroundColor: "transparent", color: "#6B6860", border: "1px solid #E5E2DC", borderRadius: 8, fontFamily: FF, fontSize: 14, cursor: "pointer" }}
           >
             Cancel
           </button>
@@ -410,7 +410,7 @@ function ZoneBottomSheet({ zone, employees, open, onClose, onSave }: {
           <input
             value={name}
             onChange={e => setName(e.target.value)}
-            style={{ padding: "11px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontFamily: FF, fontSize: 14, color: "#1A1917", outline: "none", backgroundColor: "#FAFAF9" }}
+            style={{ padding: "11px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontFamily: FF, fontSize: 14, color: "#1A1917", outline: "none", backgroundColor: "#F7F6F3" }}
           />
         </div>
 
@@ -492,7 +492,7 @@ function DesktopZones({ zones, employees, stats, loading, onRefresh }: {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
         <div>
           <h1 style={{ fontFamily: FF, fontWeight: 700, fontSize: 36, color: "#1A1917", margin: 0, lineHeight: 1.1 }}>Service Zones</h1>
-          <p style={{ fontFamily: FF, fontWeight: 400, fontSize: 13, color: "#6B7280", margin: "6px 0 0" }}>
+          <p style={{ fontFamily: FF, fontWeight: 400, fontSize: 13, color: "#6B6860", margin: "6px 0 0" }}>
             Color-code your coverage areas by zip code. Zones auto-assign to new clients and jobs.
           </p>
         </div>
@@ -513,7 +513,7 @@ function DesktopZones({ zones, employees, stats, loading, onRefresh }: {
             onClick={() => setLocationFilter(val)}
             style={{
               padding: "8px 16px", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 13, fontWeight: locationFilter === val ? 500 : 400,
-              color: locationFilter === val ? "var(--brand)" : "#6B7280", backgroundColor: "transparent",
+              color: locationFilter === val ? "var(--brand)" : "#6B6860", backgroundColor: "transparent",
               borderBottom: `2px solid ${locationFilter === val ? "var(--brand)" : "transparent"}`, marginBottom: -1,
               transition: "color 0.15s",
             }}
@@ -527,7 +527,7 @@ function DesktopZones({ zones, employees, stats, loading, onRefresh }: {
       <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, border: "1px solid #E5E2DC", overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr style={{ borderBottom: "1px solid #E5E2DC", backgroundColor: "#FAFAF9" }}>
+            <tr style={{ borderBottom: "1px solid #E5E2DC", backgroundColor: "#F7F6F3" }}>
               {["", "Zone Name", "Location", "Zip Codes", "Employees", "Jobs This Month", "Active", ""].map((h, i) => (
                 <th key={i} style={{ padding: "12px 16px", textAlign: "left", fontFamily: FF, fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                   {h}
@@ -555,7 +555,7 @@ function DesktopZones({ zones, employees, stats, loading, onRefresh }: {
                   <td style={{ padding: "14px 16px" }}>
                     <div style={{ display: "flex", gap: 4, flexWrap: "wrap", alignItems: "center" }}>
                       {(z.zip_codes || []).slice(0, 3).map(zip => (
-                        <span key={zip} style={{ fontSize: 11, fontFamily: FF, padding: "2px 6px", backgroundColor: "#F0EEE9", borderRadius: 4, color: "#6B7280" }}>{zip}</span>
+                        <span key={zip} style={{ fontSize: 11, fontFamily: FF, padding: "2px 6px", backgroundColor: "#F0EEE9", borderRadius: 4, color: "#6B6860" }}>{zip}</span>
                       ))}
                       {(z.zip_codes || []).length > 3 && (
                         <span style={{ fontSize: 11, fontFamily: FF, color: "#9E9B94" }}>+{z.zip_codes.length - 3} more</span>
@@ -565,10 +565,10 @@ function DesktopZones({ zones, employees, stats, loading, onRefresh }: {
                       )}
                     </div>
                   </td>
-                  <td style={{ padding: "14px 16px", fontFamily: FF, fontSize: 14, color: "#6B7280" }}>
+                  <td style={{ padding: "14px 16px", fontFamily: FF, fontSize: 14, color: "#6B6860" }}>
                     {z.employee_count}
                   </td>
-                  <td style={{ padding: "14px 16px", fontFamily: FF, fontSize: 14, color: "#6B7280" }}>
+                  <td style={{ padding: "14px 16px", fontFamily: FF, fontSize: 14, color: "#6B6860" }}>
                     {z.jobs_this_month}
                   </td>
                   <td style={{ padding: "14px 16px" }}>
@@ -591,7 +591,7 @@ function DesktopZones({ zones, employees, stats, loading, onRefresh }: {
                   <td style={{ padding: "14px 16px" }}>
                     <button
                       onClick={() => openEdit(z)}
-                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", backgroundColor: "transparent", border: "1px solid #E5E2DC", borderRadius: 6, cursor: "pointer", fontFamily: FF, fontSize: 12, color: "#6B7280" }}
+                      style={{ display: "flex", alignItems: "center", gap: 4, padding: "6px 12px", backgroundColor: "transparent", border: "1px solid #E5E2DC", borderRadius: 6, cursor: "pointer", fontFamily: FF, fontSize: 12, color: "#6B6860" }}
                     >
                       <Edit2 size={12} />
                       Edit
@@ -611,7 +611,7 @@ function DesktopZones({ zones, employees, stats, loading, onRefresh }: {
           <div style={{ backgroundColor: "#FFFFFF", borderRadius: 12, border: "1px solid #E5E2DC", overflow: "hidden" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid #E5E2DC", backgroundColor: "#FAFAF9" }}>
+                <tr style={{ borderBottom: "1px solid #E5E2DC", backgroundColor: "#F7F6F3" }}>
                   {["Zone", "Jobs", "Revenue", "Avg Bill"].map(h => (
                     <th key={h} style={{ padding: "12px 16px", textAlign: "left", fontFamily: FF, fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>{h}</th>
                   ))}
@@ -626,9 +626,9 @@ function DesktopZones({ zones, employees, stats, loading, onRefresh }: {
                         <span style={{ fontFamily: FF, fontSize: 13, fontWeight: 500, color: "#1A1917" }}>{s.name}</span>
                       </div>
                     </td>
-                    <td style={{ padding: "12px 16px", fontFamily: FF, fontSize: 13, color: "#6B7280" }}>{s.job_count}</td>
-                    <td style={{ padding: "12px 16px", fontFamily: FF, fontSize: 13, color: "#6B7280" }}>{fmt$(s.revenue)}</td>
-                    <td style={{ padding: "12px 16px", fontFamily: FF, fontSize: 13, color: "#6B7280" }}>{s.job_count ? fmt$(s.avg_bill) : "—"}</td>
+                    <td style={{ padding: "12px 16px", fontFamily: FF, fontSize: 13, color: "#6B6860" }}>{s.job_count}</td>
+                    <td style={{ padding: "12px 16px", fontFamily: FF, fontSize: 13, color: "#6B6860" }}>{fmt$(s.revenue)}</td>
+                    <td style={{ padding: "12px 16px", fontFamily: FF, fontSize: 13, color: "#6B6860" }}>{s.job_count ? fmt$(s.avg_bill) : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -714,7 +714,7 @@ function MobileZones({ zones, employees, loading, onRefresh }: {
             </h2>
             <button
               onClick={() => openEdit(selectedZone)}
-              style={{ display: "flex", alignItems: "center", gap: 4, padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "transparent", cursor: "pointer", fontFamily: FF, fontSize: 13, color: "#6B7280" }}
+              style={{ display: "flex", alignItems: "center", gap: 4, padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "transparent", cursor: "pointer", fontFamily: FF, fontSize: 13, color: "#6B6860" }}
             >
               <Edit2 size={13} />
               Edit Zone

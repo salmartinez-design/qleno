@@ -148,7 +148,7 @@ export default function MobileDateSheet({
               borderRadius: 8,
               padding: "6px 10px",
               cursor: "pointer",
-              color: "#6B7280",
+              color: "#6B6860",
             }}
           >
             <ChevronLeft size={16} />
@@ -163,7 +163,7 @@ export default function MobileDateSheet({
               borderRadius: 8,
               padding: "6px 10px",
               cursor: "pointer",
-              color: "#6B7280",
+              color: "#6B6860",
             }}
           >
             <ChevronRight size={16} />

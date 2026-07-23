@@ -46,8 +46,8 @@ function useGoalData() {
 
 const STATUS_CONFIG = {
   on_track: { label: "On Track", color: "#10B981", bg: "#D1FAE5", icon: CheckCircle },
-  at_risk:  { label: "At Risk",  color: "#F59E0B", bg: "#FEF3C7", icon: AlertTriangle },
-  behind:   { label: "Behind",   color: "#EF4444", bg: "#FEE2E2", icon: XCircle },
+  at_risk:  { label: "At Risk",  color: "#F59E0B", bg: "#FDF3E4", icon: AlertTriangle },
+  behind:   { label: "Behind",   color: "#B3261E", bg: "#FCEBEA", icon: XCircle },
 };
 
 function GoalBadge({ status }: { status: GoalData["status"] }) {
@@ -154,7 +154,7 @@ export default function RevenueGoalPage() {
   const hasGoal = d.goal != null && d.goal > 0;
 
   const clientDelta = d.new_clients_this_year - d.new_clients_last_year;
-  const clientDeltaColor = clientDelta >= 0 ? "#10B981" : "#EF4444";
+  const clientDeltaColor = clientDelta >= 0 ? "#10B981" : "#B3261E";
   const clientDeltaLabel = clientDelta >= 0
     ? `+${clientDelta} vs same period last year`
     : `${clientDelta} vs same period last year`;
@@ -190,7 +190,7 @@ export default function RevenueGoalPage() {
                     <button onClick={() => { setEditing(false); setSaveError(null); }} style={{ display: "flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 7, backgroundColor: "#F0EEE9", border: "none", cursor: "pointer", color: clr.secondary }}>
                       <X size={16} />
                     </button>
-                    {saveError && <p style={{ margin: 0, fontSize: 12, color: "#EF4444" }}>{saveError}</p>}
+                    {saveError && <p style={{ margin: 0, fontSize: 12, color: "#B3261E" }}>{saveError}</p>}
                   </div>
                 ) : (
                   <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 4 }}>
@@ -208,7 +208,7 @@ export default function RevenueGoalPage() {
             {hasGoal && (
               <div style={{ textAlign: "right" }}>
                 <p style={{ margin: "0 0 2px", fontSize: 11, fontWeight: 600, color: clr.muted, textTransform: "uppercase", letterSpacing: "0.07em" }}>Projection</p>
-                <p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: d.status === "on_track" ? "#10B981" : d.status === "at_risk" ? "#F59E0B" : "#EF4444" }}>{fmt$(d.projection)}</p>
+                <p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: d.status === "on_track" ? "#10B981" : d.status === "at_risk" ? "#F59E0B" : "#B3261E" }}>{fmt$(d.projection)}</p>
                 {d.gap != null && (
                   <p style={{ margin: "3px 0 0", fontSize: 12, color: d.gap <= 0 ? "#10B981" : clr.secondary }}>
                     {d.gap <= 0 ? `${fmt$(Math.abs(d.gap))} above goal` : `${fmt$(d.gap)} gap remaining`}
@@ -262,7 +262,7 @@ export default function RevenueGoalPage() {
                     ? "#10B981"
                     : d.required_avg_invoice <= d.avg_invoice * 1.3
                       ? "#F59E0B"
-                      : "#EF4444"
+                      : "#B3261E"
                   : clr.secondary
               }
             />

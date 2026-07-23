@@ -10,7 +10,7 @@ import { FollowUpEditor } from "@/pages/estimates-followup-editor";
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const INK = "#1A1917";
-const MUTE = "#6B7280";
+const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
 const MINT = "var(--brand)";
 
@@ -28,12 +28,12 @@ async function apiFetch(path: string, opts: { method?: string; body?: any } = {}
 const money = (n: any) => `$${Number(n || 0).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const STATUS_STYLE: Record<string, { bg: string; fg: string; label: string; icon: any }> = {
-  draft:    { bg: "#F3F4F6", fg: "#6B7280", label: "Draft",    icon: FileText },
-  sent:     { bg: "#EFF6FF", fg: "#1D4ED8", label: "Sent",     icon: Send },
-  viewed:   { bg: "#FEF3C7", fg: "#92400E", label: "Viewed",   icon: Clock },
-  accepted: { bg: "#ECFDF5", fg: "#047857", label: "Accepted", icon: CheckCircle },
-  declined: { bg: "#FEF2F2", fg: "#991B1B", label: "Declined", icon: Trash2 },
-  expired:  { bg: "#F3F4F6", fg: "#6B7280", label: "Expired",  icon: Clock },
+  draft:    { bg: "#F0EEE9", fg: "#6B6860", label: "Draft",    icon: FileText },
+  sent:     { bg: "#EFEFF2", fg: "#2F3646", label: "Sent",     icon: Send },
+  viewed:   { bg: "#FDF3E4", fg: "#B45309", label: "Viewed",   icon: Clock },
+  accepted: { bg: "#E6F6F1", fg: "#047857", label: "Accepted", icon: CheckCircle },
+  declined: { bg: "#FCEBEA", fg: "#B3261E", label: "Declined", icon: Trash2 },
+  expired:  { bg: "#F0EEE9", fg: "#6B6860", label: "Expired",  icon: Clock },
 };
 
 function StatusChip({ status }: { status: string }) {
@@ -83,7 +83,7 @@ export default function EstimatesPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ fontFamily: FF, maxWidth: 1100, margin: "0 auto", padding: "8px 4px 60px" }}>
+      <div style={{ fontFamily: FF, margin: "0 auto", padding: "8px 4px 60px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 6 }}>
           <div>
             <h1 style={{ fontSize: 24, fontWeight: 800, color: INK, margin: 0 }}>Estimates</h1>

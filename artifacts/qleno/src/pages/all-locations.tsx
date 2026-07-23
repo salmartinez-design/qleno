@@ -18,7 +18,7 @@ interface Rollup {
 }
 
 const money = (n: number) => "$" + Math.round(n).toLocaleString();
-const card: React.CSSProperties = { background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: 18 };
+const card: React.CSSProperties = { background: "var(--bg-card)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", padding: 18 };
 const lbl: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.04em" };
 
 function Metric({ label, value }: { label: string; value: string }) {
@@ -45,7 +45,7 @@ export default function AllLocationsPage() {
 
   return (
     <DashboardLayout>
-      <div style={{ maxWidth: 1100, margin: "0 auto", padding: "0 0 40px", fontFamily: FF }}>
+      <div style={{ margin: "0 auto", padding: "0 0 40px", fontFamily: FF }}>
         <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 6px", display: "flex", alignItems: "center", gap: 8 }}>
           <Building2 size={22} /> All Locations
         </h1>
@@ -65,8 +65,8 @@ export default function AllLocationsPage() {
           <>
             {/* Combined totals */}
             {data.combined && data.companies.length > 1 && (
-              <div style={{ ...card, marginBottom: 18, background: "var(--brand-dim, #EFF6FF)", border: "1px solid rgba(var(--brand-rgb),0.3)" }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--brand, #2D9B83)", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ ...card, marginBottom: 18, background: "var(--brand-dim, #EFEFF2)", border: "1px solid rgba(var(--brand-rgb),0.3)" }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "var(--brand, #0F7A63)", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
                   <TrendingUp size={16} /> Combined — all {data.companies.length} locations
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 16 }}>

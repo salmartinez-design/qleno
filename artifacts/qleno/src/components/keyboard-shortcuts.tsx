@@ -53,7 +53,7 @@ function ShortcutRow({ k, label }: { k: string; label: string }) {
   return (
     <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between' }}>
       <span style={{ fontSize:13, color:'#1A1917' }}>{label}</span>
-      <kbd style={{ fontSize:12, fontWeight:700, border:'1px solid #E5E2DC', borderRadius:5, padding:'3px 8px', color:'#6B7280', background:'#F9F9F9', fontFamily:"'Plus Jakarta Sans', sans-serif" }}>{k}</kbd>
+      <kbd style={{ fontSize:12, fontWeight:700, border:'1px solid #E5E2DC', borderRadius:5, padding:'3px 8px', color:'#6B6860', background:'#F9F9F9', fontFamily:"'Plus Jakarta Sans', sans-serif" }}>{k}</kbd>
     </div>
   );
 }

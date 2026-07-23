@@ -27,7 +27,7 @@ function StarRow({ score }: { score: number }) {
     <div style={{ display: 'flex', gap: 2 }}>
       {[1, 2, 3, 4].map(i => (
         <svg key={i} width={12} height={12} viewBox="0 0 24 24"
-          fill={score >= i ? '#F59E0B' : 'none'} stroke={score >= i ? '#F59E0B' : '#D1D5DB'} strokeWidth={1.5}>
+          fill={score >= i ? '#F59E0B' : 'none'} stroke={score >= i ? '#F59E0B' : '#E5E2DC'} strokeWidth={1.5}>
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
         </svg>
       ))}
@@ -88,17 +88,17 @@ export default function InsightsPage() {
           <div style={{ ...CARD, padding: '14px 18px' }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Avg Job Value</p>
             <p style={{ fontSize: 28, fontWeight: 700, color: '#1A1917', margin: 0 }}>${(data?.avg_job_value || 0).toFixed(0)}</p>
-            <p style={{ fontSize: 11, color: '#6B7280', margin: '2px 0 0' }}>Last 30 days</p>
+            <p style={{ fontSize: 11, color: '#6B6860', margin: '2px 0 0' }}>Last 30 days</p>
           </div>
           <div style={{ ...CARD, padding: '14px 18px' }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Projected Revenue</p>
             <p style={{ fontSize: 28, fontWeight: 700, color: '#1A1917', margin: 0 }}>${(data?.projected_revenue || 0).toFixed(0)}</p>
-            <p style={{ fontSize: 11, color: '#6B7280', margin: '2px 0 0' }}>From scheduled jobs</p>
+            <p style={{ fontSize: 11, color: '#6B6860', margin: '2px 0 0' }}>From scheduled jobs</p>
           </div>
           <div style={{ ...CARD, padding: '14px 18px' }}>
             <p style={{ fontSize: 11, fontWeight: 700, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px' }}>Concern Flags</p>
-            <p style={{ fontSize: 28, fontWeight: 700, color: concerns.length > 0 ? '#DC2626' : '#1A1917', margin: 0 }}>{concerns.length}</p>
-            <p style={{ fontSize: 11, color: '#6B7280', margin: '2px 0 0' }}>Employees needing attention</p>
+            <p style={{ fontSize: 28, fontWeight: 700, color: concerns.length > 0 ? '#B3261E' : '#1A1917', margin: 0 }}>{concerns.length}</p>
+            <p style={{ fontSize: 11, color: '#6B6860', margin: '2px 0 0' }}>Employees needing attention</p>
           </div>
         </div>
 
@@ -107,22 +107,22 @@ export default function InsightsPage() {
           {/* TOP PERFORMERS */}
           <div style={{ ...CARD, padding: '20px 22px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
-              <Star size={16} color="#F59E0B" fill="#FEF3C7"/>
+              <Star size={16} color="#F59E0B" fill="#FDF3E4"/>
               <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: 0 }}>Top Performers This Week</p>
             </div>
             {topPerformers.length === 0 && <p style={{ fontSize: 12, color: '#9E9B94', textAlign: 'center', padding: '20px 0' }}>No scorecard data yet</p>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {topPerformers.map((p: any, i: number) => (
                 <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ width: 24, height: 24, borderRadius: 12, background: i === 0 ? '#FEF3C7' : i === 1 ? '#F3F4F6' : '#FDF4E7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <span style={{ fontSize: 11, fontWeight: 800, color: i === 0 ? '#B45309' : i === 1 ? '#6B7280' : '#92400E' }}>{i + 1}</span>
+                  <div style={{ width: 24, height: 24, borderRadius: 12, background: i === 0 ? '#FDF3E4' : i === 1 ? '#F0EEE9' : '#FDF4E7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <span style={{ fontSize: 11, fontWeight: 800, color: i === 0 ? '#B45309' : i === 1 ? '#6B6860' : '#B45309' }}>{i + 1}</span>
                   </div>
                   <Avatar user={p}/>
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 3px 0' }}>{p.first_name} {p.last_name}</p>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       {p.avg_score && <StarRow score={Math.round(p.avg_score)}/>}
-                      <span style={{ fontSize: 11, color: '#6B7280' }}>{p.jobs_completed} job{p.jobs_completed !== 1 ? 's' : ''}</span>
+                      <span style={{ fontSize: 11, color: '#6B6860' }}>{p.jobs_completed} job{p.jobs_completed !== 1 ? 's' : ''}</span>
                     </div>
                   </div>
                   <button
@@ -138,12 +138,12 @@ export default function InsightsPage() {
           {/* CONCERN ALERTS */}
           <div style={{ ...CARD, padding: '20px 22px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
-              <AlertTriangle size={16} color="#DC2626"/>
+              <AlertTriangle size={16} color="#B3261E"/>
               <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: 0 }}>Employees Needing Attention</p>
             </div>
             {concerns.length === 0 && (
               <div style={{ textAlign: 'center', padding: '20px 0' }}>
-                <p style={{ fontSize: 12, color: '#6B7280', margin: 0 }}>All employees are performing well.</p>
+                <p style={{ fontSize: 12, color: '#6B6860', margin: 0 }}>All employees are performing well.</p>
               </div>
             )}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -153,11 +153,11 @@ export default function InsightsPage() {
                   <div style={{ flex: 1 }}>
                     <p style={{ fontSize: 13, fontWeight: 600, color: '#1A1917', margin: '0 0 4px' }}>{c.first_name} {c.last_name}</p>
                     {c.concerns.map((flag: string, j: number) => (
-                      <p key={j} style={{ fontSize: 11, color: '#92400E', margin: '0 0 2px 0' }}>{flag}</p>
+                      <p key={j} style={{ fontSize: 11, color: '#B45309', margin: '0 0 2px 0' }}>{flag}</p>
                     ))}
                   </div>
                   <button onClick={() => navigate(`/employees/${c.id}`)}
-                    style={{ fontSize: 11, fontWeight: 600, color: '#92400E', background: '#FEF3C7', border: 'none', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+                    style={{ fontSize: 11, fontWeight: 600, color: '#B45309', background: '#FDF3E4', border: 'none', borderRadius: 6, padding: '4px 8px', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
                     Review
                   </button>
                 </div>
@@ -172,7 +172,7 @@ export default function InsightsPage() {
           {/* CLIENT HEALTH */}
           <div style={{ ...CARD, padding: '20px 22px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
-              <Heart size={16} color="#EF4444"/>
+              <Heart size={16} color="#B3261E"/>
               <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: 0 }}>Clients at Risk of Churning</p>
             </div>
             {clientHealth.length === 0 && <p style={{ fontSize: 12, color: '#9E9B94', textAlign: 'center', padding: '20px 0' }}>All clients are booking regularly.</p>}
@@ -195,7 +195,7 @@ export default function InsightsPage() {
           {/* REVENUE BY SERVICE */}
           <div style={{ ...CARD, padding: '20px 22px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 18 }}>
-              <TrendingUp size={16} color="#16A34A"/>
+              <TrendingUp size={16} color="#0F7A63"/>
               <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: 0 }}>Revenue by Service Type</p>
               <span style={{ fontSize: 10, color: '#9E9B94', marginLeft: 'auto' }}>Last 30 days</span>
             </div>
@@ -210,7 +210,7 @@ export default function InsightsPage() {
                       <span style={{ fontSize: 12, fontWeight: 600, color: '#1A1917' }}>${r.total_revenue.toFixed(0)}</span>
                     </div>
                   </div>
-                  <div style={{ height: 6, borderRadius: 3, background: '#F3F4F6', overflow: 'hidden' }}>
+                  <div style={{ height: 6, borderRadius: 3, background: '#F0EEE9', overflow: 'hidden' }}>
                     <div style={{ height: '100%', width: `${(r.total_revenue / maxRevenue) * 100}%`, background: 'var(--brand)', borderRadius: 3 }}/>
                   </div>
                 </div>

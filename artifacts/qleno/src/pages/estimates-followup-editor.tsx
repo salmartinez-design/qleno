@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
-const INK = "#1A1917", MUTE = "#6B7280", BORDER = "#E5E2DC", MINT = "var(--brand)";
+const INK = "#1A1917", MUTE = "#6B6860", BORDER = "#E5E2DC", MINT = "var(--brand)";
 const BLUE = "#185FA5", TEAL = "#0F6E56", TEAL_BG = "#E1F5EE";
 
 async function apiFetch(path: string, opts: { method?: string; body?: any } = {}) {
@@ -54,7 +54,7 @@ const DEFAULT_STEPS: Step[] = [
     message_template: "Hi {{first_name}},\n\nI do not want to crowd your inbox, so this is my last note for now. If the timing is not right, no problem at all. Your estimate for {{property}} stays here whenever you are ready:\n{{estimate_link}}\n\nThank you for considering {{company_name}}." },
 ];
 
-const lbl: React.CSSProperties = { display: "block", fontSize: 10, fontWeight: 700, color: "#9CA3AF", letterSpacing: "0.06em", marginBottom: 6 };
+const lbl: React.CSSProperties = { display: "block", fontSize: 10, fontWeight: 700, color: "#9E9B94", letterSpacing: "0.06em", marginBottom: 6 };
 const inp: React.CSSProperties = { width: "100%", padding: "8px 11px", border: `1px solid ${BORDER}`, borderRadius: 8, fontSize: 13, fontFamily: FF, background: "#fff", boxSizing: "border-box", color: INK };
 
 export function FollowUpEditor() {
@@ -152,7 +152,7 @@ export function FollowUpEditor() {
           </button>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "#9CA3AF" }}>Cadence</span>
+          <span style={{ fontSize: 12, color: "#9E9B94" }}>Cadence</span>
           <select value={activePreset} onChange={e => e.target.value !== "custom" && applyPreset(e.target.value)} style={{ ...inp, width: "auto", fontWeight: 600 }}>
             <option value="standard">Standard · 16 days</option>
             <option value="aggressive">Aggressive · ~8 days</option>
@@ -166,16 +166,16 @@ export function FollowUpEditor() {
       </div>
       <p style={{ fontSize: 12, color: MUTE, margin: "0 0 16px" }}>Sent automatically after an estimate goes out · stops on accept or decline · all in Qleno{!active && " · currently paused"}</p>
 
-      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF", marginBottom: 12 }}>{steps.length} TOUCHES · {totalDays} DAYS</div>
+      <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9E9B94", marginBottom: 12 }}>{steps.length} TOUCHES · {totalDays} DAYS</div>
 
       {/* Vertical sequence flow: trigger → touch → wait → touch → … → stop */}
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={dot(MINT, "#fff")}><Send size={14} /></span>
           <span style={{ fontSize: 13, fontWeight: 700, color: INK }}>Estimate sent</span>
-          <span style={{ fontSize: 11, color: "#9CA3AF" }}>trigger</span>
+          <span style={{ fontSize: 11, color: "#9E9B94" }}>trigger</span>
         </div>
-        <div style={connector}><span style={{ fontSize: 11, color: "#9CA3AF" }}>Sends immediately</span></div>
+        <div style={connector}><span style={{ fontSize: 11, color: "#9E9B94" }}>Sends immediately</span></div>
 
         {steps.map((s, i) => {
           const isOpen = i === sel;
@@ -185,7 +185,7 @@ export function FollowUpEditor() {
             <div key={i}>
               {i > 0 && (
                 <div style={connector}>
-                  <span style={{ fontSize: 11, color: "#6B7280", background: "#F1EFE8", padding: "2px 9px", borderRadius: 20, display: "inline-flex", alignItems: "center", gap: 5 }}>
+                  <span style={{ fontSize: 11, color: "#6B6860", background: "#F1EFE8", padding: "2px 9px", borderRadius: 20, display: "inline-flex", alignItems: "center", gap: 5 }}>
                     <Clock size={12} /> {waitLabel(s.delay_hours)}
                   </span>
                 </div>
@@ -195,7 +195,7 @@ export function FollowUpEditor() {
                   <Icon size={18} style={{ color: s.channel === "sms" ? TEAL : BLUE, flexShrink: 0 }} />
                   <span style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ display: "block", fontSize: 13, fontWeight: 700, color: INK }}>Touch {i + 1} · {s.channel === "sms" ? "SMS" : "Email"}</span>
-                    <span style={{ display: "block", fontSize: 11.5, color: "#6B7280", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{snippet}</span>
+                    <span style={{ display: "block", fontSize: 11.5, color: "#6B6860", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{snippet}</span>
                   </span>
                   <span style={{ fontSize: 11, color: TEAL, background: TEAL_BG, padding: "2px 8px", borderRadius: 20, flexShrink: 0 }}>Day {days[i]}</span>
                   <ChevronDown size={16} style={{ color: "#C9C6BF", flexShrink: 0 }} />
@@ -211,7 +211,7 @@ export function FollowUpEditor() {
                     <div style={{ display: "flex", gap: 4 }}>
                       <button onClick={() => move(-1)} disabled={i === 0} title="Move up" style={miniBtn}><ChevronUp size={15} /></button>
                       <button onClick={() => move(1)} disabled={i === steps.length - 1} title="Move down" style={miniBtn}><ChevronDown size={15} /></button>
-                      <button onClick={() => removeTouch(i)} title="Delete touch" style={{ ...miniBtn, color: "#B91C1C" }}><Trash2 size={15} /></button>
+                      <button onClick={() => removeTouch(i)} title="Delete touch" style={{ ...miniBtn, color: "#B3261E" }}><Trash2 size={15} /></button>
                     </div>
                   </div>
 
@@ -263,7 +263,7 @@ export function FollowUpEditor() {
                   <div style={{ background: "#F8F7F4", borderRadius: 9, padding: "11px 13px" }}>
                     <span style={lbl}>PREVIEW</span>
                     {s.channel === "email" && s.subject && <div style={{ fontSize: 12.5, fontWeight: 700, color: INK, marginBottom: 4 }}>{fillVars(s.subject)}</div>}
-                    <div style={{ fontSize: 12.5, color: "#374151", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{fillVars(s.message_template) || "…"}</div>
+                    <div style={{ fontSize: 12.5, color: "#1A1917", lineHeight: 1.55, whiteSpace: "pre-wrap" }}>{fillVars(s.message_template) || "…"}</div>
                   </div>
                 </div>
               )}
@@ -274,7 +274,7 @@ export function FollowUpEditor() {
         <div style={{ ...connector, paddingBottom: 4 }} />
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <span style={dot("#F1EFE8", "#5F5E5A")}><Flag size={14} /></span>
-          <span style={{ fontSize: 12.5, color: "#6B7280" }}>Stops automatically when the client accepts or declines</span>
+          <span style={{ fontSize: 12.5, color: "#6B6860" }}>Stops automatically when the client accepts or declines</span>
         </div>
       </div>
 

@@ -39,38 +39,38 @@ async function apiFetch(path: string, opts?: RequestInit) {
 
 const ROLE_BADGES: Record<string, React.CSSProperties> = {
   owner:      { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
-  admin:      { background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' },
-  technician: { background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0' },
-  office:     { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
+  admin:      { background: '#FBF0E9', color: '#9C4E2B', border: '1px solid #EFDCCE' },
+  technician: { background: '#E6F6F1', color: '#0F7A63', border: '1px solid #C7E7DE' },
+  office:     { background: '#FDF3E4', color: '#B45309', border: '1px solid #F2DFB8' },
   team_lead:  { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
   super_admin:{ background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
   accountant: { background: '#F0FAF7', color: '#0A5A48', border: '1px solid #B8EBDF' },
 };
 
 const PAY_TYPE_COLORS: Record<string, { bg: string; color: string }> = {
-  tips:          { bg: '#DCFCE7', color: '#166534' },
-  bonus:         { bg: '#DBEAFE', color: '#1E40AF' },
-  holiday_pay:   { bg: '#EDE9FE', color: '#5B21B6' },
-  sick_pay:      { bg: '#FEF3C7', color: '#92400E' },
+  tips:          { bg: '#E6F6F1', color: '#0F7A63' },
+  bonus:         { bg: '#EFEFF2', color: '#2F3646' },
+  holiday_pay:   { bg: '#FBF0E9', color: '#9C4E2B' },
+  sick_pay:      { bg: '#FDF3E4', color: '#B45309' },
   vacation_pay:  { bg: '#CCFBF1', color: '#0F766E' },
-  compliment:    { bg: '#FEE2E2', color: '#991B1B' },
-  amount_owed:   { bg: '#F3F4F6', color: '#6B7280' },
+  compliment:    { bg: '#FCEBEA', color: '#B3261E' },
+  amount_owed:   { bg: '#F0EEE9', color: '#6B6860' },
   mileage:       { bg: '#FEF9C3', color: '#78350F' },
 };
 
 const TICKET_TYPE_STYLES: Record<string, { bg: string; color: string; label: string }> = {
-  breakage:               { bg: '#FEE2E2', color: '#991B1B', label: 'Breakage' },
-  complaint_poor_cleaning:{ bg: '#FEF3C7', color: '#92400E', label: 'Complaint - Poor Cleaning' },
-  complaint_attitude:     { bg: '#FEF3C7', color: '#92400E', label: 'Complaint - Attitude' },
-  compliment:             { bg: '#DCFCE7', color: '#166534', label: 'Compliment' },
-  incident:               { bg: '#FEE2E2', color: '#991B1B', label: 'Incident' },
-  note:                   { bg: '#F3F4F6', color: '#6B7280', label: 'Note' },
+  breakage:               { bg: '#FCEBEA', color: '#B3261E', label: 'Breakage' },
+  complaint_poor_cleaning:{ bg: '#FDF3E4', color: '#B45309', label: 'Complaint - Poor Cleaning' },
+  complaint_attitude:     { bg: '#FDF3E4', color: '#B45309', label: 'Complaint - Attitude' },
+  compliment:             { bg: '#E6F6F1', color: '#0F7A63', label: 'Compliment' },
+  incident:               { bg: '#FCEBEA', color: '#B3261E', label: 'Incident' },
+  note:                   { bg: '#F0EEE9', color: '#6B6860', label: 'Note' },
   time_off_request:       { bg: '#E0F2FE', color: '#075985', label: 'Time-Off Request' },
 };
 
 const SCORE_LABELS = ['', 'Poor', 'Fair', 'Good', 'Excellent'];
-const SCORE_COLORS = ['', '#991B1B', '#D97706', '#1E40AF', '#166534'];
-const SCORE_BGS   = ['', '#FEE2E2', '#FEF3C7', '#DBEAFE', '#DCFCE7'];
+const SCORE_COLORS = ['', '#B3261E', '#B45309', '#2F3646', '#0F7A63'];
+const SCORE_BGS   = ['', '#FCEBEA', '#FDF3E4', '#EFEFF2', '#E6F6F1'];
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6 };
@@ -101,7 +101,7 @@ function leaveBucketTag(slug: string): string {
 // b.chip_label). The chips look these up via a slug→display map built from the
 // balances response (see bucketDisplayMap). Unknown slugs get a neutral accent.
 type BucketDisp = { accent: string; label: string };
-const NEUTRAL_ACCENT = '#374151';
+const NEUTRAL_ACCENT = '#1A1917';
 const LEAVE_LOW = '#BA7517';  // amber — running low
 const LEAVE_OUT = '#E24B4A';  // red — exhausted / step crossed
 // Days until a YYYY-MM-DD date (UTC), and a "Mon DD" label.
@@ -158,9 +158,9 @@ const PAY_LABELS: Record<string, string> = {
 };
 
 const STATUS_STYLES: Record<string, { bg: string; color: string; label: string }> = {
-  pending: { bg: '#FEF3C7', color: '#92400E',  label: 'Pending' },
-  paid:    { bg: '#DCFCE7', color: '#166534',  label: 'Paid' },
-  voided:  { bg: '#F3F4F6', color: '#6B7280',  label: 'Voided' },
+  pending: { bg: '#FDF3E4', color: '#B45309',  label: 'Pending' },
+  paid:    { bg: '#E6F6F1', color: '#0F7A63',  label: 'Paid' },
+  voided:  { bg: '#F0EEE9', color: '#6B6860',  label: 'Voided' },
 };
 
 const SKILLS_OPTIONS = [
@@ -197,11 +197,11 @@ function RemovableBadge({ label, onRemove, style }: { label: string; onRemove: (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 4, padding: '4px 10px',
       borderRadius: 20, fontSize: 12, fontWeight: 500,
-      background: '#F3F4F6', color: '#374151', border: '1px solid #E5E7EB',
+      background: '#F0EEE9', color: '#1A1917', border: '1px solid #E5E2DC',
       ...style,
     }}>
       {label}
-      <button onClick={onRemove} style={{ background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',color:'#9CA3AF',lineHeight:1 }}>
+      <button onClick={onRemove} style={{ background:'none',border:'none',cursor:'pointer',padding:0,display:'flex',alignItems:'center',color:'#9E9B94',lineHeight:1 }}>
         <X size={12} />
       </button>
     </span>
@@ -264,7 +264,7 @@ function Toggle({ value, onChange, label }: { value: boolean; onChange: (v: bool
         onClick={() => onChange(!value)}
         style={{
           width:40, height:22, borderRadius:11, position:'relative', cursor:'pointer',
-          background: value ? 'var(--brand)' : '#D1D5DB', transition:'background 0.2s',
+          background: value ? 'var(--brand)' : '#E5E2DC', transition:'background 0.2s',
         }}
       >
         <div style={{
@@ -338,17 +338,17 @@ function AttendanceCalendar({ userId }: { userId: number }) {
   const bucketStyle = (slugPart: string) => {
     const b = calBuckets.find((x: any) => String(x.slug || '').toLowerCase().includes(slugPart));
     if (!b) return null;
-    const accent = b.accent || '#374151';
+    const accent = b.accent || '#1A1917';
     // display_name first — the legend must read like the bucket cards
     // (chip_label "Sick" vs card "PLAWA" was a naming mismatch Sal flagged).
     return { bg: `${accent}2E`, ink: accent, label: b.display_name || b.chip_label };
   };
   const styles = {
-    unexcused: bucketStyle('unexcused') ?? { bg:'#FEE2E2', ink:'#991B1B', label:'Unexcused' },
-    pto: bucketStyle('pto') ?? { bg:'#DBEAFE', ink:'#1E40AF', label:'PTO' },
-    plawa: bucketStyle('plawa') ?? { bg:'#FEF3C7', ink:'#92400E', label:'PLAWA' },
-    unpaid: bucketStyle('unpaid') ?? { bg:'#FEF3C7', ink:'#92400E', label:'Unpaid' },
-    worked: { bg:'#DCFCE7', ink:'#166534', label:'Worked' },
+    unexcused: bucketStyle('unexcused') ?? { bg:'#FCEBEA', ink:'#B3261E', label:'Unexcused' },
+    pto: bucketStyle('pto') ?? { bg:'#EFEFF2', ink:'#2F3646', label:'PTO' },
+    plawa: bucketStyle('plawa') ?? { bg:'#FDF3E4', ink:'#B45309', label:'PLAWA' },
+    unpaid: bucketStyle('unpaid') ?? { bg:'#FDF3E4', ink:'#B45309', label:'Unpaid' },
+    worked: { bg:'#E6F6F1', ink:'#0F7A63', label:'Worked' },
   };
 
   const clockMap: Record<string, { in: string; out: string }> = {};
@@ -396,7 +396,7 @@ function AttendanceCalendar({ userId }: { userId: number }) {
           <button onClick={nextMonth} style={{ background:'none',border:'1px solid #E5E2DC',borderRadius:6,padding:'4px 6px',cursor:'pointer',display:'flex',alignItems:'center' }}><ChevronRight size={14}/></button>
         </div>
         <button onClick={() => setMonthDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1))}
-          style={{ padding:'6px 12px',border:'1px solid #E5E2DC',borderRadius:7,fontSize:12,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B7280' }}>
+          style={{ padding:'6px 12px',border:'1px solid #E5E2DC',borderRadius:7,fontSize:12,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B6860' }}>
           Today
         </button>
       </div>
@@ -450,7 +450,7 @@ function AttendanceCalendar({ userId }: { userId: number }) {
               {worked && (
                 <div style={{ marginTop:2 }}>
                   <p style={{ fontSize:9,color:cat.ink,margin:0,fontWeight:600 }}>{worked.in}</p>
-                  {worked.out && <p style={{ fontSize:9,color:'#6B7280',margin:0 }}>{worked.out}</p>}
+                  {worked.out && <p style={{ fontSize:9,color:'#6B6860',margin:0 }}>{worked.out}</p>}
                 </div>
               )}
             </div>
@@ -537,7 +537,7 @@ function OnboardingTab({ employeeId }: { employeeId: number }) {
         <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
           <div style={{ background:'#fff',borderRadius:12,padding:28,width:440,boxShadow:'0 20px 60px rgba(0,0,0,0.2)',maxHeight:'80vh',overflowY:'auto' }}>
             <h3 style={{ margin:'0 0 4px',fontSize:16,fontWeight:700,color:'#1A1917' }}>Send Onboarding Packet</h3>
-            <p style={{ fontSize:13,color:'#6B7280',margin:'0 0 16px' }}>Select which documents to include.</p>
+            <p style={{ fontSize:13,color:'#6B6860',margin:'0 0 16px' }}>Select which documents to include.</p>
             {sendDone ? (
               <div style={{ textAlign:'center',padding:'20px 0' }}>
                 <Check size={24} color="var(--brand)" style={{ display:'block',margin:'0 auto 8px' }}/>
@@ -574,22 +574,22 @@ function OnboardingTab({ employeeId }: { employeeId: number }) {
 
       <div style={{ background:'#fff',border:'1px solid #E5E2DC',borderRadius:10,overflow:'hidden' }}>
         <table style={{ width:'100%',borderCollapse:'collapse' }}>
-          <thead><tr style={{ background:'#FAFAF8' }}>
+          <thead><tr style={{ background:'#F7F6F3' }}>
             {['Document','Sent','Status',''].map(h => <th key={h} style={TH}>{h}</th>)}
           </tr></thead>
           <tbody>
             {docList.length === 0 ? (
               <tr><td colSpan={4} style={{ padding:'40px',textAlign:'center',color:'#9E9B94',fontSize:13 }}>No onboarding documents sent yet</td></tr>
             ) : docList.map((d: any) => (
-              <tr key={d.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
+              <tr key={d.id} style={{ borderBottom:'1px solid #F0EEE9' }}>
                 <td style={{ padding:'12px 14px',fontSize:13,fontWeight:600,color:'#1A1917' }}>{d.template_name || 'Document'}</td>
-                <td style={{ padding:'12px 14px',fontSize:12,color:'#6B7280' }}>{d.sent_at ? new Date(d.sent_at).toLocaleDateString() : '—'}</td>
+                <td style={{ padding:'12px 14px',fontSize:12,color:'#6B6860' }}>{d.sent_at ? new Date(d.sent_at).toLocaleDateString() : '—'}</td>
                 <td style={{ padding:'12px 14px' }}>
                   {d.status === 'signed'
-                    ? <span style={{ background:'#DCFCE7',color:'#166534',border:'1px solid #BBF7D0',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600 }}>Signed</span>
+                    ? <span style={{ background:'#E6F6F1',color:'#0F7A63',border:'1px solid #C7E7DE',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600 }}>Signed</span>
                     : d.status === 'expired'
-                    ? <span style={{ background:'#F3F4F6',color:'#6B7280',border:'1px solid #E5E7EB',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600 }}>Expired</span>
-                    : <span style={{ background:'#FEF3C7',color:'#92400E',border:'1px solid #FDE68A',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600 }}>Pending</span>
+                    ? <span style={{ background:'#F0EEE9',color:'#6B6860',border:'1px solid #E5E2DC',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600 }}>Expired</span>
+                    : <span style={{ background:'#FDF3E4',color:'#B45309',border:'1px solid #F2DFB8',padding:'2px 8px',borderRadius:20,fontSize:11,fontWeight:600 }}>Pending</span>
                   }
                 </td>
                 <td style={{ padding:'12px 14px' }}>
@@ -1316,7 +1316,7 @@ export default function EmployeeProfilePage() {
     return (
       <DashboardLayout>
         <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:200 }}>
-          <p style={{ color:'#EF4444', fontSize:14 }}>Employee not found</p>
+          <p style={{ color:'#B3261E', fontSize:14 }}>Employee not found</p>
         </div>
       </DashboardLayout>
     );
@@ -1342,7 +1342,7 @@ export default function EmployeeProfilePage() {
         {/* Back nav */}
         <div style={{ marginBottom:16, display:'flex', alignItems:'center', justifyContent:'space-between' }}>
           <button onClick={() => navigate('/employees')}
-            style={{ display:'flex',alignItems:'center',gap:6,background:'none',border:'none',cursor:'pointer',color:'#6B7280',fontSize:13,padding:0,fontFamily:'inherit' }}>
+            style={{ display:'flex',alignItems:'center',gap:6,background:'none',border:'none',cursor:'pointer',color:'#6B6860',fontSize:13,padding:0,fontFamily:'inherit' }}>
             <ArrowLeft size={14}/> Back to Team
           </button>
           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
@@ -1390,8 +1390,8 @@ export default function EmployeeProfilePage() {
                 style={{
                   display:'flex', alignItems:'center', gap:6,
                   padding:'7px 14px', borderRadius:8,
-                  border:'1px solid #FECACA', background:'#FFFFFF',
-                  color:'#B91C1C', fontSize:13, fontWeight:600,
+                  border:'1px solid #F1D0CB', background:'#FFFFFF',
+                  color:'#B3261E', fontSize:13, fontWeight:600,
                   cursor:'pointer', fontFamily:'inherit',
                 }}
               >
@@ -1449,7 +1449,7 @@ export default function EmployeeProfilePage() {
                   style={{ padding:'9px 18px', border:'1px solid #E5E2DC', borderRadius:8, fontSize:13, fontWeight:600, color:'#6B6860', background:'#FFFFFF', cursor:'pointer', fontFamily:'inherit' }}>Cancel</button>
                 <button onClick={submitTermination} disabled={terminating || !termReason || !termDate}
                   style={{ padding:'9px 22px', borderRadius:8, fontSize:13, fontWeight:700, fontFamily:'inherit', border:'none',
-                    background:(terminating || !termReason || !termDate) ? '#E5E2DC' : '#DC2626',
+                    background:(terminating || !termReason || !termDate) ? '#E5E2DC' : '#B3261E',
                     color:(terminating || !termReason || !termDate) ? '#9E9B94' : '#FFFFFF',
                     cursor:(terminating || !termReason || !termDate) ? 'default' : 'pointer' }}>
                   {terminating ? 'Terminating…' : 'Terminate'}
@@ -1500,10 +1500,10 @@ export default function EmployeeProfilePage() {
                   implies inactive + archived) rather than three redundant ones. */}
               {user.termination_date
                 ? <span title={`${reasonLabel(user.termination_reason)} · ${new Date(user.termination_date + 'T00:00:00').toLocaleDateString()}${user.rehire_eligible === false ? ' · not eligible for rehire' : user.rehire_eligible === true ? ' · eligible for rehire' : ''}`}
-                    style={{ background:'#FEE2E2', color:'#991B1B', border:'1px solid #FECACA', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:700 }}>TERMINATED</span>
+                    style={{ background:'#FCEBEA', color:'#B3261E', border:'1px solid #F1D0CB', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:700 }}>TERMINATED</span>
                 : <>
-                    {!user.is_active && <span style={{ background:'#FEE2E2', color:'#991B1B', border:'1px solid #FECACA', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>INACTIVE</span>}
-                    {user.archived_at && <span title={`Archived ${new Date(user.archived_at).toLocaleDateString()}`} style={{ background:'#FEF3C7', color:'#92400E', border:'1px solid #FDE68A', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>ARCHIVED</span>}
+                    {!user.is_active && <span style={{ background:'#FCEBEA', color:'#B3261E', border:'1px solid #F1D0CB', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>INACTIVE</span>}
+                    {user.archived_at && <span title={`Archived ${new Date(user.archived_at).toLocaleDateString()}`} style={{ background:'#FDF3E4', color:'#B45309', border:'1px solid #F2DFB8', padding:'3px 8px', borderRadius:4, fontSize:11, fontWeight:600 }}>ARCHIVED</span>}
                   </>
               }
             </div>
@@ -1559,7 +1559,7 @@ export default function EmployeeProfilePage() {
                     <div key={type} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', gap:8, minWidth:0 }}>
                       <span style={{ fontSize:12,color:'#1A1917', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{type}</span>
                       {hasData ? (
-                        <span style={{ fontSize:12,fontWeight: pct>100 ? 700 : 600, color: pct>100 ? 'var(--brand)' : pct>=80 ? '#1A1917' : '#EF4444', whiteSpace:'nowrap' }}>{Math.round(pct)}%</span>
+                        <span style={{ fontSize:12,fontWeight: pct>100 ? 700 : 600, color: pct>100 ? 'var(--brand)' : pct>=80 ? '#1A1917' : '#B3261E', whiteSpace:'nowrap' }}>{Math.round(pct)}%</span>
                       ) : (
                         <span style={{ fontSize:12,color:'#C9C6BF',whiteSpace:'nowrap' }}>—</span>
                       )}
@@ -1760,17 +1760,17 @@ export default function EmployeeProfilePage() {
 
               {zones.length > 0 && (
                 <SectionCard title="Service Zone">
-                  <p style={{ margin: '0 0 10px', fontSize: 12, color: '#6B7280' }}>
+                  <p style={{ margin: '0 0 10px', fontSize: 12, color: '#6B6860' }}>
                     Assign this employee to a service zone. Controls their territory on the dispatch board.
                   </p>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
                     <button onClick={() => assignZone(null)} disabled={zoneAssigning}
-                      style={{ fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, border: !user?.primary_zone ? '1.5px solid var(--brand)' : '1.5px solid #E5E2DC', backgroundColor: !user?.primary_zone ? 'var(--brand-dim)' : '#FAFAF9', color: !user?.primary_zone ? 'var(--brand)' : '#6B7280', cursor: 'pointer' }}>
+                      style={{ fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, border: !user?.primary_zone ? '1.5px solid var(--brand)' : '1.5px solid #E5E2DC', backgroundColor: !user?.primary_zone ? 'var(--brand-dim)' : '#F7F6F3', color: !user?.primary_zone ? 'var(--brand)' : '#6B6860', cursor: 'pointer' }}>
                       No Zone
                     </button>
                     {zones.map((z: { id: number; name: string; color: string }) => (
                       <button key={z.id} onClick={() => assignZone(z.id)} disabled={zoneAssigning}
-                        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${user?.primary_zone?.zone_id === z.id ? z.color : '#E5E2DC'}`, backgroundColor: user?.primary_zone?.zone_id === z.id ? `${z.color}22` : '#FAFAF9', color: user?.primary_zone?.zone_id === z.id ? z.color : '#6B7280', cursor: 'pointer' }}>
+                        style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, fontWeight: 700, padding: '5px 12px', borderRadius: 20, border: `1.5px solid ${user?.primary_zone?.zone_id === z.id ? z.color : '#E5E2DC'}`, backgroundColor: user?.primary_zone?.zone_id === z.id ? `${z.color}22` : '#F7F6F3', color: user?.primary_zone?.zone_id === z.id ? z.color : '#6B6860', cursor: 'pointer' }}>
                         <div style={{ width: 7, height: 7, borderRadius: '50%', backgroundColor: z.color }} />
                         {z.name}
                       </button>
@@ -1811,11 +1811,11 @@ export default function EmployeeProfilePage() {
                       <span style={{ marginLeft:'auto', fontSize:10.5, color:'#9E9B94' }}>office only</span>
                     </div>
                     {attnSummary.discipline.map((d: any, i: number) => (
-                      <div key={i} style={{ padding:'6px 0', borderTop: i ? '1px solid #F3F4F6' : 'none' }}>
+                      <div key={i} style={{ padding:'6px 0', borderTop: i ? '1px solid #F0EEE9' : 'none' }}>
                         <div style={{ display:'flex', alignItems:'center', gap:6 }}>
                           <span style={{ fontSize:11, fontWeight:700, color:'#FFFFFF', background:'#E24B4A', borderRadius:99, padding:'1px 8px' }}>{d.label}</span>
                           <span style={{ fontSize:11, color:'#6B6860' }}>{shortDate(String(d.effective_date))}</span>
-                          {d.pending_review && <span style={{ fontSize:10, fontWeight:600, color:'#92400E', background:'#FEF3C7', borderRadius:99, padding:'1px 7px' }}>pending review</span>}
+                          {d.pending_review && <span style={{ fontSize:10, fontWeight:600, color:'#B45309', background:'#FDF3E4', borderRadius:99, padding:'1px 7px' }}>pending review</span>}
                         </div>
                         {d.reason && <div style={{ fontSize:11.5, color:'#6B6860', marginTop:2 }}>{d.reason}</div>}
                       </div>
@@ -2007,7 +2007,7 @@ export default function EmployeeProfilePage() {
                       <div style={{ marginBottom:12 }}>
                         <AttendanceAttachments files={recFiles} onFilesChange={setRecFiles} />
                       </div>
-                      {recErr && <p style={{ fontSize:12,color:'#991B1B',margin:'0 0 10px' }}>{recErr}</p>}
+                      {recErr && <p style={{ fontSize:12,color:'#B3261E',margin:'0 0 10px' }}>{recErr}</p>}
                       <div style={{ display:'flex',gap:8 }}>
                         <button onClick={() => !recBusy && setRecordModal(null)} disabled={recBusy} style={{ flex:1,padding:'9px 0',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,color:'#6B6860',background:'none',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
                         <button onClick={submitRecord} disabled={recBusy} style={{ flex:1,padding:'9px 0',border:'none',borderRadius:8,fontSize:13,fontWeight:700,color:'#FFFFFF',background:recordModal.accent,cursor:'pointer',fontFamily:'inherit',opacity:recBusy?0.6:1 }}>{recBusy ? 'Saving…' : 'Record'}</button>
@@ -2091,7 +2091,7 @@ export default function EmployeeProfilePage() {
                             ? <>Available after save: <strong style={{ color: balModal.accent }}>{preview.toFixed(1)} hrs</strong></>
                             : (balMode === 'deduct' ? 'Enter the hours to deduct' : balMode === 'add' ? 'Enter the hours to add back' : 'Enter granted and used hours')}
                         </p>
-                        {balErr && <p style={{ fontSize:12,color:'#991B1B',margin:'0 0 10px' }}>{balErr}</p>}
+                        {balErr && <p style={{ fontSize:12,color:'#B3261E',margin:'0 0 10px' }}>{balErr}</p>}
                         <div style={{ display:'flex',gap:8 }}>
                           <button onClick={() => !balBusy && setBalModal(null)} disabled={balBusy} style={{ flex:1,padding:'9px 0',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,color:'#6B6860',background:'none',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
                           <button onClick={submitBalanceEdit} disabled={balBusy} style={{ flex:1,padding:'9px 0',border:'none',borderRadius:8,fontSize:13,fontWeight:700,color:'#FFFFFF',background:balModal.accent,cursor:'pointer',fontFamily:'inherit',opacity:balBusy?0.6:1 }}>{balBusy ? 'Saving…' : 'Save'}</button>
@@ -2140,7 +2140,7 @@ export default function EmployeeProfilePage() {
                                     onClick={() => deleteEntry('attendance', d.id)}
                                     disabled={entryDelBusy === `attendance:${d.id}`}
                                     title="Remove this entry — the hours go back to the bucket"
-                                    style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `attendance:${d.id}` ? 0.5 : 1 }}
+                                    style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#B3261E',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `attendance:${d.id}` ? 0.5 : 1 }}
                                   >Remove</button>
                                 )}
                               </div>
@@ -2173,7 +2173,7 @@ export default function EmployeeProfilePage() {
                                   onClick={() => deleteEntry('usage', u.id)}
                                   disabled={entryDelBusy === `usage:${u.id}`}
                                   title="Remove this entry — the hours go back to the bucket"
-                                  style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `usage:${u.id}` ? 0.5 : 1 }}
+                                  style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#B3261E',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `usage:${u.id}` ? 0.5 : 1 }}
                                 >Remove</button>
                               )}
                             </div>
@@ -2300,8 +2300,8 @@ export default function EmployeeProfilePage() {
                       return (
                         <div key={row.label}
                           onClick={hasRows ? () => setStatDrill({ label: row.label, days: row.days as any[] }) : undefined}
-                          style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', borderBottom:'1px solid #F3F4F6', cursor: hasRows ? 'pointer' : 'default' }}>
-                          <span style={{ fontSize:12, color: hasRows ? 'var(--brand)' : '#6B7280' }}>{row.label}</span>
+                          style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'6px 0', borderBottom:'1px solid #F0EEE9', cursor: hasRows ? 'pointer' : 'default' }}>
+                          <span style={{ fontSize:12, color: hasRows ? 'var(--brand)' : '#6B6860' }}>{row.label}</span>
                           <span style={{ fontSize:12, fontWeight:600, color:'#1A1917' }}>{row.value}{hasRows ? ' ›' : ''}</span>
                         </div>
                       );
@@ -2323,13 +2323,13 @@ export default function EmployeeProfilePage() {
                         <button onClick={() => setEditEntry(null)} style={{ border:'none',background:'none',fontSize:22,lineHeight:1,cursor:'pointer',color:'#9E9B94' }}>×</button>
                       </div>
                       <p style={{ margin:'0 0 16px 0',fontSize:12.5,color:'#9E9B94' }}>The bucket balance and the auto-created pay update to match the new hours.</p>
-                      <label style={{ display:'block',fontSize:12,fontWeight:700,color:'#6B7280',marginBottom:5 }}>Hours</label>
+                      <label style={{ display:'block',fontSize:12,fontWeight:700,color:'#6B6860',marginBottom:5 }}>Hours</label>
                       <input type="number" min="0" max="24" step="0.25" value={editHours} onChange={e => setEditHours(e.target.value)}
                         style={{ width:'100%',padding:'10px 12px',borderRadius:10,border:'1px solid #E5E2DC',fontSize:14,fontFamily:'inherit',color:'#1A1917',boxSizing:'border-box',marginBottom:14 }} />
-                      <label style={{ display:'block',fontSize:12,fontWeight:700,color:'#6B7280',marginBottom:5 }}>Date</label>
+                      <label style={{ display:'block',fontSize:12,fontWeight:700,color:'#6B6860',marginBottom:5 }}>Date</label>
                       <input type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
                         style={{ width:'100%',padding:'10px 12px',borderRadius:10,border:'1px solid #E5E2DC',fontSize:14,fontFamily:'inherit',color:'#1A1917',boxSizing:'border-box' }} />
-                      {editErr && <div style={{ marginTop:12,padding:'9px 12px',borderRadius:10,background:'#FEF2F2',border:'1px solid #FECACA',color:'#B91C1C',fontSize:13 }}>{editErr}</div>}
+                      {editErr && <div style={{ marginTop:12,padding:'9px 12px',borderRadius:10,background:'#FCEBEA',border:'1px solid #F1D0CB',color:'#B3261E',fontSize:13 }}>{editErr}</div>}
                       <div style={{ display:'flex',justifyContent:'flex-end',gap:10,marginTop:20 }}>
                         <button onClick={() => setEditEntry(null)} disabled={editBusy} style={{ padding:'10px 18px',borderRadius:10,border:'1px solid #E5E2DC',background:'#FFFFFF',color:'#1A1917',fontWeight:700,fontSize:14,cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
                         <button onClick={saveEntryEdit} disabled={editBusy} style={{ padding:'10px 20px',borderRadius:10,border:'none',background:'var(--brand)',color:'#0A0E1A',fontWeight:800,fontSize:14,cursor: editBusy ? 'default' : 'pointer',fontFamily:'inherit' }}>{editBusy ? 'Saving…' : 'Save changes'}</button>
@@ -2362,7 +2362,7 @@ export default function EmployeeProfilePage() {
                                 onClick={() => deleteEntry('attendance', d.id)}
                                 disabled={entryDelBusy === `attendance:${d.id}`}
                                 title="Remove this entry (mistake correction)"
-                                style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#991B1B',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `attendance:${d.id}` ? 0.5 : 1 }}
+                                style={{ border:'1px solid #E5E2DC',background:'none',borderRadius:6,padding:'3px 9px',fontSize:11.5,fontWeight:600,color:'#B3261E',cursor:'pointer',fontFamily:'inherit',opacity: entryDelBusy === `attendance:${d.id}` ? 0.5 : 1 }}
                               >Remove</button>
                             )}
                           </div>
@@ -2380,7 +2380,7 @@ export default function EmployeeProfilePage() {
             <SectionCard title="Weekly Availability">
               <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
                 {availability.map((day, i) => (
-                  <div key={day.label} style={{ display:'grid', gridTemplateColumns:'80px 1fr', alignItems:'center', gap:16, padding:'10px 0', borderBottom:'1px solid #F3F4F6' }}>
+                  <div key={day.label} style={{ display:'grid', gridTemplateColumns:'80px 1fr', alignItems:'center', gap:16, padding:'10px 0', borderBottom:'1px solid #F0EEE9' }}>
                     <span style={{ fontSize:13,fontWeight:600,color:'#1A1917' }}>{day.label}</span>
                     <div style={{ display:'flex', alignItems:'center', gap:12, flexWrap:'wrap' }}>
                       <Toggle value={day.is_available}
@@ -2389,11 +2389,11 @@ export default function EmployeeProfilePage() {
                       {day.is_available && (
                         <>
                           <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                            <span style={{ fontSize:12,color:'#6B7280' }}>From</span>
+                            <span style={{ fontSize:12,color:'#6B6860' }}>From</span>
                             <input type="time" value={day.start_time}
                               onChange={e => setAvailability(prev => prev.map((d,j)=>j===i?{...d,start_time:e.target.value}:d))}
                               style={{ height:32,padding:'0 8px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:13,color:'#1A1917',outline:'none' }}/>
-                            <span style={{ fontSize:12,color:'#6B7280' }}>To</span>
+                            <span style={{ fontSize:12,color:'#6B6860' }}>To</span>
                             <input type="time" value={day.end_time}
                               onChange={e => setAvailability(prev => prev.map((d,j)=>j===i?{...d,end_time:e.target.value}:d))}
                               style={{ height:32,padding:'0 8px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:13,color:'#1A1917',outline:'none' }}/>
@@ -2430,7 +2430,7 @@ export default function EmployeeProfilePage() {
                         {value:'accountant',label:'Accountant (View-only)'}
                       ]}/>
                     ) : (
-                      <div style={{ padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:8, background:'#FAFAF8', fontSize:13, color:'#1A1917', textTransform:'capitalize' }}>
+                      <div style={{ padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:8, background:'#F7F6F3', fontSize:13, color:'#1A1917', textTransform:'capitalize' }}>
                         {(form.role||'').replace('_',' ') || '—'}
                         <span style={{ marginLeft:8, fontSize:11, color:'#9E9B94' }}>· only the owner can change this</span>
                       </div>
@@ -2453,8 +2453,8 @@ export default function EmployeeProfilePage() {
                   </p>
                 </div>
                 {user.invite_sent_at && (
-                  <div style={{ marginTop:12, padding:'10px 12px', background:'#FEF3C7', borderRadius:8 }}>
-                    <p style={{ margin:0,fontSize:12,color:'#92400E' }}>
+                  <div style={{ marginTop:12, padding:'10px 12px', background:'#FDF3E4', borderRadius:8 }}>
+                    <p style={{ margin:0,fontSize:12,color:'#B45309' }}>
                       Invite sent {new Date(user.invite_sent_at).toLocaleDateString()}&nbsp;·&nbsp;
                       {user.invite_accepted_at ? 'Accepted' : 'Pending acceptance'}
                     </p>
@@ -2476,7 +2476,7 @@ export default function EmployeeProfilePage() {
                         showToast("Couldn't set password (owner/admin only)");
                       }
                     }}
-                    style={{ padding:'8px 14px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B7280',fontFamily:'inherit' }}>
+                    style={{ padding:'8px 14px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B6860',fontFamily:'inherit' }}>
                     Reset Password
                   </button>
                 </div>
@@ -2509,10 +2509,10 @@ export default function EmployeeProfilePage() {
                     <div>
                       <p style={{ fontSize:13,fontWeight:600,color:'#1A1917',margin:'0 0 4px 0' }}>{user.emergency_contact_name}</p>
                       {user.emergency_contact_relation && (
-                        <span style={{ fontSize:11,background:'#EDE9FE',color:'#5B21B6',padding:'2px 8px',borderRadius:10,fontWeight:600 }}>{user.emergency_contact_relation}</span>
+                        <span style={{ fontSize:11,background:'#FBF0E9',color:'#9C4E2B',padding:'2px 8px',borderRadius:10,fontWeight:600 }}>{user.emergency_contact_relation}</span>
                       )}
                       {user.emergency_contact_phone && (
-                        <p style={{ fontSize:13,color:'#6B7280',margin:'6px 0 0 0',display:'flex',alignItems:'center',gap:5 }}>
+                        <p style={{ fontSize:13,color:'#6B6860',margin:'6px 0 0 0',display:'flex',alignItems:'center',gap:5 }}>
                           <Phone size={12}/>{user.emergency_contact_phone}
                         </p>
                       )}
@@ -2544,7 +2544,7 @@ export default function EmployeeProfilePage() {
                     {compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—'}
                   </p>
                   <p style={{ fontSize:13,color:'#9E9B94',margin:0,textTransform:'uppercase',letterSpacing:'0.05em' }}>Performance Score</p>
-                  <p style={{ fontSize:12,color:'#6B7280',margin:0 }}>Rolling composite · trailing 90 days</p>
+                  <p style={{ fontSize:12,color:'#6B6860',margin:0 }}>Rolling composite · trailing 90 days</p>
                 </div>
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'20px 24px' }}>
                   <p style={{ fontSize:12,fontWeight:700,color:'#9E9B94',textTransform:'uppercase',letterSpacing:'0.05em',margin:'0 0 12px 0' }}>Score Breakdown — Trailing 90 Days</p>
@@ -2564,7 +2564,7 @@ export default function EmployeeProfilePage() {
                         <span style={{ fontSize:26, fontWeight:700, color: m.value != null ? '#1A1917' : '#C4C1BA' }}>
                           {m.value != null ? `${Number(m.value).toFixed(0)}%` : '—'}
                         </span>
-                        <span style={{ fontSize:11, color:'#6B7280' }}>{m.weight}% weight</span>
+                        <span style={{ fontSize:11, color:'#6B6860' }}>{m.weight}% weight</span>
                         <span style={{ fontSize:11, color:'#9E9B94' }}>{m.sub}</span>
                       </div>
                     ))}
@@ -2598,16 +2598,16 @@ export default function EmployeeProfilePage() {
                       const max = parseFloat(s.max_value) || 100;
                       const scoreLabel = max === 100 ? `${val.toFixed(0)}%` : `${val.toFixed(1)} / ${max.toFixed(0)}`;
                       return (
-                        <tr key={s.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
+                        <tr key={s.id} style={{ borderBottom:'1px solid #F0EEE9' }}>
                           <td style={{ padding:'12px 16px',fontSize:13,color:'#1A1917' }}>{new Date(s.entry_date + 'T00:00:00').toLocaleDateString()}</td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>{s.job_id ? `#${s.job_id}` : '—'}</td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>{s.source === 'mc' ? 'MaidCentral' : 'Qleno'}</td>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860' }}>{s.job_id ? `#${s.job_id}` : '—'}</td>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860' }}>{s.source === 'mc' ? 'MaidCentral' : 'Qleno'}</td>
                           <td style={{ padding:'12px 16px' }}>
                             <span style={{ background:'var(--brand-dim)', color:'var(--brand)', padding:'3px 10px', borderRadius:20, fontSize:12, fontWeight:600 }}>
                               {scoreLabel}
                             </span>
                           </td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860' }}>
                             <div>{s.notes || '—'}</div>
                             {s.office_reply && (
                               <div style={{ marginTop:8, padding:'8px 10px', background:'#F3F8F6', border:'1px solid #D7EBE4', borderRadius:8, color:'#1A1917' }}>
@@ -2627,7 +2627,7 @@ export default function EmployeeProfilePage() {
                                       {replySaving ? 'Saving…' : 'Save reply'}
                                     </button>
                                     <button onClick={() => { setReplyOpenId(null); setReplyText(''); }}
-                                      style={{ background:'none', color:'#6B7280', border:'1px solid #E5E2DC', borderRadius:6, padding:'5px 12px', fontSize:12, cursor:'pointer' }}>
+                                      style={{ background:'none', color:'#6B6860', border:'1px solid #E5E2DC', borderRadius:6, padding:'5px 12px', fontSize:12, cursor:'pointer' }}>
                                       Cancel
                                     </button>
                                   </div>
@@ -2674,9 +2674,9 @@ export default function EmployeeProfilePage() {
                 {/* Summary cards */}
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
                   {[
-                    { label:'Pending', value:`$${pendingTotal.toFixed(2)}`, count: pending.length, color:'#92400E', bg:'#FEF3C7' },
-                    { label:'Paid', value:`$${paidTotal.toFixed(2)}`, count: paid.length, color:'#166534', bg:'#DCFCE7' },
-                    { label:'Voided', value:`${voided.length} entries`, count: voided.length, color:'#6B7280', bg:'#F3F4F6' },
+                    { label:'Pending', value:`$${pendingTotal.toFixed(2)}`, count: pending.length, color:'#B45309', bg:'#FDF3E4' },
+                    { label:'Paid', value:`$${paidTotal.toFixed(2)}`, count: paid.length, color:'#0F7A63', bg:'#E6F6F1' },
+                    { label:'Voided', value:`${voided.length} entries`, count: voided.length, color:'#6B6860', bg:'#F0EEE9' },
                   ].map(c => (
                     <div key={c.label} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:8, padding:'14px 16px' }}>
                       <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
@@ -2704,7 +2704,7 @@ export default function EmployeeProfilePage() {
                 <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
                   <table style={{ width:'100%', borderCollapse:'collapse' }}>
                     <thead>
-                      <tr style={{ borderBottom:'1px solid #EEECE7', background:'#FAFAF9' }}>
+                      <tr style={{ borderBottom:'1px solid #EEECE7', background:'#F7F6F3' }}>
                         {['Date','Type','Amount','Status','Notes',''].map(h=>(
                           <th key={h} style={{ padding:'10px 16px',textAlign:'left',fontSize:11,fontWeight:600,color:'#9E9B94',textTransform:'uppercase' as const,letterSpacing:'0.05em' }}>{h}</th>
                         ))}
@@ -2712,19 +2712,19 @@ export default function EmployeeProfilePage() {
                     </thead>
                     <tbody>
                       {pays.map((p: any) => {
-                        const typeStyle = PAY_TYPE_COLORS[p.type] || { bg:'#F3F4F6',color:'#6B7280' };
+                        const typeStyle = PAY_TYPE_COLORS[p.type] || { bg:'#F0EEE9',color:'#6B6860' };
                         const statusStyle = STATUS_STYLES[p.status] || STATUS_STYLES.pending;
                         const isDeduction = p.type === 'amount_owed';
                         const isVoided = p.status === 'voided';
                         return (
-                          <tr key={p.id} style={{ borderBottom:'1px solid #F3F4F6', opacity: isVoided ? 0.55 : 1 }}>
+                          <tr key={p.id} style={{ borderBottom:'1px solid #F0EEE9', opacity: isVoided ? 0.55 : 1 }}>
                             <td style={{ padding:'11px 16px',fontSize:13,color:'#1A1917' }}>{new Date(p.created_at).toLocaleDateString()}</td>
                             <td style={{ padding:'11px 16px' }}>
                               <span style={{ background:typeStyle.bg,color:typeStyle.color,padding:'3px 9px',borderRadius:20,fontSize:11,fontWeight:600 }}>
                                 {PAY_LABELS[p.type] || p.type?.replace(/_/g,' ')}
                               </span>
                             </td>
-                            <td style={{ padding:'11px 16px',fontSize:13,fontWeight:700,color: isDeduction ? '#EF4444' : '#166534', textDecoration: isVoided ? 'line-through' : undefined }}>
+                            <td style={{ padding:'11px 16px',fontSize:13,fontWeight:700,color: isDeduction ? '#B3261E' : '#0F7A63', textDecoration: isVoided ? 'line-through' : undefined }}>
                               {isDeduction ? '-' : '+'} ${parseFloat(p.amount||0).toFixed(2)}
                             </td>
                             <td style={{ padding:'11px 16px' }}>
@@ -2732,7 +2732,7 @@ export default function EmployeeProfilePage() {
                                 {statusStyle.label}
                               </span>
                             </td>
-                            <td style={{ padding:'11px 16px',fontSize:13,color:'#6B7280',maxWidth:240,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
+                            <td style={{ padding:'11px 16px',fontSize:13,color:'#6B6860',maxWidth:240,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap' }}>
                               {p.notes || '—'}
                             </td>
                             <td style={{ padding:'11px 16px', textAlign:'right' as const }}>
@@ -2744,7 +2744,7 @@ export default function EmployeeProfilePage() {
                                         onClick={() => voidPay(p.id)}
                                         disabled={voidingId === p.id}
                                         title="Void"
-                                        style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#92400E',fontFamily:'inherit' }}>
+                                        style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#B45309',fontFamily:'inherit' }}>
                                         <Ban size={11}/> Void
                                       </button>
                                       {['owner', 'admin', 'office'].includes(getTokenRole() || '') && (
@@ -2752,7 +2752,7 @@ export default function EmployeeProfilePage() {
                                           onClick={() => deletePay(p.id)}
                                           disabled={deletingId === p.id}
                                           title="Delete"
-                                          style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #FECACA',borderRadius:6,fontSize:11,fontWeight:600,background:'#FEF2F2',cursor:'pointer',color:'#EF4444',fontFamily:'inherit' }}>
+                                          style={{ display:'flex',alignItems:'center',gap:4,padding:'4px 10px',border:'1px solid #F1D0CB',borderRadius:6,fontSize:11,fontWeight:600,background:'#FCEBEA',cursor:'pointer',color:'#B3261E',fontFamily:'inherit' }}>
                                           <Trash2 size={11}/>
                                         </button>
                                       )}
@@ -2859,7 +2859,7 @@ export default function EmployeeProfilePage() {
                           <button
                             onClick={e => { e.stopPropagation(); setPrintRecord({ ...r, periodName, start, end }); }}
                             title="Download PDF"
-                            style={{ display:'flex',alignItems:'center',gap:5,padding:'6px 12px',border:'1px solid #E5E2DC',borderRadius:8,background:'#FFFFFF',cursor:'pointer',fontSize:12,fontWeight:600,color:'#6B7280',fontFamily:'inherit' }}>
+                            style={{ display:'flex',alignItems:'center',gap:5,padding:'6px 12px',border:'1px solid #E5E2DC',borderRadius:8,background:'#FFFFFF',cursor:'pointer',fontSize:12,fontWeight:600,color:'#6B6860',fontFamily:'inherit' }}>
                             <Download size={13}/> PDF
                           </button>
                           {isExpanded
@@ -2876,8 +2876,8 @@ export default function EmployeeProfilePage() {
                             const val = r[row.key];
                             const isZero = !val || parseFloat(val) === 0;
                             return (
-                              <div key={row.key} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 0', borderBottom:'1px solid #F3F4F6', gridColumn: idx === highlightRows.length - 1 && highlightRows.length % 2 !== 0 ? '1 / -1' : undefined }}>
-                                <span style={{ fontSize:12, color: isZero ? '#C4C0B8' : '#6B7280' }}>{row.label}</span>
+                              <div key={row.key} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 0', borderBottom:'1px solid #F0EEE9', gridColumn: idx === highlightRows.length - 1 && highlightRows.length % 2 !== 0 ? '1 / -1' : undefined }}>
+                                <span style={{ fontSize:12, color: isZero ? '#C4C0B8' : '#6B6860' }}>{row.label}</span>
                                 <span style={{ fontSize:13, fontWeight:700, color: isZero ? '#C4C0B8' : (row.key === 'gross_wage' ? 'var(--brand)' : '#1A1917') }}>
                                   {row.fmt(val)}
                                 </span>
@@ -2913,15 +2913,15 @@ export default function EmployeeProfilePage() {
                   </thead>
                   <tbody>
                     {(ticketsData?.data || []).map((t: any) => {
-                      const ts = TICKET_TYPE_STYLES[t.ticket_type] || { bg:'#F3F4F6', color:'#6B7280', label: t.ticket_type };
+                      const ts = TICKET_TYPE_STYLES[t.ticket_type] || { bg:'#F0EEE9', color:'#6B6860', label: t.ticket_type };
                       return (
-                        <tr key={t.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
+                        <tr key={t.id} style={{ borderBottom:'1px solid #F0EEE9' }}>
                           <td style={{ padding:'12px 16px',fontSize:13,color:'#1A1917' }}>{new Date(t.created_at).toLocaleDateString()}</td>
                           <td style={{ padding:'12px 16px' }}>
                             <span style={{ background:ts.bg,color:ts.color,padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600 }}>{ts.label}</span>
                           </td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280' }}>{t.client_name || '—'}</td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280', maxWidth:300 }}>{t.notes || '—'}</td>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860' }}>{t.client_name || '—'}</td>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860', maxWidth:300 }}>{t.notes || '—'}</td>
                         </tr>
                       );
                     })}
@@ -2947,14 +2947,14 @@ export default function EmployeeProfilePage() {
                 </thead>
                 <tbody>
                   {(jobsData?.data || []).map((j: any) => (
-                    <tr key={j.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
+                    <tr key={j.id} style={{ borderBottom:'1px solid #F0EEE9' }}>
                       <td style={{ padding:'12px 16px',fontSize:13,color:'#1A1917' }}>{new Date(j.scheduled_date+'T00:00:00').toLocaleDateString()}</td>
                       <td style={{ padding:'12px 16px',fontSize:13,color:'#1A1917' }}>{j.client_name}</td>
-                      <td style={{ padding:'12px 16px',fontSize:13,color:'#6B7280',textTransform:'capitalize' }}>{j.service_type?.replace(/_/g,' ')}</td>
+                      <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860',textTransform:'capitalize' }}>{j.service_type?.replace(/_/g,' ')}</td>
                       <td style={{ padding:'12px 16px' }}>
                         <span style={{
-                          background: j.status==='complete'?'#DCFCE7':j.status==='in_progress'?'var(--brand-dim)':'#F3F4F6',
-                          color: j.status==='complete'?'#166534':j.status==='in_progress'?'var(--brand)':'#6B7280',
+                          background: j.status==='complete'?'#E6F6F1':j.status==='in_progress'?'var(--brand-dim)':'#F0EEE9',
+                          color: j.status==='complete'?'#0F7A63':j.status==='in_progress'?'var(--brand)':'#6B6860',
                           padding:'3px 10px',borderRadius:20,fontSize:11,fontWeight:600,
                         }}>{j.status?.replace(/_/g,' ').toUpperCase()}</span>
                       </td>
@@ -2979,10 +2979,10 @@ export default function EmployeeProfilePage() {
             const ytdPaid = ytdAll.filter((i: any) => i.status === 'paid' || i.paid_date).reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
             const pendingUnpaid = ytdAll.filter((i: any) => i.status === 'approved' && !i.paid_date).reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
             const STATUS_S: Record<string, { bg: string; color: string; label: string }> = {
-              pending_approval: { bg:'#FEF3C7', color:'#92400E', label:'Pending Approval' },
-              approved:         { bg:'#DBEAFE', color:'#1E40AF', label:'Approved' },
-              rejected:         { bg:'#F3F4F6', color:'#6B7280', label:'Rejected' },
-              paid:             { bg:'#DCFCE7', color:'#166534', label:'Paid' },
+              pending_approval: { bg:'#FDF3E4', color:'#B45309', label:'Pending Approval' },
+              approved:         { bg:'#EFEFF2', color:'#2F3646', label:'Approved' },
+              rejected:         { bg:'#F0EEE9', color:'#6B6860', label:'Rejected' },
+              paid:             { bg:'#E6F6F1', color:'#0F7A63', label:'Paid' },
             };
             return (
               <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
@@ -2990,8 +2990,8 @@ export default function EmployeeProfilePage() {
                 <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
                   {[
                     { label:'Earned YTD', value:`$${ytdEarned.toFixed(2)}`, color:'#1A1917' },
-                    { label:'Paid YTD', value:`$${ytdPaid.toFixed(2)}`, color:'#166534' },
-                    { label:'Approved — Unpaid', value:`$${pendingUnpaid.toFixed(2)}`, color: pendingUnpaid > 0 ? '#92400E' : '#9E9B94' },
+                    { label:'Paid YTD', value:`$${ytdPaid.toFixed(2)}`, color:'#0F7A63' },
+                    { label:'Approved — Unpaid', value:`$${pendingUnpaid.toFixed(2)}`, color: pendingUnpaid > 0 ? '#B45309' : '#9E9B94' },
                   ].map(c => (
                     <div key={c.label} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:8, padding:'14px 16px', textAlign:'center' }}>
                       <div style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em', marginBottom:6 }}>{c.label}</div>
@@ -3020,16 +3020,16 @@ export default function EmployeeProfilePage() {
                         {incentivesData.map((inc: any) => {
                           const s = STATUS_S[inc.status] ?? STATUS_S.approved;
                           return (
-                            <tr key={inc.id} style={{ borderBottom:'1px solid #F3F4F6' }}>
+                            <tr key={inc.id} style={{ borderBottom:'1px solid #F0EEE9' }}>
                               <td style={{ padding:'12px 16px', fontSize:13, fontWeight:600, color:'#1A1917' }}>{inc.program_name || '—'}</td>
-                              <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#166534' }}>${parseFloat(inc.amount || 0).toFixed(2)}</td>
-                              <td style={{ padding:'12px 16px', fontSize:12, color:'#6B7280' }}>
+                              <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#0F7A63' }}>${parseFloat(inc.amount || 0).toFixed(2)}</td>
+                              <td style={{ padding:'12px 16px', fontSize:12, color:'#6B6860' }}>
                                 {inc.earned_date ? new Date(inc.earned_date + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
                               </td>
                               <td style={{ padding:'12px 16px' }}>
                                 <span style={{ padding:'2px 7px', borderRadius:4, fontSize:11, fontWeight:700, background:s.bg, color:s.color }}>{s.label}</span>
                               </td>
-                              <td style={{ padding:'12px 16px', fontSize:12, color:'#6B7280' }}>
+                              <td style={{ padding:'12px 16px', fontSize:12, color:'#6B6860' }}>
                                 {inc.paid_date ? new Date(inc.paid_date + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
                               </td>
                             </tr>
@@ -3056,12 +3056,12 @@ export default function EmployeeProfilePage() {
                   <div key={n.id} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'14px 18px' }}>
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        {n.is_system && <span style={{ fontSize:10,background:'#F3F4F6',color:'#6B7280',padding:'2px 6px',borderRadius:10,fontWeight:600 }}>SYSTEM</span>}
+                        {n.is_system && <span style={{ fontSize:10,background:'#F0EEE9',color:'#6B6860',padding:'2px 6px',borderRadius:10,fontWeight:600 }}>SYSTEM</span>}
                         <span style={{ fontSize:12,fontWeight:600,color:'#1A1917' }}>{n.note_type?.replace(/_/g,' ')}</span>
                       </div>
                       <span style={{ fontSize:11,color:'#9E9B94' }}>{new Date(n.created_at).toLocaleString()}</span>
                     </div>
-                    <p style={{ fontSize:13,color:'#374151',margin:'0 0 4px 0',lineHeight:'1.5' }}>{n.content}</p>
+                    <p style={{ fontSize:13,color:'#1A1917',margin:'0 0 4px 0',lineHeight:'1.5' }}>{n.content}</p>
                     {n.creator_name && <p style={{ fontSize:11,color:'#9E9B94',margin:0 }}>By {n.creator_name}</p>}
                   </div>
                 ))}
@@ -3143,7 +3143,7 @@ export default function EmployeeProfilePage() {
           <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
             <div style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:460,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
               <h3 style={{ margin:'0 0 4px 0',fontSize:16,fontWeight:700,color:'#1A1917' }}>Add Pay Entry</h3>
-              <p style={{ margin:'0 0 18px 0', fontSize:12, color:'#9E9B94' }}>Entry will be marked <span style={{ fontWeight:700, color:'#92400E' }}>Pending</span> until the next day is closed.</p>
+              <p style={{ margin:'0 0 18px 0', fontSize:12, color:'#9E9B94' }}>Entry will be marked <span style={{ fontWeight:700, color:'#B45309' }}>Pending</span> until the next day is closed.</p>
               <div style={{ display:'flex', flexDirection:'column', gap:12, marginBottom:16 }}>
                 <Field label="Pay Type">
                   <select value={newPay.type} onChange={e=>setNewPay(p=>({...p,type:e.target.value}))}
@@ -3216,7 +3216,7 @@ export default function EmployeeProfilePage() {
                   {/* STEP 1: Employee Selection */}
                   {bulkStep === 1 && (
                     <div>
-                      <p style={{ fontSize:13,color:'#6B7280',margin:'0 0 12px 0' }}>Select employees who will receive this pay entry.</p>
+                      <p style={{ fontSize:13,color:'#6B6860',margin:'0 0 12px 0' }}>Select employees who will receive this pay entry.</p>
                       <input
                         value={bulkEmpSearch}
                         onChange={e => setBulkEmpSearch(e.target.value)}
@@ -3234,7 +3234,7 @@ export default function EmployeeProfilePage() {
                         {filtered.map((e: any) => {
                           const isChecked = bulkSelectedEmps.includes(e.id);
                           return (
-                            <label key={e.id} style={{ display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderBottom:'1px solid #F3F4F6',cursor:'pointer',background: isChecked ? '#F0FBF8' : '#FFFFFF' }}>
+                            <label key={e.id} style={{ display:'flex',alignItems:'center',gap:12,padding:'10px 14px',borderBottom:'1px solid #F0EEE9',cursor:'pointer',background: isChecked ? '#F0FBF8' : '#FFFFFF' }}>
                               <input type="checkbox" checked={isChecked} onChange={() => setBulkSelectedEmps(prev => isChecked ? prev.filter(id => id !== e.id) : [...prev, e.id])}
                                 style={{ accentColor:'var(--brand)',width:15,height:15,flexShrink:0 }}/>
                               <EmployeeAvatar name={`${e.first_name ?? ''} ${e.last_name ?? ''}`} avatarUrl={e.avatar_url} size={30} fontSize={11} />
@@ -3253,7 +3253,7 @@ export default function EmployeeProfilePage() {
                   {/* STEP 2: Pay Details */}
                   {bulkStep === 2 && (
                     <div style={{ display:'flex',flexDirection:'column',gap:14 }}>
-                      <p style={{ fontSize:13,color:'#6B7280',margin:'0 0 4px 0' }}>Choose pay type and amount for <strong>{bulkSelectedEmps.length}</strong> employee{bulkSelectedEmps.length !== 1 ? 's' : ''}.</p>
+                      <p style={{ fontSize:13,color:'#6B6860',margin:'0 0 4px 0' }}>Choose pay type and amount for <strong>{bulkSelectedEmps.length}</strong> employee{bulkSelectedEmps.length !== 1 ? 's' : ''}.</p>
                       <Field label="Pay Type">
                         <select value={bulkPayType} onChange={e => setBulkPayType(e.target.value)}
                           style={{ height:38,padding:'0 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,color:'#1A1917',background:'#FFFFFF',outline:'none',width:'100%' }}>
@@ -3270,7 +3270,7 @@ export default function EmployeeProfilePage() {
                       <Field label="Notes (optional)">
                         <Input value={bulkNotes} onChange={v => setBulkNotes(v)} placeholder="Reason or reference…"/>
                       </Field>
-                      <div style={{ background:'#FEF3C7',border:'1px solid #FDE68A',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#92400E',fontWeight:600 }}>
+                      <div style={{ background:'#FDF3E4',border:'1px solid #F2DFB8',borderRadius:8,padding:'10px 14px',fontSize:12,color:'#B45309',fontWeight:600 }}>
                         Each entry will be marked Pending until the next day is closed.
                       </div>
                     </div>
@@ -3279,23 +3279,23 @@ export default function EmployeeProfilePage() {
                   {/* STEP 3: Confirm */}
                   {bulkStep === 3 && (
                     <div>
-                      <p style={{ fontSize:13,color:'#6B7280',margin:'0 0 12px 0' }}>Review before submitting.</p>
+                      <p style={{ fontSize:13,color:'#6B6860',margin:'0 0 12px 0' }}>Review before submitting.</p>
                       <div style={{ background:'#F7F6F3',borderRadius:8,padding:'12px 16px',marginBottom:12 }}>
                         <div style={{ fontSize:12,color:'#9E9B94',marginBottom:2 }}>Pay Type</div>
                         <div style={{ fontSize:14,fontWeight:700,color:'#1A1917' }}>{PAY_LABELS[bulkPayType] || bulkPayType}</div>
                         <div style={{ fontSize:12,color:'#9E9B94',marginTop:8,marginBottom:2 }}>Amount per Employee</div>
                         <div style={{ fontSize:22,fontWeight:800,color:'var(--brand)' }}>${parseFloat(bulkAmount||'0').toFixed(2)}</div>
                         <div style={{ fontSize:12,color:'#9E9B94',marginTop:8 }}>Total payout: <strong style={{ color:'#1A1917' }}>${(parseFloat(bulkAmount||'0') * bulkSelectedEmps.length).toFixed(2)}</strong></div>
-                        {bulkNotes && <div style={{ fontSize:12,color:'#6B7280',marginTop:8 }}>Note: {bulkNotes}</div>}
+                        {bulkNotes && <div style={{ fontSize:12,color:'#6B6860',marginTop:8 }}>Note: {bulkNotes}</div>}
                       </div>
                       <div style={{ border:'1px solid #E5E2DC',borderRadius:8,overflow:'hidden',maxHeight:220,overflowY:'auto' }}>
                         {selectedEmpObjects.map((e: any) => (
-                          <div key={e.id} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 14px',borderBottom:'1px solid #F3F4F6' }}>
+                          <div key={e.id} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 14px',borderBottom:'1px solid #F0EEE9' }}>
                             <div style={{ display:'flex',alignItems:'center',gap:10 }}>
                               <EmployeeAvatar name={`${e.first_name ?? ''} ${e.last_name ?? ''}`} avatarUrl={e.avatar_url} size={28} fontSize={10} />
                               <span style={{ fontSize:13,fontWeight:600,color:'#1A1917' }}>{e.first_name} {e.last_name}</span>
                             </div>
-                            <span style={{ fontSize:13,fontWeight:700,color:'#166534' }}>${parseFloat(bulkAmount||'0').toFixed(2)}</span>
+                            <span style={{ fontSize:13,fontWeight:700,color:'#0F7A63' }}>${parseFloat(bulkAmount||'0').toFixed(2)}</span>
                           </div>
                         ))}
                       </div>
@@ -3387,8 +3387,8 @@ export default function EmployeeProfilePage() {
                   <table style={{ width:'100%',borderCollapse:'collapse',fontSize:13 }}>
                     <tbody>
                       {rows.map(row => (
-                        <tr key={row.label} style={{ borderBottom:'1px solid #F3F4F6' }}>
-                          <td style={{ padding:'8px 0',color: row.bold ? '#1A1917' : '#6B7280',fontWeight: row.bold ? 700 : 400 }}>{row.label}</td>
+                        <tr key={row.label} style={{ borderBottom:'1px solid #F0EEE9' }}>
+                          <td style={{ padding:'8px 0',color: row.bold ? '#1A1917' : '#6B6860',fontWeight: row.bold ? 700 : 400 }}>{row.label}</td>
                           <td style={{ padding:'8px 0',textAlign:'right',fontWeight: row.bold ? 800 : 600,color: row.bold ? 'var(--brand)' : '#1A1917' }}>{row.val}</td>
                         </tr>
                       ))}
@@ -3411,7 +3411,7 @@ export default function EmployeeProfilePage() {
                     <button onClick={() => setPrintRecord(null)} style={{ background:'none',border:'none',cursor:'pointer',color:'#9E9B94' }}><X size={18}/></button>
                   </div>
                   <div style={{ padding:'20px 24px' }}>
-                    <p style={{ fontSize:13,color:'#6B7280',margin:'0 0 16px 0' }}>
+                    <p style={{ fontSize:13,color:'#6B6860',margin:'0 0 16px 0' }}>
                       Ready to print: <strong style={{ color:'#1A1917' }}>{empName} · {r.periodName}</strong> ({r.start} — {r.end})
                     </p>
                     <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16 }}>
@@ -3580,7 +3580,7 @@ function PayMatrixPanel({ userId }: { userId: string }) {
         <input type="number" step={type === "hourly" ? 0.25 : 1} min={0} max={type === "commission" ? 100 : undefined}
           value={rate} onChange={e => setRate(e.target.value)}
           style={{ padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", color: "#1A1917", width: 120 }} />
-        <span style={{ fontSize: 13, color: "#6B7280" }}>{type === "hourly" ? "/hr" : "%"}</span>
+        <span style={{ fontSize: 13, color: "#6B6860" }}>{type === "hourly" ? "/hr" : "%"}</span>
       </div>
       <div style={{ marginTop: 8, fontSize: 11, color: "#9E9B94" }}>
         {type === "hourly"
@@ -3599,7 +3599,7 @@ function PayMatrixPanel({ userId }: { userId: string }) {
       {renderSection("Residential pay", resType, setResType, resRate, setResRate)}
       {renderSection("Commercial pay", comType, setComType, comRate, setComRate)}
       {error && (
-        <div style={{ background: "#FEF2F2", border: "1px solid #FCA5A5", color: "#991B1B", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
+        <div style={{ background: "#FCEBEA", border: "1px solid #FCA5A5", color: "#B3261E", padding: "10px 14px", borderRadius: 8, fontSize: 12, marginBottom: 14 }}>
           {error}
         </div>
       )}

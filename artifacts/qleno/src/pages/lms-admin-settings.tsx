@@ -25,7 +25,7 @@ const PAGE_BG = "#F8FAFC";
 const SURFACE = "#FFFFFF";
 const LINE = "#E2E8F0";
 const SUCCESS = "#0F766E";
-const DANGER = "#B91C1C";
+const DANGER = "#B3261E";
 const FONT = "'Plus Jakarta Sans', sans-serif";
 const RADIUS = 10;
 
@@ -202,8 +202,8 @@ export default function LmsAdminSettingsPage() {
           <div
             style={{
               marginTop: 14,
-              background: "#FEF2F2",
-              border: `1px solid #FECACA`,
+              background: "#FCEBEA",
+              border: `1px solid #F1D0CB`,
               color: DANGER,
               padding: 10,
               borderRadius: 8,

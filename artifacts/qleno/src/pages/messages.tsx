@@ -878,8 +878,8 @@ export default function MessagesPage() {
                         drip touch — so a bare "Stop" has context without opening the lead. */}
                     {c.last_inbound_drip && (
                       <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 5 }}>
-                        <Zap size={11} color="#7C3AED" />
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#7C3AED" }}>Replied to drip</span>
+                        <Zap size={11} color="#9C4E2B" />
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#9C4E2B" }}>Replied to drip</span>
                       </div>
                     )}
                   </button>
@@ -937,7 +937,7 @@ export default function MessagesPage() {
                   </div>
 
                   {/* Thread messages */}
-                  <div ref={threadScrollRef} style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 8, background: "#FAFAF9" }}>
+                  <div ref={threadScrollRef} style={{ flex: 1, overflowY: "auto", padding: 14, display: "flex", flexDirection: "column", gap: 8, background: "#F7F6F3" }}>
 
                     {/* Scheduled messages (pending) shown at top with indicator */}
                     {scheduled.map(s => (
@@ -998,8 +998,8 @@ export default function MessagesPage() {
                               it doesn't read as an office reply. */}
                           {isDrip ? (
                             <div style={{ display: "flex", alignItems: "center", gap: 4, marginBottom: 2, paddingRight: 4 }}>
-                              <Zap size={10} color="#7C3AED" />
-                              <span style={{ fontSize: 10, color: "#7C3AED", fontWeight: 700 }}>
+                              <Zap size={10} color="#9C4E2B" />
+                              <span style={{ fontSize: 10, color: "#9C4E2B", fontWeight: 700 }}>
                                 Drip{m.drip_campaign ? ` · ${prettyCampaign(m.drip_campaign)}` : ""}{m.drip_step ? ` · touch ${m.drip_step}` : ""}
                               </span>
                             </div>
@@ -1026,8 +1026,8 @@ export default function MessagesPage() {
                               at the automated campaign, not a live conversation. */}
                           {inbound && m.drip_related && (
                             <div style={{ display: "flex", alignItems: "center", gap: 4, marginTop: 3, paddingLeft: 2 }}>
-                              <Zap size={10} color="#7C3AED" />
-                              <span style={{ fontSize: 10.5, fontWeight: 700, color: "#7C3AED" }}>
+                              <Zap size={10} color="#9C4E2B" />
+                              <span style={{ fontSize: 10.5, fontWeight: 700, color: "#9C4E2B" }}>
                                 Reply to drip{m.drip_campaign ? `: ${prettyCampaign(m.drip_campaign)}` : ""}
                               </span>
                             </div>

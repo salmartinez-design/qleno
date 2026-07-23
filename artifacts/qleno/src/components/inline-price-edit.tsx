@@ -73,7 +73,7 @@ export function InlinePriceEdit({
   if (!editing) {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <DollarSign size={14} style={{ color: "#6B7280", flexShrink: 0 }} />
+        <DollarSign size={14} style={{ color: "#6B6860", flexShrink: 0 }} />
         <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{display}</span>
         {canEdit && (
           <button
@@ -91,7 +91,7 @@ export function InlinePriceEdit({
     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div style={{ position: "relative", flex: 1, maxWidth: 160 }}>
-          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#6B7280" }}>$</span>
+          <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", fontSize: 13, color: "#6B6860" }}>$</span>
           <input
             type="number" inputMode="decimal" value={val} autoFocus
             onChange={e => setVal(e.target.value)}
@@ -104,12 +104,12 @@ export function InlinePriceEdit({
           <Check size={14} />
         </button>
         <button onClick={() => { setEditing(false); setErr(null); }} disabled={saving} title="Cancel"
-          style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#fff", color: "#6B7280", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
+          style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#fff", color: "#6B6860", cursor: "pointer", display: "inline-flex", alignItems: "center" }}>
           <X size={14} />
         </button>
       </div>
       {(isHourly || showRate) && <p style={{ margin: 0, fontSize: 11, color: "#9E9B94" }}>Sets this visit's total price (overrides hours × rate for this visit only).</p>}
-      {err && <p style={{ margin: 0, fontSize: 11, color: "#DC2626" }}>{err}</p>}
+      {err && <p style={{ margin: 0, fontSize: 11, color: "#B3261E" }}>{err}</p>}
     </div>
   );
 }

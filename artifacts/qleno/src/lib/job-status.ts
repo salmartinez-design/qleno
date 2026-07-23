@@ -263,7 +263,7 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
   scheduled: {
     label: "Scheduled",
     description: "On the board. Tech hasn't started yet.",
-    swatch: "#A78BFA",
+    swatch: "#2E6B5E",
     stripe: null,
     bodyOpacity: 1,
     showCheckmark: false,
@@ -276,7 +276,7 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
   active: {
     label: "In progress",
     description: "Tech is on the job right now.",
-    swatch: "#A78BFA",
+    swatch: "#2E6B5E",
     stripe: "#F59E0B",
     bodyOpacity: 1,
     showCheckmark: false,
@@ -297,7 +297,7 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
   en_route: {
     label: "On the way",
     description: "Tech tapped \"On My Way\" and is heading to the job.",
-    swatch: "#A78BFA",
+    swatch: "#2E6B5E",
     stripe: null,
     bodyOpacity: 1,
     showCheckmark: false,
@@ -310,7 +310,7 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
   completed: {
     label: "Done",
     description: "Job finished and payment is in.",
-    swatch: "#A78BFA",
+    swatch: "#2E6B5E",
     stripe: null,
     // [2026-06-04] No body dimming — keep the card readable. Completion reads
     // from the green checkmark. fillMuted is OFF: draining the fill washed out
@@ -357,33 +357,33 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
   late_clockin: {
     label: "Late",
     description: "Tech is more than 20 minutes past start time and hasn't clocked in.",
-    swatch: "#A78BFA",
+    swatch: "#2E6B5E",
     stripe: null,
     bodyOpacity: 1,
     showCheckmark: false,
     showNoShowBadge: false,
     strikethrough: false,
     desaturate: false,
-    borderOverride: "#DC2626",
+    borderOverride: "#B3261E",
     showCarIcon: false,
   },
   no_show: {
     label: "No show",
     description: "Tech tapped \"No Show\" — customer wasn't there after 20+ min wait.",
-    swatch: "#EF4444",
+    swatch: "#B3261E",
     stripe: null,
     bodyOpacity: 0.85,
     showCheckmark: false,
     showNoShowBadge: true,
     strikethrough: false,
     desaturate: false,
-    borderOverride: "#991B1B",
+    borderOverride: "#B3261E",
     showCarIcon: false,
   },
   cancelled: {
     label: "Cancelled",
     description: "Won't run today. Cancelled by office or client.",
-    swatch: "#9CA3AF",
+    swatch: "#9E9B94",
     stripe: null,
     bodyOpacity: 0.5,
     showCheckmark: false,
@@ -396,7 +396,7 @@ export const STATUS_VISUALS: Record<JobVisualStatus, StatusVisual> = {
   unassigned: {
     label: "Unassigned",
     description: "Nobody is assigned yet. Drag a tech onto the job.",
-    swatch: "#FBBF24",
+    swatch: "#B45309",
     stripe: null,
     bodyOpacity: 1,
     showCheckmark: false,

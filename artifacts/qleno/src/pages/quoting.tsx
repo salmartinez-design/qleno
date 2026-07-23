@@ -194,7 +194,7 @@ export default function QuotingPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[#1A1917]">Quoting Settings</h1>
-          <p className="text-sm text-[#6B7280] mt-1">Configure service scopes, pricing, and add-ons for quote generation.</p>
+          <p className="text-sm text-[#6B6860] mt-1">Configure service scopes, pricing, and add-ons for quote generation.</p>
         </div>
         <div className="flex gap-2">
           {scopes.length === 0 && (
@@ -278,7 +278,7 @@ export default function QuotingPage() {
         ) : scopes.length === 0 ? (
           <div className="p-12 text-center space-y-3">
             <DollarSign className="w-10 h-10 text-[#9E9B94] mx-auto" />
-            <p className="text-[#6B7280]">No service scopes configured.</p>
+            <p className="text-[#6B6860]">No service scopes configured.</p>
             <p className="text-sm text-[#9E9B94]">Load PHES defaults or create a scope to get started.</p>
           </div>
         ) : (
@@ -304,10 +304,10 @@ export default function QuotingPage() {
                       {scope.pricing_method === "sqft" ? "Sq Ft" : scope.pricing_method === "hourly" ? "Hourly" : "Flat"}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-[#6B7280]">${fmt(scope.base_hourly_rate)}/hr</TableCell>
-                  <TableCell className="text-[#6B7280]">${fmt(scope.min_bill_rate)}</TableCell>
-                  <TableCell className="text-[#6B7280]">{scope.frequencies?.length ?? 0}</TableCell>
-                  <TableCell className="text-[#6B7280]">{scope.addons?.length ?? 0}</TableCell>
+                  <TableCell className="text-[#6B6860]">${fmt(scope.base_hourly_rate)}/hr</TableCell>
+                  <TableCell className="text-[#6B6860]">${fmt(scope.min_bill_rate)}</TableCell>
+                  <TableCell className="text-[#6B6860]">{scope.frequencies?.length ?? 0}</TableCell>
+                  <TableCell className="text-[#6B6860]">{scope.addons?.length ?? 0}</TableCell>
                   <TableCell onClick={e => e.stopPropagation()}>
                     <Switch
                       checked={scope.is_active}

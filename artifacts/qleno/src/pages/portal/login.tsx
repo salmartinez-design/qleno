@@ -66,8 +66,8 @@ export default function PortalLoginPage() {
         </div>
 
         {error && (
-          <div style={{ background:'#FEE2E2', border:'1px solid #FECACA', borderRadius:8, padding:'10px 14px', marginBottom:16 }}>
-            <p style={{ fontSize:13, color:'#991B1B', margin:0 }}>{error}</p>
+          <div style={{ background:'#FCEBEA', border:'1px solid #F1D0CB', borderRadius:8, padding:'10px 14px', marginBottom:16 }}>
+            <p style={{ fontSize:13, color:'#B3261E', margin:0 }}>{error}</p>
           </div>
         )}
 
