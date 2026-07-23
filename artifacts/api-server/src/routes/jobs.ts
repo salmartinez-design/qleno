@@ -1591,9 +1591,17 @@ router.put("/:id", requireAuth, async (req, res) => {
     // a cross-day reschedule (a different flow). Cheap single-row read.
     let priorSched: { scheduled_date: any; scheduled_time: any } | null = null;
     if (scheduled_time !== undefined || scheduled_date !== undefined) {
-      const pr = await db.execute(sql`SELECT scheduled_date, scheduled_time FROM jobs WHERE id = ${jobId} AND company_id = ${req.auth!.companyId} LIMIT 1`);
+      // [moved-slot-dup 2026-07-23] Also read the cadence slot so a drag-and-drop
+      // reschedule can freeze it before the date changes (see below).
+      const pr = await db.execute(sql`SELECT scheduled_date, scheduled_time, recurring_schedule_id, occurrence_date FROM jobs WHERE id = ${jobId} AND company_id = ${req.auth!.companyId} LIMIT 1`);
       priorSched = (pr.rows[0] as any) ?? null;
     }
+
+    // [moved-slot-dup 2026-07-23] Drag-and-drop on the dispatch board is a real
+    // reschedule and must protect the vacated cadence slot like the other two
+    // move paths, or the nightly run books a phantom onto the day the job left.
+    // Only stamped when NULL — an existing occurrence_date IS the original slot.
+    const _freezeSlot = !!(scheduled_date && (priorSched as any)?.recurring_schedule_id && !(priorSched as any)?.occurrence_date);
 
     const updated = await db
       .update(jobsTable)
@@ -1602,6 +1610,7 @@ router.put("/:id", requireAuth, async (req, res) => {
         ...(service_type && { service_type }),
         ...(status && { status }),
         ...(scheduled_date && { scheduled_date }),
+        ...(_freezeSlot && { occurrence_date: (priorSched as any).scheduled_date }),
         ...(scheduled_time !== undefined && { scheduled_time }),
         ...(frequency && { frequency }),
         ...(base_fee !== undefined && { base_fee }),
@@ -1890,6 +1899,9 @@ router.patch("/:id", requireAuth, async (req, res) => {
              allowed_hours, base_fee, hourly_rate, manual_rate_override, notes,
              assigned_user_id, client_id, account_id, account_property_id,
              billed_amount,
+             -- [moved-slot-dup 2026-07-23] Needed to freeze the cadence slot
+             -- when this edit moves the date (see the scheduled_date branch).
+             recurring_schedule_id, occurrence_date,
              charge_succeeded_at, charge_failed_at
       FROM jobs WHERE id = ${jobId} AND company_id = ${companyId} LIMIT 1
     `);
@@ -2200,6 +2212,15 @@ router.patch("/:id", requireAuth, async (req, res) => {
       if (service_type !== undefined) setParts.service_type = service_type;
       if (frequency !== undefined) setParts.frequency = frequency;
       if (scheduled_date !== undefined) setParts.scheduled_date = scheduled_date;
+      // [moved-slot-dup 2026-07-23] Moving a recurring job from the edit modal
+      // must freeze its cadence slot, exactly as the reschedule modal does.
+      // Without this the vacated day reads as empty on the next nightly run and
+      // a phantom visit is generated onto it. Only stamped when NULL (legacy /
+      // imported rows) — an existing occurrence_date is the original slot and
+      // must never be overwritten by a later move.
+      if (scheduled_date !== undefined && before.recurring_schedule_id && !before.occurrence_date) {
+        setParts.occurrence_date = before.scheduled_date;
+      }
       if (scheduled_time !== undefined) setParts.scheduled_time = scheduled_time;
       if (allowed_hours !== undefined) setParts.allowed_hours = String(allowed_hours);
       if (base_fee !== undefined) setParts.base_fee = String(base_fee);

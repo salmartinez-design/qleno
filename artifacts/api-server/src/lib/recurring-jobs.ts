@@ -427,16 +427,38 @@ export async function computeOccurrencesForSchedule(
   // fallback keeps a fresh deploy correct before the backfill lands). Matching
   // on the coalesced occurrence date also catches a job that was moved OUT of
   // the [from,to] window — its slot is still inside the window and stays filled.
+  // [moved-slot-dup 2026-07-23] A job fills TWO slots, and both must block
+  // generation:
+  //   occurrence_date  — the cadence slot it was born from. Blocks the ORIGINAL
+  //                      day so moving a visit doesn't free its old slot.
+  //   scheduled_date   — the day it ACTUALLY sits on now. Blocks that day so the
+  //                      engine can't drop a second visit on top of it.
+  // Only the first was checked, so any job whose occurrence_date differs from
+  // its scheduled_date (i.e. every moved visit, and every legacy row whose
+  // backfilled occurrence_date no longer matches after a cadence change) made
+  // the day it occupies read as EMPTY — and the nightly run generated a
+  // duplicate right on top of it. A dry run on 2026-07-23 planned 27 inserts
+  // for Phes of which 26 landed on a day that client already had a job.
+  // Ashley Doss (client 151) is the reported case: #5375 moved 7/30 → 7/27,
+  // then #19863 appeared on 7/30 ("Pancho moved it, then the other one came out
+  // of nowhere"). Selecting both dates, each matched against the window
+  // independently, is what makes a moved visit stop counting as an empty day.
   const existing = await db.execute(sql`
-    SELECT COALESCE(occurrence_date, scheduled_date)::text AS occ
+    SELECT occurrence_date::text AS occ, scheduled_date::text AS sched
     FROM jobs
     WHERE company_id = ${schedule.company_id}
       AND recurring_schedule_id = ${schedule.id}
-      AND COALESCE(occurrence_date, scheduled_date) >= ${fromStr}
-      AND COALESCE(occurrence_date, scheduled_date) <= ${toStr}
+      AND (
+        (COALESCE(occurrence_date, scheduled_date) >= ${fromStr} AND COALESCE(occurrence_date, scheduled_date) <= ${toStr})
+        OR (scheduled_date >= ${fromStr} AND scheduled_date <= ${toStr})
+      )
   `);
 
-  const existingDates = new Set((existing.rows as any[]).map(r => String(r.occ)));
+  const existingDates = new Set<string>();
+  for (const r of existing.rows as any[]) {
+    if (r.occ) existingDates.add(String(r.occ));
+    if (r.sched) existingDates.add(String(r.sched));
+  }
 
   // [dup-guard 2026-07-08] Also treat an existing job for the SAME TARGET
   // (this client, or this account+property) on a slot as filled — even when it
@@ -454,18 +476,27 @@ export async function computeOccurrencesForSchedule(
   // services we cancel"). A cancelled slot must stay empty; the office rebooks
   // by hand, never the engine. (Charged cancels become status='complete', so
   // they already filled the slot and are unaffected by this change.)
+  //
+  // [moved-slot-dup 2026-07-23] Same both-dates rule as the schedule-scoped
+  // query above — a job belonging to this client/property blocks both the slot
+  // it came from and the day it now sits on, however it got there.
   const _isAcctSchedule = (schedule as any).account_id != null;
   const targetExisting = await db.execute(sql`
-    SELECT COALESCE(occurrence_date, scheduled_date)::text AS occ
+    SELECT occurrence_date::text AS occ, scheduled_date::text AS sched
     FROM jobs
     WHERE company_id = ${schedule.company_id}
-      AND COALESCE(occurrence_date, scheduled_date) >= ${fromStr}
-      AND COALESCE(occurrence_date, scheduled_date) <= ${toStr}
+      AND (
+        (COALESCE(occurrence_date, scheduled_date) >= ${fromStr} AND COALESCE(occurrence_date, scheduled_date) <= ${toStr})
+        OR (scheduled_date >= ${fromStr} AND scheduled_date <= ${toStr})
+      )
       AND ${_isAcctSchedule
         ? sql`account_id = ${(schedule as any).account_id} AND account_property_id IS NOT DISTINCT FROM ${(schedule as any).account_property_id ?? null}`
         : sql`client_id = ${(schedule as any).customer_id}`}
   `);
-  for (const r of targetExisting.rows as any[]) existingDates.add(String(r.occ));
+  for (const r of targetExisting.rows as any[]) {
+    if (r.occ) existingDates.add(String(r.occ));
+    if (r.sched) existingDates.add(String(r.sched));
+  }
 
   // [recurring-delete-skip 2026-06-05] Occurrence dates the office deleted on
   // purpose. The generator must NOT regenerate them — otherwise a deleted
