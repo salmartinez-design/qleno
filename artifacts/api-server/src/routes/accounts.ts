@@ -1036,11 +1036,15 @@ router.get("/:id/uninvoiced-jobs", requireAuth, requireRole("owner", "admin", "o
           // would keep showing as "uninvoiced" after consolidation and could be
           // double-billed. A non-void invoice whose line_items contains this
           // job_id means it's already consolidated.
+          // [job-ids-preserve 2026-07-23] …as does one whose `job_ids` array
+          // names it, which is where a hand-collapsed `quantity: N` line now
+          // keeps the ids it used to discard.
           sql`NOT EXISTS (
             SELECT 1 FROM invoices i
              WHERE i.company_id = ${companyId}
                AND i.status <> 'void'
-               AND i.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))
+               AND (i.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))
+                 OR i.line_items @> jsonb_build_array(jsonb_build_object('job_ids', jsonb_build_array(${jobsTable.id}))))
           )`
         )
       )
@@ -1156,11 +1160,16 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
           ),
           // Not already folded into a consolidated account invoice (dedup —
           // matches the uninvoiced-jobs list guard; prevents double-billing).
+          // [job-ids-preserve 2026-07-23] `job_ids` is the second line-item
+          // carrier — the ids a hand-collapsed `quantity: N` line would otherwise
+          // have dropped. Both shapes must be checked or a consolidated visit
+          // reads as uninvoiced and gets billed twice.
           sql`NOT EXISTS (
             SELECT 1 FROM invoices i
              WHERE i.company_id = ${companyId}
                AND i.status <> 'void'
-               AND i.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))
+               AND (i.line_items @> jsonb_build_array(jsonb_build_object('job_id', ${jobsTable.id}))
+                 OR i.line_items @> jsonb_build_array(jsonb_build_object('job_ids', jsonb_build_array(${jobsTable.id}))))
           )`
         )
       )
