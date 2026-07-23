@@ -399,6 +399,39 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
     qc.invalidateQueries({ queryKey: ['payroll-overview'] });
   };
 
+  // [inline-mileage-confirm 2026-07-23] Confirm (apply) pending mileage right
+  // here on the payroll screen — no separate review page (which couldn't see
+  // these legs anyway). Applies by date range + optional user, so what the
+  // office sees is exactly what confirms. Nothing pays until this is clicked.
+  const [confirmingMi, setConfirmingMi] = useState<number | 'all' | null>(null);
+  // Pending (not-yet-applied) mileage for one employee, from their legs.
+  const pendingMi = (emp: any): number =>
+    (emp.mileage_legs || [])
+      .filter((l: any) => l.status === 'computed' || l.status === 'reviewed')
+      .reduce((s: number, l: any) => s + Number(l.amount || 0), 0);
+  async function confirmMileage(userId?: number, amount?: number) {
+    const who = userId ? 'this employee' : `${period.start === period.end ? 'this day' : 'the period'} for everyone`;
+    if (!window.confirm(`Confirm $${(amount || 0).toFixed(2)} in mileage for ${who}?\n\nThis applies the driving reimbursement into pay. It can't be undone from here.`)) return;
+    setConfirmingMi(userId ?? 'all');
+    try {
+      const r = await apiFetch('/pay/mileage/confirm-range', {
+        method: 'POST',
+        body: JSON.stringify({ pay_period_start: period.start, pay_period_end: period.end, user_id: userId ?? undefined }),
+      });
+      const n = r?.data?.applied_count ?? 0;
+      const skipped = r?.data?.skipped_count ?? 0;
+      qc.invalidateQueries({ queryKey: ['payroll-detail'] });
+      qc.invalidateQueries({ queryKey: ['payroll-overview'] });
+      window.alert(n > 0
+        ? `Applied ${n} mileage leg${n === 1 ? '' : 's'} ($${(r?.data?.total_amount ?? 0).toFixed(2)}).${skipped ? ` ${skipped} skipped (locked period).` : ''}`
+        : `Nothing to apply${skipped ? ` — ${skipped} skipped (locked period).` : ' — no pending mileage.'}`);
+    } catch (e: any) {
+      window.alert(`Confirm failed: ${e?.message || e}`);
+    } finally {
+      setConfirmingMi(null);
+    }
+  }
+
   const { data, isLoading } = useQuery({
     queryKey: ['payroll-detail', period.start, period.end, activeBranchId],
     queryFn: () => apiFetch(`/payroll/detail?pay_period_start=${period.start}&pay_period_end=${period.end}${branchQ}`),
@@ -406,6 +439,9 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
   });
 
   const employees: any[] = data?.data || [];
+  // [inline-mileage-confirm 2026-07-23] Team-wide pending mileage for the "Confirm all" bar.
+  const teamPendingMi = employees.reduce((s, e) => s + pendingMi(e), 0);
+  const teamPendingCount = employees.filter(e => pendingMi(e) > 0).length;
   const resPct = data?.res_tech_pay_pct ? Math.round(data.res_tech_pay_pct * 100) : 35;
   // [reconciliation 2026-06-04] Day totals so the office can set both dates to a
   // single day and reconcile Revenue · Commission · Allowed hrs against MC.
@@ -457,6 +493,26 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
               <div style={{ fontSize: 21, fontWeight: 800, marginTop: 4, color: s.color ?? (s.accent ? 'var(--brand)' : '#1A1917'), fontFamily: FF }}>{s.v}</div>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* [inline-mileage-confirm 2026-07-23] Confirm-all bar — only when there's
+          pending mileage to apply, so the payroll screen doubles as the review
+          gate the office couldn't otherwise reach. Sits above the roster; the
+          existing tiles + rows are untouched. */}
+      {canManage && teamPendingMi > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', background: '#E0F2F9', border: '1px solid #BFE4F0', borderRadius: 10, padding: '10px 14px' }}>
+          <i className="ti" aria-hidden="true" />
+          <span style={{ fontSize: 13, fontWeight: 700, color: '#0A6E8A', fontFamily: FF }}>
+            {money2(teamPendingMi)} mileage pending
+          </span>
+          <span style={{ fontSize: 12, color: '#3E6B7A', fontFamily: FF }}>
+            across {teamPendingCount} employee{teamPendingCount === 1 ? '' : 's'} — reimbursement is not paid until you confirm it
+          </span>
+          <button onClick={() => confirmMileage(undefined, teamPendingMi)} disabled={confirmingMi != null}
+            style={{ marginLeft: 'auto', background: '#0A6E8A', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: confirmingMi != null ? 'wait' : 'pointer', fontFamily: FF, opacity: confirmingMi != null ? 0.6 : 1 }}>
+            {confirmingMi === 'all' ? 'Confirming…' : `Confirm all · ${money2(teamPendingMi)}`}
+          </button>
         </div>
       )}
 
@@ -524,6 +580,18 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                     <p style={{ fontSize: 14, fontWeight: s.strong ? 800 : 700, color: s.accent ? 'var(--brand)' : (s.color ?? '#1A1917'), margin: 0 }}>{s.value}</p>
                   </div>
                 ))}
+                {/* [inline-mileage-confirm 2026-07-23] Per-employee confirm — only
+                    when they have pending mileage. stopPropagation so it doesn't
+                    toggle the row open. */}
+                {canManage && pendingMi(emp) > 0 && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); confirmMileage(emp.user_id, pendingMi(emp)); }}
+                    disabled={confirmingMi != null}
+                    title={`Apply ${money(pendingMi(emp))} driving reimbursement into ${emp.name}'s pay`}
+                    style={{ alignSelf: 'center', background: '#0A6E8A', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 11px', fontSize: 12, fontWeight: 700, cursor: confirmingMi != null ? 'wait' : 'pointer', fontFamily: FF, opacity: confirmingMi != null ? 0.6 : 1, whiteSpace: 'nowrap' }}>
+                    {confirmingMi === emp.user_id ? 'Confirming…' : `Confirm ${money(pendingMi(emp))}`}
+                  </button>
+                )}
               </div>
             </div>
 
