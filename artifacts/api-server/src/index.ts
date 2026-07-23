@@ -323,6 +323,40 @@ async function runStartupMigrations() {
       const { sql } = await import("drizzle-orm");
       await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS service_date date`);
       await db.execute(sql`ALTER TABLE invoices ADD COLUMN IF NOT EXISTS bill_to_name text`);
+      // [parking-commission 2026-07-23] Parking is a pass-through fee, never
+      // commissionable. The affects_commission grandfather (ADD COLUMN DEFAULT
+      // TRUE backfill, then default→false) flagged every pre-existing add-on —
+      // parking included — as commissionable, so parking inflated tech
+      // commission (Sal: "when we add a parking fee it seems to cascade over to
+      // their commission"). Fix in two idempotent steps, gated on the flag still
+      // being true so a re-run is a no-op:
+      //   1. Remove the wrongly-added parking dollars from the STORED
+      //      commission_base (universal — works for both residential fee-split
+      //      and commercial, since it just backs out the parking amount that was
+      //      added; a from-scratch recompute would need the two different
+      //      formulas). Only touches jobs whose commission_base is set.
+      //   2. Flip those parking add-on rows to affects_commission=false.
+      // Order matters: subtract BEFORE flipping, both gated on the current TRUE
+      // flag, so the second run finds nothing to subtract or flip.
+      // Already-paid history isn't un-paid — payroll locks the amount at pay
+      // time; this only corrects the stored base for open/future commission.
+      await db.execute(sql`
+        UPDATE jobs j
+           SET commission_base = GREATEST(0, (j.commission_base)::numeric - park.total)
+          FROM (
+            SELECT ja.job_id, SUM(ja.subtotal)::numeric AS total
+              FROM job_add_ons ja
+              JOIN pricing_addons pa ON pa.id = ja.pricing_addon_id
+             WHERE lower(pa.name) = 'parking fee' AND ja.affects_commission = true
+             GROUP BY ja.job_id
+          ) park
+         WHERE j.id = park.job_id AND j.commission_base IS NOT NULL`);
+      await db.execute(sql`
+        UPDATE job_add_ons ja SET affects_commission = false
+          FROM pricing_addons pa
+         WHERE ja.pricing_addon_id = pa.id
+           AND lower(pa.name) = 'parking fee'
+           AND ja.affects_commission = true`);
       // [manual-edit-detach 2026-07-06] Stamped when the office hand-edits an
       // invoice's line items / tip via PUT. While set, the invoice is DETACHED
       // from job mirroring: the mark-paid pre-payment recalc and the job-edit
