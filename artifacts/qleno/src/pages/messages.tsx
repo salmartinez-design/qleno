@@ -10,7 +10,7 @@ const FF = "'Plus Jakarta Sans', sans-serif";
 const INK = "#1A1917";
 const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
-const BRAND = "#00C9A0";
+const BRAND = "var(--brand)";
 
 // [msg-linkify 2026-07-19] Message bodies — especially drip touches carrying the
 // lead's booking/resume link — were rendered as plain text, so the office

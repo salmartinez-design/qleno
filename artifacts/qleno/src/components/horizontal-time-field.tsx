@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from "react";
 const BORDER = "#E5E2DC";
 const TEXT = "#1A1917";
 const MUTED = "#9E9B94";
-const MINT = "#00C9A0";
+const MINT = "var(--brand)";
 const NIGHT = "#0A0E1A";
 
 const HOURS = [12, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];

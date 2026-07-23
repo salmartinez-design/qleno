@@ -49,17 +49,20 @@ function fmt$(n: number) {
   return `$${n.toFixed(0)}`;
 }
 
-function DeltaBadge({ delta }: { delta: number | null }) {
-  if (delta === null) return null;
+// [ui-consistency 2026-07-22] The value itself is always --ink. Direction is
+// carried by this chip and nothing else, so a row of numbers reads as one
+// scale instead of four competing colors.
+function DeltaBadge({ delta, suffix }: { delta: number | null; suffix?: string }) {
+  if (delta === null || delta === undefined) return null;
   const pos = delta >= 0;
   return (
     <span style={{
       fontSize: 12, fontWeight: 600,
-      color: pos ? '#166534' : '#991B1B',
-      background: pos ? '#DCFCE7' : '#FEE2E2',
-      borderRadius: 4, padding: '1px 6px',
+      color: pos ? 'var(--ok)' : 'var(--danger)',
+      background: pos ? 'var(--ok-bg)' : 'var(--danger-bg)',
+      borderRadius: 4, padding: '1px 6px', fontFamily: FF,
     }}>
-      {pos ? '+' : ''}{delta}%
+      {pos ? '+' : ''}{delta}%{suffix ? ` ${suffix}` : ''}
     </span>
   );
 }
@@ -213,7 +216,7 @@ function OfficeReminders({ isMobile }: { isMobile: boolean }) {
           <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
             style={{ padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, fontFamily: FF, color: "#1A1917", background: "#FFFFFF" }} />
           <button onClick={add} disabled={busy || !title.trim() || !dueDate}
-            style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: busy || !title.trim() || !dueDate ? "#D0CEC9" : "#00C9A0", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
+            style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: busy || !title.trim() || !dueDate ? "#D0CEC9" : "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
             Add
           </button>
         </div>
@@ -312,11 +315,23 @@ function useGreeting(firstName: string) {
   return `Good evening${suffix}.`;
 }
 
+// One card treatment for the whole page: white, one border, one radius.
+// The audit found 8/10/12px cards and two near-identical grays across the app.
 const CARD: React.CSSProperties = {
-  backgroundColor: '#FFFFFF',
-  border: '0.5px solid #E5E2DC',
-  borderRadius: 12,
+  backgroundColor: 'var(--bg-card)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--radius-card)',
 };
+
+const SECTION_LABEL: React.CSSProperties = {
+  fontSize: 11, fontWeight: 600, color: 'var(--ink-faint)',
+  textTransform: 'uppercase', letterSpacing: '0.08em',
+  margin: '0 0 10px', fontFamily: FF,
+};
+
+// One gap value for every grid on the page. Columns line up down the whole
+// dashboard — the thing that most read as "not enterprise" before.
+const GAP = 12;
 
 // ── Weekly Forecast hook ──────────────────────────────────────────────────────
 function useWeeklyForecast() {
@@ -613,7 +628,7 @@ function WeeklyForecastSection() {
           {week.days.map(day => {
             const s = dayStyle(day, week.daily_avg);
             const isToday = day.date === todayStr;
-            const cellBorder = isToday ? '1.5px solid #5B9BD5' : (s.border ?? '0.5px solid transparent');
+            const cellBorder = isToday ? '1.5px solid var(--brand)' : (s.border ?? '0.5px solid transparent');
             const cellRadius = isToday ? 8 : 6;
             const dateParts = day.date.split('-');
             const displayDate = `${['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][parseInt(dateParts[1])-1]} ${parseInt(dateParts[2])}`;
@@ -651,7 +666,7 @@ function WeeklyForecastSection() {
             { label: 'Low',       bg: '#E24B4A', border: undefined },
             { label: 'Closed',    bg: '#E5E2DC', border: undefined },
             { label: 'Projected', bg: '#F7F6F3', border: '1px dashed #C5C0B8' },
-            { label: 'Today',     bg: 'transparent', border: '1.5px solid #5B9BD5' },
+            { label: 'Today',     bg: 'transparent', border: '1.5px solid var(--brand)' },
           ].map(sw => (
             <div key={sw.label} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <span style={{ width: 8, height: 8, borderRadius: 2, background: sw.bg, border: sw.border, display: 'inline-block', flexShrink: 0 }} />
@@ -664,11 +679,247 @@ function WeeklyForecastSection() {
   );
 }
 
+// ── Period selector + the money row it scopes ────────────────────────────────
+// [dashboard-period 2026-07-22] Before this, every number on the page carried a
+// different implicit window (today / this week / last 30 days / MTD / 12mo) and
+// none of them could be changed. One selector now owns the page: the money row
+// and the growth row both read the window it resolves, and each card states its
+// own window in words so the label can never drift from the SQL.
+
+type Period = 'today' | 'week' | 'month';
+
+const PERIODS: { key: Period; label: string }[] = [
+  { key: 'today', label: 'Today' },
+  { key: 'week',  label: 'This week' },
+  { key: 'month', label: 'This month' },
+];
+
+function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+  return (
+    <div style={{
+      display: 'inline-flex', padding: 2, gap: 2,
+      background: 'var(--bg-base)', border: '1px solid var(--border)',
+      borderRadius: 'var(--radius-control)',
+    }}>
+      {PERIODS.map(p => {
+        const on = p.key === value;
+        return (
+          <button key={p.key} onClick={() => onChange(p.key)}
+            style={{
+              padding: '6px 14px', border: 'none', cursor: 'pointer', fontFamily: FF,
+              fontSize: 12, fontWeight: 600,
+              borderRadius: 6,
+              background: on ? 'var(--bg-card)' : 'transparent',
+              color: on ? 'var(--ink)' : 'var(--ink-muted)',
+              boxShadow: on ? 'inset 0 0 0 1px var(--border)' : 'none',
+            }}>
+            {p.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+type Summary = {
+  period: Period; label: string;
+  window: { from: string; to: string };
+  revenue_booked: { value: number; prev: number; delta_pct: number | null; jobs: number };
+  collected: { value: number; prev: number; delta_pct: number | null; company_wide: boolean };
+  receivables: { value: number; over_30: number; invoice_count: number; over_30_count: number };
+  payroll: { cost: number; pct_of_revenue: number | null };
+};
+
+function useSummary(period: Period, branchId: number | 'all') {
+  const [data, setData] = useState<Summary | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setData(null);
+    const b = branchId !== 'all' ? `&branch_id=${branchId}` : '';
+    fetchJsonWithRetry(`/api/dashboard/summary?period=${period}${b}`)
+      .then(j => { if (alive && j) setData(j); });
+    return () => { alive = false; };
+  }, [period, branchId]);
+  return data;
+}
+
+// Lead analytics for exactly the window the selector resolved. The cohort is
+// leads CREATED in the window (Sal's call): "of the 17 Google Local leads that
+// came in this week, 53% booked" — so close rate and source rows describe the
+// same set of leads, not a mix of intake and conversion dates.
+function useLeadReport(win: { from: string; to: string } | null) {
+  const [data, setData] = useState<any>(null);
+  useEffect(() => {
+    if (!win) return;
+    let alive = true;
+    setData(null);
+    fetchJsonWithRetry(`/api/lead-analytics/report?period=custom&from=${win.from}&to=${win.to}`)
+      .then(j => { if (alive && j) setData(j); });
+    return () => { alive = false; };
+  }, [win?.from, win?.to]);
+  return data;
+}
+
+function MoneyCard({ label, value, sub, delta, deltaSuffix, href, navigate }: {
+  label: string; value: string; sub: string;
+  delta?: number | null; deltaSuffix?: string;
+  href?: string; navigate?: (p: string) => void;
+}) {
+  const clickable = Boolean(href && navigate);
+  return (
+    <div
+      onClick={() => href && navigate && navigate(href)}
+      style={{ ...CARD, padding: '18px 20px', minHeight: 108, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', cursor: clickable ? 'pointer' : 'default' }}
+    >
+      <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, fontFamily: FF }}>{label}</p>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '10px 0 6px', flexWrap: 'wrap' }}>
+        <span style={{ fontSize: 30, fontWeight: 600, color: 'var(--ink)', lineHeight: 1, fontFamily: FF }}>{value}</span>
+        <DeltaBadge delta={delta ?? null} suffix={deltaSuffix} />
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>{sub}</p>
+    </div>
+  );
+}
+
+// Ring + funnel: what share of the leads that came in this window have booked.
+function ConversionCard({ report, periodLabel, navigate }: { report: any; periodLabel: string; navigate: (p: string) => void }) {
+  const totals = report?.totals || {};
+  const rates = report?.rates || {};
+  const funnel = report?.funnel || {};
+  const leads = totals.leads ?? 0;
+  const booked = totals.booked ?? 0;
+  const rate = rates.lead_to_book ?? 0;
+  const R = 34, C = 2 * Math.PI * R;
+  const steps = [
+    { k: 'New',     v: leads },
+    { k: 'Quoted',  v: (funnel.quoted || 0) + (funnel.follow_up || 0) + booked },
+    { k: 'Booked',  v: booked },
+  ];
+  const max = Math.max(1, ...steps.map(s => s.v));
+  return (
+    <div style={{ ...CARD, padding: '18px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, fontFamily: FF }}>Leads closed</p>
+        <button onClick={() => navigate('/leads')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Open pipeline →</button>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 20 }}>
+        <div style={{ position: 'relative', width: 84, height: 84, flexShrink: 0 }}>
+          <svg width={84} height={84} viewBox="0 0 84 84">
+            <circle cx={42} cy={42} r={R} fill="none" stroke="var(--border)" strokeWidth={8} />
+            <circle cx={42} cy={42} r={R} fill="none" stroke="var(--brand)" strokeWidth={8}
+              strokeLinecap="round" strokeDasharray={`${(rate / 100) * C} ${C}`}
+              transform="rotate(-90 42 42)" />
+          </svg>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ fontSize: 20, fontWeight: 600, color: 'var(--ink)', fontFamily: FF, lineHeight: 1 }}>{report ? `${Math.round(rate)}%` : '—'}</span>
+          </div>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {steps.map((s, i) => (
+            <div key={s.k} style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: i ? 8 : 0 }}>
+              <span style={{ fontSize: 12, color: 'var(--ink-muted)', fontFamily: FF, width: 52, flexShrink: 0 }}>{s.k}</span>
+              <div style={{ flex: 1, height: 6, background: 'var(--bg-base)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${(s.v / max) * 100}%`, height: '100%', background: 'var(--brand)', opacity: 1 - i * 0.25, borderRadius: 3 }} />
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontFamily: FF, width: 30, textAlign: 'right' }}>{report ? s.v : '—'}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: '14px 0 0', fontFamily: FF }}>
+        {report ? `${booked} of ${leads} leads created ${periodLabel.toLowerCase()} have booked` : 'Loading…'}
+      </p>
+    </div>
+  );
+}
+
+const SOURCE_LABEL: Record<string, string> = {
+  website: 'Website', quote: 'Office quote', phone: 'Phone', referral: 'Referral',
+  google: 'Google', google_local: 'Google Local', facebook: 'Facebook',
+  instagram: 'Instagram', yelp: 'Yelp', repeat: 'Repeat client', other: 'Other',
+};
+const prettySource = (s: string | null) =>
+  !s ? 'Unknown' : (SOURCE_LABEL[s] || s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
+
+function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: string) => void }) {
+  const rows: any[] = (report?.by_source || []).slice(0, 6);
+  return (
+    <div style={{ ...CARD, padding: '18px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+        <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, fontFamily: FF }}>Where the leads came from</p>
+        <button onClick={() => navigate('/leads/reports')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Full report →</button>
+      </div>
+      {report == null ? (
+        <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>Loading…</p>
+      ) : rows.length === 0 ? (
+        <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>No leads in this window.</p>
+      ) : (
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FF }}>
+          <thead>
+            <tr>
+              {['Source', 'Leads', 'Close rate', 'Booked value'].map((h, i) => (
+                <th key={h} style={{ fontSize: 10, fontWeight: 600, color: 'var(--ink-faint)', textTransform: 'uppercase', letterSpacing: '0.06em', textAlign: i ? 'right' : 'left', padding: '0 0 6px' }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.source ?? `s${i}`} style={{ borderTop: '1px solid var(--border-sub)' }}>
+                <td style={{ fontSize: 13, color: 'var(--ink)', padding: '9px 0' }}>{prettySource(r.source)}</td>
+                <td style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right' }}>{r.leads}</td>
+                <td style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right' }}>{Math.round(r.rate)}%</td>
+                <td style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right' }}>{fmtWF(r.booked_value || 0)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+// Risk first. Renders only when something actually needs a human — an empty
+// strip is worse than no strip (it trains the operator to skip the top of the
+// page). Alerts come from /today; unassigned is the day's own count.
+function NeedsAttentionStrip({ alerts, unassigned, flagged, navigate }: {
+  alerts: any[]; unassigned: number; flagged: number; navigate: (p: string) => void;
+}) {
+  const items: { text: string; to: string }[] = [];
+  if (unassigned > 0) items.push({ text: `${unassigned} unassigned today`, to: '/dispatch?status=unassigned' });
+  if (flagged > 0) items.push({ text: `${flagged} flagged clock-in${flagged > 1 ? 's' : ''}`, to: '/employees/clocks' });
+  for (const a of alerts.slice(0, 3)) items.push({ text: a.message, to: a.action === 'send_invoice' ? '/invoices' : '/dispatch' });
+  if (items.length === 0) return null;
+  return (
+    <div style={{
+      background: 'var(--warn-bg)', border: '1px solid var(--warn)',
+      borderRadius: 'var(--radius-card)', padding: '12px 16px',
+      display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+    }}>
+      <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--warn)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: FF }}>Needs attention</span>
+      {items.map((it, i) => (
+        <button key={i} onClick={() => navigate(it.to)}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 4,
+            background: 'var(--bg-card)', border: '1px solid var(--border)',
+            borderRadius: 999, padding: '4px 10px', cursor: 'pointer',
+            fontSize: 12, color: 'var(--ink)', fontFamily: FF,
+          }}>
+          {it.text} <ChevronRight size={12} />
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function Dashboard() {
   const isMobile = useIsMobile();
   const [, navigate] = useLocation();
   const [showCloseDay, setShowCloseDay] = useState(false);
   const { activeBranchId, activeBranch } = useBranch();
+
+  const [period, setPeriod] = useState<Period>('week');
+  const summary = useSummary(period, activeBranchId);
+  const leadReport = useLeadReport(summary?.window ?? null);
 
   const today = useToday(activeBranchId);
   const kpis = useKpis();
@@ -710,11 +961,16 @@ export default function Dashboard() {
   // wrong); "Remaining" is what's left; the always-0 "In Progress" tile is
   // gone (Phes jobs go scheduled→complete via the clock, never stamped
   // in_progress). Flagged lives in tickets.
+  // [ui-consistency 2026-07-22] Four tiles, one treatment. They used to be
+  // plain / blue / green / red-with-a-stripe — and "0 COMPLETE" was tinted
+  // green (success) while it's the bad number at 6pm, so the color argued
+  // against the data. Count color now carries no meaning; risk is surfaced by
+  // the Needs-attention strip above instead.
   const STATUS_CARDS = [
-    { key: 'scheduled_total', label: 'Scheduled Today', bg: '#F7F6F3', color: '#1A1917', dispatchKey: 'all',        accent: undefined },
-    { key: 'remaining',       label: 'Remaining',       bg: '#E6F1FB', color: '#1E40AF', dispatchKey: 'scheduled',  accent: undefined },
-    { key: 'complete',        label: 'Complete',        bg: '#EAF3DE', color: '#1D9E75', dispatchKey: 'complete',   accent: undefined },
-    { key: 'unassigned',      label: 'Unassigned',      bg: '#FCEBEB', color: '#E24B4A', dispatchKey: 'unassigned', accent: '#E24B4A' },
+    { key: 'scheduled_total', label: 'Scheduled today', dispatchKey: 'all' },
+    { key: 'remaining',       label: 'Remaining',       dispatchKey: 'scheduled' },
+    { key: 'complete',        label: 'Complete',        dispatchKey: 'complete' },
+    { key: 'unassigned',      label: 'Unassigned',      dispatchKey: 'unassigned' },
   ];
 
   // Intelligence strip — hide if all values are dashes
@@ -759,154 +1015,129 @@ export default function Dashboard() {
 
   return (
     <DashboardLayout>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 16, fontFamily: FF }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, fontFamily: FF }}>
 
-        {/* ── GREETING ─────────────────────────────────────────── */}
-        <div style={{
-          background: 'var(--brand-dim)',
-          border: '1px solid color-mix(in srgb, var(--brand) 20%, transparent)',
-          borderBottom: '0.5px solid #E5E2DC',
-          borderRadius: 12, padding: isMobile ? '18px 16px 20px' : '20px 24px',
-          display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 12,
-        }}>
+        {/* ── HEADER + PERIOD SELECTOR ─────────────────────────── */}
+        {/* [dashboard-period 2026-07-22] One control owns the page. The money
+            row and the growth row below both read the window it resolves; the
+            header no longer hardcodes "Revenue this week". */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
           <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-              <p style={{ fontSize: isMobile ? 20 : 24, fontWeight: 500, color: '#1A1917', margin: 0, fontFamily: FF }}>{greeting}</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <p style={{ fontSize: 22, fontWeight: 600, color: 'var(--ink)', margin: 0, fontFamily: FF }}>{greeting}</p>
               {activeBranch && (
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'var(--brand-dim)', padding: '2px 8px', borderRadius: 10, letterSpacing: '0.03em', fontFamily: FF }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'var(--brand-dim)', padding: '2px 8px', borderRadius: 999, letterSpacing: '0.03em', fontFamily: FF }}>
                   {activeBranch.name}
                 </span>
               )}
             </div>
-            <p style={{ fontSize: 13, color: '#6B6860', margin: '4px 0 0', fontFamily: FF }}>{todayDate}</p>
+            <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: '4px 0 0', fontFamily: FF }}>{todayDate}</p>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'row', gap: 20, alignItems: 'center' }}>
-            {/* [header-cleanup 2026-07-08] Removed the Close Day button (Sal: "useless"). */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 120 }}>
-              <span style={{ display: 'block', fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4, fontFamily: FF }}>Revenue this week</span>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                <span style={{ fontSize: 28, fontWeight: 600, color: '#1A1917', fontFamily: FF, lineHeight: 1 }}>
-                  {kpis != null ? (kpis.week_revenue > 0 ? fmt$(kpis.week_revenue) : '—') : '—'}
-                </span>
-                {kpis?.week_delta != null && (
-                  <span style={{ fontSize: 13, fontWeight: 500, color: kpis.week_delta >= 0 ? '#166534' : '#A32D2D', fontFamily: FF }}>
-                    {kpis.week_delta >= 0 ? '+' : ''}{kpis.week_delta}%
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
+          <PeriodSelector value={period} onChange={setPeriod} />
         </div>
 
-        {/* ── STATUS CHIPS ─────────────────────────────────────── */}
+        {/* ── NEEDS ATTENTION (risk first, hidden when clean) ───── */}
+        <NeedsAttentionStrip
+          alerts={today?.alerts || []}
+          unassigned={Number(counts.unassigned ?? 0)}
+          flagged={Number(counts.flagged ?? 0)}
+          navigate={navigate}
+        />
+
+        {/* ── MONEY ────────────────────────────────────────────── */}
         <div>
-          <p style={{ fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px', fontFamily: FF }}>Today's Status</p>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : `repeat(${STATUS_CARDS.length}, 1fr)`, gap: isMobile ? 8 : 12 }}>
-            {STATUS_CARDS.map(card => {
-              const val = Number(counts[card.key] ?? 0);
-              return (
-                <StatusChip
-                  key={card.key}
-                  label={card.label}
-                  value={val}
-                  bg={card.bg}
-                  color={card.color}
-                  accentColor={card.accent}
-                  onClick={() => navigate(`/dispatch?status=${card.dispatchKey}`)}
-                />
-              );
-            })}
+          <p style={SECTION_LABEL}>Money · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: GAP }}>
+            <MoneyCard
+              label="Revenue booked"
+              value={summary ? fmtWF(summary.revenue_booked.value) : '—'}
+              delta={summary?.revenue_booked.delta_pct}
+              sub={summary ? `${summary.revenue_booked.jobs} jobs scheduled ${summary.window.from.slice(5)} – ${summary.window.to.slice(5)}` : 'Loading…'}
+              href="/dispatch" navigate={navigate}
+            />
+            <MoneyCard
+              label="Cash collected"
+              value={summary ? fmtWF(summary.collected.value) : '—'}
+              delta={summary?.collected.delta_pct}
+              sub={summary ? `payments received${summary.collected.company_wide ? ' · all branches' : ''}` : 'Loading…'}
+              href="/invoices" navigate={navigate}
+            />
+            {/* A balance, not a flow — deliberately does NOT move with the
+                selector, and the card says so rather than implying it did. */}
+            <MoneyCard
+              label="Receivables"
+              value={summary ? fmtWF(summary.receivables.value) : '—'}
+              sub={summary ? `${summary.receivables.invoice_count} open now · ${fmtWF(summary.receivables.over_30)} over 30 days` : 'Loading…'}
+              href="/reports/receivables" navigate={navigate}
+            />
+            <MoneyCard
+              label="Payroll"
+              value={summary?.payroll.pct_of_revenue != null ? `${summary.payroll.pct_of_revenue}%` : '—'}
+              sub={summary ? `${fmtWF(summary.payroll.cost)} commission / revenue booked` : 'Loading…'}
+              href="/reports/payroll" navigate={navigate}
+            />
           </div>
         </div>
 
-        {/* ── LEADS PIPELINE ───────────────────────────────────── */}
-        <LeadsCard isMobile={isMobile} />
+        {/* ── GROWTH ───────────────────────────────────────────── */}
+        <div>
+          <p style={SECTION_LABEL}>Growth · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}</p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: GAP, alignItems: 'start' }}>
+            <ConversionCard report={leadReport} periodLabel={summary?.label ?? 'this week'} navigate={navigate} />
+            <LeadSourcesCard report={leadReport} navigate={navigate} />
+          </div>
+        </div>
+
+        {/* ── TODAY ON THE BOARD ───────────────────────────────── */}
+        <div>
+          <p style={SECTION_LABEL}>Today on the board</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: GAP }}>
+            {STATUS_CARDS.map(card => (
+              <StatusChip
+                key={card.key}
+                label={card.label}
+                value={Number(counts[card.key] ?? 0)}
+                onClick={() => navigate(`/dispatch?status=${card.dispatchKey}`)}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* ── BOOK OF BUSINESS ─────────────────────────────────── */}
+        {/* The old "Key Numbers" row plus the orphan two-tile HCP strip, merged.
+            Both were showing standing counts in two different card treatments;
+            they're one row now. "Booked today" keeps its #1196 drill-down. */}
+        <div>
+          <p style={SECTION_LABEL}>Book of business</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: GAP }}>
+            <MoneyCard
+              label="Booked today"
+              value={hcp == null ? '—' : String(hcp.new_jobs_today)}
+              sub={hcp == null ? 'Loading…' : `${fmtWF(hcp.rev_booked_today)} scheduled for today`}
+              href={`/reports/jobs?booked_on=${ctToday()}`} navigate={navigate}
+            />
+            <MoneyCard
+              label="Avg bill"
+              value={kpis == null ? '—' : (kpis.avg_bill > 0 ? `$${kpis.avg_bill.toFixed(0)}` : '—')}
+              sub="last 30 days"
+            />
+            <MoneyCard
+              label="Active clients"
+              value={kpis == null ? '—' : (kpis.active_clients != null ? String(kpis.active_clients) : '—')}
+              sub={kpis?.recurring_count != null ? `${kpis.recurring_count} recurring` : ' '}
+              href="/clients" navigate={navigate}
+            />
+            <MoneyCard
+              label="Next 7 days"
+              value={kpis == null ? '—' : (kpis.next7_revenue > 0 ? fmtWF(kpis.next7_revenue) : '—')}
+              sub={kpis?.next7_jobs != null ? `${kpis.next7_jobs} jobs on the books` : ' '}
+              href="/dispatch" navigate={navigate}
+            />
+          </div>
+        </div>
 
         {/* ── OFFICE REMINDERS ─────────────────────────────────── */}
         {canAdmin && <OfficeReminders isMobile={isMobile} />}
-
-        {/* ── HCP STRIP (above monthly revenue row) ── */}
-        {hcp != null && (
-          <div style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, 1fr)',
-            gap: 8,
-            paddingBottom: 14,
-            borderBottom: '0.5px solid #F0EDE8',
-          }}>
-            {[
-              { label: 'Daily Revenue',        value: hcp == null ? '—' : fmtWF(hcp.rev_booked_today), sub: "today's scheduled jobs", href: null as string | null },
-              // [booked-today-drilldown 2026-07-22] The count was a dead end: Sal
-              // could see "5 booked today" but not WHICH 5, so an SMS booking of
-              // an existing client (which never enters the Lead Pipeline) was
-              // invisible as anything but a number. Opens the same 5 as a list.
-              { label: 'New Jobs Booked',      value: hcp == null ? '—' : String(hcp.new_jobs_today), sub: 'booked today', href: `/reports/jobs?booked_on=${ctToday()}` },
-            ].map((tile, i) => {
-              const inner = (
-                <>
-                  <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 8px', fontFamily: FF }}>{tile.label}</p>
-                  <p style={{ fontSize: 28, fontWeight: 500, color: '#1A1917', margin: 0, lineHeight: 1, fontFamily: FF }}>{tile.value}</p>
-                </>
-              );
-              const box: React.CSSProperties = { ...CARD, padding: '20px 24px', minHeight: 88, display: 'flex', flexDirection: 'column', justifyContent: 'center' };
-              return tile.href ? (
-                <Link key={i} href={tile.href} title="See the jobs booked today"
-                  style={{ ...box, textDecoration: 'none', cursor: 'pointer' }}>
-                  {inner}
-                </Link>
-              ) : (
-                <div key={i} style={box}>{inner}</div>
-              );
-            })}
-          </div>
-        )}
-
-        {/* ── 4-TILE METRICS ROW ───────────────────────────────── */}
-        <div>
-          <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px', marginTop: 2, fontFamily: FF }}>Key Numbers</p>
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: 14 }}>
-            {/* Monthly Revenue */}
-            <div style={{ ...CARD, padding: isMobile ? '16px 16px' : '22px 24px', minHeight: 100 }}>
-              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Monthly Revenue</p>
-              <p style={{ fontSize: isMobile ? 24 : 36, fontWeight: 500, color: '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
-                {kpis == null ? '—' : (kpis.month_revenue > 0 ? fmt$(kpis.month_revenue) : '—')}
-              </p>
-              <DeltaBadge delta={kpis?.month_delta ?? null} />
-            </div>
-
-            {/* Avg Bill */}
-            <div style={{ ...CARD, padding: isMobile ? '16px 16px' : '22px 24px', minHeight: 100 }}>
-              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Avg Bill</p>
-              <p style={{ fontSize: isMobile ? 24 : 36, fontWeight: 500, color: '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
-                {kpis == null ? '—' : (kpis.avg_bill > 0 ? `$${kpis.avg_bill.toFixed(0)}` : '—')}
-              </p>
-              <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>Last 30 days</p>
-            </div>
-
-            {/* Active Clients */}
-            <div style={{ ...CARD, padding: isMobile ? '16px 16px' : '22px 24px', minHeight: 100 }}>
-              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Active Clients</p>
-              <p style={{ fontSize: isMobile ? 24 : 36, fontWeight: 500, color: '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
-                {kpis == null ? '—' : (kpis.active_clients != null ? kpis.active_clients : '—')}
-              </p>
-              {kpis?.recurring_count != null && (
-                <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>{kpis.recurring_count} recurring</p>
-              )}
-            </div>
-
-            {/* Next 7 Days */}
-            <div style={{ ...CARD, padding: isMobile ? '16px 16px' : '22px 24px', minHeight: 100 }}>
-              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Next 7 Days</p>
-              <p style={{ fontSize: isMobile ? 24 : 36, fontWeight: 500, color: '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
-                {kpis == null ? '—' : (kpis.next7_revenue > 0 ? fmt$(kpis.next7_revenue) : '—')}
-              </p>
-              {kpis?.next7_jobs != null && (
-                <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>{kpis.next7_jobs} jobs on the books</p>
-              )}
-            </div>
-          </div>
-        </div>
-
         {/* ── TWO-COLUMN: REVENUE CHART + TECHS TODAY ─────────── */}
         <div style={{ display: 'flex', gap: 14, alignItems: 'stretch' }}>
           {/* Revenue Chart — 60% */}
@@ -931,7 +1162,7 @@ export default function Dashboard() {
                 {/* Legend — above chart canvas */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 12 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ display: 'inline-block', width: 14, height: 2, backgroundColor: '#5B9BD5', borderRadius: 1 }} />
+                    <span style={{ display: 'inline-block', width: 14, height: 2, backgroundColor: 'var(--brand)', borderRadius: 1 }} />
                     <span style={{ fontSize: 12, color: '#4A4845', fontFamily: FF }}>This year</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -967,10 +1198,10 @@ export default function Dashboard() {
                     <Line
                       type="monotone"
                       dataKey="revenue"
-                      stroke="#5B9BD5"
+                      stroke="var(--brand)"
                       strokeWidth={2}
                       dot={false}
-                      activeDot={{ r: 4, fill: '#5B9BD5', strokeWidth: 0 }}
+                      activeDot={{ r: 4, fill: 'var(--brand)', strokeWidth: 0 }}
                     />
                     <Line
                       type="monotone"
@@ -1077,29 +1308,29 @@ export default function Dashboard() {
   );
 }
 
-function StatusChip({ label, value, bg, color, accentColor, onClick }: { label: string; value: number; bg: string; color: string; accentColor?: string; onClick: () => void }) {
+// [ui-consistency 2026-07-22] One treatment for all four tiles. They used to be
+// plain / blue / green / red-with-a-stripe, and "0 COMPLETE" was tinted green
+// (success) while it's the bad number at 6pm — the color argued against the
+// data. Risk now lives in the Needs-attention strip, not in tile chrome.
+function StatusChip({ label, value, onClick }: { label: string; value: number; onClick: () => void }) {
   const [hovered, setHovered] = useState(false);
-  const hasAccent = Boolean(accentColor);
   return (
     <button
       onClick={onClick}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       style={{
-        minWidth: 0, width: '100%',
-        minHeight: 90,
-        backgroundColor: bg,
-        border: hovered ? '1px solid #5B9BD5' : '0.5px solid #E5E2DC',
-        borderLeft: hasAccent ? `4px solid ${accentColor}` : (hovered ? '1px solid #5B9BD5' : '0.5px solid #E5E2DC'),
-        borderRadius: hasAccent ? '0 12px 12px 0' : 12,
-        padding: hasAccent ? '18px 8px 18px 10px' : '18px 8px',
+        ...CARD,
+        minWidth: 0, width: '100%', minHeight: 90,
+        border: `1px solid ${hovered ? 'var(--brand)' : 'var(--border)'}`,
+        padding: '18px 8px',
         cursor: 'pointer',
         display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center',
         fontFamily: FF, transition: 'border-color 0.15s',
       }}
     >
-      <p style={{ fontSize: 30, fontWeight: 600, color, margin: 0, lineHeight: 1, fontFamily: FF }}>{value}</p>
-      <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.03em', margin: '6px 0 0', fontFamily: FF, textAlign: 'center', lineHeight: 1.15 }}>{label}</p>
+      <p style={{ fontSize: 30, fontWeight: 600, color: 'var(--ink)', margin: 0, lineHeight: 1, fontFamily: FF }}>{value}</p>
+      <p style={{ fontSize: 11, fontWeight: 500, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.03em', margin: '6px 0 0', fontFamily: FF, textAlign: 'center', lineHeight: 1.15 }}>{label}</p>
     </button>
   );
 }
@@ -1117,7 +1348,7 @@ function NeedsAttentionItem({ item, navigate }: { item: any; navigate: (path: st
       {item.action && (
         <button
           onClick={() => navigate(item.action)}
-          style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12, fontWeight: 600, color: '#5B9BD5', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, padding: '4px 0', flexShrink: 0 }}
+          style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, padding: '4px 0', flexShrink: 0 }}
         >
           View <ChevronRight size={13} />
         </button>
@@ -1163,7 +1394,7 @@ function TechsTodayPanel({ techsData, navigate }: { techsData: any; navigate: (p
               {tech.job_count}
             </span>
             <div style={{ width: 60, height: 6, backgroundColor: '#F0EDE8', borderRadius: 3, flexShrink: 0, overflow: 'hidden' }}>
-              <div style={{ width: `${capacityPct}%`, height: '100%', backgroundColor: '#5B9BD5', borderRadius: 3 }} />
+              <div style={{ width: `${capacityPct}%`, height: '100%', backgroundColor: 'var(--brand)', borderRadius: 3 }} />
             </div>
           </div>
         );
@@ -1172,7 +1403,7 @@ function TechsTodayPanel({ techsData, navigate }: { techsData: any; navigate: (p
       {techs.length > MAX_DISPLAY && (
         <button
           onClick={() => navigate('/employees')}
-          style={{ fontSize: 11, color: '#5B9BD5', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, textAlign: 'left', padding: '2px 0' }}
+          style={{ fontSize: 11, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, textAlign: 'left', padding: '2px 0' }}
         >
           View all →
         </button>

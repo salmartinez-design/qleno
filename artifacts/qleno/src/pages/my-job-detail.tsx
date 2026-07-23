@@ -121,7 +121,7 @@ export default function MyJobDetailPage() {
         </div>
 
         {employeeView && (
-          <div style={{ background: "var(--brand, #00C9A0)", padding: "8px 16px" }}>
+          <div style={{ background: "var(--brand)", padding: "8px 16px" }}>
             <p style={{ fontSize: 12, fontWeight: 700, color: "#fff", margin: 0 }}>Viewing as {employeeView.employeeName}</p>
           </div>
         )}

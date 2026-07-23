@@ -65,7 +65,7 @@ export function MessagePreview({
           <div style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "12px 16px" }}>
             {logoUrl
               ? <img src={logoUrl} alt={companyName} style={{ height: 30, width: "auto", display: "block" }} />
-              : <span style={{ display: "inline-block", background: "var(--brand,#00C9A0)", color: "#fff", fontWeight: 800, fontSize: 14, padding: "5px 12px", borderRadius: 6 }}>{companyName}</span>}
+              : <span style={{ display: "inline-block", background: "var(--brand,var(--brand))", color: "#fff", fontWeight: 800, fontSize: 14, padding: "5px 12px", borderRadius: 6 }}>{companyName}</span>}
           </div>
           {subject && <div style={{ padding: "10px 16px 0", fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{fillSample(subject)}</div>}
           {isHtml(filledBody)

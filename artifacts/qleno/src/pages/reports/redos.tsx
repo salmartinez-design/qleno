@@ -91,7 +91,7 @@ export default function RedosReportPage() {
                   {(data.by_area || []).map((a, i) => (
                     <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0" }}>
                       <span style={{ width: 92, fontSize: 12, color: "#6B6860", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{a.area}</span>
-                      <span style={{ flex: 1, height: 8, background: "#F0EEE9", borderRadius: 5, overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: `${Math.round((Number(a.n) / maxArea) * 100)}%`, background: "#00C9A0" }} /></span>
+                      <span style={{ flex: 1, height: 8, background: "#F0EEE9", borderRadius: 5, overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: `${Math.round((Number(a.n) / maxArea) * 100)}%`, background: "var(--brand)" }} /></span>
                       <span style={{ width: 22, textAlign: "right", fontWeight: 700, fontSize: 12 }}>{a.n}</span>
                     </div>
                   ))}

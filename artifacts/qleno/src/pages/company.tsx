@@ -81,7 +81,7 @@ export default function CompanyPage() {
           <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Company Settings</h1>
           <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', marginTop: '6px' }}>Manage your company profile, branding, and integrations.</p>
           {branchName && (
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 10, backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(91,155,213,0.3)', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: 'var(--brand)', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600 }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, marginTop: 10, backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(var(--brand-rgb),0.3)', borderRadius: 8, padding: '6px 12px', fontSize: 12, color: 'var(--brand)', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600 }}>
               <span style={{ width: 8, height: 8, borderRadius: '50%', backgroundColor: 'var(--brand)', display: 'inline-block' }} />
               Viewing: {branchName} Branch Settings
             </div>
@@ -445,7 +445,7 @@ function BranchContactCard({ branchId }: { branchId: number }) {
   };
   const inputStyle: React.CSSProperties = { width: '100%', fontFamily: FF, fontSize: '13px', color: '#1A1917', backgroundColor: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: '6px', padding: '10px 14px', outline: 'none', boxSizing: 'border-box' as any };
   return (
-    <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(91,155,213,0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(var(--brand-rgb),0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
         <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 14, color: 'var(--brand)', margin: '0 0 4px' }}>Branch Contact Info</p>
         <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>Name, phone, and email shown on invoices, emails, and booking pages for this branch.</p>
@@ -510,7 +510,7 @@ function CompanyCommsCard() {
     setSaving(false);
   };
   return (
-    <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(91,155,213,0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(var(--brand-rgb),0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
         <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 14, color: 'var(--brand)', margin: '0 0 4px' }}>Company Communications</p>
         <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>
@@ -575,7 +575,7 @@ function BranchCommsCard({ branchId }: { branchId: number }) {
     setSaving(false);
   };
   return (
-    <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(91,155,213,0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ backgroundColor: 'var(--brand-dim)', border: '1px solid rgba(var(--brand-rgb),0.25)', borderRadius: 10, padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
         <p style={{ fontFamily: FF, fontWeight: 700, fontSize: 14, color: 'var(--brand)', margin: '0 0 4px' }}>Location Communications</p>
         <p style={{ fontFamily: FF, fontSize: 12, color: '#6B7280', margin: 0 }}>
@@ -863,7 +863,7 @@ function IntegrationsTab() {
     label: { fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '14px', color: '#1A1917' },
     sub: { fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 400, fontSize: '13px', color: '#6B7280', marginTop: '2px' },
     btn: { fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, fontSize: '13px', padding: '8px 16px', borderRadius: '8px', border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' },
-    btnPrimary: { background: '#00C9A0', color: '#fff' },
+    btnPrimary: { background: 'var(--brand)', color: '#fff' },
     btnDanger: { background: '#FEE2E2', color: '#DC2626' },
     btnGhost: { background: '#F5F4F1', color: '#1A1917' },
     badge: { display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 10px', borderRadius: '20px', fontSize: '12px', fontWeight: 600, fontFamily: "'Plus Jakarta Sans', sans-serif" },
@@ -1006,7 +1006,7 @@ function IntegrationsTab() {
             "Invoice numbers start at your configured sequence (PHES: 6082)",
           ].map((item) => (
             <div key={item} style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', marginBottom: '6px' }}>
-              <CheckCircle size={14} color="#00C9A0" style={{ marginTop: '1px', flexShrink: 0 }} />
+              <CheckCircle size={14} color="var(--brand)" style={{ marginTop: '1px', flexShrink: 0 }} />
               <span style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '13px', color: '#4B5563' }}>{item}</span>
             </div>
           ))}
@@ -1183,7 +1183,7 @@ function OvertimeSettingsCard({ isOwner }: { isOwner: boolean }) {
       {isOwner && (
         <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
           <button onClick={() => save(false)} disabled={saving}
-            style={{ padding: '9px 20px', background: 'var(--brand, #00C9A0)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: 'pointer' }}>
+            style={{ padding: '9px 20px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: 'pointer' }}>
             {saving ? 'Saving...' : 'Save Overtime Rules'}
           </button>
           {isCustom && (
@@ -1353,8 +1353,8 @@ function PayrollOptionsTab() {
                   onClick={() => setCommercialCompMode(opt.value)}
                   style={{
                     flex: 1, padding: '12px 14px', borderRadius: 8, cursor: 'pointer', textAlign: 'left' as const,
-                    border: `2px solid ${commercialCompMode === opt.value ? 'var(--brand, #5B9BD5)' : '#E5E2DC'}`,
-                    background: commercialCompMode === opt.value ? 'rgba(91,155,213,0.07)' : '#fff',
+                    border: `2px solid ${commercialCompMode === opt.value ? 'var(--brand)' : '#E5E2DC'}`,
+                    background: commercialCompMode === opt.value ? 'rgba(var(--brand-rgb),0.07)' : '#fff',
                     fontFamily: FF2,
                   }}>
                   <p style={{ fontSize: 13, fontWeight: 700, color: '#1A1917', margin: '0 0 2px' }}>{opt.label}</p>
@@ -1471,7 +1471,7 @@ function PayrollOptionsTab() {
         <button
           onClick={handleSave}
           disabled={saving}
-          style={{ padding: '9px 20px', background: 'var(--brand, #00C9A0)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: 'pointer', alignSelf: 'flex-start' }}
+          style={{ padding: '9px 20px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, fontFamily: FF2, cursor: 'pointer', alignSelf: 'flex-start' }}
         >
           {saving ? 'Saving...' : 'Save Payroll Settings'}
         </button>
@@ -1587,7 +1587,7 @@ function LeadAlertsCard() {
         </div>
         <button
           onClick={() => setSmsOn(v => !v)}
-          style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: smsOn ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}
+          style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: smsOn ? 'var(--brand)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s', flexShrink: 0 }}
         >
           <div style={{ width: 18, height: 18, borderRadius: 9, background: '#fff', position: 'absolute', top: 3, left: smsOn ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }} />
         </button>
@@ -1610,7 +1610,7 @@ function LeadAlertsCard() {
         <button
           onClick={saveLeadAlerts}
           disabled={saving}
-          style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF, opacity: saving ? 0.7 : 1 }}
+          style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF, opacity: saving ? 0.7 : 1 }}
         >
           {saving ? "Saving…" : "Save Lead Alerts"}
         </button>
@@ -1691,7 +1691,7 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
                 onClick={() => setSettings(prev => ({ ...prev, [t.key]: !prev[t.key] }))}
                 style={{
                   width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                  background: settings[t.key] ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                  background: settings[t.key] ? 'var(--brand)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s', flexShrink: 0,
                 }}>
                 <div style={{
                   width: 18, height: 18, borderRadius: 9, background: '#fff',
@@ -1747,7 +1747,7 @@ function SmsSmsSettingsCard({ onTest }: { onTest: (t: { key: string; label: stri
         <button
           onClick={saveSmsSettings}
           disabled={saving}
-          style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF, opacity: saving ? 0.7 : 1 }}
+          style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF, opacity: saving ? 0.7 : 1 }}
         >
           {saving ? "Saving…" : "Save SMS Settings"}
         </button>
@@ -2027,11 +2027,11 @@ function NotificationsTab() {
         </div>
         <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
           <button onClick={() => { setAddForm(blankAdd); setShowAdd(true); }}
-            style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--brand, #5B9BD5)', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF }}>
+            style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--brand)', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF }}>
             + Add a message
           </button>
           <button onClick={() => setShowLog(!showLog)}
-            style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF }}>
+            style={{ fontSize: 12, fontWeight: 600, color: 'var(--brand)', background: 'var(--brand-soft)', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontFamily: FF }}>
             {showLog ? "Hide Recent Sends" : "Recent Sends"} {logs.length > 0 && `(${logs.length})`}
           </button>
         </div>
@@ -2087,7 +2087,7 @@ function NotificationsTab() {
               </div>
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 4 }}>
                 <button onClick={() => setShowAdd(false)} style={{ padding: '8px 16px', border: '1px solid #E5E2DC', borderRadius: 7, background: '#fff', fontSize: 13, cursor: 'pointer', fontFamily: FF }}>Cancel</button>
-                <button onClick={addMessage} disabled={addBusy} style={{ padding: '8px 18px', border: 'none', borderRadius: 7, background: 'var(--brand, #5B9BD5)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF }}>{addBusy ? 'Adding…' : 'Add message'}</button>
+                <button onClick={addMessage} disabled={addBusy} style={{ padding: '8px 18px', border: 'none', borderRadius: 7, background: 'var(--brand)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF }}>{addBusy ? 'Adding…' : 'Add message'}</button>
               </div>
             </div>
           </div>
@@ -2126,7 +2126,7 @@ function NotificationsTab() {
       {/* Journey — Stage 1: getting a lead booked (acquisition drips). */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ marginBottom: 10 }}>
-          <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>Getting them booked</p>
+          <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand)', margin: '0 0 2px' }}>Getting them booked</p>
           <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>Automated follow-up for people who haven&rsquo;t booked yet — abandoned bookings, website and phone leads, and open quotes.</p>
         </div>
         <FollowUpSequencesTab onTest={openTest} only={t => t !== 'post_job_retention'} />
@@ -2138,13 +2138,13 @@ function NotificationsTab() {
         return (
           <div key={group.key} style={{ marginBottom: 24 }}>
             <div style={{ marginBottom: 10 }}>
-              <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>{group.title}</p>
+              <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand)', margin: '0 0 2px' }}>{group.title}</p>
               <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>{group.sub}</p>
             </div>
             {groupMsgs.map(msg => {
               const anyOn = msg.channels.some((c: any) => c.is_active);
               return (
-                <div key={msg.key} style={{ ...CARD, borderLeft: `3px solid ${anyOn ? 'var(--brand, #5B9BD5)' : '#E5E2DC'}` }}>
+                <div key={msg.key} style={{ ...CARD, borderLeft: `3px solid ${anyOn ? 'var(--brand)' : '#E5E2DC'}` }}>
                   <div style={{ marginBottom: 12 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 3 }}>
                       <span style={{ fontSize: 14, fontWeight: 800, color: '#1A1917' }}>{msg.label}</span>
@@ -2167,13 +2167,13 @@ function NotificationsTab() {
                           {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{`${((h + 11) % 12) + 1}:00 ${h < 12 ? 'AM' : 'PM'}`}</option>)}
                         </select>
                         <span>CT</span>
-                        <button onClick={() => saveTiming(msg.key)} style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: 'var(--brand, #5B9BD5)', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontFamily: FF }}>Save</button>
+                        <button onClick={() => saveTiming(msg.key)} style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: 'var(--brand)', border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer', fontFamily: FF }}>Save</button>
                         <button onClick={() => setTimingKey(null)} style={{ fontSize: 11, color: '#6B7280', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Cancel</button>
                       </div>
                     ) : (
                       <p style={{ fontSize: 11.5, color: '#6B7280', margin: 0, lineHeight: 1.5 }}>
                         <span style={{ fontWeight: 600, color: '#374151' }}>When:</span> {msg.timing}
-                        {msg.editable_timing && <button onClick={() => startTiming(msg)} style={{ marginLeft: 8, fontSize: 11, color: 'var(--brand, #5B9BD5)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>Edit timing</button>}
+                        {msg.editable_timing && <button onClick={() => startTiming(msg)} style={{ marginLeft: 8, fontSize: 11, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>Edit timing</button>}
                       </p>
                     )}
                   </div>
@@ -2199,7 +2199,7 @@ function NotificationsTab() {
                       const pkgLabel = (slug: string) => packages.find(p => p.slug === slug)?.label || slug;
                       const usedSlugs = new Set(variants.map((v: any) => v.service_type));
                       const addable = packages.filter(p => !usedSlugs.has(p.slug));
-                      const chip = (active: boolean): any => ({ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: FF, border: active ? '1px solid var(--brand, #5B9BD5)' : '1px solid #E5E2DC', background: active ? '#EBF4FF' : '#fff', color: active ? '#1D4ED8' : '#6B7280' });
+                      const chip = (active: boolean): any => ({ fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999, cursor: 'pointer', fontFamily: FF, border: active ? '1px solid var(--brand)' : '1px solid #E5E2DC', background: active ? 'var(--brand-soft)' : '#fff', color: active ? '#1D4ED8' : '#6B7280' });
                       return (
                       <div key={ch.channel} style={{ border: '1px solid #F0EEE9', borderRadius: 9, padding: '12px 14px', background: effCh.is_active ? '#fff' : '#FAFAF8' }}>
                         {isBookingSms && (
@@ -2234,11 +2234,11 @@ function NotificationsTab() {
                           </div>
                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
                             <button onClick={() => toggle(effCh.id, effCh, !effCh.is_active)} title={effCh.is_active ? "On — tap to pause" : "Paused — tap to turn on"}
-                              style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: effCh.is_active ? 'var(--brand, #5B9BD5)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s' }}>
+                              style={{ width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer', background: effCh.is_active ? 'var(--brand)' : '#E5E2DC', position: 'relative', transition: 'background 0.2s' }}>
                               <div style={{ width: 18, height: 18, borderRadius: 9, background: '#fff', position: 'absolute', top: 3, left: effCh.is_active ? 23 : 3, transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.15)' }}/>
                             </button>
                             <button onClick={() => editingId === effCh.id ? setEditingId(null) : startEdit(effCh)}
-                              style={{ fontSize: 11, color: 'var(--brand, #5B9BD5)', background: '#EBF4FF', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
+                              style={{ fontSize: 11, color: 'var(--brand)', background: 'var(--brand-soft)', border: 'none', borderRadius: 5, padding: '3px 10px', cursor: 'pointer', fontFamily: FF, fontWeight: 600 }}>
                               {editingId === effCh.id ? "Cancel" : "Edit"}
                             </button>
                             <button onClick={() => openTest({ key: msg.key, label: msg.label, channel: ch.channel, ...(isBookingSms && selVar ? { body: effCh.body } : {}) })} title="Send a [TEST] copy to yourself"
@@ -2282,7 +2282,7 @@ function NotificationsTab() {
       {/* Journey — Stage 5: win-back drip for past customers with no next visit. */}
       <div style={{ marginBottom: 24 }}>
         <div style={{ marginBottom: 10 }}>
-          <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>Winning them back</p>
+          <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand)', margin: '0 0 2px' }}>Winning them back</p>
           <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>A past customer finished a job with nothing on the calendar. This drip nudges them to rebook.</p>
         </div>
         <FollowUpSequencesTab onTest={openTest} only={t => t === 'post_job_retention'} />
@@ -2291,7 +2291,7 @@ function NotificationsTab() {
       {/* Setup &amp; compliance — the plumbing behind the messages. Internal
           office/staff alerts moved to their own "Office & Staff Alerts" tab. */}
       <div style={{ marginBottom: 10 }}>
-        <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand, #5B9BD5)', margin: '0 0 2px' }}>Setup &amp; compliance</p>
+        <p style={{ fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--brand)', margin: '0 0 2px' }}>Setup &amp; compliance</p>
         <p style={{ fontSize: 11, color: '#9E9B94', margin: 0 }}>Your texting toggles and phone number. Opt-out (Reply STOP) and email unsubscribe are always on and honored by law.</p>
       </div>
       <SmsSmsSettingsCard onTest={openTest} />
@@ -2317,7 +2317,7 @@ function NotificationsTab() {
             <p style={{ fontSize: 11, color: '#9E9B94', margin: '0 0 18px' }}>{testFor.channel === 'sms' ? 'Required — the cell you’ll check.' : 'Leave blank to use your login email.'}</p>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               <button disabled={testBusy} onClick={() => setTestFor(null)} style={{ fontSize: 12, color: '#6B7280', background: 'none', border: 'none', cursor: testBusy ? 'not-allowed' : 'pointer', fontFamily: FF }}>Cancel</button>
-              <button disabled={testBusy} onClick={sendTest} style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--brand, #5B9BD5)', border: 'none', borderRadius: 6, padding: '8px 16px', cursor: testBusy ? 'not-allowed' : 'pointer', fontFamily: FF }}>{testBusy ? 'Sending…' : 'Send Test'}</button>
+              <button disabled={testBusy} onClick={sendTest} style={{ fontSize: 12, fontWeight: 700, color: '#fff', background: 'var(--brand)', border: 'none', borderRadius: 6, padding: '8px 16px', cursor: testBusy ? 'not-allowed' : 'pointer', fontFamily: FF }}>{testBusy ? 'Sending…' : 'Send Test'}</button>
             </div>
           </div>
         </div>
@@ -2461,7 +2461,7 @@ function OfficeNotificationsCard({ onTest }: { onTest?: (t: { key: string; label
               onClick={() => row.onChange(!row.checked)}
               style={{
                 width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-                background: row.checked ? 'var(--brand, #00C9A0)' : '#E5E2DC',
+                background: row.checked ? 'var(--brand)' : '#E5E2DC',
                 position: 'relative', transition: 'background 0.2s', flexShrink: 0,
               }}
             >
@@ -2478,7 +2478,7 @@ function OfficeNotificationsCard({ onTest }: { onTest?: (t: { key: string; label
         <button
           onClick={save}
           disabled={saving}
-          style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand, #00C9A0)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF, opacity: saving ? 0.7 : 1 }}
+          style={{ padding: '8px 18px', border: 'none', borderRadius: 8, background: 'var(--brand)', color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: FF, opacity: saving ? 0.7 : 1 }}
         >
           {saving ? "Saving…" : "Save"}
         </button>
@@ -2494,7 +2494,7 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
       onClick={() => onChange(!checked)}
       style={{
         width: 44, height: 24, borderRadius: 12, border: 'none', cursor: 'pointer',
-        background: checked ? 'var(--brand, #5B9BD5)' : '#E5E2DC',
+        background: checked ? 'var(--brand)' : '#E5E2DC',
         position: 'relative', transition: 'background 0.2s', flexShrink: 0,
       }}
     >
@@ -2680,7 +2680,7 @@ function ClockInOutTab() {
           onClick={handleSave}
           disabled={saving}
           style={{
-            padding: '10px 24px', background: 'var(--brand, #5B9BD5)', color: '#fff',
+            padding: '10px 24px', background: 'var(--brand)', color: '#fff',
             border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
             cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1,
             fontFamily: FF,
@@ -2983,7 +2983,7 @@ function InvoicingTab() {
         onClick={handleSave}
         disabled={saving}
         style={{
-          padding: '10px 24px', background: 'var(--brand, #5B9BD5)', color: '#fff',
+          padding: '10px 24px', background: 'var(--brand)', color: '#fff',
           border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, alignSelf: 'flex-start',
           cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: FF,
         }}
@@ -3162,8 +3162,8 @@ function OnlineBookingTab() {
                 onClick={() => toggleDay(key)}
                 style={{
                   padding: '8px 16px', borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: FF,
-                  border: `2px solid ${on ? 'var(--brand, #5B9BD5)' : '#E5E2DC'}`,
-                  background: on ? 'var(--brand, #5B9BD5)' : '#fff',
+                  border: `2px solid ${on ? 'var(--brand)' : '#E5E2DC'}`,
+                  background: on ? 'var(--brand)' : '#fff',
                   color: on ? '#fff' : '#6B7280',
                   cursor: 'pointer', transition: 'all 0.1s',
                 }}
@@ -3203,9 +3203,9 @@ function OnlineBookingTab() {
                   onClick={() => toggleRefSource(src.id, !src.is_active)}
                   style={{
                     padding: '5px 14px', borderRadius: 6, fontSize: 12, fontWeight: 700, fontFamily: FF,
-                    border: `1.5px solid ${src.is_active ? '#E5E2DC' : 'var(--brand, #00C9A0)'}`,
+                    border: `1.5px solid ${src.is_active ? '#E5E2DC' : 'var(--brand)'}`,
                     background: src.is_active ? '#fff' : 'transparent',
-                    color: src.is_active ? '#6B7280' : 'var(--brand, #00C9A0)',
+                    color: src.is_active ? '#6B7280' : 'var(--brand)',
                     cursor: 'pointer',
                   }}
                 >
@@ -3226,7 +3226,7 @@ function OnlineBookingTab() {
                 disabled={addingRef || !newRefName.trim()}
                 style={{
                   padding: '9px 18px', borderRadius: 8, fontSize: 13, fontWeight: 700, fontFamily: FF,
-                  background: 'var(--brand, #00C9A0)', color: '#fff', border: 'none',
+                  background: 'var(--brand)', color: '#fff', border: 'none',
                   cursor: (addingRef || !newRefName.trim()) ? 'not-allowed' : 'pointer',
                   opacity: (addingRef || !newRefName.trim()) ? 0.6 : 1,
                 }}
@@ -3242,7 +3242,7 @@ function OnlineBookingTab() {
         onClick={handleSave}
         disabled={saving}
         style={{
-          padding: '10px 24px', background: 'var(--brand, #5B9BD5)', color: '#fff',
+          padding: '10px 24px', background: 'var(--brand)', color: '#fff',
           border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700, alignSelf: 'flex-start',
           cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.7 : 1, fontFamily: FF,
         }}

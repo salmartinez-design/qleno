@@ -13,12 +13,12 @@ import { OneOnOneCoverageCard } from "@/components/one-on-ones-panel";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const ROLE_BADGES: Record<string, React.CSSProperties> = {
-  owner:       { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
+  owner:       { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
   admin:       { background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' },
   technician:  { background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0' },
   office:      { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
   team_lead:   { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
-  super_admin: { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
+  super_admin: { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
   accountant:  { background: '#F0FAF7', color: '#0A5A48', border: '1px solid #B8EBDF' },
 };
 
@@ -524,7 +524,7 @@ function TimeOffRequestsSection() {
   if (!canAct) return null;
 
   return (
-    <div ref={sectionRef} id="timeoff-requests-section" style={{ marginTop: 28, scrollMarginTop: 80, borderRadius: 12, transition: 'box-shadow 0.4s ease', boxShadow: flash ? '0 0 0 3px rgba(0,201,160,0.65)' : 'none' }}>
+    <div ref={sectionRef} id="timeoff-requests-section" style={{ marginTop: 28, scrollMarginTop: 80, borderRadius: 12, transition: 'box-shadow 0.4s ease', boxShadow: flash ? '0 0 0 3px rgba(var(--brand-rgb),0.65)' : 'none' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
         <h2 style={{ margin: 0, fontSize: 16, fontWeight: 800, color: '#1A1917' }}>Time off &amp; leave requests</h2>
         {rows.length > 0 && (
@@ -552,7 +552,7 @@ function TimeOffRequestsSection() {
                 <span style={{ fontSize: 11, color: '#C9C6BF', whiteSpace: 'nowrap' }}>no file</span>
               )}
               <div style={{ display: 'flex', gap: 8 }}>
-                <button disabled={busyId === r.id} onClick={() => act(r.id, 'approve')} style={{ fontSize: 12, fontWeight: 700, color: '#04241d', background: '#00C9A0', border: '1px solid #00C9A0', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1 }}>Approve</button>
+                <button disabled={busyId === r.id} onClick={() => act(r.id, 'approve')} style={{ fontSize: 12, fontWeight: 700, color: '#FFFFFF', background: 'var(--brand)', border: '1px solid var(--brand)', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1 }}>Approve</button>
                 <button disabled={busyId === r.id} onClick={() => act(r.id, 'deny')} style={{ fontSize: 12, fontWeight: 700, color: '#6B6860', background: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1 }}>Decline</button>
               </div>
             </div>

@@ -39,7 +39,7 @@ export default function PortalLoginPage() {
     } catch { setError('Network error'); setSubmitting(false); }
   }
 
-  const brandColor = company?.brand_color || '#5B9BD5';
+  const brandColor = company?.brand_color || 'var(--brand)';
 
   if (loading) {
     return (

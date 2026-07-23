@@ -14,7 +14,7 @@ const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const BORDER = "#E5E2DC";
 const TEXT = "#1A1917";
 const MUTED = "#9E9B94";
-const MINT = "#00C9A0";
+const MINT = "var(--brand)";
 const DANGER = "#991B1B";
 const ACCEPT = "image/*,application/pdf";
 const MAX_FILES = 12;
@@ -167,7 +167,7 @@ export function AttendanceAttachments({
           style={{
             border: `1.5px dashed ${dragOver ? MINT : BORDER}`, borderRadius: 8,
             padding: "12px", textAlign: "center", cursor: "pointer",
-            background: dragOver ? "rgba(0,201,160,0.06)" : "#FBFAF8",
+            background: dragOver ? "rgba(var(--brand-rgb),0.06)" : "#FBFAF8",
             color: MUTED, fontSize: 12.5, transition: "border-color .12s,background .12s",
           }}
         >
@@ -210,7 +210,7 @@ export function AttendanceAttachments({
               style={{
                 ...tileBox, cursor: "pointer", borderStyle: "dashed",
                 borderColor: dragOver ? MINT : BORDER, flexDirection: "column",
-                background: dragOver ? "rgba(0,201,160,0.06)" : "#FBFAF8", color: MUTED,
+                background: dragOver ? "rgba(var(--brand-rgb),0.06)" : "#FBFAF8", color: MUTED,
               }}
             >
               <span style={{ fontSize: 20, lineHeight: 1, color: TEXT }}>+</span>

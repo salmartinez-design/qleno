@@ -550,7 +550,7 @@ export default function InvoiceDetailPage() {
               <div style={{ marginTop: 8 }}><StatusBadge status={effectiveStatus} label={statusLabel} /></div>
             </div>
           </div>
-          <div style={{ height: 3, background: "#00C9A0" }} />
+          <div style={{ height: 3, background: "var(--brand)" }} />
           <div style={{ display: "flex", justifyContent: "space-between", gap: 24, padding: "18px 30px", flexWrap: "wrap" }}>
             <div>
               <p style={{ margin: "0 0 6px", fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em" }}>Bill to</p>

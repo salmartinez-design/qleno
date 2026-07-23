@@ -439,7 +439,7 @@ function ClockEditor({ entry, canEdit, onUpdate }: { entry: ClockEntry; canEdit:
   const inp: React.CSSProperties = { padding: "6px 8px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 12, fontFamily: "inherit", width: "100%", boxSizing: "border-box" };
   if (!editing) {
     return (
-      <button onClick={open} style={{ marginTop: 8, background: "none", border: "none", padding: 0, color: "var(--brand, #00C9A0)", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+      <button onClick={open} style={{ marginTop: 8, background: "none", border: "none", padding: 0, color: "var(--brand)", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
         Edit clock times
       </button>
     );
@@ -454,7 +454,7 @@ function ClockEditor({ entry, canEdit, onUpdate }: { entry: ClockEntry; canEdit:
       </label>
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={() => setEditing(false)} disabled={saving} style={{ flex: 1, padding: "7px", border: "1px solid #E5E2DC", background: "#fff", borderRadius: 7, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Cancel</button>
-        <button onClick={save} disabled={saving} style={{ flex: 1.3, padding: "7px", border: "none", background: "var(--brand, #00C9A0)", color: "#fff", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{saving ? "Saving…" : "Save clock"}</button>
+        <button onClick={save} disabled={saving} style={{ flex: 1.3, padding: "7px", border: "none", background: "var(--brand)", color: "#fff", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>{saving ? "Saving…" : "Save clock"}</button>
       </div>
     </div>
   );
@@ -1298,9 +1298,9 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
                 <button key={i} type="button" onClick={() => setDow(i)}
                   style={{
                     padding: "5px 10px", borderRadius: 6,
-                    border: `1px solid ${dow === i ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-                    background: dow === i ? "rgba(0,201,160,0.12)" : "#FFFFFF",
-                    color: dow === i ? "var(--brand, #00C9A0)" : "#1A1917",
+                    border: `1px solid ${dow === i ? "var(--brand)" : "#E5E2DC"}`,
+                    background: dow === i ? "rgba(var(--brand-rgb),0.12)" : "#FFFFFF",
+                    color: dow === i ? "var(--brand)" : "#1A1917",
                     fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: FF,
                   }}>{label}</button>
               ))}
@@ -1321,7 +1321,7 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
             Cancel
           </button>
           <button onClick={onSaveClick} disabled={saving}
-            style={{ flex: 2, padding: "7px", borderRadius: 6, border: "none", background: "var(--brand, #00C9A0)", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+            style={{ flex: 2, padding: "7px", borderRadius: 6, border: "none", background: "var(--brand)", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
             {saving ? "Saving…" : isRecurring ? "Save…" : "Save"}
           </button>
         </div>
@@ -2789,9 +2789,9 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           })()}
 
           {job.account_id && (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", background: "var(--brand-dim, #EBF4FF)", borderRadius: 8, marginBottom: 12, width: "fit-content" }}>
-              <Building2 size={13} color="var(--brand, #00C9A0)" />
-              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--brand, #00C9A0)" }}>{job.account_name || "Commercial Account"}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", background: "var(--brand-dim, var(--brand-soft))", borderRadius: 8, marginBottom: 12, width: "fit-content" }}>
+              <Building2 size={13} color="var(--brand)" />
+              <span style={{ fontSize: 12, fontWeight: 700, color: "var(--brand)" }}>{job.account_name || "Commercial Account"}</span>
             </div>
           )}
 
@@ -3925,7 +3925,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "#F7F6F3" }}>
                   <span style={{ fontSize: 12, color: "#6B6963", fontFamily: FF }}>Invoice{total ? ` ${total}` : ""}</span>
                   <span style={{ padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", backgroundColor: bg, color, border: `1px solid ${border}`, fontFamily: FF }}>{label}</span>
-                  <a href={`/invoices/${inv}`} style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "#00C9A0", textDecoration: "none", fontFamily: FF }}>View →</a>
+                  <a href={`/invoices/${inv}`} style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: "var(--brand)", textDecoration: "none", fontFamily: FF }}>View →</a>
                 </div>
                 {/* [closed-invoice-hint 2026-07-07] Maribel: "after they are
                     closed we can't edit them from the job card." Unpaid
@@ -3944,7 +3944,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "9px 12px", border: "1px solid #FDE68A", borderRadius: 8, backgroundColor: "#FFFBEB", fontSize: 12, color: "#92400E", fontFamily: FF }}>
               <span>No invoice yet</span>
               <button onClick={createInvoiceForJob} disabled={creatingInvoice}
-                style={{ marginLeft: "auto", padding: "5px 12px", border: "none", borderRadius: 7, backgroundColor: creatingInvoice ? "#D0CEC9" : "#00C9A0", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: creatingInvoice ? "default" : "pointer", fontFamily: FF }}>
+                style={{ marginLeft: "auto", padding: "5px 12px", border: "none", borderRadius: 7, backgroundColor: creatingInvoice ? "#D0CEC9" : "var(--brand)", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: creatingInvoice ? "default" : "pointer", fontFamily: FF }}>
                 {creatingInvoice ? "Creating…" : "Create invoice"}
               </button>
             </div>
@@ -4059,7 +4059,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               {redoJobTechs.map(t => {
                 const on = redoAccountable.includes(t.id);
                 return <button key={t.id} type="button" onClick={() => setRedoAccountable(on ? redoAccountable.filter(x => x !== t.id) : [...redoAccountable, t.id])}
-                  style={{ padding: "6px 12px", borderRadius: 999, border: `1.5px solid ${on ? "#00C9A0" : "#E5E2DC"}`, background: on ? "#E6F8F3" : "#fff", color: on ? "#065f46" : "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>{t.name}</button>;
+                  style={{ padding: "6px 12px", borderRadius: 999, border: `1.5px solid ${on ? "var(--brand)" : "#E5E2DC"}`, background: on ? "#E6F8F3" : "#fff", color: on ? "#065f46" : "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>{t.name}</button>;
               })}
               {!redoJobTechs.length && <span style={{ fontSize: 12, color: "#DC2626" }}>This job has no assigned cleaner to attach the ticket to.</span>}
             </div>
@@ -4068,7 +4068,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             <div style={{ display: "flex", gap: 8 }}>
               {(["same", "recovery"] as const).map(m => (
                 <button key={m} type="button" onClick={() => setRedoMode(m)}
-                  style={{ flex: 1, padding: "9px 11px", borderRadius: 10, border: `1.5px solid ${redoMode === m ? "#00C9A0" : "#E5E2DC"}`, background: redoMode === m ? "#E6F8F3" : "#fff", cursor: "pointer", fontFamily: FF, textAlign: "left" }}>
+                  style={{ flex: 1, padding: "9px 11px", borderRadius: 10, border: `1.5px solid ${redoMode === m ? "var(--brand)" : "#E5E2DC"}`, background: redoMode === m ? "#E6F8F3" : "#fff", cursor: "pointer", fontFamily: FF, textAlign: "left" }}>
                   <div style={{ fontSize: 12.5, fontWeight: 700, color: "#1A1917" }}>{m === "same" ? "Same cleaner" : "Different cleaner"}</div>
                   <div style={{ fontSize: 10.5, color: "#6B6860", marginTop: 2 }}>{m === "same" ? "Unpaid — part of original commission" : "Recovery cleaner, paid"}</div>
                 </button>
@@ -4319,7 +4319,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                         {REASONS.map(r => (
                           <button key={r.value} type="button" onClick={() => setRescheduleReason(r.value)}
-                            style={{ padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${rescheduleReason === r.value ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, backgroundColor: rescheduleReason === r.value ? "rgba(0,201,160,0.08)" : "#F7F6F3", fontSize: 13, fontWeight: rescheduleReason === r.value ? 600 : 400, color: rescheduleReason === r.value ? "var(--brand, #00C9A0)" : "#1A1917", cursor: "pointer", textAlign: "left", fontFamily: FF, touchAction: "manipulation", minHeight: 44 }}>
+                            style={{ padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${rescheduleReason === r.value ? "var(--brand)" : "#E5E2DC"}`, backgroundColor: rescheduleReason === r.value ? "rgba(var(--brand-rgb),0.08)" : "#F7F6F3", fontSize: 13, fontWeight: rescheduleReason === r.value ? 600 : 400, color: rescheduleReason === r.value ? "var(--brand)" : "#1A1917", cursor: "pointer", textAlign: "left", fontFamily: FF, touchAction: "manipulation", minHeight: 44 }}>
                             {r.label}
                           </button>
                         ))}
@@ -4358,7 +4358,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                                 const isSelected = rescheduleHour === slot.hour;
                                 return (
                                   <button key={slot.hour} type="button" onClick={() => setRescheduleHour(slot.hour)}
-                                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", minHeight: 44, borderRadius: 8, border: `1.5px solid ${isSelected ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, backgroundColor: isSelected ? "var(--brand, #00C9A0)" : slotBg(slot.count), cursor: "pointer", fontFamily: FF, touchAction: "manipulation" }}>
+                                    style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 14px", minHeight: 44, borderRadius: 8, border: `1.5px solid ${isSelected ? "var(--brand)" : "#E5E2DC"}`, backgroundColor: isSelected ? "var(--brand)" : slotBg(slot.count), cursor: "pointer", fontFamily: FF, touchAction: "manipulation" }}>
                                     <span style={{ fontSize: 13, fontWeight: 600, color: isSelected ? "#FFFFFF" : "#1A1917" }}>{fmtHour(slot.hour)}</span>
                                     <span style={{ fontSize: 12, fontWeight: 600, color: isSelected ? "#FFFFFF" : slotTxt(slot.count), padding: "2px 10px", borderRadius: 20, backgroundColor: isSelected ? "rgba(255,255,255,0.25)" : "transparent" }}>{slotLbl(slot.count)}</span>
                                   </button>
@@ -4388,7 +4388,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                               const isCurrent = tech.id === job.assigned_user_id;
                               return (
                                 <button key={tech.id} type="button" onClick={() => setSelectedTechId(tech.id)}
-                                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", minHeight: 52, borderRadius: 10, border: `1.5px solid ${isSelected ? "var(--brand, #00C9A0)" : "#E5E2DC"}`, backgroundColor: isSelected ? "rgba(0,201,160,0.07)" : "#F7F6F3", cursor: "pointer", textAlign: "left", fontFamily: FF, touchAction: "manipulation", width: "100%" }}>
+                                  style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", minHeight: 52, borderRadius: 10, border: `1.5px solid ${isSelected ? "var(--brand)" : "#E5E2DC"}`, backgroundColor: isSelected ? "rgba(var(--brand-rgb),0.07)" : "#F7F6F3", cursor: "pointer", textAlign: "left", fontFamily: FF, touchAction: "manipulation", width: "100%" }}>
                                   <div>
                                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                       <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{tech.name}</span>
@@ -4426,7 +4426,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               {!rescheduleSuccess && (
                 <div style={{ padding: "12px 20px", borderTop: "1px solid #E5E2DC", backgroundColor: "#FFFFFF", flexShrink: 0 }}>
                   <button type="button" disabled={!canConfirm} onClick={handleConfirm}
-                    style={{ width: "100%", padding: "14px", border: "none", borderRadius: 10, background: canConfirm ? "var(--brand, #00C9A0)" : "#E5E2DC", color: canConfirm ? "#FFFFFF" : "#9E9B94", fontSize: 14, fontWeight: 700, cursor: canConfirm ? "pointer" : "not-allowed", fontFamily: FF, touchAction: "manipulation", transition: "background 0.15s" }}>
+                    style={{ width: "100%", padding: "14px", border: "none", borderRadius: 10, background: canConfirm ? "var(--brand)" : "#E5E2DC", color: canConfirm ? "#FFFFFF" : "#9E9B94", fontSize: 14, fontWeight: 700, cursor: canConfirm ? "pointer" : "not-allowed", fontFamily: FF, touchAction: "manipulation", transition: "background 0.15s" }}>
                     {rescheduleBusy ? "Saving..." : "Confirm Reschedule"}
                   </button>
                 </div>
@@ -4889,7 +4889,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                             <button key={opt.m} type="button"
                               onClick={() => { setCancelFeeMode(opt.m); if (opt.m === "waive") setPayTechForCancel(false); else setPayTechForCancel(true); }}
                               style={{ padding: "6px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 600, fontFamily: FF, cursor: "pointer",
-                                border: `1px solid ${on ? (opt.m === "waive" ? "#DC2626" : "#00C9A0") : "#E5E2DC"}`,
+                                border: `1px solid ${on ? (opt.m === "waive" ? "#DC2626" : "var(--brand)") : "#E5E2DC"}`,
                                 background: on ? (opt.m === "waive" ? "#FEF2F2" : "#F0FBF8") : "#FFFFFF",
                                 color: on ? (opt.m === "waive" ? "#B91C1C" : "#0A6E5A") : "#6B6860" }}>
                               {opt.label}
@@ -4962,7 +4962,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                       checked={cancelNotifyClient}
                       onChange={e => setCancelNotifyClient(e.target.checked)}
                       onClick={e => e.stopPropagation()}
-                      style={{ width: 15, height: 15, cursor: "pointer", accentColor: "#00C9A0", flexShrink: 0 }}
+                      style={{ width: 15, height: 15, cursor: "pointer", accentColor: "var(--brand)", flexShrink: 0 }}
                     />
                     <span style={{ fontSize: 13, color: "#1A1917", fontWeight: 500, userSelect: "none" }}>
                       {selected.reschedules
@@ -5190,7 +5190,7 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
                 a specific job / duplicate and match it in the activity tab. */}
             <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", fontVariantNumeric: "tabular-nums" }}>#{job.id}</span>
             {isCommercial && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "var(--brand-dim, #EBF4FF)", color: "var(--brand, #00C9A0)" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "var(--brand-dim, var(--brand-soft))", color: "var(--brand)" }}>
                 <Building2 size={9}/> Comm.
               </span>
             )}
@@ -6662,14 +6662,14 @@ function EventChip({ ev, top, onDelete, onOpen }: { ev: DispatchEvent; top: numb
         // Mint border/icon so it reads as a special owner event, not a
         // pale hold like tech_block / client_visit.
         background: isOneOnOne ? "#0A0E1A" : "#F1EFEA",
-        border: isOneOnOne ? "1px solid #00C9A0" : "1px dashed #B8B2A6",
-        boxShadow: isOneOnOne ? "0 1px 6px rgba(0,201,160,0.35)" : "none",
+        border: isOneOnOne ? "1px solid var(--brand)" : "1px dashed #B8B2A6",
+        boxShadow: isOneOnOne ? "0 1px 6px rgba(var(--brand-rgb),0.35)" : "none",
         color: isOneOnOne ? "#FFFFFF" : "#44413B",
         cursor: clickable ? "pointer" : "default",
         display: "flex", alignItems: "center", gap: 6, overflow: "hidden", fontFamily: FF,
       }}
     >
-      <Icon size={11} style={{ flexShrink: 0, color: isOneOnOne ? "#00C9A0" : "#8A8578" }} />
+      <Icon size={11} style={{ flexShrink: 0, color: isOneOnOne ? "var(--brand)" : "#8A8578" }} />
       <span style={{ minWidth: 0, flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", fontSize: 11, fontWeight: isOneOnOne ? 800 : 700, letterSpacing: isOneOnOne ? "0.02em" : undefined }}>
         {isOneOnOne ? "1-on-1" : ev.title}
         {sub && <span style={{ fontWeight: 600, color: isOneOnOne ? "#5EE6C7" : "#8A8578" }}>{`  ·  ${sub}`}</span>}
@@ -6853,7 +6853,7 @@ function EmployeeRow({ employee, onChipClick, nowLine, events = [], onDeleteEven
           </div>
         </div>
       </div>
-      <div ref={setNodeRef} style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: rowHeight, backgroundColor: isOver ? "rgba(91,155,213,0.05)" : "transparent", transition: "background-color 0.1s" }}>
+      <div ref={setNodeRef} style={{ position: "relative", width: TOTAL_SLOTS * SLOT_W, flexShrink: 0, height: rowHeight, backgroundColor: isOver ? "rgba(var(--brand-rgb),0.05)" : "transparent", transition: "background-color 0.1s" }}>
         {/* [grid-clarity 2026-06-20] Read time at a glance: solid darker line at
             each hour, faint dotted line at the half-hour, and a subtle tint on
             alternating hour bands so the eye groups each hour. */}
@@ -6918,7 +6918,7 @@ function LocationPill({ loc }: { loc?: string | null }) {
     <span style={{
       display: "inline-block", padding: "1px 5px", borderRadius: 6, fontSize: 9, fontWeight: 700,
       fontFamily: FF, letterSpacing: "0.03em", lineHeight: 1.5,
-      backgroundColor: isSchaumburg ? "#2D6A4F" : "#5B9BD5", color: "#FFFFFF",
+      backgroundColor: isSchaumburg ? "#2D6A4F" : "var(--brand)", color: "#FFFFFF",
     }}>
       {isSchaumburg ? "SCH" : "OL"}
     </span>
@@ -7114,8 +7114,8 @@ function AttendanceOverlayDrawer({
               disabled={scanning}
               style={{
                 padding: "6px 12px",
-                border: "1.5px solid #00C9A0",
-                backgroundColor: scanning ? "#E5E2DC" : "#00C9A0",
+                border: "1.5px solid var(--brand)",
+                backgroundColor: scanning ? "#E5E2DC" : "var(--brand)",
                 color: scanning ? "#6B6860" : "#0A0E1A",
                 borderRadius: 7,
                 fontSize: 12,
@@ -7358,8 +7358,8 @@ function AttendanceProposalCard({
             onClick={() => (isPanelOpen === "confirm" ? onClosePanel() : onOpenPanel("confirm"))}
             style={{
               padding: "5px 10px",
-              border: "1.5px solid #00C9A0",
-              backgroundColor: isPanelOpen === "confirm" ? "#00C9A0" : "#FFFFFF",
+              border: "1.5px solid var(--brand)",
+              backgroundColor: isPanelOpen === "confirm" ? "var(--brand)" : "#FFFFFF",
               color: isPanelOpen === "confirm" ? "#0A0E1A" : "#1A1917",
               borderRadius: 6,
               fontSize: 11,
@@ -7461,7 +7461,7 @@ function AttendanceProposalCard({
             style={{
               padding: "6px 12px",
               border: "none",
-              backgroundColor: busy ? "#E5E2DC" : "#00C9A0",
+              backgroundColor: busy ? "#E5E2DC" : "var(--brand)",
               color: busy ? "#6B6860" : "#0A0E1A",
               borderRadius: 6,
               fontSize: 12,
@@ -8265,7 +8265,7 @@ export default function JobsPage() {
                   const isFocal = d.date === focalKey;
                   const isTodayBar = d.date === todayKey;
                   const ratio = d.revenue > 0 ? Math.max(0.08, d.revenue / maxRevenue) : 0;
-                  const barColor = isFocal ? "var(--brand)" : isTodayBar ? "rgba(91,155,213,0.4)" : "#E5E2DC";
+                  const barColor = isFocal ? "var(--brand)" : isTodayBar ? "rgba(var(--brand-rgb),0.4)" : "#E5E2DC";
                   return (
                     <button key={d.date}
                       onClick={() => setSelectedDate(new Date(d.date + "T00:00:00"))}

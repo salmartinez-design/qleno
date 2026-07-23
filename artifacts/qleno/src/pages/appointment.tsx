@@ -9,7 +9,7 @@ const CARD = "#FFFFFF";
 const INK = "#1A1917";
 const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
-const MINT = "#00C9A0";
+const MINT = "var(--brand)";
 // Locked brand palette (same as Pass 1, the quote page).
 const NAVY = "#0A0E1A";
 const SUBLINE = "#9DA3B0";

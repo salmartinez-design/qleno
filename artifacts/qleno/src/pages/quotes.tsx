@@ -75,7 +75,7 @@ const STATUS_CONFIG: Record<string, { label: string; className: string }> = {
   viewed:   { label: "Viewed",    className: "bg-purple-50 text-purple-700 border border-purple-200" },
   accepted: { label: "Accepted",  className: "bg-green-50 text-green-700 border border-green-200" },
   declined: { label: "Declined",  className: "bg-red-50 text-red-700 border border-red-200" },
-  booked:   { label: "Converted", className: "bg-[#5B9BD5]/10 text-[#5B9BD5] border border-[#5B9BD5]/30" },
+  booked:   { label: "Converted", className: "bg-[var(--brand)]/10 text-[var(--brand)] border border-[var(--brand)]/30" },
   expired:  { label: "Expired",   className: "bg-orange-50 text-orange-700 border border-orange-200" },
 };
 
@@ -195,7 +195,7 @@ export default function QuotesPage() {
   })();
 
   const statCards = [
-    { label: "Total Quotes",          value: stats?.total ?? 0,                icon: FileText,    color: "text-[#5B9BD5]",    bg: "bg-[#5B9BD5]/10" },
+    { label: "Total Quotes",          value: stats?.total ?? 0,                icon: FileText,    color: "text-[var(--brand)]",    bg: "bg-[var(--brand)]/10" },
     { label: "Awaiting Response",     value: stats?.pending ?? 0,              icon: Send,        color: "text-orange-500",   bg: "bg-orange-50" },
     { label: "Accepted This Month",   value: stats?.accepted_this_month ?? 0,  icon: CheckCircle, color: "text-green-600",    bg: "bg-green-50" },
     { label: "Converted to Jobs",     value: stats?.converted ?? 0,            icon: Briefcase,   color: "text-purple-600",   bg: "bg-purple-50" },
@@ -348,7 +348,7 @@ export default function QuotesPage() {
             <p className="text-sm text-[#6B7280] mt-1">Manage and track client quotes — part of Leads.</p>
           </div>
           <Button
-            className={`gap-2 text-white ${activeBranchId === "all" ? "bg-gray-400 cursor-not-allowed hover:bg-gray-400" : "bg-[#5B9BD5] hover:bg-[#4a8ac4]"}`}
+            className={`gap-2 text-white ${activeBranchId === "all" ? "bg-gray-400 cursor-not-allowed hover:bg-gray-400" : "bg-[var(--brand)] hover:opacity-90"}`}
             title={activeBranchId === "all" ? "Select a location to create quotes" : undefined}
             onClick={() => { if (activeBranchId === "all") { toast.error("Select a location first — choose Oak Lawn or Schaumburg."); return; } navigate("/quotes/new"); }}
           >
@@ -375,7 +375,7 @@ export default function QuotesPage() {
             <div className="flex gap-1 overflow-x-auto">
               {TABS.map(tab => (
                 <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{ whiteSpace: "nowrap" }}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex-shrink-0 ${activeTab === tab.key ? "bg-[#5B9BD5] text-white" : "text-[#6B7280] hover:bg-[#F7F6F3]"}`}>
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex-shrink-0 ${activeTab === tab.key ? "bg-[var(--brand)] text-white" : "text-[#6B7280] hover:bg-[#F7F6F3]"}`}>
                   {tab.label}
                 </button>
               ))}
@@ -394,7 +394,7 @@ export default function QuotesPage() {
               <p className="text-[#6B7280]">No quotes found.</p>
               <Button
                 size="sm"
-                className={`text-white gap-1.5 ${activeBranchId === "all" ? "bg-gray-400 cursor-not-allowed hover:bg-gray-400" : "bg-[#5B9BD5] hover:bg-[#4a8ac4]"}`}
+                className={`text-white gap-1.5 ${activeBranchId === "all" ? "bg-gray-400 cursor-not-allowed hover:bg-gray-400" : "bg-[var(--brand)] hover:opacity-90"}`}
                 onClick={() => { if (activeBranchId === "all") { toast.error("Select a location first."); return; } navigate("/quotes/new"); }}
               >
                 <Plus className="w-3.5 h-3.5" /> Create your first quote

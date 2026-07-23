@@ -996,9 +996,9 @@ export default function InvoicesPage() {
                 onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); focusTab(c.tab); } }}
                 title={`Show ${c.label.toLowerCase()} invoices`}
                 onMouseEnter={(e) => { if (!selected) { e.currentTarget.style.boxShadow = "0 1px 6px rgba(0,0,0,0.06)"; e.currentTarget.style.borderColor = "var(--brand)"; } }}
-                onMouseLeave={(e) => { if (!selected) { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = c.accent ? "rgba(91,155,213,0.4)" : "#E5E2DC"; } }}
+                onMouseLeave={(e) => { if (!selected) { e.currentTarget.style.boxShadow = "none"; e.currentTarget.style.borderColor = c.accent ? "rgba(var(--brand-rgb),0.4)" : "#E5E2DC"; } }}
                 style={{ ...CARD, cursor: "pointer", transition: "border-color 0.15s, box-shadow 0.15s",
-                  border: selected ? "1px solid var(--brand)" : c.accent ? "1px solid rgba(91,155,213,0.4)" : "1px solid #E5E2DC",
+                  border: selected ? "1px solid var(--brand)" : c.accent ? "1px solid rgba(var(--brand-rgb),0.4)" : "1px solid #E5E2DC",
                   boxShadow: selected ? "0 0 0 1px var(--brand)" : "none" }}>
                 <p style={{ fontSize: 11, fontWeight: 600, color: c.accent ? "var(--brand)" : "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 10px" }}>{c.label}</p>
                 <p style={{ fontSize: 24, fontWeight: 800, color: c.color || (c.accent ? "var(--brand)" : "#1A1917"), margin: 0 }}>{c.value}</p>

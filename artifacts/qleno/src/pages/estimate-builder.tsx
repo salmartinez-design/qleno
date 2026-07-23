@@ -13,7 +13,7 @@ const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const INK = "#1A1917";
 const MUTE = "#6B7280";
 const BORDER = "#E5E2DC";
-const MINT = "#00C9A0";
+const MINT = "var(--brand)";
 
 async function apiFetch(path: string, opts: { method?: string; body?: any } = {}) {
   const { body, ...rest } = opts;
@@ -899,7 +899,7 @@ export default function EstimateBuilderPage() {
             <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>Message preview</div>
             {/* Phone-bubble preview */}
             <div style={{ background: "#F0F0F2", borderRadius: 12, padding: 12, marginBottom: 4 }}>
-              <div style={{ background: "#00C9A0", color: "#063", borderRadius: 16, borderBottomRightRadius: 4, padding: "9px 13px", fontSize: 13.5, lineHeight: 1.45, marginLeft: "auto", maxWidth: "92%", width: "fit-content", whiteSpace: "pre-wrap" }}>{smsData.body}</div>
+              <div style={{ background: "var(--brand)", color: "#FFFFFF", borderRadius: 16, borderBottomRightRadius: 4, padding: "9px 13px", fontSize: 13.5, lineHeight: 1.45, marginLeft: "auto", maxWidth: "92%", width: "fit-content", whiteSpace: "pre-wrap" }}>{smsData.body}</div>
             </div>
             <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 16 }}>Sent from your Phes number · standard messaging rates apply</div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
@@ -926,7 +926,7 @@ export default function EstimateBuilderPage() {
               {(["email", "sms"] as const).map(ch => (
                 <button key={ch} onClick={() => setCardChannel(ch)}
                   style={{ flex: 1, padding: "8px 10px", borderRadius: 9, cursor: "pointer", fontFamily: FF, fontSize: 13, fontWeight: 700,
-                    border: `1.5px solid ${cardChannel === ch ? "#00C9A0" : "#E5E2DC"}`,
+                    border: `1.5px solid ${cardChannel === ch ? "var(--brand)" : "#E5E2DC"}`,
                     background: cardChannel === ch ? "#EAFBF6" : "#fff", color: INK }}>
                   {ch === "email" ? "Email" : "Text"}
                 </button>

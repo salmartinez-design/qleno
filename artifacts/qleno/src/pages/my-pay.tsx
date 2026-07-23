@@ -72,7 +72,7 @@ export default function MyPayPage() {
           <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
             <div style={CARD}>
               <p style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px" }}>Most recent pay</p>
-              <p style={{ fontSize: 26, fontWeight: 800, color: "#00C9A0", margin: 0 }}>{money(latest.gross)}</p>
+              <p style={{ fontSize: 26, fontWeight: 800, color: "var(--brand)", margin: 0 }}>{money(latest.gross)}</p>
               <p style={{ fontSize: 12, color: "#9DA3B0", margin: "6px 0 0" }}>{fmtRange(latest.pay_period_start, latest.pay_period_end)}</p>
             </div>
             <div style={CARD}>
@@ -109,7 +109,7 @@ export default function MyPayPage() {
                         <div style={{ fontSize: 12, color: "#9DA3B0", marginTop: 2 }}>{Number(w.hours).toFixed(2)} hrs · published {String(w.published_at).slice(0, 10)}</div>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontWeight: 800, color: "#00C9A0", fontSize: 18 }}>{money(w.gross)}</span>
+                        <span style={{ fontWeight: 800, color: "var(--brand)", fontSize: 18 }}>{money(w.gross)}</span>
                         {open ? <ChevronUp size={16} color="#9DA3B0" /> : <ChevronDown size={16} color="#9DA3B0" />}
                       </div>
                     </button>
@@ -119,7 +119,7 @@ export default function MyPayPage() {
                           {[["Base pay (jobs)", w.base], ["Tips", w.tips], ["Overtime", w.overtime], ["Bonus", w.bonus], ["Adjustments", w.adjustments], ["Gross", w.gross]].map(([lbl, val]: any, i: number) => (
                             <div key={i} style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid #E5E2DC", paddingBottom: 4 }}>
                               <span style={{ color: "#6B6860" }}>{lbl}</span>
-                              <span style={{ fontWeight: lbl === "Gross" ? 800 : 600, color: lbl === "Gross" ? "#00C9A0" : "#1A1917" }}>{money(val)}</span>
+                              <span style={{ fontWeight: lbl === "Gross" ? 800 : 600, color: lbl === "Gross" ? "var(--brand)" : "#1A1917" }}>{money(val)}</span>
                             </div>
                           ))}
                         </div>

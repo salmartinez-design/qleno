@@ -160,7 +160,7 @@ export function GlobalSearch({ onClose }: Props) {
                         of the zone name) on the second line — reads as a tidy tag and
                         surfaces the zone by name, not just a color. */}
                     <div style={{ width:34, height:34, borderRadius:9, background:'#F1EFE8', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:12, fontWeight:700, color:'#6B6860' }}>
-                      {`${(c.first_name?.[0] || '')}${(c.last_name?.[0] || '')}`.toUpperCase() || <User size={15} color="#5B9BD5"/>}
+                      {`${(c.first_name?.[0] || '')}${(c.last_name?.[0] || '')}`.toUpperCase() || <User size={15} color="var(--brand)"/>}
                     </div>
                     <div style={{ flex:1, minWidth:0 }}>
                       <p style={{ fontSize:13, fontWeight:600, color:'#1A1917', margin:0, marginBottom: (c.zone_name || c.address || c.email || c.phone) ? 3 : 0 }}>{c.first_name} {c.last_name}</p>

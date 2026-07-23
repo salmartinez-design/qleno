@@ -25,7 +25,7 @@ const SERVICE_LABELS: Record<string, string> = {
 function InitialAvatar({ name }: { name: string }) {
   const initials = name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
   return (
-    <div style={{ width:36, height:36, borderRadius:18, background:'#EBF4FF', color:'#5B9BD5', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, flexShrink:0 }}>
+    <div style={{ width:36, height:36, borderRadius:18, background:'var(--brand-soft)', color:'var(--brand)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, flexShrink:0 }}>
       {initials}
     </div>
   );

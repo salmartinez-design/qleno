@@ -103,7 +103,7 @@ function VisibilityDot({ on, label }: { on: boolean; label: string }) {
       display: "inline-flex", alignItems: "center", gap: 3,
       padding: "2px 6px", borderRadius: 9999, fontSize: 11, fontWeight: 600,
       background: on ? "#F0FDF9" : "#F7F6F3",
-      color: on ? "#00C9A0" : "#C4C1BA",
+      color: on ? "var(--brand)" : "#C4C1BA",
       border: `1px solid ${on ? "#9FE7D0" : "#E5E2DC"}`,
     }}>
       {on ? <Eye size={10} /> : <EyeOff size={10} />}
@@ -248,8 +248,8 @@ function AddonDrawer({ open, editing, allScopes, selectedScopeId, onClose, onSav
             <Field label="Applies to Scopes" required>
               <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
                 {allScopes.filter(s => s.is_active).map(scope => (
-                  <label key={scope.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", borderRadius: 8, border: `1px solid ${scopeIds.includes(scope.id) ? "#00C9A0" : "#E5E2DC"}`, background: scopeIds.includes(scope.id) ? "#F0FDF9" : "#FAFAFA" }}>
-                    <div onClick={() => toggleScope(scope.id)} style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${scopeIds.includes(scope.id) ? "#00C9A0" : "#C4C1BA"}`, background: scopeIds.includes(scope.id) ? "#00C9A0" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                  <label key={scope.id} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", padding: "8px 12px", borderRadius: 8, border: `1px solid ${scopeIds.includes(scope.id) ? "var(--brand)" : "#E5E2DC"}`, background: scopeIds.includes(scope.id) ? "#F0FDF9" : "#FAFAFA" }}>
+                    <div onClick={() => toggleScope(scope.id)} style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${scopeIds.includes(scope.id) ? "var(--brand)" : "#C4C1BA"}`, background: scopeIds.includes(scope.id) ? "var(--brand)" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                       {scopeIds.includes(scope.id) && <Check size={10} color="#fff" />}
                     </div>
                     <div onClick={() => toggleScope(scope.id)} style={{ flex: 1 }}>
@@ -319,7 +319,7 @@ function AddonDrawer({ open, editing, allScopes, selectedScopeId, onClose, onSav
                 { key: "show_portal", label: "Show in Customer Portal", val: showPortal, set: setShowPortal },
               ].map(f => (
                 <label key={f.key} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                  <div onClick={() => f.set(!f.val)} style={{ width: 36, height: 20, borderRadius: 10, background: f.val ? "#00C9A0" : "#E5E2DC", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                  <div onClick={() => f.set(!f.val)} style={{ width: 36, height: 20, borderRadius: 10, background: f.val ? "var(--brand)" : "#E5E2DC", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                     <div style={{ position: "absolute", top: 2, left: f.val ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
                   </div>
                   <span style={{ fontSize: 13, color: "#0A0E1A" }}>{f.label}</span>
@@ -334,7 +334,7 @@ function AddonDrawer({ open, editing, allScopes, selectedScopeId, onClose, onSav
                 { key: "is_taxed", label: "Taxable add-on", val: isTaxed, set: setIsTaxed },
               ].map(f => (
                 <label key={f.key} style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
-                  <div onClick={() => f.set(!f.val)} style={{ width: 36, height: 20, borderRadius: 10, background: f.val ? "#00C9A0" : "#E5E2DC", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
+                  <div onClick={() => f.set(!f.val)} style={{ width: 36, height: 20, borderRadius: 10, background: f.val ? "var(--brand)" : "#E5E2DC", position: "relative", transition: "background 0.2s", flexShrink: 0 }}>
                     <div style={{ position: "absolute", top: 2, left: f.val ? 18 : 2, width: 16, height: 16, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
                   </div>
                   <span style={{ fontSize: 13, color: "#0A0E1A" }}>{f.label}</span>
@@ -349,7 +349,7 @@ function AddonDrawer({ open, editing, allScopes, selectedScopeId, onClose, onSav
           <button onClick={onClose} style={{ padding: "9px 20px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#fff", fontSize: 13, fontWeight: 600, color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>
             Cancel
           </button>
-          <button onClick={handleSave} disabled={saving} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: saving ? "#9FE7D0" : "#00C9A0", color: "#fff", fontSize: 13, fontWeight: 700, cursor: saving ? "default" : "pointer", fontFamily: "inherit" }}>
+          <button onClick={handleSave} disabled={saving} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: saving ? "#9FE7D0" : "var(--brand)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: saving ? "default" : "pointer", fontFamily: "inherit" }}>
             {saving ? "Saving…" : editing ? "Save Changes" : "Create Add-on"}
           </button>
         </div>
@@ -459,10 +459,10 @@ export default function RatesPage() {
               const isSelected = scope.id === selectedScopeId;
               return (
                 <div key={scope.id} onClick={() => setSelectedScopeId(scope.id)} style={{
-                  padding: "10px 16px", cursor: "pointer", borderLeft: `3px solid ${isSelected ? "#00C9A0" : "transparent"}`,
+                  padding: "10px 16px", cursor: "pointer", borderLeft: `3px solid ${isSelected ? "var(--brand)" : "transparent"}`,
                   background: isSelected ? "#F0FDF9" : "transparent", transition: "background 0.15s",
                 }}>
-                  <div style={{ fontWeight: 600, fontSize: 13, color: isSelected ? "#00C9A0" : "#0A0E1A" }}>{scope.name}</div>
+                  <div style={{ fontWeight: 600, fontSize: 13, color: isSelected ? "var(--brand)" : "#0A0E1A" }}>{scope.name}</div>
                   <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2 }}>
                     {scope.pricing_method} · ${parseFloat(scope.hourly_rate).toFixed(0)}/hr
                   </div>
@@ -493,7 +493,7 @@ export default function RatesPage() {
               <button onClick={() => openDrawer(null)} style={{
                 display: "flex", alignItems: "center", gap: 8,
                 padding: "9px 18px", borderRadius: 8, border: "none",
-                background: "#00C9A0", color: "#fff", fontSize: 13, fontWeight: 700,
+                background: "var(--brand)", color: "#fff", fontSize: 13, fontWeight: 700,
                 cursor: "pointer", fontFamily: "inherit",
               }}>
                 <Plus size={15} /> New Add-on
@@ -520,7 +520,7 @@ export default function RatesPage() {
                 <div style={{ color: "#9E9B94", fontSize: 13, marginTop: 4, marginBottom: 20 }}>
                   Create rate modifications for this scope — extras, discounts, and adjustments.
                 </div>
-                <button onClick={() => openDrawer(null)} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: "#00C9A0", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+                <button onClick={() => openDrawer(null)} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: "var(--brand)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
                   <Plus size={14} style={{ verticalAlign: "middle", marginRight: 6 }} />New Add-on
                 </button>
               </div>

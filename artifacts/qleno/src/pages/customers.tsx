@@ -338,7 +338,7 @@ export default function CustomersPage() {
                     const rowStyle: React.CSSProperties = {
                       borderBottom: "1px solid #F0EEE9",
                       borderLeft: "3px solid transparent",
-                      backgroundColor: isSelected ? "rgba(91,155,213,0.05)" : "transparent",
+                      backgroundColor: isSelected ? "rgba(var(--brand-rgb),0.05)" : "transparent",
                       cursor: "pointer",
                     };
                     return (
@@ -347,7 +347,7 @@ export default function CustomersPage() {
                         style={rowStyle}
                         onClick={() => navigateToClient(client.id)}
                         onMouseEnter={e => { if (!isSelected) e.currentTarget.style.backgroundColor = "#F7F6F3"; }}
-                        onMouseLeave={e => { e.currentTarget.style.backgroundColor = isSelected ? "rgba(91,155,213,0.05)" : "transparent"; }}
+                        onMouseLeave={e => { e.currentTarget.style.backgroundColor = isSelected ? "rgba(var(--brand-rgb),0.05)" : "transparent"; }}
                       >
                         {/* Checkbox */}
                         <td style={{ padding: "14px 16px" }} onClick={e => { e.stopPropagation(); toggleSelect(client.id); }}>

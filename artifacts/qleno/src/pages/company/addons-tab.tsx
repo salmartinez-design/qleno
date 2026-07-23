@@ -247,7 +247,7 @@ function AddonTimeMethodCard() {
             style={{
               flex: 1, padding: "12px 14px", borderRadius: 8, cursor: "pointer", textAlign: "left" as const, fontFamily: FF,
               border: `2px solid ${method === opt.value ? "var(--brand)" : "#E5E2DC"}`,
-              background: method === opt.value ? "rgba(91,155,213,0.07)" : "#fff",
+              background: method === opt.value ? "rgba(var(--brand-rgb),0.07)" : "#fff",
             }}>
             <p style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", margin: "0 0 2px", fontFamily: FF }}>{opt.label}</p>
             <p style={{ fontSize: 11, color: "#9E9B94", margin: 0, fontFamily: FF }}>{opt.desc}</p>

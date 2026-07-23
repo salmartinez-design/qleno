@@ -6,7 +6,7 @@ import { toast } from "sonner";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
-const INK = "#1A1917", MUTE = "#6B7280", BORDER = "#E5E2DC", MINT = "#00C9A0";
+const INK = "#1A1917", MUTE = "#6B7280", BORDER = "#E5E2DC", MINT = "var(--brand)";
 const BLUE = "#185FA5", TEAL = "#0F6E56", TEAL_BG = "#E1F5EE";
 
 async function apiFetch(path: string, opts: { method?: string; body?: any } = {}) {

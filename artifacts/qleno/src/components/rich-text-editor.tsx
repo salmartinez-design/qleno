@@ -175,8 +175,8 @@ export function RichTextEditor({
                   onMouseDown={e => { e.preventDefault(); insertVariable(v.key); }}
                   title={v.desc}
                   style={{
-                    padding: "2px 7px", fontSize: 10, fontWeight: 600, color: "var(--brand, #00C9A0)",
-                    background: "var(--brand-dim, #E8FDF8)", border: "1px solid var(--brand, #00C9A0)",
+                    padding: "2px 7px", fontSize: 10, fontWeight: 600, color: "var(--brand)",
+                    background: "var(--brand-dim, #E8FDF8)", border: "1px solid var(--brand)",
                     borderRadius: 4, cursor: "pointer", fontFamily: "inherit",
                   }}
                 >{v.key.replace(/[{}]/g, "")}</button>

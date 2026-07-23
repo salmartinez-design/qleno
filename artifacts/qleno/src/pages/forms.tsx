@@ -35,7 +35,7 @@ const TYPE_LABEL_MAP: Record<string, string> = {
 };
 
 const TYPE_COLOR_MAP: Record<string, string> = {
-  agreement: "#5B9BD5", intake: "#10B981", inspection: "#F59E0B", survey: "#7F77DD", custom: "#6B7280",
+  agreement: "var(--brand)", intake: "#10B981", inspection: "#F59E0B", survey: "#7F77DD", custom: "#6B7280",
 };
 
 function newField(type: string): any {
@@ -59,10 +59,10 @@ function FieldPalette({ onAdd }: { onAdd: (type: string) => void }) {
           const Icon = ft.icon;
           return (
             <button key={ft.type} onClick={() => onAdd(ft.type)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: 7, background: "#fff", cursor: "pointer", textAlign: "left", transition: "all 0.1s" }}
-              onMouseEnter={e => (e.currentTarget.style.borderColor = "#5B9BD5")}
+              onMouseEnter={e => (e.currentTarget.style.borderColor = "var(--brand)")}
               onMouseLeave={e => (e.currentTarget.style.borderColor = "#E5E2DC")}>
               <div style={{ width: 30, height: 30, borderRadius: 6, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                <Icon size={14} color="#5B9BD5" />
+                <Icon size={14} color="var(--brand)" />
               </div>
               <div>
                 <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917" }}>{ft.label}</div>
@@ -92,11 +92,11 @@ function FieldEditor({ field, onUpdate, onDelete }: { field: any; onUpdate: (f: 
   );
 
   return (
-    <div style={{ border: `2px solid ${expanded ? "#5B9BD5" : "#E5E2DC"}`, borderRadius: 8, background: "#fff", transition: "border-color 0.15s" }}>
+    <div style={{ border: `2px solid ${expanded ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, background: "#fff", transition: "border-color 0.15s" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", cursor: "pointer" }} onClick={() => setExpanded(!expanded)}>
         <GripVertical size={14} color="#D1D5DB" style={{ cursor: "grab" }} />
         <div style={{ width: 26, height: 26, borderRadius: 5, background: "#EFF6FF", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-          <Icon size={12} color="#5B9BD5" />
+          <Icon size={12} color="var(--brand)" />
         </div>
         <span style={{ flex: 1, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{field.label}</span>
         {field.required && <span style={{ fontSize: 9, color: "#E53E3E", fontWeight: 700 }}>REQ</span>}
@@ -137,7 +137,7 @@ function FieldEditor({ field, onUpdate, onDelete }: { field: any; onUpdate: (f: 
               ))}
               <div style={{ display: "flex", gap: 4 }}>
                 <input value={option} onChange={e => setOption(e.target.value)} placeholder="Add option..." style={{ flex: 1, padding: "5px 8px", border: "1px solid #E5E2DC", borderRadius: 5, fontSize: 12, fontFamily: "'Plus Jakarta Sans', sans-serif" }} onKeyDown={e => { if (e.key === "Enter" && option) { onUpdate({ ...field, options: [...(field.options || []), option] }); setOption(""); } }} />
-                <button onClick={() => { if (option) { onUpdate({ ...field, options: [...(field.options || []), option] }); setOption(""); } }} style={{ background: "#5B9BD5", color: "#fff", border: "none", borderRadius: 5, padding: "5px 10px", cursor: "pointer", fontSize: 12 }}>Add</button>
+                <button onClick={() => { if (option) { onUpdate({ ...field, options: [...(field.options || []), option] }); setOption(""); } }} style={{ background: "var(--brand)", color: "#fff", border: "none", borderRadius: 5, padding: "5px 10px", cursor: "pointer", fontSize: 12 }}>Add</button>
               </div>
             </div>
           )}
@@ -152,7 +152,7 @@ function FieldPreview({ field }: { field: any }) {
 
   if (field.type === "section") {
     return (
-      <div style={{ borderLeft: "3px solid #5B9BD5", paddingLeft: 10, marginTop: 8 }}>
+      <div style={{ borderLeft: "3px solid var(--brand)", paddingLeft: 10, marginTop: 8 }}>
         <div style={{ fontWeight: 700, fontSize: 14, color: "#1A1917" }}>{field.label}</div>
       </div>
     );
@@ -222,7 +222,7 @@ function FormBuilder({ template, onClose, onSave }: any) {
       <div style={{ position: "relative", marginLeft: "auto", width: "95vw", maxWidth: 1300, height: "100vh", background: "#F7F6F3", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "-4px 0 30px rgba(0,0,0,0.15)" }}>
         <div style={{ padding: "14px 24px", background: "#fff", borderBottom: "1px solid #E5E2DC", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-            <FileText size={20} color="#5B9BD5" />
+            <FileText size={20} color="var(--brand)" />
             <input value={name} onChange={e => setName(e.target.value)} style={{ fontSize: 18, fontWeight: 700, border: "none", outline: "none", background: "transparent", fontFamily: "'Plus Jakarta Sans', sans-serif", color: "#1A1917", width: 340 }} />
           </div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -238,7 +238,7 @@ function FormBuilder({ template, onClose, onSave }: any) {
               <option value="residential">Residential</option>
               <option value="commercial">Commercial</option>
             </select>
-            <button onClick={() => saveMutation.mutate()} style={{ background: "#5B9BD5", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", cursor: "pointer", fontWeight: 600, fontSize: 13 }}>Save Form</button>
+            <button onClick={() => saveMutation.mutate()} style={{ background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 18px", cursor: "pointer", fontWeight: 600, fontSize: 13 }}>Save Form</button>
             <button onClick={onClose} style={{ background: "none", border: "1px solid #E5E2DC", borderRadius: 8, padding: "8px 12px", cursor: "pointer", color: "#6B7280" }}><X size={16} /></button>
           </div>
         </div>
@@ -281,7 +281,7 @@ function FormBuilder({ template, onClose, onSave }: any) {
             <div style={{ flex: 1, overflowY: "auto", padding: 32, background: "#F7F6F3", display: "flex", justifyContent: "center" }}>
               <div style={{ width: "100%", maxWidth: 600 }}>
                 <div style={{ background: "#fff", borderRadius: 12, boxShadow: "0 2px 20px rgba(0,0,0,0.08)", overflow: "hidden" }}>
-                  <div style={{ background: "#5B9BD5", padding: "24px 28px" }}>
+                  <div style={{ background: "var(--brand)", padding: "24px 28px" }}>
                     <div style={{ fontSize: 20, fontWeight: 700, color: "#fff" }}>{name}</div>
                     <div style={{ fontSize: 12, color: "rgba(255,255,255,0.8)", marginTop: 4 }}>{TYPE_LABEL_MAP[type]} · {category}</div>
                   </div>
@@ -290,7 +290,7 @@ function FormBuilder({ template, onClose, onSave }: any) {
                       <div style={{ textAlign: "center", color: "#9E9B94", padding: 20 }}>No fields added yet</div>
                     ) : fields.map(f => <FieldPreview key={f.id} field={f} />)}
                     {fields.length > 0 && (
-                      <button style={{ background: "#5B9BD5", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                      <button style={{ background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                         Submit
                       </button>
                     )}
@@ -330,7 +330,7 @@ function EmbedModal({ template, onClose }: any) {
             <div style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", marginBottom: 6 }}>Form Link</div>
             <div style={{ display: "flex", gap: 6 }}>
               <div style={{ flex: 1, padding: "8px 10px", background: "#F7F6F3", borderRadius: 7, fontSize: 12, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{formUrl}</div>
-              <button onClick={() => copy(formUrl, "link")} style={{ padding: "8px 14px", background: copied === "link" ? "#10B981" : "#5B9BD5", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>
+              <button onClick={() => copy(formUrl, "link")} style={{ padding: "8px 14px", background: copied === "link" ? "#10B981" : "var(--brand)", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", display: "flex", alignItems: "center", gap: 4 }}>
                 {copied === "link" ? <><Check size={12} /> Copied!</> : "Copy"}
               </button>
             </div>
@@ -341,7 +341,7 @@ function EmbedModal({ template, onClose }: any) {
             <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
               <div style={{ width: 100, height: 100, background: "#F7F6F3", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", border: "1px solid #E5E2DC" }}>
                 <div style={{ textAlign: "center" }}>
-                  <QrCode size={40} color="#5B9BD5" />
+                  <QrCode size={40} color="var(--brand)" />
                   <div style={{ fontSize: 9, color: "#9E9B94", marginTop: 4 }}>Scan to fill</div>
                 </div>
               </div>
@@ -355,7 +355,7 @@ function EmbedModal({ template, onClose }: any) {
             <div style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", marginBottom: 6 }}>Embed Code</div>
             <div style={{ position: "relative" }}>
               <textarea readOnly value={embedCode} rows={4} style={{ width: "100%", padding: "10px", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 11, fontFamily: "monospace", resize: "none", boxSizing: "border-box" }} />
-              <button onClick={() => copy(embedCode, "embed")} style={{ position: "absolute", top: 8, right: 8, padding: "4px 10px", background: copied === "embed" ? "#10B981" : "#5B9BD5", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}>
+              <button onClick={() => copy(embedCode, "embed")} style={{ position: "absolute", top: 8, right: 8, padding: "4px 10px", background: copied === "embed" ? "#10B981" : "var(--brand)", color: "#fff", border: "none", borderRadius: 5, cursor: "pointer", fontSize: 11, fontWeight: 600, display: "flex", alignItems: "center", gap: 3 }}>
                 {copied === "embed" ? <><Check size={10} /> Copied!</> : "Copy"}
               </button>
             </div>
@@ -405,7 +405,7 @@ export default function FormsPage() {
             <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: "#1A1917" }}>Form Builder</h1>
             <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B7280" }}>Create intake forms, inspection checklists, surveys, and custom forms for your clients and team.</p>
           </div>
-          <button onClick={() => setCreatingNew(true)} style={{ background: "#5B9BD5", color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", cursor: "pointer", fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
+          <button onClick={() => setCreatingNew(true)} style={{ background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8, padding: "10px 18px", cursor: "pointer", fontWeight: 600, fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
             <Plus size={15} /> New Form
           </button>
         </div>

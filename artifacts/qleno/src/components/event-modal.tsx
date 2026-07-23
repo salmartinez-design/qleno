@@ -10,7 +10,7 @@ import { CalendarClock, CalendarDays, MapPin, MessageSquare, X, Check } from "lu
 import { getAuthHeaders } from "@/lib/auth";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
-const BRAND = "var(--brand, #00C9A0)";
+const BRAND = "var(--brand)";
 // [event-address 2026-07-15] Events default to the Phes office; the office can
 // edit it per event (Sal). Editable freeform string.
 const OFFICE_ADDRESS = "9850 S Cicero Ave, Oak Lawn, IL 60453";
@@ -234,7 +234,7 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
                     display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 6,
                     padding: "12px 12px", borderRadius: 12, cursor: "pointer", textAlign: "left",
                     border: `2px solid ${sel ? BRAND : "#E5E2DC"}`,
-                    background: sel ? "rgba(0,201,160,0.05)" : "#FFFFFF",
+                    background: sel ? "rgba(var(--brand-rgb),0.05)" : "#FFFFFF",
                   }}
                 >
                   <opt.Icon size={18} color={sel ? BRAND : "#6B7280"} />
@@ -261,7 +261,7 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
 
           {/* 1-on-1 privacy note */}
           {isOneOnOne && (
-            <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 10, background: "rgba(0,201,160,0.06)", border: "1px solid #CDEDE5", fontSize: 12.5, color: "#3A6B60", lineHeight: 1.4 }}>
+            <div style={{ marginBottom: 14, padding: "10px 12px", borderRadius: 10, background: "rgba(var(--brand-rgb),0.06)", border: "1px solid #CDEDE5", fontSize: 12.5, color: "#3A6B60", lineHeight: 1.4 }}>
               Creates a private 1-on-1 on this tech's profile — the questions, answers, and notes are <strong>owner-only</strong>. The board shows a neutral "1-on-1" block so the office schedules around it.
             </div>
           )}

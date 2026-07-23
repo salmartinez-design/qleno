@@ -19,7 +19,7 @@ import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { useToast } from "@/hooks/use-toast";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
-const BRAND = "#00C9A0";
+const BRAND = "var(--brand)";
 const INK = "#1A1917";
 const MUTED = "#9E9B94";
 const BG = "#F7F6F3";

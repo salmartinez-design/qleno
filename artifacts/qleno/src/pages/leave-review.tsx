@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { getAuthHeaders } from "@/lib/auth";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
-const BRAND = "#00C9A0";
+const BRAND = "var(--brand)";
 const INK = "#1A1917";
 const MUTED = "#9E9B94";
 const CARD = "#FFFFFF";

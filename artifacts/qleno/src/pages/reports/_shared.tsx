@@ -15,7 +15,7 @@ export const fmtSvc = (s: string) => (s || "").replace(/_/g, " ").replace(/\b\w/
 export const clr = {
   base: "#F7F6F3", card: "#FFFFFF", border: "#E5E2DC",
   text: "#1A1917", secondary: "#6B7280", muted: "#9E9B94",
-  brand: "#5B9BD5", green: "#10B981", amber: "#F59E0B", red: "#EF4444",
+  brand: "var(--brand)", green: "#10B981", amber: "#F59E0B", red: "#EF4444",
 };
 
 interface KpiCardProps { label: string; value: string; sub?: string; color?: string; }

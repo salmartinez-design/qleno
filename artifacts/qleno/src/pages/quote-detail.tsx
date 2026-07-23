@@ -32,7 +32,7 @@ const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }
   sent:     { label: "Sent",      color: "#1D4ED8", bg: "#DBEAFE" },
   viewed:   { label: "Viewed",    color: "#7C3AED", bg: "#EDE9FE" },
   accepted: { label: "Accepted",  color: "#15803D", bg: "#DCFCE7" },
-  booked:   { label: "Converted", color: "#5B9BD5", bg: "#EFF6FF" },
+  booked:   { label: "Converted", color: "var(--brand)", bg: "#EFF6FF" },
   expired:  { label: "Expired",   color: "#DC2626", bg: "#FEE2E2" },
 };
 
@@ -89,11 +89,11 @@ function EmailStatusCard({ row }: { row: any | null }) {
           ].map((s, i, arr) => (
             <div key={s.label} className="flex items-center" style={{ flex: i < arr.length - 1 ? 1 : "0 0 auto" }}>
               <div className="flex flex-col items-center" style={{ minWidth: 72 }}>
-                <div style={{ width: 12, height: 12, borderRadius: 999, background: s.done ? "#00C9A0" : "#E5E2DC" }} />
+                <div style={{ width: 12, height: 12, borderRadius: 999, background: s.done ? "var(--brand)" : "#E5E2DC" }} />
                 <span className="text-xs font-semibold mt-1.5" style={{ color: s.done ? "#1A1917" : "#9E9B94" }}>{s.label}</span>
                 <span className="text-[11px] text-[#9E9B94] mt-0.5">{s.at ? fmt(s.at) : (s.done ? "" : "—")}</span>
               </div>
-              {i < arr.length - 1 && <div style={{ flex: 1, height: 2, background: arr[i + 1].done ? "#00C9A0" : "#E5E2DC", margin: "0 4px", marginBottom: 28 }} />}
+              {i < arr.length - 1 && <div style={{ flex: 1, height: 2, background: arr[i + 1].done ? "var(--brand)" : "#E5E2DC", margin: "0 4px", marginBottom: 28 }} />}
             </div>
           ))}
         </div>
@@ -554,7 +554,7 @@ export default function QuoteDetailPage() {
               </Button>
             )}
             {(quote.status === "draft" || quote.status === "sent" || quote.status === "viewed") && (
-              <Button size="sm" className="gap-1.5 bg-[#5B9BD5] hover:bg-[#4a8ac4] text-white" onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending}>
+              <Button size="sm" className="gap-1.5 bg-[var(--brand)] hover:opacity-90 text-white" onClick={() => sendMutation.mutate()} disabled={sendMutation.isPending}>
                 <SendHorizonal className="w-3.5 h-3.5" />
                 {quote.status === "sent" || quote.status === "viewed" ? "Resend" : "Send Quote"}
               </Button>

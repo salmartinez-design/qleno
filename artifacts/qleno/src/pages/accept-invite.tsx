@@ -85,7 +85,7 @@ export default function AcceptInvitePage() {
           <h2 style={{ fontSize:20, fontWeight:700, color:'#1A1917', margin:'0 0 8px 0' }}>Invalid Invite</h2>
           <p style={{ fontSize:14, color:'#6B7280', margin:'0 0 20px 0' }}>{invalid}</p>
           <button onClick={() => navigate('/login')}
-            style={{ padding:'10px 20px', background:'var(--brand, #5B9BD5)', color:'#FFFFFF', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer' }}>
+            style={{ padding:'10px 20px', background:'var(--brand)', color:'#FFFFFF', border:'none', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer' }}>
             Go to Login
           </button>
         </div>
@@ -98,8 +98,8 @@ export default function AcceptInvitePage() {
       <div style={{ background:'#FFFFFF', borderRadius:12, padding:'40px 36px', width:'100%', maxWidth:440, boxShadow:'0 4px 24px rgba(0,0,0,0.08)' }}>
 
         <div style={{ textAlign:'center', marginBottom:28 }}>
-          <div style={{ width:52, height:52, borderRadius:12, background:'var(--brand-dim, #EBF4FF)', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }}>
-            <span style={{ fontSize:20, fontWeight:700, color:'var(--brand, #5B9BD5)' }}>C</span>
+          <div style={{ width:52, height:52, borderRadius:12, background:'var(--brand-dim, var(--brand-soft))', display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 16px' }}>
+            <span style={{ fontSize:20, fontWeight:700, color:'var(--brand)' }}>C</span>
           </div>
           <h2 style={{ fontSize:22, fontWeight:700, color:'#1A1917', margin:'0 0 6px 0' }}>
             Welcome, {invite?.first_name}!
@@ -166,7 +166,7 @@ export default function AcceptInvitePage() {
           )}
 
           <button type="submit" disabled={submitting || done}
-            style={{ width:'100%', height:44, background:'var(--brand, #5B9BD5)', color:'#FFFFFF', border:'none', borderRadius:8, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+            style={{ width:'100%', height:44, background:'var(--brand)', color:'#FFFFFF', border:'none', borderRadius:8, fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
             {submitting ? 'Creating Account…' : 'Create Account'}
           </button>
         </form>

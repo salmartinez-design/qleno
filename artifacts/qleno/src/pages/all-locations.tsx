@@ -65,7 +65,7 @@ export default function AllLocationsPage() {
           <>
             {/* Combined totals */}
             {data.combined && data.companies.length > 1 && (
-              <div style={{ ...card, marginBottom: 18, background: "var(--brand-dim, #EFF6FF)", border: "1px solid rgba(91,155,213,0.3)" }}>
+              <div style={{ ...card, marginBottom: 18, background: "var(--brand-dim, #EFF6FF)", border: "1px solid rgba(var(--brand-rgb),0.3)" }}>
                 <div style={{ fontSize: 13, fontWeight: 700, color: "var(--brand, #2D9B83)", marginBottom: 12, display: "flex", alignItems: "center", gap: 6 }}>
                   <TrendingUp size={16} /> Combined — all {data.companies.length} locations
                 </div>

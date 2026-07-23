@@ -38,12 +38,12 @@ async function apiFetch(path: string, opts?: RequestInit) {
 // fileToAvatarDataUrl helper (raw downscale, no framing) is retired.
 
 const ROLE_BADGES: Record<string, React.CSSProperties> = {
-  owner:      { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
+  owner:      { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
   admin:      { background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' },
   technician: { background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0' },
   office:     { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
   team_lead:  { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
-  super_admin:{ background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(91,155,213,0.3)' },
+  super_admin:{ background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
   accountant: { background: '#F0FAF7', color: '#0A5A48', border: '1px solid #B8EBDF' },
 };
 
@@ -1356,7 +1356,7 @@ export default function EmployeeProfilePage() {
                 style={{
                   display:'flex', alignItems:'center', gap:6,
                   padding:'7px 14px', borderRadius:8,
-                  border:'1px solid #00C9A0', background:'#00C9A0',
+                  border:'1px solid var(--brand)', background:'var(--brand)',
                   color:'#FFFFFF', fontSize:13, fontWeight:700,
                   cursor: restoring ? 'default' : 'pointer', fontFamily:'inherit',
                   opacity: restoring ? 0.6 : 1,
@@ -1436,7 +1436,7 @@ export default function EmployeeProfilePage() {
                       return (
                         <button key={o.l} type="button" onClick={() => setTermRehire(o.v)}
                           style={{ padding:'6px 14px', borderRadius:999, fontSize:12.5, fontWeight:600, fontFamily:'inherit', cursor:'pointer',
-                            border:`1px solid ${on ? '#00C9A0' : '#E5E2DC'}`, background:on ? '#F0FBF8' : '#FFFFFF', color:on ? '#0A6E5A' : '#6B6860' }}>
+                            border:`1px solid ${on ? 'var(--brand)' : '#E5E2DC'}`, background:on ? '#F0FBF8' : '#FFFFFF', color:on ? '#0A6E5A' : '#6B6860' }}>
                           {o.l}
                         </button>
                       );
@@ -1629,7 +1629,7 @@ export default function EmployeeProfilePage() {
                                 <div style={{ fontWeight:700, color:'#1A1917', fontSize:'15px' }}>{fmtRange(w.pay_period_start, w.pay_period_end)}</div>
                                 <div style={{ fontSize:'12px', color:'#9DA3B0', marginTop:'2px' }}>{Number(w.hours).toFixed(2)} hrs · published {String(w.published_at).slice(0, 10)}</div>
                               </div>
-                              <div style={{ fontWeight:800, color:'#00C9A0', fontSize:'18px' }}>{money(w.gross)}</div>
+                              <div style={{ fontWeight:800, color:'var(--brand)', fontSize:'18px' }}>{money(w.gross)}</div>
                             </button>
                             {open && (
                               <div style={{ borderTop:'1px solid #E5E2DC', padding:'14px 16px', background:'#F7F6F3' }}>
@@ -1637,7 +1637,7 @@ export default function EmployeeProfilePage() {
                                   {[['Base pay (jobs)', w.base], ['Tips', w.tips], ['Overtime', w.overtime], ['Bonus', w.bonus], ['Adjustments', w.adjustments], ['Gross', w.gross]].map(([lbl, val]: any, i: number) => (
                                     <div key={i} style={{ display:'flex', justifyContent:'space-between', borderBottom:'1px solid #E5E2DC', paddingBottom:'4px' }}>
                                       <span style={{ color:'#6B6860' }}>{lbl}</span>
-                                      <span style={{ fontWeight: lbl === 'Gross' ? 800 : 600, color: lbl === 'Gross' ? '#00C9A0' : '#1A1917' }}>{money(val)}</span>
+                                      <span style={{ fontWeight: lbl === 'Gross' ? 800 : 600, color: lbl === 'Gross' ? 'var(--brand)' : '#1A1917' }}>{money(val)}</span>
                                     </div>
                                   ))}
                                 </div>
@@ -2332,7 +2332,7 @@ export default function EmployeeProfilePage() {
                       {editErr && <div style={{ marginTop:12,padding:'9px 12px',borderRadius:10,background:'#FEF2F2',border:'1px solid #FECACA',color:'#B91C1C',fontSize:13 }}>{editErr}</div>}
                       <div style={{ display:'flex',justifyContent:'flex-end',gap:10,marginTop:20 }}>
                         <button onClick={() => setEditEntry(null)} disabled={editBusy} style={{ padding:'10px 18px',borderRadius:10,border:'1px solid #E5E2DC',background:'#FFFFFF',color:'#1A1917',fontWeight:700,fontSize:14,cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
-                        <button onClick={saveEntryEdit} disabled={editBusy} style={{ padding:'10px 20px',borderRadius:10,border:'none',background:'var(--brand, #00C9A0)',color:'#0A0E1A',fontWeight:800,fontSize:14,cursor: editBusy ? 'default' : 'pointer',fontFamily:'inherit' }}>{editBusy ? 'Saving…' : 'Save changes'}</button>
+                        <button onClick={saveEntryEdit} disabled={editBusy} style={{ padding:'10px 20px',borderRadius:10,border:'none',background:'var(--brand)',color:'#0A0E1A',fontWeight:800,fontSize:14,cursor: editBusy ? 'default' : 'pointer',fontFamily:'inherit' }}>{editBusy ? 'Saving…' : 'Save changes'}</button>
                       </div>
                     </div>
                   </div>
@@ -2623,7 +2623,7 @@ export default function EmployeeProfilePage() {
                                     style={{ width:'100%', resize:'vertical', padding:'8px 10px', border:'1px solid #E5E2DC', borderRadius:8, fontSize:13, fontFamily:"'Plus Jakarta Sans', sans-serif" }} />
                                   <div style={{ display:'flex', gap:8, marginTop:6 }}>
                                     <button onClick={() => submitFeedbackReply(s.id)} disabled={replySaving}
-                                      style={{ background:'var(--brand)', color:'#04241d', border:'none', borderRadius:6, padding:'5px 12px', fontSize:12, fontWeight:700, cursor:'pointer', opacity:replySaving?0.6:1 }}>
+                                      style={{ background:'var(--brand)', color:'#FFFFFF', border:'none', borderRadius:6, padding:'5px 12px', fontSize:12, fontWeight:700, cursor:'pointer', opacity:replySaving?0.6:1 }}>
                                       {replySaving ? 'Saving…' : 'Save reply'}
                                     </button>
                                     <button onClick={() => { setReplyOpenId(null); setReplyText(''); }}
@@ -2816,7 +2816,7 @@ export default function EmployeeProfilePage() {
             return (
               <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
                 {/* Source notice */}
-                <div style={{ background:'var(--brand-dim)', border:'1px solid rgba(0,201,160,0.2)', borderRadius:8, padding:'10px 16px', display:'flex', alignItems:'center', gap:10 }}>
+                <div style={{ background:'var(--brand-dim)', border:'1px solid rgba(var(--brand-rgb),0.2)', borderRadius:8, padding:'10px 16px', display:'flex', alignItems:'center', gap:10 }}>
                   <TrendingUp size={14} style={{ color:'var(--brand)', flexShrink:0 }}/>
                   <span style={{ fontSize:12, color:'var(--brand)', fontWeight:600 }}>
                     Payroll data imported from MaidCentral — {records.length} period{records.length!==1?'s':''} on file
@@ -3369,7 +3369,7 @@ export default function EmployeeProfilePage() {
               {/* Hidden print-only element */}
               <div id="qleno-print-root" style={{ display:'none' }}>
                 <div style={{ maxWidth:540,margin:'0 auto',fontFamily:"'Plus Jakarta Sans',sans-serif" }}>
-                  <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:28,paddingBottom:16,borderBottom:'2px solid #00C9A0' }}>
+                  <div style={{ display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:28,paddingBottom:16,borderBottom:'2px solid var(--brand)' }}>
                     <div>
                       <div style={{ fontSize:22,fontWeight:800,color:'#0A0E1A',letterSpacing:'-0.5px' }}>QLENO</div>
                       <div style={{ fontSize:11,color:'#9E9B94',marginTop:2 }}>PHES Cleaning LLC</div>
@@ -3381,7 +3381,7 @@ export default function EmployeeProfilePage() {
                   </div>
                   <div style={{ marginBottom:20 }}>
                     <div style={{ fontSize:18,fontWeight:800,color:'#1A1917' }}>{empName}</div>
-                    <div style={{ fontSize:13,fontWeight:600,color:'#00C9A0',marginTop:2 }}>{r.periodName}</div>
+                    <div style={{ fontSize:13,fontWeight:600,color:'var(--brand)',marginTop:2 }}>{r.periodName}</div>
                     <div style={{ fontSize:11,color:'#9E9B94',marginTop:2 }}>{r.start} — {r.end}</div>
                   </div>
                   <table style={{ width:'100%',borderCollapse:'collapse',fontSize:13 }}>
@@ -3389,7 +3389,7 @@ export default function EmployeeProfilePage() {
                       {rows.map(row => (
                         <tr key={row.label} style={{ borderBottom:'1px solid #F3F4F6' }}>
                           <td style={{ padding:'8px 0',color: row.bold ? '#1A1917' : '#6B7280',fontWeight: row.bold ? 700 : 400 }}>{row.label}</td>
-                          <td style={{ padding:'8px 0',textAlign:'right',fontWeight: row.bold ? 800 : 600,color: row.bold ? '#00C9A0' : '#1A1917' }}>{row.val}</td>
+                          <td style={{ padding:'8px 0',textAlign:'right',fontWeight: row.bold ? 800 : 600,color: row.bold ? 'var(--brand)' : '#1A1917' }}>{row.val}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -3565,9 +3565,9 @@ function PayMatrixPanel({ userId }: { userId: string }) {
           }}
           style={{
             flex: 1, padding: "9px 12px", borderRadius: 8, cursor: "pointer", textAlign: "center",
-            border: `1.5px solid ${type === opt ? "var(--brand, #00C9A0)" : "#E5E2DC"}`,
-            background: type === opt ? "rgba(0,201,160,0.10)" : "#FFFFFF",
-            color: type === opt ? "var(--brand, #00C9A0)" : "#1A1917",
+            border: `1.5px solid ${type === opt ? "var(--brand)" : "#E5E2DC"}`,
+            background: type === opt ? "rgba(var(--brand-rgb),0.10)" : "#FFFFFF",
+            color: type === opt ? "var(--brand)" : "#1A1917",
             fontSize: 13, fontWeight: 700, fontFamily: "'Plus Jakarta Sans', sans-serif",
           }}>
             {opt === "hourly" ? "Hourly" : "Commission %"}
@@ -3604,7 +3604,7 @@ function PayMatrixPanel({ userId }: { userId: string }) {
         </div>
       )}
       <button onClick={save} disabled={saving}
-        style={{ padding: "10px 22px", background: "var(--brand, #00C9A0)", color: "#FFFFFF", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: saving ? "wait" : "pointer" }}>
+        style={{ padding: "10px 22px", background: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: saving ? "wait" : "pointer" }}>
         {saving ? "Saving…" : "Save pay configuration"}
       </button>
       {toast && (

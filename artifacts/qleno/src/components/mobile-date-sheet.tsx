@@ -24,7 +24,7 @@ import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 const FF = "'Plus Jakarta Sans', sans-serif";
-const BRAND = "#00C9A0";
+const BRAND = "var(--brand)";
 const INK = "#1A1917";
 const MUTED = "#9E9B94";
 const BORDER = "#EEECE7";

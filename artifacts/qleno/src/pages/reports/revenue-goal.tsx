@@ -234,7 +234,7 @@ export default function RevenueGoalPage() {
         {/* Revenue Breakdown Cards */}
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 20 }}>
           <MetricCard label="Completed Revenue" value={fmt$(d.completed_revenue)} sub={`${d.completed_jobs} jobs closed`} />
-          <MetricCard label="Scheduled Revenue" value={fmt$(d.scheduled_revenue)} sub={`${d.scheduled_jobs} jobs booked`} subColor="#5B9BD5" />
+          <MetricCard label="Scheduled Revenue" value={fmt$(d.scheduled_revenue)} sub={`${d.scheduled_jobs} jobs booked`} subColor="var(--brand)" />
           {hasGoal && <MetricCard label="Revenue Gap" value={d.gap != null && d.gap > 0 ? fmt$(d.gap) : "—"} sub={d.gap != null && d.gap <= 0 ? "Goal reached!" : "needed to hit goal"} subColor={d.gap != null && d.gap <= 0 ? "#10B981" : clr.secondary} />}
         </div>
 

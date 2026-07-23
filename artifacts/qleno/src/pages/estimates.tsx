@@ -12,7 +12,7 @@ const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const INK = "#1A1917";
 const MUTE = "#6B7280";
 const BORDER = "#E5E2DC";
-const MINT = "#00C9A0";
+const MINT = "var(--brand)";
 
 async function apiFetch(path: string, opts: { method?: string; body?: any } = {}) {
   const { body, ...rest } = opts;

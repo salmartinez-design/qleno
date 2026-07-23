@@ -329,8 +329,8 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
             </select>
           )}
           <div className="inline-flex rounded-md border border-[#E5E2DC] overflow-hidden">
-            <button onClick={() => setView("month")} className={`text-xs font-semibold px-2.5 py-1 ${view === "month" ? "bg-[#00C9A0] text-white" : "text-[#1A1917] hover:bg-[#F7F6F3]"}`}>Month</button>
-            <button onClick={() => setView("list")} className={`text-xs font-semibold px-2.5 py-1 border-l border-[#E5E2DC] ${view === "list" ? "bg-[#00C9A0] text-white" : "text-[#1A1917] hover:bg-[#F7F6F3]"}`}>List</button>
+            <button onClick={() => setView("month")} className={`text-xs font-semibold px-2.5 py-1 ${view === "month" ? "bg-[var(--brand)] text-white" : "text-[#1A1917] hover:bg-[#F7F6F3]"}`}>Month</button>
+            <button onClick={() => setView("list")} className={`text-xs font-semibold px-2.5 py-1 border-l border-[#E5E2DC] ${view === "list" ? "bg-[var(--brand)] text-white" : "text-[#1A1917] hover:bg-[#F7F6F3]"}`}>List</button>
           </div>
           <button onClick={goToday} className="text-xs font-semibold text-[#1A1917] border border-[#E5E2DC] rounded-md px-2.5 py-1 hover:bg-[#F7F6F3]">Today</button>
           <button onClick={() => shiftMonth(-1)} aria-label="Previous month" className="p-1.5 rounded-md hover:bg-[#F7F6F3] text-gray-500"><ChevronLeft size={16} /></button>
@@ -377,7 +377,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
           return (
             <div
               key={key}
-              className={`relative min-h-[64px] rounded-lg border p-1.5 cursor-pointer ${isDropTarget ? "border-[#00C9A0] bg-[#E7F9F3] border-2" : isToday ? "border-[#00C9A0] bg-[#F0FDFB]" : "border-[#E5E2DC] bg-white"}`}
+              className={`relative min-h-[64px] rounded-lg border p-1.5 cursor-pointer ${isDropTarget ? "border-[var(--brand)] bg-[#E7F9F3] border-2" : isToday ? "border-[var(--brand)] bg-[#F0FDFB]" : "border-[#E5E2DC] bg-white"}`}
               style={{ zIndex: isOpen ? 30 : 1 }}
               onClick={() => { setOpenDay(prev => (prev === key ? null : key)); setMoveJobId(null); }}
               onDragOver={e => { if (dragJob) { e.preventDefault(); e.dataTransfer.dropEffect = "move"; } }}
@@ -444,7 +444,7 @@ export function AccountJobsCalendar({ accountId, initialPropertyId }: { accountI
                     </p>
                     <button
                       onClick={() => newJobOnDay(key)}
-                      className="inline-flex items-center gap-1 text-[11px] font-bold text-white bg-[#00C9A0] hover:bg-[#00b38f] rounded-md px-2 py-1"
+                      className="inline-flex items-center gap-1 text-[11px] font-bold text-white bg-[var(--brand)] hover:opacity-90 rounded-md px-2 py-1"
                       title="Open the New Job wizard on this date"
                     >
                       <Plus size={11} /> New job

@@ -838,7 +838,7 @@ function PreflightBanner({ from, to }: { from: string; to: string }) {
   if (issues.length === 0) {
     return (
       <div style={{ background: '#F0FDF9', border: '1px solid #99E6D3', borderRadius: 10, padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ width: 8, height: 8, borderRadius: 2, background: '#00C9A0', display: 'inline-block' }} />
+        <span style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--brand)', display: 'inline-block' }} />
         <span style={{ fontSize: 13, fontWeight: 700, color: '#0A6E5A' }}>Payroll looks clean — no issues to fix before you run it.</span>
       </div>
     );
@@ -925,8 +925,8 @@ function PayrollToRevenueChart() {
             <Tooltip formatter={(v: any, name: string) => [money0(Number(v)), name]} labelFormatter={(l: string) => `Week of ${l}`}
               contentStyle={{ fontSize: 12, borderRadius: 8, border: '1px solid #E5E2DC' }} />
             <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Line type="monotone" dataKey="revenue" name="Revenue" stroke="#5B9BD5" strokeWidth={2} dot={false} />
-            <Line type="monotone" dataKey="payroll" name="Payroll" stroke="#00C9A0" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="revenue" name="Revenue" stroke="var(--brand)" strokeWidth={2} dot={false} />
+            <Line type="monotone" dataKey="payroll" name="Payroll" stroke="var(--brand)" strokeWidth={2} dot={false} />
             {hasPrior && <Line type="monotone" dataKey="prior_revenue" name="Revenue (last yr)" stroke="#B5D4F4" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />}
             {hasPrior && <Line type="monotone" dataKey="prior_payroll" name="Payroll (last yr)" stroke="#9FE9D8" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />}
           </LineChart>
