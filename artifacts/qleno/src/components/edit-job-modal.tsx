@@ -315,6 +315,14 @@ export default function EditJobModal({
   // silent; nothing auto-sends (Maribel 6/30).
   const [notifyVia, setNotifyVia] = useState<"none" | "sms" | "email" | "both">("none");
   const [allowedHours, setAllowedHours] = useState<number>(initialAllowedHours);
+  // [addon-time 2026-07-23] Track whether the office TYPED an allowed-hours value
+  // this session. The pricing engine returns total_hours (base + every add-on's
+  // time_add_minutes — Oven +30, Windows +45…), but the modal used to ignore it
+  // and leave allowed hours as a hand-typed field. So adding an oven mid-job
+  // charged +$50 and never extended the job — the crew's time budget didn't
+  // move (Sal). Now add-on changes flow into allowed hours automatically, and a
+  // manual edit takes over from that point so we never fight the operator.
+  const hoursManuallySet = useRef(false);
   const [instructions, setInstructions] = useState(job.notes || "");
 
   const [selectedTechIds, setSelectedTechIds] = useState<number[]>(
@@ -968,6 +976,17 @@ export default function EditJobModal({
         const sigNow = JSON.stringify([scopeId, allowedHours, frequency, propertySqft, clientHourlyRate]);
         if (priceBaselineRef.current === null) {
           priceBaselineRef.current = { addonsTotal: addonsTotalNow, sig: sigNow };
+        }
+        // [addon-time 2026-07-23] Add-on minutes extend the job's allowed hours.
+        // The engine's total_hours already folds every selected add-on's
+        // time_add_minutes into base_hours; adopt it whenever the office hasn't
+        // hand-typed an hours value this session. This is what makes adding an
+        // oven mid-job actually lengthen the visit instead of only charging for
+        // it. Residential deep cleans often have no base hours (total_hours can
+        // be 0), so only ever GROW the budget here — never shrink a real one to 0.
+        const engineHours = Number(d.total_hours ?? 0);
+        if (!hoursManuallySet.current && engineHours > 0 && Math.abs(engineHours - allowedHours) > 0.001) {
+          setAllowedHours(engineHours);
         }
         if (priceBaselineRef.current.sig === sigNow) {
           // Service unchanged → agreed total + add-on delta.
@@ -1769,7 +1788,9 @@ export default function EditJobModal({
                       onFocus={e => e.target.select()}
                       onChange={e => {
                         const v = e.target.value.replace(/^0+(?=\d)/, "");
-                        setAllowedHours(parseFloat(v) || 0);
+                        hoursManuallySet.current = true;
+                        hoursManuallySet.current = true;
+                      setAllowedHours(parseFloat(v) || 0);
                       }}
                       style={INPUT} />
                   </div>
