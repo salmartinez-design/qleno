@@ -35,7 +35,11 @@ export function useTenantBrand() {
     }
   });
 
-  const brandColor = (company as any)?.brand_color || '#5B9BD5';
+  // [brand 2026-07-22] Falls back to Electric Mint, matching the :root default
+  // in index.css. It used to fall back to a blue, so any tenant with a null
+  // brand_color — and every render before /companies/me resolves — painted the
+  // app someone else's color for a beat.
+  const brandColor = (company as any)?.brand_color || '#00C9A0';
 
   useEffect(() => {
     applyTenantColor(brandColor);

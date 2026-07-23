@@ -23,7 +23,7 @@ export default function HotSheetPage() {
       <div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontWeight: 600 }}>{r.client_name}</span>
-          {r.is_first_time && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: "#5B9BD518", color: clr.brand, borderRadius: 4, padding: "1px 5px" }}>FIRST</span>}
+          {r.is_first_time && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: "var(--brand-dim)", color: clr.brand, borderRadius: 4, padding: "1px 5px" }}>FIRST</span>}
           {r.last_score !== null && r.last_score <= 2 && <span style={{ fontSize: 10, fontWeight: 700, backgroundColor: "#FEF2F2", color: clr.red, borderRadius: 4, padding: "1px 5px" }}>LOW SCORE</span>}
         </div>
         {r.address && <div style={{ fontSize: 11, color: clr.secondary, display: "flex", alignItems: "center", gap: 3, marginTop: 2 }}><MapPin size={10} />{formatAddress(r.address, r.city, r.state, r.zip)}</div>}

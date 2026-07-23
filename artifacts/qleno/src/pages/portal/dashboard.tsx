@@ -162,7 +162,7 @@ export default function PortalDashboardPage() {
     navigate(`/portal/${slug}/login`);
   }
 
-  const brandColor = company?.brand_color || '#5B9BD5';
+  const brandColor = company?.brand_color || '#00C9A0';
   const nextJob = jobs.upcoming[0];
   const lastJob = jobs.past[0];
 
