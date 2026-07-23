@@ -127,6 +127,12 @@ export async function ensureInvoiceForCompletedJob(
         or(
           eq(invoicesTable.job_id, jobId),
           sql`${invoicesTable.line_items} @> jsonb_build_array(jsonb_build_object('job_id', ${jobId}::int))`,
+          // [job-ids-preserve 2026-07-23] Second line-item carrier. A hand-edit
+          // that collapses several job lines into one `quantity: N` line keeps the
+          // other ids here instead of dropping them (lib/invoice-job-ids.ts), so a
+          // consolidated visit is still recognised as billed. jsonb `@>` treats
+          // arrays as subsets, so this matches the id anywhere in `job_ids`.
+          sql`${invoicesTable.line_items} @> jsonb_build_array(jsonb_build_object('job_ids', jsonb_build_array(${jobId}::int)))`,
         ),
       ))
       // Prefer the per-visit document when both carriers match, so callers that
