@@ -1021,6 +1021,13 @@ router.get("/detail", requireAuth, async (req, res) => {
         name: `${user.first_name} ${user.last_name}`.trim(),
         jobs: jobRows,
         additional_pay: addlByType,
+        // [addl-pay-detail 2026-07-23] The individual bonus/tip/reimbursement
+        // entries WITH their notes, so the office can see WHAT each one is —
+        // additional_pay only carries type totals (Bonus $160), which don't say
+        // what the bonus was for (Sal: "no breakdown"). One row per entry.
+        additional_pay_items: userAddlPay.map(p => ({
+          type: p.type, amount: parseFloat(String(p.amount || 0)), notes: p.notes ?? null,
+        })),
         // [Model A — Step 5] commission_by_branch is the "where did your
         // commission come from" sub-table the UI renders inside each
         // employee's expanded panel.
@@ -1071,6 +1078,11 @@ router.get("/detail", requireAuth, async (req, res) => {
         name: `${user.first_name} ${user.last_name}`.trim(),
         jobs: [],
         additional_pay: addlByType,
+        // [addl-pay-detail 2026-07-23] Individual entries + notes (same as the
+        // main builder) for the no-completed-job path.
+        additional_pay_items: addlPay.filter(p => p.user_id === uid).map(p => ({
+          type: p.type, amount: parseFloat(String(p.amount || 0)), notes: p.notes ?? null,
+        })),
         commission_by_branch: [],
         mileage_legs: legsByUser.get(uid) || [],
         totals: {
