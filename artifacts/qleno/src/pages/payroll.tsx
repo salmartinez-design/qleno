@@ -416,7 +416,12 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
     payroll: a.payroll + Number(e.totals?.grand_total ?? e.totals?.commission ?? 0),
     allowed: a.allowed + Number(e.totals?.hrs_scheduled || 0),
     worked: a.worked + Number(e.totals?.hrs_worked || 0),
-  }), { revenue: 0, commission: 0, payroll: 0, allowed: 0, worked: 0 });
+    // [payroll-mileage 2026-07-23] Mileage accrued this period across the team.
+    // totals.mileage is the driving reimbursement earned (every non-discarded
+    // leg); applied mileage is already inside grand_total, so this is shown as
+    // its own figure, never re-added to Total Pay.
+    mileage: a.mileage + Number(e.totals?.mileage || 0),
+  }), { revenue: 0, commission: 0, payroll: 0, allowed: 0, worked: 0, mileage: 0 });
   const money2 = (n: number) => `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   const isSingleDay = period.start === period.end;
   // Payroll as % of revenue — the labor-cost target to "stay under" (MC parity).
@@ -435,10 +440,13 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
       </div>
 
       {employees.length > 0 && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 1, background: '#E5E2DC', border: '1px solid #E5E2DC', borderRadius: 14, overflow: 'hidden' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, background: '#E5E2DC', border: '1px solid #E5E2DC', borderRadius: 14, overflow: 'hidden' }}>
           {[
             { k: isSingleDay ? 'Billed · this day' : 'Billed', v: money2(dayTotals.revenue) },
             { k: 'Commission', v: money2(dayTotals.commission), accent: true },
+            // [payroll-mileage 2026-07-23] Team mileage reimbursement for the
+            // period, alongside Commission so the office sees both pay components.
+            { k: 'Mileage', v: money2(dayTotals.mileage), color: '#0A6E8A' },
             { k: 'Labor %', v: payrollPct != null ? `${payrollPct}%` : '—', color: payrollPctColor },
             { k: 'Allowed hrs', v: dayTotals.allowed.toFixed(1) },
             { k: 'Worked hrs', v: dayTotals.worked.toFixed(1) },
@@ -483,6 +491,12 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
           { label: 'Worked', value: hoursWorked.toFixed(1) },
           ...(eff != null ? [{ label: 'Eff', value: `${eff}%` }] : []),
           { label: 'Billed', value: money(billedTotal) },
+          // [payroll-mileage 2026-07-23] Per-employee mileage on the collapsed row
+          // (Sal: "can't see the mileage on the payroll breakdown per employee").
+          // totals.mileage is what they drove this period; shown as its own figure
+          // — reimbursement, applied when the office reviews it, not folded into
+          // Total Pay so the "no money until reviewed" rule holds.
+          ...(Number(emp.totals?.mileage || 0) > 0 ? [{ label: 'Mileage', value: money(Number(emp.totals.mileage)), color: '#0A6E8A' }] : []),
           { label: 'Total Pay', value: money(emp.totals.grand_total), strong: true, accent: true },
         ];
         return (
@@ -507,7 +521,7 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                 {rollup.map((s: any) => (
                   <div key={s.label} style={{ textAlign: 'right', minWidth: 64 }}>
                     <p style={{ fontSize: 10, color: '#9E9B94', margin: '0 0 1px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{s.label}</p>
-                    <p style={{ fontSize: 14, fontWeight: s.strong ? 800 : 700, color: s.accent ? 'var(--brand)' : '#1A1917', margin: 0 }}>{s.value}</p>
+                    <p style={{ fontSize: 14, fontWeight: s.strong ? 800 : 700, color: s.accent ? 'var(--brand)' : (s.color ?? '#1A1917'), margin: 0 }}>{s.value}</p>
                   </div>
                 ))}
               </div>
