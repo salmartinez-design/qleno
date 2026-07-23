@@ -207,12 +207,16 @@ export async function stampParkingFeeOnJob(
   resolved: ResolvedParkingAddon,
   txOrDb: any = db,
 ): Promise<void> {
+  // [parking-commission 2026-07-23] Parking is a pass-through fee — the tech
+  // never earns a commission % on it. Stamp affects_commission=false explicitly
+  // (the column already defaults false, but be explicit so a future default
+  // change can't silently make parking commissionable again).
   await txOrDb.execute(sql`
     INSERT INTO job_add_ons
-      (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id)
+      (job_id, add_on_id, quantity, unit_price, subtotal, pricing_addon_id, affects_commission)
     VALUES
       (${jobId}, ${resolved.add_on_id}, 1, ${resolved.unit_price},
-       ${resolved.unit_price}, ${resolved.pricing_addon_id})
+       ${resolved.unit_price}, ${resolved.pricing_addon_id}, false)
     ON CONFLICT (job_id, add_on_id) DO NOTHING
   `);
 }

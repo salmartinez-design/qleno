@@ -3605,6 +3605,32 @@ router.patch("/:id", requireAuth, async (req, res) => {
         } catch (e) {
           console.warn(`[commercial-revenue] billed_amount recompute failed for job ${jobId}:`, e);
         }
+      } else if (base_fee !== undefined && String(base_fee) !== String(before.base_fee ?? "")) {
+        // [commission-base-stale 2026-07-23] A RESIDENTIAL price edit refreshed
+        // base_fee + billed_amount but left the STORED commission_base — which the
+        // commission engine reads — untouched, so the tech's fee split kept paying
+        // off the OLD price. Molly Rippert: billed edited $240 → $300, job card and
+        // invoice showed $300, but the Time Clock paid Jose's commission off the
+        // stale ~$240 base.
+        //
+        // We do NOT full-recompute residential commission_base: for residential,
+        // base_fee is all-in and commission_base = base + commissionable add-ons,
+        // so recompute-from-scratch would risk double-counting add-ons and
+        // OVERpaying. Instead move commission_base by exactly the base-price delta
+        // — the add-on/mod portions are preserved, only the stale base tracks the
+        // edit. NULL commission_base is left for the next real recompute to set.
+        try {
+          const delta = Number(base_fee) - Number(before.base_fee ?? 0);
+          if (Number.isFinite(delta) && delta !== 0) {
+            await db.execute(sql`
+              UPDATE jobs
+                 SET commission_base = GREATEST(0, (commission_base)::numeric + ${delta})
+               WHERE id = ${jobId} AND company_id = ${companyId}
+                 AND commission_base IS NOT NULL`);
+          }
+        } catch (e) {
+          console.warn(`[commission-base-stale] residential commission_base resync failed for job ${jobId}:`, e);
+        }
       }
     }
 
