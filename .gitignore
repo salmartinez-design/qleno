@@ -57,3 +57,7 @@ migration/
 # Per-developer tool config (contains absolute paths)
 .claude/*
 !.claude/settings.json
+
+# Ad-hoc investigation scripts — one-off queries and void/rollback SQL that
+# run against the production DATABASE_URL. Never belongs in the repo.
+scratchpad/
