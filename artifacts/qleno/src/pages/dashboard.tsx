@@ -789,6 +789,37 @@ function useLeadReport(win: { from: string; to: string } | null) {
   return data;
 }
 
+// [referral-window 2026-07-23] "How they heard about us" gets its OWN trailing
+// 90-day window instead of following the period selector.
+//
+// On a Today view the selector window is a single day, and a single day almost
+// always has zero new leads — so the card sat on "No leads in this window"
+// permanently and read as broken. Referral source is a slow marketing signal,
+// not a daily operational one: nobody makes a decision off "who heard about us
+// on Tuesday". Ninety days is enough sample for the mix to mean something.
+// The card states its own window in the subhead so it can't be misread as
+// belonging to the period above it.
+const REFERRAL_WINDOW_DAYS = 90;
+function useReferralReport(win: { from: string; to: string } | null) {
+  const [data, setData] = useState<any>(null);
+  const to = win?.to ?? null;
+  useEffect(() => {
+    if (!to) return;
+    let alive = true;
+    // Parse as local Y/M/D — `new Date('2026-07-23')` is UTC midnight and would
+    // slide the window a day west of Central.
+    const [y, m, d] = to.split('-').map(Number);
+    const start = new Date(y, m - 1, d);
+    start.setDate(start.getDate() - (REFERRAL_WINDOW_DAYS - 1));
+    const p = (n: number) => String(n).padStart(2, '0');
+    const from = `${start.getFullYear()}-${p(start.getMonth() + 1)}-${p(start.getDate())}`;
+    fetchJsonWithRetry(`/api/lead-analytics/report?period=custom&from=${from}&to=${to}`)
+      .then(j => { if (alive && j) setData(j); });
+    return () => { alive = false; };
+  }, [to]);
+  return data;
+}
+
 // ── Live weather ─────────────────────────────────────────────────────────────
 // [dashboard-weather 2026-07-22] Operations input, not decoration: snow and
 // heavy rain move drive time, stretch arrival windows and drive same-day
@@ -1208,25 +1239,33 @@ const REFERRAL_LABEL: Record<string, string> = {
 const prettyReferral = (s: string | null) =>
   !s ? 'Not asked' : (REFERRAL_LABEL[s] || s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
 
-// Same discipline as SOURCE_COLOR: one mint→night family, no pie-chart rainbow,
-// and the ordering carries meaning rather than being decorative. Word of mouth
-// gets Qleno Night — the darkest, most distinguished step — because it's the
-// free channel and it must never be mistaken for a paid one. Paid search takes
-// Electric Mint. Everything else steps down through the ramp; "Not asked" gets
-// the border tone so a wall of unanswered reads as absence, not as a channel.
+// [referral-colors 2026-07-23] These follow the CHANNELS' OWN brand marks, not
+// the Qleno ramp — Sal's call: "Google should be Yellow, Yelp Red, FB Blue,
+// Referral Green".
+//
+// This is the one deliberate exception to the one-palette rule, and it earns it:
+// nobody has to learn a legend when Google is Google-yellow and Yelp is
+// Yelp-red. The mint ramp that used to be here made every channel a shade of
+// the same green, which is exactly what made the card unreadable at a glance.
+// Each hex is the real mark desaturated a step so it sits on the warm #F7F6F3
+// page instead of glowing off it.
+//
+// Channels that are OURS (our website, door hangers, yard signs) stay in the
+// Qleno palette — they have no outside brand to borrow. "Not asked" keeps the
+// border tone so a wall of unanswered reads as absence, not as a channel.
 //
 // Encodes DATA, so it stays literal and is exempt from the var(--brand) sweep —
 // a tenant's brand_color must not repaint "Friend or family".
 const REFERRAL_COLOR: Record<string, string> = {
-  client_referral: '#0A0E1A',
-  google:          '#00C9A0',
-  yelp:            '#2E6B5E',
-  facebook:        '#4C8C7B',
-  instagram:       '#4C8C7B',
-  nextdoor:        '#6FA79A',
-  website:         '#8FB8AC',
-  door_hanger:     '#A9CCC2',
-  yard_sign:       '#C3DDD6',
+  google:          '#E0A233', // Google yellow
+  yelp:            '#C4362E', // Yelp red
+  facebook:        '#3B5C9F', // Facebook blue
+  client_referral: '#0F7A63', // word of mouth — the free channel, our green
+  instagram:       '#B84A8A', // Instagram magenta
+  nextdoor:        '#6E9440', // Nextdoor green, olive-shifted off the referral green
+  website:         '#2F3646', // ours
+  door_hanger:     '#C2673F', // ours
+  yard_sign:       '#D9A88A', // ours
   other:           '#C8C4BC',
   unasked:         '#E5E2DC',
 };
@@ -1251,14 +1290,18 @@ function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: stri
         <button onClick={() => navigate('/leads/reports')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Full report →</button>
       </div>
       <p style={{ fontSize: 11, color: 'var(--ink-faint)', margin: '0 0 12px', fontFamily: FF }}>
+        {/* [referral-window 2026-07-23] Always name the 90 days. This card is
+            the one thing on the page that does NOT follow the period selector,
+            so leaving the window implicit would let a Today view be read as
+            "nobody heard about us today". */}
         {total > 0
-          ? `${answered} of ${total} lead${total === 1 ? '' : 's'} told us`
-          : 'referral source, not entry channel'}
+          ? `last 90 days · ${answered} of ${total} lead${total === 1 ? '' : 's'} told us`
+          : 'last 90 days · referral source, not entry channel'}
       </p>
       {report == null ? (
         <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>Loading…</p>
       ) : rows.length === 0 ? (
-        <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>No leads in this window.</p>
+        <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>No leads in the last 90 days.</p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FF }}>
           <thead>
@@ -1398,6 +1441,7 @@ export default function Dashboard() {
   const [period, setPeriod] = useState<Period>('today');
   const summary = useSummary(period, activeBranchId);
   const leadReport = useLeadReport(summary?.window ?? null);
+  const referralReport = useReferralReport(summary?.window ?? null);
   const booked = useBooked(period, activeBranchId);
   const weather = useWeather(activeBranchId);
 
@@ -1579,7 +1623,7 @@ export default function Dashboard() {
               <ConversionCard report={leadReport} periodLabel={summary?.label ?? 'this week'} navigate={navigate} />
               <BookedCard booked={booked} navigate={navigate} />
             </div>
-            <LeadSourcesCard report={leadReport} navigate={navigate} />
+            <LeadSourcesCard report={referralReport} navigate={navigate} />
           </div>
         </div>
 
