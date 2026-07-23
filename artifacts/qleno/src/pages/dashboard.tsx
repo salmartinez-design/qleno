@@ -70,7 +70,8 @@ function DeltaBadge({ delta, suffix }: { delta: number | null; suffix?: string }
 function useToday(branchId: number | "all") {
   const [data, setData] = useState<any>(null);
   useEffect(() => {
-    setData(null);
+    // Holds the previous branch's tiles until the new ones land — same
+    // no-blank-on-refetch rule as the period hooks below.
     let alive = true;
     const qs = branchId !== "all" ? `?branch_id=${branchId}` : "";
     const load = async () => {
@@ -749,11 +750,18 @@ function fmtRange(from: string, to: string) {
   return `${mon(a)} ${a.getDate()} – ${mon(b)} ${b.getDate()}`;
 }
 
+// [period-jolt 2026-07-23] These hooks used to blank their data on every period
+// change. That made each card collapse to a short "Loading…" body and then
+// spring back once the fetch landed — the page visibly jumped twice on every
+// Today/Week/Month tap. They now HOLD the previous window's values until the new
+// ones arrive, so the swap is a single in-place update at a stable height. The
+// values are briefly one window stale, but the label, the range and the numbers
+// all come from the same payload, so the card is never internally inconsistent —
+// it just shows the old window for a beat instead of showing nothing.
 function useSummary(period: Period, branchId: number | 'all') {
   const [data, setData] = useState<Summary | null>(null);
   useEffect(() => {
     let alive = true;
-    setData(null);
     const b = branchId !== 'all' ? `&branch_id=${branchId}` : '';
     fetchJsonWithRetry(`/api/dashboard/summary?period=${period}${b}`)
       .then(j => { if (alive && j) setData(j); });
@@ -771,7 +779,6 @@ function useLeadReport(win: { from: string; to: string } | null) {
   useEffect(() => {
     if (!win) return;
     let alive = true;
-    setData(null);
     fetchJsonWithRetry(`/api/lead-analytics/report?period=custom&from=${win.from}&to=${win.to}`)
       .then(j => { if (alive && j) setData(j); });
     return () => { alive = false; };
@@ -851,16 +858,12 @@ function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: 
         {weather?.available && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
             <span style={{ color: '#FFFFFF', display: 'flex' }}><WeatherGlyph code={weather.code} /></span>
-            <div>
-              <p style={{ fontSize: 14, fontWeight: 600, margin: 0, fontFamily: FF, color: '#FFFFFF' }}>
-                {weather.temp}° · {weather.condition}
-              </p>
-              <p style={{ fontSize: 11, margin: '2px 0 0', fontFamily: FF, color: 'rgba(255,255,255,0.72)' }}>
-                {/* Precip % removed at Sal's call — a number nobody acts on.
-                    The rough-day pill below is the part that changes a decision. */}
-                H {weather.high}° / L {weather.low}° · {weather.wind_mph} mph · {weather.place}
-              </p>
-            </div>
+            {/* Current temp + condition only. Precip %, then the H/L · wind ·
+                city line, were both cut at Sal's call — numbers nobody acts on.
+                The rough-day pill below is the part that changes a decision. */}
+            <p style={{ fontSize: 14, fontWeight: 600, margin: 0, fontFamily: FF, color: '#FFFFFF' }}>
+              {weather.temp}° · {weather.condition}
+            </p>
           </div>
         )}
         {/* Weather earns its space by saying what it means for the day. */}
@@ -907,9 +910,6 @@ function HeroBand({ greeting, todayDate, summary, period, setPeriod, weather }: 
         </div>
         <span style={{ fontSize: 12, marginTop: 8, color: 'rgba(255,255,255,0.78)', fontFamily: FF }}>
           {summary ? `${summary.revenue_booked.jobs} jobs on the schedule` : 'Loading…'}
-        </span>
-        <span style={{ fontSize: 11, marginTop: 4, color: 'rgba(255,255,255,0.55)', fontFamily: FF }}>
-          value of the work scheduled in this window
         </span>
       </div>
 
@@ -1035,7 +1035,6 @@ function useBooked(period: Period, branchId: number | 'all') {
   const [data, setData] = useState<Booked | null>(null);
   useEffect(() => {
     let alive = true;
-    setData(null);
     const b = branchId !== 'all' ? `&branch_id=${branchId}` : '';
     fetchJsonWithRetry(`/api/dashboard/booked?period=${period}${b}`)
       .then(j => { if (alive && j) setData(j); });
