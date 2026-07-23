@@ -430,8 +430,17 @@ export function computePerTechCommissionRows(input: {
       //   - a hand-set final_pay override is paid verbatim (independent).
       // Penny-exact: the emitted slices sum to the pool minus any hourly/override
       // slots (which pay on their own basis).
-      const shares = splitPoolEvenly(pool, techs.length);
-      techs.forEach((t, i) => {
+      // [trainee-split 2026-07-23] Split the pool by the NON-hourly cleaners only,
+      // so an hourly trainee's slot isn't carved out and then left unpaid — the
+      // veterans divide the whole pool between them. Mirrors the post-clock
+      // fee-split denominator. An override tech is paid verbatim and doesn't
+      // consume a pool slot.
+      const poolTechs = techs.filter(t =>
+        !overrides.has(`${t.user_id}:${j.id}`) &&
+        (asPayType(t.pay_type) ?? defaults.payType) !== "hourly");
+      const shares = splitPoolEvenly(pool, poolTechs.length || 1);
+      let si = 0;
+      techs.forEach((t) => {
         const overrideKey = `${t.user_id}:${j.id}`;
         if (overrides.has(overrideKey)) {
           pushRow(t.user_id, Math.round((overrides.get(overrideKey) as number) * 100) / 100);
@@ -439,13 +448,28 @@ export function computePerTechCommissionRows(input: {
         }
         const payType = asPayType(t.pay_type) ?? defaults.payType;
         if (payType === "hourly") return;
-        pushRow(t.user_id, shares[i]);
+        pushRow(t.user_id, shares[si++] ?? 0);
       });
       continue;
     }
 
-    const ctx: JobPayContext = { baseFee, allowedHours, totalTechHours };
-    for (const t of techs) emitTech(t, ctx, hoursOf(t.user_id));
+    // [trainee-split 2026-07-23] The fee-split POOL divides only among the
+    // fee-split cleaners' hours — an hourly cleaner (a trainee paid $X/hr) is NOT
+    // in the denominator, so the veterans split the WHOLE commission pool between
+    // them and the trainee is paid hourly on top (Sal: "send a trainee ... pay
+    // them by the hour ... the 32% ... distributed among the veteran employees").
+    // Before, an hourly tech's hours ddiluted the veterans' shares and that slice
+    // of the pool simply evaporated — paid to no one. Only fee-split techs get a
+    // fee-split denominator; allowed_hours/hourly techs are unchanged (their pay
+    // doesn't come from this pool).
+    const effPayType = (t: JobTechRow) => asPayType(t.pay_type) ?? defaults.payType;
+    const feeSplitHours = techs.reduce(
+      (s, t) => s + (effPayType(t) === "fee_split" ? hoursOf(t.user_id) : 0), 0);
+    for (const t of techs) {
+      const denom = effPayType(t) === "fee_split" ? feeSplitHours : totalTechHours;
+      const ctx: JobPayContext = { baseFee, allowedHours, totalTechHours: denom };
+      emitTech(t, ctx, hoursOf(t.user_id));
+    }
   }
   return out;
 }
@@ -541,11 +565,20 @@ export function computePerTechPayRowsDetailed(input: {
     // commercial to the full billed amount). Mirror of the main path fix
     // (Sal 2026-07-04).
     const commissionBase = n(j.commission_base);
-    const ctx: JobPayContext = {
+    const baseCtx = {
       baseFee: commissionBase ?? Math.max(n(j.base_fee) ?? 0, n(j.billed_amount) ?? 0),
       allowedHours: n(j.allowed_hours) ?? 0,
-      totalTechHours,
     };
+    // [trainee-split 2026-07-23] Fee-split denominator excludes hourly (trainee)
+    // techs, so the SCREEN matches the paycheck engine (both must agree). See the
+    // matching block in computePerTechCommissionRows.
+    const effPayType = (t: JobTechRow) => asPayType(t.pay_type) ?? defaults.payType;
+    const feeSplitHours = techs.reduce(
+      (s, t) => s + (effPayType(t) === "fee_split" ? hoursOf(t.user_id) : 0), 0);
+    const ctxFor = (t: JobTechRow): JobPayContext => ({
+      ...baseCtx,
+      totalTechHours: effPayType(t) === "fee_split" ? feeSplitHours : totalTechHours,
+    });
 
     for (const t of techs) {
       const key = `${t.user_id}:${j.id}`;
@@ -580,7 +613,7 @@ export function computePerTechPayRowsDetailed(input: {
       // (3) Normal per-tech pay type.
       resolved.deductionPct = n(t.pay_deduction_pct) ?? 0;
       resolved.deductionFlat = n(t.pay_deduction_flat) ?? 0;
-      const row = computeTechPay(ctx, resolved);
+      const row = computeTechPay(ctxFor(t), resolved);
       let label: string;
       let paidHours = 0;
       // [payroll-label-trim 2026-07-16] This label feeds ONLY the columnar
