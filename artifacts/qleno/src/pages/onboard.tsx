@@ -102,7 +102,7 @@ function SignaturePad({ onSignature }: { onSignature: (data: string, name: strin
               padding: "6px 14px", fontSize: 12, fontWeight: 600,
               borderRadius: 6, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif",
               background: mode === m ? "var(--brand)" : "#F7F6F3",
-              color: mode === m ? "#fff" : "#6B7280",
+              color: mode === m ? "#fff" : "#6B6860",
               border: `1px solid ${mode === m ? "var(--brand)" : "#E5E2DC"}`,
             }}
           >
@@ -124,7 +124,7 @@ function SignaturePad({ onSignature }: { onSignature: (data: string, name: strin
             onTouchMove={draw}
             onTouchEnd={endDraw}
             style={{
-              border: "1px solid #E5E2DC", borderRadius: 8, background: "#FAFAF9",
+              border: "1px solid #E5E2DC", borderRadius: 8, background: "#F7F6F3",
               width: "100%", cursor: "crosshair", touchAction: "none",
             }}
           />
@@ -132,7 +132,7 @@ function SignaturePad({ onSignature }: { onSignature: (data: string, name: strin
             <span style={{
               position: "absolute", top: "50%", left: "50%",
               transform: "translate(-50%, -50%)",
-              fontSize: 13, color: "#D1D5DB", pointerEvents: "none",
+              fontSize: 13, color: "#E5E2DC", pointerEvents: "none",
             }}>Sign here</span>
           )}
           {hasDrawn && (
@@ -153,7 +153,7 @@ function SignaturePad({ onSignature }: { onSignature: (data: string, name: strin
               width: "100%", padding: "12px 16px",
               border: "1px solid #E5E2DC", borderRadius: 8,
               fontSize: 22, fontFamily: "'Dancing Script', cursive, serif",
-              color: "#1A1917", background: "#FAFAF9", boxSizing: "border-box",
+              color: "#1A1917", background: "#F7F6F3", boxSizing: "border-box",
             }}
           />
           <p style={{ fontSize: 11, color: "#9E9B94", margin: "4px 0 0" }}>Your typed name serves as your legal signature.</p>
@@ -255,7 +255,7 @@ function DocView({
         style={{
           maxHeight: 420, overflowY: "auto", border: "1px solid #E5E2DC",
           borderRadius: 10, padding: "24px 28px", background: "#fff",
-          fontSize: 14, lineHeight: 1.7, color: "#374151",
+          fontSize: 14, lineHeight: 1.7, color: "#1A1917",
         }}
       >
         <div dangerouslySetInnerHTML={{ __html: docContent }}/>
@@ -290,10 +290,10 @@ function DocView({
           disabled={!scrolled}
           style={{ marginTop: 2, accentColor: "var(--brand)", width: 16, height: 16, flexShrink: 0 }}
         />
-        <span style={{ fontSize: 13, color: "#374151" }}>I have read and agree to this document.</span>
+        <span style={{ fontSize: 13, color: "#1A1917" }}>I have read and agree to this document.</span>
       </label>
 
-      {error && <p style={{ fontSize: 12, color: "#DC2626", background: "#FEE2E2", borderRadius: 6, padding: "8px 12px", margin: 0 }}>{error}</p>}
+      {error && <p style={{ fontSize: 12, color: "#B3261E", background: "#FCEBEA", borderRadius: 6, padding: "8px 12px", margin: 0 }}>{error}</p>}
 
       <button
         onClick={handleSubmit}
@@ -354,7 +354,7 @@ export default function OnboardPage() {
     return (
       <div style={containerStyle}>
         <div style={{ width: 480, textAlign: "center", paddingTop: 80 }}>
-          <p style={{ fontSize: 14, color: "#6B7280" }}>Loading your documents...</p>
+          <p style={{ fontSize: 14, color: "#6B6860" }}>Loading your documents...</p>
         </div>
       </div>
     );
@@ -370,7 +370,7 @@ export default function OnboardPage() {
           <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1A1917", marginBottom: 12 }}>
             {isExpired ? "Link Expired" : "Not Found"}
           </h2>
-          <p style={{ fontSize: 14, color: "#6B7280", lineHeight: 1.6 }}>
+          <p style={{ fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>
             {isExpired
               ? `This onboarding link has expired. Please contact ${companyName} to receive a new link.`
               : "This onboarding link could not be found. Please contact your employer for assistance."}
@@ -388,7 +388,7 @@ export default function OnboardPage() {
             <Check size={28} color={brand}/>
           </div>
           <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", marginBottom: 8 }}>You're all set!</h2>
-          <p style={{ fontSize: 14, color: "#6B7280", lineHeight: 1.6 }}>
+          <p style={{ fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>
             Your documents have been submitted to {data.company_name}. Welcome to the team!
           </p>
         </div>

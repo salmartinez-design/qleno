@@ -14,10 +14,10 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
 }
 
 const RISK_COLORS: Record<string, { bg: string; text: string; border: string; label: string }> = {
-  low:      { bg: "#DCFCE7", text: "#166534", border: "#86EFAC", label: "Low Risk" },
-  medium:   { bg: "#FEF3C7", text: "#92400E", border: "#FCD34D", label: "Watch" },
-  high:     { bg: "#FEE2E2", text: "#991B1B", border: "#FCA5A5", label: "At Risk" },
-  critical: { bg: "#FEE2E2", text: "#7F1D1D", border: "#EF4444", label: "Flight Risk" },
+  low:      { bg: "#E6F6F1", text: "#0F7A63", border: "#86EFAC", label: "Low Risk" },
+  medium:   { bg: "#FDF3E4", text: "#B45309", border: "#F2DFB8", label: "Watch" },
+  high:     { bg: "#FCEBEA", text: "#B3261E", border: "#FCA5A5", label: "At Risk" },
+  critical: { bg: "#FCEBEA", text: "#7F1D1D", border: "#B3261E", label: "Flight Risk" },
 };
 
 export default function RetentionBoardPage() {
@@ -44,7 +44,7 @@ export default function RetentionBoardPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>Tech Retention Board</h1>
-            <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>Monitor flight risk for your cleaning technicians</p>
+            <p style={{ fontSize: 13, color: "#6B6860", margin: 0 }}>Monitor flight risk for your cleaning technicians</p>
           </div>
           <button onClick={() => calcMut.mutate()} disabled={calcMut.isPending}
             style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
@@ -112,7 +112,7 @@ export default function RetentionBoardPage() {
                     <td style={{ padding: "14px 20px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ height: 6, width: 80, backgroundColor: "#F0EEE9", borderRadius: 3, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${s.flight_risk_score}%`, backgroundColor: s.flight_risk_score > 75 ? "#EF4444" : s.flight_risk_score > 50 ? "#F59E0B" : "#22C55E", borderRadius: 3 }} />
+                          <div style={{ height: "100%", width: `${s.flight_risk_score}%`, backgroundColor: s.flight_risk_score > 75 ? "#B3261E" : s.flight_risk_score > 50 ? "#F59E0B" : "#22C55E", borderRadius: 3 }} />
                         </div>
                         <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{s.flight_risk_score}</span>
                       </div>

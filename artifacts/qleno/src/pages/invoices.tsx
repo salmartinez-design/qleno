@@ -24,15 +24,15 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
 }
 
 const STATUS_STYLES: Record<string, React.CSSProperties> = {
-  paid:       { background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0" },
-  overdue:    { background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA" },
-  draft:      { background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB" },
-  sent:       { background: "#DBEAFE", color: "#1E40AF", border: "1px solid #BFDBFE" },
-  void:       { background: "#F3F4F6", color: "#9CA3AF", border: "1px solid #E5E7EB" },
-  superseded: { background: "#F5F3FF", color: "#6D28D9", border: "1px solid #DDD6FE" },
+  paid:       { background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE" },
+  overdue:    { background: "#FCEBEA", color: "#B3261E", border: "1px solid #F1D0CB" },
+  draft:      { background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC" },
+  sent:       { background: "#EFEFF2", color: "#2F3646", border: "1px solid #DEDEE4" },
+  void:       { background: "#F0EEE9", color: "#9E9B94", border: "1px solid #E5E2DC" },
+  superseded: { background: "#F5F3FF", color: "#6D28D9", border: "1px solid #EFDCCE" },
 };
 
-const LABEL_STYLE: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6, fontFamily: FF };
+const LABEL_STYLE: React.CSSProperties = { fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", display: "block", marginBottom: 6, fontFamily: FF };
 const INPUT_STYLE: React.CSSProperties = { width: "100%", padding: "9px 12px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 13, outline: "none", boxSizing: "border-box", fontFamily: FF, color: "#1A1917" };
 
 // [invoice-row-links 2026-07-07] Block-level anchor filling a table cell so the
@@ -198,7 +198,7 @@ function NewInvoiceModal({ onClose, onDone }: { onClose: () => void; onDone: () 
             ))}
           </div>
           <button onClick={() => setLineItems(prev => [...prev, { description: "", quantity: 1, unit_price: 0 }])}
-            style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 8, padding: "5px 12px", border: "1px dashed #D0CEC9", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "#6B7280", background: "transparent", cursor: "pointer", fontFamily: FF }}>
+            style={{ display: "inline-flex", alignItems: "center", gap: 5, marginTop: 8, padding: "5px 12px", border: "1px dashed #D0CEC9", borderRadius: 7, fontSize: 12, fontWeight: 600, color: "#6B6860", background: "transparent", cursor: "pointer", fontFamily: FF }}>
             <Plus size={11} /> Add Line Item
           </button>
         </div>
@@ -241,7 +241,7 @@ function MarkPaidMethodModal({ invoice, busy, onPick, onClose }: { invoice: any;
     <div style={{ position: "fixed", inset: 0, backgroundColor: "rgba(0,0,0,0.45)", zIndex: 1300, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={onClose}>
       <div onClick={e => e.stopPropagation()} style={{ backgroundColor: "#FFFFFF", borderRadius: 16, boxShadow: "0 8px 40px rgba(0,0,0,0.12)", width: "100%", maxWidth: 360, padding: 24, fontFamily: FF }}>
         <h3 style={{ margin: "0 0 4px", fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Mark paid — how did they pay?</h3>
-        <p style={{ margin: "0 0 16px", fontSize: 12, color: "#6B7280" }}>
+        <p style={{ margin: "0 0 16px", fontSize: 12, color: "#6B6860" }}>
           {invoice.invoice_number ? `#${invoice.invoice_number} · ` : ""}${parseFloat(invoice.total || "0").toFixed(2)}{invoice.client_name ? ` · ${invoice.client_name}` : ""}
         </p>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
@@ -322,7 +322,7 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>Weekly Invoicing</h2>
-              <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B7280" }}>Combine a client's visits into one invoice</p>
+              <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B6860" }}>Combine a client's visits into one invoice</p>
             </div>
             <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={20} /></button>
           </div>
@@ -331,7 +331,7 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
             <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
               {(["weekly", "monthly"] as const).map(c => (
                 <button key={c} onClick={() => setCadence(c)}
-                  style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", fontFamily: FF, textTransform: "capitalize", backgroundColor: cadence === c ? "var(--brand)" : "#FFFFFF", color: cadence === c ? "#FFFFFF" : "#6B7280" }}>{c}</button>
+                  style={{ padding: "7px 14px", fontSize: 12, fontWeight: 700, border: "none", cursor: "pointer", fontFamily: FF, textTransform: "capitalize", backgroundColor: cadence === c ? "var(--brand)" : "#FFFFFF", color: cadence === c ? "#FFFFFF" : "#6B6860" }}>{c}</button>
               ))}
             </div>
             <div style={{ flex: 1 }} />
@@ -347,7 +347,7 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
           ) : clients.length === 0 ? (
             <div style={{ textAlign: "center", padding: 48 }}>
               <AlertCircle size={36} style={{ color: "#C4C0BB", marginBottom: 12 }} />
-              <p style={{ fontSize: 14, fontWeight: 600, color: "#6B7280", margin: "0 0 4px" }}>No visits to invoice this {cadence === "weekly" ? "week" : "month"}</p>
+              <p style={{ fontSize: 14, fontWeight: 600, color: "#6B6860", margin: "0 0 4px" }}>No visits to invoice this {cadence === "weekly" ? "week" : "month"}</p>
               <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>Only consolidated-billing clients with pending visits appear here.</p>
             </div>
           ) : (
@@ -356,7 +356,7 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
               const incl = (c.visits || []).filter((v: any) => !excluded.has(v.invoice_id));
               const inclTotal = incl.reduce((s: number, v: any) => s + (v.total || 0), 0);
               return (
-                <div key={c.client_id} style={{ borderBottom: "1px solid #F0EDE8", padding: "14px 24px" }}>
+                <div key={c.client_id} style={{ borderBottom: "1px solid #F0EEE9", padding: "14px 24px" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                     <button onClick={() => setExpanded(p => { const n = new Set(p); n.has(c.client_id) ? n.delete(c.client_id) : n.add(c.client_id); return n; })}
                       style={{ background: "none", border: "none", cursor: "pointer", padding: 0, display: "flex" }}>
@@ -374,7 +374,7 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
                     </button>
                   </div>
                   {isOpen && (
-                    <div style={{ marginTop: 10, marginLeft: 28, borderLeft: "2px solid #F0EDE8", paddingLeft: 14 }}>
+                    <div style={{ marginTop: 10, marginLeft: 28, borderLeft: "2px solid #F0EEE9", paddingLeft: 14 }}>
                       {(c.visits || []).map((v: any) => {
                         const isExcl = excluded.has(v.invoice_id);
                         return (
@@ -384,7 +384,7 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
                               style={{ background: "none", border: "none", cursor: "pointer", padding: 0, color: isExcl ? "#C4C0BB" : "var(--brand)", display: "flex" }}>
                               {isExcl ? <Square size={15} /> : <CheckSquare size={15} />}
                             </button>
-                            <span style={{ flex: 1, fontSize: 12, color: "#6B7280" }}>{v.service_label || v.service_date}</span>
+                            <span style={{ flex: 1, fontSize: 12, color: "#6B6860" }}>{v.service_label || v.service_date}</span>
                             <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", textDecoration: isExcl ? "line-through" : "none" }}>${(v.total || 0).toFixed(2)}</span>
                           </div>
                         );
@@ -397,7 +397,7 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
           )}
         </div>
 
-        <div style={{ padding: "14px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, backgroundColor: "#FAFAF9" }}>
+        <div style={{ padding: "14px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, backgroundColor: "#F7F6F3" }}>
           <p style={{ margin: 0, fontSize: 11, color: "#9E9B94" }}>One invoice per client, one line per visit (service date), due on receipt. Pushes a single document to QuickBooks.</p>
         </div>
 
@@ -410,7 +410,7 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
               {/* Header */}
               <div style={{ padding: "20px 24px", borderBottom: "1px solid #EEECE7", flexShrink: 0, display: "flex", alignItems: "center", gap: 12 }}>
                 <button onClick={() => setPreviewClient(null)}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6B7280", padding: 0, display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontFamily: FF }}>
+                  style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860", padding: 0, display: "flex", alignItems: "center", gap: 4, fontSize: 13, fontFamily: FF }}>
                   ‹ Back
                 </button>
                 <div style={{ flex: 1 }}>
@@ -425,7 +425,7 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
                 {/* Client + period */}
                 <div style={{ marginBottom: 20 }}>
                   <p style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>{pc.client_name || `Client #${pc.client_id}`}</p>
-                  {periodLabel && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6B7280" }}>Period: {periodLabel}</p>}
+                  {periodLabel && <p style={{ margin: "3px 0 0", fontSize: 13, color: "#6B6860" }}>Period: {periodLabel}</p>}
                   <p style={{ margin: "3px 0 0", fontSize: 12, color: "#9E9B94" }}>Due on receipt · {cadence === "weekly" ? "Weekly" : "Monthly"} invoice</p>
                 </div>
 
@@ -436,7 +436,7 @@ function WeeklyInvoicingDrawer({ onClose, onDone }: { onClose: () => void; onDon
                     <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", textAlign: "right" }}>Amount</span>
                   </div>
                   {(pc.inclVisits || []).map((v: any, i: number) => (
-                    <div key={v.invoice_id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 0, padding: "12px 16px", borderBottom: i < pc.inclVisits.length - 1 ? "1px solid #F0EDE8" : "none" }}>
+                    <div key={v.invoice_id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 0, padding: "12px 16px", borderBottom: i < pc.inclVisits.length - 1 ? "1px solid #F0EEE9" : "none" }}>
                       <div>
                         <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{v.service_label || v.service_date}</p>
                         {v.service_type && <p style={{ margin: "2px 0 0", fontSize: 11, color: "#9E9B94" }}>{(v.service_type || "").replace(/_/g, " ")}</p>}
@@ -552,7 +552,7 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
             <div>
               <h2 style={{ margin: 0, fontSize: 18, fontWeight: 800, color: "#1A1917" }}>Batch Invoice</h2>
-              <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B7280" }}>Select completed jobs to invoice</p>
+              <p style={{ margin: "4px 0 0", fontSize: 13, color: "#6B6860" }}>Select completed jobs to invoice</p>
             </div>
             <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}>
               <X size={20} />
@@ -565,15 +565,15 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
             <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: 20, flex: 1 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
                 <div style={{ width: 48, height: 48, backgroundColor: "#D1FAE5", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
-                  <Check size={24} style={{ color: "#16A34A" }} />
+                  <Check size={24} style={{ color: "#0F7A63" }} />
                 </div>
                 <div>
                   <h3 style={{ margin: "0 0 2px", fontSize: 17, fontWeight: 800, color: "#1A1917" }}>
                     {summary.created} draft invoice{summary.created !== 1 ? "s" : ""} created
                   </h3>
-                  <p style={{ margin: 0, fontSize: 12, color: "#6B7280" }}>
+                  <p style={{ margin: 0, fontSize: 12, color: "#6B6860" }}>
                     Review each one, then send or charge from the invoice page.
-                    {summary.errors > 0 && <span style={{ color: "#DC2626" }}> {summary.errors} failed.</span>}
+                    {summary.errors > 0 && <span style={{ color: "#B3261E" }}> {summary.errors} failed.</span>}
                   </p>
                 </div>
               </div>
@@ -581,13 +581,13 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
               {/* Invoice list with View links */}
               <div style={{ border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden", flex: 1, overflowY: "auto" }}>
                 {summary.invoices.map((inv, i) => (
-                  <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderBottom: i < summary.invoices.length - 1 ? "1px solid #F0EDE8" : "none" }}>
+                  <div key={inv.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 16px", borderBottom: i < summary.invoices.length - 1 ? "1px solid #F0EEE9" : "none" }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#1A1917", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{inv.clientName}</p>
                       <p style={{ margin: "2px 0 0", fontSize: 11, color: "#9E9B94" }}>Draft · ${inv.amount.toFixed(2)}</p>
                     </div>
                     <a href={`/invoices/${inv.id}`}
-                      style={{ fontSize: 12, fontWeight: 700, color: "var(--brand)", textDecoration: "none", whiteSpace: "nowrap", padding: "5px 10px", border: "1px solid #D1FAE5", borderRadius: 6, backgroundColor: "#ECFDF5" }}>
+                      style={{ fontSize: 12, fontWeight: 700, color: "var(--brand)", textDecoration: "none", whiteSpace: "nowrap", padding: "5px 10px", border: "1px solid #D1FAE5", borderRadius: 6, backgroundColor: "#E6F6F1" }}>
                       Review →
                     </a>
                   </div>
@@ -603,14 +603,14 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 20, padding: 32 }}>
               <div style={{ width: "100%", textAlign: "center" }}>
                 <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: "0 0 6px" }}>Creating invoices...</p>
-                <p style={{ fontSize: 13, color: "#6B7280", margin: "0 0 16px" }}>
+                <p style={{ fontSize: 13, color: "#6B6860", margin: "0 0 16px" }}>
                   {progress.current ? `Invoicing ${progress.current}` : "Processing..."}
                 </p>
-                <div style={{ width: "100%", height: 8, backgroundColor: "#F0EDE8", borderRadius: 99, overflow: "hidden" }}>
+                <div style={{ width: "100%", height: 8, backgroundColor: "#F0EEE9", borderRadius: 99, overflow: "hidden" }}>
                   <div style={{ height: "100%", backgroundColor: "var(--brand)", borderRadius: 99, width: `${(progress.done / progress.total) * 100}%`, transition: "width 0.3s" }} />
                 </div>
                 <p style={{ fontSize: 13, color: "#9E9B94", marginTop: 10 }}>{progress.done} of {progress.total}</p>
-                {progress.errors > 0 && <p style={{ fontSize: 12, color: "#DC2626" }}>{progress.errors} error(s) so far</p>}
+                {progress.errors > 0 && <p style={{ fontSize: 12, color: "#B3261E" }}>{progress.errors} error(s) so far</p>}
               </div>
             </div>
           ) : (
@@ -636,7 +636,7 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
                 ) : allJobs.length === 0 ? (
                   <div style={{ textAlign: "center", padding: 48 }}>
                     <AlertCircle size={36} style={{ color: "#C4C0BB", marginBottom: 12 }} />
-                    <p style={{ fontSize: 14, fontWeight: 600, color: "#6B7280", margin: "0 0 4px" }}>No uninvoiced completed jobs</p>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: "#6B6860", margin: "0 0 4px" }}>No uninvoiced completed jobs</p>
                     <p style={{ fontSize: 12, color: "#9E9B94", margin: 0 }}>All completed jobs already have invoices.</p>
                   </div>
                 ) : jobs.length === 0 ? (
@@ -647,7 +647,7 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
                     const isSelected = selected.has(j.id);
                     return (
                       <div key={j.id} onClick={() => toggle(j.id)}
-                        style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 24px", borderBottom: i < jobs.length - 1 ? "1px solid #F0EDE8" : "none", cursor: "pointer", backgroundColor: isSelected ? "#F0F7FF" : "transparent", transition: "background 0.1s" }}>
+                        style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 24px", borderBottom: i < jobs.length - 1 ? "1px solid #F0EEE9" : "none", cursor: "pointer", backgroundColor: isSelected ? "#F0F7FF" : "transparent", transition: "background 0.1s" }}>
                         <span style={{ color: isSelected ? "var(--brand)" : "#C4C0BB", flexShrink: 0 }}>
                           {isSelected ? <CheckSquare size={16} /> : <Square size={16} />}
                         </span>
@@ -665,7 +665,7 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
                           {fee > 0 ? (
                             <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>${fee.toFixed(2)}</span>
                           ) : (
-                            <span style={{ fontSize: 12, color: "#DC2626" }}>No amount set</span>
+                            <span style={{ fontSize: 12, color: "#B3261E" }}>No amount set</span>
                           )}
                         </div>
                       </div>
@@ -678,9 +678,9 @@ function BatchInvoiceDrawer({ onClose, onDone }: { onClose: () => void; onDone: 
         </div>
 
         {!progress && !summary && (
-          <div style={{ padding: "16px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, backgroundColor: "#FAFAF9" }}>
+          <div style={{ padding: "16px 24px", borderTop: "1px solid #EEECE7", flexShrink: 0, backgroundColor: "#F7F6F3" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <span style={{ fontSize: 13, color: "#6B7280", fontWeight: 600 }}>
+              <span style={{ fontSize: 13, color: "#6B6860", fontWeight: 600 }}>
                 {selected.size} job{selected.size !== 1 ? "s" : ""} selected
               </span>
               <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>
@@ -985,8 +985,8 @@ export default function InvoicesPage() {
           <div style={{ display: "grid", gridTemplateColumns: isMobile ? "repeat(2, 1fr)" : "repeat(4, 1fr)", gap: 12 }}>
             {[
               { label: "Outstanding", value: `$${Math.round(stats.total_outstanding || 0).toLocaleString()}`, tab: "sent" as TabId },
-              { label: "Overdue",     value: `$${Math.round(stats.total_overdue || 0).toLocaleString()}`, color: (stats.total_overdue || 0) > 0 ? "#DC2626" : undefined, tab: "overdue" as TabId },
-              { label: "Paid (30d)",  value: `$${Math.round(stats.total_paid || 0).toLocaleString()}`,   color: "#16A34A", tab: "paid" as TabId },
+              { label: "Overdue",     value: `$${Math.round(stats.total_overdue || 0).toLocaleString()}`, color: (stats.total_overdue || 0) > 0 ? "#B3261E" : undefined, tab: "overdue" as TabId },
+              { label: "Paid (30d)",  value: `$${Math.round(stats.total_paid || 0).toLocaleString()}`,   color: "#0F7A63", tab: "paid" as TabId },
               { label: "YTD Revenue", value: `$${Math.round(stats.total_revenue || 0).toLocaleString()}`, accent: true, tab: "paid" as TabId },
             ].map(c => {
               const selected = activeTab === c.tab;
@@ -1013,11 +1013,11 @@ export default function InvoicesPage() {
               <button onClick={() => setReadyExpanded(e => !e)}
                 style={{ width: "100%", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <DollarSign size={14} style={{ color: "#059669" }} />
+                  <DollarSign size={14} style={{ color: "#0F7A63" }} />
                   <span style={{ fontSize: 13, fontWeight: 700, color: "#065F46" }}>Ready to Charge ({readyJobs.length})</span>
-                  <span style={{ fontSize: 11, color: "#6B7280" }}>— completed Stripe jobs awaiting payment</span>
+                  <span style={{ fontSize: 11, color: "#6B6860" }}>— completed Stripe jobs awaiting payment</span>
                 </div>
-                {readyExpanded ? <ChevronUp size={14} color="#6B7280" /> : <ChevronDown size={14} color="#6B7280" />}
+                {readyExpanded ? <ChevronUp size={14} color="#6B6860" /> : <ChevronDown size={14} color="#6B6860" />}
               </button>
               {readyExpanded && (
                 <div style={{ borderTop: "1px solid #D1FAE5" }}>
@@ -1025,7 +1025,7 @@ export default function InvoicesPage() {
                     <div key={job.id} style={{ padding: "12px 16px", borderBottom: "1px solid #F0FDF4", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                       <div style={{ flex: 1, minWidth: 160 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{job.client_name}</div>
-                        <div style={{ fontSize: 11, color: "#6B7280", fontFamily: FF }}>
+                        <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>
                           {job.service_type} · {job.scheduled_date ? new Date(job.scheduled_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}
                           {job.card_brand ? ` · ${job.card_brand.charAt(0).toUpperCase()}${job.card_brand.slice(1)} ••••${job.card_last_four}` : ""}
                         </div>
@@ -1034,7 +1034,7 @@ export default function InvoicesPage() {
                       <button
                         onClick={() => chargeJob(job.id)}
                         disabled={chargingJobId === job.id}
-                        style={{ padding: "7px 14px", border: "none", borderRadius: 7, backgroundColor: "#059669", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, opacity: chargingJobId === job.id ? 0.6 : 1 }}>
+                        style={{ padding: "7px 14px", border: "none", borderRadius: 7, backgroundColor: "#0F7A63", color: "#FFFFFF", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, opacity: chargingJobId === job.id ? 0.6 : 1 }}>
                         {chargingJobId === job.id ? "Charging..." : "Charge Now"}
                       </button>
                     </div>
@@ -1046,37 +1046,37 @@ export default function InvoicesPage() {
 
           {/* ── Failed Payments ───────────────────────────────────────────────── */}
           {canAdmin && failedPayments.length > 0 && (
-            <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #FECACA", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #F1D0CB", borderRadius: 10, overflow: "hidden" }}>
               <button onClick={() => setFailedExpanded(e => !e)}
                 style={{ width: "100%", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <AlertCircle size={14} style={{ color: "#DC2626" }} />
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#991B1B" }}>Failed Payments ({failedPayments.length})</span>
-                  <span style={{ fontSize: 11, color: "#6B7280" }}>— recent Stripe charge failures</span>
+                  <AlertCircle size={14} style={{ color: "#B3261E" }} />
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#B3261E" }}>Failed Payments ({failedPayments.length})</span>
+                  <span style={{ fontSize: 11, color: "#6B6860" }}>— recent Stripe charge failures</span>
                 </div>
-                {failedExpanded ? <ChevronUp size={14} color="#6B7280" /> : <ChevronDown size={14} color="#6B7280" />}
+                {failedExpanded ? <ChevronUp size={14} color="#6B6860" /> : <ChevronDown size={14} color="#6B6860" />}
               </button>
               {failedExpanded && (
-                <div style={{ borderTop: "1px solid #FECACA" }}>
+                <div style={{ borderTop: "1px solid #F1D0CB" }}>
                   {failedPayments.map((p: any) => (
-                    <div key={p.id} style={{ padding: "12px 16px", borderBottom: "1px solid #FEF2F2", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                    <div key={p.id} style={{ padding: "12px 16px", borderBottom: "1px solid #FCEBEA", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                       <div style={{ flex: 1, minWidth: 160 }}>
                         <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{p.first_name} {p.last_name}</div>
-                        <div style={{ fontSize: 11, color: "#6B7280", fontFamily: FF }}>
+                        <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>
                           {p.service_type || ""}
                           {p.attempted_at ? ` · ${new Date(p.attempted_at).toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
                           {p.card_brand ? ` · ${p.card_brand.charAt(0).toUpperCase()}${p.card_brand.slice(1)} ••••${p.last_4}` : ""}
                         </div>
                         {p.stripe_error_message && (
-                          <div style={{ fontSize: 11, color: "#DC2626", marginTop: 2, fontFamily: FF }}>{p.stripe_error_message}</div>
+                          <div style={{ fontSize: 11, color: "#B3261E", marginTop: 2, fontFamily: FF }}>{p.stripe_error_message}</div>
                         )}
                       </div>
-                      <div style={{ fontSize: 15, fontWeight: 800, color: "#991B1B", fontFamily: FF }}>${Number(p.amount || 0).toFixed(2)}</div>
+                      <div style={{ fontSize: 15, fontWeight: 800, color: "#B3261E", fontFamily: FF }}>${Number(p.amount || 0).toFixed(2)}</div>
                       {p.job_id && (
                         <button
                           onClick={() => chargeJob(p.job_id)}
                           disabled={chargingJobId === p.job_id}
-                          style={{ padding: "7px 14px", border: "1px solid #FECACA", borderRadius: 7, backgroundColor: "#FEF2F2", color: "#991B1B", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 5, opacity: chargingJobId === p.job_id ? 0.6 : 1 }}>
+                          style={{ padding: "7px 14px", border: "1px solid #F1D0CB", borderRadius: 7, backgroundColor: "#FCEBEA", color: "#B3261E", fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 5, opacity: chargingJobId === p.job_id ? 0.6 : 1 }}>
                           <RotateCcw size={11} /> Retry
                         </button>
                       )}
@@ -1092,7 +1092,7 @@ export default function InvoicesPage() {
               <div style={{ padding: "12px 16px", borderBottom: "1px solid #EEECE7", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
                 <div>
                   <span style={{ fontSize: 14, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>Not yet invoiced</span>
-                  <span style={{ fontSize: 12, color: "#6B7280", fontFamily: FF, marginLeft: 8 }}>
+                  <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginLeft: 8 }}>
                     {uninvoicedJobs.length} completed {uninvoicedJobs.length === 1 ? "job" : "jobs"} · ${uninvTotal.toFixed(2)}
                   </span>
                 </div>
@@ -1112,14 +1112,14 @@ export default function InvoicesPage() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
                         {name}
-                        {isAccount && <span style={{ fontSize: 10, fontWeight: 700, color: "#6B7280", background: "#F3F4F6", border: "1px solid #E5E7EB", borderRadius: 4, padding: "1px 6px" }}>ACCOUNT</span>}
+                        {isAccount && <span style={{ fontSize: 10, fontWeight: 700, color: "#6B6860", background: "#F0EEE9", border: "1px solid #E5E2DC", borderRadius: 4, padding: "1px 6px" }}>ACCOUNT</span>}
                       </div>
                       <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 2 }}>
                         {(j.service_type || "").replace(/_/g, " ")}
                         {j.scheduled_date ? ` · ${new Date(String(j.scheduled_date).slice(0, 10) + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}` : ""}
                       </div>
                     </div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: amt > 0 ? "#1A1917" : "#DC2626", fontFamily: FF, whiteSpace: "nowrap" }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: amt > 0 ? "#1A1917" : "#B3261E", fontFamily: FF, whiteSpace: "nowrap" }}>
                       {amt > 0 ? `$${amt.toFixed(2)}` : "$0 · no rate"}
                     </div>
                     <button
@@ -1156,7 +1156,7 @@ export default function InvoicesPage() {
                   const isActive = activeTab === tab.id;
                   return (
                     <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-                      style={{ padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: isActive ? 700 : 400, border: "none", backgroundColor: isActive ? "var(--brand)" : "transparent", color: isActive ? "#FFFFFF" : "#6B7280", transition: "all 0.15s", fontFamily: FF, whiteSpace: "nowrap" }}>
+                      style={{ padding: "5px 12px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontWeight: isActive ? 700 : 400, border: "none", backgroundColor: isActive ? "var(--brand)" : "transparent", color: isActive ? "#FFFFFF" : "#6B6860", transition: "all 0.15s", fontFamily: FF, whiteSpace: "nowrap" }}>
                       {tab.label}
                     </button>
                   );
@@ -1171,7 +1171,7 @@ export default function InvoicesPage() {
                 {/* [invoice-date-presets 2026-07-03] One-click billing-period jumps. */}
                 {([["Today", "today"], ["Week", "week"], ["Month", "month"]] as const).map(([label, kind]) => (
                   <button key={kind} onClick={() => applyDatePreset(kind)} title={`This ${kind === "today" ? "day" : kind}`}
-                    style={{ height: 36, padding: "0 11px", backgroundColor: presetActive(kind) ? "var(--brand)" : "#F7F6F3", color: presetActive(kind) ? "#FFFFFF" : "#6B7280", border: `1px solid ${presetActive(kind) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>{label}</button>
+                    style={{ height: 36, padding: "0 11px", backgroundColor: presetActive(kind) ? "var(--brand)" : "#F7F6F3", color: presetActive(kind) ? "#FFFFFF" : "#6B6860", border: `1px solid ${presetActive(kind) ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>{label}</button>
                 ))}
                 {/* [invoice-date-range 2026-06-21] Filter by service date. */}
                 {/* [styled-picker 2026-07-02] Use the shared CalendarPopover (mint-accent
@@ -1182,7 +1182,7 @@ export default function InvoicesPage() {
                 <CalendarPopover value={dateTo} ariaLabel="To date" onChange={setDateTo} />
                 {(dateFrom || dateTo) && (
                   <button onClick={() => { setDateFrom(""); setDateTo(""); }} title="Clear dates"
-                    style={{ height: 36, padding: "0 10px", backgroundColor: "transparent", color: "#6B7280", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Clear</button>
+                    style={{ height: 36, padding: "0 10px", backgroundColor: "transparent", color: "#6B6860", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Clear</button>
                 )}
                 {canAdmin && (
                   <>
@@ -1216,11 +1216,11 @@ export default function InvoicesPage() {
             {isMobile ? (
               <div>
                 {isLoading ? (
-                  <div style={{ padding: 32, textAlign: "center", color: "#6B7280", fontSize: 13, fontFamily: FF }}>Loading invoices...</div>
+                  <div style={{ padding: 32, textAlign: "center", color: "#6B6860", fontSize: 13, fontFamily: FF }}>Loading invoices...</div>
                 ) : invoices.length === 0 ? (
                   <div style={{ padding: 48, textAlign: "center" }}>
                     <AlertCircle size={28} style={{ color: "#C4C0BB", marginBottom: 10 }} />
-                    <p style={{ color: "#6B7280", fontSize: 13, margin: 0, fontFamily: FF }}>No invoices found.</p>
+                    <p style={{ color: "#6B6860", fontSize: 13, margin: 0, fontFamily: FF }}>No invoices found.</p>
                   </div>
                 ) : invoices.map((inv: any) => {
                   const effectiveStatus = (inv.status === "sent" && inv.sent_at && inv.due_date && new Date(inv.due_date + "T23:59:59") < new Date()) ? "overdue" : inv.status;
@@ -1249,7 +1249,7 @@ export default function InvoicesPage() {
                       <div style={{ textAlign: "right", flexShrink: 0 }}>
                         <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${(inv.total || 0).toFixed(2)}</span>
                         {effectiveStatus === "overdue" && (inv.days_overdue || 0) > 0 && (
-                          <div style={{ fontSize: 10, color: "#991B1B", fontWeight: 600, marginTop: 2 }}>{inv.days_overdue}d overdue</div>
+                          <div style={{ fontSize: 10, color: "#B3261E", fontWeight: 600, marginTop: 2 }}>{inv.days_overdue}d overdue</div>
                         )}
                       </div>
                     </div>
@@ -1272,12 +1272,12 @@ export default function InvoicesPage() {
               </thead>
               <tbody>
                 {isLoading ? (
-                  <tr><td colSpan={10} style={{ padding: 32, textAlign: "center", color: "#6B7280", fontSize: 13 }}>Loading invoices...</td></tr>
+                  <tr><td colSpan={10} style={{ padding: 32, textAlign: "center", color: "#6B6860", fontSize: 13 }}>Loading invoices...</td></tr>
                 ) : invoices.length === 0 ? (
                   <tr>
                     <td colSpan={10} style={{ padding: 48, textAlign: "center" }}>
                       <AlertCircle size={28} style={{ color: "#C4C0BB", marginBottom: 10 }} />
-                      <p style={{ color: "#6B7280", fontSize: 13, margin: 0 }}>No invoices found.</p>
+                      <p style={{ color: "#6B6860", fontSize: 13, margin: 0 }}>No invoices found.</p>
                     </td>
                   </tr>
                 ) : invoices.map((inv: any) => {
@@ -1319,13 +1319,13 @@ export default function InvoicesPage() {
                       <td style={{ padding: 0, fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
                         <InvoiceCellLink invId={inv.id} navigate={navigate}>{inv.client_name}</InvoiceCellLink>
                       </td>
-                      <td style={{ padding: 0, fontSize: 12, color: "#6B7280", fontFamily: FF }}>
+                      <td style={{ padding: 0, fontSize: 12, color: "#6B6860", fontFamily: FF }}>
                         <InvoiceCellLink invId={inv.id} navigate={navigate}>{inv.po_number || "—"}</InvoiceCellLink>
                       </td>
                       <td style={{ padding: 0 }}>
                         <InvoiceCellLink invId={inv.id} navigate={navigate}>
                           {inv.payment_terms && inv.payment_terms !== "due_on_receipt" ? (
-                            <span style={{ background: "#EFF6FF", color: "#1D4ED8", border: "1px solid #BFDBFE", display: "inline-block", padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
+                            <span style={{ background: "#EFEFF2", color: "#2F3646", border: "1px solid #DEDEE4", display: "inline-block", padding: "2px 7px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
                               {inv.payment_terms === "net_30" ? "NET 30" : inv.payment_terms === "net_15" ? "NET 15" : inv.payment_terms.toUpperCase()}
                             </span>
                           ) : <span style={{ color: "#9E9B94", fontSize: 12, fontFamily: FF }}>—</span>}
@@ -1334,7 +1334,7 @@ export default function InvoicesPage() {
                       <td style={{ padding: 0, fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>
                         <InvoiceCellLink invId={inv.id} navigate={navigate}>${(inv.total || 0).toFixed(2)}</InvoiceCellLink>
                       </td>
-                      <td style={{ padding: 0, fontSize: 12, color: "#6B7280", fontFamily: FF }}>
+                      <td style={{ padding: 0, fontSize: 12, color: "#6B6860", fontFamily: FF }}>
                         <InvoiceCellLink invId={inv.id} navigate={navigate}>
                           {inv.service_date
                             ? new Date(inv.service_date + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })
@@ -1344,7 +1344,7 @@ export default function InvoicesPage() {
                       <td style={{ padding: 0 }}>
                         <InvoiceCellLink invId={inv.id} navigate={navigate}>
                           {effectiveStatus === "overdue" && (inv.days_overdue || 0) > 0 ? (
-                            <span style={{ background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA", display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
+                            <span style={{ background: "#FCEBEA", color: "#B3261E", border: "1px solid #F1D0CB", display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: FF }}>
                               {inv.days_overdue}d overdue
                             </span>
                           ) : "—"}
@@ -1356,7 +1356,7 @@ export default function InvoicesPage() {
                             {statusLabel}
                           </span>
                           {inv.refunded_amount != null && Number(inv.refunded_amount) > 0 && (
-                            <span style={{ marginLeft: 4, display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF, backgroundColor: "#EDE9FE", color: "#6D28D9", border: "1px solid #DDD6FE" }}>
+                            <span style={{ marginLeft: 4, display: "inline-flex", alignItems: "center", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", fontFamily: FF, backgroundColor: "#FBF0E9", color: "#6D28D9", border: "1px solid #EFDCCE" }}>
                               {Number(inv.refunded_amount) >= Number(inv.total) ? "REFUNDED" : `REFUNDED $${Number(inv.refunded_amount).toFixed(2)}`}
                             </span>
                           )}
@@ -1373,14 +1373,14 @@ export default function InvoicesPage() {
                         {(effectiveStatus === "sent" || effectiveStatus === "overdue") && (
                           <button onClick={() => setMarkPaidInv(inv)} disabled={payingInvoiceId === inv.id}
                             title="Mark paid — choose method (check / ACH / Zelle …)"
-                            style={{ marginRight: 8, padding: "5px 10px", border: "none", backgroundColor: "#16A34A", color: "#FFFFFF", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
+                            style={{ marginRight: 8, padding: "5px 10px", border: "none", backgroundColor: "#0F7A63", color: "#FFFFFF", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
                             {payingInvoiceId === inv.id ? "…" : "Mark Paid"}
                           </button>
                         )}
                         {inv.status === "paid" && (
                           <button onClick={() => markInvoiceUnpaid(inv.id)} disabled={payingInvoiceId === inv.id}
                             title="Mark unpaid"
-                            style={{ marginRight: 8, padding: "5px 10px", border: "1px solid #FDE68A", backgroundColor: "transparent", color: "#92400E", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
+                            style={{ marginRight: 8, padding: "5px 10px", border: "1px solid #F2DFB8", backgroundColor: "transparent", color: "#B45309", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
                             {payingInvoiceId === inv.id ? "…" : "Unmark"}
                           </button>
                         )}

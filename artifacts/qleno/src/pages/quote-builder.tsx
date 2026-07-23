@@ -115,7 +115,7 @@ function JobNotesTranslate({ text }: { text: string }) {
             </div>
           )}
           {error && (
-            <div style={{ marginTop: 6, fontSize: 11, color: "#DC2626", fontFamily: FF }}>{error}</div>
+            <div style={{ marginTop: 6, fontSize: 11, color: "#B3261E", fontFamily: FF }}>{error}</div>
           )}
         </div>
       )}
@@ -1303,7 +1303,7 @@ export default function QuoteBuilderPage() {
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10, fontFamily: FF }}>Client</div>
               {selectedClient ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", border: "2px solid var(--brand)", borderRadius: 10, background: "#EFF6FF" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", border: "2px solid var(--brand)", borderRadius: 10, background: "#EFEFF2" }}>
                   <div>
                     <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{selectedClient.first_name} {selectedClient.last_name}</div>
                     {selectedClient.email && <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>{selectedClient.email}</div>}
@@ -1397,7 +1397,7 @@ export default function QuoteBuilderPage() {
                     {cat.scopes.map(s => {
                       const isSel = selectedScopeIds.includes(s.id);
                       return (
-                        <button key={s.id} onClick={() => toggleScope(s)} style={{ padding: "14px 12px", border: `2px solid ${isSel ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 10, background: isSel ? "#EFF6FF" : "#FFF", textAlign: "center", cursor: "pointer", fontFamily: FF, minHeight: 64, fontSize: 13 }}>
+                        <button key={s.id} onClick={() => toggleScope(s)} style={{ padding: "14px 12px", border: `2px solid ${isSel ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 10, background: isSel ? "#EFEFF2" : "#FFF", textAlign: "center", cursor: "pointer", fontFamily: FF, minHeight: 64, fontSize: 13 }}>
                           <div style={{ fontSize: 13, fontWeight: 700, color: isSel ? "var(--brand)" : "#1A1917" }}>{s.name}</div>
                         </button>
                       );
@@ -1577,7 +1577,7 @@ export default function QuoteBuilderPage() {
             <button
               onClick={() => save("draft")}
               disabled={saving || selectedScopes.length === 0}
-              style={{ height: 44, padding: "0 16px", background: "transparent", color: saving || selectedScopes.length === 0 ? "#D1D5DB" : "#374151", border: `1px solid ${saving || selectedScopes.length === 0 ? "#E5E2DC" : "#D1D5DB"}`, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: saving || selectedScopes.length === 0 ? "default" : "pointer", fontFamily: FF }}
+              style={{ height: 44, padding: "0 16px", background: "transparent", color: saving || selectedScopes.length === 0 ? "#E5E2DC" : "#1A1917", border: `1px solid ${saving || selectedScopes.length === 0 ? "#E5E2DC" : "#E5E2DC"}`, borderRadius: 10, fontSize: 13, fontWeight: 600, cursor: saving || selectedScopes.length === 0 ? "default" : "pointer", fontFamily: FF }}
             >
               {saving ? "Saving..." : "Save Draft"}
             </button>
@@ -1592,7 +1592,7 @@ export default function QuoteBuilderPage() {
               <button
                 onClick={() => save("draft")}
                 disabled={saving || selectedScopes.length === 0}
-                style={{ height: 44, padding: "0 20px", background: saving || selectedScopes.length === 0 ? "#D1D5DB" : "var(--brand)", color: "#FFF", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: saving || selectedScopes.length === 0 ? "default" : "pointer", fontFamily: FF }}
+                style={{ height: 44, padding: "0 20px", background: saving || selectedScopes.length === 0 ? "#E5E2DC" : "var(--brand)", color: "#FFF", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: saving || selectedScopes.length === 0 ? "default" : "pointer", fontFamily: FF }}
               >
                 {saving ? "Saving..." : "Save Quote"}
               </button>
@@ -1620,7 +1620,7 @@ export default function QuoteBuilderPage() {
 
       {/* Header */}
       <div style={{ borderBottom: "1px solid #E5E2DC", background: "#FFF", padding: "14px 24px", display: "flex", alignItems: "center", gap: 12, position: "sticky", top: 0, zIndex: 50 }}>
-        <Button variant="ghost" size="sm" onClick={() => navigate(fromClientId ? `/customers/${fromClientId}` : "/quotes")} className="gap-1.5 text-[#6B7280]">
+        <Button variant="ghost" size="sm" onClick={() => navigate(fromClientId ? `/customers/${fromClientId}` : "/quotes")} className="gap-1.5 text-[#6B6860]">
           <ArrowLeft className="w-4 h-4" /> {fromClientId ? "Back to Client" : "Back to Quotes"}
         </Button>
         <div className="h-5 w-px bg-[#E5E2DC]" />
@@ -1758,7 +1758,7 @@ export default function QuoteBuilderPage() {
                       {!clientSearchLoading && clientResults.length === 0 && clientSearch.trim().length >= 2 && (
                         <>
                           <div style={{ padding: "12px 14px", fontSize: 13, color: "#9E9B94", fontFamily: FF }}>No clients found for "{clientSearch.trim()}"</div>
-                          <div onClick={() => { clearClient(); setClientDropdownOpen(false); }} style={{ padding: "10px 14px", fontSize: 13, color: "var(--brand)", fontFamily: FF, cursor: "pointer", borderTop: "1px solid #F0EDE8" }}>
+                          <div onClick={() => { clearClient(); setClientDropdownOpen(false); }} style={{ padding: "10px 14px", fontSize: 13, color: "var(--brand)", fontFamily: FF, cursor: "pointer", borderTop: "1px solid #F0EEE9" }}>
                             Create new lead instead →
                           </div>
                         </>
@@ -1789,7 +1789,7 @@ export default function QuoteBuilderPage() {
                           <div
                             key={c.id}
                             onClick={() => selectClient(c)}
-                            style={{ padding: "10px 14px", borderBottom: "1px solid #F0EDE8", cursor: "pointer" }}
+                            style={{ padding: "10px 14px", borderBottom: "1px solid #F0EEE9", cursor: "pointer" }}
                             onMouseEnter={e => (e.currentTarget.style.background = "#F7F6F3")}
                             onMouseLeave={e => (e.currentTarget.style.background = "#FFF")}
                           >
@@ -1797,7 +1797,7 @@ export default function QuoteBuilderPage() {
                             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                               <span style={{ fontSize: 14, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>{c.first_name} {c.last_name}</span>
                               {freqLabel && (
-                                <span style={{ fontSize: 10, fontWeight: 500, color: "#4A4845", background: "#F0EDE8", borderRadius: 10, padding: "2px 7px", flexShrink: 0, fontFamily: FF }}>{freqLabel}</span>
+                                <span style={{ fontSize: 10, fontWeight: 500, color: "#4A4845", background: "#F0EEE9", borderRadius: 10, padding: "2px 7px", flexShrink: 0, fontFamily: FF }}>{freqLabel}</span>
                               )}
                             </div>
                             {/* Line 2: Zone dot + address (left) · last done / next (right) */}
@@ -1854,8 +1854,8 @@ export default function QuoteBuilderPage() {
                       {returningClient.address && <div style={{ fontSize: 12, color: "var(--brand)", marginTop: 2 }}>{returningClient.address}</div>}
                     </div>
                     <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
-                      <button onClick={applyReturningClient} style={{ fontSize: 12, fontWeight: 600, color: "#2563EB", background: "#DBEAFE", border: "none", cursor: "pointer", padding: "4px 10px", borderRadius: 4 }}>Use this client</button>
-                      <button onClick={() => { setReturningClient(null); setReturningClientDismissed(true); }} style={{ fontSize: 12, color: "#6B7280", background: "none", border: "none", cursor: "pointer", padding: "4px 8px" }}>Not them</button>
+                      <button onClick={applyReturningClient} style={{ fontSize: 12, fontWeight: 600, color: "#2F3646", background: "#EFEFF2", border: "none", cursor: "pointer", padding: "4px 10px", borderRadius: 4 }}>Use this client</button>
+                      <button onClick={() => { setReturningClient(null); setReturningClientDismissed(true); }} style={{ fontSize: 12, color: "#6B6860", background: "none", border: "none", cursor: "pointer", padding: "4px 8px" }}>Not them</button>
                     </div>
                   </div>
                 )}
@@ -2028,7 +2028,7 @@ export default function QuoteBuilderPage() {
                               ${svc.last_price > 0 ? svc.last_price.toLocaleString("en-US") : "\u2014"}
                             </div>
                             {freqLabel && (
-                              <span style={{ fontSize: 10, background: "#F0EDE8", color: "#4A4845", borderRadius: 10, padding: "2px 6px", fontFamily: FF }}>{freqLabel}</span>
+                              <span style={{ fontSize: 10, background: "#F0EEE9", color: "#4A4845", borderRadius: 10, padding: "2px 6px", fontFamily: FF }}>{freqLabel}</span>
                             )}
                           </div>
                         </div>
@@ -2261,7 +2261,7 @@ export default function QuoteBuilderPage() {
                   {discountCode ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                       <span style={{ fontSize: 13, fontFamily: FF, color: "#1A1917", fontWeight: 600 }}>{discountCode}</span>
-                      <span style={{ fontSize: 11, color: "#16A34A", fontFamily: FF }}>applied</span>
+                      <span style={{ fontSize: 11, color: "#0F7A63", fontFamily: FF }}>applied</span>
                       <button onClick={clearDiscount} style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 11, color: "#6B6860", background: "none", border: "1px solid #E5E2DC", borderRadius: 4, padding: "2px 8px", cursor: "pointer", fontFamily: FF }}>
                         <X size={10} /> Remove
                       </button>
@@ -2284,7 +2284,7 @@ export default function QuoteBuilderPage() {
                           Apply
                         </button>
                       </div>
-                      {discountError && <div style={{ fontSize: 11, color: "#DC2626", fontFamily: FF }}>{discountError}</div>}
+                      {discountError && <div style={{ fontSize: 11, color: "#B3261E", fontFamily: FF }}>{discountError}</div>}
                     </div>
                   )}
                 </div>
@@ -2296,7 +2296,7 @@ export default function QuoteBuilderPage() {
                   size="sm"
                   onClick={() => setActiveSection(2)}
                   disabled={selectedScopes.length === 0}
-                  style={selectedScopes.length === 0 ? { background: "#D1D5DB", color: "#9E9B94", cursor: "not-allowed" } : { background: "var(--brand)", color: "#FFF" }}
+                  style={selectedScopes.length === 0 ? { background: "#E5E2DC", color: "#9E9B94", cursor: "not-allowed" } : { background: "var(--brand)", color: "#FFF" }}
                   className="gap-1.5 hover:opacity-90"
                 >
                   Next: Property Details <ArrowRight className="w-3.5 h-3.5" />
@@ -2398,7 +2398,7 @@ export default function QuoteBuilderPage() {
                           <div key={s.scope_id} style={{ border: "0.5px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
                             <button
                               onClick={() => setSelectedScopes(prev => prev.map(ss => ss.scope_id === s.scope_id ? { ...ss, expanded: !ss.expanded } : ss))}
-                              style={{ width: "100%", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, background: s.expanded ? "#FAFAF9" : "#FFF", border: "none", cursor: "pointer", borderBottom: s.expanded ? "0.5px solid #E5E2DC" : "none" }}
+                              style={{ width: "100%", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, background: s.expanded ? "#F7F6F3" : "#FFF", border: "none", cursor: "pointer", borderBottom: s.expanded ? "0.5px solid #E5E2DC" : "none" }}
                             >
                               <span style={{ flex: 1, textAlign: "left", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scope.name}</span>
                               {estHours > 0 && <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>{estHours} hrs est.</span>}
@@ -2488,7 +2488,7 @@ export default function QuoteBuilderPage() {
                                   <AddonIcon name={addon.name} size={13} />
                                   {addon.name}
                                 </span>
-                                <span style={{ fontSize: 11, color: fromCalc && fromCalc.amount < 0 ? "#DC2626" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
+                                <span style={{ fontSize: 11, color: fromCalc && fromCalc.amount < 0 ? "#B3261E" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
                               </div>
                             );
                           })}
@@ -2508,7 +2508,7 @@ export default function QuoteBuilderPage() {
                                 style={{ flex: 1, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 12, fontFamily: FF, outline: "none" }} />
                             </div>
                             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ fontSize: 12, color: "#DC2626", fontWeight: 700, width: 12, flexShrink: 0 }}>-</span>
+                              <span style={{ fontSize: 12, color: "#B3261E", fontWeight: 700, width: 12, flexShrink: 0 }}>-</span>
                               <input type="number" min="0" step="1" placeholder="$0" value={primaryScope.adjMinus || ""}
                                 onChange={e => updateScopeAdj(primaryScope.scope_id, "adjMinus", parseFloat(e.target.value) || 0)}
                                 style={{ width: 70, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 12, fontFamily: FF, outline: "none" }} />
@@ -2572,7 +2572,7 @@ export default function QuoteBuilderPage() {
                             </div>
                           ) : photo.error ? (
                             <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 6 }}>
-                              <span style={{ fontSize: 10, color: "#DC2626", textAlign: "center" }}>{photo.error}</span>
+                              <span style={{ fontSize: 10, color: "#B3261E", textAlign: "center" }}>{photo.error}</span>
                             </div>
                           ) : (
                             <img src={photo.previewUrl} alt={photo.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
@@ -2809,7 +2809,7 @@ export default function QuoteBuilderPage() {
               onClick={() => setCallNoteTooltip(null)}
               placeholder="Notes from the call..."
               rows={10}
-              style={{ width: "100%", boxSizing: "border-box", resize: "none", border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 12px", fontSize: 13, lineHeight: "1.6", color: "#1A1917", fontFamily: FF, background: "#FAFAF9", outline: "none" }}
+              style={{ width: "100%", boxSizing: "border-box", resize: "none", border: "1px solid #E5E2DC", borderRadius: 8, padding: "10px 12px", fontSize: 13, lineHeight: "1.6", color: "#1A1917", fontFamily: FF, background: "#F7F6F3", outline: "none" }}
             />
             {/* [quote-attachments] Drop zone + thumbnail row. Photos and
                 PDFs office uploads stay private to office + assigned techs. */}
@@ -2864,13 +2864,13 @@ export default function QuoteBuilderPage() {
                           struck) with an "Add" affordance so the office controls
                           whether the combo discount applies. */}
                       {(s.calc.bundle_breakdown ?? []).map((b, i) => (
-                        <div key={`bundle-${b.id ?? i}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: b.applied ? "#16A34A" : "#9E9B94" }}>
+                        <div key={`bundle-${b.id ?? i}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13, color: b.applied ? "#0F7A63" : "#9E9B94" }}>
                           <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
                             <button
                               type="button"
                               onClick={() => toggleBundle(s.scope_id, b.id)}
                               title={b.applied ? "Remove this combo discount" : "Apply this combo discount"}
-                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, borderRadius: 4, border: "1px solid #E5E2DC", background: b.applied ? "#16A34A" : "#FFF", color: b.applied ? "#FFF" : "#9E9B94", fontSize: 11, lineHeight: 1, cursor: "pointer", padding: 0, fontFamily: FF }}
+                              style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, borderRadius: 4, border: "1px solid #E5E2DC", background: b.applied ? "#0F7A63" : "#FFF", color: b.applied ? "#FFF" : "#9E9B94", fontSize: 11, lineHeight: 1, cursor: "pointer", padding: 0, fontFamily: FF }}
                             >
                               {b.applied ? "×" : "+"}
                             </button>
@@ -2880,7 +2880,7 @@ export default function QuoteBuilderPage() {
                         </div>
                       ))}
                       {s.calc.discount_amount > 0 && (
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#16A34A" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#0F7A63" }}>
                           <span>Discount</span><span>-${s.calc.discount_amount.toFixed(2)}</span>
                         </div>
                       )}
@@ -2890,7 +2890,7 @@ export default function QuoteBuilderPage() {
                         </div>
                       )}
                       {s.adjMinus > 0 && (
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#DC2626" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#B3261E" }}>
                           <span>−{s.adjMinusReason || "Adjustment"}</span><span>-${s.adjMinus.toFixed(2)}</span>
                         </div>
                       )}
@@ -3035,7 +3035,7 @@ export default function QuoteBuilderPage() {
 function Stepper({ value, onChange, min = 0, max = 10 }: { value: number; onChange: (v: number) => void; min?: number; max?: number }) {
   const btn = (disabled: boolean): React.CSSProperties => ({
     width: 44, height: 44, border: "1px solid #E5E2DC", borderRadius: 0, background: disabled ? "#F7F6F3" : "#FFF",
-    color: disabled ? "#D1D5DB" : "#1A1917", fontSize: 18, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
+    color: disabled ? "#E5E2DC" : "#1A1917", fontSize: 18, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
     fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center",
   });
   return (

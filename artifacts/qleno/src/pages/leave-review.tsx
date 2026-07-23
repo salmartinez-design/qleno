@@ -22,7 +22,7 @@ const MUTED = "#9E9B94";
 const CARD = "#FFFFFF";
 const BORDER = "#E5E2DC";
 const FLAG = "#BA7517";
-const DANGER = "#DC2626";
+const DANGER = "#B3261E";
 
 // Human formats — Sal: "do not use military time."
 function fmt12(t: string): string {
@@ -267,7 +267,7 @@ function BalancesGrantsSection() {
       </div>
 
       {missing.length > 0 && (
-        <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: "#92400E" }}>
+        <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 14px", marginBottom: 12, fontSize: 12, color: "#B45309" }}>
           <strong>No hire date on file:</strong> {missing.join(", ")}. These employees get NO automatic grants and their PTO/sick cards stay locked — set each hire date on the employee profile, then re-open this page.
         </div>
       )}

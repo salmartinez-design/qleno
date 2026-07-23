@@ -71,7 +71,7 @@ export default function MessageLogPage() {
       <div style={{ padding: "24px 28px", maxWidth: 1200 }}>
         <div style={{ marginBottom: 20 }}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#1A1917" }}>Message Log</h1>
-          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6B7280" }}>
+          <p style={{ margin: "6px 0 0", fontSize: 14, color: "#6B6860" }}>
             All automated follow-up messages sent via SMS and email. {total > 0 && `${total} total records.`}
           </p>
         </div>
@@ -122,7 +122,7 @@ export default function MessageLogPage() {
               </thead>
               <tbody>
                 {rows.map((r, i) => (
-                  <tr key={r.id} style={{ borderBottom: "1px solid #F0EDE8", background: i % 2 === 0 ? "#FFFFFF" : "#FAFAF8" }}>
+                  <tr key={r.id} style={{ borderBottom: "1px solid #F0EEE9", background: i % 2 === 0 ? "#FFFFFF" : "#F7F6F3" }}>
                     <td style={{ padding: "10px 14px", color: "#1A1917", whiteSpace: "nowrap" }}>{fmt(r.sent_at)}</td>
                     <td style={{ padding: "10px 14px", color: "#1A1917", maxWidth: 200 }}>
                       <div style={{ fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.recipient_name || "—"}</div>
@@ -130,8 +130,8 @@ export default function MessageLogPage() {
                     </td>
                     <td style={{ padding: "10px 14px" }}>
                       {r.channel === "sms"
-                        ? pill("SMS", "#EFF6FF", "#1D4ED8")
-                        : pill("Email", "#F0FDF4", "#166534")}
+                        ? pill("SMS", "#EFEFF2", "#2F3646")
+                        : pill("Email", "#F0FDF4", "#0F7A63")}
                     </td>
                     <td style={{ padding: "10px 14px", color: "#1A1917" }}>
                       {r.sequence_name || (r.sequence_type ? SEQ_LABEL[r.sequence_type] ?? r.sequence_type : "—")}
@@ -141,8 +141,8 @@ export default function MessageLogPage() {
                     </td>
                     <td style={{ padding: "10px 14px" }}>
                       {r.status === "sent"
-                        ? pill("Sent", "#F0FDF4", "#166534")
-                        : pill("Failed", "#FEF2F2", "#991B1B")}
+                        ? pill("Sent", "#F0FDF4", "#0F7A63")
+                        : pill("Failed", "#FCEBEA", "#B3261E")}
                     </td>
                   </tr>
                 ))}

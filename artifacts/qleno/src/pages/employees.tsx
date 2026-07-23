@@ -14,9 +14,9 @@ const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
 const ROLE_BADGES: Record<string, React.CSSProperties> = {
   owner:       { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
-  admin:       { background: '#EDE9FE', color: '#5B21B6', border: '1px solid #DDD6FE' },
-  technician:  { background: '#DCFCE7', color: '#166534', border: '1px solid #BBF7D0' },
-  office:      { background: '#FEF3C7', color: '#92400E', border: '1px solid #FDE68A' },
+  admin:       { background: '#FBF0E9', color: '#9C4E2B', border: '1px solid #EFDCCE' },
+  technician:  { background: '#E6F6F1', color: '#0F7A63', border: '1px solid #C7E7DE' },
+  office:      { background: '#FDF3E4', color: '#B45309', border: '1px solid #F2DFB8' },
   team_lead:   { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
   super_admin: { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
   accountant:  { background: '#F0FAF7', color: '#0A5A48', border: '1px solid #B8EBDF' },
@@ -226,14 +226,14 @@ export default function EmployeesPage() {
                       </button>
                     )}
                     {invited ? (
-                      <span style={{ display:'inline-flex',alignItems:'center',gap:3,fontSize:10,fontWeight:600,color:'#166534',background:'#DCFCE7',padding:'3px 7px',borderRadius:4 }}>
+                      <span style={{ display:'inline-flex',alignItems:'center',gap:3,fontSize:10,fontWeight:600,color:'#0F7A63',background:'#E6F6F1',padding:'3px 7px',borderRadius:4 }}>
                         <Check size={9}/> Invited
                       </span>
                     ) : (
                       <button
                         onClick={e => { e.stopPropagation(); sendInvite(user.id, `${user.first_name} ${user.last_name}`); }}
                         disabled={sendingInvite === user.id}
-                        style={{ display:'flex',alignItems:'center',gap:4,padding:'5px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B7280',fontFamily:'inherit' }}>
+                        style={{ display:'flex',alignItems:'center',gap:4,padding:'5px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B6860',fontFamily:'inherit' }}>
                         <Mail size={11}/>{sendingInvite===user.id?'…':'Invite'}
                       </button>
                     )}
@@ -259,7 +259,7 @@ export default function EmployeesPage() {
             </thead>
             <tbody>
               {isLoading ? (
-                <tr><td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: '#6B7280', fontSize: '13px' }}>Loading team members…</td></tr>
+                <tr><td colSpan={7} style={{ padding: '32px', textAlign: 'center', color: '#6B6860', fontSize: '13px' }}>Loading team members…</td></tr>
               ) : employees.map(user => {
                 const roleBadge = ROLE_BADGES[user.role] || ROLE_BADGES.technician;
                 const efficiency = (user as any).avg_efficiency;
@@ -278,7 +278,7 @@ export default function EmployeesPage() {
                         <EmployeeAvatar name={`${user.first_name} ${user.last_name}`} avatarUrl={(user as any).avatar_url} size={36} fontSize={12} />
                         <div>
                           <p style={{ fontSize: '13px', fontWeight: 600, color: '#1A1917', margin: 0 }}>{user.first_name} {user.last_name}</p>
-                          <p style={{ fontSize: '12px', color: '#6B7280', margin: 0 }}>{user.email}</p>
+                          <p style={{ fontSize: '12px', color: '#6B6860', margin: 0 }}>{user.email}</p>
                         </div>
                       </div>
                     </td>
@@ -289,7 +289,7 @@ export default function EmployeesPage() {
                     </td>
                     <td style={{ padding: '14px 20px' }}>
                       <p style={{ fontSize: '13px', fontWeight: 500, color: '#1A1917', margin: 0 }}>${user.pay_rate || '—'}{user.pay_type === 'hourly' ? '/hr' : ''}</p>
-                      <p style={{ fontSize: '12px', color: '#6B7280', margin: 0, textTransform: 'capitalize' }}>{user.pay_type?.replace('_', ' ') || '—'}</p>
+                      <p style={{ fontSize: '12px', color: '#6B6860', margin: 0, textTransform: 'capitalize' }}>{user.pay_type?.replace('_', ' ') || '—'}</p>
                     </td>
                     <td style={{ padding: '14px 20px', textAlign: 'center' }}>
                       <div style={{ display: 'flex', justifyContent: 'center' }}>
@@ -307,14 +307,14 @@ export default function EmployeesPage() {
                     </td>
                     <td style={{ padding: '14px 20px' }} onClick={e => e.stopPropagation()}>
                       {invited ? (
-                        <span style={{ display:'inline-flex',alignItems:'center',gap:4,fontSize:11,fontWeight:600,color:'#166534',background:'#DCFCE7',padding:'3px 8px',borderRadius:4 }}>
+                        <span style={{ display:'inline-flex',alignItems:'center',gap:4,fontSize:11,fontWeight:600,color:'#0F7A63',background:'#E6F6F1',padding:'3px 8px',borderRadius:4 }}>
                           <Check size={10}/> INVITED
                         </span>
                       ) : (
                         <button
                           onClick={e => { e.stopPropagation(); sendInvite(user.id, `${user.first_name} ${user.last_name}`); }}
                           disabled={sendingInvite === user.id}
-                          style={{ display:'flex',alignItems:'center',gap:5,padding:'4px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B7280',fontFamily:'inherit' }}>
+                          style={{ display:'flex',alignItems:'center',gap:5,padding:'4px 10px',border:'1px solid #E5E2DC',borderRadius:6,fontSize:11,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B6860',fontFamily:'inherit' }}>
                           <Mail size={11}/>{sendingInvite===user.id?'Sending…':'Send Invite'}
                         </button>
                       )}
@@ -430,7 +430,7 @@ export default function EmployeesPage() {
             <div style={{ display:'flex',gap:8,alignItems:'stretch' }}>
               <input readOnly value={inviteLink.url}
                 onFocus={e => e.currentTarget.select()}
-                style={{ flex:1,minWidth:0,height:40,padding:'0 12px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12.5,color:'#1A1917',background:'#FAFAF8',fontFamily:'monospace' }}/>
+                style={{ flex:1,minWidth:0,height:40,padding:'0 12px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12.5,color:'#1A1917',background:'#F7F6F3',fontFamily:'monospace' }}/>
               <button onClick={copyInviteLink}
                 style={{ display:'flex',alignItems:'center',gap:6,padding:'0 16px',background:linkCopied?'#0A5A48':'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',whiteSpace:'nowrap' }}>
                 {linkCopied ? <><Check size={14}/> Copied</> : <><Copy size={14}/> Copy link</>}
@@ -439,7 +439,7 @@ export default function EmployeesPage() {
             <p style={{ margin:'14px 0 0 0',fontSize:11.5,color:'#9E9B94' }}>This link expires in 7 days.</p>
             <div style={{ display:'flex',justifyContent:'flex-end',marginTop:20 }}>
               <button onClick={() => setInviteLink(null)}
-                style={{ padding:'8px 18px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit',color:'#6B7280' }}>Done</button>
+                style={{ padding:'8px 18px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontWeight:600,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit',color:'#6B6860' }}>Done</button>
             </div>
           </div>
         </div>

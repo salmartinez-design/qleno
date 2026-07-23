@@ -59,7 +59,7 @@ export default function RedosReportPage() {
                 return (
                   <div key={r.employee_id} style={row}>
                     <span style={{ fontWeight: 600 }}>{r.name || `#${r.employee_id}`}</span>
-                    <span style={num}>{vc}{rate != null ? ` · ${rate}%` : ""}{r.hr_status === "quality_probation" ? <b style={{ color: "#B91C1C" }}> · Probation</b> : ""}</span>
+                    <span style={num}>{vc}{rate != null ? ` · ${rate}%` : ""}{r.hr_status === "quality_probation" ? <b style={{ color: "#B3261E" }}> · Probation</b> : ""}</span>
                   </div>
                 );
               })}
@@ -71,7 +71,7 @@ export default function RedosReportPage() {
               {(data.by_client || []).map((r, i) => (
                 <div key={i} style={row}>
                   <span style={{ fontWeight: 600 }}>{r.name}</span>
-                  <span style={num}>{r.valid_count} valid{Number(r.invalid_count) > 0 ? <b style={{ color: "#B91C1C" }}> · {r.invalid_count} not</b> : ""}</span>
+                  <span style={num}>{r.valid_count} valid{Number(r.invalid_count) > 0 ? <b style={{ color: "#B3261E" }}> · {r.invalid_count} not</b> : ""}</span>
                 </div>
               ))}
               <div style={note}>&ldquo;Not&rdquo; = complaints the office didn&rsquo;t uphold &mdash; watch for guarantee abuse.</div>

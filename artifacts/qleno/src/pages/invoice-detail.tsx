@@ -61,10 +61,10 @@ async function downloadInvoicePdf(invoiceId: number, invoiceNumber: string | nul
 }
 
 const STATUS_STYLES: Record<string, React.CSSProperties> = {
-  paid:    { background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0" },
-  overdue: { background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA" },
-  draft:   { background: "#F3F4F6", color: "#6B7280", border: "1px solid #E5E7EB" },
-  sent:    { background: "#DBEAFE", color: "#1E40AF", border: "1px solid #BFDBFE" },
+  paid:    { background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE" },
+  overdue: { background: "#FCEBEA", color: "#B3261E", border: "1px solid #F1D0CB" },
+  draft:   { background: "#F0EEE9", color: "#6B6860", border: "1px solid #E5E2DC" },
+  sent:    { background: "#EFEFF2", color: "#2F3646", border: "1px solid #DEDEE4" },
 };
 
 function StatusBadge({ status, label }: { status: string; label?: string }) {
@@ -109,7 +109,7 @@ function MarkPaidModal({ invoice, onClose, onSuccess }: { invoice: any; onClose:
         <h3 style={{ margin: "0 0 20px", fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Mark Invoice as Paid</h3>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 6 }}>Payment Method</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 6 }}>Payment Method</label>
             <select value={method} onChange={e => setMethod(e.target.value)} style={SELECT}>
               <option value="cash">Cash</option>
               <option value="check">Check</option>
@@ -120,21 +120,21 @@ function MarkPaidModal({ invoice, onClose, onSuccess }: { invoice: any; onClose:
             </select>
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 6 }}>Amount</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 6 }}>Amount</label>
             <input type="number" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} style={INPUT} />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 6 }}>Date</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 6 }}>Date</label>
             <CalendarPopover value={date} ariaLabel="Date" onChange={setDate} block />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", display: "block", marginBottom: 6 }}>Notes (optional)</label>
+            <label style={{ fontSize: 12, fontWeight: 600, color: "#6B6860", display: "block", marginBottom: 6 }}>Notes (optional)</label>
             <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={2}
               style={{ ...INPUT, resize: "vertical" as const }} />
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-          <button onClick={onClose} style={{ flex: 1, padding: "10px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "transparent", color: "#6B7280", fontSize: 13, cursor: "pointer" }}>
+          <button onClick={onClose} style={{ flex: 1, padding: "10px", border: "1px solid #E5E2DC", borderRadius: 8, backgroundColor: "transparent", color: "#6B6860", fontSize: 13, cursor: "pointer" }}>
             Cancel
           </button>
           <button onClick={handleSave} disabled={saving}
@@ -485,7 +485,7 @@ export default function InvoiceDetailPage() {
       <DashboardLayout>
         <div style={{ textAlign: "center", padding: 60, fontFamily: FF }}>
           <AlertCircle size={40} style={{ color: "#C4C0BB", marginBottom: 16 }} />
-          <p style={{ color: "#6B7280" }}>Invoice not found.</p>
+          <p style={{ color: "#6B6860" }}>Invoice not found.</p>
         </div>
       </DashboardLayout>
     );
@@ -529,7 +529,7 @@ export default function InvoiceDetailPage() {
   .no-print { display: none !important; }
 }`}</style>
         <button className="no-print" onClick={() => navigate("/invoices")}
-          style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: "#6B7280", fontSize: 13, marginBottom: 20, padding: 0 }}>
+          style={{ display: "flex", alignItems: "center", gap: 6, background: "none", border: "none", cursor: "pointer", color: "#6B6860", fontSize: 13, marginBottom: 20, padding: 0 }}>
           <ArrowLeft size={15} /> Back to Invoices
         </button>
 
@@ -546,7 +546,7 @@ export default function InvoiceDetailPage() {
             </div>
             <div style={{ textAlign: "right" }}>
               <p style={{ margin: 0, fontSize: 22, fontWeight: 800, letterSpacing: "0.12em", color: "#1A1917" }}>INVOICE</p>
-              <p style={{ margin: "6px 0 0", fontSize: 13, color: "#6B7280" }}>No. <span style={{ color: "#1A1917", fontWeight: 700 }}>{formatInvoiceNumber(invoice)}</span></p>
+              <p style={{ margin: "6px 0 0", fontSize: 13, color: "#6B6860" }}>No. <span style={{ color: "#1A1917", fontWeight: 700 }}>{formatInvoiceNumber(invoice)}</span></p>
               <div style={{ marginTop: 8 }}><StatusBadge status={effectiveStatus} label={statusLabel} /></div>
             </div>
           </div>
@@ -581,7 +581,7 @@ export default function InvoiceDetailPage() {
                     <input type="number" step="0.01" value={l.unit_price} title="Rate (negative = discount)"
                       onChange={e => setLine(i, { unit_price: e.target.value })}
                       style={{ width: 90, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
-                    <span style={{ width: 80, textAlign: "right", fontSize: 13, fontWeight: 700, color: l.total < 0 ? "#991B1B" : "#1A1917" }}>${Number(l.total || 0).toFixed(2)}</span>
+                    <span style={{ width: 80, textAlign: "right", fontSize: 13, fontWeight: 700, color: l.total < 0 ? "#B3261E" : "#1A1917" }}>${Number(l.total || 0).toFixed(2)}</span>
                     <button onClick={() => setEditLines(prev => prev.filter((_, idx) => idx !== i))}
                       title="Remove line" style={{ background: "none", border: "none", color: "#9E9B94", cursor: "pointer", fontSize: 16, lineHeight: 1 }}>×</button>
                   </div>
@@ -593,7 +593,7 @@ export default function InvoiceDetailPage() {
                     style={{ padding: "6px 12px", border: "1px solid #E5E2DC", borderRadius: 6, background: "transparent", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>+ Add discount</button>
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 8 }}>
-                  <span style={{ fontSize: 13, color: "#6B7280" }}>Due date</span>
+                  <span style={{ fontSize: 13, color: "#6B6860" }}>Due date</span>
                   <div style={{ width: 160 }}>
                     <CalendarPopover value={editDue} ariaLabel="Due date" onChange={setEditDue} block />
                   </div>
@@ -606,17 +606,17 @@ export default function InvoiceDetailPage() {
                   )}
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 10, marginBottom: 6 }}>
-                  <span style={{ fontSize: 13, color: "#6B7280" }}>Tip</span>
+                  <span style={{ fontSize: 13, color: "#6B6860" }}>Tip</span>
                   <input type="number" step="0.01" value={editTip} onChange={e => setEditTip(Number(e.target.value) || 0)}
                     style={{ width: 100, padding: "7px 8px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 13, textAlign: "right", fontFamily: FF }} />
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 24, borderTop: "2px solid #EEECE7", paddingTop: 10, marginTop: 6 }}>
-                  <span style={{ fontSize: 13, color: "#6B7280" }}>Subtotal ${editSubtotal.toFixed(2)}</span>
+                  <span style={{ fontSize: 13, color: "#6B6860" }}>Subtotal ${editSubtotal.toFixed(2)}</span>
                   <span style={{ fontSize: 16, fontWeight: 800, color: "#1A1917" }}>Total ${editTotal.toFixed(2)}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 16 }}>
                   <button onClick={() => setEditing(false)}
-                    style={{ padding: "9px 16px", border: "1px solid #E5E2DC", borderRadius: 8, background: "transparent", color: "#6B7280", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                    style={{ padding: "9px 16px", border: "1px solid #E5E2DC", borderRadius: 8, background: "transparent", color: "#6B6860", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Cancel</button>
                   <button onClick={handleSaveEdit} disabled={savingEdit}
                     style={{ padding: "9px 20px", border: "none", borderRadius: 8, backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
                     {savingEdit ? "Saving..." : "Save changes"}
@@ -638,15 +638,15 @@ export default function InvoiceDetailPage() {
                 </thead>
                 <tbody>
                   {lineItems.map((item, i) => (
-                    <tr key={i} style={{ borderBottom: "1px solid #F0EDE8" }}>
+                    <tr key={i} style={{ borderBottom: "1px solid #F0EEE9" }}>
                       <td style={{ padding: "10px 0", fontSize: 13, color: "#1A1917" }}>
                         <div style={{ fontWeight: 600, textTransform: "capitalize" }}>{(item.description || "").replace(/_/g, " ")}</div>
                         {i === 0 && svcBlurb(item.description) && (
                           <div style={{ fontSize: 11.5, color: "#9E9B94", marginTop: 2, lineHeight: 1.4 }}>{svcBlurb(item.description)}</div>
                         )}
                       </td>
-                      <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right", verticalAlign: "top" }}>{Number(item.quantity ?? 1)}</td>
-                      <td style={{ padding: "10px 0", fontSize: 13, color: "#6B7280", textAlign: "right", verticalAlign: "top" }}>${Number((item.unit_price ?? item.rate) || 0).toFixed(2)}</td>
+                      <td style={{ padding: "10px 0", fontSize: 13, color: "#6B6860", textAlign: "right", verticalAlign: "top" }}>{Number(item.quantity ?? 1)}</td>
+                      <td style={{ padding: "10px 0", fontSize: 13, color: "#6B6860", textAlign: "right", verticalAlign: "top" }}>${Number((item.unit_price ?? item.rate) || 0).toFixed(2)}</td>
                       <td style={{ padding: "10px 0", fontSize: 13, fontWeight: 700, color: "#1A1917", textAlign: "right", verticalAlign: "top" }}>${Number(item.total || 0).toFixed(2)}</td>
                     </tr>
                   ))}
@@ -654,7 +654,7 @@ export default function InvoiceDetailPage() {
                 <tfoot>
                   {(invoice.tips || 0) > 0 && (
                     <tr>
-                      <td colSpan={3} style={{ padding: "12px 0 4px", fontSize: 13, color: "#6B7280", textAlign: "right" }}>Tips</td>
+                      <td colSpan={3} style={{ padding: "12px 0 4px", fontSize: 13, color: "#6B6860", textAlign: "right" }}>Tips</td>
                       <td style={{ padding: "12px 0 4px", fontSize: 13, fontWeight: 700, color: "#1A1917", textAlign: "right" }}>${(invoice.tips || 0).toFixed(2)}</td>
                     </tr>
                   )}
@@ -667,10 +667,10 @@ export default function InvoiceDetailPage() {
             )}
 
             {!editing && (
-              <div style={{ marginTop: 26, borderTop: "1px solid #F0EDE8", paddingTop: 16 }}>
+              <div style={{ marginTop: 26, borderTop: "1px solid #F0EEE9", paddingTop: 16 }}>
                 <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{footerMessage}</p>
-                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6B7280", lineHeight: 1.6 }}>{paymentInstructions}</p>
-                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6B7280", lineHeight: 1.6 }}>Payment terms: {invoice.due_date ? `due by ${new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` : "due on receipt"}.</p>
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6B6860", lineHeight: 1.6 }}>{paymentInstructions}</p>
+                <p style={{ margin: "6px 0 0", fontSize: 12, color: "#6B6860", lineHeight: 1.6 }}>Payment terms: {invoice.due_date ? `due by ${new Date(invoice.due_date + "T12:00:00").toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })}` : "due on receipt"}.</p>
                 {guaranteeText && (
                   <p style={{ margin: "12px 0 0", fontSize: 11, color: "#9E9B94", lineHeight: 1.6 }}>{guaranteeText}</p>
                 )}
@@ -718,11 +718,11 @@ export default function InvoiceDetailPage() {
                 </button>
               )}
               <button onClick={handleMarkPaidNow} disabled={markingPaid}
-                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#16A34A", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#0F7A63", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 <DollarSign size={14} /> {markingPaid ? "Marking..." : "Mark Paid"}
               </button>
               <button onClick={() => setShowMarkPaid(true)}
-                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 Record payment…
               </button>
               {/* [invoice-resend 2026-07-14] Re-email a sent invoice (PDF attached) */}
@@ -733,7 +733,7 @@ export default function InvoiceDetailPage() {
               </button>
               {effectiveStatus === "overdue" && (
                 <button onClick={handleSendReminder} disabled={sendingReminder}
-                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#FEF3C7", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "#FDF3E4", color: "#B45309", border: "1px solid #F2DFB8", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                   <Clock size={14} /> {sendingReminder ? "Sending..." : "Send Reminder"}
                 </button>
               )}
@@ -741,7 +741,7 @@ export default function InvoiceDetailPage() {
           )}
           {(invoice.status === "draft" || effectiveStatus === "sent" || effectiveStatus === "overdue") && (
             <button onClick={handleVoid} disabled={voiding}
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#991B1B", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+              style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#B3261E", border: "1px solid #F1D0CB", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
               {voiding ? "Voiding..." : "Void"}
             </button>
           )}
@@ -756,12 +756,12 @@ export default function InvoiceDetailPage() {
               </button>
               {(invoice.refunded_amount ?? 0) < invoice.total && (
                 <button onClick={() => setShowRefund(true)}
-                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#7C3AED", border: "1px solid #DDD6FE", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#9C4E2B", border: "1px solid #EFDCCE", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                   Issue Refund
                 </button>
               )}
               <button onClick={handleMarkUnpaid} disabled={markingUnpaid}
-                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#92400E", border: "1px solid #FDE68A", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+                style={{ display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", backgroundColor: "transparent", color: "#B45309", border: "1px solid #F2DFB8", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
                 {markingUnpaid ? "Updating..." : "Mark Unpaid"}
               </button>
             </>
@@ -780,7 +780,7 @@ export default function InvoiceDetailPage() {
           )}
         </div>
         {invoice.payment_failed && (effectiveStatus === "sent" || effectiveStatus === "overdue") && (
-          <div className="no-print" style={{ marginBottom: 20, padding: "10px 14px", backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#991B1B", display: "flex", alignItems: "center", gap: 8 }}>
+          <div className="no-print" style={{ marginBottom: 20, padding: "10px 14px", backgroundColor: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, fontSize: 13, color: "#B3261E", display: "flex", alignItems: "center", gap: 8 }}>
             <AlertCircle size={15} /> Last charge attempt failed — contact the client for a backup payment method. Charges are never auto-retried.
           </div>
         )}
@@ -906,15 +906,15 @@ export default function InvoiceDetailPage() {
               { label: "Paid", value: invoice.paid_at ? new Date(invoice.paid_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—" },
               ...(invoice.refunded_amount != null ? [{ label: "Refunded", value: `$${Number(invoice.refunded_amount).toFixed(2)}${invoice.refunded_at ? " on " + new Date(invoice.refunded_at).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : ""}` }] : []),
             ].map(({ label, value }) => (
-              <div key={label} style={{ padding: "8px 0", borderBottom: "1px solid #F0EDE8" }}>
+              <div key={label} style={{ padding: "8px 0", borderBottom: "1px solid #F0EEE9" }}>
                 <p style={{ margin: "0 0 2px", fontSize: 11, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</p>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{value}</div>
               </div>
             ))}
           </div>
           {isOverdue && (
-            <div style={{ marginTop: 14, padding: "10px 14px", backgroundColor: "#FEE2E2", border: "1px solid #FECACA", borderRadius: 8 }}>
-              <p style={{ margin: 0, fontSize: 12, color: "#991B1B", fontWeight: 600 }}>
+            <div style={{ marginTop: 14, padding: "10px 14px", backgroundColor: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8 }}>
+              <p style={{ margin: 0, fontSize: 12, color: "#B3261E", fontWeight: 600 }}>
                 Overdue by {invoice.days_overdue || 0} day{invoice.days_overdue !== 1 ? "s" : ""}
               </p>
             </div>
@@ -994,7 +994,7 @@ function RefundModal({ invoice, onClose, onSuccess }: { invoice: any; onClose: (
           </div>
         )}
         {!isStripe && (
-          <div style={{ marginBottom: 14, padding: "8px 12px", backgroundColor: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 6, fontSize: 12, color: "#78350F" }}>
+          <div style={{ marginBottom: 14, padding: "8px 12px", backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 6, fontSize: 12, color: "#78350F" }}>
             Manual / offline payment — refund is recorded here only. Return the money via check or cash directly.
           </div>
         )}
@@ -1011,7 +1011,7 @@ function RefundModal({ invoice, onClose, onSuccess }: { invoice: any; onClose: (
               onChange={e => setAmount(e.target.value)}
               style={{ flex: 1, padding: "9px 12px", border: "none", outline: "none", fontSize: 14, fontWeight: 600, fontFamily: FF }}
             />
-            <button onClick={() => setAmount(maxRefundable.toFixed(2))} style={{ padding: "9px 12px", border: "none", backgroundColor: "transparent", color: "#7C3AED", fontSize: 12, fontWeight: 700, cursor: "pointer", borderLeft: "1px solid #E5E2DC" }}>Full</button>
+            <button onClick={() => setAmount(maxRefundable.toFixed(2))} style={{ padding: "9px 12px", border: "none", backgroundColor: "transparent", color: "#9C4E2B", fontSize: 12, fontWeight: 700, cursor: "pointer", borderLeft: "1px solid #E5E2DC" }}>Full</button>
           </div>
         </label>
         <label style={{ display: "block", marginBottom: 20 }}>
@@ -1026,7 +1026,7 @@ function RefundModal({ invoice, onClose, onSuccess }: { invoice: any; onClose: (
         </label>
         <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
           <button onClick={onClose} disabled={busy} style={{ padding: "9px 18px", border: "1px solid #E5E2DC", backgroundColor: "transparent", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Cancel</button>
-          <button onClick={submit} disabled={busy} style={{ padding: "9px 18px", border: "none", backgroundColor: "#7C3AED", color: "#FFFFFF", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+          <button onClick={submit} disabled={busy} style={{ padding: "9px 18px", border: "none", backgroundColor: "#9C4E2B", color: "#FFFFFF", borderRadius: 8, fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
             {busy ? "Processing..." : `Refund $${(parseFloat(amount) || 0).toFixed(2)}`}
           </button>
         </div>

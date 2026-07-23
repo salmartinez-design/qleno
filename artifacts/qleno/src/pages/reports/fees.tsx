@@ -32,7 +32,7 @@ export default function FeesReportPage() {
     {
       header: "Type",
       render: (r: FeeRow) => (
-        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase" as const, color: "#B45309", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 999, padding: "2px 8px" }}>
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase" as const, color: "#B45309", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 999, padding: "2px 8px" }}>
           {r.action === "lockout" ? "Lockout" : "Cancellation"}
         </span>
       ),

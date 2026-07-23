@@ -47,7 +47,7 @@ export default function CleancyclopediaPage() {
         {/* Header */}
         <div>
           <h1 style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 700, fontSize: '24px', color: '#1A1917', margin: 0, lineHeight: 1.1 }}>Cleancyclopedia</h1>
-          <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', marginTop: '6px' }}>Training library, SOPs, chemical guides, and client communication scripts.</p>
+          <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B6860', marginTop: '6px' }}>Training library, SOPs, chemical guides, and client communication scripts.</p>
         </div>
 
         {/* Search */}
@@ -78,24 +78,24 @@ export default function CleancyclopediaPage() {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px' }}>
                     <div style={{ flex: 1 }}>
                       <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 400, fontSize: '14px', color: '#1A1917', margin: '0 0 3px 0' }}>{article.title}</p>
-                      <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '12px', color: '#6B7280', margin: 0 }}>{article.desc}</p>
+                      <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '12px', color: '#6B6860', margin: 0 }}>{article.desc}</p>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginLeft: '16px', flexShrink: 0 }}>
-                      <span style={{ fontSize: '11px', fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#6B7280', backgroundColor: '#F7F6F3', border: '1px solid #EEECE7', padding: '3px 10px', borderRadius: '4px' }}>{article.time}</span>
+                      <span style={{ fontSize: '11px', fontFamily: "'Plus Jakarta Sans', sans-serif", color: '#6B6860', backgroundColor: '#F7F6F3', border: '1px solid #EEECE7', padding: '3px 10px', borderRadius: '4px' }}>{article.time}</span>
                       <ChevronRight size={14} strokeWidth={1.5} style={{ color: '#9E9B94', transform: expanded === article.title ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
                     </div>
                   </div>
                   {expanded === article.title && (
                     <div style={{ padding: '0 20px 20px', borderTop: '1px solid #EEECE7' }}>
                       <div style={{ paddingTop: '16px' }}>
-                        <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', lineHeight: 1.7, margin: 0 }}>
+                        <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B6860', lineHeight: 1.7, margin: 0 }}>
                           {article.desc} This article contains step-by-step instructions, best practices, and quality checkpoints developed by the Phes operations team.
                         </p>
                         <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
                           <button style={{ padding: '7px 16px', backgroundColor: 'var(--brand)', color: '#FFFFFF', borderRadius: '6px', fontSize: '12px', fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 600, border: 'none', cursor: 'pointer' }}>
                             Read Full Article
                           </button>
-                          <button style={{ padding: '7px 16px', border: '1px solid #E5E2DC', borderRadius: '6px', backgroundColor: 'transparent', color: '#6B7280', fontSize: '12px', fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: 'pointer' }}>
+                          <button style={{ padding: '7px 16px', border: '1px solid #E5E2DC', borderRadius: '6px', backgroundColor: 'transparent', color: '#6B6860', fontSize: '12px', fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: 'pointer' }}>
                             Download PDF
                           </button>
                         </div>
@@ -111,7 +111,7 @@ export default function CleancyclopediaPage() {
         {filtered.length === 0 && (
           <div style={{ textAlign: 'center', padding: '64px 0', border: '1px dashed #E5E2DC', borderRadius: '10px' }}>
             <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: '18px', color: '#1A1917', margin: '0 0 8px 0' }}>No articles found</p>
-            <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B7280', margin: 0 }}>Try a different search term.</p>
+            <p style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 300, fontSize: '13px', color: '#6B6860', margin: 0 }}>Try a different search term.</p>
           </div>
         )}
       </div>

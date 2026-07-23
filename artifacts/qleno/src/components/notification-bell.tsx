@@ -126,11 +126,11 @@ export function NotificationBell() {
       <button
         onClick={() => setOpen((p) => !p)}
         title="Notifications"
-        style={{ background: open ? "var(--brand-dim)" : "none", border: "none", cursor: "pointer", color: open ? "var(--brand)" : "#6B7280", padding: 6, borderRadius: 8, display: "flex", alignItems: "center", position: "relative" } as any}
+        style={{ background: open ? "var(--brand-dim)" : "none", border: "none", cursor: "pointer", color: open ? "var(--brand)" : "#6B6860", padding: 6, borderRadius: 8, display: "flex", alignItems: "center", position: "relative" } as any}
       >
         <Bell size={20} />
         {unread > 0 && (
-          <span style={{ position: "absolute", top: 2, right: 2, minWidth: 9, height: 9, borderRadius: 5, background: "#EF4444", border: "2px solid #fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#fff", fontWeight: 700, padding: "0 2px" }}>
+          <span style={{ position: "absolute", top: 2, right: 2, minWidth: 9, height: 9, borderRadius: 5, background: "#B3261E", border: "2px solid #fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 8, color: "#fff", fontWeight: 700, padding: "0 2px" }}>
             {unread > 9 ? "9+" : unread}
           </span>
         )}
@@ -145,7 +145,7 @@ export function NotificationBell() {
         }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px 10px", borderBottom: "1px solid #F0EDEA" }}>
             <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>
-              Notifications {unread > 0 && <span style={{ fontSize: 11, color: "#EF4444", marginLeft: 4 }}>({unread} unread)</span>}
+              Notifications {unread > 0 && <span style={{ fontSize: 11, color: "#B3261E", marginLeft: 4 }}>({unread} unread)</span>}
             </span>
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
               {unread > 0 && (
@@ -184,7 +184,7 @@ export function NotificationBell() {
                 </span>
                 <span style={{ flex: 1, minWidth: 0 }}>
                   <span style={{ display: "block", fontSize: 12, fontWeight: n.read ? 500 : 700, color: "#1A1917", fontFamily: FF, lineHeight: 1.3 }}>{n.title}</span>
-                  {n.body && <span style={{ display: "block", fontSize: 11, color: "#6B7280", marginTop: 2, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.body}</span>}
+                  {n.body && <span style={{ display: "block", fontSize: 11, color: "#6B6860", marginTop: 2, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{n.body}</span>}
                   <span style={{ display: "block", fontSize: 10, color: "#C0BDB8", marginTop: 3 }}>
                     {new Date(n.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })}
                   </span>

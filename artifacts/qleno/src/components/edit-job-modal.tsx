@@ -1575,7 +1575,7 @@ export default function EditJobModal({
                     {/* [AI.4] Inline validation: red message + Save disabled
                         until the user picks a tenant-managed slug. */}
                     {isCommercial && !commercialServiceTypeValid && (
-                      <span style={{ fontSize: 11, color: "#991B1B", marginTop: 4, display: "block", fontWeight: 600 }}>
+                      <span style={{ fontSize: 11, color: "#B3261E", marginTop: 4, display: "block", fontWeight: 600 }}>
                         Service type required.
                       </span>
                     )}
@@ -1677,7 +1677,7 @@ export default function EditJobModal({
                   <div style={{ marginTop: 10 }}>
                     <span style={{ fontSize: 12, color: "#6B6860", display: "block", marginBottom: 6 }}>
                       Days {daysOfWeek.length === 0 && (
-                        <span style={{ color: "#D97706", fontWeight: 600 }}>· pick at least one</span>
+                        <span style={{ color: "#B45309", fontWeight: 600 }}>· pick at least one</span>
                       )}
                     </span>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1755,8 +1755,8 @@ export default function EditJobModal({
                       </span>
                     )}
                     {clientDefaultRate == null && (
-                      <span style={{ fontSize: 11, color: "#D97706", marginTop: 4, display: "block" }}>
-                        No client default set — <a href={`/clients/${job.client_id}`} style={{ color: "#1D4ED8", fontWeight: 600 }}>set one in the client profile</a>
+                      <span style={{ fontSize: 11, color: "#B45309", marginTop: 4, display: "block" }}>
+                        No client default set — <a href={`/clients/${job.client_id}`} style={{ color: "#2F3646", fontWeight: 600 }}>set one in the client profile</a>
                       </span>
                     )}
                   </div>
@@ -1880,7 +1880,7 @@ export default function EditJobModal({
                           primary" ranking; assigned techs are equal. Trainees
                           (first 3 weeks from hire) are flagged. */}
                       {e.is_trainee && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: "#92400E", backgroundColor: "#FEF3C7", border: "1px solid #FCD34D", padding: "1px 6px", borderRadius: 4, textTransform: "uppercase" }}>Trainee</span>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: "#B45309", backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", padding: "1px 6px", borderRadius: 4, textTransform: "uppercase" }}>Trainee</span>
                       )}
                     </div>
                   </div>
@@ -1921,7 +1921,7 @@ export default function EditJobModal({
                 <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>sqft</span>
                 {propertySqft == null && (
                   <span style={{
-                    fontSize: 11, color: "#92400E", backgroundColor: "#FEF3C7",
+                    fontSize: 11, color: "#B45309", backgroundColor: "#FDF3E4",
                     padding: "3px 8px", borderRadius: 4, fontFamily: FF,
                   }}>
                     No sqft on file — type once to enable %-based addons for all future jobs
@@ -1929,7 +1929,7 @@ export default function EditJobModal({
                 )}
                 {propertySqft != null && propertySqft !== initialPropertySqft && (
                   <span style={{
-                    fontSize: 11, color: "#1D4ED8", fontFamily: FF,
+                    fontSize: 11, color: "#2F3646", fontFamily: FF,
                   }}>
                     Saves to property on Save changes
                   </span>
@@ -2123,7 +2123,7 @@ export default function EditJobModal({
                               return next;
                             });
                           }}
-                          style={{ border: "none", background: "none", cursor: "pointer", color: "#B91C1C", fontSize: 16, lineHeight: 1, padding: "0 4px", fontFamily: FF }}>
+                          style={{ border: "none", background: "none", cursor: "pointer", color: "#B3261E", fontSize: 16, lineHeight: 1, padding: "0 4px", fontFamily: FF }}>
                           ×
                         </button>
                       </div>
@@ -2279,9 +2279,9 @@ export default function EditJobModal({
             })()}
 
             {calcResult?.bundle_breakdown && calcResult.bundle_breakdown.length > 0 && (
-              <div style={{ marginTop: 8, padding: "6px 10px", backgroundColor: "#F0FDF4", borderRadius: 6, border: "1px solid #BBF7D0" }}>
+              <div style={{ marginTop: 8, padding: "6px 10px", backgroundColor: "#F0FDF4", borderRadius: 6, border: "1px solid #C7E7DE" }}>
                 {calcResult.bundle_breakdown.map(b => (
-                  <div key={b.name} style={{ fontSize: 11, color: "#166534", fontWeight: 600 }}>
+                  <div key={b.name} style={{ fontSize: 11, color: "#0F7A63", fontWeight: 600 }}>
                     Bundle: {b.name} − ${b.discount.toFixed(0)}
                   </div>
                 ))}
@@ -2293,7 +2293,7 @@ export default function EditJobModal({
           <div style={SECTION}>
             <span style={LABEL}>Pricing</span>
             {calcError && (
-              <div style={{ fontSize: 12, color: "#991B1B", marginBottom: 8 }}>{calcError}</div>
+              <div style={{ fontSize: 12, color: "#B3261E", marginBottom: 8 }}>{calcError}</div>
             )}
             {/* [AH] Commercial breakdown — show "$50/hr × 6 = $300 + $20 parking" */}
             {isCommercial && !manualRate && (
@@ -2325,19 +2325,19 @@ export default function EditJobModal({
               </div>
             )}
             {manualRate && (
-              <div style={{ marginTop: 8, padding: "6px 10px", backgroundColor: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 6, fontSize: 12, color: "#92400E", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ marginTop: 8, padding: "6px 10px", backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 6, fontSize: 12, color: "#B45309", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <AlertTriangle size={12} /> Manual rate active
                 </span>
                 <button onClick={() => { setManualRate(false); setManualOpen(false); }}
-                  style={{ fontSize: 11, color: "#92400E", background: "none", border: "none", cursor: "pointer", fontWeight: 700 }}>
+                  style={{ fontSize: 11, color: "#B45309", background: "none", border: "none", cursor: "pointer", fontWeight: 700 }}>
                   Reset to calculated
                 </button>
               </div>
             )}
             {!manualOpen && !manualRate && (
               <button onClick={() => { setManualOpen(true); setManualValue(baseFee.toFixed(2)); }}
-                style={{ marginTop: 8, fontSize: 12, color: "#1D4ED8", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 600, padding: 0 }}>
+                style={{ marginTop: 8, fontSize: 12, color: "#2F3646", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontWeight: 600, padding: 0 }}>
                 Override rate
               </button>
             )}
@@ -2355,7 +2355,7 @@ export default function EditJobModal({
                 }} style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--brand)", border: "none", borderRadius: 6, padding: "8px 12px", cursor: "pointer", fontFamily: FF }}>
                   Apply
                 </button>
-                <button onClick={() => setManualOpen(false)} style={{ fontSize: 12, color: "#6B7280", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                <button onClick={() => setManualOpen(false)} style={{ fontSize: 12, color: "#6B6860", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Cancel</button>
               </div>
             )}
 
@@ -2371,8 +2371,8 @@ export default function EditJobModal({
                         {d.reason && d.reason !== d.code ? <span style={{ color: "#9E9B94", fontWeight: 400 }}> · {d.reason}</span> : null}
                       </span>
                       <span style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                        <span style={{ color: "#16A34A", fontWeight: 700 }}>−${d.amount.toFixed(2)}{d.type === "percent" ? ` (${d.value}%)` : ""}</span>
-                        <button onClick={() => removeDiscount(d.id)} disabled={discBusy} title="Remove discount" style={{ background: "none", border: "none", cursor: "pointer", color: "#B91C1C", fontWeight: 700, fontSize: 15, padding: 0, lineHeight: 1 }}>×</button>
+                        <span style={{ color: "#0F7A63", fontWeight: 700 }}>−${d.amount.toFixed(2)}{d.type === "percent" ? ` (${d.value}%)` : ""}</span>
+                        <button onClick={() => removeDiscount(d.id)} disabled={discBusy} title="Remove discount" style={{ background: "none", border: "none", cursor: "pointer", color: "#B3261E", fontWeight: 700, fontSize: 15, padding: 0, lineHeight: 1 }}>×</button>
                       </span>
                     </div>
                   ))}
@@ -2425,7 +2425,7 @@ export default function EditJobModal({
                       style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "var(--brand)", border: "none", borderRadius: 6, padding: "8px 14px", cursor: discBusy || !(parseFloat(discValue) > 0) ? "default" : "pointer", fontFamily: FF, opacity: discBusy || !(parseFloat(discValue) > 0) ? 0.6 : 1 }}>
                       Apply discount
                     </button>
-                    <button type="button" onClick={() => { setDiscOpen(false); setDiscValue(""); setDiscReason(""); setDiscCode(null); }} style={{ fontSize: 12, color: "#6B7280", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                    <button type="button" onClick={() => { setDiscOpen(false); setDiscValue(""); setDiscReason(""); setDiscCode(null); }} style={{ fontSize: 12, color: "#6B6860", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Cancel</button>
                   </div>
                 </div>
               )}
@@ -2462,17 +2462,17 @@ export default function EditJobModal({
             dry_run rollback inside the PATCH route reversed any
             writes); the panel just displays what was rolled back. */}
         {previewResult && (
-          <div style={{ padding: "12px 20px", borderTop: "1px solid #E5E2DC", backgroundColor: "#FAFAF8", fontFamily: FF, fontSize: 13, color: "#1A1917" }}>
+          <div style={{ padding: "12px 20px", borderTop: "1px solid #E5E2DC", backgroundColor: "#F7F6F3", fontFamily: FF, fontSize: 13, color: "#1A1917" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <strong style={{ fontSize: 13 }}>Preview — would change:</strong>
-              <button onClick={() => setPreviewResult(null)} style={{ fontSize: 12, color: "#6B7280", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Clear</button>
+              <button onClick={() => setPreviewResult(null)} style={{ fontSize: 12, color: "#6B6860", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>Clear</button>
             </div>
             <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.5 }}>
               <li>Scope: <code>{String(previewResult.scope ?? "—")}</code></li>
               <li>Current job: {previewResult.current_job_would_update ? "update" : "no change"}</li>
               <li>Recurring schedule: {previewResult.schedule_would_be_created ? "create new" : "no change"}</li>
               <li>Future jobs in series — update: {String(previewResult.future_jobs_would_be_updated ?? 0)}, delete: {String(previewResult.future_jobs_would_be_deleted ?? 0)}, insert: {String(previewResult.future_jobs_would_be_inserted_in_tx ?? 0)}, skipped (clocked-in): {String(previewResult.future_jobs_would_be_skipped_in_progress ?? 0)}</li>
-              <li style={{ color: "#6B7280", fontSize: 12 }}>Forward 60-day fan-out NOT simulated in v1 — re-run without preview to see actual count.</li>
+              <li style={{ color: "#6B6860", fontSize: 12 }}>Forward 60-day fan-out NOT simulated in v1 — re-run without preview to see actual count.</li>
             </ul>
           </div>
         )}
@@ -2488,13 +2488,13 @@ export default function EditJobModal({
             audit trail of the failure. Color tokens use existing
             destructive palette — no new colors. */}
         {lastSaveError && (
-          <div style={{ padding: "12px 20px", borderTop: "1px solid #FECACA", backgroundColor: "#FEF2F2", fontFamily: FF, fontSize: 13, color: "#991B1B" }}>
+          <div style={{ padding: "12px 20px", borderTop: "1px solid #F1D0CB", backgroundColor: "#FCEBEA", fontFamily: FF, fontSize: 13, color: "#B3261E" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, marginBottom: 2 }}>{lastSaveError.title}</div>
                 <div style={{ lineHeight: 1.4 }}>{lastSaveError.message}</div>
               </div>
-              <button onClick={() => setLastSaveError(null)} style={{ fontSize: 12, color: "#991B1B", background: "none", border: "none", cursor: "pointer", fontFamily: FF, padding: 0 }}>Dismiss</button>
+              <button onClick={() => setLastSaveError(null)} style={{ fontSize: 12, color: "#B3261E", background: "none", border: "none", cursor: "pointer", fontFamily: FF, padding: 0 }}>Dismiss</button>
             </div>
           </div>
         )}
@@ -2523,7 +2523,7 @@ export default function EditJobModal({
         {/* Footer */}
         <div style={{ padding: "12px 20px", borderTop: "1px solid #E5E2DC", backgroundColor: "#FFFFFF", flexShrink: 0, display: "flex", gap: 8 }}>
           <button onClick={onClose} disabled={saving || previewing}
-            style={{ flex: 1, padding: "12px", border: "1px solid #E5E2DC", borderRadius: 10, background: "#FFFFFF", color: "#6B7280", fontSize: 14, fontWeight: 600, cursor: (saving || previewing) ? "wait" : "pointer", fontFamily: FF }}>
+            style={{ flex: 1, padding: "12px", border: "1px solid #E5E2DC", borderRadius: 10, background: "#FFFFFF", color: "#6B6860", fontSize: 14, fontWeight: 600, cursor: (saving || previewing) ? "wait" : "pointer", fontFamily: FF }}>
             Cancel
           </button>
           {/* [PR / 2026-04-30] Preview Changes button. Gated behind
@@ -2593,7 +2593,7 @@ export default function EditJobModal({
                 fields they changed. */}
             {mixedEditWarning && (
               <div style={{
-                fontSize: 12, color: "#92400E", backgroundColor: "#FEF3C7",
+                fontSize: 12, color: "#B45309", backgroundColor: "#FDF3E4",
                 border: "1px solid #FBBF24", borderRadius: 8, padding: "10px 12px",
                 marginBottom: 14, lineHeight: 1.45,
               }}>
@@ -2721,9 +2721,9 @@ export default function EditJobModal({
                             <div style={{
                               display: "flex", gap: 8, alignItems: "flex-start",
                               padding: "10px 12px", borderRadius: 8,
-                              backgroundColor: "#FEF3C7",
+                              backgroundColor: "#FDF3E4",
                               borderLeft: "4px solid #F59E0B",
-                              fontSize: 12, color: "#92400E", lineHeight: 1.45,
+                              fontSize: 12, color: "#B45309", lineHeight: 1.45,
                             }}>
                               <AlertTriangle size={14} style={{ marginTop: 1, flexShrink: 0 }} />
                               <span>
@@ -2744,9 +2744,9 @@ export default function EditJobModal({
               return (
                 <>
                   {isSeriesWide && cascadeConfirm && (
-                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", background: "#FEF2F2", border: "1px solid #FCA5A5", borderRadius: 8, marginBottom: 10 }}>
-                      <AlertTriangle size={16} color="#B91C1C" style={{ flexShrink: 0, marginTop: 1 }} />
-                      <span style={{ fontSize: 12, color: "#991B1B", lineHeight: 1.4 }}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "flex-start", padding: "10px 12px", background: "#FCEBEA", border: "1px solid #FCA5A5", borderRadius: 8, marginBottom: 10 }}>
+                      <AlertTriangle size={16} color="#B3261E" style={{ flexShrink: 0, marginTop: 1 }} />
+                      <span style={{ fontSize: 12, color: "#B3261E", lineHeight: 1.4 }}>
                         This applies to <strong>{cascadeChoice === "all" ? "every visit (past + future)" : "every future visit"}</strong> of this recurring job. If you changed the day, occurrences that no longer match are <strong>removed</strong> and recreated on the new day. Make sure that's intended.
                       </span>
                     </div>
@@ -2758,7 +2758,7 @@ export default function EditJobModal({
                         setCascadePromptOpen(false); setMixedEditWarning(null); setCascadeConfirm(false);
                       }}
                       disabled={saving}
-                      style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B7280", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                      style={{ flex: 1, padding: "10px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                       {isSeriesWide && cascadeConfirm ? "Back" : "Cancel"}
                     </button>
                     <button
@@ -2768,7 +2768,7 @@ export default function EditJobModal({
                         submit(cascadeChoice);
                       }}
                       disabled={saving}
-                      style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: (isSeriesWide && cascadeConfirm) ? "#DC2626" : "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
+                      style={{ flex: 2, padding: "10px", borderRadius: 8, border: "none", background: (isSeriesWide && cascadeConfirm) ? "#B3261E" : "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: saving ? "wait" : "pointer", fontFamily: FF }}>
                       {saving ? "Applying…" : (isSeriesWide && cascadeConfirm) ? "Yes, apply to the series" : "Apply changes"}
                     </button>
                   </div>

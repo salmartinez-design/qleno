@@ -272,10 +272,10 @@ function AddonDrawer({ open, editing, allScopes, selectedScopeId, onClose, onSav
             {showPriceInput && (
               <Field label={priceType === "sqft_pct" ? "Percentage (% of sq.ft.)" : priceType === "percentage" ? "Percentage (%)" : "Amount ($)"}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  {priceType === "flat" && <span style={{ color: "#6B7280", fontSize: 14 }}>$</span>}
+                  {priceType === "flat" && <span style={{ color: "#6B6860", fontSize: 14 }}>$</span>}
                   <input type="number" value={priceValue} onChange={e => setPriceValue(e.target.value)}
                     placeholder="0.00" step="0.01" style={{ ...iStyle, flex: 1 }} />
-                  {(priceType === "percentage" || priceType === "sqft_pct") && <span style={{ color: "#6B7280", fontSize: 14 }}>%</span>}
+                  {(priceType === "percentage" || priceType === "sqft_pct") && <span style={{ color: "#6B6860", fontSize: 14 }}>%</span>}
                 </div>
                 {priceType === "flat" && (
                   <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 4 }}>Use a negative value for discounts, e.g. -50 for $50 off</div>
@@ -292,7 +292,7 @@ function AddonDrawer({ open, editing, allScopes, selectedScopeId, onClose, onSav
               </div>
             )}
             {priceType === "manual_adj" && (
-              <div style={{ background: "#FEF3C7", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#92400E" }}>
+              <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 14px", fontSize: 13, color: "#B45309" }}>
                 The amount is entered manually by the office when creating a quote. Not shown to customers online.
               </div>
             )}
@@ -312,7 +312,7 @@ function AddonDrawer({ open, editing, allScopes, selectedScopeId, onClose, onSav
 
             {/* Flags */}
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>Visibility</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em" }}>Visibility</div>
               {[
                 { key: "show_office", label: "Show in Office (quote builder)", val: showOffice, set: setShowOffice },
                 { key: "show_online", label: "Show Online (booking widget)", val: showOnline, set: setShowOnline },
@@ -328,7 +328,7 @@ function AddonDrawer({ open, editing, allScopes, selectedScopeId, onClose, onSav
             </div>
 
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>Accounting</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em" }}>Accounting</div>
               {[
                 { key: "is_itemized", label: "Show as line item on invoice", val: isItemized, set: setIsItemized },
                 { key: "is_taxed", label: "Taxable add-on", val: isTaxed, set: setIsTaxed },
@@ -346,7 +346,7 @@ function AddonDrawer({ open, editing, allScopes, selectedScopeId, onClose, onSav
 
         {/* Footer */}
         <div style={{ padding: "16px 24px", borderTop: "1px solid #E5E2DC", display: "flex", justifyContent: "flex-end", gap: 12 }}>
-          <button onClick={onClose} style={{ padding: "9px 20px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#fff", fontSize: 13, fontWeight: 600, color: "#6B7280", cursor: "pointer", fontFamily: "inherit" }}>
+          <button onClick={onClose} style={{ padding: "9px 20px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#fff", fontSize: 13, fontWeight: 600, color: "#6B6860", cursor: "pointer", fontFamily: "inherit" }}>
             Cancel
           </button>
           <button onClick={handleSave} disabled={saving} style={{ padding: "9px 20px", borderRadius: 8, border: "none", background: saving ? "#9FE7D0" : "var(--brand)", color: "#fff", fontSize: 13, fontWeight: 700, cursor: saving ? "default" : "pointer", fontFamily: "inherit" }}>
@@ -362,7 +362,7 @@ function Field({ label, required, children, style }: { label: string; required?:
   return (
     <div style={style}>
       <div style={{ fontSize: 12, fontWeight: 600, color: "#0A0E1A", marginBottom: 6 }}>
-        {label}{required && <span style={{ color: "#EF4444", marginLeft: 2 }}>*</span>}
+        {label}{required && <span style={{ color: "#B3261E", marginLeft: 2 }}>*</span>}
       </div>
       {children}
     </div>
@@ -448,7 +448,7 @@ export default function RatesPage() {
         {/* ── Left: Scope Panel ─────────────────────────────────────────────── */}
         <div style={{ width: 264, background: "#fff", borderRight: "1px solid #E5E2DC", display: "flex", flexDirection: "column", overflow: "hidden" }}>
           <div style={{ padding: "16px 16px 12px", borderBottom: "1px solid #E5E2DC" }}>
-            <button onClick={() => navigate("/company")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#6B7280", fontSize: 13, fontFamily: "inherit", padding: 0, marginBottom: 12 }}>
+            <button onClick={() => navigate("/company")} style={{ background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, color: "#6B6860", fontSize: 13, fontFamily: "inherit", padding: 0, marginBottom: 12 }}>
               <ArrowLeft size={14} /> Company Settings
             </button>
             <div style={{ fontWeight: 700, fontSize: 15, color: "#0A0E1A" }}>Rates & Add-ons</div>
@@ -548,24 +548,24 @@ export default function RatesPage() {
                       </thead>
                       <tbody>
                         {group.map((addon, idx) => (
-                          <tr key={addon.id} style={{ borderBottom: idx < group.length - 1 ? "1px solid #F0EDE8" : "none" }}>
+                          <tr key={addon.id} style={{ borderBottom: idx < group.length - 1 ? "1px solid #F0EEE9" : "none" }}>
                             <td style={tdStyle}>
                               <div style={{ fontWeight: 600, color: "#0A0E1A" }}>{addon.name}</div>
                               {(addon.is_taxed || !addon.is_itemized) && (
                                 <div style={{ display: "flex", gap: 4, marginTop: 2 }}>
-                                  {addon.is_taxed && <span style={{ fontSize: 10, background: "#FEF3C7", color: "#92400E", padding: "1px 5px", borderRadius: 9999 }}>Taxed</span>}
-                                  {!addon.is_itemized && <span style={{ fontSize: 10, background: "#F7F6F3", color: "#6B7280", padding: "1px 5px", borderRadius: 9999 }}>Not itemized</span>}
+                                  {addon.is_taxed && <span style={{ fontSize: 10, background: "#FDF3E4", color: "#B45309", padding: "1px 5px", borderRadius: 9999 }}>Taxed</span>}
+                                  {!addon.is_itemized && <span style={{ fontSize: 10, background: "#F7F6F3", color: "#6B6860", padding: "1px 5px", borderRadius: 9999 }}>Not itemized</span>}
                                 </div>
                               )}
                             </td>
                             <td style={tdStyle}>
-                              <span style={{ fontWeight: 600, fontFamily: "monospace", color: getPriceValue(addon) < 0 ? "#EF4444" : "#0A0E1A" }}>
+                              <span style={{ fontWeight: 600, fontFamily: "monospace", color: getPriceValue(addon) < 0 ? "#B3261E" : "#0A0E1A" }}>
                                 {formatAddonPrice(addon)}
                               </span>
                             </td>
                             <td style={tdStyle}>
                               {addon.time_add_minutes > 0 ? (
-                                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#6B7280" }}>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#6B6860" }}>
                                   <Clock size={12} />+{addon.time_add_minutes}min
                                 </span>
                               ) : "—"}
@@ -581,10 +581,10 @@ export default function RatesPage() {
                               </div>
                             </td>
                             <td style={{ ...tdStyle, textAlign: "right", whiteSpace: "nowrap" }}>
-                              <button onClick={() => openDrawer(addon)} style={actionBtn("#6B7280")}>
+                              <button onClick={() => openDrawer(addon)} style={actionBtn("#6B6860")}>
                                 <Pencil size={13} />
                               </button>
-                              <button onClick={() => deactivateAddon(addon.id)} style={actionBtn("#EF4444")}>
+                              <button onClick={() => deactivateAddon(addon.id)} style={actionBtn("#B3261E")}>
                                 <Trash2 size={13} />
                               </button>
                             </td>
@@ -608,8 +608,8 @@ export default function RatesPage() {
                     <div key={addon.id} style={{ padding: "10px 16px", background: "#fff", borderRadius: 8, border: "1px solid #E5E2DC", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                       <span style={{ fontSize: 13, fontWeight: 600 }}>{addon.name}</span>
                       <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => openDrawer(addon)} style={actionBtn("#6B7280")}><Pencil size={13} /></button>
-                        <button onClick={() => deactivateAddon(addon.id)} style={actionBtn("#EF4444")}><Trash2 size={13} /></button>
+                        <button onClick={() => openDrawer(addon)} style={actionBtn("#6B6860")}><Pencil size={13} /></button>
+                        <button onClick={() => deactivateAddon(addon.id)} style={actionBtn("#B3261E")}><Trash2 size={13} /></button>
                       </div>
                     </div>
                   ))}
@@ -636,9 +636,9 @@ function ScopeCount({ addon, allScopes }: { addon: PricingAddon; allScopes: Pric
   const ids = parseAddonScopeIds(addon);
   const names = ids.map(id => allScopes.find(s => s.id === id)?.name).filter(Boolean) as string[];
   if (names.length === 0) return <span style={{ color: "#C4C1BA" }}>—</span>;
-  if (names.length === 1) return <span style={{ fontSize: 12, color: "#6B7280" }}>{names[0]}</span>;
+  if (names.length === 1) return <span style={{ fontSize: 12, color: "#6B6860" }}>{names[0]}</span>;
   return (
-    <span title={names.join(", ")} style={{ fontSize: 12, color: "#6B7280" }}>
+    <span title={names.join(", ")} style={{ fontSize: 12, color: "#6B6860" }}>
       {names[0]}{names.length > 1 ? ` +${names.length - 1}` : ""}
     </span>
   );

@@ -189,7 +189,7 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
     return (
       <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px 9px 14px", flexWrap: "wrap" }}>
         <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 700, minWidth: 28 }}>PAY</span>
-        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: "#B45309", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 999, padding: "3px 10px" }}>
+        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", color: "#B45309", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 999, padding: "3px 10px" }}>
           {isLockout ? "Lockout fee" : "Cancellation fee"}
         </span>
         <span style={{ fontSize: 11, color: "#9E9B94" }}>
@@ -233,7 +233,7 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
           billed ${row.fee.toFixed(2)}
         </span>
       ) : (
-        <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 999, padding: "3px 9px" }}
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FDF3E4", borderRadius: 999, padding: "3px 9px" }}
           title="No amount is billed on this job yet — set a price on the job so pay and revenue can be reconciled.">
           no billed amount
         </span>
@@ -247,7 +247,7 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
           {row.allowed_hours.toFixed(2)} allowed hrs
         </span>
       ) : effectivePayType === "allowed_hours" ? (
-        <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FEF3C7", borderRadius: 999, padding: "3px 9px" }}
+        <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FDF3E4", borderRadius: 999, padding: "3px 9px" }}
           title="No allowed-hours budget set on this job — pay falls back to actual clocked hours × rate until a budget is entered.">
           no budget — paying actual
         </span>
@@ -256,7 +256,7 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
       <input value={ded} onChange={e => setDed(e.target.value)} placeholder="0" inputMode="decimal"
         style={{ width: 50, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, color: "#1A1917", padding: "0 7px", textAlign: "right" }} />
       <button onClick={savePay} disabled={busy}
-        style={{ fontSize: 11, fontWeight: 700, padding: "5px 9px", borderRadius: 6, border: "1px solid #E5E2DC", cursor: busy ? "default" : "pointer", fontFamily: FF, color: "#2D9B83", background: "#fff", opacity: busy ? 0.6 : 1 }}>
+        style={{ fontSize: 11, fontWeight: 700, padding: "5px 9px", borderRadius: 6, border: "1px solid #E5E2DC", cursor: busy ? "default" : "pointer", fontFamily: FF, color: "#0F7A63", background: "#fff", opacity: busy ? 0.6 : 1 }}>
         Save pay
       </button>
     </div>
@@ -391,12 +391,12 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
         <input type="text" inputMode="text" placeholder="—:—" aria-label="Clock in"
           value={inVal} onChange={e => setInVal(e.target.value)}
           onBlur={() => { const p = parseTimeInput(inVal); if (p) setInVal(hh24ToDisplay(p)); }}
-          style={{ ...inputStyle, borderColor: inInvalid ? "#EF4444" : inEmpty ? "#ECEAE5" : "#E5E2DC", background: inEmpty ? "#FAFAF8" : "#fff" }} />
+          style={{ ...inputStyle, borderColor: inInvalid ? "#B3261E" : inEmpty ? "#ECEAE5" : "#E5E2DC", background: inEmpty ? "#F7F6F3" : "#fff" }} />
         <span style={{ fontSize: 10, color: "#9E9B94", fontWeight: 700, marginLeft: 4 }}>OUT</span>
         <input type="text" inputMode="text" placeholder="—:—" aria-label="Clock out"
           value={outVal} onChange={e => setOutVal(e.target.value)}
           onBlur={() => { const p = parseTimeInput(outVal); if (p) setOutVal(hh24ToDisplay(p)); }}
-          style={{ ...inputStyle, borderColor: outInvalid ? "#EF4444" : outEmpty ? "#ECEAE5" : "#E5E2DC", background: outEmpty ? "#FAFAF8" : "#fff" }} />
+          style={{ ...inputStyle, borderColor: outInvalid ? "#B3261E" : outEmpty ? "#ECEAE5" : "#E5E2DC", background: outEmpty ? "#F7F6F3" : "#fff" }} />
       </div>
       <div style={{ width: 66, textAlign: "right", color: liveMins != null ? "#1A1917" : "#C4C0BB" }}>
         <div style={{ fontSize: 12, fontWeight: 700 }}>{liveMins != null ? fmtHrs(liveMins) : (parsedIn && !parsedOut ? "open" : "—")}</div>
@@ -409,11 +409,11 @@ function RowEditor({ emp, row, dateStr, onChanged, toastFn }: {
         {row.pay != null ? `$${row.pay.toFixed(2)}` : "—"}
       </div>
       <button onClick={save} disabled={busy || !dirty}
-        style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 6, border: "none", cursor: busy || !dirty ? "default" : "pointer", fontFamily: FF, color: "#fff", background: dirty ? "#2D9B83" : "#D4D1CB", opacity: busy ? 0.6 : 1 }}>
+        style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 12, fontWeight: 700, padding: "6px 10px", borderRadius: 6, border: "none", cursor: busy || !dirty ? "default" : "pointer", fontFamily: FF, color: "#fff", background: dirty ? "#0F7A63" : "#D4D1CB", opacity: busy ? 0.6 : 1 }}>
         <Check size={12} /> Save
       </button>
       <button onClick={del} disabled={busy || !row.entry_id} title="Delete punch"
-        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 6, border: "1px solid #F3D2D2", background: row.entry_id ? "#FEF2F2" : "#F7F6F3", color: row.entry_id ? "#B91C1C" : "#D4D1CB", cursor: row.entry_id && !busy ? "pointer" : "default" }}>
+        style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 30, height: 30, borderRadius: 6, border: "1px solid #F3D2D2", background: row.entry_id ? "#FCEBEA" : "#F7F6F3", color: row.entry_id ? "#B3261E" : "#D4D1CB", cursor: row.entry_id && !busy ? "pointer" : "default" }}>
         <Trash2 size={13} />
       </button>
     </div>
@@ -483,7 +483,7 @@ function ClockTzFixModal({ onClose, onApplied, toastFn }: { onClose: () => void;
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end", marginBottom: 14, flexWrap: "wrap" }}>
           <div><div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4 }}>From</div><CalendarPopover value={from} onChange={v => v && setFrom(v)} ariaLabel="From date" /></div>
           <div><div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", marginBottom: 4 }}>To</div><CalendarPopover value={to} onChange={v => v && setTo(v)} ariaLabel="To date" /></div>
-          <button onClick={runPreview} disabled={busy} style={{ border: "1px solid #2D9B83", background: "#fff", color: "#2D9B83", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: busy ? "wait" : "pointer", fontFamily: FF }}>{busy ? "…" : "Preview"}</button>
+          <button onClick={runPreview} disabled={busy} style={{ border: "1px solid #0F7A63", background: "#fff", color: "#0F7A63", borderRadius: 8, padding: "8px 14px", fontWeight: 700, fontSize: 13, cursor: busy ? "wait" : "pointer", fontFamily: FF }}>{busy ? "…" : "Preview"}</button>
         </div>
 
         {preview && (
@@ -494,15 +494,15 @@ function ClockTzFixModal({ onClose, onApplied, toastFn }: { onClose: () => void;
             {preview.convertible.length > 0 && (
               <div style={{ border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden", marginBottom: 12 }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                  <thead><tr style={{ background: "#FAFAF8", textAlign: "left", color: "#9E9B94" }}>
+                  <thead><tr style={{ background: "#F7F6F3", textAlign: "left", color: "#9E9B94" }}>
                     <th style={{ padding: "6px 8px", fontWeight: 700 }}>Tech</th><th style={{ padding: "6px 8px", fontWeight: 700 }}>In</th><th style={{ padding: "6px 8px", fontWeight: 700 }}>Out</th>
                   </tr></thead>
                   <tbody>
                     {preview.convertible.slice(0, 40).map(r => (
                       <tr key={r.id} style={{ borderTop: "1px solid #F4F3F0" }}>
                         <td style={{ padding: "6px 8px" }}>{r.tech}</td>
-                        <td style={{ padding: "6px 8px" }}><span style={{ color: "#B91C1C" }}>{r.in_before}</span> → <span style={{ color: "#0A7C66", fontWeight: 700 }}>{r.in_after}</span></td>
-                        <td style={{ padding: "6px 8px" }}>{r.out_before ? <><span style={{ color: "#B91C1C" }}>{r.out_before}</span> → <span style={{ color: "#0A7C66", fontWeight: 700 }}>{r.out_after}</span></> : "—"}</td>
+                        <td style={{ padding: "6px 8px" }}><span style={{ color: "#B3261E" }}>{r.in_before}</span> → <span style={{ color: "#0A7C66", fontWeight: 700 }}>{r.in_after}</span></td>
+                        <td style={{ padding: "6px 8px" }}>{r.out_before ? <><span style={{ color: "#B3261E" }}>{r.out_before}</span> → <span style={{ color: "#0A7C66", fontWeight: 700 }}>{r.out_after}</span></> : "—"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -513,7 +513,7 @@ function ClockTzFixModal({ onClose, onApplied, toastFn }: { onClose: () => void;
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
               <button onClick={onClose} disabled={busy} style={{ border: "1px solid #E5E2DC", background: "#fff", color: "#6B6860", borderRadius: 8, padding: "8px 16px", fontWeight: 600, fontSize: 13, cursor: "pointer", fontFamily: FF }}>Cancel</button>
               <button onClick={apply} disabled={busy || preview.counts.convertible === 0}
-                style={{ border: "none", background: preview.counts.convertible === 0 ? "#D4D1CB" : "#2D9B83", color: "#fff", borderRadius: 8, padding: "8px 18px", fontWeight: 700, fontSize: 13, cursor: busy || preview.counts.convertible === 0 ? "default" : "pointer", fontFamily: FF }}>
+                style={{ border: "none", background: preview.counts.convertible === 0 ? "#D4D1CB" : "#0F7A63", color: "#fff", borderRadius: 8, padding: "8px 18px", fontWeight: 700, fontSize: 13, cursor: busy || preview.counts.convertible === 0 ? "default" : "pointer", fontFamily: FF }}>
                 {busy ? "Applying…" : `Apply to ${preview.counts.convertible}`}
               </button>
             </div>
@@ -586,10 +586,10 @@ export default function TimeClockPage() {
             </p>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <button onClick={() => setDate(d => addDays(d, -1))} aria-label="Previous day" style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B7280" }}><ChevronLeft size={16} /></button>
+            <button onClick={() => setDate(d => addDays(d, -1))} aria-label="Previous day" style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B6860" }}><ChevronLeft size={16} /></button>
             {/* Calendar jump — chevron CalendarPopover (no native up/down stepper) */}
             <CalendarPopover value={dk} onChange={(v) => { if (v) setDate(new Date(`${v}T00:00:00`)); }} ariaLabel="Jump to date" />
-            <button onClick={() => setDate(d => addDays(d, 1))} aria-label="Next day" style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B7280" }}><ChevronRight size={16} /></button>
+            <button onClick={() => setDate(d => addDays(d, 1))} aria-label="Next day" style={{ border: "1px solid #E5E2DC", background: "#fff", borderRadius: 8, padding: "7px 9px", cursor: "pointer", color: "#6B6860" }}><ChevronRight size={16} /></button>
             {/* Always render the Today button so its slot is reserved — when
                 isToday it's hidden but still occupies width, so the date box +
                 chevrons don't slide sideways switching today ↔ any other day. */}
@@ -612,14 +612,14 @@ export default function TimeClockPage() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(104px, 1fr))", gap: "14px 20px", padding: "12px 16px", background: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 14 }}>
           <Stat label="People" value={String(employees.length)} />
           <Stat label="Jobs" value={String(jobCount)} />
-          <Stat label="Punched" value={`${totalPunches}/${totalRows}`} accent={totalPunches < totalRows ? "#B45309" : "#16A34A"} />
+          <Stat label="Punched" value={`${totalPunches}/${totalRows}`} accent={totalPunches < totalRows ? "#B45309" : "#0F7A63"} />
           <Stat label="Worked hours" value={fmtHrs(totalWorked)} sub={fmtHrsDec(totalWorked)} />
           <Stat label="Revenue" value={`$${revenue.toFixed(2)}`} />
           <Stat label="Commission" value={`$${totalPay.toFixed(2)}`} accent="#0A7C66" />
           <Stat label="Payroll %" value={payrollPct != null ? `${payrollPct.toFixed(1)}%` : "—"}
-            accent={payrollPct == null ? undefined : payrollPct <= 40 ? "#16A34A" : payrollPct <= 50 ? "#B45309" : "#B91C1C"} />
+            accent={payrollPct == null ? undefined : payrollPct <= 40 ? "#0F7A63" : payrollPct <= 50 ? "#B45309" : "#B3261E"} />
           <Stat label="Efficiency" value={efficiency != null ? `${efficiency.toFixed(0)}%` : "—"}
-            accent={efficiency == null ? undefined : efficiency >= 100 ? "#16A34A" : efficiency >= 85 ? "#B45309" : "#B91C1C"} />
+            accent={efficiency == null ? undefined : efficiency >= 100 ? "#0F7A63" : efficiency >= 85 ? "#B45309" : "#B3261E"} />
         </div>
 
         {loading && !data ? (
@@ -627,10 +627,10 @@ export default function TimeClockPage() {
         ) : employees.length === 0 ? (
           <div style={{ textAlign: "center", padding: 48, background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 12 }}>
             <Clock size={30} color="#D0CEC9" style={{ marginBottom: 10 }} />
-            <div style={{ fontSize: 14, fontWeight: 700, color: "#6B7280" }}>No jobs scheduled this day</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#6B6860" }}>No jobs scheduled this day</div>
             <div style={{ fontSize: 12, color: "#9E9B94" }}>Pick another date to reconcile its clocks.</div>
             {data?.diagnostics && (
-              <div style={{ marginTop: 12, fontSize: 11, fontFamily: "monospace", color: data.diagnostics.error ? "#B91C1C" : "#9E9B94" }}>
+              <div style={{ marginTop: 12, fontSize: 11, fontFamily: "monospace", color: data.diagnostics.error ? "#B3261E" : "#9E9B94" }}>
                 {data.diagnostics.error
                   ? `server error: ${data.diagnostics.error}`
                   : `diagnostics — jobs found: ${data.diagnostics.jobCount ?? "?"} · tech rows: ${data.diagnostics.techRows ?? "?"} · clock rows: ${data.diagnostics.clockRows ?? "?"}`}
@@ -642,7 +642,7 @@ export default function TimeClockPage() {
             const punched = emp.rows.filter(r => r.source === "punched").length;
             return (
               <div key={emp.user_id} style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 12, marginBottom: 12, overflow: "hidden" }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", background: "#FAFAF8", borderBottom: "1px solid #EEECE7" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 16px", background: "#F7F6F3", borderBottom: "1px solid #EEECE7" }}>
                   <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>
                     <Link href={`/employees/${emp.user_id}`} style={{ color: "#1A1917", textDecoration: "none" }}>
                       <span style={{ borderBottom: "1px solid #D4D1CB" }}>{emp.name}</span>
@@ -650,7 +650,7 @@ export default function TimeClockPage() {
                   </div>
                   <div style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 12, color: "#6B6860" }}>
                     {emp.day_start && <span>{fmtClock(emp.day_start)} – {emp.open ? "on clock" : fmtClock(emp.day_end)}</span>}
-                    <span style={{ color: punched < emp.rows.length ? "#B45309" : "#16A34A", fontWeight: 700 }}>{punched}/{emp.rows.length} punched</span>
+                    <span style={{ color: punched < emp.rows.length ? "#B45309" : "#0F7A63", fontWeight: 700 }}>{punched}/{emp.rows.length} punched</span>
                     <span style={{ fontWeight: 800, color: "#1A1917" }}>{fmtHrs(emp.worked_minutes)} <span style={{ fontWeight: 600, color: "#9E9B94" }}>· {fmtHrsDec(emp.worked_minutes)}</span></span>
                     {emp.pay_total != null && <span style={{ fontWeight: 800, color: "#0A7C66" }}>${emp.pay_total.toFixed(2)}</span>}
                   </div>

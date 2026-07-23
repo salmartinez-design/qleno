@@ -69,8 +69,8 @@ export function MessagePreview({
           </div>
           {subject && <div style={{ padding: "10px 16px 0", fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{fillSample(subject)}</div>}
           {isHtml(filledBody)
-            ? <div style={{ padding: "12px 16px", fontSize: 13, color: "#374151", lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: filledBody }} />
-            : <div style={{ padding: "12px 16px", fontSize: 13, color: "#374151", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{filledBody || "Nothing yet"}</div>}
+            ? <div style={{ padding: "12px 16px", fontSize: 13, color: "#1A1917", lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: filledBody }} />
+            : <div style={{ padding: "12px 16px", fontSize: 13, color: "#1A1917", lineHeight: 1.6, whiteSpace: "pre-wrap" }}>{filledBody || "Nothing yet"}</div>}
         </div>
       </div>
     );

@@ -18,7 +18,7 @@ export default function ScorecardsReportPage() {
   const rows = minScore !== null ? allRows.filter(r => r.score <= minScore) : allRows;
   const s = data?.summary;
 
-  const scoreColors: Record<number,string> = { 4: clr.green, 3: "#3B82F6", 2: clr.amber, 1: clr.red, 0: clr.muted };
+  const scoreColors: Record<number,string> = { 4: clr.green, 3: "#2F3646", 2: clr.amber, 1: clr.red, 0: clr.muted };
 
   const cols = [
     { header: "Date", render: (r: SCRow) => fmtDate(r.date) },

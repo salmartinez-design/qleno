@@ -279,7 +279,7 @@ export function VoiceAssistant() {
                 aria-label={listening ? "Stop" : "Speak"}
                 style={{
                   width: 76, height: 76, borderRadius: "50%", border: "none", cursor: (!supported || busy) ? "default" : "pointer",
-                  background: listening ? "#DC2626" : "var(--brand)", color: "#fff",
+                  background: listening ? "#B3261E" : "var(--brand)", color: "#fff",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   boxShadow: listening ? "0 0 0 8px rgba(220,38,38,0.18)" : "0 4px 16px rgba(0,0,0,0.18)",
                   opacity: (!supported || busy) ? 0.5 : 1, transition: "background 0.15s, box-shadow 0.15s",
@@ -308,7 +308,7 @@ export function VoiceAssistant() {
             {/* Navigate */}
             {navUrl && (
               <a href={navUrl} target="_blank" rel="noreferrer"
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 0", background: "#1D4ED8", color: "#fff", borderRadius: 10, fontSize: 15, fontWeight: 700, textDecoration: "none" }}>
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "12px 0", background: "#2F3646", color: "#fff", borderRadius: 10, fontSize: 15, fontWeight: 700, textDecoration: "none" }}>
                 <Navigation size={18} /> {t.navigate}
               </a>
             )}
@@ -329,10 +329,10 @@ export function VoiceAssistant() {
             </div>
 
             {status && (
-              <div style={{ fontSize: 12, color: "#92400E", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 12px" }}>{status}</div>
+              <div style={{ fontSize: 12, color: "#B45309", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "8px 12px" }}>{status}</div>
             )}
             {!supported && (
-              <div style={{ fontSize: 12, color: "#92400E", background: "#FEF3C7", border: "1px solid #FCD34D", borderRadius: 8, padding: "8px 12px" }}>{t.unsupported}</div>
+              <div style={{ fontSize: 12, color: "#B45309", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "8px 12px" }}>{t.unsupported}</div>
             )}
             {!answer && !transcript && (
               <div style={{ fontSize: 11, color: "#9E9B94", textAlign: "center", lineHeight: 1.5 }}>{t.examples}</div>

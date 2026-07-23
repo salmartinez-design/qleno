@@ -30,9 +30,9 @@ export default function UpsellConversionPage() {
   const lh = data?.lockHealth;
 
   const statusPill = (r: UpsellRow) => {
-    if (r.upsell_accepted) return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#DCFCE7", color: "#166534" }}>Accepted</span>;
-    if (r.upsell_declined && !r.upsell_accepted) return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#FEE2E2", color: "#991B1B" }}>Declined</span>;
-    if (r.upsell_deferred) return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#FEF3C7", color: "#92400E" }}>Deferred</span>;
+    if (r.upsell_accepted) return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#E6F6F1", color: "#0F7A63" }}>Accepted</span>;
+    if (r.upsell_declined && !r.upsell_accepted) return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#FCEBEA", color: "#B3261E" }}>Declined</span>;
+    if (r.upsell_deferred) return <span style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 4, background: "#FDF3E4", color: "#B45309" }}>Deferred</span>;
     return <span style={{ fontSize: 11, color: clr.muted }}>—</span>;
   };
 
@@ -66,7 +66,7 @@ export default function UpsellConversionPage() {
         {/* KPI Cards */}
         <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 24 }}>
           <KpiCard label="Deep Cleans with Upsell" value={String(total)} color={clr.secondary} />
-          <KpiCard label="Accepted" value={String(kpi?.total_accepted ?? 0)} color="#166534" sub={pct(kpi?.total_accepted ?? 0, total)} />
+          <KpiCard label="Accepted" value={String(kpi?.total_accepted ?? 0)} color="#0F7A63" sub={pct(kpi?.total_accepted ?? 0, total)} />
           <KpiCard label="Declined" value={String(kpi?.total_declined ?? 0)} color={clr.red} sub={pct(kpi?.total_declined ?? 0, total)} />
           <KpiCard label="Deferred" value={String(kpi?.total_deferred ?? 0)} color={clr.amber} sub={pct(kpi?.total_deferred ?? 0, total)} />
         </div>
@@ -77,7 +77,7 @@ export default function UpsellConversionPage() {
             <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 16 }}>Weekly Acceptance Rate</div>
             <ResponsiveContainer width="100%" height={180}>
               <LineChart data={trend} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#F0EDE8" />
+                <CartesianGrid strokeDasharray="3 3" stroke="#F0EEE9" />
                 <XAxis dataKey="week" tick={{ fontSize: 11, fontFamily: FF, fill: "#9E9B94" }} />
                 <YAxis domain={[0, 100]} tickFormatter={v => `${v}%`} tick={{ fontSize: 11, fontFamily: FF, fill: "#9E9B94" }} />
                 <Tooltip formatter={(v: any) => [`${v}%`, "Acceptance Rate"]} contentStyle={{ fontFamily: FF, fontSize: 12 }} />
@@ -110,7 +110,7 @@ export default function UpsellConversionPage() {
           <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 16 }}>Rate Lock Health</div>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
             {[
-              { label: "Active Rate Locks", value: lh?.active_count ?? 0, color: "#166534" },
+              { label: "Active Rate Locks", value: lh?.active_count ?? 0, color: "#0F7A63" },
               { label: "Expiring Within 30 Days", value: lh?.expiring_30 ?? 0, color: clr.amber },
               { label: "Voided This Month", value: lh?.voided_month ?? 0, color: clr.red },
             ].map(t => (
@@ -128,7 +128,7 @@ export default function UpsellConversionPage() {
                 { label: "Manual", value: lh?.voided_manual ?? 0 },
                 { label: "Expired", value: lh?.voided_expired ?? 0 },
               ].filter(x => x.value > 0).map(x => (
-                <span key={x.label} style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 12, background: "#FEE2E2", color: "#991B1B", fontFamily: FF }}>
+                <span key={x.label} style={{ fontSize: 11, fontWeight: 600, padding: "3px 10px", borderRadius: 12, background: "#FCEBEA", color: "#B3261E", fontFamily: FF }}>
                   {x.label}: {x.value}
                 </span>
               ))}

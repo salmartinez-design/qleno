@@ -138,7 +138,7 @@ const SOURCE_LABELS: Record<string, string> = {
   yard_sign: "Yard Sign", website: "Website", other: "Other",
 };
 
-const COLORS = ["var(--brand)", "#22C55E", "#F59E0B", "#8B5CF6", "#EF4444", "#06B6D4", "#EC4899", "#14B8A6", "#9E9B94"];
+const COLORS = ["var(--brand)", "#22C55E", "#F59E0B", "#C2673F", "#B3261E", "#06B6D4", "#EC4899", "#14B8A6", "#9E9B94"];
 
 export default function ReferralReportPage() {
   const [, navigate] = useLocation();
@@ -177,7 +177,7 @@ export default function ReferralReportPage() {
         {/* Header */}
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>Referral Tracking</h1>
-          <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>Where are your new customers coming from?</p>
+          <p style={{ fontSize: 13, color: "#6B6860", margin: 0 }}>Where are your new customers coming from?</p>
         </div>
 
         {/* Give $25 / Get $25 program tracker */}
@@ -199,8 +199,8 @@ export default function ReferralReportPage() {
               </div>
               {topSource && (
                 <div style={{ backgroundColor: "#F0F7FF", border: "1px solid #BAD8F7", borderRadius: 10, padding: "20px 20px" }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1D4ED8" }}>{topSource.label}</div>
-                  <div style={{ fontSize: 11, color: "#1D4ED8", marginTop: 2 }}>Top Source ({topSource.count} clients)</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#2F3646" }}>{topSource.label}</div>
+                  <div style={{ fontSize: 11, color: "#2F3646", marginTop: 2 }}>Top Source ({topSource.count} clients)</div>
                 </div>
               )}
             </div>
@@ -284,7 +284,7 @@ export default function ReferralReportPage() {
                           <div style={{ flex: 1, height: 6, backgroundColor: "#F0EEE9", borderRadius: 3 }}>
                             <div style={{ width: `${customers.length > 0 ? (count / customers.length) * 100 : 0}%`, height: "100%", backgroundColor: "var(--brand)", borderRadius: 3 }} />
                           </div>
-                          <span style={{ fontSize: 12, color: "#6B7280", minWidth: 32 }}>
+                          <span style={{ fontSize: 12, color: "#6B6860", minWidth: 32 }}>
                             {customers.length > 0 ? `${((count / customers.length) * 100).toFixed(0)}%` : "0%"}
                           </span>
                         </div>

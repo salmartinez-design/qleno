@@ -147,7 +147,7 @@ export default function AddEmployeePage() {
           )}
           <div style={{ display: "flex", justifyContent: "flex-end", gap: "10px", paddingTop: "4px" }}>
             <button onClick={() => navigate("/employees")} disabled={saving}
-              style={{ padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: "8px", backgroundColor: "#FFFFFF", color: "#6B7280", fontSize: "13px", fontWeight: 600, cursor: saving ? "default" : "pointer", fontFamily: FF }}>
+              style={{ padding: "9px 18px", border: "1px solid #E5E2DC", borderRadius: "8px", backgroundColor: "#FFFFFF", color: "#6B6860", fontSize: "13px", fontWeight: 600, cursor: saving ? "default" : "pointer", fontFamily: FF }}>
               Cancel
             </button>
             <button onClick={handleSave} disabled={!canSave}

@@ -67,16 +67,16 @@ const statCard = (color?: string): React.CSSProperties => ({
 // ─────────────────────────────────────────────────────────────────────────────
 
 const QUOTE_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
-  draft:    { bg: "#F3F4F6", text: "#6B7280" },
-  sent:     { bg: "#DBEAFE", text: "#1D4ED8" },
-  viewed:   { bg: "#EDE9FE", text: "#7C3AED" },
+  draft:    { bg: "#F0EEE9", text: "#6B6860" },
+  sent:     { bg: "#EFEFF2", text: "#2F3646" },
+  viewed:   { bg: "#FBF0E9", text: "#9C4E2B" },
   accepted: { bg: "#D1FAE5", text: "#065F46" },
-  declined: { bg: "#FEE2E2", text: "#991B1B" },
+  declined: { bg: "#FCEBEA", text: "#B3261E" },
   booked:   { bg: "#CCFBF1", text: "#0F766E" },
 };
 
 function QuoteStatusBadge({ status }: { status: string }) {
-  const c = QUOTE_STATUS_COLORS[status] || { bg: "#F3F4F6", text: "#6B7280" };
+  const c = QUOTE_STATUS_COLORS[status] || { bg: "#F0EEE9", text: "#6B6860" };
   return (
     <span style={{ backgroundColor: c.bg, color: c.text, fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "999px", letterSpacing: "0.05em" }}>
       {status.toUpperCase()}
@@ -122,7 +122,7 @@ export function QuotesTab({ clientId, client }: { clientId: number; client: any 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <div style={{ fontSize: "15px", fontWeight: 700, color: "#1A1917" }}>Quotes</div>
-          <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>{quotes.length} quote{quotes.length !== 1 ? "s" : ""} for this client</div>
+          <div style={{ fontSize: "12px", color: "#6B6860", marginTop: "2px" }}>{quotes.length} quote{quotes.length !== 1 ? "s" : ""} for this client</div>
         </div>
         <button onClick={() => setShowForm(true)} style={{ backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
           <Plus size={14} /> New Quote
@@ -171,7 +171,7 @@ export function QuotesTab({ clientId, client }: { clientId: number; client: any 
             </div>
           </div>
           <div style={{ display: "flex", gap: "8px", marginTop: "16px", justifyContent: "flex-end" }}>
-            <button onClick={() => setShowForm(false)} style={{ backgroundColor: "#F3F4F6", color: "#6B7280", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => setShowForm(false)} style={{ backgroundColor: "#F0EEE9", color: "#6B6860", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
             <button onClick={() => createMut.mutate({ ...form, estimated_hours: parseFloat(form.estimated_hours) || null, base_price: parseFloat(form.base_price) || null })} disabled={createMut.isPending} style={{ backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
               {createMut.isPending ? "Saving..." : "Save Quote"}
             </button>
@@ -184,7 +184,7 @@ export function QuotesTab({ clientId, client }: { clientId: number; client: any 
       ) : quotes.length === 0 && !showForm ? (
         <div style={{ ...card, textAlign: "center", padding: "40px" }}>
           <FileText size={32} style={{ color: "#C4C0BB", marginBottom: "12px" }} />
-          <div style={{ fontSize: "14px", fontWeight: 600, color: "#6B7280" }}>No quotes yet</div>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: "#6B6860" }}>No quotes yet</div>
           <div style={{ fontSize: "12px", color: "#9E9B94", marginTop: "4px" }}>Create a quote to send to this client</div>
         </div>
       ) : (
@@ -199,20 +199,20 @@ export function QuotesTab({ clientId, client }: { clientId: number; client: any 
             </thead>
             <tbody>
               {quotes.map((q: any, i: number) => (
-                <tr key={q.id} style={{ borderBottom: i < quotes.length - 1 ? "1px solid #F0EDE8" : "none" }}>
+                <tr key={q.id} style={{ borderBottom: i < quotes.length - 1 ? "1px solid #F0EEE9" : "none" }}>
                   <td style={{ padding: "12px 14px", fontSize: "13px", fontWeight: 700, color: "#1A1917" }}>#{String(q.id).padStart(4, "0")}</td>
-                  <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B7280" }}>{fmtDate(q.created_at)}</td>
-                  <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B7280" }}>{q.service_type?.replace(/_/g, " ") || "—"}</td>
+                  <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B6860" }}>{fmtDate(q.created_at)}</td>
+                  <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B6860" }}>{q.service_type?.replace(/_/g, " ") || "—"}</td>
                   <td style={{ padding: "12px 14px", fontSize: "13px", fontWeight: 600, color: "#1A1917" }}>{q.base_price ? fmtCurrency(q.base_price) : "—"}</td>
                   <td style={{ padding: "12px 14px" }}><QuoteStatusBadge status={q.status} /></td>
-                  <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B7280" }}>{q.sent_at ? fmtDate(q.sent_at) : "—"}</td>
+                  <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B6860" }}>{q.sent_at ? fmtDate(q.sent_at) : "—"}</td>
                   <td style={{ padding: "12px 14px" }}>
                     <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
-                      <button onClick={() => openAuthedPdf(`/api/quotes/${q.id}/pdf`)} style={{ backgroundColor: "#F3F4F6", color: "#374151", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
+                      <button onClick={() => openAuthedPdf(`/api/quotes/${q.id}/pdf`)} style={{ backgroundColor: "#F0EEE9", color: "#1A1917", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer" }}>
                         PDF
                       </button>
                       {q.status === "draft" && (
-                        <button onClick={() => sendMut.mutate(q.id)} disabled={sendMut.isPending} style={{ backgroundColor: "#EFF6FF", color: "#1D4ED8", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}>
+                        <button onClick={() => sendMut.mutate(q.id)} disabled={sendMut.isPending} style={{ backgroundColor: "#EFEFF2", color: "#2F3646", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}>
                           <Send size={10} /> Send
                         </button>
                       )}
@@ -221,7 +221,7 @@ export function QuotesTab({ clientId, client }: { clientId: number; client: any 
                           Convert to Job
                         </button>
                       )}
-                      <button onClick={() => { if (confirm("Delete this quote?")) deleteMut.mutate(q.id); }} style={{ backgroundColor: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", cursor: "pointer" }}>
+                      <button onClick={() => { if (confirm("Delete this quote?")) deleteMut.mutate(q.id); }} style={{ backgroundColor: "#FCEBEA", color: "#B3261E", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", cursor: "pointer" }}>
                         <Trash2 size={10} />
                       </button>
                     </div>
@@ -242,9 +242,9 @@ export function QuotesTab({ clientId, client }: { clientId: number; client: any 
 
 const PAYMENT_STATUS_COLORS: Record<string, { bg: string; text: string }> = {
   completed: { bg: "#D1FAE5", text: "#065F46" },
-  pending:   { bg: "#FEF3C7", text: "#92400E" },
-  failed:    { bg: "#FEE2E2", text: "#991B1B" },
-  refunded:  { bg: "#F3F4F6", text: "#6B7280" },
+  pending:   { bg: "#FDF3E4", text: "#B45309" },
+  failed:    { bg: "#FCEBEA", text: "#B3261E" },
+  refunded:  { bg: "#F0EEE9", text: "#6B6860" },
 };
 
 export function PaymentsTab({ clientId, client }: { clientId: number; client: any }) {
@@ -282,7 +282,7 @@ export function PaymentsTab({ clientId, client }: { clientId: number; client: an
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <div style={{ fontSize: "15px", fontWeight: 700, color: "#1A1917" }}>Payments</div>
-          <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>Payment transactions for this client</div>
+          <div style={{ fontSize: "12px", color: "#6B6860", marginTop: "2px" }}>Payment transactions for this client</div>
         </div>
         {hasCard ? (
           <button onClick={() => setShowCharge(true)} style={{ backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
@@ -295,14 +295,14 @@ export function PaymentsTab({ clientId, client }: { clientId: number; client: an
 
       {/* Summary cards */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
-        <div style={statCard("#16A34A")}>
+        <div style={statCard("#0F7A63")}>
           <div style={label}>Total Paid (all time)</div>
           <div style={{ fontSize: "20px", fontWeight: 700, color: "#1A1917" }}>{fmtCurrency(totalPaid)}</div>
         </div>
         <div style={statCard("#F59E0B")}>
           <div style={label}>Last Payment</div>
           <div style={{ fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>{lastPayment ? fmtDate(lastPayment.created_at) : "No payments"}</div>
-          {lastPayment && <div style={{ fontSize: "12px", color: "#6B7280" }}>{fmtCurrency(lastPayment.amount)}</div>}
+          {lastPayment && <div style={{ fontSize: "12px", color: "#6B6860" }}>{fmtCurrency(lastPayment.amount)}</div>}
         </div>
         <div style={statCard()}>
           <div style={label}>Payment Method on File</div>
@@ -327,7 +327,7 @@ export function PaymentsTab({ clientId, client }: { clientId: number; client: an
             </div>
           </div>
           <div style={{ display: "flex", gap: "8px", marginTop: "12px", justifyContent: "flex-end" }}>
-            <button onClick={() => setShowCharge(false)} style={{ backgroundColor: "#F3F4F6", color: "#6B7280", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => setShowCharge(false)} style={{ backgroundColor: "#F0EEE9", color: "#6B6860", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
             <button
               onClick={() => {
                 if (!chargeAmount || parseFloat(chargeAmount) <= 0) return;
@@ -335,7 +335,7 @@ export function PaymentsTab({ clientId, client }: { clientId: number; client: an
                 chargeMut.mutate({ client_id: clientId, amount: parseFloat(chargeAmount), method: "card", last_4: client.default_card_last_4, card_brand: client.default_card_brand });
               }}
               disabled={chargeMut.isPending}
-              style={{ backgroundColor: "#DC2626", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
+              style={{ backgroundColor: "#B3261E", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}
             >
               {chargeMut.isPending ? "Charging..." : "Charge Now"}
             </button>
@@ -345,13 +345,13 @@ export function PaymentsTab({ clientId, client }: { clientId: number; client: an
 
       {/* Refund modal */}
       {refundId !== null && (
-        <div style={{ ...card, borderLeft: "3px solid #DC2626" }}>
+        <div style={{ ...card, borderLeft: "3px solid #B3261E" }}>
           <div style={{ fontSize: "13px", fontWeight: 700, color: "#1A1917", marginBottom: "12px" }}>Issue Refund</div>
           <div style={label}>Refund Reason</div>
           <input style={{ ...inputStyle, marginTop: "4px" }} value={refundReason} onChange={e => setRefundReason(e.target.value)} placeholder="e.g. Client dissatisfied with service" />
           <div style={{ display: "flex", gap: "8px", marginTop: "12px", justifyContent: "flex-end" }}>
-            <button onClick={() => setRefundId(null)} style={{ backgroundColor: "#F3F4F6", color: "#6B7280", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
-            <button onClick={() => refundMut.mutate({ id: refundId!, reason: refundReason })} disabled={refundMut.isPending} style={{ backgroundColor: "#DC2626", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+            <button onClick={() => setRefundId(null)} style={{ backgroundColor: "#F0EEE9", color: "#6B6860", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => refundMut.mutate({ id: refundId!, reason: refundReason })} disabled={refundMut.isPending} style={{ backgroundColor: "#B3261E", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
               {refundMut.isPending ? "Processing..." : "Issue Refund"}
             </button>
           </div>
@@ -363,7 +363,7 @@ export function PaymentsTab({ clientId, client }: { clientId: number; client: an
       ) : payments.length === 0 ? (
         <div style={{ ...card, textAlign: "center", padding: "40px" }}>
           <DollarSign size={32} style={{ color: "#C4C0BB", marginBottom: "12px" }} />
-          <div style={{ fontSize: "14px", fontWeight: 600, color: "#6B7280" }}>No payments recorded</div>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: "#6B6860" }}>No payments recorded</div>
         </div>
       ) : (
         <div style={{ ...card, padding: 0, overflow: "hidden" }}>
@@ -379,18 +379,18 @@ export function PaymentsTab({ clientId, client }: { clientId: number; client: an
               {payments.map((p: any, i: number) => {
                 const sc = PAYMENT_STATUS_COLORS[p.status] || PAYMENT_STATUS_COLORS.completed;
                 return (
-                  <tr key={p.id} style={{ borderBottom: i < payments.length - 1 ? "1px solid #F0EDE8" : "none" }}>
-                    <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B7280" }}>{fmtDate(p.created_at)}</td>
-                    <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B7280" }}>{p.invoice_id ? `#${p.invoice_id}` : "—"}</td>
+                  <tr key={p.id} style={{ borderBottom: i < payments.length - 1 ? "1px solid #F0EEE9" : "none" }}>
+                    <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B6860" }}>{fmtDate(p.created_at)}</td>
+                    <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B6860" }}>{p.invoice_id ? `#${p.invoice_id}` : "—"}</td>
                     <td style={{ padding: "12px 14px", fontSize: "13px", fontWeight: 700, color: "#1A1917" }}>{fmtCurrency(p.amount)}</td>
-                    <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B7280", textTransform: "capitalize" }}>{p.method || "—"}</td>
-                    <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B7280" }}>{p.last_4 ? `···· ${p.last_4}` : "—"}</td>
+                    <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B6860", textTransform: "capitalize" }}>{p.method || "—"}</td>
+                    <td style={{ padding: "12px 14px", fontSize: "12px", color: "#6B6860" }}>{p.last_4 ? `···· ${p.last_4}` : "—"}</td>
                     <td style={{ padding: "12px 14px" }}>
                       <span style={{ backgroundColor: sc.bg, color: sc.text, fontSize: "11px", fontWeight: 700, padding: "2px 8px", borderRadius: "999px" }}>{p.status.toUpperCase()}</span>
                     </td>
                     <td style={{ padding: "12px 14px" }}>
                       {p.status === "completed" && (
-                        <button onClick={() => setRefundId(p.id)} style={{ backgroundColor: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}>
+                        <button onClick={() => setRefundId(p.id)} style={{ backgroundColor: "#FCEBEA", color: "#B3261E", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "4px" }}>
                           <RotateCcw size={10} /> Refund
                         </button>
                       )}
@@ -444,7 +444,7 @@ export function QuickBooksTab({ clientId, client, refetch }: { clientId: number;
                 </div>
                 <div>
                   <div style={label}>Last Sync</div>
-                  <div style={{ fontSize: "13px", color: "#6B7280" }}>Sync not configured</div>
+                  <div style={{ fontSize: "13px", color: "#6B6860" }}>Sync not configured</div>
                 </div>
                 <div>
                   <div style={label}>Outstanding Balance</div>
@@ -453,16 +453,16 @@ export function QuickBooksTab({ clientId, client, refetch }: { clientId: number;
                 </div>
                 <div>
                   <div style={label}>Overdue Balance</div>
-                  <div style={{ fontSize: "18px", fontWeight: 700, color: "#DC2626" }}>—</div>
+                  <div style={{ fontSize: "18px", fontWeight: 700, color: "#B3261E" }}>—</div>
                   <div style={{ fontSize: "11px", color: "#9E9B94" }}>Live pull not configured</div>
                 </div>
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-              <button onClick={handleSync} disabled={syncing} style={{ backgroundColor: "#EFF6FF", color: "#1D4ED8", border: "1px solid #BFDBFE", borderRadius: "6px", padding: "8px 14px", fontSize: "12px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
+              <button onClick={handleSync} disabled={syncing} style={{ backgroundColor: "#EFEFF2", color: "#2F3646", border: "1px solid #DEDEE4", borderRadius: "6px", padding: "8px 14px", fontSize: "12px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
                 <RefreshCw size={12} style={{ animation: syncing ? "spin 1s linear infinite" : "none" }} /> {syncing ? "Syncing..." : "Sync Now"}
               </button>
-              <button style={{ backgroundColor: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA", borderRadius: "6px", padding: "8px 14px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
+              <button style={{ backgroundColor: "#FCEBEA", color: "#B3261E", border: "1px solid #F1D0CB", borderRadius: "6px", padding: "8px 14px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
                 Disconnect
               </button>
             </div>
@@ -472,18 +472,18 @@ export function QuickBooksTab({ clientId, client, refetch }: { clientId: number;
             <div style={{ padding: "14px 20px", borderBottom: "1px solid #E5E2DC", fontSize: "13px", fontWeight: 700, color: "#1A1917" }}>QBO Invoice History</div>
             <div style={{ padding: "32px", textAlign: "center", color: "#9E9B94" }}>
               <ExternalLink size={24} style={{ marginBottom: "8px", opacity: 0.4 }} />
-              <div style={{ fontSize: "13px", fontWeight: 600, color: "#6B7280" }}>Live QBO invoice pull not configured</div>
+              <div style={{ fontSize: "13px", fontWeight: 600, color: "#6B6860" }}>Live QBO invoice pull not configured</div>
               <div style={{ fontSize: "12px", color: "#9E9B94", marginTop: "4px" }}>Connect QuickBooks OAuth to enable invoice sync</div>
             </div>
           </div>
         </>
       ) : (
         <div style={{ ...card, textAlign: "center", padding: "48px 32px" }}>
-          <div style={{ width: "48px", height: "48px", backgroundColor: "#F3F4F6", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+          <div style={{ width: "48px", height: "48px", backgroundColor: "#F0EEE9", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
             <Link size={24} style={{ color: "#9E9B94" }} />
           </div>
           <div style={{ fontSize: "15px", fontWeight: 700, color: "#1A1917", marginBottom: "8px" }}>Not Connected to QuickBooks</div>
-          <div style={{ fontSize: "13px", color: "#6B7280", marginBottom: "24px", maxWidth: "360px", margin: "0 auto 24px" }}>
+          <div style={{ fontSize: "13px", color: "#6B6860", marginBottom: "24px", maxWidth: "360px", margin: "0 auto 24px" }}>
             This client is not linked to a QuickBooks customer record. Link them to sync invoices and balances.
           </div>
           <div style={{ display: "flex", gap: "12px", justifyContent: "center" }}>
@@ -513,11 +513,11 @@ const CATEGORY_LABELS: Record<string, string> = {
 };
 
 const CATEGORY_COLORS: Record<string, { bg: string; text: string }> = {
-  home_photo: { bg: "#DBEAFE", text: "#1D4ED8" },
-  document:   { bg: "#FEF3C7", text: "#92400E" },
-  inspection: { bg: "#EDE9FE", text: "#7C3AED" },
+  home_photo: { bg: "#EFEFF2", text: "#2F3646" },
+  document:   { bg: "#FDF3E4", text: "#B45309" },
+  inspection: { bg: "#FBF0E9", text: "#9C4E2B" },
   agreement:  { bg: "#D1FAE5", text: "#065F46" },
-  other:      { bg: "#F3F4F6", text: "#6B7280" },
+  other:      { bg: "#F0EEE9", text: "#6B6860" },
 };
 
 export function AttachmentsTab({ clientId }: { clientId: number }) {
@@ -580,7 +580,7 @@ export function AttachmentsTab({ clientId }: { clientId: number }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div>
           <div style={{ fontSize: "15px", fontWeight: 700, color: "#1A1917" }}>Attachments</div>
-          <div style={{ fontSize: "12px", color: "#6B7280", marginTop: "2px" }}>{attachments.length} file{attachments.length !== 1 ? "s" : ""} on file</div>
+          <div style={{ fontSize: "12px", color: "#6B6860", marginTop: "2px" }}>{attachments.length} file{attachments.length !== 1 ? "s" : ""} on file</div>
         </div>
         <button onClick={() => fileRef.current?.click()} style={{ backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}>
           <Upload size={14} /> Upload File
@@ -595,10 +595,10 @@ export function AttachmentsTab({ clientId }: { clientId: number }) {
         onDragLeave={() => setDragging(false)}
         onDrop={e => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) handleFileSelect(f); }}
         onClick={() => fileRef.current?.click()}
-        style={{ border: `2px dashed ${dragging ? "var(--brand)" : "#E5E2DC"}`, borderRadius: "10px", padding: "32px", textAlign: "center", backgroundColor: dragging ? "#EFF6FF" : "#F7F6F3", cursor: "pointer", transition: "all 0.15s" }}
+        style={{ border: `2px dashed ${dragging ? "var(--brand)" : "#E5E2DC"}`, borderRadius: "10px", padding: "32px", textAlign: "center", backgroundColor: dragging ? "#EFEFF2" : "#F7F6F3", cursor: "pointer", transition: "all 0.15s" }}
       >
         <Upload size={24} style={{ color: dragging ? "var(--brand)" : "#C4C0BB", marginBottom: "8px" }} />
-        <div style={{ fontSize: "13px", fontWeight: 600, color: "#6B7280" }}>Drag and drop or click to upload</div>
+        <div style={{ fontSize: "13px", fontWeight: 600, color: "#6B6860" }}>Drag and drop or click to upload</div>
         <div style={{ fontSize: "11px", color: "#9E9B94", marginTop: "4px" }}>PDF, JPG, PNG, DOCX — max 10MB</div>
       </div>
 
@@ -621,7 +621,7 @@ export function AttachmentsTab({ clientId }: { clientId: number }) {
             </div>
           </div>
           <div style={{ display: "flex", gap: "8px", marginTop: "12px", justifyContent: "flex-end" }}>
-            <button onClick={() => setPendingFile(null)} style={{ backgroundColor: "#F3F4F6", color: "#6B7280", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => setPendingFile(null)} style={{ backgroundColor: "#F0EEE9", color: "#6B6860", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
             <button onClick={handleUpload} disabled={uploading} style={{ backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: "6px", padding: "8px 14px", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
               {uploading ? "Uploading..." : "Upload"}
             </button>
@@ -632,7 +632,7 @@ export function AttachmentsTab({ clientId }: { clientId: number }) {
       {/* Category filter */}
       <div style={{ display: "flex", gap: "6px", flexWrap: "wrap" }}>
         {categories.map(c => (
-          <button key={c} onClick={() => setCategoryFilter(c)} style={{ backgroundColor: categoryFilter === c ? "var(--brand)" : "#F7F6F3", color: categoryFilter === c ? "#FFFFFF" : "#6B7280", border: "1px solid #E5E2DC", borderRadius: "6px", padding: "5px 12px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
+          <button key={c} onClick={() => setCategoryFilter(c)} style={{ backgroundColor: categoryFilter === c ? "var(--brand)" : "#F7F6F3", color: categoryFilter === c ? "#FFFFFF" : "#6B6860", border: "1px solid #E5E2DC", borderRadius: "6px", padding: "5px 12px", fontSize: "12px", fontWeight: 600, cursor: "pointer" }}>
             {c === "all" ? "All" : CATEGORY_LABELS[c]}
           </button>
         ))}
@@ -643,7 +643,7 @@ export function AttachmentsTab({ clientId }: { clientId: number }) {
       ) : filtered.length === 0 ? (
         <div style={{ ...card, textAlign: "center", padding: "40px" }}>
           <File size={32} style={{ color: "#C4C0BB", marginBottom: "12px" }} />
-          <div style={{ fontSize: "14px", fontWeight: 600, color: "#6B7280" }}>No files {categoryFilter !== "all" ? `in ${CATEGORY_LABELS[categoryFilter]}` : ""}</div>
+          <div style={{ fontSize: "14px", fontWeight: 600, color: "#6B6860" }}>No files {categoryFilter !== "all" ? `in ${CATEGORY_LABELS[categoryFilter]}` : ""}</div>
         </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "12px" }}>
@@ -666,11 +666,11 @@ export function AttachmentsTab({ clientId }: { clientId: number }) {
                 <div style={{ fontSize: "11px", color: "#9E9B94" }}>{fmtDate(a.created_at)}</div>
                 <div style={{ display: "flex", gap: "6px" }}>
                   {a.file_url && !a.file_url.startsWith("data:") && (
-                    <a href={`${API}${a.file_url}`} target="_blank" rel="noopener noreferrer" style={{ backgroundColor: "#EFF6FF", color: "#1D4ED8", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: "4px" }}>
+                    <a href={`${API}${a.file_url}`} target="_blank" rel="noopener noreferrer" style={{ backgroundColor: "#EFEFF2", color: "#2F3646", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", fontWeight: 600, textDecoration: "none", display: "flex", alignItems: "center", gap: "4px" }}>
                       <Download size={10} /> Download
                     </a>
                   )}
-                  <button onClick={() => { if (confirm("Delete this file?")) deleteMut.mutate(a.id); }} style={{ backgroundColor: "#FEE2E2", color: "#991B1B", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", cursor: "pointer" }}>
+                  <button onClick={() => { if (confirm("Delete this file?")) deleteMut.mutate(a.id); }} style={{ backgroundColor: "#FCEBEA", color: "#B3261E", border: "none", borderRadius: "4px", padding: "4px 8px", fontSize: "11px", cursor: "pointer" }}>
                     <Trash2 size={10} />
                   </button>
                 </div>
@@ -697,13 +697,13 @@ function cardStyle(entry: any): React.CSSProperties {
   if (ch === "note") return { borderLeft: "3px solid #D9A93C", background: "#FEF7E0" };
   if (src === "system" || (ch === "sms" && src === "system")) {
     if (dir === "inbound") return { borderLeft: "3px solid #10B981", background: "rgba(16,185,129,0.04)" };
-    if (ch === "email") return { borderLeft: "3px solid #8B5CF6", background: "rgba(139,92,246,0.04)" };
+    if (ch === "email") return { borderLeft: "3px solid #C2673F", background: "rgba(139,92,246,0.04)" };
     return { borderLeft: "3px solid #F59E0B", background: "rgba(245,158,11,0.04)" };
   }
   if (dir === "inbound") return { borderLeft: "3px solid #10B981", background: "rgba(16,185,129,0.04)" };
-  if (ch === "sms" || ch === "text") return { borderLeft: "3px solid #3B82F6", background: "rgba(59,130,246,0.04)" };
-  if (ch === "email") return { borderLeft: "3px solid #8B5CF6", background: "rgba(139,92,246,0.04)" };
-  return { borderLeft: "3px solid #6B7280", background: "#FFFFFF" };
+  if (ch === "sms" || ch === "text") return { borderLeft: "3px solid #2F3646", background: "rgba(59,130,246,0.04)" };
+  if (ch === "email") return { borderLeft: "3px solid #C2673F", background: "rgba(139,92,246,0.04)" };
+  return { borderLeft: "3px solid #6B6860", background: "#FFFFFF" };
 }
 
 function channelLabel(ch: string) {
@@ -742,10 +742,10 @@ function ChannelIcon({ ch, size = 13 }: { ch: string; size?: number }) {
 
 function DeliveryBadge({ status }: { status?: string }) {
   if (!status || status === "pending") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#E5E2DC", color: "#6B6860", fontWeight: 700 }}>Pending</span>;
-  if (status === "sent") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#DBEAFE", color: "#1D4ED8", fontWeight: 700 }}>Sent</span>;
-  if (status === "delivered") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#DCFCE7", color: "#16A34A", fontWeight: 700 }}>Delivered</span>;
-  if (status === "undelivered") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#FEE2E2", color: "#DC2626", fontWeight: 700 }}>Undelivered</span>;
-  if (status === "failed") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#FEE2E2", color: "#DC2626", fontWeight: 700 }}>Failed</span>;
+  if (status === "sent") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#EFEFF2", color: "#2F3646", fontWeight: 700 }}>Sent</span>;
+  if (status === "delivered") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#E6F6F1", color: "#0F7A63", fontWeight: 700 }}>Delivered</span>;
+  if (status === "undelivered") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#FCEBEA", color: "#B3261E", fontWeight: 700 }}>Undelivered</span>;
+  if (status === "failed") return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#FCEBEA", color: "#B3261E", fontWeight: 700 }}>Failed</span>;
   return <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "#E5E2DC", color: "#6B6860", fontWeight: 700 }}>{status}</span>;
 }
 
@@ -871,7 +871,7 @@ function CommLogDetailCard({ entry }: { entry: any }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
           {entry.source === "system" ? (
-            <span style={{ fontSize: 10, fontWeight: 700, background: "#374151", color: "#FFFFFF", borderRadius: 4, padding: "2px 6px" }}>SYSTEM</span>
+            <span style={{ fontSize: 10, fontWeight: 700, background: "#1A1917", color: "#FFFFFF", borderRadius: 4, padding: "2px 6px" }}>SYSTEM</span>
           ) : entry.sent_by || entry.logged_by_name ? (
             <span style={{ fontSize: 10, fontWeight: 700, background: "#E5E2DC", color: "#6B6860", borderRadius: 4, padding: "2px 6px" }}>
               {(entry.sent_by || entry.logged_by_name || "").split(" ").map((w: string) => w[0]).join(". ")}
@@ -892,7 +892,7 @@ function CommLogDetailCard({ entry }: { entry: any }) {
 
       {/* Body — one-line snippet for emails, expandable text for everything else */}
       {body && (
-        <div style={{ fontSize: 12, color: isEmail ? "#6B6860" : "#374151", lineHeight: 1.5, whiteSpace: isEmail ? "nowrap" : "pre-wrap", marginBottom: 8, ...(isEmail ? { overflow: "hidden", textOverflow: "ellipsis" } : {}) }}>
+        <div style={{ fontSize: 12, color: isEmail ? "#6B6860" : "#1A1917", lineHeight: 1.5, whiteSpace: isEmail ? "nowrap" : "pre-wrap", marginBottom: 8, ...(isEmail ? { overflow: "hidden", textOverflow: "ellipsis" } : {}) }}>
           {!expanded && hasMore ? body.substring(0, 180) + "…" : body}
           {hasMore && (
             <button onClick={() => setExpanded(e => !e)} style={{ fontSize: 11, color: "var(--brand)", background: "none", border: "none", cursor: "pointer", padding: "0 4px", fontFamily: FF2 }}>
@@ -918,7 +918,7 @@ function CommLogDetailCard({ entry }: { entry: any }) {
           {canResend && (
             <button onClick={resendBooking} disabled={resent === "sending"}
               title="Resend this booking confirmation email to the customer"
-              style={{ fontSize: 11, color: resent === "error" ? "#DC2626" : resent === "sent" ? "#047857" : "var(--brand)", background: "none", border: "none", cursor: resent === "sending" ? "default" : "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3, fontFamily: FF2 }}>
+              style={{ fontSize: 11, color: resent === "error" ? "#B3261E" : resent === "sent" ? "#047857" : "var(--brand)", background: "none", border: "none", cursor: resent === "sending" ? "default" : "pointer", padding: 0, display: "flex", alignItems: "center", gap: 3, fontFamily: FF2 }}>
               {resent === "sending" ? "Sending…" : resent === "sent" ? "Resent ✓" : resent === "error" ? "Failed — retry" : "Resend"}
             </button>
           )}
@@ -1075,7 +1075,7 @@ export function CommLog2({ clientId }: { clientId: number }) {
 
       {/* Manual entry form */}
       {showForm && (
-        <div style={{ background: "#FAFAF8", border: "1px solid #E5E2DC", borderRadius: 8, padding: "14px 16px", marginBottom: 14 }}>
+        <div style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "14px 16px", marginBottom: 14 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 12 }}>Log Communication</div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
             <div>
@@ -1152,7 +1152,7 @@ export function CommLog2({ clientId }: { clientId: number }) {
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
               <thead>
-                <tr style={{ borderBottom: "1px solid #E5E2DC", background: "#FAFAF8" }}>
+                <tr style={{ borderBottom: "1px solid #E5E2DC", background: "#F7F6F3" }}>
                   {["Time", "Type", "Subtype", "Note", "Contact", "Sent By", "Status"].map(h => (
                     <th key={h} style={{ padding: "6px 10px", textAlign: "left", fontWeight: 600, color: "#6B6860", fontSize: 11, whiteSpace: "nowrap" }}>{h}</th>
                   ))}
@@ -1164,7 +1164,7 @@ export function CommLog2({ clientId }: { clientId: number }) {
                     <td style={{ padding: "6px 10px", color: "#6B6860", whiteSpace: "nowrap", fontSize: 11 }}>{fmtTs(entry.logged_at || entry.created_at)}</td>
                     <td style={{ padding: "6px 10px", fontWeight: 600, color: "#1A1917", textTransform: "capitalize" }}>{entry.source || "staff"}</td>
                     <td style={{ padding: "6px 10px", color: "#6B6860" }}>{channelLabel(entry.channel)}</td>
-                    <td style={{ padding: "6px 10px", color: "#374151", maxWidth: 200 }}>
+                    <td style={{ padding: "6px 10px", color: "#1A1917", maxWidth: 200 }}>
                       {(entry.channel || "").toLowerCase() === "email" ? (
                         <button onClick={() => openEmailPage(entry)} title="Open the email as sent in a new tab"
                           style={{ display: "flex", alignItems: "center", gap: 5, background: "none", border: "none", padding: 0, cursor: "pointer", color: "var(--brand)", fontFamily: FF2, fontSize: 12, maxWidth: "100%" }}>

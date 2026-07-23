@@ -52,7 +52,7 @@ export function TechScorecardPanel({ employeeId }: { employeeId?: number }) {
         <div>
           {/* Headline score */}
           <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 18, marginBottom: 16, textAlign: "center" }}>
-            <div style={{ fontSize: 40, fontWeight: 800, color: pct == null ? "#C9CCD6" : pct >= 90 ? "#0F9D77" : pct >= 75 ? "#B7791F" : "#B91C1C", lineHeight: 1 }}>
+            <div style={{ fontSize: 40, fontWeight: 800, color: pct == null ? "#C9CCD6" : pct >= 90 ? "#0F9D77" : pct >= 75 ? "#B7791F" : "#B3261E", lineHeight: 1 }}>
               {pct == null ? "—" : `${Math.round(pct)}%`}
             </div>
             <div style={{ fontSize: 12.5, color: "#9E9B94", marginTop: 6 }}>

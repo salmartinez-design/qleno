@@ -67,7 +67,7 @@ export default function AddOnCatalogPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>Add-On Catalog</h1>
-            <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>Manage optional services that can be added to any job</p>
+            <p style={{ fontSize: 13, color: "#6B6860", margin: 0 }}>Manage optional services that can be added to any job</p>
           </div>
           <button onClick={openAdd} style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
             <Plus size={14} /> New Add-On
@@ -87,7 +87,7 @@ export default function AddOnCatalogPage() {
             {byCategory.map(({ cat, label, items }) => (
               <div key={cat} style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
                 <div style={{ padding: "12px 20px", borderBottom: "1px solid #EEECE7", backgroundColor: "#F8F7F4" }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, color: "#6B7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <tbody>
@@ -100,7 +100,7 @@ export default function AddOnCatalogPage() {
                         <td style={{ padding: "12px 20px", textAlign: "right" }}>
                           <div style={{ display: "flex", gap: 8, justifyContent: "flex-end" }}>
                             <button onClick={() => openEdit(a)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><Pencil size={13} /></button>
-                            <button onClick={() => deleteMut.mutate(a.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#EF4444", padding: 4 }}><Trash2 size={13} /></button>
+                            <button onClick={() => deleteMut.mutate(a.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#B3261E", padding: 4 }}><Trash2 size={13} /></button>
                           </div>
                         </td>
                       </tr>

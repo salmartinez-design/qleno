@@ -11,7 +11,7 @@ export default function PayrollToRevenuePage() {
   const cur = data?.current;
   const status = data?.status ?? "healthy";
 
-  const statusColors: Record<string, string> = { critical: clr.red, high: clr.amber, healthy: clr.green, low: "#3B82F6" };
+  const statusColors: Record<string, string> = { critical: clr.red, high: clr.amber, healthy: clr.green, low: "#2F3646" };
   const statusLabels: Record<string, string> = { critical: "Critical — over 45%", high: "High — 40-45%", healthy: "Healthy — 30-40%", low: "Low — under 30%" };
   const sColor = statusColors[status];
 
@@ -23,7 +23,7 @@ export default function PayrollToRevenuePage() {
     { header: "Revenue", render: (r: WeekRow) => fmt$(r.revenue), align: "right" as const },
     { header: "Payroll", render: (r: WeekRow) => fmt$(r.payroll), align: "right" as const },
     { header: "Payroll %", render: (r: WeekRow) => {
-      const c = r.pct > 45 ? clr.red : r.pct > 40 ? clr.amber : r.pct >= 30 ? clr.green : "#3B82F6";
+      const c = r.pct > 45 ? clr.red : r.pct > 40 ? clr.amber : r.pct >= 30 ? clr.green : "#2F3646";
       return <span style={{ fontWeight: 700, color: c }}>{fmtPct(r.pct)}</span>;
     }, align: "right" as const },
     { header: "Visual", render: (r: WeekRow) => (
@@ -61,7 +61,7 @@ export default function PayrollToRevenuePage() {
             <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: 80 }}>
               {weeks.map((w, i) => {
                 const h = Math.max(4, (w.pct / 60) * 72);
-                const c = w.pct > 45 ? clr.red : w.pct > 40 ? clr.amber : w.pct >= 30 ? clr.green : "#3B82F6";
+                const c = w.pct > 45 ? clr.red : w.pct > 40 ? clr.amber : w.pct >= 30 ? clr.green : "#2F3646";
                 return (
                   <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }} title={`Week of ${w.week}: ${fmtPct(w.pct)}`}>
                     <div style={{ width: "100%", height: h, backgroundColor: c, borderRadius: "3px 3px 0 0" }} />
@@ -74,7 +74,7 @@ export default function PayrollToRevenuePage() {
             <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 8 }}>
               <div style={{ width: 20, height: 2, backgroundColor: clr.amber }} />
               <span style={{ fontSize: 11, color: clr.secondary }}>40% upper target</span>
-              <div style={{ width: 20, height: 2, backgroundColor: "#3B82F6", marginLeft: 12 }} />
+              <div style={{ width: 20, height: 2, backgroundColor: "#2F3646", marginLeft: 12 }} />
               <span style={{ fontSize: 11, color: clr.secondary }}>30% lower target</span>
             </div>
           </div>

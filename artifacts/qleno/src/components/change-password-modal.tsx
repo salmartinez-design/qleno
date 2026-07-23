@@ -50,9 +50,9 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
   const inputStyle: React.CSSProperties = {
     width: '100%', padding: '9px 12px', border: '1px solid #E5E2DC', borderRadius: 8,
     fontSize: 14, fontFamily: FF, outline: 'none', boxSizing: 'border-box', color: '#1A1917',
-    backgroundColor: '#FAFAF9',
+    backgroundColor: '#F7F6F3',
   };
-  const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#6B7280', fontFamily: FF, marginBottom: 4, display: 'block' };
+  const labelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#6B6860', fontFamily: FF, marginBottom: 4, display: 'block' };
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.4)' }}
@@ -75,10 +75,10 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
         {success ? (
           <div style={{ textAlign: 'center', padding: '20px 0' }}>
             <div style={{ width: 48, height: 48, borderRadius: '50%', background: '#D1FAE5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-              <Lock size={22} style={{ color: '#059669' }} />
+              <Lock size={22} style={{ color: '#0F7A63' }} />
             </div>
             <p style={{ margin: '0 0 4px', fontSize: 15, fontWeight: 700, color: '#1A1917', fontFamily: FF }}>Password Updated</p>
-            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#6B7280', fontFamily: FF }}>Your new password is active.</p>
+            <p style={{ margin: '0 0 20px', fontSize: 13, color: '#6B6860', fontFamily: FF }}>Your new password is active.</p>
             <button onClick={onClose} style={{ padding: '10px 24px', background: 'var(--brand)', color: '#fff', border: 'none', borderRadius: 8, fontSize: 14, fontWeight: 600, cursor: 'pointer', fontFamily: FF }}>Done</button>
           </div>
         ) : (
@@ -95,9 +95,9 @@ export function ChangePasswordModal({ open, onClose }: { open: boolean; onClose:
               <label style={labelStyle}>Confirm New Password</label>
               <input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} style={inputStyle} required autoComplete="new-password" />
             </div>
-            {error && <p style={{ margin: 0, fontSize: 13, color: '#DC2626', fontFamily: FF }}>{error}</p>}
+            {error && <p style={{ margin: 0, fontSize: 13, color: '#B3261E', fontFamily: FF }}>{error}</p>}
             <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-              <button type="button" onClick={onClose} style={{ flex: 1, padding: '10px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#6B7280', fontFamily: FF }}>Cancel</button>
+              <button type="button" onClick={onClose} style={{ flex: 1, padding: '10px', border: '1px solid #E5E2DC', borderRadius: 8, background: '#fff', fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#6B6860', fontFamily: FF }}>Cancel</button>
               <button type="submit" disabled={loading} style={{ flex: 1, padding: '10px', border: 'none', borderRadius: 8, background: 'var(--brand)', fontSize: 14, fontWeight: 600, cursor: 'pointer', color: '#fff', fontFamily: FF, opacity: loading ? 0.7 : 1 }}>
                 {loading ? 'Saving...' : 'Save Password'}
               </button>

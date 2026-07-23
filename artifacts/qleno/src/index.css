@@ -280,7 +280,7 @@
   font-size: 14px !important;
   color: #1A1917 !important;
   cursor: pointer !important;
-  border-top: 1px solid #F2F0EC !important;
+  border-top: 1px solid #F0EEE9 !important;
 }
 .pac-item:first-child { border-top: none !important; }
 .pac-item:hover, .pac-item-selected { background: #F7F6F3 !important; }

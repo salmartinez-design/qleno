@@ -77,37 +77,37 @@ interface PartnerOpt { id: number; name: string; }
 // ── Constants ──────────────────────────────────────────────────────────────────
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  needs_contacted: { label: "Needs Contact",   color: "#DC2626", bg: "#FEF2F2" },
-  contacted:       { label: "Contacted",        color: "#D97706", bg: "#FFFBEB" },
-  quoted:          { label: "Quoted",           color: "#2563EB", bg: "#EFF6FF" },
+  needs_contacted: { label: "Needs Contact",   color: "#B3261E", bg: "#FCEBEA" },
+  contacted:       { label: "Contacted",        color: "#B45309", bg: "#FDF3E4" },
+  quoted:          { label: "Quoted",           color: "#2F3646", bg: "#EFEFF2" },
   follow_up:       { label: "Follow Up",        color: "#EA580C", bg: "#FFF7ED" },
-  booked:          { label: "Booked",           color: "#059669", bg: "#ECFDF5" },
-  no_response:     { label: "No Response",      color: "#6B7280", bg: "#F9FAFB" },
-  not_interested:  { label: "Not Interested",   color: "#6B7280", bg: "#F3F4F6" },
+  booked:          { label: "Booked",           color: "#0F7A63", bg: "#E6F6F1" },
+  no_response:     { label: "No Response",      color: "#6B6860", bg: "#F7F6F3" },
+  not_interested:  { label: "Not Interested",   color: "#6B6860", bg: "#F0EEE9" },
 };
 const ALL_STATUSES = Object.keys(STATUS_CONFIG);
 
 const SOURCE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  web_quote:            { label: "Web",     color: "#7C3AED", bg: "#EDE9FE" },
-  phone_in:             { label: "Phone",   color: "#059669", bg: "#D1FAE5" },
-  manual:               { label: "Office",  color: "#374151", bg: "#F3F4F6" },
-  google_local_services:{ label: "Google",  color: "#1D4ED8", bg: "#DBEAFE" },
-  google_search:        { label: "Google",  color: "#3B82F6", bg: "#EFF6FF" },
+  web_quote:            { label: "Web",     color: "#9C4E2B", bg: "#FBF0E9" },
+  phone_in:             { label: "Phone",   color: "#0F7A63", bg: "#D1FAE5" },
+  manual:               { label: "Office",  color: "#1A1917", bg: "#F0EEE9" },
+  google_local_services:{ label: "Google",  color: "#2F3646", bg: "#EFEFF2" },
+  google_search:        { label: "Google",  color: "#2F3646", bg: "#EFEFF2" },
   facebook:             { label: "Facebook",color: "#4338CA", bg: "#EEF2FF" },
-  referral:             { label: "Referral",color: "#059669", bg: "#ECFDF5" },
+  referral:             { label: "Referral",color: "#0F7A63", bg: "#E6F6F1" },
   realtor:              { label: "Realtor", color: "#0D9488", bg: "#F0FDFA" },
   online_booking:       { label: "Online",  color: "#10B981", bg: "#F0FDF4" },
   very_dirty_callback:  { label: "V. Dirty",color: "#EA580C", bg: "#FFF7ED" },
-  booking_widget:       { label: "Widget",  color: "#0369A1", bg: "#EFF6FF" },
-  very_dirty:           { label: "V. Dirty",color: "#DC2626", bg: "#FEF2F2" },
-  contact_form:         { label: "Form",    color: "#7C3AED", bg: "#F5F3FF" },
-  quote_request:        { label: "Quote",   color: "#D97706", bg: "#FFFBEB" },
+  booking_widget:       { label: "Widget",  color: "#0369A1", bg: "#EFEFF2" },
+  very_dirty:           { label: "V. Dirty",color: "#B3261E", bg: "#FCEBEA" },
+  contact_form:         { label: "Form",    color: "#9C4E2B", bg: "#F5F3FF" },
+  quote_request:        { label: "Quote",   color: "#B45309", bg: "#FDF3E4" },
   // [source-fix 2026-07-10] `source='quote'` is an OFFICE-built quote (see the
   // description map below: "Office quote (built by your team)"). It was falling
   // through to the "Web" chip because the webish regex matched the substring
   // "quote". Give it an explicit Office chip so office quotes stop showing as
   // website leads (Francisco: "all leads showing like they came from the site").
-  quote:                { label: "Office",  color: "#374151", bg: "#F3F4F6" },
+  quote:                { label: "Office",  color: "#1A1917", bg: "#F0EEE9" },
 };
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ function leadSourceTag(lead: Lead) {
 }
 
 function accentColor(lead: Lead) {
-  if (lead.status === "needs_contacted") return "#DC2626";
+  if (lead.status === "needs_contacted") return "#B3261E";
   if (lead.status === "booked") return "#A7F3D0";
   return "#00C9A0";
 }
@@ -184,19 +184,19 @@ function KpiStrip({ counts, filter, onFilter }: {
     { key: LOST_KEY,          label: "Lost",          n: lostN,                        urgent: false },
   ];
   return (
-    <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "0 20px", display: "flex", gap: 0, flexShrink: 0 }}>
+    <div style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "0 20px", display: "flex", gap: 0, flexShrink: 0 }}>
       {tiles.map((t, i) => (
         <div key={t.key} style={{ display: "flex", alignItems: "center" }}>
-          {i > 0 && <div style={{ width: 1, background: "#E8E5E0", margin: "10px 0", alignSelf: "stretch" }} />}
+          {i > 0 && <div style={{ width: 1, background: "#E5E2DC", margin: "10px 0", alignSelf: "stretch" }} />}
           <button
             onClick={() => onFilter(t.key)}
             style={{ padding: "12px 24px 10px", cursor: "pointer", background: "none", border: "none",
-              borderBottom: `2px solid ${filter === t.key ? (t.urgent ? "#DC2626" : "#1A1917") : "transparent"}`,
+              borderBottom: `2px solid ${filter === t.key ? (t.urgent ? "#B3261E" : "#1A1917") : "transparent"}`,
               fontFamily: FF, textAlign: "left", position: "relative" }}>
             {t.urgent && t.n > 0 && (
-              <div style={{ width: 6, height: 6, background: "#DC2626", borderRadius: "50%", position: "absolute", top: 12, right: 14 }} />
+              <div style={{ width: 6, height: 6, background: "#B3261E", borderRadius: "50%", position: "absolute", top: 12, right: 14 }} />
             )}
-            <div style={{ fontSize: 22, fontWeight: 700, color: filter === t.key ? (t.urgent ? "#DC2626" : "#1A1917") : "#C4C0B8", lineHeight: 1, letterSpacing: -0.5 }}>{t.n}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: filter === t.key ? (t.urgent ? "#B3261E" : "#1A1917") : "#C4C0B8", lineHeight: 1, letterSpacing: -0.5 }}>{t.n}</div>
             <div style={{ fontSize: 10, fontWeight: 600, color: filter === t.key ? "#6B6860" : "#C4C0B8", textTransform: "uppercase", letterSpacing: 0.6, marginTop: 2 }}>{t.label}</div>
           </button>
         </div>
@@ -228,7 +228,7 @@ function LeadRow({ lead, selected, onClick, checked, onCheck }: {
       <div style={{ width: 3, borderRadius: 2, background: accent, position: "absolute", left: 0, top: 10, bottom: 10 }} />
       <input type="checkbox" checked={checked} onChange={onCheck}
         onClick={e => e.stopPropagation()}
-        style={{ marginRight: 8, marginTop: 2, flexShrink: 0, cursor: "pointer", accentColor: "#DC2626" }} />
+        style={{ marginRight: 8, marginTop: 2, flexShrink: 0, cursor: "pointer", accentColor: "#B3261E" }} />
       <div style={{ flex: 1, minWidth: 0 }} onClick={onClick}>
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 2 }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>
@@ -289,21 +289,21 @@ function EnrollDripPanel({ leadId, onEnrolled }: { leadId: number; onEnrolled: (
 
   return (
     <div style={{ padding: "16px 20px" }}>
-      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "20px 18px" }}>
+      <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "20px 18px" }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 4 }}>No drip running</div>
         <div style={{ fontSize: 11, color: "#6B6860", fontFamily: FF, marginBottom: 16 }}>
           Start a sequence manually or enable auto-enroll in Sequences settings.
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <button onClick={() => enroll("lead_drip_phone")} disabled={!!enrolling}
-            style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid #E8E5E0", background: "#F7F6F3", cursor: "pointer", textAlign: "left", fontFamily: FF }}>
+            style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#F7F6F3", cursor: "pointer", textAlign: "left", fontFamily: FF }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>
               {enrolling === "lead_drip_phone" ? <Loader2 size={12} className="animate-spin" /> : "Phone-In Drip"}
             </div>
             <div style={{ fontSize: 10, color: "#6B6860" }}>6-touch SMS + email — for leads who called in</div>
           </button>
           <button onClick={() => enroll("lead_drip_web")} disabled={!!enrolling}
-            style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid #E8E5E0", background: "#F7F6F3", cursor: "pointer", textAlign: "left", fontFamily: FF }}>
+            style={{ padding: "12px 14px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#F7F6F3", cursor: "pointer", textAlign: "left", fontFamily: FF }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 2 }}>
               {enrolling === "lead_drip_web" ? <Loader2 size={12} className="animate-spin" /> : "Web Quote Drip"}
             </div>
@@ -350,10 +350,10 @@ function DripStepRow({ s, nextStep }: { s: any; nextStep: any }) {
           <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 2 }}>
             <span style={{
               fontSize: 8, fontWeight: 800, padding: "1px 4px", borderRadius: 2, fontFamily: FF,
-              background: s.channel === "sms" ? "#EDE9FE" : "#DBEAFE",
-              color: s.channel === "sms" ? "#5B21B6" : "#1E40AF",
+              background: s.channel === "sms" ? "#FBF0E9" : "#EFEFF2",
+              color: s.channel === "sms" ? "#9C4E2B" : "#2F3646",
             }}>{(s.channel || "sms").toUpperCase()}</span>
-            {done ? <span style={{ fontSize: 8, fontWeight: 700, color: "#059669", fontFamily: FF }}>Sent</span>
+            {done ? <span style={{ fontSize: 8, fontWeight: 700, color: "#0F7A63", fontFamily: FF }}>Sent</span>
               : isNext ? <span style={{ fontSize: 8, fontWeight: 700, color: "#0A0E1A", fontFamily: FF }}>Next</span> : null}
             <span style={{ fontSize: 9, color: "#9E9B94", fontFamily: FF, marginLeft: "auto" }}>
               {done ? fmtDateTime(s.sent_at) : isNext ? "Next" : `+${s.delay_hours}h`}
@@ -440,7 +440,7 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
       {!enr ? (
         <EnrollDripPanel leadId={lead.id} onEnrolled={load} />
       ) : (
-        <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "14px 16px" }}>
+        <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "14px 16px" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
             <div>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{enr.sequence_name}</div>
@@ -452,7 +452,7 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
                 {busy === "pause" ? <Loader2 size={10} className="animate-spin" /> : isPaused ? "Resume" : "Pause"}
               </button>
               <button onClick={() => { if (confirm("Stop this drip?")) action("stop", "PATCH", { reason: "office_stopped" }); }} disabled={!!busy}
-                style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 5, border: "0.5px solid #FECACA", background: "#fff", color: "#DC2626", cursor: "pointer", fontFamily: FF }}>
+                style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 5, border: "0.5px solid #F1D0CB", background: "#fff", color: "#B3261E", cursor: "pointer", fontFamily: FF }}>
                 Stop
               </button>
             </div>
@@ -480,13 +480,13 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
           {nextStep && !isPaused && (
             <div style={{ background: "#F0FDF9", border: "1px solid #A7F3D0", borderRadius: 8, padding: "12px 14px", marginBottom: 8 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 5 }}>
-                <span style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: "#059669", fontFamily: FF }}>Next touch</span>
+                <span style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: "#0F7A63", fontFamily: FF }}>Next touch</span>
                 <span style={{ fontSize: 9, color: "#6B6860", fontFamily: FF }}>{enr.next_fire_at ? fmtDateTime(enr.next_fire_at) : "Scheduled"}</span>
               </div>
               <span style={{
                 fontSize: 9, fontWeight: 800, padding: "2px 6px", borderRadius: 3, marginBottom: 6, display: "inline-block", fontFamily: FF,
-                background: nextStep.channel === "sms" ? "#EDE9FE" : "#DBEAFE",
-                color: nextStep.channel === "sms" ? "#5B21B6" : "#1E40AF",
+                background: nextStep.channel === "sms" ? "#FBF0E9" : "#EFEFF2",
+                color: nextStep.channel === "sms" ? "#9C4E2B" : "#2F3646",
               }}>
                 {nextStep.channel.toUpperCase()}
               </span>
@@ -507,7 +507,7 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
           )}
 
           {isPaused && (
-            <div style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#92400E", fontFamily: FF }}>
+            <div style={{ background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 14px", fontSize: 12, color: "#B45309", fontFamily: FF }}>
               Drip paused — touches won't fire until resumed.
             </div>
           )}
@@ -518,7 +518,7 @@ function DripTab({ lead, onRefresh }: { lead: Lead; onRefresh: () => void }) {
           </button>
 
           {expanded && (
-            <div style={{ marginTop: 8, background: "#FCFBF9", border: "0.5px solid #E8E5E0", borderRadius: 8, padding: "2px 12px 6px" }}>
+            <div style={{ marginTop: 8, background: "#FCFBF9", border: "0.5px solid #E5E2DC", borderRadius: 8, padding: "2px 12px 6px" }}>
               <div style={{ fontSize: 9, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.6, color: "#6B6860", padding: "8px 0 2px", fontFamily: FF }}>
                 Full sequence · {steps.length} touches
               </div>
@@ -567,7 +567,7 @@ function LeadMessageRow({ m }: { m: any }) {
         <div style={{ border: "0.5px solid #E5E2DC", borderRadius: 10, overflow: "hidden", background: "#fff" }}>
           <button onClick={() => setOpen(o => !o)}
             style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 10px", background: "#FAF9F6", border: "none", borderBottom: open ? "0.5px solid #E5E2DC" : "none", cursor: "pointer", fontFamily: FF, textAlign: "left" }}>
-            <Mail size={13} color="#5B21B6" />
+            <Mail size={13} color="#9C4E2B" />
             <span style={{ fontSize: 11, fontWeight: 700, color: "#1A1917", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
               {open ? "Email" : stripHtml(m.body).slice(0, 90) || "Email"}
             </span>
@@ -639,7 +639,7 @@ function MessagesTab({ lead }: { lead: Lead }) {
 
   return (
     <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
-      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "14px 16px" }}>
+      <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "14px 16px" }}>
         {!messages.length && (
           <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 10 }}>No messages yet.</div>
         )}
@@ -707,7 +707,7 @@ function ActivityTab({ lead }: { lead: Lead }) {
 
   return (
     <div style={{ padding: "16px 20px", display: "flex", flexDirection: "column", gap: 10, overflowY: "auto" }}>
-      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "14px 16px" }}>
+      <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "14px 16px" }}>
         <textarea value={noteText} onChange={e => setNoteText(e.target.value)}
           placeholder="Add a note or log a call…"
           style={{ width: "100%", border: "0.5px solid #E5E2DC", borderRadius: 7, padding: "8px 10px", fontSize: 11, fontFamily: FF, resize: "vertical", minHeight: 64, outline: "none", marginBottom: 8 }} />
@@ -722,7 +722,7 @@ function ActivityTab({ lead }: { lead: Lead }) {
           </button>
         </div>
       </div>
-      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "14px 16px" }}>
+      <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "14px 16px" }}>
         {!activity.length && <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>No activity yet.</div>}
         {activity.map(a => (
           <div key={a.id} style={{ display: "flex", gap: 8, padding: "6px 0", borderBottom: "0.5px solid #F2EFE9" }}>
@@ -747,12 +747,12 @@ function confView(c: any): { label: string; sub: string | null; color: string; I
   if (!c?.found) return { label: "No confirmation sent", sub: "Comms may have been off at booking", color: "#6B6860", Icon: AlertCircle };
   const ev = (c.resend?.last_event || "").toLowerCase();
   if (c.status === "sent") {
-    if (ev === "opened" || ev === "clicked") return { label: "Opened by client", sub: c.recipient, color: "#059669", Icon: CheckCircle2 };
-    if (ev === "delivered") return { label: "Delivered", sub: c.recipient, color: "#059669", Icon: CheckCircle2 };
-    if (ev === "bounced") return { label: "Bounced", sub: c.recipient, color: "#DC2626", Icon: AlertCircle };
-    return { label: "Sent — delivery pending", sub: c.recipient, color: "#2563EB", Icon: Mail };
+    if (ev === "opened" || ev === "clicked") return { label: "Opened by client", sub: c.recipient, color: "#0F7A63", Icon: CheckCircle2 };
+    if (ev === "delivered") return { label: "Delivered", sub: c.recipient, color: "#0F7A63", Icon: CheckCircle2 };
+    if (ev === "bounced") return { label: "Bounced", sub: c.recipient, color: "#B3261E", Icon: AlertCircle };
+    return { label: "Sent — delivery pending", sub: c.recipient, color: "#2F3646", Icon: Mail };
   }
-  if (c.status === "failed") return { label: "Send failed", sub: c.reason, color: "#DC2626", Icon: AlertCircle };
+  if (c.status === "failed") return { label: "Send failed", sub: c.reason, color: "#B3261E", Icon: AlertCircle };
   const reasonMap: Record<string, string> = { company_comms_disabled: "Company messaging is off", "COMMS_ENABLED=false": "Globally disabled", email_opt_out: "Client opted out" };
   return { label: "Not sent", sub: reasonMap[c.reason] || c.reason || null, color: "#B45309", Icon: AlertCircle };
 }
@@ -821,7 +821,7 @@ function JobsTab({ lead }: { lead: Lead }) {
         const b = confBusy[j.id];
         const CvIcon = cv.Icon;
         return (
-          <div key={j.id} style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "14px 16px" }}>
+          <div key={j.id} style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "14px 16px" }}>
             {/* [lead-booked-wiring 2026-07-08] The whole header opens the real
                 job card on the dispatch board (same deep-link the client
                 profile uses), so a booked lead's job is one click away. */}
@@ -967,7 +967,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", overflow: "hidden", background: "#F7F6F3" }}>
       {/* Header */}
-      <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "16px 20px", flexShrink: 0 }}>
+      <div style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "16px 20px", flexShrink: 0 }}>
         <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 8 }}>
           <div>
             <div style={{ fontSize: 20, fontWeight: 700, color: "#1A1917", letterSpacing: -0.4, lineHeight: 1.1, fontFamily: FF }}>{name}</div>
@@ -981,7 +981,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
                 so it can't produce /customers/undefined. */}
             {lead.client_id != null && (
               <button onClick={() => navigate(`/customers/${lead.client_id}`)}
-                style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, border: "0.5px solid #A7F3D0", background: "#ECFDF5", color: "#065F46", cursor: "pointer", fontFamily: FF }}>
+                style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, border: "0.5px solid #A7F3D0", background: "#E6F6F1", color: "#065F46", cursor: "pointer", fontFamily: FF }}>
                 View client <ChevronRight size={11} />
               </button>
             )}
@@ -1010,7 +1010,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
             </span>
           )}
           {!lead.assigned_to && (
-            <span style={{ fontSize: 11, color: "#DC2626", fontFamily: FF }}>Unassigned</span>
+            <span style={{ fontSize: 11, color: "#B3261E", fontFamily: FF }}>Unassigned</span>
           )}
         </div>
         {/* Status + owner row */}
@@ -1040,9 +1040,9 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
           <div style={{ marginLeft: "auto" }}>
             {showDeleteConfirm ? (
               <div style={{ display: "flex", gap: 5, alignItems: "center" }}>
-                <span style={{ fontSize: 10, color: "#DC2626", fontFamily: FF }}>Delete?</span>
+                <span style={{ fontSize: 10, color: "#B3261E", fontFamily: FF }}>Delete?</span>
                 <button onClick={handleDelete} disabled={deleting}
-                  style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, border: "none", background: "#DC2626", color: "#fff", cursor: "pointer", fontFamily: FF }}>
+                  style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 4, border: "none", background: "#B3261E", color: "#fff", cursor: "pointer", fontFamily: FF }}>
                   {deleting ? <Loader2 size={10} className="animate-spin" /> : "Yes"}
                 </button>
                 <button onClick={() => setShowDeleteConfirm(false)}
@@ -1052,7 +1052,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
               </div>
             ) : (
               <button onClick={() => setShowDeleteConfirm(true)}
-                style={{ fontSize: 10, color: "#DC2626", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
+                style={{ fontSize: 10, color: "#B3261E", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
                 Delete
               </button>
             )}
@@ -1061,7 +1061,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
       </div>
 
       {/* Tabs */}
-      <div style={{ display: "flex", borderBottom: "1px solid #E8E5E0", background: "#fff", flexShrink: 0 }}>
+      <div style={{ display: "flex", borderBottom: "1px solid #E5E2DC", background: "#fff", flexShrink: 0 }}>
         {TABS.map(t => (
           <button key={t.key} onClick={() => setTab(t.key)}
             style={{ padding: "9px 18px", fontSize: 11, fontWeight: 700, fontFamily: FF,
@@ -1083,7 +1083,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
           const sent = ["sent", "viewed", "accepted", "converted", "booked"].includes(qstatus.toLowerCase());
           const btn = (label: string, onClick: () => void, primary = false) => (
             <button onClick={onClick} style={{ fontSize: 12, fontWeight: 700, padding: "8px 14px", borderRadius: 7, cursor: "pointer", fontFamily: FF,
-              border: primary ? "none" : "1px solid #E5E2DC", background: primary ? "var(--brand)" : "#fff", color: primary ? "#fff" : "#374151" }}>{label}</button>
+              border: primary ? "none" : "1px solid #E5E2DC", background: primary ? "var(--brand)" : "#fff", color: primary ? "#fff" : "#1A1917" }}>{label}</button>
           );
           // [quote-details-carry 2026-07-07] What the visitor actually filled
           // out on the booking widget (bedrooms / bathrooms / sqft / frequency
@@ -1106,7 +1106,7 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
           return (
             <div style={{ padding: 20, overflow: "auto" }}>
               {wdRows.length > 0 && (
-                <div style={{ background: "#fff", border: "1px solid #E8E5E0", borderRadius: 10, padding: 16, marginBottom: 12 }}>
+                <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: 16, marginBottom: 12 }}>
                   <p style={{ fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.5, color: "#9E9B94", margin: "0 0 10px", fontFamily: FF }}>What they filled out online</p>
                   {wdRows.map(([label, value]) => (
                     <div key={label} style={{ display: "flex", gap: 12, padding: "5px 0", borderTop: "1px solid #F3F1EC", fontSize: 13, fontFamily: FF }}>
@@ -1117,10 +1117,10 @@ function LeadDetailPanel({ lead, users, partners, onUpdated, onClose }: {
                 </div>
               )}
               {qid ? (
-                <div style={{ background: "#fff", border: "1px solid #E8E5E0", borderRadius: 10, padding: 16 }}>
+                <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: 16 }}>
                   <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
                     <span style={{ fontSize: 22, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>{qprice > 0 ? `$${qprice.toFixed(2)}` : "—"}</span>
-                    {qstatus && <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "3px 8px", borderRadius: 4, background: sent ? "#E1F5EE" : "#F3F4F6", color: sent ? "#0F6E56" : "#6B7280", fontFamily: FF }}>{qstatus}</span>}
+                    {qstatus && <span style={{ fontSize: 10, fontWeight: 800, textTransform: "uppercase", letterSpacing: 0.4, padding: "3px 8px", borderRadius: 4, background: sent ? "#E1F5EE" : "#F0EEE9", color: sent ? "#0F6E56" : "#6B6860", fontFamily: FF }}>{qstatus}</span>}
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     {btn("Open / edit quote", () => navigate(`/quotes/${qid}`))}
@@ -1192,7 +1192,7 @@ function ReportsView() {
   ];
   const rangeBar = (
     <div style={{ marginBottom: 18 }}>
-      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #E8E5E0" }}>
+      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #E5E2DC" }}>
         {RANGE_TABS.map(t => (
           <button key={t.k} onClick={() => setRange(t.k)}
             style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 12,
@@ -1255,7 +1255,7 @@ function ReportsView() {
       {rangeBar}
 
       {/* Funnel: every lead is in exactly one of these stages */}
-      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px", marginBottom: 16 }}>
+      <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "16px 18px", marginBottom: 16 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 2 }}>Pipeline right now</div>
         <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 14 }}>
           {total} leads all-time · {t.lost || 0} closed as lost · every open lead sits in one of these stages
@@ -1276,7 +1276,7 @@ function ReportsView() {
           ))}
         </div>
         <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
-          <span style={{ fontSize: 11, fontFamily: FF, color: closeRate >= 30 ? "#0F6E56" : closeRate >= 15 ? "#B45309" : "#DC2626", fontWeight: 700 }}>
+          <span style={{ fontSize: 11, fontFamily: FF, color: closeRate >= 30 ? "#0F6E56" : closeRate >= 15 ? "#B45309" : "#B3261E", fontWeight: 700 }}>
             {closeRate}% of all leads end up booking
           </span>
         </div>
@@ -1287,7 +1287,7 @@ function ReportsView() {
           which is the INTAKE TOOL they came through. Colour here encodes the
           channel's own brand identity, not quality — one of the two documented
           exceptions to "green = booked". */}
-      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px", marginBottom: 16 }}>
+      <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "16px 18px", marginBottom: 16 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>How they heard about us</div>
         <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>
           Bar = leads from that channel · colour identifies the channel, not quality
@@ -1297,7 +1297,7 @@ function ReportsView() {
           if (!rows.length) return <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>No answers recorded for this range yet.</div>;
           const maxRef = Math.max(1, ...rows.map(r => Number(r.total) || 0));
           const LBL: Record<string, string> = { google: "Google", nextdoor: "Nextdoor", facebook: "Facebook", yelp: "Yelp", client_referral: "Referral from a client", door_hanger: "Door hanger", yard_sign: "Yard sign", website: "Our website", other: "Other", unknown: "Not asked / unknown" };
-          const CLR: Record<string, string> = { google: "#4285F4", nextdoor: "#8ED500", facebook: "#1877F2", yelp: "#D32323", client_referral: "#00C9A0", door_hanger: "#B45309", yard_sign: "#0F766E", website: "#7C3AED", other: "#9CA3AF", unknown: "#D5D2CC" };
+          const CLR: Record<string, string> = { google: "#4285F4", nextdoor: "#8ED500", facebook: "#1877F2", yelp: "#D32323", client_referral: "#00C9A0", door_hanger: "#B45309", yard_sign: "#0F766E", website: "#9C4E2B", other: "#9E9B94", unknown: "#D5D2CC" };
           return rows.map(r => {
             const key = String(r.referral_label || "unknown");
             const n = Number(r.total) || 0, bk = Number(r.booked) || 0;
@@ -1309,7 +1309,7 @@ function ReportsView() {
                   <span style={{ color: "#6B6860" }}>{bk} booked{rev > 0 ? ` · $${Math.round(rev).toLocaleString()}` : ""}<span style={{ color: "#C4C0B8" }}> · {n} lead{n === 1 ? "" : "s"}</span></span>
                 </div>
                 <div style={{ height: 6, background: "#F2EFE9", borderRadius: 4, overflow: "hidden" }}>
-                  <div style={{ width: `${(n / maxRef) * 100}%`, height: "100%", background: CLR[key] || "#9CA3AF", borderRadius: 4 }} />
+                  <div style={{ width: `${(n / maxRef) * 100}%`, height: "100%", background: CLR[key] || "#9E9B94", borderRadius: 4 }} />
                 </div>
               </div>
             );
@@ -1319,7 +1319,7 @@ function ReportsView() {
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
         {/* Where leads come from */}
-        <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px" }}>
+        <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "16px 18px" }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Where leads come from</div>
           <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>Which intake tool they came through · bar = share of all leads · green = how many booked</div>
           {(data.bySource || []).map((s: any) => {
@@ -1341,7 +1341,7 @@ function ReportsView() {
         </div>
 
         {/* Who's closing */}
-        <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px" }}>
+        <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "16px 18px" }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Who's working the leads</div>
           <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>Leads assigned to each person and how many they closed</div>
           {(data.byOwner || []).map((o: any) => {
@@ -1368,7 +1368,7 @@ function ReportsView() {
 
       {/* Sequence health: who's in each drip and why people left it */}
       {dripRows.length > 0 && (
-        <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px", marginTop: 16 }}>
+        <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "16px 18px", marginTop: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Follow-up sequences</div>
           <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>
             How many people are in each automatic sequence right now, and how they left it. "Replied" and "Booked" are wins — the drip did its job.
@@ -1383,7 +1383,7 @@ function ReportsView() {
               <div key={d.sequence_id} style={{ display: "contents" }}>
                 <div style={{ padding: "6px 0", borderTop: "0.5px solid #F2EFE9", color: "#1A1917", fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
                   {d.sequence_name}
-                  {!d.is_active && <span style={{ fontSize: 9, fontWeight: 700, color: "#6B7280", background: "#F3F4F6", borderRadius: 4, padding: "1px 5px" }}>OFF</span>}
+                  {!d.is_active && <span style={{ fontSize: 9, fontWeight: 700, color: "#6B6860", background: "#F0EEE9", borderRadius: 4, padding: "1px 5px" }}>OFF</span>}
                 </div>
                 <div style={{ padding: "6px 0", borderTop: "0.5px solid #F2EFE9", textAlign: "right", fontWeight: 700, color: Number(d.in_progress) > 0 ? "#0F6E56" : "#B4B2A9" }}>{d.in_progress}</div>
                 <div style={{ padding: "6px 0", borderTop: "0.5px solid #F2EFE9", textAlign: "right", color: "#6B6860" }}>{d.stopped_replied}</div>
@@ -1397,7 +1397,7 @@ function ReportsView() {
 
       {/* Lead-drip touch delivery, one row per drip */}
       {Object.keys(touchBySeq).length > 0 && (
-        <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "16px 18px", marginTop: 16 }}>
+        <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "16px 18px", marginTop: 16 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Lead drip — messages actually sent</div>
           <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginBottom: 12 }}>
             Each tile is one touch in the drip. The number is how many times that message has gone out. Later touches send less because leads reply or book before reaching them — that's good.
@@ -1543,7 +1543,7 @@ function LogsView({ onOpenSequence }: { onOpenSequence?: (id: number) => void })
   const statusStyle = (s: string): React.CSSProperties => {
     const ok = /sent|delivered/i.test(s || "");
     return { display: "inline-block", padding: "2px 8px", borderRadius: 20, fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap",
-      background: ok ? "#EAFBF6" : "#F3F4F6", color: ok ? "#0F6E56" : "#6B7280" };
+      background: ok ? "#EAFBF6" : "#F0EEE9", color: ok ? "#0F6E56" : "#6B6860" };
   };
 
   return (
@@ -1574,9 +1574,9 @@ function LogsView({ onOpenSequence }: { onOpenSequence?: (id: number) => void })
         <span style={{ fontSize: 11, color: "#9E9B94" }}>{loading ? "Loading…" : `${total} message${total === 1 ? "" : "s"}`}</span>
       </div>
 
-      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr style={{ background: "#FAFAF8" }}>
+          <thead><tr style={{ background: "#F7F6F3" }}>
             {["Sent", "Contact", "Sequence", "Touch", "Type", "Result", "Message"].map(h => <th key={h} style={TH}>{h}</th>)}
           </tr></thead>
           <tbody>
@@ -1672,8 +1672,8 @@ function EnrollmentsView({ initialSeqId = "", onOpenSequence }: {
   const pill = (bg: string, fg: string): React.CSSProperties => ({ display: "inline-block", padding: "2px 8px", borderRadius: 20, fontSize: 10.5, fontWeight: 700, background: bg, color: fg, whiteSpace: "nowrap" });
   const statusPill = (s: string) =>
     s === "active" ? pill("#EAFBF6", "#0F6E56")
-    : s === "finished" ? pill("#F3F4F6", "#6B7280")
-    : pill("#F3F4F6", "#6B7280");
+    : s === "finished" ? pill("#F0EEE9", "#6B6860")
+    : pill("#F0EEE9", "#6B6860");
 
   const STATUS_TABS: Array<{ k: typeof status; label: string }> = [
     { k: "active", label: "In it now" }, { k: "finished", label: "Ran to end" },
@@ -1707,7 +1707,7 @@ function EnrollmentsView({ initialSeqId = "", onOpenSequence }: {
       </div>
 
       {/* Status tabs — underline pattern, matching the pipeline stat tabs */}
-      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #E8E5E0", marginBottom: 14 }}>
+      <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #E5E2DC", marginBottom: 14 }}>
         {STATUS_TABS.map(t => (
           <button key={t.k} onClick={() => setStatus(t.k)}
             style={{ padding: "8px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: FF, fontSize: 12,
@@ -1720,9 +1720,9 @@ function EnrollmentsView({ initialSeqId = "", onOpenSequence }: {
         <span style={{ alignSelf: "center", fontSize: 11, color: "#9E9B94" }}>{loading ? "Loading…" : `${total} ${total === 1 ? "person" : "people"}`}</span>
       </div>
 
-      <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, overflow: "hidden" }}>
+      <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, overflow: "hidden" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead><tr style={{ background: "#FAFAF8" }}>
+          <thead><tr style={{ background: "#F7F6F3" }}>
             {["Contact", "Why they're in it", "Sequence", "Enrolled", "Step", "Status", "Next send"].map(h => <th key={h} style={TH}>{h}</th>)}
           </tr></thead>
           <tbody>
@@ -1924,7 +1924,7 @@ function SequenceRow({ seq, onToggle, defaultOpen = false, focused = false, onSe
 
   return (
     <div ref={rowRef} style={{ background: "#fff", borderRadius: 10, marginBottom: 8, overflow: "hidden",
-      border: focused ? "1px solid var(--brand)" : "0.5px solid #E8E5E0",
+      border: focused ? "1px solid var(--brand)" : "0.5px solid #E5E2DC",
       boxShadow: focused ? "0 0 0 3px rgba(var(--brand-rgb),0.12)" : "none" }}>
       <div onClick={() => setOpen(o => !o)}
         style={{ padding: "14px 18px", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: "pointer" }}>
@@ -1974,8 +1974,8 @@ function SequenceRow({ seq, onToggle, defaultOpen = false, focused = false, onSe
           <button onClick={e => { e.stopPropagation(); onToggle(); }}
             title={seq.is_active ? "Sending is ON — new matching leads auto-enroll. Click to pause." : "Sending is OFF — nothing enrolls or sends. Click to activate."}
             style={{ padding: "5px 14px", borderRadius: 6, border: "none", cursor: "pointer", fontFamily: FF, fontSize: 11, fontWeight: 700,
-              background: seq.is_active ? "#D1FAE5" : "#F3F4F6",
-              color: seq.is_active ? "#059669" : "#6B7280" }}>
+              background: seq.is_active ? "#D1FAE5" : "#F0EEE9",
+              color: seq.is_active ? "#0F7A63" : "#6B6860" }}>
             {seq.is_active ? "Active" : "Off"}
           </button>
           <ChevronDown size={15} color="#9E9B94" style={{ transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s" }} />
@@ -1983,7 +1983,7 @@ function SequenceRow({ seq, onToggle, defaultOpen = false, focused = false, onSe
       </div>
 
       {open && (
-        <div style={{ borderTop: "0.5px solid #E8E5E0", padding: "12px 18px 16px", background: "#FCFBF9" }}>
+        <div style={{ borderTop: "0.5px solid #E5E2DC", padding: "12px 18px 16px", background: "#FCFBF9" }}>
           {testOpen && (
             <div style={{ background: "#F0F7FF", border: "0.5px solid #CFE3FF", borderRadius: 8, padding: 12, marginBottom: 12 }}>
               <div style={{ fontSize: 11.5, fontWeight: 800, color: "#0A0E1A", fontFamily: FF, marginBottom: 8 }}>Test this campaign in real time</div>
@@ -2049,7 +2049,7 @@ function SequenceRow({ seq, onToggle, defaultOpen = false, focused = false, onSe
                   </button>
                   {testResults[s.step_number] && (
                     <span style={{ fontSize: 9.5, fontWeight: 700, fontFamily: FF,
-                      color: testResults[s.step_number].status === "sent" ? "#059669" : testResults[s.step_number].status === "failed" ? "#DC2626" : "#9E9B94" }}
+                      color: testResults[s.step_number].status === "sent" ? "#0F7A63" : testResults[s.step_number].status === "failed" ? "#B3261E" : "#9E9B94" }}
                       title={testResults[s.step_number].error || ""}>
                       {testResults[s.step_number].status === "sent" ? "sent ✓" : testResults[s.step_number].status === "failed" ? "failed" : "skipped"}
                     </span>
@@ -2151,7 +2151,7 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               ))}
             </div>
             {form.lead_source === "phone_in" && (
-              <div style={{ fontSize: 10, color: "#059669", fontFamily: FF, marginTop: 4 }}>You'll be auto-assigned as owner</div>
+              <div style={{ fontSize: 10, color: "#0F7A63", fontFamily: FF, marginTop: 4 }}>You'll be auto-assigned as owner</div>
             )}
           </div>
 
@@ -2279,7 +2279,7 @@ function relTime(ts: string | null | undefined): string {
 
 // One-line card status: the reply alarm wins, then drip progress, then age.
 function cardStatus(l: any): { text: string; color: string; bold?: boolean } {
-  if (l.replied_at) return { text: `Replied ${relTime(l.replied_at)} — call back`, color: "#DC2626", bold: true };
+  if (l.replied_at) return { text: `Replied ${relTime(l.replied_at)} — call back`, color: "#B3261E", bold: true };
   if (String(l.status) === "booked") return { text: "✓ Booked — drip stopped", color: "#0F6E56" };
   if (l.drip_step) {
     const touched = l.last_drip_touch_at ? ` · sent ${relTime(l.last_drip_touch_at)}` : "";
@@ -2301,7 +2301,7 @@ function AssigneeEmblem({ first, last }: { first?: string | null; last?: string 
   const name = [first, last].filter(Boolean).join(" ");
   if (!name) return <span title="Unassigned" style={{ width: 18, height: 18, borderRadius: "50%", border: "1px dashed #C4C0B8", flexShrink: 0, display: "inline-block" }} />;
   const initials = ((first?.[0] || "") + (last?.[0] || "")).toUpperCase();
-  const palette = ["#0A0E1A", "#1D4ED8", "#0F6E56", "#7C3AED", "#C2410C", "#B91C1C", "#0369A1", "#4D7C0F"];
+  const palette = ["#0A0E1A", "#2F3646", "#0F6E56", "#9C4E2B", "#C2410C", "#B3261E", "#0369A1", "#4D7C0F"];
   const hue = palette[[...name].reduce((a, c) => a + c.charCodeAt(0), 0) % palette.length];
   return (
     <span title={name} style={{ width: 18, height: 18, borderRadius: "50%", background: hue, color: "#fff", fontSize: 8.5, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, fontFamily: FF }}>
@@ -2337,9 +2337,9 @@ function BoardView({ leads, counts, selectedId, onSelect }: { leads: Lead[]; cou
   // on the badge — with a "showing N of M" note below — keeps the numbers honest
   // instead of the badge disagreeing with the KPI strip. [board-counts 2026-07-17]
   const COLS = [
-    { key: "needs", label: "New", color: "#B91C1C", total: (counts.needs_contacted || 0) + (counts.new || 0), match: (s: string) => !["contacted", "quoted", "booked", "no_response", "not_interested", "closed"].includes(s) },
+    { key: "needs", label: "New", color: "#B3261E", total: (counts.needs_contacted || 0) + (counts.new || 0), match: (s: string) => !["contacted", "quoted", "booked", "no_response", "not_interested", "closed"].includes(s) },
     { key: "contacted", label: "Contacted", color: "#C2410C", total: counts.contacted || 0, match: (s: string) => s === "contacted" },
-    { key: "quoted", label: "Quoted", color: "#1D4ED8", total: counts.quoted || 0, match: (s: string) => s === "quoted" },
+    { key: "quoted", label: "Quoted", color: "#2F3646", total: counts.quoted || 0, match: (s: string) => s === "quoted" },
     { key: "booked", label: "Booked", color: "#0F6E56", total: counts.booked || 0, match: (s: string) => s === "booked" },
   ];
   return (
@@ -2367,17 +2367,17 @@ function BoardView({ leads, counts, selectedId, onSelect }: { leads: Lead[]; cou
                   const replied = !!(l as any).replied_at;
                   const st = cardStatus(l as any);
                   return (
-                    <div key={l.id} onClick={() => onSelect(l)} style={{ background: "#fff", border: `1px solid ${replied ? "#DC2626" : selectedId === l.id ? "var(--brand)" : "#E8E5E0"}`, boxShadow: selectedId === l.id ? "0 0 0 2px rgba(var(--brand-rgb),.18)" : replied ? "0 0 0 2px rgba(220,38,38,.12)" : "none", borderRadius: 8, padding: "9px 10px", marginBottom: 7, cursor: "pointer" }}>
+                    <div key={l.id} onClick={() => onSelect(l)} style={{ background: "#fff", border: `1px solid ${replied ? "#B3261E" : selectedId === l.id ? "var(--brand)" : "#E5E2DC"}`, boxShadow: selectedId === l.id ? "0 0 0 2px rgba(var(--brand-rgb),.18)" : replied ? "0 0 0 2px rgba(220,38,38,.12)" : "none", borderRadius: 8, padding: "9px 10px", marginBottom: 7, cursor: "pointer" }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 6 }}>
                         <span style={{ fontSize: 12.5, fontWeight: 700, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
                           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{[l.first_name, l.last_name].filter(Boolean).join(" ") || "—"}</span>
-                          {replied && <span style={{ fontSize: 8.5, fontWeight: 800, padding: "1px 6px", borderRadius: 4, flexShrink: 0, background: "#FEE2E2", color: "#B91C1C" }}>REPLIED</span>}
+                          {replied && <span style={{ fontSize: 8.5, fontWeight: 800, padding: "1px 6px", borderRadius: 4, flexShrink: 0, background: "#FCEBEA", color: "#B3261E" }}>REPLIED</span>}
                         </span>
                         {price > 0 && <span style={{ fontSize: 12.5, fontWeight: 800, color: "#1A1917", fontFamily: FF }}>${price.toFixed(0)}</span>}
                       </div>
                       <div style={{ fontSize: 10.5, color: "#8A8780", margin: "2px 0 6px", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{l.scope || "—"}</span>
-                        <span style={{ fontSize: 8.5, fontWeight: 800, padding: "1px 6px", borderRadius: 4, flexShrink: 0, background: ch === "Website" ? "#EDE9FE" : "#EEF1F4", color: ch === "Website" ? "#6D28D9" : "#475569" }}>{ch}</span>
+                        <span style={{ fontSize: 8.5, fontWeight: 800, padding: "1px 6px", borderRadius: 4, flexShrink: 0, background: ch === "Website" ? "#FBF0E9" : "#EEF1F4", color: ch === "Website" ? "#6D28D9" : "#475569" }}>{ch}</span>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 1 }}>
                         <div style={{ fontSize: 9.5, color: st.color, fontWeight: st.bold ? 700 : 400, fontFamily: FF, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{st.text}</div>
@@ -2434,11 +2434,11 @@ function BreakdownPanel({ day }: { day: string }) {
   const svcMax = svc.reduce((m, r) => Math.max(m, r.count), 0) || 1;
   const owners: any[] = data?.by_owner || [];
   const money = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${Math.round(n)}`;
-  const bucketColor: Record<string, string> = { "Deep Clean": "#0F6E56", "Move In/Out": "#1D4ED8", "Recurring": "#7C3AED", "Hourly": "#C2410C", "Commercial": "#0369A1", "Other": "#9E9B94" };
-  const palette = ["#0A0E1A", "#1D4ED8", "#0F6E56", "#7C3AED", "#C2410C", "#B91C1C", "#0369A1", "#4D7C0F"];
+  const bucketColor: Record<string, string> = { "Deep Clean": "#0F6E56", "Move In/Out": "#2F3646", "Recurring": "#9C4E2B", "Hourly": "#C2410C", "Commercial": "#0369A1", "Other": "#9E9B94" };
+  const palette = ["#0A0E1A", "#2F3646", "#0F6E56", "#9C4E2B", "#C2410C", "#B3261E", "#0369A1", "#4D7C0F"];
 
   const card = (title: string, right: string, body: React.ReactNode) => (
-    <div style={{ background: "#fff", border: "0.5px solid #E8E5E0", borderRadius: 10, padding: "10px 12px", minWidth: 0 }}>
+    <div style={{ background: "#fff", border: "0.5px solid #E5E2DC", borderRadius: 10, padding: "10px 12px", minWidth: 0 }}>
       <div style={{ fontSize: 9.5, fontWeight: 800, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.4px", marginBottom: 8 }}>
         {title}{right && <span style={{ color: "#0F6E56" }}> · {right}</span>}
       </div>
@@ -2447,9 +2447,9 @@ function BreakdownPanel({ day }: { day: string }) {
   );
 
   return (
-    <div style={{ borderBottom: "1px solid #E8E5E0", background: "#F7F6F3", flexShrink: 0 }}>
+    <div style={{ borderBottom: "1px solid #E5E2DC", background: "#F7F6F3", flexShrink: 0 }}>
       <button onClick={toggle} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "7px 16px", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
-        <span style={{ fontSize: 10, fontWeight: 800, color: "#0F6E56", background: "#ECFDF5", border: "0.5px solid #A7F3D0", padding: "2px 9px", borderRadius: 6 }}>{open ? "▾ Hide breakdown" : "▸ Breakdown"}</span>
+        <span style={{ fontSize: 10, fontWeight: 800, color: "#0F6E56", background: "#E6F6F1", border: "0.5px solid #A7F3D0", padding: "2px 9px", borderRadius: 6 }}>{open ? "▾ Hide breakdown" : "▸ Breakdown"}</span>
         {!open && <span style={{ fontSize: 10, color: "#B4B2A9" }}>source · booked by service · who booked</span>}
       </button>
       {open && (
@@ -2486,7 +2486,7 @@ function BreakdownPanel({ day }: { day: string }) {
                   {owners.map((o, i) => {
                     const online = o.key === "online", unassigned = o.key === "unassigned";
                     const initials = online ? "web" : unassigned ? "" : o.label.split(" ").map((w: string) => w[0]).join("").slice(0, 2).toUpperCase();
-                    const hue = online ? "#EDE9FE" : palette[[...o.label].reduce((a: number, c: string) => a + c.charCodeAt(0), 0) % palette.length];
+                    const hue = online ? "#FBF0E9" : palette[[...o.label].reduce((a: number, c: string) => a + c.charCodeAt(0), 0) % palette.length];
                     return (
                       <div key={o.key} style={{ display: "flex", alignItems: "center", gap: 7 }}>
                         {unassigned
@@ -2744,7 +2744,7 @@ export default function LeadsPage() {
               (?window=today) land pre-set here. The channel chip (Online/Office)
               from a Dashboard card shows alongside, clearable, so the board is
               never silently narrowed. */}
-          <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "7px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, fontFamily: FF, flexWrap: "wrap" }}>
+          <div style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "7px 20px", display: "flex", alignItems: "center", gap: 10, flexShrink: 0, fontFamily: FF, flexWrap: "wrap" }}>
             <span style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: 0.6 }}>Day</span>
             {/* [lead-day-filter-ui 2026-07-21] Use the app's branded CalendarPopover
                 (same one the job/quote wizards use) instead of the browser's native
@@ -2773,7 +2773,7 @@ export default function LeadsPage() {
             )}
             {channel !== "all" && (
               <>
-                <div style={{ width: 1, height: 16, background: "#E8E5E0" }} />
+                <div style={{ width: 1, height: 16, background: "#E5E2DC" }} />
                 <button onClick={() => { setChannel("all"); setPage(1); }}
                   style={{ display: "flex", alignItems: "center", gap: 5, padding: "3px 8px 3px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#F7F6F3", cursor: "pointer", fontFamily: FF, fontSize: 12, color: "#1A1917", fontWeight: 600 }}>
                   {channel === "online" ? "Online leads" : "Office leads"} <X size={12} style={{ color: "#9E9B94" }} />
@@ -2786,7 +2786,7 @@ export default function LeadsPage() {
               itself — a lead moves left → right; Booked is the win, Lost is its
               own tab above. */}
           {!isLostFilter && view === "board" && !legendHidden && (
-            <div style={{ background: "#fff", borderBottom: "1px solid #E8E5E0", padding: "7px 20px", fontSize: 11.5, color: "#8A8780", fontFamily: FF, display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{ background: "#fff", borderBottom: "1px solid #E5E2DC", padding: "7px 20px", fontSize: 11.5, color: "#8A8780", fontFamily: FF, display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ flex: 1 }}>A lead moves <b style={{ color: "#6B6860" }}>left → right</b> as you work it: New → Contacted → Quoted → <b style={{ color: "#0F6E56" }}>Booked</b> (won). Leads that didn't move forward sit under <b style={{ color: "#6B6860" }}>Lost</b>.</span>
               <button onClick={dismissLegend} title="Hide this tip" style={{ background: "none", border: "none", cursor: "pointer", color: "#B4B2A9", padding: 2, flexShrink: 0, display: "flex" }}>
                 <X size={13} />
@@ -2826,8 +2826,8 @@ export default function LeadsPage() {
               <BoardView leads={leads} counts={counts} selectedId={selectedLead?.id ?? null} onSelect={l => { setSelectedLead(l); setCheckedIds(new Set()); }} />
             )}
             {(isLostFilter || view === "list") && (
-            <div style={{ width: 300, flexShrink: 0, borderRight: "1px solid #E8E5E0", background: "#fff", display: "flex", flexDirection: "column", overflow: "hidden" }}>
-              <div style={{ padding: "10px 14px", borderBottom: "0.5px solid #E8E5E0" }}>
+            <div style={{ width: 300, flexShrink: 0, borderRight: "1px solid #E5E2DC", background: "#fff", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+              <div style={{ padding: "10px 14px", borderBottom: "0.5px solid #E5E2DC" }}>
                 <div style={{ position: "relative" }}>
                   <Search size={13} style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "#9E9B94" }} />
                   <input
@@ -2837,15 +2837,15 @@ export default function LeadsPage() {
                 </div>
               </div>
               {checkedIds.size > 0 && (
-                <div style={{ padding: "8px 14px", background: "#FEF2F2", borderBottom: "1px solid #FECACA", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: "#DC2626", fontFamily: FF }}>{checkedIds.size} selected</span>
+                <div style={{ padding: "8px 14px", background: "#FCEBEA", borderBottom: "1px solid #F1D0CB", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+                  <span style={{ fontSize: 11, fontWeight: 600, color: "#B3261E", fontFamily: FF }}>{checkedIds.size} selected</span>
                   <div style={{ display: "flex", gap: 6 }}>
                     <button onClick={() => setCheckedIds(new Set())}
-                      style={{ fontSize: 10, padding: "4px 8px", borderRadius: 5, border: "0.5px solid #FECACA", background: "#fff", color: "#6B6860", cursor: "pointer", fontFamily: FF }}>
+                      style={{ fontSize: 10, padding: "4px 8px", borderRadius: 5, border: "0.5px solid #F1D0CB", background: "#fff", color: "#6B6860", cursor: "pointer", fontFamily: FF }}>
                       Clear
                     </button>
                     <button onClick={handleBulkDelete} disabled={bulkDeleting}
-                      style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, border: "none", background: "#DC2626", color: "#fff", cursor: "pointer", fontFamily: FF }}>
+                      style={{ fontSize: 10, fontWeight: 700, padding: "4px 10px", borderRadius: 5, border: "none", background: "#B3261E", color: "#fff", cursor: "pointer", fontFamily: FF }}>
                       {bulkDeleting ? <Loader2 size={10} className="animate-spin" /> : `Delete ${checkedIds.size}`}
                     </button>
                   </div>
@@ -2893,7 +2893,7 @@ export default function LeadsPage() {
               : view === "board"
               // Board mode: float as a drawer pinned to the right edge so the
               // columns keep full width and never reflow when it opens/closes.
-              ? { position: "absolute", top: 0, right: 0, bottom: 0, width: 460, zIndex: 20, background: "#fff", overflow: "hidden", display: "flex", flexDirection: "column", borderLeft: "1px solid #E8E5E0", boxShadow: "-8px 0 20px rgba(10,14,26,0.08)" }
+              ? { position: "absolute", top: 0, right: 0, bottom: 0, width: 460, zIndex: 20, background: "#fff", overflow: "hidden", display: "flex", flexDirection: "column", borderLeft: "1px solid #E5E2DC", boxShadow: "-8px 0 20px rgba(10,14,26,0.08)" }
               // List mode: in-flow beside the fixed 300px list (no multi-col reflow).
               : { flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               {selectedLead ? (

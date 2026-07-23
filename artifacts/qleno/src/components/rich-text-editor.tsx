@@ -137,7 +137,7 @@ export function RichTextEditor({
       style={{
         width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center",
         background: "none", border: "1px solid #E5E2DC", borderRadius: 5,
-        cursor: "pointer", color: "#6B7280",
+        cursor: "pointer", color: "#6B6860",
       }}
     >{icon}</button>
   );

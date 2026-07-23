@@ -28,12 +28,12 @@ async function apiFetch(path: string, opts: { method?: string; body?: any } = {}
 }
 
 const STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  draft:    { label: "Draft",     color: "#6B7280", bg: "#F3F4F6" },
-  sent:     { label: "Sent",      color: "#1D4ED8", bg: "#DBEAFE" },
-  viewed:   { label: "Viewed",    color: "#7C3AED", bg: "#EDE9FE" },
-  accepted: { label: "Accepted",  color: "#15803D", bg: "#DCFCE7" },
-  booked:   { label: "Converted", color: "var(--brand)", bg: "#EFF6FF" },
-  expired:  { label: "Expired",   color: "#DC2626", bg: "#FEE2E2" },
+  draft:    { label: "Draft",     color: "#6B6860", bg: "#F0EEE9" },
+  sent:     { label: "Sent",      color: "#2F3646", bg: "#EFEFF2" },
+  viewed:   { label: "Viewed",    color: "#9C4E2B", bg: "#FBF0E9" },
+  accepted: { label: "Accepted",  color: "#15803D", bg: "#E6F6F1" },
+  booked:   { label: "Converted", color: "var(--brand)", bg: "#EFEFF2" },
+  expired:  { label: "Expired",   color: "#B3261E", bg: "#FCEBEA" },
 };
 
 function fmt(d?: string | null) {
@@ -66,17 +66,17 @@ function EmailStatusCard({ row }: { row: any | null }) {
     <div className="bg-white border border-[#E5E2DC] rounded-lg p-5">
       <div className="flex items-center justify-between mb-3 gap-3 flex-wrap">
         <h2 className="text-sm font-semibold text-[#1A1917]">Email status</h2>
-        {bounced ? chip("Bounced", "#B91C1C", "#FEE2E2")
-          : failed ? chip("Failed", "#B91C1C", "#FEE2E2")
-          : opened ? chip("Opened", "#15803D", "#DCFCE7")
-          : delivered ? chip("Delivered", "#15803D", "#DCFCE7")
-          : chip("Sent", "#1D4ED8", "#DBEAFE")}
+        {bounced ? chip("Bounced", "#B3261E", "#FCEBEA")
+          : failed ? chip("Failed", "#B3261E", "#FCEBEA")
+          : opened ? chip("Opened", "#15803D", "#E6F6F1")
+          : delivered ? chip("Delivered", "#15803D", "#E6F6F1")
+          : chip("Sent", "#2F3646", "#EFEFF2")}
       </div>
       {row.recipient && (
-        <p className="text-xs text-[#6B7280] mb-3">To {row.recipient}</p>
+        <p className="text-xs text-[#6B6860] mb-3">To {row.recipient}</p>
       )}
       {bounced || failed ? (
-        <p className="text-sm text-[#B91C1C]">
+        <p className="text-sm text-[#B3261E]">
           {bounced ? "This email bounced — the address may be wrong or the inbox rejected it." : "Delivery failed — the recipient marked it as spam or the provider rejected it."}
           {" "}Fix the address and use Resend.
         </p>
@@ -200,8 +200,8 @@ export default function QuoteDetailPage() {
     return (
       <DashboardLayout>
         <div className="p-6 max-w-4xl mx-auto">
-          <div className="h-8 w-48 bg-[#F0EDE8] rounded animate-pulse mb-4" />
-          <div className="h-64 bg-[#F0EDE8] rounded animate-pulse" />
+          <div className="h-8 w-48 bg-[#F0EEE9] rounded animate-pulse mb-4" />
+          <div className="h-64 bg-[#F0EEE9] rounded animate-pulse" />
         </div>
       </DashboardLayout>
     );
@@ -211,7 +211,7 @@ export default function QuoteDetailPage() {
     return (
       <DashboardLayout>
         <div className="p-6 max-w-4xl mx-auto text-center py-20">
-          <p className="text-[#6B7280]">Quote not found.</p>
+          <p className="text-[#6B6860]">Quote not found.</p>
           <Button variant="outline" className="mt-4" onClick={() => navigate("/quotes")}>Back to Quotes</Button>
         </div>
       </DashboardLayout>
@@ -245,7 +245,7 @@ export default function QuoteDetailPage() {
           onClick={() => onChange(!value)}
           style={{
             width: 44, height: 26, borderRadius: 13, border: "none", cursor: "pointer",
-            background: value ? "var(--brand)" : "#D1D5DB", position: "relative", transition: "background 0.2s",
+            background: value ? "var(--brand)" : "#E5E2DC", position: "relative", transition: "background 0.2s",
           }}
         >
           <span style={{
@@ -316,8 +316,8 @@ export default function QuoteDetailPage() {
               ))}
               {discountAmt > 0 && (
                 <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}>
-                  <span style={{ fontSize: 13, color: "#16A34A", fontFamily: FF }}>Discount{quote.discount_code ? ` (${quote.discount_code})` : ""}</span>
-                  <span style={{ fontSize: 13, color: "#16A34A", fontFamily: FF }}>-${discountAmt.toFixed(2)}</span>
+                  <span style={{ fontSize: 13, color: "#0F7A63", fontFamily: FF }}>Discount{quote.discount_code ? ` (${quote.discount_code})` : ""}</span>
+                  <span style={{ fontSize: 13, color: "#0F7A63", fontFamily: FF }}>-${discountAmt.toFixed(2)}</span>
                 </div>
               )}
               <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 10, display: "flex", justifyContent: "space-between" }}>
@@ -368,7 +368,7 @@ export default function QuoteDetailPage() {
               )}
               <AlertDialog>
                 <AlertDialogTrigger asChild>
-                  <button style={{ width: "100%", height: 44, background: "none", border: "none", cursor: "pointer", color: "#DC2626", fontSize: 14, fontWeight: 600, fontFamily: FF }}>
+                  <button style={{ width: "100%", height: 44, background: "none", border: "none", cursor: "pointer", color: "#B3261E", fontSize: 14, fontWeight: 600, fontFamily: FF }}>
                     Delete Quote
                   </button>
                 </AlertDialogTrigger>
@@ -434,7 +434,7 @@ export default function QuoteDetailPage() {
                     </button>
                   )}
                 </div>
-                <p style={{ fontSize: 13, color: "#6B7280", fontFamily: FF, whiteSpace: "pre-wrap", lineHeight: 1.6, margin: 0 }}>{quote.call_notes}</p>
+                <p style={{ fontSize: 13, color: "#6B6860", fontFamily: FF, whiteSpace: "pre-wrap", lineHeight: 1.6, margin: 0 }}>{quote.call_notes}</p>
               </div>
             )}
           </div>
@@ -445,9 +445,9 @@ export default function QuoteDetailPage() {
           <div style={{ position: "fixed", inset: 0, zIndex: 60, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
             <div onClick={() => !pushJobBusy && setPushJobOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)" }} />
             <div style={{ position: "relative", background: "#FFF", borderRadius: "16px 16px 0 0", padding: "24px 20px 44px", zIndex: 1 }}>
-              <div style={{ width: 36, height: 4, borderRadius: 2, background: "#D1D5DB", margin: "0 auto 20px" }} />
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: "#E5E2DC", margin: "0 auto 20px" }} />
               <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 8 }}>Push Call Notes to Job?</p>
-              <p style={{ fontSize: 13, color: "#6B7280", fontFamily: FF, lineHeight: 1.6, marginBottom: 24 }}>
+              <p style={{ fontSize: 13, color: "#6B6860", fontFamily: FF, lineHeight: 1.6, marginBottom: 24 }}>
                 This will overwrite Office Notes on Job #{quote.booked_job_id}. This cannot be undone.
               </p>
               <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
@@ -467,7 +467,7 @@ export default function QuoteDetailPage() {
                 >
                   {pushJobBusy ? "Pushing..." : "Yes, Push Notes"}
                 </button>
-                <button onClick={() => setPushJobOpen(false)} style={{ width: "100%", height: 48, background: "#FFF", color: "#6B7280", border: "1px solid #E5E2DC", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                <button onClick={() => setPushJobOpen(false)} style={{ width: "100%", height: 48, background: "#FFF", color: "#6B6860", border: "1px solid #E5E2DC", borderRadius: 10, fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                   Cancel
                 </button>
               </div>
@@ -481,7 +481,7 @@ export default function QuoteDetailPage() {
             <div onClick={() => setSendSheetOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.45)" }} />
             <div style={{ position: "relative", background: "#FFF", borderRadius: "16px 16px 0 0", padding: 24, paddingBottom: 44, zIndex: 1 }}>
               {/* Handle */}
-              <div style={{ width: 36, height: 4, borderRadius: 2, background: "#D1D5DB", margin: "0 auto 20px" }} />
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: "#E5E2DC", margin: "0 auto 20px" }} />
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 20 }}>
                 <span style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Send Quote to Client</span>
                 <button onClick={() => setSendSheetOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#6B6860" }}>
@@ -531,7 +531,7 @@ export default function QuoteDetailPage() {
       <div className="p-6 max-w-4xl mx-auto space-y-5">
 
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => navigate("/quotes")} className="gap-1.5 text-[#6B7280]">
+          <Button variant="ghost" size="sm" onClick={() => navigate("/quotes")} className="gap-1.5 text-[#6B6860]">
             <ArrowLeft className="w-4 h-4" /> Quotes
           </Button>
         </div>
@@ -544,7 +544,7 @@ export default function QuoteDetailPage() {
                 {statusCfg.label}
               </span>
             </div>
-            <p className="text-sm text-[#6B7280]">{clientName} {quote.scope_name ? `· ${quote.scope_name}` : ""}</p>
+            <p className="text-sm text-[#6B6860]">{clientName} {quote.scope_name ? `· ${quote.scope_name}` : ""}</p>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -599,8 +599,8 @@ export default function QuoteDetailPage() {
             {timelineEvents.map((ev, i) => (
               <div key={ev.label} className="flex items-center">
                 <div className="flex flex-col items-center">
-                  <div className="w-2.5 h-2.5 rounded-full border-2" style={{ backgroundColor: ev.date && !ev.future ? "var(--brand)" : "#E5E2DC", borderColor: ev.date && !ev.future ? "var(--brand)" : "#D1D5DB" }} />
-                  <div className="text-xs font-medium text-[#6B7280] mt-1 whitespace-nowrap">{ev.label}</div>
+                  <div className="w-2.5 h-2.5 rounded-full border-2" style={{ backgroundColor: ev.date && !ev.future ? "var(--brand)" : "#E5E2DC", borderColor: ev.date && !ev.future ? "var(--brand)" : "#E5E2DC" }} />
+                  <div className="text-xs font-medium text-[#6B6860] mt-1 whitespace-nowrap">{ev.label}</div>
                   {ev.date && <div className="text-xs text-[#9E9B94] mt-0.5 whitespace-nowrap">{fmt(ev.date)}</div>}
                 </div>
                 {i < timelineEvents.length - 1 && <div className="h-0.5 w-16 bg-[#E5E2DC] mx-1 mb-5" />}
@@ -614,20 +614,20 @@ export default function QuoteDetailPage() {
             <h2 className="text-sm font-semibold text-[#1A1917] flex items-center gap-2"><User className="w-4 h-4 text-[#9E9B94]" /> Client</h2>
             <div className="space-y-1.5">
               <p className="text-sm font-medium text-[#1A1917]">{clientName}</p>
-              {(quote.client_email || quote.lead_email) && <p className="text-sm text-[#6B7280]">{quote.client_email || quote.lead_email}</p>}
-              {(quote.client_phone || quote.lead_phone) && <p className="text-sm text-[#6B7280]">{quote.client_phone || quote.lead_phone}</p>}
-              {quote.address && <div className="flex items-start gap-1.5 pt-1"><MapPin className="w-3.5 h-3.5 text-[#9E9B94] mt-0.5 shrink-0" /><p className="text-sm text-[#6B7280]">{quote.address}</p></div>}
+              {(quote.client_email || quote.lead_email) && <p className="text-sm text-[#6B6860]">{quote.client_email || quote.lead_email}</p>}
+              {(quote.client_phone || quote.lead_phone) && <p className="text-sm text-[#6B6860]">{quote.client_phone || quote.lead_phone}</p>}
+              {quote.address && <div className="flex items-start gap-1.5 pt-1"><MapPin className="w-3.5 h-3.5 text-[#9E9B94] mt-0.5 shrink-0" /><p className="text-sm text-[#6B6860]">{quote.address}</p></div>}
             </div>
           </div>
 
           <div className="bg-white border border-[#E5E2DC] rounded-lg p-5 space-y-3">
             <h2 className="text-sm font-semibold text-[#1A1917] flex items-center gap-2"><FileText className="w-4 h-4 text-[#9E9B94]" /> Service</h2>
             <div className="space-y-1.5">
-              {quote.scope_name && <div className="flex justify-between text-sm"><span className="text-[#6B7280]">Scope</span><span className="text-[#1A1917] font-medium">{quote.scope_name}</span></div>}
-              {quote.frequency && <div className="flex justify-between text-sm"><span className="text-[#6B7280]">Frequency</span><span className="text-[#1A1917]">{quote.frequency}</span></div>}
-              {quote.sqft && <div className="flex justify-between text-sm"><span className="text-[#6B7280]">Sq Ft</span><span className="text-[#1A1917]">{quote.sqft}</span></div>}
-              {quote.bedrooms != null && <div className="flex justify-between text-sm"><span className="text-[#6B7280]">Bedrooms</span><span className="text-[#1A1917]">{quote.bedrooms}bd / {quote.bathrooms ?? 0}ba</span></div>}
-              {quote.estimated_hours && <div className="flex justify-between text-sm"><span className="text-[#6B7280]">Est. Hours</span><span className="text-[#1A1917]">{parseFloat(quote.estimated_hours).toFixed(1)}h</span></div>}
+              {quote.scope_name && <div className="flex justify-between text-sm"><span className="text-[#6B6860]">Scope</span><span className="text-[#1A1917] font-medium">{quote.scope_name}</span></div>}
+              {quote.frequency && <div className="flex justify-between text-sm"><span className="text-[#6B6860]">Frequency</span><span className="text-[#1A1917]">{quote.frequency}</span></div>}
+              {quote.sqft && <div className="flex justify-between text-sm"><span className="text-[#6B6860]">Sq Ft</span><span className="text-[#1A1917]">{quote.sqft}</span></div>}
+              {quote.bedrooms != null && <div className="flex justify-between text-sm"><span className="text-[#6B6860]">Bedrooms</span><span className="text-[#1A1917]">{quote.bedrooms}bd / {quote.bathrooms ?? 0}ba</span></div>}
+              {quote.estimated_hours && <div className="flex justify-between text-sm"><span className="text-[#6B6860]">Est. Hours</span><span className="text-[#1A1917]">{parseFloat(quote.estimated_hours).toFixed(1)}h</span></div>}
             </div>
           </div>
         </div>
@@ -635,11 +635,11 @@ export default function QuoteDetailPage() {
         <div className="bg-white border border-[#E5E2DC] rounded-lg p-5">
           <h2 className="text-sm font-semibold text-[#1A1917] mb-4">Pricing</h2>
           <div className="space-y-2">
-            {quote.base_price && <div className="flex justify-between text-sm"><span className="text-[#6B7280]">Base Price</span><span className="text-[#1A1917]">${parseFloat(quote.base_price).toFixed(2)}</span></div>}
-            {addons.map((a, i) => <div key={i} className="flex justify-between text-sm"><span className="text-[#6B7280]">{a.name}</span><span className="text-[#1A1917]">+${a.price.toFixed(2)}</span></div>)}
+            {quote.base_price && <div className="flex justify-between text-sm"><span className="text-[#6B6860]">Base Price</span><span className="text-[#1A1917]">${parseFloat(quote.base_price).toFixed(2)}</span></div>}
+            {addons.map((a, i) => <div key={i} className="flex justify-between text-sm"><span className="text-[#6B6860]">{a.name}</span><span className="text-[#1A1917]">+${a.price.toFixed(2)}</span></div>)}
             {discountAmt > 0 && <div className="flex justify-between text-sm text-green-600"><span>Discount{quote.discount_code ? ` (${quote.discount_code})` : ""}</span><span>-${discountAmt.toFixed(2)}</span></div>}
             <div className="border-t border-[#E5E2DC] pt-2 flex justify-between items-baseline">
-              <span className="text-sm text-[#6B7280]">Total</span>
+              <span className="text-sm text-[#6B6860]">Total</span>
               <span className="text-2xl font-bold text-[#1A1917]">${total.toFixed(2)}</span>
             </div>
           </div>
@@ -647,8 +647,8 @@ export default function QuoteDetailPage() {
 
         {(quote.notes || quote.internal_memo) && (
           <div className="bg-white border border-[#E5E2DC] rounded-lg p-5 space-y-4">
-            {quote.notes && <div><p className="text-sm font-semibold text-[#1A1917] mb-1">Client Notes</p><p className="text-sm text-[#6B7280] whitespace-pre-wrap">{quote.notes}</p></div>}
-            {quote.internal_memo && <div><p className="text-sm font-semibold text-[#1A1917] mb-1">Internal Memo</p><p className="text-sm text-[#6B7280] whitespace-pre-wrap">{quote.internal_memo}</p></div>}
+            {quote.notes && <div><p className="text-sm font-semibold text-[#1A1917] mb-1">Client Notes</p><p className="text-sm text-[#6B6860] whitespace-pre-wrap">{quote.notes}</p></div>}
+            {quote.internal_memo && <div><p className="text-sm font-semibold text-[#1A1917] mb-1">Internal Memo</p><p className="text-sm text-[#6B6860] whitespace-pre-wrap">{quote.internal_memo}</p></div>}
           </div>
         )}
 
@@ -671,7 +671,7 @@ export default function QuoteDetailPage() {
                 </Button>
               )}
             </div>
-            <p className="text-sm text-[#6B7280] whitespace-pre-wrap leading-relaxed">{quote.call_notes}</p>
+            <p className="text-sm text-[#6B6860] whitespace-pre-wrap leading-relaxed">{quote.call_notes}</p>
           </div>
         )}
 
@@ -681,7 +681,7 @@ export default function QuoteDetailPage() {
             <div onClick={() => !pushJobBusy && setPushJobOpen(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)" }} />
             <div style={{ position: "relative", background: "#FFF", borderRadius: 14, padding: 28, maxWidth: 420, width: "90%", zIndex: 1, boxShadow: "0 16px 48px rgba(0,0,0,0.18)" }}>
               <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF, marginBottom: 10 }}>Push Call Notes to Job?</p>
-              <p style={{ fontSize: 14, color: "#6B7280", fontFamily: FF, lineHeight: 1.6, marginBottom: 22 }}>
+              <p style={{ fontSize: 14, color: "#6B6860", fontFamily: FF, lineHeight: 1.6, marginBottom: 22 }}>
                 This will overwrite the Office Notes on Job #{quote.booked_job_id} with the call notes from this quote. This cannot be undone.
               </p>
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>

@@ -26,7 +26,7 @@ const BG = "#F7F6F3";
 const CARD = "#FFFFFF";
 const BORDER = "#E5E2DC";
 const FLAG = "#BA7517";
-const DANGER = "#DC2626";
+const DANGER = "#B3261E";
 
 type LegStatus = "computed" | "reviewed" | "applied" | "discarded";
 
@@ -428,7 +428,7 @@ function StatusPill({ status }: { status: LegStatus }) {
     computed: { bg: "#F0EEE9", fg: "#6B6860", label: "Computed" },
     reviewed: { bg: "#E5F7F2", fg: "#0A7A60", label: "Reviewed" },
     applied: { bg: "#D6F4E9", fg: "#0A5C3E", label: "Applied" },
-    discarded: { bg: "#FCE7E7", fg: "#991B1B", label: "Discarded" },
+    discarded: { bg: "#FCE7E7", fg: "#B3261E", label: "Discarded" },
   };
   const s = styles[status];
   return (

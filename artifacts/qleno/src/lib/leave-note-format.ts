@@ -84,8 +84,8 @@ export function leaveBucketLabel(slug: string | null): string {
 
 /** Chip background tints for the kind tone. */
 export const KIND_TONE_STYLE: Record<NoteKindTone, { bg: string; fg: string }> = {
-  neutral: { bg: "#F3F4F6", fg: "#4B5563" },
+  neutral: { bg: "#F0EEE9", fg: "#6B6860" },
   good: { bg: "#E9FBF5", fg: "#00876B" },
-  warn: { bg: "#FEF3C7", fg: "#92400E" },
-  bad: { bg: "#FCE7E7", fg: "#991B1B" },
+  warn: { bg: "#FDF3E4", fg: "#B45309" },
+  bad: { bg: "#FCE7E7", fg: "#B3261E" },
 };

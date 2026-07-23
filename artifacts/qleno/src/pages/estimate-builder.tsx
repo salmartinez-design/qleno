@@ -11,7 +11,7 @@ import { FrequencyPicker } from "@/components/frequency-picker";
 const FF = "'Plus Jakarta Sans', sans-serif";
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const INK = "#1A1917";
-const MUTE = "#6B7280";
+const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
 const MINT = "var(--brand)";
 
@@ -770,10 +770,10 @@ export default function EstimateBuilderPage() {
 
               {/* [estimate-flat-clarity] Optional scope paragraph — describe the
                   work in prose instead of (or alongside) the checklist below. */}
-              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Scope description <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9CA3AF" }}>— optional, shown to the client above the checklist</span></span>
+              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>Scope description <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9E9B94" }}>— optional, shown to the client above the checklist</span></span>
               <textarea style={{ ...inp, minHeight: 70, resize: "vertical", marginBottom: 14 }} value={scopeNote} onChange={e => setScopeNote(e.target.value)} placeholder="e.g. Full janitorial service for the suite — all offices, the break room, both restrooms, and common hallways, cleaned each visit. Supplies included." />
 
-              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>What's included <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9CA3AF" }}>— optional checklist, no per-line price</span></span>
+              <span style={{ display: "block", fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 8 }}>What's included <span style={{ fontWeight: 400, textTransform: "none", letterSpacing: 0, color: "#9E9B94" }}>— optional checklist, no per-line price</span></span>
               {items.map((it, i) => {
                 const on = it.included !== false; // undefined = included (back-compat)
                 return (
@@ -818,7 +818,7 @@ export default function EstimateBuilderPage() {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, alignItems: "end" }}>
                     <Field label={L.qty}><input style={inp} type="number" min="0" step="0.25" value={it.quantity} onChange={e => updateItem(i, { quantity: e.target.value })} /></Field>
                     <Field label={L.rate}><input style={inp} type="number" min="0" step="0.01" value={it.unit_rate} onChange={e => updateItem(i, { unit_rate: e.target.value })} placeholder="0.00" /></Field>
-                    <Field label="Amount"><div style={{ ...inp, background: "#F3F4F6", fontWeight: 700, color: INK }}>{money(lineAmount(it))}</div></Field>
+                    <Field label="Amount"><div style={{ ...inp, background: "#F0EEE9", fontWeight: 700, color: INK }}>{money(lineAmount(it))}</div></Field>
                   </div>
                 </div>
               );
@@ -855,7 +855,7 @@ export default function EstimateBuilderPage() {
       {/* Sticky action bar */}
       <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: "#fff", borderTop: `1px solid ${BORDER}`, padding: "12px 16px", display: "flex", justifyContent: "center", gap: 10, zIndex: 20 }}>
         <div style={{ display: "flex", gap: 10, width: "100%", maxWidth: 860, alignItems: "center" }}>
-          <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", color: autoStatus === "error" ? "#B91C1C" : MUTE }}>
+          <span style={{ fontSize: 12, fontWeight: 600, whiteSpace: "nowrap", color: autoStatus === "error" ? "#B3261E" : MUTE }}>
             {autoStatus === "saving" ? "Saving…" : autoStatus === "saved" ? "All changes saved" : autoStatus === "error" ? "Save failed — retry" : ""}
           </span>
           <div style={{ flex: 1 }} />
@@ -891,7 +891,7 @@ export default function EstimateBuilderPage() {
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 420, fontFamily: FF }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Text the estimate</span>
-              <button onClick={() => setSmsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}><X size={16} /></button>
+              <button onClick={() => setSmsOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94" }}><X size={16} /></button>
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 5 }}>To</div>
             <input style={{ ...inp, marginBottom: 4 }} type="tel" value={smsTo} onChange={e => setSmsTo(e.target.value)} placeholder="(773) 555-0123" />
@@ -901,7 +901,7 @@ export default function EstimateBuilderPage() {
             <div style={{ background: "#F0F0F2", borderRadius: 12, padding: 12, marginBottom: 4 }}>
               <div style={{ background: "var(--brand)", color: "#FFFFFF", borderRadius: 16, borderBottomRightRadius: 4, padding: "9px 13px", fontSize: 13.5, lineHeight: 1.45, marginLeft: "auto", maxWidth: "92%", width: "fit-content", whiteSpace: "pre-wrap" }}>{smsData.body}</div>
             </div>
-            <div style={{ fontSize: 11, color: "#9CA3AF", marginBottom: 16 }}>Sent from your Phes number · standard messaging rates apply</div>
+            <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 16 }}>Sent from your Phes number · standard messaging rates apply</div>
             <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
               <button onClick={() => setSmsOpen(false)} style={ghostBtn}>Cancel</button>
               <button onClick={sendSms} disabled={smsSending || !smsTo.trim()} style={{ ...primaryBtn, opacity: smsTo.trim() ? 1 : 0.5 }}>
@@ -919,7 +919,7 @@ export default function EstimateBuilderPage() {
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 420, fontFamily: FF }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
               <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Send card-on-file link</span>
-              <button onClick={() => setCardOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}><X size={16} /></button>
+              <button onClick={() => setCardOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94" }}><X size={16} /></button>
             </div>
             <div style={{ fontSize: 11, fontWeight: 700, color: MUTE, textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 6 }}>Send by</div>
             <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
@@ -958,13 +958,13 @@ export default function EstimateBuilderPage() {
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 0, width: "100%", maxWidth: 580, maxHeight: "88vh", display: "flex", flexDirection: "column", fontFamily: FF }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 18px", borderBottom: `1px solid #EEECE7` }}>
               <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Send agreement</span>
-              <button onClick={() => setAgrModal(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}><X size={16} /></button>
+              <button onClick={() => setAgrModal(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94" }}><X size={16} /></button>
             </div>
             <div style={{ padding: 18, overflowY: "auto" }}>
               <div style={{ display: "flex", gap: 20, marginBottom: 14, flexWrap: "wrap" }}>
-                <div><div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF" }}>TO</div><div style={{ fontSize: 13, color: agrModal.to ? INK : "#B91C1C" }}>{agrModal.to_name ? `${agrModal.to_name} · ` : ""}{agrModal.to || "No contact email"}</div></div>
+                <div><div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9E9B94" }}>TO</div><div style={{ fontSize: 13, color: agrModal.to ? INK : "#B3261E" }}>{agrModal.to_name ? `${agrModal.to_name} · ` : ""}{agrModal.to || "No contact email"}</div></div>
                 <div>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF" }}>TEMPLATE</div>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9E9B94" }}>TEMPLATE</div>
                   {agrTemplates.length > 1 ? (
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
                       <select
@@ -982,9 +982,9 @@ export default function EstimateBuilderPage() {
                   )}
                 </div>
               </div>
-              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9CA3AF", marginBottom: 5 }}>AGREEMENT TEXT — EDITABLE</div>
+              <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.05em", color: "#9E9B94", marginBottom: 5 }}>AGREEMENT TEXT — EDITABLE</div>
               <textarea value={agrBody} onChange={e => setAgrBody(e.target.value)} style={{ ...inp, minHeight: 260, resize: "vertical", lineHeight: 1.55, fontSize: 13, whiteSpace: "pre-wrap" }} />
-              <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 7 }}>Edits apply to this agreement only — the client e-signs this exact text.</div>
+              <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 7 }}>Edits apply to this agreement only — the client e-signs this exact text.</div>
             </div>
             <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, padding: "14px 18px", borderTop: `1px solid #EEECE7` }}>
               <button onClick={() => setAgrModal(null)} style={ghostBtn}>Cancel</button>
@@ -1002,7 +1002,7 @@ export default function EstimateBuilderPage() {
           <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 16, padding: 22, width: "100%", maxWidth: 460, fontFamily: FF }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <span style={{ fontSize: 16, fontWeight: 800, color: INK }}>Agreement ready to sign</span>
-              <button onClick={() => setAgrLink(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}><X size={16} /></button>
+              <button onClick={() => setAgrLink(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94" }}><X size={16} /></button>
             </div>
             <p style={{ fontSize: 13, color: MUTE, margin: "0 0 14px", lineHeight: 1.5 }}>Send this secure signing link to {agrLink.to}. They consent and e-sign; you get a Certificate of Completion with the full audit trail.</p>
             <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
@@ -1074,9 +1074,9 @@ function AgreementTracking({ estimateId, version }: { estimateId: number; versio
   const ts = (v: any) => (v ? new Date(v).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
   const Step = ({ done, label, when, icon }: any) => (
     <div style={{ flex: 1, textAlign: "center" }}>
-      <div style={{ width: 26, height: 26, borderRadius: "50%", margin: "0 auto", background: done ? "#0F6E56" : "#F1EFE8", color: done ? "#fff" : "#9CA3AF", display: "flex", alignItems: "center", justifyContent: "center" }}>{icon}</div>
-      <div style={{ fontSize: 11, marginTop: 4, color: done ? INK : "#9CA3AF" }}>{label}</div>
-      <div style={{ fontSize: 10, color: "#9CA3AF" }}>{when}</div>
+      <div style={{ width: 26, height: 26, borderRadius: "50%", margin: "0 auto", background: done ? "#0F6E56" : "#F1EFE8", color: done ? "#fff" : "#9E9B94", display: "flex", alignItems: "center", justifyContent: "center" }}>{icon}</div>
+      <div style={{ fontSize: 11, marginTop: 4, color: done ? INK : "#9E9B94" }}>{label}</div>
+      <div style={{ fontSize: 10, color: "#9E9B94" }}>{when}</div>
     </div>
   );
   return (
@@ -1165,7 +1165,7 @@ function EstimateTracking({ estimateId, version }: { estimateId: number; version
         {!accepted && (
           <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
             <button onClick={() => markOutcome("accepted")} style={{ fontSize: 12, fontWeight: 700, color: "#fff", background: "#0F6E56", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontFamily: FF }}>Mark as won</button>
-            <button onClick={() => markOutcome("declined")} style={{ fontSize: 12, fontWeight: 600, color: "#6B7280", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontFamily: FF }}>Mark as lost</button>
+            <button onClick={() => markOutcome("declined")} style={{ fontSize: 12, fontWeight: 600, color: "#6B6860", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontFamily: FF }}>Mark as lost</button>
           </div>
         )}
       </div>
@@ -1181,7 +1181,7 @@ function EstimateTracking({ estimateId, version }: { estimateId: number; version
                 <Icon size={16} style={{ color: MINT, marginTop: 1, flexShrink: 0 }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 13, color: INK }}>{label}</div>
-                  <div style={{ fontSize: 11, color: "#9CA3AF" }}>{fmtWhen(t.occurred_at)}</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94" }}>{fmtWhen(t.occurred_at)}</div>
                 </div>
               </div>
             );
@@ -1200,7 +1200,7 @@ function EstimateTracking({ estimateId, version }: { estimateId: number; version
       {enrollment && (
         <div style={{ padding: "14px 16px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#9CA3AF" }}>FOLLOW-UP SEQUENCE</span>
+            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", color: "#9E9B94" }}>FOLLOW-UP SEQUENCE</span>
             <span style={{ fontSize: 12, color: MUTE }}>Step <span style={{ color: INK, fontWeight: 700 }}>{Math.min(step, total)}</span> of {total}</span>
           </div>
           <div style={{ display: "flex", gap: 4, marginBottom: 12 }}>
@@ -1216,12 +1216,12 @@ function EstimateTracking({ estimateId, version }: { estimateId: number; version
                 : <><Clock size={15} style={{ color: "#BA7517" }} /> Next email {fmtWhen(enrollment.next_fire_at)}</>}
             </span>
             {!stopped && !done && !accepted && (
-              <button onClick={stop} disabled={stopping} style={{ fontSize: 12, fontWeight: 700, color: "#B91C1C", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "6px 11px", cursor: "pointer", fontFamily: FF }}>
+              <button onClick={stop} disabled={stopping} style={{ fontSize: 12, fontWeight: 700, color: "#B3261E", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 8, padding: "6px 11px", cursor: "pointer", fontFamily: FF }}>
                 {stopping ? "Stopping…" : "Stop follow-ups"}
               </button>
             )}
           </div>
-          {!stopped && !done && !accepted && <div style={{ fontSize: 11, color: "#9CA3AF", marginTop: 8 }}>Stops automatically when the client accepts or declines.</div>}
+          {!stopped && !done && !accepted && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 8 }}>Stops automatically when the client accepts or declines.</div>}
         </div>
       )}
     </div>

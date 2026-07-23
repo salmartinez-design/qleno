@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 // exact same options + Custom behavior.
 const FF = "'Plus Jakarta Sans', sans-serif";
 const INK = "#1A1917";
-const MUTE = "#6B7280";
+const MUTE = "#6B6860";
 const BORDER = "#E5E2DC";
 const inp: React.CSSProperties = {
   width: "100%", padding: "9px 11px", border: `1px solid ${BORDER}`, borderRadius: 9,

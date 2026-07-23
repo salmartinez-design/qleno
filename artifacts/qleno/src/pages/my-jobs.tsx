@@ -423,7 +423,7 @@ function ClockInfoRow({ clockInAt, budgetHours }: { clockInAt: string; budgetHou
     const remainingMs = budgetHours * 3600000 - elapsedMs;
     const budgetLabel = `${Math.round(budgetHours * 10) / 10}h`;
     budgetPart = remainingMs >= 0 ? (
-      <span style={{ color: "#166534", fontWeight: 600 }}>{fmtHM(remainingMs)} left of {budgetLabel}</span>
+      <span style={{ color: "#0F7A63", fontWeight: 600 }}>{fmtHM(remainingMs)} left of {budgetLabel}</span>
     ) : (
       <span style={{ color: "#B45309", fontWeight: 600 }}>{fmtHM(-remainingMs)} over the {budgetLabel} budget</span>
     );
@@ -495,7 +495,7 @@ function EventClockCard({ ev, onRefresh, actingForUserId }: { ev: TechEvent; onR
         )}
         {isDone && (
           <div style={{ flexShrink: 0, textAlign: "right" }}>
-            <div style={{ fontSize: 13, fontWeight: 800, color: "#166534", display: "flex", alignItems: "center", gap: 5, justifyContent: "flex-end" }}><Check size={14} /> Clocked out</div>
+            <div style={{ fontSize: 13, fontWeight: 800, color: "#0F7A63", display: "flex", alignItems: "center", gap: 5, justifyContent: "flex-end" }}><Check size={14} /> Clocked out</div>
             {paidHours != null && paidRate != null && (
               <div style={{ fontSize: 11, color: "#6B6860", marginTop: 2 }}>{paidHours.toFixed(2)}h @ ${paidRate.toFixed(2)}/hr</div>
             )}
@@ -505,7 +505,7 @@ function EventClockCard({ ev, onRefresh, actingForUserId }: { ev: TechEvent; onR
       {!isDone && (
         <p style={{ fontSize: 11.5, color: "#9E9B94", margin: "10px 0 0" }}>You're paid for this time — it goes straight to your pay when you clock out.</p>
       )}
-      {err && <p style={{ fontSize: 12, color: "#B91C1C", margin: "8px 0 0" }}>{err}</p>}
+      {err && <p style={{ fontSize: 12, color: "#B3261E", margin: "8px 0 0" }}>{err}</p>}
     </div>
   );
 }
@@ -616,7 +616,7 @@ function StatusTimeline({ jobId }: { jobId: number }) {
             <div style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: l.sms_sent ? "#10B981" : "#9E9B94", flexShrink: 0 }} />
             <span style={{ fontWeight: 600, color: "#1A1917" }}>{EVENT_LABELS[l.event] ?? l.event}</span>
             <span style={{ color: "#9E9B94", fontSize: 11 }}>{new Date(l.created_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}</span>
-            {l.sms_sent && <span style={{ fontSize: 10, backgroundColor: "#DCFCE7", color: "#166534", borderRadius: 3, padding: "1px 5px", fontWeight: 600 }}>SMS</span>}
+            {l.sms_sent && <span style={{ fontSize: 10, backgroundColor: "#E6F6F1", color: "#0F7A63", borderRadius: 3, padding: "1px 5px", fontWeight: 600 }}>SMS</span>}
           </div>
         ))}
       </div>
@@ -636,11 +636,11 @@ function DistanceBadge({ jobLat, jobLng, empPos }: {
   const ft = getDistanceFt(empPos.lat, empPos.lng, jobLat, jobLng);
   const miles = (ft / 5280).toFixed(1);
 
-  let color = "#166534";
-  let bg = "#DCFCE7";
+  let color = "#0F7A63";
+  let bg = "#E6F6F1";
   let label = "You're here";
-  if (ft > 2640) { color = "#991B1B"; bg = "#FEE2E2"; label = "Drive to location"; }
-  else if (ft > 660) { color = "#92400E"; bg = "#FEF3C7"; label = "Heading there"; }
+  if (ft > 2640) { color = "#B3261E"; bg = "#FCEBEA"; label = "Drive to location"; }
+  else if (ft > 660) { color = "#B45309"; bg = "#FDF3E4"; label = "Heading there"; }
 
   return (
     <span style={{
@@ -701,7 +701,7 @@ function AddNote({ jobId, onSaved }: { jobId: number; onSaved: () => void }) {
   if (!open) {
     return (
       <button onClick={() => setOpen(true)}
-        style={{ marginTop: 12, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 10, border: "1px dashed #C9C5BD", background: "#FAFAF8", color: "#1A1917", fontSize: 15, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
+        style={{ marginTop: 12, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, padding: "12px", borderRadius: 10, border: "1px dashed #C9C5BD", background: "#F7F6F3", color: "#1A1917", fontSize: 15, fontWeight: 600, fontFamily: "inherit", cursor: "pointer" }}>
         + Add note
       </button>
     );
@@ -712,11 +712,11 @@ function AddNote({ jobId, onSaved }: { jobId: number; onSaved: () => void }) {
         style={{ width: "100%", boxSizing: "border-box", border: "1px solid #E5E2DC", borderRadius: 10, padding: "10px 12px", fontSize: 15, fontFamily: "inherit", outline: "none", resize: "vertical" }} />
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button onClick={save} disabled={saving || !text.trim()}
-          style={{ flex: 1, padding: "12px", borderRadius: 10, border: "none", background: text.trim() && !saving ? "var(--brand)" : "#D1D5DB", color: "#fff", fontSize: 15, fontWeight: 700, cursor: text.trim() && !saving ? "pointer" : "default", fontFamily: "inherit" }}>
+          style={{ flex: 1, padding: "12px", borderRadius: 10, border: "none", background: text.trim() && !saving ? "var(--brand)" : "#E5E2DC", color: "#fff", fontSize: 15, fontWeight: 700, cursor: text.trim() && !saving ? "pointer" : "default", fontFamily: "inherit" }}>
           {saving ? "Saving…" : "Save note"}
         </button>
         <button onClick={() => { setOpen(false); setText(""); }} disabled={saving}
-          style={{ padding: "12px 16px", borderRadius: 10, border: "1px solid #E5E2DC", background: "#fff", color: "#6B7280", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+          style={{ padding: "12px 16px", borderRadius: 10, border: "1px solid #E5E2DC", background: "#fff", color: "#6B6860", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
           Cancel
         </button>
       </div>
@@ -1014,10 +1014,10 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
   };
 
   const statusColors: Record<string, { bg: string; color: string }> = {
-    scheduled: { bg: "#DBEAFE", color: "#1E40AF" },
-    in_progress: { bg: "#FEF3C7", color: "#92400E" },
-    complete: { bg: "#DCFCE7", color: "#166534" },
-    cancelled: { bg: "#F3F4F6", color: "#6B7280" },
+    scheduled: { bg: "#EFEFF2", color: "#2F3646" },
+    in_progress: { bg: "#FDF3E4", color: "#B45309" },
+    complete: { bg: "#E6F6F1", color: "#0F7A63" },
+    cancelled: { bg: "#F0EEE9", color: "#6B6860" },
   };
   const sc = statusColors[job.status] || statusColors.scheduled;
   // [AI.7.5] Visual status — same canonical helper as the dispatch grid.
@@ -1058,12 +1058,12 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
           EVEN orange border all the way around + the breathing glow, so the
           extra 4px left bar only made the outline look thicker on the left. */}
       {visual.showCheckmark && (
-        <div style={{ position: "absolute", top: 12, right: 12, width: 18, height: 18, borderRadius: "50%", backgroundColor: "#16A34A", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ position: "absolute", top: 12, right: 12, width: 18, height: 18, borderRadius: "50%", backgroundColor: "#0F7A63", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <Check size={11} color="#FFFFFF" strokeWidth={3} />
         </div>
       )}
       {visual.showNoShowBadge && (
-        <div style={{ position: "absolute", top: 10, right: 10, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#991B1B", padding: "3px 7px", borderRadius: 4, letterSpacing: "0.05em" }}>
+        <div style={{ position: "absolute", top: 10, right: 10, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "3px 7px", borderRadius: 4, letterSpacing: "0.05em" }}>
           NO SHOW
         </div>
       )}
@@ -1098,7 +1098,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
         {/* Visit context + cadence (MaidCentral parity: "Every 2 Weeks").
             A first visit needs more care than a routine repeat. */}
         {job.visit_number === 1 ? (
-          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#FEF3C7", color: "#92400E", letterSpacing: "0.02em" }}>First visit</span>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#FDF3E4", color: "#B45309", letterSpacing: "0.02em" }}>First visit</span>
         ) : job.is_recurring ? (
           <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 8px", borderRadius: 20, background: "#EEF2FF", color: "#3730A3", letterSpacing: "0.02em" }}>
             {frequencyLabel(job.frequency) ?? "Recurring"}{job.visit_number ? ` · Visit #${job.visit_number}` : ""}
@@ -1200,7 +1200,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       <DistanceBadge jobLat={job.job_lat} jobLng={job.job_lng} empPos={empPos} />
 
       {job.geocode_failed && (
-        <p style={{ fontSize: 11, color: "#92400E", backgroundColor: "#FEF3C7", borderRadius: 4, padding: "3px 8px", display: "inline-block", marginTop: 4 }}>
+        <p style={{ fontSize: 11, color: "#B45309", backgroundColor: "#FDF3E4", borderRadius: 4, padding: "3px 8px", display: "inline-block", marginTop: 4 }}>
           Address could not be geocoded — geofencing unavailable
         </p>
       )}
@@ -1226,7 +1226,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
 
       {/* Pets — safety + allergy info the cleaner needs before entering. */}
       {job.pets && (
-        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 10, fontSize: 12, color: "#92400E", backgroundColor: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "8px 12px" }}>
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 6, marginTop: 10, fontSize: 12, color: "#B45309", backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "8px 12px" }}>
           <span style={{ fontWeight: 700, flexShrink: 0 }}>Pets:</span>
           <span>{job.pets}</span>
         </div>
@@ -1241,9 +1241,9 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       )}
 
       {job.access_notes && (
-        <div style={{ backgroundColor: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
-          <p style={{ fontSize: 10, fontWeight: 700, color: "#92400E", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Building Access</p>
-          <p style={{ fontSize: 12, color: "#92400E", margin: 0, lineHeight: 1.5 }}>{job.access_notes}</p>
+        <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
+          <p style={{ fontSize: 10, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Building Access</p>
+          <p style={{ fontSize: 12, color: "#B45309", margin: 0, lineHeight: 1.5 }}>{job.access_notes}</p>
         </div>
       )}
 
@@ -1292,21 +1292,21 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
       </div>
 
       {isClockedIn && photoGate && (
-        <div style={{ backgroundColor: "#FEF3C7", borderLeft: "3px solid #F59E0B", borderRadius: "0 6px 6px 0", padding: "10px 12px", marginTop: 12 }}>
-          <p style={{ fontSize: 12, color: "#92400E", margin: 0 }}>After photos required before clock-out</p>
+        <div style={{ backgroundColor: "#FDF3E4", borderLeft: "3px solid #F59E0B", borderRadius: "0 6px 6px 0", padding: "10px 12px", marginTop: 12 }}>
+          <p style={{ fontSize: 12, color: "#B45309", margin: 0 }}>After photos required before clock-out</p>
         </div>
       )}
 
       {softWarning && (
-        <div style={{ backgroundColor: "#FFFBEB", border: "1px solid #F59E0B", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
-          <p style={{ fontSize: 12, color: "#92400E", fontWeight: 600, margin: 0 }}>Location warning</p>
-          <p style={{ fontSize: 12, color: "#92400E", margin: "4px 0 0" }}>You are {softWarning}</p>
+        <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F59E0B", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
+          <p style={{ fontSize: 12, color: "#B45309", fontWeight: 600, margin: 0 }}>Location warning</p>
+          <p style={{ fontSize: 12, color: "#B45309", margin: "4px 0 0" }}>You are {softWarning}</p>
         </div>
       )}
 
       {geofenceError && (
-        <div style={{ backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, padding: "14px 16px", marginTop: 12 }}>
-          <p style={{ fontSize: 13, fontWeight: 700, color: "#991B1B", margin: "0 0 6px" }}>Too far to clock in</p>
+        <div style={{ backgroundColor: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, padding: "14px 16px", marginTop: 12 }}>
+          <p style={{ fontSize: 13, fontWeight: 700, color: "#B3261E", margin: "0 0 6px" }}>Too far to clock in</p>
           <p style={{ fontSize: 12, color: "#7F1D1D", margin: "0 0 12px", lineHeight: 1.5 }}>
             You are {geofenceError.distanceFt} ft from this job. Must be within {geofenceError.radiusFt} ft to clock in. Please drive to the job address and try again.
           </p>
@@ -1317,7 +1317,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
                 getLocation((lat, lng, accuracy) => clockInMutation.mutate({ lat, lng, accuracy, override_token: "approved" }));
               }}
               style={{
-                width: "100%", height: 40, backgroundColor: "#FEF3C7", color: "#92400E",
+                width: "100%", height: 40, backgroundColor: "#FDF3E4", color: "#B45309",
                 border: "1px solid #F59E0B", borderRadius: 8, fontSize: 13, fontWeight: 600,
                 cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
@@ -1341,7 +1341,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
         ) : isClockedIn ? (
           <div style={{ textAlign: "center" }}>
             {paused && (
-              <div style={{ backgroundColor: "#FEF3C7", border: "1px solid #F59E0B", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "#92400E", fontWeight: 600 }}>
+              <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F59E0B", borderRadius: 8, padding: "8px 12px", marginBottom: 12, fontSize: 12, color: "#B45309", fontWeight: 600 }}>
                 Job is paused
               </div>
             )}
@@ -1366,8 +1366,8 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
               style={{
                 width: "100%", height: 42, borderRadius: 10, border: `1px solid ${paused ? "#10B981" : "#F59E0B"}`,
                 fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 10,
-                backgroundColor: paused ? "#DCFCE7" : "#FEF3C7",
-                color: paused ? "#166534" : "#92400E",
+                backgroundColor: paused ? "#E6F6F1" : "#FDF3E4",
+                color: paused ? "#0F7A63" : "#B45309",
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
@@ -1386,7 +1386,7 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
                 width: "100%", height: 48, borderRadius: 10, border: "none",
                 fontSize: 15, fontWeight: 600,
                 cursor: photoGate ? "not-allowed" : "pointer",
-                backgroundColor: photoGate ? "#F3F4F6" : "#166534",
+                backgroundColor: photoGate ? "#F0EEE9" : "#0F7A63",
                 color: photoGate ? "#9E9B94" : "#FFFFFF",
                 transition: "opacity 0.15s",
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
@@ -1752,19 +1752,19 @@ export default function MyJobsPage() {
                 }}>
                   <button onClick={() => { setAcctOpen(false); navigate("/leave"); }}
                     style={acctItemStyle}>
-                    <Plane size={15} style={{ color: "#6B7280" }} /> Time Off
+                    <Plane size={15} style={{ color: "#6B6860" }} /> Time Off
                   </button>
                   <button onClick={() => { setAcctOpen(false); navigate("/settings/notifications"); }}
                     style={acctItemStyle}>
-                    <Bell size={15} style={{ color: "#6B7280" }} /> Notification settings
+                    <Bell size={15} style={{ color: "#6B6860" }} /> Notification settings
                   </button>
                   <button onClick={() => { setAcctOpen(false); setChangePwOpen(true); }}
                     style={acctItemStyle}>
-                    <KeyRound size={15} style={{ color: "#6B7280" }} /> Change Password
+                    <KeyRound size={15} style={{ color: "#6B6860" }} /> Change Password
                   </button>
                   <div style={{ height: 1, background: "#F0EDEA", margin: "2px 0" }} />
                   <button onClick={() => { setAcctOpen(false); logout(); }}
-                    style={{ ...acctItemStyle, color: "#DC2626" }}>
+                    style={{ ...acctItemStyle, color: "#B3261E" }}>
                     <LogOut size={15} /> Sign Out
                   </button>
                 </div>
@@ -1873,9 +1873,9 @@ export default function MyJobsPage() {
         )}
 
         {pendingSync > 0 && (
-          <div style={{ background: "#FEF3C7", borderBottom: "1px solid #FCD34D", padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: 4, background: "#D97706", flexShrink: 0, animation: "qleno-active-stripe-pulse 2s ease-in-out infinite" }} />
-            <span style={{ fontSize: 13, fontWeight: 700, color: "#92400E", flex: 1 }}>
+          <div style={{ background: "#FDF3E4", borderBottom: "1px solid #F2DFB8", padding: "10px 16px", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ width: 8, height: 8, borderRadius: 4, background: "#B45309", flexShrink: 0, animation: "qleno-active-stripe-pulse 2s ease-in-out infinite" }} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: "#B45309", flex: 1 }}>
               {pendingSync} clock punch{pendingSync === 1 ? "" : "es"} waiting to sync
             </span>
             <span style={{ fontSize: 11, fontWeight: 600, color: "#B45309" }}>Saved on your phone</span>
@@ -1935,10 +1935,10 @@ export default function MyJobsPage() {
           ) : (
             <>
               {dayComplete && (
-                <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: "3px solid var(--brand, #2D9B83)", borderRadius: 12, padding: 18, marginBottom: 14 }}>
+                <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderLeft: "3px solid var(--brand, #0F7A63)", borderRadius: 12, padding: 18, marginBottom: 14 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                    <div style={{ width: 30, height: 30, borderRadius: 15, background: "var(--brand-dim, #ECFDF5)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      <Check size={17} color="var(--brand, #2D9B83)" />
+                    <div style={{ width: 30, height: 30, borderRadius: 15, background: "var(--brand-dim, #E6F6F1)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Check size={17} color="var(--brand, #0F7A63)" />
                     </div>
                     <div>
                       <p style={{ fontSize: 16, fontWeight: 800, color: "#1A1917", margin: 0 }}>Day complete</p>
@@ -1995,14 +1995,14 @@ export default function MyJobsPage() {
                     const needsPhotos = (job.before_photo_count ?? 0) === 0 || (job.after_photo_count ?? 0) === 0;
                     return (
                       <div key={job.id} onClick={() => navigate(`/my-jobs/${job.id}?date=${selectedDate}`)}
-                        style={{ backgroundColor: "#FFFFFF", border: `1px solid ${job.zone_color || "#E5E2DC"}`, borderLeft: `3px solid var(--brand, #2D9B83)`, borderRadius: 12, padding: 18, marginBottom: 10, cursor: "pointer" }}>
+                        style={{ backgroundColor: "#FFFFFF", border: `1px solid ${job.zone_color || "#E5E2DC"}`, borderLeft: `3px solid var(--brand, #0F7A63)`, borderRadius: 12, padding: 18, marginBottom: 10, cursor: "pointer" }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4, flexWrap: "wrap" }}>
-                          <Check size={15} color="var(--brand, #2D9B83)" style={{ flexShrink: 0 }} />
+                          <Check size={15} color="var(--brand, #0F7A63)" style={{ flexShrink: 0 }} />
                           <p style={{ fontSize: 16, fontWeight: 700, color: "#1A1917", margin: 0 }}>{job.client_name}</p>
                         </div>
                         <p style={{ fontSize: 11, color: "var(--brand)", textTransform: "uppercase", fontWeight: 600, margin: "0 0 4px" }}>{formatServiceType(job.service_type)}</p>
                         {job.address && <p style={{ fontSize: 12, color: "#6B6860", margin: "2px 0 0" }}>{formatAddress(job.address, job.city, job.state, job.zip)}</p>}
-                        <p style={{ fontSize: 12, fontWeight: 700, color: needsPhotos ? "#B45309" : "#2D9B83", margin: "8px 0 0", display: "flex", alignItems: "center", gap: 5 }}>
+                        <p style={{ fontSize: 12, fontWeight: 700, color: needsPhotos ? "#B45309" : "#0F7A63", margin: "8px 0 0", display: "flex", alignItems: "center", gap: 5 }}>
                           <Camera size={13} /> {needsPhotos ? "Tap to add before/after photos" : "Photos added — tap to review"}
                         </p>
                       </div>

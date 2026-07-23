@@ -633,7 +633,7 @@ function ErrorBox({ message }: { message: string }) {
     <div
       style={{
         background: WARN_BG,
-        border: `1px solid #FDE68A`,
+        border: `1px solid #F2DFB8`,
         borderRadius: 10,
         padding: 14,
         color: WARN_INK,

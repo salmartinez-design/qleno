@@ -176,7 +176,7 @@ export default function PayPage() {
 
           {/* Loading */}
           {state === "loading" && (
-            <div style={{ padding: 48, textAlign: "center", color: "#6B7280", fontSize: 14 }}>
+            <div style={{ padding: 48, textAlign: "center", color: "#6B6860", fontSize: 14 }}>
               Verifying link...
             </div>
           )}
@@ -184,7 +184,7 @@ export default function PayPage() {
           {/* Invalid */}
           {state === "invalid" && (
             <StatusCard
-              icon={<AlertCircle size={40} color="#DC2626" />}
+              icon={<AlertCircle size={40} color="#B3261E" />}
               title="This link is invalid"
               body="Please contact the company for a new link."
             />
@@ -193,7 +193,7 @@ export default function PayPage() {
           {/* Expired */}
           {state === "expired" && (
             <StatusCard
-              icon={<Clock size={40} color="#D97706" />}
+              icon={<Clock size={40} color="#B45309" />}
               title="This link has expired"
               body={`Please contact ${companyName || "the company"} for a new link.`}
             />
@@ -202,7 +202,7 @@ export default function PayPage() {
           {/* Already used */}
           {state === "used" && (
             <StatusCard
-              icon={<CheckCircle size={40} color="#059669" />}
+              icon={<CheckCircle size={40} color="#0F7A63" />}
               title="Payment method already saved"
               body="Your card has already been saved. No further action is needed."
             />
@@ -212,17 +212,17 @@ export default function PayPage() {
           {state === "success" && (
             data?.link?.purpose === "pay_invoice" ? (
               <StatusCard
-                icon={<CheckCircle size={40} color="#059669" />}
+                icon={<CheckCircle size={40} color="#0F7A63" />}
                 title="Payment received"
                 body={`Thank you, ${clientName}. Your payment to ${companyName} was successful${data?.invoice_number ? `. Invoice #${data.invoice_number} is now paid` : ""}. A receipt will follow by email.`}
-                accent="#059669"
+                accent="#0F7A63"
               />
             ) : (
               <StatusCard
-                icon={<CheckCircle size={40} color="#059669" />}
+                icon={<CheckCircle size={40} color="#0F7A63" />}
                 title="Payment method saved"
                 body={`Thank you, ${clientName}. ${companyName} will use this card for future invoices.`}
-                accent="#059669"
+                accent="#0F7A63"
               />
             )
           )}
@@ -230,17 +230,17 @@ export default function PayPage() {
           {/* Processing (ACH bank debit settles over a few business days) */}
           {state === "processing" && (
             <StatusCard
-              icon={<Clock size={40} color="#059669" />}
+              icon={<Clock size={40} color="#0F7A63" />}
               title="Payment submitted"
               body={`Thank you, ${clientName}. Your bank payment is processing and may take a few business days to clear. ${companyName} will email a receipt once it settles.`}
-              accent="#059669"
+              accent="#0F7A63"
             />
           )}
 
           {/* Error after attempt */}
           {state === "error" && (
             <div style={{ padding: "32px 32px 0" }}>
-              <div style={{ background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#DC2626" }}>
+              <div style={{ background: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#B3261E" }}>
                 {errorMsg}
               </div>
               <button
@@ -265,7 +265,7 @@ export default function PayPage() {
                       : "Save Payment Method"}
                   </span>
                 </div>
-                <p style={{ margin: 0, fontSize: 13, color: "#6B7280", lineHeight: 1.5 }}>
+                <p style={{ margin: 0, fontSize: 13, color: "#6B6860", lineHeight: 1.5 }}>
                   {data.link.purpose === "pay_invoice"
                     ? `Complete your payment for ${companyName}.`
                     : `Save your card for future invoices from ${companyName}. You will not be charged today.`}
@@ -322,7 +322,7 @@ function StatusCard({ icon, title, body, accent }: { icon: React.ReactNode; titl
     <div style={{ padding: "48px 32px", textAlign: "center" }}>
       <div style={{ marginBottom: 16 }}>{icon}</div>
       <div style={{ fontWeight: 700, fontSize: 18, color: "#1A1917", marginBottom: 8 }}>{title}</div>
-      <div style={{ fontSize: 14, color: "#6B7280", lineHeight: 1.6 }}>{body}</div>
+      <div style={{ fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>{body}</div>
     </div>
   );
 }

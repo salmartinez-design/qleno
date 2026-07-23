@@ -16,8 +16,8 @@ const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
 const CARD: CSSProperties = { backgroundColor: "#FFFFFF", border: "0.5px solid #E5E2DC", borderRadius: 12 };
 const INK = "#1A1917";
-const MUTE = "#6B7280";
-const MINT = "#2D9B83";
+const MUTE = "#6B6860";
+const MINT = "#0F7A63";
 const RED = "#E24B4A";
 
 interface CardData {

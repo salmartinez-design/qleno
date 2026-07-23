@@ -15,7 +15,7 @@ const BORDER = "#E5E2DC";
 const TEXT = "#1A1917";
 const MUTED = "#9E9B94";
 const MINT = "var(--brand)";
-const DANGER = "#991B1B";
+const DANGER = "#B3261E";
 const ACCEPT = "image/*,application/pdf";
 const MAX_FILES = 12;
 

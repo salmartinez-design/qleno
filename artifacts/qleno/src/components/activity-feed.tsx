@@ -35,16 +35,16 @@ export function ActivityFeed({ endpoint, queryKey, introText }: {
   const fmtWhen = (s: string) => (s ? new Date(s).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" }) : "—");
   const META: Record<string, { label: string; color: string; bg: string }> = {
     job_created:     { label: "Job created",    color: "#0A6E5A", bg: "#E6F8F2" },
-    job_edit:        { label: "Job edited",     color: "#1D4ED8", bg: "#EAF0FE" },
-    job_rescheduled: { label: "Rescheduled",    color: "#92400E", bg: "#FEF3C7" },
-    job_cancelled:   { label: "Cancelled",      color: "#B91C1C", bg: "#FEECEC" },
+    job_edit:        { label: "Job edited",     color: "#2F3646", bg: "#EAF0FE" },
+    job_rescheduled: { label: "Rescheduled",    color: "#B45309", bg: "#FDF3E4" },
+    job_cancelled:   { label: "Cancelled",      color: "#B3261E", bg: "#FEECEC" },
     service_ended:   { label: "Service ended",  color: "#7F1D1D", bg: "#FBD9D9" },
     job_deleted:     { label: "Deleted",        color: "#7C2D12", bg: "#FBE8E0" },
-    client_edit:     { label: "Client edited",  color: "#5B21B6", bg: "#F1ECFD" },
+    client_edit:     { label: "Client edited",  color: "#9C4E2B", bg: "#F1ECFD" },
     client_created:  { label: "Client created", color: "#0A6E5A", bg: "#E6F8F2" },
-    account_edit:    { label: "Account edited", color: "#5B21B6", bg: "#F1ECFD" },
+    account_edit:    { label: "Account edited", color: "#9C4E2B", bg: "#F1ECFD" },
     invoice:         { label: "Invoice",        color: "#0E7490", bg: "#E0F5FA" },
-    communication:   { label: "Message",        color: "#374151", bg: "#F3F4F6" },
+    communication:   { label: "Message",        color: "#1A1917", bg: "#F0EEE9" },
   };
   const label = (f: string | null) => (f ? f.replace(/_/g, " ").replace(/\b\w/g, c => c.toUpperCase()) : "");
   const isNum = (v: any) => v != null && v !== "" && Number.isFinite(Number(v));
@@ -131,7 +131,7 @@ export function ActivityFeed({ endpoint, queryKey, introText }: {
       ) : (
         <div>
           {events.map((e, i) => {
-            const m = META[e.event_type] || { label: e.event_type, color: "#374151", bg: "#F3F4F6" };
+            const m = META[e.event_type] || { label: e.event_type, color: "#1A1917", bg: "#F0EEE9" };
             return (
               <div key={i} style={{ display: "flex", gap: 12, padding: "12px 2px", borderTop: i === 0 ? "none" : "1px solid #F0EEE9" }}>
                 <span style={{ flexShrink: 0, alignSelf: "flex-start", fontSize: 11, fontWeight: 700, color: m.color, background: m.bg, borderRadius: 6, padding: "3px 9px", fontFamily: FF2, whiteSpace: "nowrap" }}>{m.label}</span>

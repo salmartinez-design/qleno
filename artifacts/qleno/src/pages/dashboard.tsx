@@ -132,9 +132,9 @@ function LeadsCard({ isMobile }: { isMobile: boolean }) {
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
         {[
-          { k: "Needs contact", v: p.needs_contact ?? 0, c: "#B91C1C", to: "/leads?status=new,needs_contacted" },
-          { k: "Contacted", v: p.contacted ?? 0, c: "#92400E", to: "/leads?status=contacted" },
-          { k: "Quoted", v: p.quoted ?? 0, c: "#1D4ED8", to: "/leads?status=quoted" },
+          { k: "Needs contact", v: p.needs_contact ?? 0, c: "#B3261E", to: "/leads?status=new,needs_contacted" },
+          { k: "Contacted", v: p.contacted ?? 0, c: "#B45309", to: "/leads?status=contacted" },
+          { k: "Quoted", v: p.quoted ?? 0, c: "#2F3646", to: "/leads?status=quoted" },
           { k: "Booked (open)", v: p.booked ?? 0, c: "#0A6E5A", to: "/leads?status=booked" },
         ].map(chip => (
           <button key={chip.k} onClick={() => navigate(chip.to)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "5px 10px", border: "1px solid #E5E2DC", borderRadius: 20, background: "#FFFFFF", cursor: "pointer", fontFamily: FF }}>
@@ -235,7 +235,7 @@ function OfficeReminders({ isMobile }: { isMobile: boolean }) {
                   style={{ width: 18, height: 18, flexShrink: 0, border: "1.5px solid #C9C6BF", borderRadius: 5, background: "#FFFFFF", cursor: "pointer", padding: 0 }} />
                 <div style={{ minWidth: 0, flex: 1 }}>
                   <p style={{ margin: 0, fontSize: 13, color: "#1A1917", fontFamily: FF, wordBreak: "break-word" }}>{r.title}</p>
-                  <p style={{ margin: "1px 0 0", fontSize: 11, fontWeight: 600, fontFamily: FF, color: overdue ? "#B91C1C" : isToday ? "#0A6E5A" : "#9E9B94" }}>
+                  <p style={{ margin: "1px 0 0", fontSize: 11, fontWeight: 600, fontFamily: FF, color: overdue ? "#B3261E" : isToday ? "#0A6E5A" : "#9E9B94" }}>
                     {overdue ? `Overdue — ${fmtDue(r.due_date)}` : isToday ? "Today" : fmtDue(r.due_date)}
                     {r.created_by_name ? ` · ${r.created_by_name}` : ""}
                   </p>
@@ -536,8 +536,8 @@ function WeeklyForecastSection() {
       <>
         <style>{`@keyframes wf-pulse{0%,100%{opacity:1}50%{opacity:.45}}`}</style>
         <div style={{ background: '#FFFFFF', border: '0.5px solid #E5E2DC', borderRadius: 12, padding: '24px' }}>
-          <div style={{ width: 200, height: 12, background: '#F0EDE8', borderRadius: 4, marginBottom: 16, animation: 'wf-pulse 1.5s ease-in-out infinite' }} />
-          <div style={{ width: '100%', height: 100, background: '#F0EDE8', borderRadius: 6, animation: 'wf-pulse 1.5s ease-in-out infinite' }} />
+          <div style={{ width: 200, height: 12, background: '#F0EEE9', borderRadius: 4, marginBottom: 16, animation: 'wf-pulse 1.5s ease-in-out infinite' }} />
+          <div style={{ width: '100%', height: 100, background: '#F0EEE9', borderRadius: 6, animation: 'wf-pulse 1.5s ease-in-out infinite' }} />
         </div>
       </>
     );
@@ -615,7 +615,7 @@ function WeeklyForecastSection() {
         </div>
 
         {/* Booked total line */}
-        <div style={{ borderBottom: '0.5px solid #F0EDE8', paddingBottom: 10, marginBottom: 12 }}>
+        <div style={{ borderBottom: '0.5px solid #F0EEE9', paddingBottom: 10, marginBottom: 12 }}>
           <p style={{ fontSize: 16, fontWeight: 500, color: '#1A1917', margin: 0, fontFamily: FF }}>
             {fmtWF(week.total_revenue)} {bookedLabel} · {week.total_jobs} jobs
             {(isCurrentWeek || isNextWeek) && week.total_unassigned > 0 && (
@@ -655,12 +655,12 @@ function WeeklyForecastSection() {
         </div>
 
         {/* Summary note */}
-        <div style={{ borderTop: '0.5px solid #F0EDE8', paddingTop: 10, marginTop: 10 }}>
+        <div style={{ borderTop: '0.5px solid #F0EEE9', paddingTop: 10, marginTop: 10 }}>
           <p style={{ fontSize: 11, color: '#6B6860', margin: 0, fontFamily: FF }}>{summaryNote}</p>
         </div>
 
         {/* Legend */}
-        <div style={{ borderTop: '0.5px solid #F0EDE8', paddingTop: 10, marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
+        <div style={{ borderTop: '0.5px solid #F0EEE9', paddingTop: 10, marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
           {[
             { label: 'Above avg', bg: '#639922', border: undefined },
             { label: 'Below avg', bg: '#EF9F27', border: undefined },
@@ -1669,7 +1669,7 @@ export default function Dashboard() {
                 </div>
                 <ResponsiveContainer width="100%" height={200}>
                   <LineChart data={chartData} margin={{ top: 4, right: 4, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#F0EDE8" vertical={false} />
+                    <CartesianGrid strokeDasharray="3 3" stroke="#F0EEE9" vertical={false} />
                     <XAxis
                       dataKey="month"
                       tick={{ fontSize: 10, fill: '#9E9B94', fontFamily: FF }}
@@ -1804,7 +1804,7 @@ function StatusChip({ label, value, onClick }: { label: string; value: number; o
   );
 }
 
-const ACTION_DOT: Record<string, string> = { red: '#EF4444', amber: '#F59E0B', blue: '#3B82F6' };
+const ACTION_DOT: Record<string, string> = { red: '#B3261E', amber: '#F59E0B', blue: '#2F3646' };
 
 function NeedsAttentionItem({ item, navigate }: { item: any; navigate: (path: string) => void }) {
   return (
@@ -1862,7 +1862,7 @@ function TechsTodayPanel({ techsData, navigate }: { techsData: any; navigate: (p
             }}>
               {tech.job_count}
             </span>
-            <div style={{ width: 60, height: 6, backgroundColor: '#F0EDE8', borderRadius: 3, flexShrink: 0, overflow: 'hidden' }}>
+            <div style={{ width: 60, height: 6, backgroundColor: '#F0EEE9', borderRadius: 3, flexShrink: 0, overflow: 'hidden' }}>
               <div style={{ width: `${capacityPct}%`, height: '100%', backgroundColor: 'var(--brand)', borderRadius: 3 }} />
             </div>
           </div>
@@ -1879,7 +1879,7 @@ function TechsTodayPanel({ techsData, navigate }: { techsData: any; navigate: (p
       )}
 
       {/* Capacity summary */}
-      <div style={{ borderTop: '1px solid #F0EDE8', paddingTop: 10, marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <div style={{ borderTop: '1px solid #F0EEE9', paddingTop: 10, marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <span style={{ fontSize: 11, color: '#9E9B94', fontFamily: FF }}>
           <span style={{ fontSize: 22, fontWeight: 500, color: openSlots > 0 ? '#1D9E75' : '#F59E0B' }}>{openSlots}</span> open slots
         </span>
@@ -1909,17 +1909,17 @@ function CommercialAlertsBanner({ onCount }: { onCount?: (n: number) => void } =
   if (!alerts.length) return null;
 
   const COLOR: Record<string, { bg: string; border: string; text: string; dot: string }> = {
-    red:   { bg: "#FEF2F2", border: "#FECACA", text: "#991B1B", dot: "#EF4444" },
-    amber: { bg: "#FFFBEB", border: "#FDE68A", text: "#92400E", dot: "#F59E0B" },
-    blue:  { bg: "#EFF6FF", border: "#BFDBFE", text: "#1E40AF", dot: "#3B82F6" },
+    red:   { bg: "#FCEBEA", border: "#F1D0CB", text: "#B3261E", dot: "#B3261E" },
+    amber: { bg: "#FDF3E4", border: "#F2DFB8", text: "#B45309", dot: "#F59E0B" },
+    blue:  { bg: "#EFEFF2", border: "#DEDEE4", text: "#2F3646", dot: "#2F3646" },
   };
 
   return (
     <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <Building2 size={15} color="#6B7280" />
+        <Building2 size={15} color="#6B6860" />
         <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: FF }}>Commercial Alerts</span>
-        <span style={{ fontSize: 11, fontWeight: 700, background: alerts.some(a => a.level === "red") ? "#FEE2E2" : "#FEF3C7", color: alerts.some(a => a.level === "red") ? "#991B1B" : "#92400E", borderRadius: 10, padding: "1px 8px", fontFamily: FF }}>
+        <span style={{ fontSize: 11, fontWeight: 700, background: alerts.some(a => a.level === "red") ? "#FCEBEA" : "#FDF3E4", color: alerts.some(a => a.level === "red") ? "#B3261E" : "#B45309", borderRadius: 10, padding: "1px 8px", fontFamily: FF }}>
           {alerts.length}
         </span>
       </div>
@@ -1991,35 +1991,35 @@ function MileagePendingBanner({ onCount }: { onCount?: (n: number) => void } = {
   return (
     <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <Car size={15} color="#6B7280"/>
+        <Car size={15} color="#6B6860"/>
         <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: FF }}>
           Mileage Requests
         </span>
-        <span style={{ fontSize: 11, fontWeight: 600, background: "#FEF3C7", color: "#92400E", borderRadius: 10, padding: "1px 7px", marginLeft: 4, fontFamily: FF }}>
+        <span style={{ fontSize: 11, fontWeight: 600, background: "#FDF3E4", color: "#B45309", borderRadius: 10, padding: "1px 7px", marginLeft: 4, fontFamily: FF }}>
           {requests.length} pending
         </span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         {requests.map((r: any) => (
-          <div key={r.id} style={{ background: "#FAFAF9", border: "1px solid #E5E2DC", borderRadius: 8, padding: "12px 14px" }}>
+          <div key={r.id} style={{ background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 8, padding: "12px 14px" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", margin: "0 0 2px", fontFamily: FF }}>{r.employee_name}</p>
-                <p style={{ fontSize: 12, color: "#6B7280", margin: "0 0 2px", fontFamily: FF }}>
+                <p style={{ fontSize: 12, color: "#6B6860", margin: "0 0 2px", fontFamily: FF }}>
                   {r.from_client_name} → {r.to_client_name}
                 </p>
-                <p style={{ fontSize: 12, color: "#6B7280", margin: 0, fontFamily: FF }}>
+                <p style={{ fontSize: 12, color: "#6B6860", margin: 0, fontFamily: FF }}>
                   {r.miles} mi · <span style={{ fontWeight: 600, color: "#1A1917" }}>${parseFloat(r.reimbursement_amount || "0").toFixed(2)}</span>
                   {r.service_date && ` · ${new Date(r.service_date + "T00:00:00").toLocaleDateString()}`}
                 </p>
               </div>
               <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
                 <button onClick={() => handleApprove(r.id)} disabled={actioning[r.id]}
-                  style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", background: "#DCFCE7", color: "#166534", border: "1px solid #BBF7D0", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                  style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", background: "#E6F6F1", color: "#0F7A63", border: "1px solid #C7E7DE", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                   <Check size={12}/> Approve
                 </button>
                 <button onClick={() => setDenyingId(r.id)} disabled={actioning[r.id]}
-                  style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", background: "#FEE2E2", color: "#991B1B", border: "1px solid #FECACA", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+                  style={{ display: "flex", alignItems: "center", gap: 4, padding: "5px 10px", background: "#FCEBEA", color: "#B3261E", border: "1px solid #F1D0CB", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                   <X size={12}/> Deny
                 </button>
               </div>
@@ -2034,7 +2034,7 @@ function MileagePendingBanner({ onCount }: { onCount?: (n: number) => void } = {
                   <button onClick={() => { setDenyingId(null); setDenyReason(""); }}
                     style={{ padding: "5px 12px", border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, background: "#fff", cursor: "pointer", fontFamily: FF }}>Cancel</button>
                   <button onClick={() => handleDeny(r.id)}
-                    style={{ padding: "5px 12px", background: "#EF4444", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Confirm Deny</button>
+                    style={{ padding: "5px 12px", background: "#B3261E", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>Confirm Deny</button>
                 </div>
               </div>
             )}
@@ -2068,15 +2068,15 @@ function HRAlertsBanner({ onCount }: { onCount?: (n: number) => void } = {}) {
   if (!alerts.length) return null;
 
   const COLOR: Record<string, { bg: string; border: string; text: string; dot: string }> = {
-    red:   { bg: "#FEF2F2", border: "#FECACA", text: "#991B1B", dot: "#EF4444" },
-    amber: { bg: "#FFFBEB", border: "#FDE68A", text: "#92400E", dot: "#F59E0B" },
-    blue:  { bg: "#EFF6FF", border: "#BFDBFE", text: "#1E40AF", dot: "#3B82F6" },
+    red:   { bg: "#FCEBEA", border: "#F1D0CB", text: "#B3261E", dot: "#B3261E" },
+    amber: { bg: "#FDF3E4", border: "#F2DFB8", text: "#B45309", dot: "#F59E0B" },
+    blue:  { bg: "#EFEFF2", border: "#DEDEE4", text: "#2F3646", dot: "#2F3646" },
   };
 
   return (
     <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 10, padding: "14px 18px" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-        <ShieldAlert size={15} color="#6B7280" />
+        <ShieldAlert size={15} color="#6B6860" />
         <span style={{ fontSize: 11, fontWeight: 600, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: FF }}>HR Alerts</span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>

@@ -1349,7 +1349,7 @@ export default function BookPage() {
     },
     label: { display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 6 },
     field: { marginBottom: 16 },
-    err: { fontSize: 11, color: "#EF4444", marginTop: 4, display: "flex", alignItems: "center", gap: 4 },
+    err: { fontSize: 11, color: "#B3261E", marginTop: 4, display: "flex", alignItems: "center", gap: 4 },
     card: { background: "#fff", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 },
     h2: { fontSize: 20, fontWeight: 700, color: "#1A1917", marginBottom: 6, marginTop: 0 },
     sub: { fontSize: 14, color: "#6B6860", marginBottom: 24 },
@@ -1971,7 +1971,7 @@ export default function BookPage() {
                     placeholder="Start typing your address..."
                     style={{
                       ...s.input,
-                      border: `1.5px solid ${errors.address ? "#EF4444" : addressVerified ? "#2D6A4F" : "#E5E2DC"}`,
+                      border: `1.5px solid ${errors.address ? "#B3261E" : addressVerified ? "#2D6A4F" : "#E5E2DC"}`,
                       paddingRight: addressVerified ? 40 : undefined,
                     }}
                     autoComplete="off"
@@ -2215,7 +2215,7 @@ export default function BookPage() {
                             e.target.value = "";
                           }} />
                         </label>
-                        {pcPhotoError && <p style={{ fontSize: 12, color: "#EF4444", margin: "6px 0 0" }}>{pcPhotoError}</p>}
+                        {pcPhotoError && <p style={{ fontSize: 12, color: "#B3261E", margin: "6px 0 0" }}>{pcPhotoError}</p>}
                         {pcPhotos.length > 0 && (
                           <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap" as const, gap: 8 }}>
                             {pcPhotos.map((f, i) => (
@@ -2228,7 +2228,7 @@ export default function BookPage() {
                         )}
                       </div>
 
-                      {pcSubmitError && <p style={{ fontSize: 12, color: "#EF4444", marginBottom: 12 }}>{pcSubmitError}</p>}
+                      {pcSubmitError && <p style={{ fontSize: 12, color: "#B3261E", marginBottom: 12 }}>{pcSubmitError}</p>}
 
                       <button
                         disabled={pcSubmitting || !pcConstructionType || !pcCompletionDate}
@@ -2510,7 +2510,7 @@ export default function BookPage() {
                   <p
                     aria-hidden={!(bedrooms < 1 || bathrooms < 1)}
                     style={{
-                      fontSize: 12, color: "#D97706", margin: "0 0 14px", fontWeight: 500,
+                      fontSize: 12, color: "#B45309", margin: "0 0 14px", fontWeight: 500,
                       visibility: (bedrooms < 1 || bathrooms < 1) ? "visible" : "hidden",
                     }}
                   >
@@ -2555,7 +2555,7 @@ export default function BookPage() {
                             Homes that need extra attention are our specialty — we just want to make sure we send the right team. Give us a call or leave your info below and we'll reach out within one business day.
                           </p>
                           {vdSubmitted ? (
-                            <div style={{ background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, padding: "14px 16px", fontSize: 14, color: "#166534", fontWeight: 500 }}>
+                            <div style={{ background: "#F0FDF4", border: "1px solid #C7E7DE", borderRadius: 8, padding: "14px 16px", fontSize: 14, color: "#0F7A63", fontWeight: 500 }}>
                               Got it — we'll be in touch within one business day.
                             </div>
                           ) : (
@@ -2607,7 +2607,7 @@ export default function BookPage() {
                                   />
                                 </div>
                                 {vdError && (
-                                  <p style={{ margin: "0 0 8px", fontSize: 13, color: "#DC2626" }}>{vdError}</p>
+                                  <p style={{ margin: "0 0 8px", fontSize: 13, color: "#B3261E" }}>{vdError}</p>
                                 )}
                                 <button
                                   disabled={vdSubmitting}
@@ -2635,7 +2635,7 @@ export default function BookPage() {
                                       setVdSubmitting(false);
                                     }
                                   }}
-                                  style={{ width: "100%", background: vdSubmitting ? "#9CA3AF" : brand, color: "#FFFFFF", border: "none", borderRadius: 8, padding: "12px 0", fontSize: 15, fontWeight: 600, cursor: vdSubmitting ? "not-allowed" : "pointer" }}
+                                  style={{ width: "100%", background: vdSubmitting ? "#9E9B94" : brand, color: "#FFFFFF", border: "none", borderRadius: 8, padding: "12px 0", fontSize: 15, fontWeight: 600, cursor: vdSubmitting ? "not-allowed" : "pointer" }}
                                 >
                                   {vdSubmitting ? "Sending…" : "Request a Callback"}
                                 </button>
@@ -3029,8 +3029,8 @@ export default function BookPage() {
                 );
                 const amberNudge = (text: string) => (
                   <p style={{
-                    fontSize: 11, color: "#92400E", margin: 0,
-                    background: "#FEF3C7", padding: "4px 8px",
+                    fontSize: 11, color: "#B45309", margin: 0,
+                    background: "#FDF3E4", padding: "4px 8px",
                     borderRadius: 6, lineHeight: 1.4,
                     fontFamily: "'Plus Jakarta Sans', sans-serif",
                   }}>{text}</p>
@@ -3073,8 +3073,8 @@ export default function BookPage() {
                   <div style={{ marginBottom: 16 }}>
                     <span style={s.label}>Add-ons (optional)</span>
                     {showFlatCards && !applianceActive && applianceBundle && comboDisc > 0 && (
-                      <div style={{ margin: "8px 0 10px", padding: "8px 14px", background: "#F0FDF4", border: "1px solid #BBF7D0", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
-                        <span style={{ fontSize: 12, color: "#166534", fontWeight: 600, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                      <div style={{ margin: "8px 0 10px", padding: "8px 14px", background: "#F0FDF4", border: "1px solid #C7E7DE", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6 }}>
+                        <span style={{ fontSize: 12, color: "#0F7A63", fontWeight: 600, fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
                           Add both appliances and save {money(comboDisc)} — pay {money(bundledPrice)} instead of {money(bothPrice)}.
                         </span>
                       </div>
@@ -3341,7 +3341,7 @@ export default function BookPage() {
                       width: "100%", padding: "10px 12px", borderRadius: 10,
                       border: `1.5px solid #E5E2DC`, background: "#fff",
                       fontFamily: "'Plus Jakarta Sans', sans-serif",
-                      fontSize: 14, color: arrivalWindow ? "#1A1917" : "#9CA3AF",
+                      fontSize: 14, color: arrivalWindow ? "#1A1917" : "#9E9B94",
                       appearance: "auto", cursor: "pointer", outline: "none",
                     }}
                   >
@@ -3406,7 +3406,7 @@ export default function BookPage() {
                           width: "100%", padding: "10px 12px", borderRadius: 10,
                           border: `1.5px solid #E5E2DC`, background: "#fff",
                           fontFamily: "'Plus Jakarta Sans', sans-serif",
-                          fontSize: 14, color: recurringArrivalWindow ? "#1A1917" : "#9CA3AF",
+                          fontSize: 14, color: recurringArrivalWindow ? "#1A1917" : "#9E9B94",
                           appearance: "auto", cursor: "pointer", outline: "none",
                         }}
                       >
@@ -3446,9 +3446,9 @@ export default function BookPage() {
                     onChange={e => { setContactMethod(e.target.value as any); setContactMethodError(false); }}
                     style={{
                       width: "100%", padding: "10px 12px", borderRadius: 10,
-                      border: `1.5px solid ${contactMethodError ? "#DC2626" : "#E5E2DC"}`,
+                      border: `1.5px solid ${contactMethodError ? "#B3261E" : "#E5E2DC"}`,
                       background: "#fff", fontFamily: "'Plus Jakarta Sans', sans-serif",
-                      fontSize: 14, color: contactMethod ? "#1A1917" : "#9CA3AF",
+                      fontSize: 14, color: contactMethod ? "#1A1917" : "#9E9B94",
                       appearance: "auto", cursor: "pointer", outline: "none",
                     }}
                   >
@@ -3458,7 +3458,7 @@ export default function BookPage() {
                     <option value="email">Email</option>
                   </select>
                   {contactMethodError && (
-                    <p style={{ margin: "4px 0 0", fontSize: 12, color: "#DC2626" }}>Please select a preferred contact method to continue.</p>
+                    <p style={{ margin: "4px 0 0", fontSize: 12, color: "#B3261E" }}>Please select a preferred contact method to continue.</p>
                   )}
                   <p style={{ margin: "8px 0 0", fontSize: 11, color: "#6B6860", lineHeight: 1.55 }}>
                     This is your requested start time — our office will reach out via your preferred method to confirm everything before your appointment. Times are subject to availability.
@@ -3467,7 +3467,7 @@ export default function BookPage() {
               )}
 
               {bookError && (
-                <div style={{ marginTop: 16, padding: "12px 16px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#DC2626" }}>
+                <div style={{ marginTop: 16, padding: "12px 16px", background: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#B3261E" }}>
                   <AlertCircle size={14} /> {bookError}
                 </div>
               )}
@@ -3503,7 +3503,7 @@ export default function BookPage() {
 
               {/* Stripe card form */}
               {stripeEnabled === false ? (
-                <div style={{ marginBottom: 20, padding: "14px 16px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, fontSize: 13, color: "#DC2626" }}>
+                <div style={{ marginBottom: 20, padding: "14px 16px", background: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, fontSize: 13, color: "#B3261E" }}>
                   Payment setup is temporarily unavailable. Please call us at (773) 706-6000 to complete your booking.
                 </div>
               ) : (
@@ -3562,7 +3562,7 @@ export default function BookPage() {
               )}
 
               {bookError && (
-                <div style={{ marginBottom: 16, padding: "12px 16px", background: "#FEF2F2", border: "1px solid #FECACA", borderRadius: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#DC2626" }}>
+                <div style={{ marginBottom: 16, padding: "12px 16px", background: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: 8, display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#B3261E" }}>
                   <AlertCircle size={14} /> {bookError}
                 </div>
               )}
@@ -3692,7 +3692,7 @@ export default function BookPage() {
               </div>
 
               {/* Cancellation policy notice */}
-              <div style={{ background: "#FEF9EC", border: "1px solid #F59E0B30", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#92400E", lineHeight: 1.6 }}>
+              <div style={{ background: "#FEF9EC", border: "1px solid #F59E0B30", borderRadius: 8, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#B45309", lineHeight: 1.6 }}>
                 <strong>Cancellation:</strong> Please provide at least 48 hours notice to cancel or reschedule. Cancellations within 48 hours or no-shows are charged the full service fee. Reply STOP to SMS to opt out of reminders.
               </div>
 
@@ -3853,7 +3853,7 @@ function ReferralCard({ companySlug, referrer }: {
       <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" style={inputStyle} />
       <label style={labelStyle}>Their email <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 600, color: "#9E9B94" }}>(optional)</span></label>
       <input value={email} onChange={(e) => setEmail(e.target.value)} inputMode="email" placeholder="name@example.com" style={{ ...inputStyle, marginBottom: 14 }} />
-      {err && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "#DC2626" }}>{err}</p>}
+      {err && <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "#B3261E" }}>{err}</p>}
       <button onClick={submit} disabled={busy}
         style={{ width: "100%", background: "var(--brand)", color: "#fff", border: "none", borderRadius: 8, padding: "12px", fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: busy ? "not-allowed" : "pointer", opacity: busy ? 0.6 : 1 }}>
         {busy ? "Sending…" : "Send them $25 off"}
@@ -3871,7 +3871,7 @@ function FieldWrap({ label, error, children }: { label: string; error?: string; 
       <label style={{ display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 6 }}>{label}</label>
       {children}
       {error && (
-        <div style={{ fontSize: 11, color: "#EF4444", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
+        <div style={{ fontSize: 11, color: "#B3261E", marginTop: 4, display: "flex", alignItems: "center", gap: 4 }}>
           <AlertCircle size={12} />{error}
         </div>
       )}

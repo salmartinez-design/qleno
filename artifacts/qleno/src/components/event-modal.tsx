@@ -41,7 +41,7 @@ const inputStyle: React.CSSProperties = {
   fontSize: 14, fontFamily: FF, color: "#1A1917", background: "#FFFFFF", boxSizing: "border-box",
 };
 const labelStyle: React.CSSProperties = {
-  display: "block", fontSize: 12, fontWeight: 700, color: "#6B7280", marginBottom: 6, fontFamily: FF,
+  display: "block", fontSize: 12, fontWeight: 700, color: "#6B6860", marginBottom: 6, fontFamily: FF,
 };
 
 // [2026-07-15] The native <input type="time"> wheel is miserable to navigate
@@ -216,7 +216,7 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
             <div style={{ fontSize: 17, fontWeight: 800, color: "#1A1917" }}>New event</div>
             <div style={{ fontSize: 12.5, color: "#9E9B94", marginTop: 2 }}>A non-job entry on the dispatch board</div>
           </div>
-          <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "#6B7280" }}>
+          <button onClick={onClose} aria-label="Close" style={{ border: "none", background: "none", cursor: "pointer", padding: 4, color: "#6B6860" }}>
             <X size={20} />
           </button>
         </div>
@@ -237,7 +237,7 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
                     background: sel ? "rgba(var(--brand-rgb),0.05)" : "#FFFFFF",
                   }}
                 >
-                  <opt.Icon size={18} color={sel ? BRAND : "#6B7280"} />
+                  <opt.Icon size={18} color={sel ? BRAND : "#6B6860"} />
                   <span style={{ fontSize: 13, fontWeight: 700, color: sel ? "#0A0E1A" : "#1A1917" }}>{opt.label}</span>
                   <span style={{ fontSize: 11, color: "#9E9B94", lineHeight: 1.3 }}>{opt.desc}</span>
                 </button>
@@ -362,7 +362,7 @@ export function EventModal({ open, onClose, onCreated, techs, presetDate, branch
           )}
 
           {error && (
-            <div style={{ marginTop: 12, padding: "9px 12px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>
+            <div style={{ marginTop: 12, padding: "9px 12px", borderRadius: 10, background: "#FCEBEA", border: "1px solid #F1D0CB", color: "#B3261E", fontSize: 13 }}>{error}</div>
           )}
         </div>
 

@@ -16,7 +16,7 @@ import { useEmployeeView } from "@/contexts/employee-view-context";
 // Smart usage-bar colors (match the office profile cards).
 const LEAVE_LOW = "#BA7517";
 const LEAVE_OUT = "#E24B4A";
-const NEUTRAL_ACCENT = "#374151";
+const NEUTRAL_ACCENT = "#1A1917";
 function daysUntilYmd(ymd: string): number {
   const t = new Date(`${ymd}T00:00:00Z`).getTime();
   const today = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z").getTime();
@@ -32,7 +32,7 @@ const INK = "#1A1917";
 const MUTED = "#9E9B94";
 const CARD = "#FFFFFF";
 const BORDER = "#E5E2DC";
-const DANGER = "#DC2626";
+const DANGER = "#B3261E";
 
 type Balance = {
   leave_type_id: number;
@@ -616,7 +616,7 @@ function StatusPill({ s, blackoutConflict }: { s: "pending" | "approved" | "deni
   const styles: Record<typeof s, { bg: string; fg: string; label: string }> = {
     pending: { bg: "#F0EEE9", fg: "#6B6860", label: "Pending" },
     approved: { bg: "#D6F4E9", fg: "#0A5C3E", label: "Approved" },
-    denied: { bg: "#FCE7E7", fg: "#991B1B", label: blackoutConflict ? "Denied — blackout" : "Denied" },
+    denied: { bg: "#FCE7E7", fg: "#B3261E", label: blackoutConflict ? "Denied — blackout" : "Denied" },
     cancelled: { bg: "#F0EEE9", fg: "#6B6860", label: "Cancelled" },
   };
   const v = styles[s];

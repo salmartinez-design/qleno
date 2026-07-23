@@ -15,10 +15,10 @@ async function apiFetch(path: string, opts: RequestInit = {}) {
 }
 
 const RISK_COLORS: Record<string, { bg: string; text: string; border: string; label: string }> = {
-  low:      { bg: "#DCFCE7", text: "#166534", border: "#86EFAC", label: "Low" },
-  medium:   { bg: "#FEF3C7", text: "#92400E", border: "#FCD34D", label: "Medium" },
-  high:     { bg: "#FEE2E2", text: "#991B1B", border: "#FCA5A5", label: "High" },
-  critical: { bg: "#FEE2E2", text: "#7F1D1D", border: "#EF4444", label: "Critical" },
+  low:      { bg: "#E6F6F1", text: "#0F7A63", border: "#86EFAC", label: "Low" },
+  medium:   { bg: "#FDF3E4", text: "#B45309", border: "#F2DFB8", label: "Medium" },
+  high:     { bg: "#FCEBEA", text: "#B3261E", border: "#FCA5A5", label: "High" },
+  critical: { bg: "#FCEBEA", text: "#7F1D1D", border: "#B3261E", label: "Critical" },
 };
 
 export default function ChurnBoardPage() {
@@ -48,7 +48,7 @@ export default function ChurnBoardPage() {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
             <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: "0 0 4px" }}>Churn Risk Board</h1>
-            <p style={{ fontSize: 13, color: "#6B7280", margin: 0 }}>Identify customers at risk of leaving before it's too late</p>
+            <p style={{ fontSize: 13, color: "#6B6860", margin: 0 }}>Identify customers at risk of leaving before it's too late</p>
           </div>
           <button onClick={() => calcMut.mutate()} disabled={calcMut.isPending}
             style={{ display: "flex", alignItems: "center", gap: 7, padding: "9px 16px", backgroundColor: "var(--brand)", color: "#FFFFFF", border: "none", borderRadius: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
@@ -64,7 +64,7 @@ export default function ChurnBoardPage() {
             const style = r !== "all" ? RISK_COLORS[r] : { bg: "#F0EEE9", text: "#1A1917", border: "#E5E2DC", label: "All" };
             return (
               <button key={r} onClick={() => setFilter(r)}
-                style={{ padding: "6px 14px", borderRadius: 20, border: `1px solid ${active ? style.border : "#E5E2DC"}`, backgroundColor: active ? style.bg : "#FFFFFF", color: active ? style.text : "#6B7280", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
+                style={{ padding: "6px 14px", borderRadius: 20, border: `1px solid ${active ? style.border : "#E5E2DC"}`, backgroundColor: active ? style.bg : "#FFFFFF", color: active ? style.text : "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
                 {r === "all" ? "All Customers" : style.label} <span style={{ fontSize: 11, opacity: 0.7 }}>({counts[r === "all" ? "all" : r as keyof typeof counts]})</span>
               </button>
             );
@@ -125,7 +125,7 @@ export default function ChurnBoardPage() {
                     <td style={{ padding: "14px 20px" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                         <div style={{ height: 6, width: 80, backgroundColor: "#F0EEE9", borderRadius: 3, overflow: "hidden" }}>
-                          <div style={{ height: "100%", width: `${s.score}%`, backgroundColor: s.score > 75 ? "#EF4444" : s.score > 50 ? "#F59E0B" : "#22C55E", borderRadius: 3 }} />
+                          <div style={{ height: "100%", width: `${s.score}%`, backgroundColor: s.score > 75 ? "#B3261E" : s.score > 50 ? "#F59E0B" : "#22C55E", borderRadius: 3 }} />
                         </div>
                         <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{s.score}</span>
                       </div>
@@ -133,7 +133,7 @@ export default function ChurnBoardPage() {
                     <td style={{ padding: "14px 20px" }}>
                       <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                         {signals.slice(0, 3).map(sig => (
-                          <span key={sig} style={{ padding: "2px 7px", backgroundColor: "#F0EEE9", borderRadius: 4, fontSize: 11, color: "#6B7280" }}>{sig}</span>
+                          <span key={sig} style={{ padding: "2px 7px", backgroundColor: "#F0EEE9", borderRadius: 4, fontSize: 11, color: "#6B6860" }}>{sig}</span>
                         ))}
                         {signals.length > 3 && <span style={{ fontSize: 11, color: "#9E9B94" }}>+{signals.length - 3} more</span>}
                       </div>

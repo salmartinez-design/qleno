@@ -52,7 +52,7 @@ function SignaturePad({ onSignature }: { onSignature: (data: string, name: strin
             padding: "5px 12px", fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: "pointer",
             fontFamily: "'Plus Jakarta Sans', sans-serif",
             background: mode === m ? "var(--brand)" : "#F7F6F3",
-            color: mode === m ? "#fff" : "#6B7280",
+            color: mode === m ? "#fff" : "#6B6860",
             border: `1px solid ${mode === m ? "var(--brand)" : "#E5E2DC"}`,
           }}>{m === "draw" ? "Draw" : "Type Name"}</button>
         ))}
@@ -62,14 +62,14 @@ function SignaturePad({ onSignature }: { onSignature: (data: string, name: strin
           <canvas ref={canvasRef} width={560} height={130}
             onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
             onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
-            style={{ border: "1px solid #E5E2DC", borderRadius: 8, background: "#FAFAF9", width: "100%", cursor: "crosshair", touchAction: "none" }}
+            style={{ border: "1px solid #E5E2DC", borderRadius: 8, background: "#F7F6F3", width: "100%", cursor: "crosshair", touchAction: "none" }}
           />
-          {!hasDrawn && <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 13, color: "#D1D5DB", pointerEvents: "none" }}>Sign here</span>}
+          {!hasDrawn && <span style={{ position: "absolute", top: "50%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 13, color: "#E5E2DC", pointerEvents: "none" }}>Sign here</span>}
           {hasDrawn && <button onClick={clear} style={{ position: "absolute", top: 6, right: 6, fontSize: 11, color: "#9E9B94", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 4, padding: "2px 8px", cursor: "pointer" }}>Clear</button>}
         </div>
       ) : (
         <input value={typedName} onChange={e => setTypedName(e.target.value)} placeholder="Type your full name"
-          style={{ width: "100%", padding: "10px 14px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 20, fontFamily: "'Dancing Script', cursive, serif", color: "#1A1917", background: "#FAFAF9", boxSizing: "border-box" }}
+          style={{ width: "100%", padding: "10px 14px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 20, fontFamily: "'Dancing Script', cursive, serif", color: "#1A1917", background: "#F7F6F3", boxSizing: "border-box" }}
         />
       )}
     </div>
@@ -143,7 +143,7 @@ export default function SignDocPage() {
     display: "flex", flexDirection: "column", alignItems: "center", padding: "24px 16px",
   };
 
-  if (isLoading) return <div style={containerStyle}><p style={{ marginTop: 80, color: "#6B7280" }}>Loading...</p></div>;
+  if (isLoading) return <div style={containerStyle}><p style={{ marginTop: 80, color: "#6B6860" }}>Loading...</p></div>;
 
   const err = fetchError as any;
   if (err || !data) {
@@ -153,7 +153,7 @@ export default function SignDocPage() {
       <div style={containerStyle}>
         <div style={{ width: "100%", maxWidth: 560, background: "#fff", border: "1px solid #E5E2DC", borderRadius: 16, padding: 40, textAlign: "center" }}>
           <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1A1917", marginBottom: 12 }}>{isExpired ? "Link Expired" : "Not Found"}</h2>
-          <p style={{ fontSize: 14, color: "#6B7280", lineHeight: 1.6 }}>
+          <p style={{ fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>
             {isExpired ? `This link has expired. Please contact ${companyName} to receive a new agreement.` : "This link could not be found."}
           </p>
         </div>
@@ -171,7 +171,7 @@ export default function SignDocPage() {
           <h2 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", marginBottom: 8 }}>
             {data.already_signed ? "Already Signed" : "Document Submitted"}
           </h2>
-          <p style={{ fontSize: 14, color: "#6B7280", lineHeight: 1.6 }}>
+          <p style={{ fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>
             {data.already_signed ? "This agreement has already been signed." : `Your agreement has been submitted to ${data.company_name}.`}
           </p>
         </div>
@@ -190,7 +190,7 @@ export default function SignDocPage() {
           <h1 style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", margin: 0 }}>{data.template_name}</h1>
           <div
             ref={contentRef}
-            style={{ maxHeight: 440, overflowY: "auto", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px 24px", background: "#FAFAF9", fontSize: 14, lineHeight: 1.7, color: "#374151" }}
+            style={{ maxHeight: 440, overflowY: "auto", border: "1px solid #E5E2DC", borderRadius: 10, padding: "20px 24px", background: "#F7F6F3", fontSize: 14, lineHeight: 1.7, color: "#1A1917" }}
           >
             <div dangerouslySetInnerHTML={{ __html: data.content }}/>
             <div ref={bottomRef} style={{ height: 1 }}/>
@@ -214,12 +214,12 @@ export default function SignDocPage() {
               disabled={!scrolled}
               style={{ marginTop: 2, accentColor: "var(--brand)", width: 16, height: 16, flexShrink: 0 }}
             />
-            <span style={{ fontSize: 13, color: "#374151" }}>I have read and agree to this document.</span>
+            <span style={{ fontSize: 13, color: "#1A1917" }}>I have read and agree to this document.</span>
           </label>
 
           {!scrolled && <p style={{ fontSize: 12, color: "#9E9B94", textAlign: "center", margin: 0 }}>Please scroll to the bottom to continue.</p>}
 
-          {error && <p style={{ fontSize: 12, color: "#DC2626", background: "#FEE2E2", borderRadius: 6, padding: "8px 12px", margin: 0 }}>{error}</p>}
+          {error && <p style={{ fontSize: 12, color: "#B3261E", background: "#FCEBEA", borderRadius: 6, padding: "8px 12px", margin: 0 }}>{error}</p>}
 
           <button onClick={handleSubmit} disabled={!canSubmit || submitting}
             style={{ padding: "12px 24px", background: canSubmit ? "var(--brand)" : "#E5E2DC", color: canSubmit ? "#fff" : "#9E9B94", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", cursor: canSubmit ? "pointer" : "not-allowed" }}

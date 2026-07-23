@@ -8,13 +8,18 @@
 // and one tint, so nothing could be triaged at a glance. Types are grouped into
 // FAMILIES (what kind of thing happened) and each family owns a colour.
 //
-// Every colour here is one the app already uses, so the bell reads as part of
-// Qleno rather than a new palette bolted on:
-//   mint   #00A88A — the brand accent; customer conversations
-//   green  #0F6E56 — the Booked column on the leads board; money coming in
-//   amber  #B45309 — the late/at-risk stripe on job cards; people problems
-//   blue   #1D4ED8 — the Quoted column; scheduling and office work
-//   violet #7C3AED — the drip lavender; things aimed personally at you
+// Every colour here comes from the design tokens in index.css, so the bell
+// reads as part of Qleno rather than a new palette bolted on:
+//   mint  var(--brand) — the brand accent; customer conversations
+//   green --ok         — money arriving; the readable green (mint is 1.8:1)
+//   amber --warn       — the late/at-risk stripe on job cards; people problems
+//   slate --info       — scheduling and office work
+//   clay  --clay       — mint's complement; things aimed personally at you
+//
+// [ui-consistency 2026-07-23] Office was Tailwind blue and personal was Tailwind
+// violet. Both read as a different product next to mint on a warm #F7F6F3 page,
+// so they moved to the slate and clay tokens. Same five-way distinguishability,
+// one palette. Do NOT reintroduce a blue or a violet here.
 //
 // Adding a new notification type? Add it to TYPE_FAMILY. An unmapped type falls
 // back to `office`, which is a sane neutral rather than an invisible row.
@@ -38,11 +43,11 @@ export const FAMILY_STYLE: Record<NotifFamily, FamilyStyle> = {
   // Messages rides the tenant's own brand token rather than a hardcoded mint —
   // main moved the bell to var(--brand) while this was in flight, and customer
   // conversations are the one family that should follow a tenant's branding.
-  messages:   { color: "var(--brand)", tint: "var(--brand-dim)", border: "#A7F3D0", unreadBg: "#F4FDFA", label: "Messages" },
-  booking:    { color: "#0F6E56", tint: "#ECFDF5", border: "#A7F3D0", unreadBg: "#F3FDF8", label: "Bookings" },
-  attendance: { color: "#B45309", tint: "#FEF7E0", border: "#F5DFA6", unreadBg: "#FFFCF2", label: "Attendance" },
-  office:     { color: "#1D4ED8", tint: "#EEF2FF", border: "#C7D2FE", unreadBg: "#F5F7FF", label: "Office" },
-  personal:   { color: "#7C3AED", tint: "#F3F0FD", border: "#E4DBFB", unreadBg: "#FAF8FF", label: "For you" },
+  messages:   { color: "var(--brand)", tint: "var(--brand-dim)", border: "#C7E7DE", unreadBg: "#F4FBF8", label: "Messages" },
+  booking:    { color: "#0F7A63", tint: "#E6F6F1", border: "#C7E7DE", unreadBg: "#F4FBF8", label: "Bookings" },
+  attendance: { color: "#B45309", tint: "#FDF3E4", border: "#F2DFB8", unreadBg: "#FFFCF2", label: "Attendance" },
+  office:     { color: "#2F3646", tint: "#EFEFF2", border: "#DEDEE4", unreadBg: "#F8F8FA", label: "Office" },
+  personal:   { color: "#9C4E2B", tint: "#FBF0E9", border: "#EFDCCE", unreadBg: "#FDF8F4", label: "For you" },
 };
 
 // Which family each notification type belongs to.

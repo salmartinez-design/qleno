@@ -34,9 +34,9 @@ function StatusBadge({ status }: { status: string }) {
 
 function PlanBadge({ plan }: { plan: string }) {
   const colors: Record<string, { bg: string; text: string; border: string }> = {
-    starter:    { bg: "#F3F4F6", text: "#6B7280", border: "#E5E7EB" },
+    starter:    { bg: "#F0EEE9", text: "#6B6860", border: "#E5E2DC" },
     growth:     { bg: `rgba(${PURPLE_RGB}, 0.10)`, text: PURPLE, border: `rgba(${PURPLE_RGB}, 0.3)` },
-    enterprise: { bg: "#FEF3C7", text: "#92400E", border: "#FDE68A" },
+    enterprise: { bg: "#FDF3E4", text: "#B45309", border: "#F2DFB8" },
   };
   const c = colors[plan] || colors.starter;
   return (
@@ -122,7 +122,7 @@ function EditModal({ company, onClose, onSave }: EditModalProps) {
         </div>
 
         <div style={{ display: "flex", gap: "10px", marginTop: "24px" }}>
-          <button onClick={onClose} style={{ flex: 1, height: "38px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: "8px", color: "#6B7280", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+          <button onClick={onClose} style={{ flex: 1, height: "38px", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: "8px", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
           <button onClick={save} disabled={saving} style={{ flex: 1, height: "38px", backgroundColor: PURPLE, border: "none", borderRadius: "8px", color: "#fff", fontSize: "13px", fontWeight: 600, cursor: "pointer", opacity: saving ? 0.7 : 1 }}>
             {saving ? "Saving..." : "Save Changes"}
           </button>
@@ -198,7 +198,7 @@ export default function AdminCompanies() {
               height: "30px", padding: "0 14px", borderRadius: "6px",
               fontSize: "12px", fontWeight: 500, cursor: "pointer",
               backgroundColor: filter === f ? `rgba(${PURPLE_RGB}, 0.12)` : "#FFFFFF",
-              color: filter === f ? PURPLE : "#6B7280",
+              color: filter === f ? PURPLE : "#6B6860",
               border: filter === f ? `1px solid rgba(${PURPLE_RGB}, 0.3)` : "1px solid #E5E2DC",
               transition: "all 0.15s",
             }}
@@ -221,9 +221,9 @@ export default function AdminCompanies() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={8} style={{ padding: "40px", textAlign: "center", color: "#6B7280" }}>Loading...</td></tr>
+                <tr><td colSpan={8} style={{ padding: "40px", textAlign: "center", color: "#6B6860" }}>Loading...</td></tr>
               ) : companies.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: "40px", textAlign: "center", color: "#6B7280" }}>No companies found.</td></tr>
+                <tr><td colSpan={8} style={{ padding: "40px", textAlign: "center", color: "#6B6860" }}>No companies found.</td></tr>
               ) : companies.map(c => (
                 <tr key={c.id} style={{ borderBottom: "1px solid #F0EEE9", cursor: "default" }}
                   onMouseEnter={e => (e.currentTarget.style.backgroundColor = "#F7F6F3")}
@@ -235,14 +235,14 @@ export default function AdminCompanies() {
                       <span style={{ fontSize: "13px", fontWeight: 500, color: "#1A1917" }}>{c.name}</span>
                     </div>
                   </td>
-                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280" }}>{c.owner?.email || "—"}</td>
+                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860" }}>{c.owner?.email || "—"}</td>
                   <td style={{ padding: "12px 16px" }}><PlanBadge plan={c.plan} /></td>
                   <td style={{ padding: "12px 16px" }}><StatusBadge status={c.subscription_status} /></td>
                   <td style={{ padding: "12px 16px", fontSize: "13px", color: "#1A1917" }}>{c.employee_count}</td>
                   <td style={{ padding: "12px 16px", fontSize: "13px", color: "#1A1917", fontWeight: 500 }}>
                     {c.mrr > 0 ? `$${c.mrr}` : "—"}
                   </td>
-                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B7280" }}>
+                  <td style={{ padding: "12px 16px", fontSize: "12px", color: "#6B6860" }}>
                     {new Date(c.created_at).toLocaleDateString()}
                   </td>
                   <td style={{ padding: "12px 16px" }}>
@@ -258,14 +258,14 @@ export default function AdminCompanies() {
                       <button
                         onClick={() => setEditingCompany(c)}
                         title="Edit"
-                        style={{ width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: "6px", color: "#6B7280", cursor: "pointer" }}
+                        style={{ width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: "6px", color: "#6B6860", cursor: "pointer" }}
                       >
                         <Edit2 size={13} />
                       </button>
                       <button
                         onClick={() => handleSuspend(c)}
                         title="Suspend"
-                        style={{ width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#FEF2F2", border: "1px solid #FECACA", borderRadius: "6px", color: "#DC2626", cursor: "pointer" }}
+                        style={{ width: "28px", height: "28px", display: "flex", alignItems: "center", justifyContent: "center", backgroundColor: "#FCEBEA", border: "1px solid #F1D0CB", borderRadius: "6px", color: "#B3261E", cursor: "pointer" }}
                       >
                         <Ban size={13} />
                       </button>
@@ -279,8 +279,8 @@ export default function AdminCompanies() {
 
         {/* Footer */}
         <div style={{ padding: "12px 16px", borderTop: "1px solid #EEECE7", display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: "#F7F6F3" }}>
-          <span style={{ fontSize: "12px", color: "#6B7280" }}>{companies.length} companies</span>
-          <span style={{ fontSize: "12px", color: "#6B7280" }}>
+          <span style={{ fontSize: "12px", color: "#6B6860" }}>{companies.length} companies</span>
+          <span style={{ fontSize: "12px", color: "#6B6860" }}>
             MRR: <strong style={{ color: "#1A1917" }}>${companies.reduce((s, c) => s + c.mrr, 0).toLocaleString()}</strong>
           </span>
         </div>

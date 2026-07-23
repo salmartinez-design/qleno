@@ -162,7 +162,7 @@ function MoreSheet({ open, onClose, navigate, onChangePw, isTech }: { open: bool
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
-              <Bell size={20} style={{ color: '#6B7280' }} />
+              <Bell size={20} style={{ color: '#6B6860' }} />
               <span style={{ fontSize: 14, fontWeight: 600 }}>Notification settings</span>
             </button>
             {onChangePw && (
@@ -175,7 +175,7 @@ function MoreSheet({ open, onClose, navigate, onChangePw, isTech }: { open: bool
                   fontFamily: "'Plus Jakarta Sans', sans-serif",
                 }}
               >
-                <KeyRound size={20} style={{ color: '#6B7280' }} />
+                <KeyRound size={20} style={{ color: '#6B6860' }} />
                 <span style={{ fontSize: 14, fontWeight: 600 }}>Change Password</span>
               </button>
             )}
@@ -184,7 +184,7 @@ function MoreSheet({ open, onClose, navigate, onChangePw, isTech }: { open: bool
               style={{
                 width: '100%', display: 'flex', alignItems: 'center', gap: 12,
                 background: 'none', border: '1px solid #EEECE7', borderRadius: 12,
-                padding: '14px 16px', cursor: 'pointer', color: '#DC2626',
+                padding: '14px 16px', cursor: 'pointer', color: '#B3261E',
                 fontFamily: "'Plus Jakarta Sans', sans-serif",
               }}
             >
@@ -230,7 +230,7 @@ function BranchSwitcher({ role, compact = false }: { role?: string; compact?: bo
           background: activeBranchId === "all" ? "#F7F6F3" : "var(--brand-dim)",
           border: `1px solid ${activeBranchId === "all" ? "#E5E2DC" : "var(--brand)"}`,
           borderRadius: 20, cursor: "pointer",
-          color: activeBranchId === "all" ? "#6B7280" : "var(--brand)",
+          color: activeBranchId === "all" ? "#6B6860" : "var(--brand)",
           fontSize: compact ? 11 : 12,
           fontWeight: 600,
           fontFamily: "'Plus Jakarta Sans', sans-serif",
@@ -471,9 +471,9 @@ const CommsPausedBanner = () => {
   const paused = useCommsPaused();
   return paused ? (
     <div style={{
-      background: '#FEF3C7', borderBottom: '1px solid #F59E0B',
+      background: '#FDF3E4', borderBottom: '1px solid #F59E0B',
       padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 8,
-      fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, color: '#92400E', fontWeight: 500,
+      fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, color: '#B45309', fontWeight: 500,
       flexShrink: 0,
     }}>
       <span style={{ fontSize: 16 }}>⚠️</span>
@@ -731,7 +731,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
             <CompanySwitcher compact />
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-            <button onClick={() => setSearchOpen(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', display: 'flex', alignItems: 'center' }}>
+            <button onClick={() => setSearchOpen(true)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B6860', padding: '4px', display: 'flex', alignItems: 'center' }}>
               <Search size={19} />
             </button>
             {/* [header-cleanup 2026-07-08] Removed the team-chat icon next to
@@ -739,7 +739,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
 
             {/* Employee notifications bell (office tier) → Employees page */}
             {isOfficeTier && (
-              <button onClick={goToEmployeeRequests} title="Employee notifications — time off & requests" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <button onClick={goToEmployeeRequests} title="Employee notifications — time off & requests" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B6860', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
                 <CalendarClock size={19} />
                 {empPending > 0 && (
                   <span style={{ position: 'absolute', top: 0, right: 0, minWidth: 14, height: 14, borderRadius: 7, background: 'var(--brand)', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#04241d', fontWeight: 800, padding: '0 2px' }}>
@@ -750,10 +750,10 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
             )}
 
             {/* Notifications bell → full notifications page (all roles) */}
-            <button onClick={() => setLocation('/notifications')} title="Notifications" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
+            <button onClick={() => setLocation('/notifications')} title="Notifications" style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B6860', padding: '4px', position: 'relative', display: 'flex', alignItems: 'center' }}>
               <Bell size={19} />
               {notifUnread > 0 && (
-                <span style={{ position: 'absolute', top: 0, right: 0, minWidth: 14, height: 14, borderRadius: 7, background: '#EF4444', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff', fontWeight: 800, padding: '0 2px' }}>
+                <span style={{ position: 'absolute', top: 0, right: 0, minWidth: 14, height: 14, borderRadius: 7, background: '#B3261E', border: '2px solid #fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff', fontWeight: 800, padding: '0 2px' }}>
                   {notifUnread > 9 ? '9+' : notifUnread}
                 </span>
               )}
@@ -803,7 +803,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
                       onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                     >
                       <span style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(45,155,131,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <item.Icon size={16} color="#2D9B83" />
+                        <item.Icon size={16} color="#0F7A63" />
                       </span>
                       <span style={{ minWidth: 0 }}>
                         <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{item.label}</span>
@@ -871,7 +871,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
                   <div style={{ position: 'relative' }}>
                     <Icon size={22} strokeWidth={isTab ? 2.5 : 1.8} />
                     {tab.href === '/messages' && smsUnread > 0 && (
-                      <span style={{ position: 'absolute', top: -5, right: -9, background: '#EF4444', color: '#fff', fontSize: 9, fontWeight: 800, lineHeight: '14px', minWidth: 14, height: 14, borderRadius: 7, padding: '0 3px', textAlign: 'center' }}>
+                      <span style={{ position: 'absolute', top: -5, right: -9, background: '#B3261E', color: '#fff', fontSize: 9, fontWeight: 800, lineHeight: '14px', minWidth: 14, height: 14, borderRadius: 7, padding: '0 3px', textAlign: 'center' }}>
                         {smsUnread > 9 ? '9+' : smsUnread}
                       </span>
                     )}
@@ -989,7 +989,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
                       onMouseLeave={e => (e.currentTarget.style.background = 'none')}
                     >
                       <span style={{ width: 34, height: 34, borderRadius: 9, background: 'rgba(45,155,131,0.10)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                        <item.Icon size={16} color="#2D9B83" />
+                        <item.Icon size={16} color="#0F7A63" />
                       </span>
                       <span style={{ minWidth: 0 }}>
                         <span style={{ display: 'block', fontSize: 14, fontWeight: 700, color: '#1A1917', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>{item.label}</span>
@@ -1012,7 +1012,7 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
               <button
                 onClick={goToEmployeeRequests}
                 title="Employee notifications — time off & requests"
-                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B7280', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center', position: 'relative' } as any}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#6B6860', padding: 6, borderRadius: 8, display: 'flex', alignItems: 'center', position: 'relative' } as any}
               >
                 <CalendarClock size={20} />
                 {empPending > 0 && (
@@ -1063,20 +1063,20 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
                         onClick={() => { setUserDropOpen(false); setChangePwOpen(true); }}
                         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 500, color: '#1A1917' }}
                       >
-                        <KeyRound size={15} style={{ color: '#6B7280' }} />
+                        <KeyRound size={15} style={{ color: '#6B6860' }} />
                         Change Password
                       </button>
                       <button
                         onClick={() => { setUserDropOpen(false); setLocation('/settings/notifications'); }}
                         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 500, color: '#1A1917' }}
                       >
-                        <Bell size={15} style={{ color: '#6B7280' }} />
+                        <Bell size={15} style={{ color: '#6B6860' }} />
                         Notification settings
                       </button>
                       <div style={{ height: 1, background: '#F0EDEA', margin: '2px 0' }} />
                       <button
                         onClick={() => { setUserDropOpen(false); logout(); }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 500, color: '#DC2626' }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderRadius: 7, background: 'none', border: 'none', cursor: 'pointer', width: '100%', textAlign: 'left', fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: 500, color: '#B3261E' }}
                       >
                         <LogOut size={15} />
                         Sign Out

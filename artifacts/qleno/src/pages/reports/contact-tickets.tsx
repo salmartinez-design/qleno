@@ -10,8 +10,8 @@ interface TicketRow { id: number; type: string; notes: string | null; date: stri
 interface CTData { from: string; to: string; data: TicketRow[]; counts: { complaints: number; breakages: number; compliments: number; incidents: number; notes: number }; }
 
 const TYPE_COLORS: Record<string,string> = {
-  breakage: "#EF4444", complaint_poor_cleaning: "#F97316", complaint_attitude: "#F97316",
-  compliment: "#10B981", incident: "#8B5CF6", note: "#6B7280", time_off_request: "#0EA5E9",
+  breakage: "#B3261E", complaint_poor_cleaning: "#F97316", complaint_attitude: "#F97316",
+  compliment: "#10B981", incident: "#C2673F", note: "#6B6860", time_off_request: "#0EA5E9",
 };
 const TYPE_LABELS: Record<string,string> = {
   breakage: "Breakage", complaint_poor_cleaning: "Poor Cleaning", complaint_attitude: "Attitude",
@@ -76,8 +76,8 @@ export default function ContactTicketsReportPage() {
             <div><p style={{ margin: "0 0 2px", fontSize: 11, fontWeight: 600, color: clr.muted, textTransform: "uppercase" }}>Compliments</p><p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: clr.green }}>{counts?.compliments ?? 0}</p></div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, backgroundColor: clr.card, border: `1px solid ${clr.border}`, borderRadius: 10, padding: "12px 16px" }}>
-            <MessageSquare size={14} color="#8B5CF6" />
-            <div><p style={{ margin: "0 0 2px", fontSize: 11, fontWeight: 600, color: clr.muted, textTransform: "uppercase" }}>Incidents</p><p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#8B5CF6" }}>{counts?.incidents ?? 0}</p></div>
+            <MessageSquare size={14} color="#C2673F" />
+            <div><p style={{ margin: "0 0 2px", fontSize: 11, fontWeight: 600, color: clr.muted, textTransform: "uppercase" }}>Incidents</p><p style={{ margin: 0, fontSize: 22, fontWeight: 700, color: "#C2673F" }}>{counts?.incidents ?? 0}</p></div>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, backgroundColor: clr.card, border: `1px solid ${clr.border}`, borderRadius: 10, padding: "12px 16px" }}>
             <FileText size={14} color={clr.secondary} />

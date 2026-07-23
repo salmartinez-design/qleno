@@ -87,7 +87,7 @@ const LINE = "#E2E8F0";
 const LINE_SOFT = "#F1F5F9";
 const SUCCESS = "#0F766E";
 const WARN = "#B45309";
-const DANGER = "#B91C1C";
+const DANGER = "#B3261E";
 const FONT = "'Plus Jakarta Sans', sans-serif";
 const RADIUS = 10;
 
@@ -1279,7 +1279,7 @@ function Header({
 
 function DeadlineBadge({ days, locale }: { days: number; locale: Locale }) {
   let tone = SUCCESS;
-  let bg = "#ECFDF5";
+  let bg = "#E6F6F1";
   // Item 13b (P0 sprint): "1 days" → "1 day" pluralization across
   // every countdown chip. The translation key is "days remaining"
   // plural by default; override when abs(days) === 1.
@@ -1297,15 +1297,15 @@ function DeadlineBadge({ days, locale }: { days: number; locale: Locale }) {
   let label = `${days} ${dayWord}`;
   if (days < 0) {
     tone = DANGER;
-    bg = "#FEF2F2";
+    bg = "#FCEBEA";
     label = `${Math.abs(days)} ${overdueWord}`;
   } else if (days === 0) {
     tone = WARN;
-    bg = "#FFFBEB";
+    bg = "#FDF3E4";
     label = tr("dueToday", locale);
   } else if (days <= 2) {
     tone = WARN;
-    bg = "#FFFBEB";
+    bg = "#FDF3E4";
   }
   return (
     <div
@@ -1754,8 +1754,8 @@ function Home({
                     gridTemplateColumns: "auto 1fr auto",
                     alignItems: "center",
                     gap: 14,
-                    background: "#FFFBEB",
-                    border: `1px solid #FDE68A`,
+                    background: "#FDF3E4",
+                    border: `1px solid #F2DFB8`,
                     borderLeft: `4px solid ${WARN}`,
                     borderRadius: RADIUS,
                     padding: "14px 16px",
@@ -1919,8 +1919,8 @@ function Home({
                 style={{
                   marginTop: 8,
                   padding: "10px 14px",
-                  background: "#FFFBEB",
-                  border: `1px solid #FDE68A`,
+                  background: "#FDF3E4",
+                  border: `1px solid #F2DFB8`,
                   borderLeft: `3px solid ${WARN}`,
                   borderRadius: 8,
                   fontSize: 12.5,
@@ -2347,7 +2347,7 @@ function ModuleRow({
         alignItems: isMobile ? "stretch" : "center",
         gap: isMobile ? 12 : 14,
         background: SURFACE,
-        border: `1px solid ${atCap && !isOwner ? "#FECACA" : LINE}`,
+        border: `1px solid ${atCap && !isOwner ? "#F1D0CB" : LINE}`,
         borderRadius: RADIUS,
         padding: isMobile ? "14px 14px 14px 18px" : "14px 16px",
         textAlign: "left",
@@ -2450,7 +2450,7 @@ function FinalStepCard({
         gridTemplateColumns: isMobile ? undefined : "auto 1fr auto",
         alignItems: isMobile ? "stretch" : "center",
         gap: isMobile ? 12 : 14,
-        background: passed ? "#ECFDF5" : NAVY,
+        background: passed ? "#E6F6F1" : NAVY,
         color: passed ? SUCCESS : "#fff",
         border: `1px solid ${passed ? SUCCESS : NAVY}`,
         borderRadius: RADIUS,
@@ -2765,8 +2765,8 @@ function ModuleView({
             style={{
               marginTop: 18,
               padding: "10px 12px",
-              background: atCap ? "#FEF2F2" : LINE_SOFT,
-              border: `1px solid ${atCap ? "#FECACA" : LINE}`,
+              background: atCap ? "#FCEBEA" : LINE_SOFT,
+              border: `1px solid ${atCap ? "#F1D0CB" : LINE}`,
               borderRadius: 8,
               fontSize: 12,
               color: atCap ? DANGER : INK_MUTE,
@@ -2804,7 +2804,7 @@ function ModuleView({
           <div
             style={{
               marginTop: 22,
-              background: "#ECFDF5",
+              background: "#E6F6F1",
               border: `1px solid #A7F3D0`,
               borderLeft: `3px solid ${SUCCESS}`,
               borderRadius: 8,
@@ -2987,9 +2987,9 @@ function Block({ block: b, locale }: { block: ContentBlock; locale: Locale }) {
   if (b.type === "callout") {
     const tone =
       b.tone === "warning"
-        ? { color: WARN, bg: "#FFFBEB", border: "#FDE68A", Icon: AlertTriangle }
+        ? { color: WARN, bg: "#FDF3E4", border: "#F2DFB8", Icon: AlertTriangle }
         : b.tone === "success"
-        ? { color: SUCCESS, bg: "#ECFDF5", border: "#A7F3D0", Icon: CircleCheck }
+        ? { color: SUCCESS, bg: "#E6F6F1", border: "#A7F3D0", Icon: CircleCheck }
         : { color: TEAL, bg: "#ECFEFF", border: "#A5F3FC", Icon: Info };
     const Icon = tone.Icon;
     return (
@@ -4164,8 +4164,8 @@ function SignDocumentView({
           <div>
             <div
               style={{
-                background: "#FEF2F2",
-                border: `1px solid #FECACA`,
+                background: "#FCEBEA",
+                border: `1px solid #F1D0CB`,
                 borderLeft: `3px solid ${DANGER}`,
                 color: DANGER,
                 padding: 12,
@@ -4216,8 +4216,8 @@ function SignDocumentView({
             {content.pendingTranslationReview ? (
               <div
                 style={{
-                  background: "#FFFBEB",
-                  border: `1px solid #FDE68A`,
+                  background: "#FDF3E4",
+                  border: `1px solid #F2DFB8`,
                   borderLeft: `3px solid ${WARN}`,
                   padding: 12,
                   borderRadius: 6,
@@ -4323,8 +4323,8 @@ function SignDocumentView({
               <div
                 style={{
                   marginTop: 14,
-                  background: "#FEF2F2",
-                  border: `1px solid #FECACA`,
+                  background: "#FCEBEA",
+                  border: `1px solid #F1D0CB`,
                   borderLeft: `3px solid ${DANGER}`,
                   color: DANGER,
                   padding: 12,
@@ -4496,8 +4496,8 @@ function SignedDocConfirmation({
         <div
           style={{
             marginTop: 14,
-            background: "#FEF2F2",
-            border: `1px solid #FECACA`,
+            background: "#FCEBEA",
+            border: `1px solid #F1D0CB`,
             borderLeft: `3px solid ${DANGER}`,
             color: DANGER,
             padding: 10,
@@ -4640,7 +4640,7 @@ function HandbookCard({
                 fontSize: 11,
                 fontWeight: 800,
                 color: SUCCESS,
-                background: "#ECFDF5",
+                background: "#E6F6F1",
                 padding: "2px 8px",
                 borderRadius: 999,
                 letterSpacing: "0.04em",
@@ -5005,8 +5005,8 @@ function HandbookSignView({
             {content.pendingTranslationReview ? (
               <div
                 style={{
-                  background: "#FFFBEB",
-                  border: `1px solid #FDE68A`,
+                  background: "#FDF3E4",
+                  border: `1px solid #F2DFB8`,
                   borderLeft: `3px solid ${WARN}`,
                   padding: 12,
                   borderRadius: 6,
@@ -5276,8 +5276,8 @@ function RecomputeBanner({
   return (
     <div
       style={{
-        background: "#FFFBEB",
-        border: `1px solid #FDE68A`,
+        background: "#FDF3E4",
+        border: `1px solid #F2DFB8`,
         borderLeft: `4px solid ${WARN}`,
         borderRadius: RADIUS,
         padding: "14px 18px",
@@ -5351,8 +5351,8 @@ function PendingReAckTile({
   return (
     <div
       style={{
-        background: "#FFFBEB",
-        border: `1px solid #FDE68A`,
+        background: "#FDF3E4",
+        border: `1px solid #F2DFB8`,
         borderLeft: `4px solid ${WARN}`,
         borderRadius: RADIUS,
         padding: "14px 18px",
@@ -6914,8 +6914,8 @@ function OnboardingIntakeView({
           style={{
             margin: "12px 0",
             padding: 12,
-            background: "#FEF2F2",
-            border: `1px solid #FECACA`,
+            background: "#FCEBEA",
+            border: `1px solid #F1D0CB`,
             color: DANGER,
             borderRadius: 8,
             fontSize: 13,

@@ -176,7 +176,7 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
             <div style={{ fontSize: 18, fontWeight: 800, color: "#1A1917" }}>{detail.period_label} 1-on-1 · {employeeName}</div>
             <div style={{ fontSize: 12.5, color: "#9E9B94", marginTop: 2 }}>{fmtDate(detail.event_date)} · {isComplete ? "Completed" : "In progress"} · Owner-only</div>
           </div>
-          <button onClick={() => remove(detail.id)} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 5, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#B91C1C", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+          <button onClick={() => remove(detail.id)} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 5, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#B3261E", borderRadius: 9, padding: "7px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
             <Trash2 size={13} /> Delete
           </button>
         </div>
@@ -228,11 +228,11 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
           />
         </div>
 
-        {error && <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>}
+        {error && <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 10, background: "#FCEBEA", border: "1px solid #F1D0CB", color: "#B3261E", fontSize: 13 }}>{error}</div>}
         {saveState === "error" && !error && (
-          <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+          <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 10, background: "#FCEBEA", border: "1px solid #F1D0CB", color: "#B3261E", fontSize: 13, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
             <span>Couldn't save your last edit — don't close this yet.</span>
-            <button onClick={() => save(false)} style={{ border: "1px solid #FECACA", background: "#FFFFFF", color: "#B91C1C", borderRadius: 8, padding: "5px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Retry</button>
+            <button onClick={() => save(false)} style={{ border: "1px solid #F1D0CB", background: "#FFFFFF", color: "#B3261E", borderRadius: 8, padding: "5px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Retry</button>
           </div>
         )}
 
@@ -240,9 +240,9 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
           <button onClick={() => save(true)} disabled={busy} style={{ display: "flex", alignItems: "center", gap: 6, padding: "11px 22px", borderRadius: 10, border: "none", background: BRAND, color: "#0A0E1A", fontWeight: 800, fontSize: 14, cursor: busy ? "default" : "pointer", fontFamily: FF }}>
             <Check size={15} /> {isComplete ? "Save & keep completed" : "Complete 1-on-1"}
           </button>
-          <span style={{ fontSize: 12.5, color: saveState === "error" ? "#B91C1C" : "#9E9B94", display: "flex", alignItems: "center", gap: 5 }}>
+          <span style={{ fontSize: 12.5, color: saveState === "error" ? "#B3261E" : "#9E9B94", display: "flex", alignItems: "center", gap: 5 }}>
             {saveState === "saving" ? "Saving…"
-              : saveState === "saved" ? (<><Check size={13} style={{ color: "#16A34A" }} /> All changes saved automatically</>)
+              : saveState === "saved" ? (<><Check size={13} style={{ color: "#0F7A63" }} /> All changes saved automatically</>)
               : saveState === "error" ? "Save failed"
               : "Answers save automatically as you type"}
           </span>
@@ -264,7 +264,7 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
         <MessageSquare size={13} /> Owner-only. These conversations are private to you — not visible to {employeeName} or any office staff.
       </div>
 
-      {error && <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 10, background: "#FEF2F2", border: "1px solid #FECACA", color: "#B91C1C", fontSize: 13 }}>{error}</div>}
+      {error && <div style={{ marginBottom: 12, padding: "9px 12px", borderRadius: 10, background: "#FCEBEA", border: "1px solid #F1D0CB", color: "#B3261E", fontSize: 13 }}>{error}</div>}
 
       {loading ? (
         <div style={{ padding: 40, textAlign: "center", color: "#9E9B94", fontSize: 13 }}>Loading…</div>
@@ -296,7 +296,7 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
               <span style={{
                 fontSize: 10, fontWeight: 800, letterSpacing: "0.04em", textTransform: "uppercase", borderRadius: 5, padding: "3px 8px",
                 ...(rec.status === "completed"
-                  ? { color: "#166534", background: "#DCFCE7", border: "1px solid #BBF7D0" }
+                  ? { color: "#0F7A63", background: "#E6F6F1", border: "1px solid #C7E7DE" }
                   : { color: "#8A6D3B", background: "#FCF3E3", border: "1px solid #ECD9B5" }),
               }}>{rec.status === "completed" ? "Completed" : "Scheduled"}</span>
               <button
@@ -304,8 +304,8 @@ export function OneOnOnesPanel({ userId, employeeName }: { userId: number; emplo
                 disabled={busy}
                 title="Delete this 1-on-1"
                 aria-label="Delete this 1-on-1"
-                style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#B91C1C", borderRadius: 8, padding: "6px 8px", cursor: busy ? "default" : "pointer" }}
-                onMouseEnter={e => (e.currentTarget.style.background = "#FEF2F2")}
+                style={{ display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, border: "1px solid #E5E2DC", background: "#FFFFFF", color: "#B3261E", borderRadius: 8, padding: "6px 8px", cursor: busy ? "default" : "pointer" }}
+                onMouseEnter={e => (e.currentTarget.style.background = "#FCEBEA")}
                 onMouseLeave={e => (e.currentTarget.style.background = "#FFFFFF")}
               >
                 <Trash2 size={14} />
@@ -370,7 +370,7 @@ export function OneOnOneCoverageCard() {
           {data.coverage.map(c => {
             const label = c.status === "completed" ? "Done" : c.status === "scheduled" ? "Scheduled" : "Not yet";
             const tone = c.status === "completed"
-              ? { color: "#166534", background: "#DCFCE7", border: "1px solid #BBF7D0" }
+              ? { color: "#0F7A63", background: "#E6F6F1", border: "1px solid #C7E7DE" }
               : c.status === "scheduled"
                 ? { color: "#8A6D3B", background: "#FCF3E3", border: "1px solid #ECD9B5" }
                 : { color: "#9A3412", background: "#FFEDD5", border: "1px solid #FED7AA" };

@@ -61,7 +61,7 @@ const td: React.CSSProperties = {
   fontSize: 13,
   color: "#1A1917",
   padding: "8px 10px",
-  borderBottom: "1px solid #F0EDE8",
+  borderBottom: "1px solid #F0EEE9",
   verticalAlign: "middle" as const,
 };
 
@@ -73,13 +73,13 @@ const inp: React.CSSProperties = {
   borderRadius: 6,
   padding: "6px 10px",
   outline: "none",
-  background: "#FAFAF8",
+  background: "#F7F6F3",
   width: "100%",
   boxSizing: "border-box" as const,
 };
 
 const btn = (variant: "primary" | "secondary" | "ghost" | "danger" | "outline" = "secondary"): React.CSSProperties => {
-  // [pricing-restyle] Tab-scoped colors. Primary uses mint #2D9B83 directly
+  // [pricing-restyle] Tab-scoped colors. Primary uses mint #0F7A63 directly
   // (not var(--brand)) because the global brand token is the legacy blue and
   // changing it would restyle every primary button across the app. Danger
   // and outline read as outline buttons — subtle border, transparent fill —
@@ -97,8 +97,8 @@ const btn = (variant: "primary" | "secondary" | "ghost" | "danger" | "outline" =
     transition: "background 0.15s, border-color 0.15s, color 0.15s",
     border: "1px solid transparent",
   };
-  if (variant === "primary") return { ...base, background: "#2D9B83", color: "#FFFFFF", borderColor: "#2D9B83" };
-  if (variant === "danger") return { ...base, background: "transparent", color: "#DC2626", borderColor: "#FCA5A5" };
+  if (variant === "primary") return { ...base, background: "#0F7A63", color: "#FFFFFF", borderColor: "#0F7A63" };
+  if (variant === "danger") return { ...base, background: "transparent", color: "#B3261E", borderColor: "#FCA5A5" };
   if (variant === "outline") return { ...base, background: "transparent", color: "#1A1917", borderColor: "#E5E2DC" };
   if (variant === "ghost") return { ...base, background: "transparent", color: "#1A1917", borderColor: "transparent" };
   return { ...base, background: "#F7F6F3", color: "#1A1917", borderColor: "#F7F6F3" };
@@ -116,7 +116,7 @@ function ensurePricingButtonStyles() {
   s.id = "qleno-pricing-btn-styles";
   s.textContent = `
     button[style*="2D9B83"]:hover:not(:disabled) { background: #258774 !important; border-color: #258774 !important; }
-    button[style*="FCA5A5"]:hover:not(:disabled) { background: #FEF2F2 !important; }
+    button[style*="FCA5A5"]:hover:not(:disabled) { background: #FCEBEA !important; }
     button[style*="E5E2DC"]:hover:not(:disabled) { background: #F7F6F3 !important; }
   `;
   document.head.appendChild(s);
@@ -323,9 +323,9 @@ export function PricingTab() {
                       </button>
                     </div>
                     <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 1, marginLeft: 6 }}>
-                      <span style={{ fontSize: 9, fontWeight: 700, color: scope.is_active ? "#059669" : "#9E9B94", letterSpacing: "0.02em" }}>ACTIVE</span>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: scope.is_active ? "#0F7A63" : "#9E9B94", letterSpacing: "0.02em" }}>ACTIVE</span>
                       <button style={{ background: "none", border: "none", cursor: "pointer", padding: "1px 2px", lineHeight: 1 }} onClick={() => toggleActive.mutate(scope)} title={scope.is_active ? "Deactivate" : "Activate"}>
-                        {scope.is_active ? <ToggleRight size={19} color="#059669" /> : <ToggleLeft size={19} color="#C9C5BE" />}
+                        {scope.is_active ? <ToggleRight size={19} color="#0F7A63" /> : <ToggleLeft size={19} color="#C9C5BE" />}
                       </button>
                     </div>
                   </div>
@@ -333,7 +333,7 @@ export function PricingTab() {
                     <Edit2 size={13} color="#6B6860" />
                   </button>
                   <button style={{ background: "none", border: "none", cursor: "pointer", padding: "2px 4px" }} onClick={e => { e.stopPropagation(); if (confirm(`Delete "${scope.name}"?`)) deleteScope.mutate(scope.id); }}>
-                    <Trash2 size={13} color="#DC2626" />
+                    <Trash2 size={13} color="#B3261E" />
                   </button>
                 </div>
               )}
@@ -383,7 +383,7 @@ export function PricingTab() {
                 {recurringExpanded && (
                   <div style={{ borderTop: "1px solid #E5E2DC" }}>
                     {/* Frequency tabs */}
-                    <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #E5E2DC", padding: "0 18px", background: "#FAFAF8" }}>
+                    <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #E5E2DC", padding: "0 18px", background: "#F7F6F3" }}>
                       {recurringScopes.map(r => (
                         <button key={r.id} onClick={() => { setActiveRecurringScope(r.id); setRecurringSubTab("tiers"); }}
                           style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 13, fontWeight: activeRecurringScope === r.id ? 700 : 400, color: activeRecurringScope === r.id ? "var(--brand)" : "#6B6860", borderBottom: `2px solid ${activeRecurringScope === r.id ? "var(--brand)" : "transparent"}`, border: "none", background: "transparent", padding: "11px 16px", marginBottom: -1, cursor: "pointer" }}>
@@ -393,7 +393,7 @@ export function PricingTab() {
                     </div>
                     {recScope && (
                       <div>
-                        <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #F0EDE8", padding: "0 18px" }}>
+                        <div style={{ display: "flex", gap: 0, borderBottom: "1px solid #F0EEE9", padding: "0 18px" }}>
                           {(["tiers", "frequencies", "addons"] as const).map(t => (
                             <button key={t} onClick={() => setRecurringSubTab(t)}
                               style={{ fontFamily: "'Plus Jakarta Sans', sans-serif", fontSize: 12, fontWeight: recurringSubTab === t ? 600 : 400, color: recurringSubTab === t ? "var(--brand)" : "#9E9B94", borderBottom: `2px solid ${recurringSubTab === t ? "var(--brand)" : "transparent"}`, border: "none", background: "transparent", padding: "8px 12px", marginBottom: -1, cursor: "pointer" }}>
@@ -493,7 +493,7 @@ function TiersEditor({ scopeId }: { scopeId: number }) {
                 <td style={td}><input style={{ ...inp, width: 100 }} type="number" value={t.min_sqft} onChange={e => updateTier(i, "min_sqft", e.target.value)} /></td>
                 <td style={td}><input style={{ ...inp, width: 100 }} type="number" value={t.max_sqft} onChange={e => updateTier(i, "max_sqft", e.target.value)} /></td>
                 <td style={td}><input style={{ ...inp, width: 80 }} type="number" step="0.1" value={t.hours} onChange={e => updateTier(i, "hours", e.target.value)} /></td>
-                <td style={td}><button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => removeRow(i)}><Trash2 size={13} color="#DC2626" /></button></td>
+                <td style={td}><button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => removeRow(i)}><Trash2 size={13} color="#B3261E" /></button></td>
               </tr>
             ))}
           </tbody>
@@ -658,7 +658,7 @@ function AddonsEditor({ scopeId }: { scopeId: number }) {
               <td style={td}>
                 <div style={{ display: "flex", gap: 4 }}>
                   <button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => { setEditId(a.id); setEditForm({}); }}><Edit2 size={13} color="#6B6860" /></button>
-                  <button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => del.mutate(a.id)}><Trash2 size={13} color="#DC2626" /></button>
+                  <button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => del.mutate(a.id)}><Trash2 size={13} color="#B3261E" /></button>
                 </div>
               </td>
             </tr>
@@ -801,7 +801,7 @@ function DiscountsSection({ discounts }: { discounts: Discount[] }) {
                     {d.is_active ? <ToggleRight size={18} color="var(--brand)" /> : <ToggleLeft size={18} color="#9E9B94" />}
                   </button>
                 </td>
-                <td style={td}><button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => del.mutate(d.id)}><Trash2 size={13} color="#DC2626" /></button></td>
+                <td style={td}><button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => del.mutate(d.id)}><Trash2 size={13} color="#B3261E" /></button></td>
               </tr>
             ))}
             {discounts.length === 0 && <tr><td colSpan={6} style={{ ...td, textAlign: "center", color: "#9E9B94", padding: 24 }}>No discount codes yet.</td></tr>}
@@ -907,7 +907,7 @@ function FeesSection({ fees }: { fees: FeeRule[] }) {
                     {f.is_active ? <ToggleRight size={18} color="var(--brand)" /> : <ToggleLeft size={18} color="#9E9B94" />}
                   </button>
                 </td>
-                <td style={td}><button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => del.mutate(f.id)}><Trash2 size={13} color="#DC2626" /></button></td>
+                <td style={td}><button style={{ background: "none", border: "none", cursor: "pointer" }} onClick={() => del.mutate(f.id)}><Trash2 size={13} color="#B3261E" /></button></td>
               </tr>
             ))}
             {fees.length === 0 && <tr><td colSpan={7} style={{ ...td, textAlign: "center", color: "#9E9B94", padding: 24 }}>No fee rules yet.</td></tr>}
@@ -1284,7 +1284,7 @@ function BundlesSection() {
           <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
             {bundles.map((b, i) => (
               <div key={b.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 0", borderBottom: i < bundles.length - 1 ? "1px solid #E5E2DC" : "none", opacity: b.active ? 1 : 0.5 }}>
-                <div style={{ width: 34, height: 34, borderRadius: 8, background: b.active ? "#D1FAE5" : "#F3F4F6", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                <div style={{ width: 34, height: 34, borderRadius: 8, background: b.active ? "#D1FAE5" : "#F0EEE9", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                   <Tag size={16} color={b.active ? "#2D6A4F" : "#9E9B94"} />
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -1307,7 +1307,7 @@ function BundlesSection() {
                     <Edit2 size={14} color="#6B6860" />
                   </button>
                   <button style={{ background: "none", border: "none", cursor: "pointer", padding: 0 }} onClick={() => { if (confirm(`Delete "${b.name}"?`)) deleteBundle.mutate(b.id); }}>
-                    <Trash2 size={14} color="#DC2626" />
+                    <Trash2 size={14} color="#B3261E" />
                   </button>
                 </div>
               </div>
@@ -1496,7 +1496,7 @@ function OffersSection() {
               <button
                 key={m}
                 onClick={() => upd("rate_lock_duration_months", m)}
-                style={{ flex: 1, padding: "8px 0", borderRadius: 7, border: `2px solid ${form.rate_lock_duration_months === m ? "var(--brand)" : "#E5E2DC"}`, background: form.rate_lock_duration_months === m ? "var(--brand-light, #EFF6FF)" : "#FFFFFF", color: form.rate_lock_duration_months === m ? "var(--brand)" : "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}
+                style={{ flex: 1, padding: "8px 0", borderRadius: 7, border: `2px solid ${form.rate_lock_duration_months === m ? "var(--brand)" : "#E5E2DC"}`, background: form.rate_lock_duration_months === m ? "var(--brand-light, #EFEFF2)" : "#FFFFFF", color: form.rate_lock_duration_months === m ? "var(--brand)" : "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}
               >
                 {m} months
               </button>
@@ -1641,7 +1641,7 @@ function CommercialServiceTypesSection() {
           {types.map(t => {
             const isEditing = editingId === t.id;
             return (
-              <tr key={t.id} style={{ borderBottom: "1px solid #F0EDE8" }}>
+              <tr key={t.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
                 <td style={{ padding: "10px" }}>
                   {isEditing ? (
                     <input value={editForm.name} onChange={e => setEditForm(f => ({ ...f, name: e.target.value }))}
@@ -1670,7 +1670,7 @@ function CommercialServiceTypesSection() {
                     style={{
                       fontSize: 11, fontWeight: 600, padding: "4px 10px", borderRadius: 14,
                       border: `1px solid ${t.is_active ? "#86EFAC" : "#E5E2DC"}`,
-                      backgroundColor: t.is_active ? "#DCFCE7" : "#F8F7F4",
+                      backgroundColor: t.is_active ? "#E6F6F1" : "#F8F7F4",
                       color: t.is_active ? "#15803D" : "#6B6860",
                       cursor: "pointer", fontFamily: FF,
                     }}>

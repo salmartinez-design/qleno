@@ -33,11 +33,11 @@ interface Results {
 
 // Same 0–4 scale + wording the survey page shows the customer.
 const SCORE_BADGES: Record<number, { label: string; bg: string; fg: string }> = {
-  4: { label: "4 - We're Thrilled - Great Work",      bg: "#16A34A", fg: "#FFFFFF" },
+  4: { label: "4 - We're Thrilled - Great Work",      bg: "#0F7A63", fg: "#FFFFFF" },
   3: { label: "3 - We're Happy - Good Work",          bg: "#4F46E5", fg: "#FFFFFF" },
-  2: { label: "2 - We've Got a Few Concerns",         bg: "#D97706", fg: "#FFFFFF" },
-  1: { label: "1 - Major Concerns",                   bg: "#DC2626", fg: "#FFFFFF" },
-  0: { label: "0 - Considering Another Company",      bg: "#991B1B", fg: "#FFFFFF" },
+  2: { label: "2 - We've Got a Few Concerns",         bg: "#B45309", fg: "#FFFFFF" },
+  1: { label: "1 - Major Concerns",                   bg: "#B3261E", fg: "#FFFFFF" },
+  0: { label: "0 - Considering Another Company",      bg: "#B3261E", fg: "#FFFFFF" },
 };
 
 function ResponseBadge({ score }: { score: number | null }) {

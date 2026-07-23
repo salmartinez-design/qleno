@@ -22,7 +22,7 @@ function ProgressBar({ step, total }: { step: number; total: number }) {
         return (
           <div key={i} style={{ flex: 1, display: "flex", alignItems: "center" }}>
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 6 }}>
-              <div style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: done ? "var(--brand)" : active ? "#EFF6FF" : "#F3F4F6", border: `2px solid ${done || active ? "var(--brand)" : "#E5E2DC"}`, transition: "all 0.2s" }}>
+              <div style={{ width: 32, height: 32, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: done ? "var(--brand)" : active ? "#EFEFF2" : "#F0EEE9", border: `2px solid ${done || active ? "var(--brand)" : "#E5E2DC"}`, transition: "all 0.2s" }}>
                 {done ? <Check size={15} color="#fff" /> : <span style={{ fontSize: 13, fontWeight: 700, color: active ? "var(--brand)" : "#9E9B94" }}>{i + 1}</span>}
               </div>
               <div style={{ fontSize: 11, fontWeight: active ? 700 : 500, color: active ? "var(--brand)" : done ? "#1A1917" : "#9E9B94", textAlign: "center", whiteSpace: "nowrap" }}>{label}</div>
@@ -88,8 +88,8 @@ export default function SignPage() {
 
   if (loading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-      <div style={{ textAlign: "center", color: "#6B7280" }}>
-        <FileText size={40} color="#D1D5DB" style={{ margin: "0 auto 12px", display: "block" }} />
+      <div style={{ textAlign: "center", color: "#6B6860" }}>
+        <FileText size={40} color="#E5E2DC" style={{ margin: "0 auto 12px", display: "block" }} />
         <div style={{ fontSize: 14 }}>Loading agreement...</div>
       </div>
     </div>
@@ -98,11 +98,11 @@ export default function SignPage() {
   if (error && !success) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
       <div style={{ textAlign: "center", maxWidth: 380, padding: 32 }}>
-        <div style={{ width: 60, height: 60, borderRadius: "50%", background: "#FEE2E2", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
-          <AlertCircle size={28} color="#DC2626" />
+        <div style={{ width: 60, height: 60, borderRadius: "50%", background: "#FCEBEA", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+          <AlertCircle size={28} color="#B3261E" />
         </div>
         <div style={{ fontWeight: 700, fontSize: 18, color: "#1A1917", marginBottom: 8 }}>Link Not Available</div>
-        <div style={{ fontSize: 14, color: "#6B7280", lineHeight: 1.6 }}>{error}</div>
+        <div style={{ fontSize: 14, color: "#6B6860", lineHeight: 1.6 }}>{error}</div>
       </div>
     </div>
   );
@@ -114,7 +114,7 @@ export default function SignPage() {
           <Check size={36} color="#065F46" />
         </div>
         <div style={{ fontWeight: 800, fontSize: 22, color: "#1A1917", marginBottom: 10 }}>Agreement Signed!</div>
-        <div style={{ fontSize: 14, color: "#6B7280", lineHeight: 1.7, marginBottom: 24 }}>
+        <div style={{ fontSize: 14, color: "#6B6860", lineHeight: 1.7, marginBottom: 24 }}>
           {data?.already_signed
             ? "This agreement has already been signed."
             : `Thank you, ${success?.signature_name || signatureName}. Your signed agreement has been recorded.`}
@@ -136,8 +136,8 @@ export default function SignPage() {
     </div>
   );
 
-  const inputStyle: React.CSSProperties = { width: "100%", padding: "11px 14px", border: "1px solid #D1D5DB", borderRadius: 8, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", boxSizing: "border-box", outline: "none" };
-  const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#374151", display: "block", marginBottom: 6 };
+  const inputStyle: React.CSSProperties = { width: "100%", padding: "11px 14px", border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", boxSizing: "border-box", outline: "none" };
+  const labelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600, color: "#1A1917", display: "block", marginBottom: 6 };
 
   return (
     <div style={{ minHeight: "100vh", background: "#F7F6F3", fontFamily: "'Plus Jakarta Sans', sans-serif", padding: "20px 16px 60px" }}>
@@ -163,12 +163,12 @@ export default function SignPage() {
               </div>
               <div style={{ padding: "28px 32px", maxHeight: "50vh", overflowY: "auto" }}>
                 {termsBody ? (
-                  <div style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.8, whiteSpace: "pre-line" }}>{termsBody}</div>
+                  <div style={{ fontSize: 13.5, color: "#1A1917", lineHeight: 1.8, whiteSpace: "pre-line" }}>{termsBody}</div>
                 ) : (
                   <div style={{ color: "#9E9B94", fontSize: 13 }}>No terms body provided for this template.</div>
                 )}
               </div>
-              <div style={{ padding: "20px 32px", borderTop: "1px solid #F5F4F2", background: "#F9FAFB" }}>
+              <div style={{ padding: "20px 32px", borderTop: "1px solid #F5F4F2", background: "#F7F6F3" }}>
                 <button onClick={() => setStep(1)} style={{ width: "100%", padding: "13px", background: brand, color: "#fff", border: "none", borderRadius: 9, fontWeight: 700, fontSize: 15, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                   I have read this agreement <ChevronRight size={18} />
                 </button>
@@ -180,7 +180,7 @@ export default function SignPage() {
             <div>
               <div style={{ padding: "22px 28px", borderBottom: "1px solid #F5F4F2" }}>
                 <div style={{ fontSize: 17, fontWeight: 700, color: "#1A1917" }}>Your Information</div>
-                <div style={{ fontSize: 13, color: "#6B7280", marginTop: 3 }}>Please verify or complete your details below</div>
+                <div style={{ fontSize: 13, color: "#6B6860", marginTop: 3 }}>Please verify or complete your details below</div>
               </div>
               <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 16 }}>
                 {schema.filter((f: any) => f.type !== "section").map((field: any) => (
@@ -200,7 +200,7 @@ export default function SignPage() {
                 ))}
               </div>
               <div style={{ padding: "16px 28px", borderTop: "1px solid #F5F4F2", display: "flex", gap: 10 }}>
-                <button onClick={() => setStep(0)} style={{ flex: 1, padding: "11px", background: "none", border: "1px solid #E5E2DC", borderRadius: 9, fontWeight: 600, fontSize: 14, cursor: "pointer", color: "#6B7280", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                <button onClick={() => setStep(0)} style={{ flex: 1, padding: "11px", background: "none", border: "1px solid #E5E2DC", borderRadius: 9, fontWeight: 600, fontSize: 14, cursor: "pointer", color: "#6B6860", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
                   <ChevronLeft size={16} /> Back
                 </button>
                 <button onClick={() => setStep(2)} style={{ flex: 2, padding: "11px", background: brand, color: "#fff", border: "none", borderRadius: 9, fontWeight: 700, fontSize: 14, cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
@@ -214,10 +214,10 @@ export default function SignPage() {
             <div>
               <div style={{ padding: "22px 28px", borderBottom: "1px solid #F5F4F2" }}>
                 <div style={{ fontSize: 17, fontWeight: 700, color: "#1A1917" }}>Sign the Agreement</div>
-                <div style={{ fontSize: 13, color: "#6B7280", marginTop: 3 }}>By typing your full name below, you agree to the terms of this agreement</div>
+                <div style={{ fontSize: 13, color: "#6B6860", marginTop: 3 }}>By typing your full name below, you agree to the terms of this agreement</div>
               </div>
               <div style={{ padding: "24px 28px", display: "flex", flexDirection: "column", gap: 18 }}>
-                <div style={{ background: "#F7F6F3", borderRadius: 10, padding: "14px 18px", fontSize: 12, color: "#6B7280", lineHeight: 1.7 }}>
+                <div style={{ background: "#F7F6F3", borderRadius: 10, padding: "14px 18px", fontSize: 12, color: "#6B6860", lineHeight: 1.7 }}>
                   By signing below, you confirm that you have read, understood, and agree to the full terms of this service agreement with <strong>{companyName}</strong>.
                 </div>
 
@@ -227,11 +227,11 @@ export default function SignPage() {
                     value={signatureName}
                     onChange={e => setSignatureName(e.target.value)}
                     placeholder="Type your full legal name here"
-                    style={{ ...inputStyle, fontSize: 16, fontFamily: "Georgia, serif", borderColor: signatureName ? brand : "#D1D5DB" }}
+                    style={{ ...inputStyle, fontSize: 16, fontFamily: "Georgia, serif", borderColor: signatureName ? brand : "#E5E2DC" }}
                     autoFocus
                   />
                   {signatureName && (
-                    <div style={{ marginTop: 8, padding: "10px 14px", background: "#EFF6FF", borderRadius: 7, display: "flex", alignItems: "center", gap: 8 }}>
+                    <div style={{ marginTop: 8, padding: "10px 14px", background: "#EFEFF2", borderRadius: 7, display: "flex", alignItems: "center", gap: 8 }}>
                       <Check size={14} color="var(--brand)" />
                       <div>
                         <div style={{ fontSize: 12, fontWeight: 600, color: "var(--brand)" }}>Signature Preview</div>
@@ -243,7 +243,7 @@ export default function SignPage() {
 
                 <label style={{ display: "flex", gap: 10, cursor: "pointer", alignItems: "flex-start" }}>
                   <input type="checkbox" checked={agreed} onChange={e => setAgreed(e.target.checked)} style={{ marginTop: 3 }} />
-                  <span style={{ fontSize: 13, color: "#374151", lineHeight: 1.6 }}>
+                  <span style={{ fontSize: 13, color: "#1A1917", lineHeight: 1.6 }}>
                     I confirm that I am <strong>{signatureName || "the authorized signer"}</strong> and I agree to the terms of this service agreement. I understand this constitutes a legally binding electronic signature.
                   </span>
                 </label>
@@ -255,7 +255,7 @@ export default function SignPage() {
               </div>
 
               <div style={{ padding: "16px 28px", borderTop: "1px solid #F5F4F2", display: "flex", gap: 10 }}>
-                <button onClick={() => setStep(1)} style={{ flex: 1, padding: "11px", background: "none", border: "1px solid #E5E2DC", borderRadius: 9, fontWeight: 600, fontSize: 14, cursor: "pointer", color: "#6B7280", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
+                <button onClick={() => setStep(1)} style={{ flex: 1, padding: "11px", background: "none", border: "1px solid #E5E2DC", borderRadius: 9, fontWeight: 600, fontSize: 14, cursor: "pointer", color: "#6B6860", display: "flex", alignItems: "center", justifyContent: "center", gap: 5 }}>
                   <ChevronLeft size={16} /> Back
                 </button>
                 <button

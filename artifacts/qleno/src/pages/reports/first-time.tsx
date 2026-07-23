@@ -46,9 +46,9 @@ export default function FirstTimePage() {
         </div>
 
         {rows.length > 0 && (
-          <div style={{ backgroundColor: "#EFF6FF", border: "1px solid #BFDBFE", borderRadius: 8, padding: "10px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ backgroundColor: "#EFEFF2", border: "1px solid #DEDEE4", borderRadius: 8, padding: "10px 14px", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
             <Star size={14} color={clr.brand} />
-            <span style={{ fontSize: 13, color: "#1D4ED8" }}>
+            <span style={{ fontSize: 13, color: "#2F3646" }}>
               First-time visits are key to retention. Ensure quality and make a great first impression.
             </span>
           </div>

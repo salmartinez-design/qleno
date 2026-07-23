@@ -49,7 +49,7 @@ const card: React.CSSProperties = { background: "#fff", border: "1px solid #E5E2
 const sectionTitle: React.CSSProperties = { fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 12 };
 const th: React.CSSProperties = { padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 700,
   color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.04em", whiteSpace: "nowrap" };
-const td: React.CSSProperties = { padding: "9px 12px", fontSize: 13, color: "#374151" };
+const td: React.CSSProperties = { padding: "9px 12px", fontSize: 13, color: "#1A1917" };
 const lbl: React.CSSProperties = { display: "block", fontSize: 12, fontWeight: 600, color: "#6B6860", marginBottom: 5 };
 const selectStyle: React.CSSProperties = { border: "1px solid #E5E2DC", borderRadius: 6, padding: "8px 12px",
   fontSize: 14, fontFamily: "inherit", background: "#fff", outline: "none", cursor: "pointer" };
@@ -196,7 +196,7 @@ export default function LeadsReportsPage() {
                   <button key={k} onClick={() => toggleCard(k)}
                     style={{ padding: "6px 14px", borderRadius: 999, fontSize: 13, fontWeight: on ? 700 : 500,
                       cursor: "pointer", fontFamily: "inherit",
-                      background: on ? "#1A1917" : "#F7F6F3", color: on ? "#fff" : "#374151",
+                      background: on ? "#1A1917" : "#F7F6F3", color: on ? "#fff" : "#1A1917",
                       border: `1px solid ${on ? "#1A1917" : "#E5E2DC"}` }}>
                     {METRICS[k].label}
                   </button>
@@ -240,7 +240,7 @@ export default function LeadsReportsPage() {
                         </div>
                         <div style={{ height: 10, background: "#F2F1ED", borderRadius: 999, overflow: "hidden" }}>
                           <div style={{ width: `${(v / maxFunnel) * 100}%`, height: "100%",
-                            background: s === "booked" ? "#059669" : "var(--brand)", borderRadius: 999 }} />
+                            background: s === "booked" ? "#0F7A63" : "var(--brand)", borderRadius: 999 }} />
                         </div>
                       </div>
                     );
@@ -275,7 +275,7 @@ export default function LeadsReportsPage() {
                 <Mini label="Cost / Lead" value={report.cost.cpl != null ? `$${report.cost.cpl}` : "—"} />
                 <Mini label="Cost / Booking" value={report.cost.cpa != null ? `$${report.cost.cpa}` : "—"} />
                 <Mini label="ROI" value={report.cost.roi != null ? `${report.cost.roi}%` : "—"}
-                  color={report.cost.roi != null && report.cost.roi >= 0 ? "#059669" : "#DC2626"} />
+                  color={report.cost.roi != null && report.cost.roi >= 0 ? "#0F7A63" : "#B3261E"} />
               </div>
 
               {showSpendForm && (
@@ -305,12 +305,12 @@ export default function LeadsReportsPage() {
                   </tr></thead>
                   <tbody>
                     {spend.map(s => (
-                      <tr key={s.id} style={{ borderBottom: "1px solid #F3F4F6" }}>
+                      <tr key={s.id} style={{ borderBottom: "1px solid #F0EEE9" }}>
                         <td style={td}>{SOURCE_LABEL(s.source)}</td>
                         <td style={td}>${Math.round(Number(s.amount)).toLocaleString()}</td>
                         <td style={td}>{s.period_start} → {s.period_end}</td>
                         <td style={{ ...td, textAlign: "right" }}>
-                          <button onClick={() => deleteSpend(s.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#DC2626" }}>
+                          <button onClick={() => deleteSpend(s.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#B3261E" }}>
                             <Trash2 size={14} />
                           </button>
                         </td>
@@ -349,7 +349,7 @@ export default function LeadsReportsPage() {
                       </div>
                       <div style={{ height: 10, background: "#F2F1ED", borderRadius: 999, overflow: "hidden" }}>
                         <div style={{ width: `${(a.count / maxAge) * 100}%`, height: "100%",
-                          background: a.bucket.includes("31") ? "#DC2626" : a.bucket.includes("15") ? "#EA580C" : "var(--brand)",
+                          background: a.bucket.includes("31") ? "#B3261E" : a.bucket.includes("15") ? "#EA580C" : "var(--brand)",
                           borderRadius: 999 }} />
                       </div>
                     </div>
@@ -377,7 +377,7 @@ export default function LeadsReportsPage() {
                     const target = existing ? existing.target : null;
                     const met = target != null && actual != null && actual >= target;
                     return (
-                      <tr key={k} style={{ borderBottom: "1px solid #F3F4F6" }}>
+                      <tr key={k} style={{ borderBottom: "1px solid #F0EEE9" }}>
                         <td style={{ ...td, fontWeight: 600, color: "#1A1917" }}>{METRICS[k].label}</td>
                         <td style={td}>
                           <Input value={targetEdits[k] ?? (target != null ? String(target) : "")}
@@ -386,9 +386,9 @@ export default function LeadsReportsPage() {
                         </td>
                         <td style={{ ...td, fontWeight: 600 }}>{fmtVal(actual, METRICS[k].fmt)}</td>
                         <td style={td}>
-                          {target == null ? <span style={{ color: "#D1D5DB" }}>—</span> : (
+                          {target == null ? <span style={{ color: "#E5E2DC" }}>—</span> : (
                             <span style={{ fontSize: 12, fontWeight: 600, padding: "2px 8px", borderRadius: 999,
-                              background: met ? "#ECFDF5" : "#FEF2F2", color: met ? "#059669" : "#DC2626" }}>
+                              background: met ? "#E6F6F1" : "#FCEBEA", color: met ? "#0F7A63" : "#B3261E" }}>
                               {met ? "On track" : "Below"}
                             </span>
                           )}
@@ -421,7 +421,7 @@ function PerfTable({ title, rows, cols, empty }:
     <div style={card}>
       <div style={sectionTitle}>{title}</div>
       {(!rows || rows.length === 0) ? (
-        <div style={{ color: "#9CA3AF", fontSize: 13, padding: "16px 0" }}>{empty || "No data in this period."}</div>
+        <div style={{ color: "#9E9B94", fontSize: 13, padding: "16px 0" }}>{empty || "No data in this period."}</div>
       ) : (
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead><tr style={{ borderBottom: "1px solid #E5E2DC" }}>
@@ -429,9 +429,9 @@ function PerfTable({ title, rows, cols, empty }:
           </tr></thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i} style={{ borderBottom: "1px solid #F3F4F6" }}>
+              <tr key={i} style={{ borderBottom: "1px solid #F0EEE9" }}>
                 {cols.map(([h, fn], j) => (
-                  <td key={h} style={{ ...td, fontWeight: j === 0 ? 600 : 400, color: j === 0 ? "#1A1917" : "#374151" }}>{fn(r)}</td>
+                  <td key={h} style={{ ...td, fontWeight: j === 0 ? 600 : 400, color: j === 0 ? "#1A1917" : "#1A1917" }}>{fn(r)}</td>
                 ))}
               </tr>
             ))}
