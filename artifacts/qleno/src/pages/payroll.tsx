@@ -562,8 +562,15 @@ function WeeklyDetailView({ period, onPeriodChange }: { period: { start: string;
                       ...(laborPct != null ? [{ k: 'Labor %', v: `${laborPct}%` }] : []),
                       ...(eff != null ? [{ k: 'Efficiency', v: `${eff}%` }] : []),
                       ...(effRate != null ? [{ k: 'Commission $/hr', v: money(effRate) }] : []),
-                    ].map(s => (
-                      <div key={s.k}><div style={{ fontSize: 10, color: '#9B9890', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.k}</div><div style={{ fontSize: 15, fontWeight: 500, color: '#0A0E1A', marginTop: 3 }}>{s.v}</div></div>
+                      // [payroll-mileage 2026-07-23] Accrued driving reimbursement
+                      // for the period, in the expanded breakdown too (Sal: cascade
+                      // to their employee pay breakdown). The Total-Pay chip above
+                      // only shows APPLIED mileage; this is what's earned and
+                      // awaiting the office's review-gate apply. Teal to read as
+                      // reimbursement, not commission.
+                      ...(Number(emp.totals?.mileage || 0) > 0 ? [{ k: 'Mileage', v: money(Number(emp.totals.mileage)), color: '#0A6E8A' }] : []),
+                    ].map((s: any) => (
+                      <div key={s.k}><div style={{ fontSize: 10, color: '#9B9890', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{s.k}</div><div style={{ fontSize: 15, fontWeight: 500, color: s.color ?? '#0A0E1A', marginTop: 3 }}>{s.v}</div></div>
                     ))}
                   </div>
                 </div>
