@@ -6,6 +6,7 @@
 import { Router } from "express";
 import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
+import { ctDate, ctToday } from "../lib/ct-day.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { enrollForLeadDrip, stopEnrollmentsForLead, sendSingleEnrollmentTouch } from "../services/followUpService.js";
@@ -364,8 +365,11 @@ router.get("/summary", requireAuth, requireRole("owner", "admin", "office"), asy
     // [today-view 2026-07-08] Sal: "I need it by day not month — as an owner I
     // need to know what's going on today; month I can check in a report." Add
     // today's intake (online/office) + booked-today alongside the month roll-up.
-    const isToday = sql`(created_at AT TIME ZONE 'America/Chicago')::date = (now() AT TIME ZONE 'America/Chicago')::date`;
-    const bookedToday = sql`(COALESCE(booked_at, updated_at) AT TIME ZONE 'America/Chicago')::date = (now() AT TIME ZONE 'America/Chicago')::date`;
+    // [ct-day 2026-07-23] Two-step UTC→Central via ctDate — the one-step form
+    // these used to carry shifted the naive stamps +5h, so anything after 2 PM
+    // Central landed on tomorrow's count. See lib/ct-day.ts.
+    const isToday = sql`${ctDate(sql`created_at`)} = ${ctToday()}`;
+    const bookedToday = sql`${ctDate(sql`COALESCE(booked_at, updated_at)`)} = ${ctToday()}`;
     const r = await db.execute(sql`
       SELECT
         COUNT(*) FILTER (WHERE status IN ('new','needs_contacted'))            AS needs_contact,

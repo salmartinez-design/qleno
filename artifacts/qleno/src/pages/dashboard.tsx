@@ -1451,6 +1451,25 @@ export default function Dashboard() {
           navigate={navigate}
         />
 
+        {/* ── TODAY ON THE BOARD ───────────────────────────────── */}
+        {/* [board-first 2026-07-23] Sits directly under the risk strip, above
+            Money. It answers "what is happening right now" — the operational
+            question the morning starts with. Money and Growth are review
+            surfaces; they read fine further down. */}
+        <div>
+          <p style={SECTION_LABEL}>Today on the board</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: GAP }}>
+            {STATUS_CARDS.map(card => (
+              <StatusChip
+                key={card.key}
+                label={card.label}
+                value={Number(counts[card.key] ?? 0)}
+                onClick={() => navigate(`/dispatch?status=${card.dispatchKey}`)}
+              />
+            ))}
+          </div>
+        </div>
+
         {/* ── MONEY ────────────────────────────────────────────── */}
         {/* Revenue booked is the hero above; this row is the rest of the money
             picture. Receivables was removed at Sal's call — it lives on
@@ -1494,21 +1513,6 @@ export default function Dashboard() {
               <BookedCard booked={booked} navigate={navigate} />
             </div>
             <LeadSourcesCard report={leadReport} navigate={navigate} />
-          </div>
-        </div>
-
-        {/* ── TODAY ON THE BOARD ───────────────────────────────── */}
-        <div>
-          <p style={SECTION_LABEL}>Today on the board</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: GAP }}>
-            {STATUS_CARDS.map(card => (
-              <StatusChip
-                key={card.key}
-                label={card.label}
-                value={Number(counts[card.key] ?? 0)}
-                onClick={() => navigate(`/dispatch?status=${card.dispatchKey}`)}
-              />
-            ))}
           </div>
         </div>
 

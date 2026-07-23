@@ -2,6 +2,8 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { jobsTable, clientsTable, usersTable, invoicesTable, timeclockTable, scorecardsTable, accountsTable, accountPropertiesTable, quotesTable, recurringSchedulesTable } from "@workspace/db/schema";
 import { eq, and, or, gte, lte, lt, isNull, count, sum, avg, desc, sql, isNotNull, ne, notInArray } from "drizzle-orm";
+import { ctDate, ctToday, ctDateStr } from "../lib/ct-day.js";
+import { scheduledTimeToMins, clockInMinsLocal } from "../lib/auto-tardy.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import { computeCommissionRows, type CommissionInputJob } from "../lib/commission-compute.js";
@@ -171,8 +173,10 @@ router.get("/today", requireAuth, officeGate, async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
     const now = new Date();
-    const todayStr = now.toISOString().split("T")[0];
-    const tomorrowStr = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString().split("T")[0];
+    // Central, not UTC — `toISOString()` rolls the day over at 7 PM Central and
+    // would swap this board to tomorrow's jobs mid-evening. See lib/ct-day.ts.
+    const todayStr = ctDateStr(now);
+    const tomorrowStr = ctDateStr(new Date(now.getTime() + 24 * 60 * 60 * 1000));
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const { branch_id } = req.query;
     const todayBranchCond = branch_id && branch_id !== "all" ? [eq(jobsTable.branch_id, parseInt(branch_id as string))] : [];
@@ -263,6 +267,19 @@ router.get("/today", requireAuth, officeGate, async (req, res) => {
       ));
 
     const nowMs = now.getTime();
+    // [ct-clock 2026-07-23] Minutes-since-midnight in CENTRAL, on both sides of
+    // every "how long until this job starts" comparison below. `scheduled_time`
+    // is a bare wall-clock string ("09:00") that means Central; the old code
+    // pinned it to a Date via `new Date(todayStr).setHours(h, m)`, which reads
+    // the hours in the SERVER's zone (UTC on Railway). The two operands were in
+    // different timezones, so the gap was off by the UTC offset — the board
+    // warned that Diana hadn't clocked in for a 9:00 AM job at 7:49 AM,
+    // claiming it started "in 10 min" when it was still an hour out.
+    const nowMinsCT = clockInMinsLocal(now);
+    const minsUntil = (t: string | null | undefined): number | null => {
+      const mins = scheduledTimeToMins(t);
+      return mins == null ? null : mins - nowMinsCT;
+    };
     const employeeBoard = allEmployees.map(emp => {
       const empJobs = todayJobs.filter(j => j.assigned_user_id === emp.id);
       const activeClock = activeClockins.find(c => c.user_id === emp.id);
@@ -283,10 +300,8 @@ router.get("/today", requireAuth, officeGate, async (req, res) => {
       } else {
         const nextJob = empJobs.find(j => j.status === 'scheduled' && j.scheduled_time);
         if (nextJob?.scheduled_time) {
-          const [h, m] = nextJob.scheduled_time.split(':').map(Number);
-          const jobMs = new Date(todayStr + 'T00:00:00').setHours(h, m);
-          const diffMin = (jobMs - nowMs) / 60000;
-          if (diffMin > 0 && diffMin <= 30) {
+          const diffMin = minsUntil(nextJob.scheduled_time);
+          if (diffMin != null && diffMin > 0 && diffMin <= 30) {
             status = 'EN ROUTE';
             detail = `Job in ${Math.floor(diffMin)}min`;
           } else {
@@ -303,17 +318,16 @@ router.get("/today", requireAuth, officeGate, async (req, res) => {
     });
 
     const alerts: { type: string; message: string; action: string; id?: number }[] = [];
-    const now15min = new Date(nowMs + 15 * 60 * 1000);
     for (const emp of employeeBoard) {
       if (emp.status === 'SCHEDULED') {
         const empJobs = todayJobs.filter(j => j.assigned_user_id === emp.id && j.scheduled_time);
         for (const job of empJobs) {
-          const [h, m] = (job.scheduled_time || '').split(':').map(Number);
-          const jobMs = new Date(todayStr + 'T00:00:00').setHours(h, m);
-          if (jobMs <= now15min.getTime() && jobMs >= nowMs - 15 * 60 * 1000) {
+          // Fires only inside a ±15-minute band around the Central start time.
+          const diffMin = minsUntil(job.scheduled_time);
+          if (diffMin != null && diffMin <= 15 && diffMin >= -15) {
             alerts.push({
               type: 'warning',
-              message: `${emp.first_name} ${emp.last_name} hasn't clocked in — job starts${jobMs > nowMs ? ` in ${Math.floor((jobMs - nowMs) / 60000)} min` : ' now'}`,
+              message: `${emp.first_name} ${emp.last_name} hasn't clocked in — job starts${diffMin > 0 ? ` in ${diffMin} min` : ' now'}`,
               action: 'call_employee',
               id: emp.id,
             });
@@ -564,7 +578,12 @@ router.get("/kpis", requireAuth, officeGate, async (req, res) => {
       db.select({ c: count() }).from(jobsTable)
         .where(and(
           eq(jobsTable.company_id, companyId),
-          sql`(${jobsTable.created_at} AT TIME ZONE 'America/Chicago')::date = (now() AT TIME ZONE 'America/Chicago')::date`,
+          // [ct-day 2026-07-23] Two-step conversion — see lib/ct-day.ts. The
+          // one-step form here was reinterpreting the UTC stamp AS Central and
+          // shifting it +5h, so every job sold after 2 PM Central counted
+          // toward tomorrow. At 7:44 AM on a day with zero bookings the tile
+          // read 5: the previous afternoon's 4:10–5:29 PM sales.
+          sql`${ctDate(jobsTable.created_at)} = ${ctToday()}`,
           isNull(jobsTable.recurring_schedule_id),
           sql`${jobsTable.status} != 'cancelled'`,
         )),
@@ -1668,8 +1687,8 @@ router.get("/booked", requireAuth, officeGate, async (req, res) => {
         LEFT JOIN clients c ON c.id = j.client_id
        WHERE j.company_id = ${companyId}
          AND j.status != 'cancelled'
-         AND j.created_at >= ${w.from}::date
-         AND j.created_at < (${w.to}::date + interval '1 day')
+         AND ${ctDate(sql`j.created_at`)} >= ${w.from}::date
+         AND ${ctDate(sql`j.created_at`)} <= ${w.to}::date
          ${branchId != null ? sql`AND j.branch_id = ${branchId}` : sql``}
        GROUP BY 1, 2, 3
     `);
