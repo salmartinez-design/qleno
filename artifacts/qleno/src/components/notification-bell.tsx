@@ -100,8 +100,8 @@ export function NotificationBell() {
   // (from lib/notification-style) says what KIND of thing it is. Colour comes
   // from one map so the bell, the full page and any future surface can't drift.
   const iconFor = (type: string) => {
-    const c = styleOf(type).color;
-    const P = { size: 14, style: { color: c } } as const;
+    const st = styleOf(type);
+    const P = { size: 14, style: { color: st.iconColor ?? st.color } } as const;
     switch (type) {
       case "new_message":          return <MessageSquare {...P} />;
       case "scheduled_sms_review": return <Clock {...P} />;
