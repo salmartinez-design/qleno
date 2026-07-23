@@ -333,16 +333,27 @@ router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), asyn
     // [note-mentions 2026-07-23] Ring the bell for everyone tagged. Scoped to
     // ACTIVE users in THIS company so a stale id from the client can't notify
     // someone in another tenant, and self-mentions are dropped (no point
-    // alerting yourself about a note you just wrote). Fired after the row is
-    // stored, and never allowed to fail the save — notifyUser already swallows
-    // its own errors, and the note is the thing that matters.
+    // alerting yourself about a note you just wrote).
+    //
+    // [note-mention-500 2026-07-23] The whole body is wrapped so a mention
+    // failure can NEVER fail the save. It previously threw out to the route's
+    // catch AFTER the note row was already inserted, so the note was written but
+    // the office was told "Note not saved" — inviting a retry and a duplicate.
+    // The note is the thing that matters; a missed bell is recoverable, a lost
+    // (or doubled) note is not.
     const notifyMentions = async (contactName: string | null) => {
+      try {
       if (!mentionIds.length) return;
+      // Inlined as a literal IN list, NOT a bound array. `= ANY(${arr}::int[])`
+      // through the sql template failed to bind and 500'd every mention. Safe
+      // to inline: mentionIds is already parseInt + Number.isInteger filtered
+      // above, so nothing but digits can reach here.
+      const idList = sql.raw(mentionIds.join(","));
       const rows = await db.execute(sql`
         SELECT id, NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS name
           FROM users
          WHERE company_id = ${companyId} AND is_active = true
-           AND id = ANY(${mentionIds}::int[]) AND id <> ${userId}`);
+           AND id IN (${idList}) AND id <> ${userId}`);
       const who = contactName || `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}`;
       for (const u of rows.rows as any[]) {
         await notifyUser({
@@ -357,6 +368,9 @@ router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), asyn
           link: `/messages?phone=${phone}`,
           meta: { kind: "sms_note", phone, client_id: clientId, lead_id: leadId, contact: who },
         });
+      }
+      } catch (e) {
+        console.error("[sms/notes] mention notify failed (note still saved):", (e as any)?.message ?? e);
       }
     };
 
