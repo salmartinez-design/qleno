@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { phone10, recordOutboundSms, getThread, markThreadRead, matchContact } from "../lib/sms-store.js";
+import { notifyUser } from "../lib/notify.js";
 import multer from "multer";
 import crypto from "node:crypto";
 
@@ -282,6 +283,25 @@ async function resolveThreadContact(companyId: number, phone: string) {
   return { clientId: row?.client_id ?? null, leadId: row?.lead_id ?? null };
 }
 
+// [note-mentions 2026-07-23] Who can be @-mentioned on a note. Office staff
+// only — a note is an internal office thread, and techs have no way to open a
+// customer conversation, so tagging one would fire a bell into a dead end.
+router.get("/notes/mentionable", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const rows = await db.execute(sql`
+      SELECT id, NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS name, role
+        FROM users
+       WHERE company_id = ${companyId} AND is_active = true
+         AND role IN ('owner','admin','office','super_admin')
+       ORDER BY first_name, last_name`);
+    return res.json({ users: (rows.rows as any[]).filter(u => u.name) });
+  } catch (err) {
+    console.error("GET /sms/notes/mentionable:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId!;
@@ -291,6 +311,17 @@ router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), asyn
     if (!phone) return res.status(400).json({ error: "phone required" });
     if (!body) return res.status(400).json({ error: "body required" });
 
+    // [note-mentions 2026-07-23] Who to pull into this note (Sal: "add the
+    // ability to add @ ... in case i need to bring in another teamate").
+    // The CLIENT sends explicit user ids alongside the @Name text rather than
+    // the server re-parsing names out of the body — staff names contain spaces
+    // and repeat ("Diana" twice), so name-matching would silently notify the
+    // wrong person or nobody. The text keeps the @Name purely for reading.
+    const mentionIds = Array.isArray(req.body?.mention_user_ids)
+      ? [...new Set((req.body.mention_user_ids as any[])
+          .map(n => parseInt(String(n))).filter(n => Number.isInteger(n)))]
+      : [];
+
     const ur = await db.execute(sql`
       SELECT NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS name FROM users WHERE id = ${userId} LIMIT 1`);
     const author = (ur.rows[0] as any)?.name || null;
@@ -298,6 +329,36 @@ router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), asyn
     // The thread may resolve to both (13 Phes threads do). Prefer the CLIENT —
     // that's the "account" the note should live on once someone has booked.
     const { clientId, leadId } = await resolveThreadContact(companyId, phone);
+
+    // [note-mentions 2026-07-23] Ring the bell for everyone tagged. Scoped to
+    // ACTIVE users in THIS company so a stale id from the client can't notify
+    // someone in another tenant, and self-mentions are dropped (no point
+    // alerting yourself about a note you just wrote). Fired after the row is
+    // stored, and never allowed to fail the save — notifyUser already swallows
+    // its own errors, and the note is the thing that matters.
+    const notifyMentions = async (contactName: string | null) => {
+      if (!mentionIds.length) return;
+      const rows = await db.execute(sql`
+        SELECT id, NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS name
+          FROM users
+         WHERE company_id = ${companyId} AND is_active = true
+           AND id = ANY(${mentionIds}::int[]) AND id <> ${userId}`);
+      const who = contactName || `(${phone.slice(0, 3)}) ${phone.slice(3, 6)}-${phone.slice(6)}`;
+      for (const u of rows.rows as any[]) {
+        await notifyUser({
+          companyId,
+          userId: Number(u.id),
+          // Unmapped in TYPE_TO_CATEGORY on purpose → always delivers in-app
+          // (the bell Sal asked for) and never emails. Add a category later if
+          // people want mentions by email too.
+          type: "note_mention",
+          title: `${author || "A teammate"} mentioned you`,
+          body: body.length > 140 ? body.slice(0, 137) + "…" : body,
+          link: `/messages?phone=${phone}`,
+          meta: { kind: "sms_note", phone, client_id: clientId, lead_id: leadId, contact: who },
+        });
+      }
+    };
 
     if (clientId) {
       const r = await db.execute(sql`
@@ -309,9 +370,13 @@ router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), asyn
            'staff', ${author}, ${phone}, ${userId}, 'logged')
         RETURNING id, logged_at`);
       const row = r.rows[0] as any;
+      const cn = await db.execute(sql`
+        SELECT NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS n FROM clients WHERE id = ${clientId} LIMIT 1`);
+      await notifyMentions((cn.rows[0] as any)?.n ?? null);
       return res.status(201).json({
         id: `note-${row.id}`, note_id: row.id, store: "communication_log",
         client_id: clientId, lead_id: leadId, body, author, created_at: row.logged_at,
+        mentioned: mentionIds.length,
       });
     }
 
@@ -321,9 +386,13 @@ router.post("/notes", requireAuth, requireRole("owner", "admin", "office"), asyn
         VALUES (${leadId}, ${companyId}, 'note_added', ${body}, ${userId}, NOW())
         RETURNING id, created_at`);
       const row = r.rows[0] as any;
+      const ln = await db.execute(sql`
+        SELECT NULLIF(trim(first_name||' '||coalesce(last_name,'')),'') AS n FROM leads WHERE id = ${leadId} LIMIT 1`);
+      await notifyMentions((ln.rows[0] as any)?.n ?? null);
       return res.status(201).json({
         id: `leadnote-${row.id}`, note_id: row.id, store: "lead_activity_log",
         client_id: null, lead_id: leadId, body, author, created_at: row.created_at,
+        mentioned: mentionIds.length,
       });
     }
 

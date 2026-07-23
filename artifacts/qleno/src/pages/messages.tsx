@@ -136,6 +136,19 @@ function fmtScheduled(s: string) {
 
 // Authenticated media component — fetches via Bearer token, creates blob URL.
 // Supports both image and video based on the media key extension.
+// [note-mentions 2026-07-23] Bold the @Names inside a saved note so a reader
+// scanning the thread sees who was pulled in. Purely presentational — the
+// notification already fired from the ids at save time, so this never has to
+// resolve a name back to a person (which is exactly the ambiguity we avoid).
+function renderNoteBody(body: string): React.ReactNode {
+  if (!body) return null;
+  const parts = body.split(/(@[\p{L}\p{M}'-]+(?: [\p{L}\p{M}'-]+)?)/gu);
+  return parts.map((p, i) =>
+    p.startsWith("@")
+      ? <span key={i} style={{ fontWeight: 800, color: "#6B520C" }}>{p}</span>
+      : <span key={i}>{linkify(p)}</span>);
+}
+
 function AuthMedia({ msgId, idx, mediaKey }: { msgId: number; idx: number; mediaKey: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [err, setErr] = useState(false);
@@ -391,6 +404,56 @@ export default function MessagesPage() {
   const [composerMode, setComposerMode] = useState<"reply" | "note">("reply");
   const [savingNote, setSavingNote] = useState(false);
 
+  // [note-mentions 2026-07-23] @-mention a teammate on an internal note and ring
+  // their bell (Sal: "in case i need to bring in another teamate to check the
+  // internal note"). `mentioned` carries the picked USER IDS alongside the
+  // @Name text — the server notifies on ids, never by re-parsing names, since
+  // staff names contain spaces and repeat. mentionQuery is the text typed after
+  // "@" (null = picker closed).
+  const [team, setTeam] = useState<Array<{ id: number; name: string; role: string }>>([]);
+  const [mentioned, setMentioned] = useState<Array<{ id: number; name: string }>>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${API}/api/sms/notes/mentionable`, { headers: getAuthHeaders() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.users) setTeam(d.users); })
+      .catch(() => { /* mentions degrade to plain text */ });
+  }, []);
+
+  // Everyone whose @Name still appears in the draft. Deleting the text removes
+  // the mention, so nobody gets pinged over a name the author took back out.
+  const liveMentions = mentioned.filter(m => reply.includes(`@${m.name}`));
+
+  const mentionMatches = mentionQuery === null ? [] : team
+    .filter(u => u.name.toLowerCase().includes(mentionQuery.toLowerCase()))
+    .slice(0, 6);
+
+  // Detect an "@word" being typed immediately before the caret.
+  function syncMentionQuery(value: string, caret: number) {
+    const upto = value.slice(0, caret);
+    const m = /(?:^|\s)@([\p{L}\p{M}' -]{0,40})$/u.exec(upto);
+    setMentionQuery(m ? m[1] : null);
+  }
+
+  function pickMention(u: { id: number; name: string }) {
+    const el = replyRef.current;
+    const caret = el ? el.selectionStart ?? reply.length : reply.length;
+    const upto = reply.slice(0, caret);
+    // Replace the partial "@que" the author was typing with the full @Name.
+    const replaced = upto.replace(/(^|\s)@([\p{L}\p{M}' -]{0,40})$/u, `$1@${u.name} `);
+    const next = replaced + reply.slice(caret);
+    setReply(next);
+    setMentioned(prev => prev.some(x => x.id === u.id) ? prev : [...prev, u]);
+    setMentionQuery(null);
+    requestAnimationFrame(() => {
+      if (!el) return;
+      el.focus();
+      const pos = replaced.length;
+      el.setSelectionRange(pos, pos);
+    });
+  }
+
   // [composer-autogrow 2026-07-02] Grow the reply box with its content (up to
   // ~6 lines) so a multi-line draft stays fully visible. Before this the box
   // was locked to rows={1}, so after a couple of lines the top scrolled out of
@@ -612,19 +675,24 @@ export default function MessagesPage() {
       const r = await fetch(`${API}/api/sms/notes`, {
         method: "POST",
         headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({ phone: active.contact_phone, body: reply.trim() }),
+        body: JSON.stringify({
+          phone: active.contact_phone, body: reply.trim(),
+          mention_user_ids: liveMentions.map(m => m.id),
+        }),
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) {
         toast({ title: "Note not saved", description: d?.error || "Please try again.", variant: "destructive" as any });
         return;
       }
-      setReply("");
+      const pinged = Number(d.mentioned || 0);
+      setReply(""); setMentioned([]); setMentionQuery(null);
       toast({
         title: "Note saved",
-        description: d.store === "lead_activity_log"
+        description: (d.store === "lead_activity_log"
           ? "Visible on this lead's activity feed. Not sent to the customer."
-          : "Visible on the client's Communication log. Not sent to the customer.",
+          : "Visible on the client's Communication log. Not sent to the customer.")
+          + (pinged ? ` ${pinged} teammate${pinged === 1 ? "" : "s"} notified.` : ""),
       });
       await loadThread(active);
     } catch { toast({ title: "Note not saved", description: "Please try again.", variant: "destructive" as any }); }
@@ -914,7 +982,7 @@ export default function MessagesPage() {
                                 </button>
                               </div>
                               <div style={{ fontSize: 13, lineHeight: 1.45, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "#4A3A08" }}>
-                                {linkify(m.body)}
+                                {renderNoteBody(m.body)}
                               </div>
                               <div style={{ fontSize: 9.5, color: "#A98A3E", marginTop: 4 }}>Not sent to the customer</div>
                             </div>
@@ -1056,9 +1124,43 @@ export default function MessagesPage() {
                   )}
 
                   {/* Composer */}
+                  {/* [note-mentions 2026-07-23] Teammate picker. Anchored above the
+                      composer so it never covers what's being typed. */}
+                  {composerMode === "note" && mentionQuery !== null && mentionMatches.length > 0 && (
+                    <div style={{ margin: "0 10px", background: "#fff", border: `1px solid ${BORDER}`, borderRadius: 10, boxShadow: "0 6px 20px rgba(10,14,26,0.12)", overflow: "hidden" }}>
+                      {mentionMatches.map((u, i) => (
+                        <button key={u.id} onMouseDown={e => { e.preventDefault(); pickMention(u); }}
+                          style={{ display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left", padding: "8px 11px",
+                            background: i === 0 ? "#FEF7E0" : "transparent", border: "none", cursor: "pointer", fontFamily: FF }}>
+                          <span style={{ fontSize: 13, fontWeight: 700, color: INK }}>{u.name}</span>
+                          <span style={{ fontSize: 11, color: MUTE, textTransform: "capitalize" }}>{u.role}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {composerMode === "note" && liveMentions.length > 0 && (
+                    <div style={{ padding: "6px 12px 0", fontSize: 11, color: "#8A6A12", fontFamily: FF }}>
+                      Will notify {liveMentions.map(m => m.name).join(", ")}
+                    </div>
+                  )}
+
                   <div style={{ padding: 10, borderTop: "none", display: "flex", gap: 8, alignItems: "flex-end", background: composerMode === "note" ? "#FFFDF5" : "#fff" }}>
-                    <textarea ref={replyRef} value={reply} onChange={e => setReply(e.target.value)}
+                    <textarea ref={replyRef} value={reply}
+                      onChange={e => {
+                        setReply(e.target.value);
+                        // [note-mentions 2026-07-23] Only notes take mentions —
+                        // there's nobody to tag on a text to the customer.
+                        if (composerMode === "note") syncMentionQuery(e.target.value, e.target.selectionStart ?? e.target.value.length);
+                        else setMentionQuery(null);
+                      }}
+                      onBlur={() => setTimeout(() => setMentionQuery(null), 150)}
                       onKeyDown={e => {
+                        // While the picker is open, Enter takes the top match
+                        // instead of saving a half-typed "@mar".
+                        if (composerMode === "note" && mentionQuery !== null && mentionMatches.length) {
+                          if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); pickMention(mentionMatches[0]); return; }
+                          if (e.key === "Escape") { e.preventDefault(); setMentionQuery(null); return; }
+                        }
                         if (e.key !== "Enter" || e.shiftKey) return;
                         if (composerMode === "note") { e.preventDefault(); saveNote(); return; }
                         if (!scheduleOpen) { e.preventDefault(); send(); }
