@@ -244,6 +244,16 @@ function startFollowUpCron() {
 const SCHEMA_TIMEOUT_MS = 15_000;   // bounded ensure*/DDL + quick checks
 const MIGRATION_TIMEOUT_MS = 45_000; // the larger mixed schema+seed migrations
 
+// [boot-guard 2026-07-22] The cold-start tasks below don't just create schema —
+// they WRITE BUSINESS ROWS (super-admin upserts, the Jim Schultz job_history
+// insert, and a `DELETE FROM jobs WHERE client_id = 23 ...`). Because DATABASE_URL
+// points at production, simply starting the API locally to look at a page fired
+// those writes against prod. Railway injects RAILWAY_ENVIRONMENT on every deploy,
+// so production boots are unchanged; a laptop boot has neither variable and skips.
+// Set RUN_STARTUP_MIGRATIONS=true to opt in deliberately (e.g. seeding a local DB).
+const RUN_DATA_MIGRATIONS =
+  !!process.env.RAILWAY_ENVIRONMENT || process.env.RUN_STARTUP_MIGRATIONS === "true";
+
 function withBootTimeout<T>(
   label: string,
   ms: number,
@@ -641,25 +651,32 @@ async function runStartupMigrations() {
   } catch (err: any) {
     console.error("[startup] ensureSquarePaymentEventsSchema — non-fatal:", err?.message ?? err);
   }
-  try {
-    await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());
-  } catch (err: any) {
-    console.error("[startup] seedIfNeeded — non-fatal:", err?.message ?? err);
+  if (!RUN_DATA_MIGRATIONS) {
+    console.log("[startup] skipping seedIfNeeded + data migrations — not a Railway boot (set RUN_STARTUP_MIGRATIONS=true to force)");
   }
-  try {
-    await withBootTimeout("runPhesDataMigration", MIGRATION_TIMEOUT_MS, () => runPhesDataMigration());
-  } catch (err: any) {
-    console.error("[startup] runPhesDataMigration — non-fatal:", err?.message ?? err);
+  if (RUN_DATA_MIGRATIONS) {
+    try {
+      await withBootTimeout("seedIfNeeded", MIGRATION_TIMEOUT_MS, () => seedIfNeeded());
+    } catch (err: any) {
+      console.error("[startup] seedIfNeeded — non-fatal:", err?.message ?? err);
+    }
+    try {
+      await withBootTimeout("runPhesDataMigration", MIGRATION_TIMEOUT_MS, () => runPhesDataMigration());
+    } catch (err: any) {
+      console.error("[startup] runPhesDataMigration — non-fatal:", err?.message ?? err);
+    }
   }
   try {
     await withBootTimeout("runUserCompaniesMigration", SCHEMA_TIMEOUT_MS, () => runUserCompaniesMigration());
   } catch (err: any) {
     console.error("[startup] runUserCompaniesMigration — non-fatal:", err?.message ?? err);
   }
-  try {
-    await withBootTimeout("runCutoverDataMigration", MIGRATION_TIMEOUT_MS, () => runCutoverDataMigration());
-  } catch (err: any) {
-    console.error("[startup] runCutoverDataMigration — non-fatal:", err?.message ?? err);
+  if (RUN_DATA_MIGRATIONS) {
+    try {
+      await withBootTimeout("runCutoverDataMigration", MIGRATION_TIMEOUT_MS, () => runCutoverDataMigration());
+    } catch (err: any) {
+      console.error("[startup] runCutoverDataMigration — non-fatal:", err?.message ?? err);
+    }
   }
   // [auto-promos 2026-06-21] auto_promos table + seed 15% offers for co1/co4.
   try {

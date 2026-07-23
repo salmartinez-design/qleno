@@ -694,11 +694,12 @@ const PERIODS: { key: Period; label: string }[] = [
   { key: 'month', label: 'This month' },
 ];
 
-function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+function PeriodSelector({ value, onChange, dark }: { value: Period; onChange: (p: Period) => void; dark?: boolean }) {
   return (
     <div style={{
       display: 'inline-flex', padding: 2, gap: 2,
-      background: 'var(--bg-base)', border: '1px solid var(--border)',
+      background: dark ? 'rgba(255,255,255,0.14)' : 'var(--bg-base)',
+      border: `1px solid ${dark ? 'rgba(255,255,255,0.22)' : 'var(--border)'}`,
       borderRadius: 'var(--radius-control)',
     }}>
       {PERIODS.map(p => {
@@ -709,9 +710,9 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
               padding: '6px 14px', border: 'none', cursor: 'pointer', fontFamily: FF,
               fontSize: 12, fontWeight: 600,
               borderRadius: 6,
-              background: on ? 'var(--bg-card)' : 'transparent',
-              color: on ? 'var(--ink)' : 'var(--ink-muted)',
-              boxShadow: on ? 'inset 0 0 0 1px var(--border)' : 'none',
+              background: on ? (dark ? '#FFFFFF' : 'var(--bg-card)') : 'transparent',
+              color: on ? (dark ? 'var(--brand)' : 'var(--ink)') : (dark ? 'rgba(255,255,255,0.82)' : 'var(--ink-muted)'),
+              boxShadow: on && !dark ? 'inset 0 0 0 1px var(--border)' : 'none',
             }}>
             {p.label}
           </button>
@@ -726,8 +727,9 @@ type Summary = {
   window: { from: string; to: string };
   revenue_booked: { value: number; prev: number; delta_pct: number | null; jobs: number };
   collected: { value: number; prev: number; delta_pct: number | null; company_wide: boolean };
-  receivables: { value: number; over_30: number; invoice_count: number; over_30_count: number };
-  payroll: { cost: number; pct_of_revenue: number | null };
+  // Always the last completed Sun–Sat week — Phes pays in arrears, so the
+  // in-flight week's commission isn't owed yet and its ratio means nothing.
+  payroll: { cost: number; revenue: number; pct_of_revenue: number | null; window: { from: string; to: string }; label: string };
 };
 
 function useSummary(period: Period, branchId: number | 'all') {
@@ -760,18 +762,163 @@ function useLeadReport(win: { from: string; to: string } | null) {
   return data;
 }
 
+// ── Live weather ─────────────────────────────────────────────────────────────
+// [dashboard-weather 2026-07-22] Operations input, not decoration: snow and
+// heavy rain move drive time, stretch arrival windows and drive same-day
+// cancellations. Scoped to the active branch — Oak Lawn and Schaumburg get
+// genuinely different weather.
+function useWeather(branchId: number | 'all') {
+  const [wx, setWx] = useState<any>(null);
+  useEffect(() => {
+    let alive = true;
+    const b = branchId !== 'all' ? `?branch_id=${branchId}` : '';
+    fetchJsonWithRetry(`/api/dashboard/weather${b}`).then(j => { if (alive && j) setWx(j); });
+    return () => { alive = false; };
+  }, [branchId]);
+  return wx;
+}
+
+// Minimal line-art glyphs — no emoji (brand rule), no icon dependency.
+function WeatherGlyph({ code, size = 26 }: { code: number; size?: number }) {
+  const s = { width: size, height: size, stroke: 'currentColor', strokeWidth: 1.6, fill: 'none', strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  const sun = <><circle cx="12" cy="12" r="4.2" />{[0, 45, 90, 135, 180, 225, 270, 315].map(a => {
+    const r = (a * Math.PI) / 180;
+    return <line key={a} x1={12 + Math.cos(r) * 6.6} y1={12 + Math.sin(r) * 6.6} x2={12 + Math.cos(r) * 8.6} y2={12 + Math.sin(r) * 8.6} />;
+  })}</>;
+  const cloud = <path d="M7 18h10a3.6 3.6 0 0 0 .3-7.2A5.4 5.4 0 0 0 6.8 11 3.5 3.5 0 0 0 7 18Z" />;
+  let art: React.ReactNode = sun;
+  if (code === 1 || code === 2) art = <><g opacity={0.85}>{sun}</g>{cloud}</>;
+  else if (code === 3 || code === 45 || code === 48) art = cloud;
+  else if (code >= 51 && code <= 67) art = <>{cloud}<line x1="9" y1="20" x2="8.4" y2="22" /><line x1="12.5" y1="20" x2="11.9" y2="22" /><line x1="16" y1="20" x2="15.4" y2="22" /></>;
+  else if (code >= 71 && code <= 77) art = <>{cloud}<line x1="9" y1="21" x2="9" y2="21.1" /><line x1="12.5" y1="21.6" x2="12.5" y2="21.7" /><line x1="16" y1="21" x2="16" y2="21.1" /></>;
+  else if (code >= 80 && code <= 86) art = <>{cloud}<line x1="9.5" y1="19.6" x2="8.4" y2="22.4" /><line x1="14.5" y1="19.6" x2="13.4" y2="22.4" /></>;
+  else if (code >= 95) art = <>{cloud}<path d="M13 19.4 10.6 22.4h2.6L11.6 25" /></>;
+  return <svg viewBox="0 0 24 24" style={s} aria-hidden>{art}</svg>;
+}
+
+// ── Hero band ────────────────────────────────────────────────────────────────
+// [dashboard-hero 2026-07-22] The page was all white cards on beige and read as
+// a generic admin template — no tenant colour anywhere above the fold. The
+// headline number now sits in the tenant's own brand, graded into Qleno Night,
+// which is where the app's palette actually lives. Everything in here is
+// derived from var(--brand), so a tenant with a different brand_color gets a
+// coherent band rather than a blue one.
+function HeroBand({ greeting, todayDate, branchName, summary, period, setPeriod, weather }: {
+  greeting: string; todayDate: string; branchName?: string;
+  summary: Summary | null; period: Period; setPeriod: (p: Period) => void; weather: any;
+}) {
+  const delta = summary?.revenue_booked.delta_pct ?? null;
+  const prevLabel = period === 'today' ? 'yesterday' : period === 'week' ? 'last week' : 'last month';
+  return (
+    <div style={{
+      borderRadius: 'var(--radius-card)',
+      // [brand 2026-07-22] Qleno Night, not the brand hue. The hero is the one
+      // large dark surface on the page; mint is the ACCENT on top of it (the
+      // delta pill, the selector's active state), never the field itself. A
+      // full-bleed brand-colored band is what made the page read as someone
+      // else's app when a tenant's brand_color is a blue.
+      background: 'linear-gradient(118deg, var(--night) 0%, var(--night-2) 100%)',
+      color: '#FFFFFF', padding: '22px 26px',
+      display: 'flex', alignItems: 'stretch', justifyContent: 'space-between', gap: 28, flexWrap: 'wrap',
+    }}>
+      {/* left — who / when / where */}
+      <div style={{ minWidth: 200 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <p style={{ fontSize: 20, fontWeight: 600, margin: 0, fontFamily: FF, color: '#FFFFFF' }}>{greeting}</p>
+          {branchName && (
+            <span style={{ fontSize: 11, fontWeight: 600, background: 'rgba(255,255,255,0.18)', border: '1px solid rgba(255,255,255,0.28)', padding: '2px 8px', borderRadius: 999, fontFamily: FF }}>
+              {branchName}
+            </span>
+          )}
+        </div>
+        <p style={{ fontSize: 12, margin: '6px 0 0', fontFamily: FF, color: 'rgba(255,255,255,0.78)' }}>{todayDate}</p>
+
+        {weather?.available && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 14 }}>
+            <span style={{ color: '#FFFFFF', display: 'flex' }}><WeatherGlyph code={weather.code} /></span>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 600, margin: 0, fontFamily: FF, color: '#FFFFFF' }}>
+                {weather.temp}° · {weather.condition}
+              </p>
+              <p style={{ fontSize: 11, margin: '2px 0 0', fontFamily: FF, color: 'rgba(255,255,255,0.72)' }}>
+                {/* Precip % removed at Sal's call — a number nobody acts on.
+                    The rough-day pill below is the part that changes a decision. */}
+                H {weather.high}° / L {weather.low}° · {weather.wind_mph} mph · {weather.place}
+              </p>
+            </div>
+          </div>
+        )}
+        {/* Weather earns its space by saying what it means for the day. */}
+        {weather?.available && weather.rough && (
+          <p style={{ fontSize: 11, fontWeight: 600, margin: '8px 0 0', padding: '3px 8px', display: 'inline-block', borderRadius: 999, background: 'rgba(255,255,255,0.18)', fontFamily: FF }}>
+            Expect longer drive times and same-day cancellations
+          </p>
+        )}
+      </div>
+
+      {/* centre — the headline number for the selected window */}
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 220 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.75)', fontFamily: FF }}>
+          Revenue booked · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}
+        </span>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginTop: 8, flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 40, fontWeight: 600, lineHeight: 1, fontFamily: FF, color: '#FFFFFF' }}>
+            {summary ? fmtWF(summary.revenue_booked.value) : '—'}
+          </span>
+          {delta !== null && (
+            <span style={{
+              fontSize: 12, fontWeight: 600, fontFamily: FF, padding: '2px 8px', borderRadius: 999,
+              // Mint is the accent ON the night band. Down weeks drop to a
+              // neutral wash rather than turning red — the hero is orientation,
+              // not an alarm; alarms live in Needs attention.
+              background: delta >= 0 ? 'rgba(var(--brand-rgb),0.20)' : 'rgba(255,255,255,0.14)',
+              color: delta >= 0 ? 'var(--brand)' : 'rgba(255,255,255,0.88)',
+            }}>
+              {delta >= 0 ? '+' : ''}{delta}% vs {prevLabel}
+            </span>
+          )}
+        </div>
+        <span style={{ fontSize: 12, marginTop: 8, color: 'rgba(255,255,255,0.78)', fontFamily: FF }}>
+          {summary ? `${summary.revenue_booked.jobs} jobs on the schedule` : 'Loading…'}
+        </span>
+      </div>
+
+      {/* right — the one control that scopes the page */}
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.7)', fontFamily: FF }}>Showing</span>
+        <PeriodSelector value={period} onChange={setPeriod} dark />
+      </div>
+    </div>
+  );
+}
+
 function MoneyCard({ label, value, sub, delta, deltaSuffix, href, navigate }: {
   label: string; value: string; sub: string;
   delta?: number | null; deltaSuffix?: string;
   href?: string; navigate?: (p: string) => void;
 }) {
   const clickable = Boolean(href && navigate);
+  const [hover, setHover] = useState(false);
   return (
     <div
       onClick={() => href && navigate && navigate(href)}
-      style={{ ...CARD, padding: '18px 20px', minHeight: 108, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', cursor: clickable ? 'pointer' : 'default' }}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{
+        ...CARD, padding: '18px 20px', minHeight: 108,
+        display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+        cursor: clickable ? 'pointer' : 'default',
+        borderColor: hover && clickable ? 'var(--brand)' : 'var(--border)',
+        background: hover && clickable ? 'var(--brand-soft)' : 'var(--bg-card)',
+        transition: 'border-color 0.15s, background 0.15s',
+      }}
     >
-      <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, fontFamily: FF }}>{label}</p>
+      {/* The brand tick is what ties a white card back to the tenant's palette
+          without tinting the number, which has to stay --ink. */}
+      <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, fontFamily: FF, display: 'flex', alignItems: 'center', gap: 7 }}>
+        <span style={{ width: 3, height: 12, borderRadius: 2, background: 'var(--brand)', display: 'inline-block', flexShrink: 0 }} />
+        {label}
+      </p>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, margin: '10px 0 6px', flexWrap: 'wrap' }}>
         <span style={{ fontSize: 30, fontWeight: 600, color: 'var(--ink)', lineHeight: 1, fontFamily: FF }}>{value}</span>
         <DeltaBadge delta={delta ?? null} suffix={deltaSuffix} />
@@ -841,8 +988,32 @@ const SOURCE_LABEL: Record<string, string> = {
 const prettySource = (s: string | null) =>
   !s ? 'Unknown' : (SOURCE_LABEL[s] || s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()));
 
+// [lead-source-palette 2026-07-22] A single mint→night ramp, so the card reads
+// as one family instead of a pie-chart rainbow. The steps are ordered by how
+// much the channel costs us: Referral gets Qleno Night — the darkest, most
+// distinguished step — because it's the free channel Sal wants to see first,
+// and it can never be confused with a paid source. Everything else steps down
+// in mint toward the neutral for the long tail.
+//
+// This map encodes DATA (which channel a color means), so it is deliberately
+// literal and exempt from the var(--brand) sweep — a tenant's brand_color must
+// not repaint "Referral".
+const SOURCE_COLOR: Record<string, string> = {
+  referral:     '#0A0E1A',  // Qleno Night — the free channel, deliberately set apart
+  repeat:       '#0A0E1A',
+  google_local: '#00C9A0',  // Electric Mint
+  google:       '#00C9A0',
+  facebook:     '#4C8C7B',
+  instagram:    '#4C8C7B',
+  website:      '#8FB8AC',
+  phone:        '#8FB8AC',
+};
+const SOURCE_FALLBACK = '#C8C4BC';
+const sourceColor = (s: string | null) => (s && SOURCE_COLOR[s]) || SOURCE_FALLBACK;
+
 function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: string) => void }) {
   const rows: any[] = (report?.by_source || []).slice(0, 6);
+  const maxLeads = Math.max(1, ...rows.map(r => r.leads || 0));
   return (
     <div style={{ ...CARD, padding: '18px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
@@ -865,7 +1036,18 @@ function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: stri
           <tbody>
             {rows.map((r, i) => (
               <tr key={r.source ?? `s${i}`} style={{ borderTop: '1px solid var(--border-sub)' }}>
-                <td style={{ fontSize: 13, color: 'var(--ink)', padding: '9px 0' }}>{prettySource(r.source)}</td>
+                {/* Share bar carries the source's own color, so the same
+                    channel is the same swatch here, in the legend, and in the
+                    full report. Numbers stay --ink — color is never the value. */}
+                <td style={{ fontSize: 13, color: 'var(--ink)', padding: '9px 12px 9px 0', minWidth: 120 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: 2, background: sourceColor(r.source), flexShrink: 0 }} />
+                    {prettySource(r.source)}
+                  </div>
+                  <div style={{ height: 4, borderRadius: 2, background: 'var(--bg-base)', marginTop: 5, overflow: 'hidden' }}>
+                    <div style={{ width: `${Math.round((r.leads / maxLeads) * 100)}%`, height: '100%', background: sourceColor(r.source), borderRadius: 2 }} />
+                  </div>
+                </td>
                 <td style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right' }}>{r.leads}</td>
                 <td style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right' }}>{Math.round(r.rate)}%</td>
                 <td style={{ fontSize: 13, color: 'var(--ink)', textAlign: 'right' }}>{fmtWF(r.booked_value || 0)}</td>
@@ -874,6 +1056,62 @@ function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: stri
           </tbody>
         </table>
       )}
+    </div>
+  );
+}
+
+// [notifications 2026-07-22] Two feeds, one section, side by side.
+//
+//   Office    — money and account exceptions the office has to clear
+//               (commercial alerts, pending mileage approvals)
+//   Employees — people exceptions from HR attendance (NCNS, absences)
+//
+// These three banners already existed; they were stacked at the very bottom of
+// the page under the charts, which is why a "Charge failed" alert could sit
+// unread all day. Nothing about their data or their actions changed — they were
+// moved up and given a shared heading so the two audiences read separately.
+// A column with nothing in it says so rather than collapsing, so "quiet" and
+// "broken" don't look the same; the whole section hides only when both are dry.
+// The `techs` slot is the "who is working today" column — it rides in the same
+// band so the operator reads people and exceptions in one pass instead of
+// scrolling past four charts to find them.
+function NotificationsSection({ techs }: { techs?: React.ReactNode }) {
+  const [commercial, setCommercial] = useState<number | null>(null);
+  const [mileage, setMileage] = useState<number | null>(null);
+  const [hr, setHr] = useState<number | null>(null);
+
+  const officeCount = (commercial ?? 0) + (mileage ?? 0);
+  const loaded = commercial !== null && mileage !== null && hr !== null;
+
+  const empty = (text: string) => (
+    <div style={{ ...CARD, padding: '16px 18px' }}>
+      <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>{text}</p>
+    </div>
+  );
+  const colLabel: React.CSSProperties = { ...SECTION_LABEL, margin: '0 0 2px', color: 'var(--ink-faint)' };
+
+  return (
+    <div>
+      <p style={SECTION_LABEL}>Right now</p>
+      <div style={{ display: 'grid', gridTemplateColumns: techs ? '1.1fr 1fr 1fr' : '1fr 1fr', gap: GAP, alignItems: 'start' }}>
+        {techs && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
+            <p style={colLabel}>Working today</p>
+            {techs}
+          </div>
+        )}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
+          <p style={colLabel}>Office</p>
+          <CommercialAlertsBanner onCount={setCommercial} />
+          <MileagePendingBanner onCount={setMileage} />
+          {loaded && officeCount === 0 && empty('Nothing to clear.')}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: GAP }}>
+          <p style={colLabel}>Employees</p>
+          <HRAlertsBanner onCount={setHr} />
+          {loaded && hr === 0 && empty('Everyone accounted for today.')}
+        </div>
+      </div>
     </div>
   );
 }
@@ -917,9 +1155,13 @@ export default function Dashboard() {
   const [showCloseDay, setShowCloseDay] = useState(false);
   const { activeBranchId, activeBranch } = useBranch();
 
-  const [period, setPeriod] = useState<Period>('week');
+  // [dashboard-default 2026-07-22] Opens on TODAY. Sal's read of the page is
+  // "what is my business doing right now" — the week is one tap away, not the
+  // default.
+  const [period, setPeriod] = useState<Period>('today');
   const summary = useSummary(period, activeBranchId);
   const leadReport = useLeadReport(summary?.window ?? null);
+  const weather = useWeather(activeBranchId);
 
   const today = useToday(activeBranchId);
   const kpis = useKpis();
@@ -1017,24 +1259,19 @@ export default function Dashboard() {
     <DashboardLayout>
       <div style={{ display: 'flex', flexDirection: 'column', gap: GAP, fontFamily: FF }}>
 
-        {/* ── HEADER + PERIOD SELECTOR ─────────────────────────── */}
-        {/* [dashboard-period 2026-07-22] One control owns the page. The money
-            row and the growth row below both read the window it resolves; the
-            header no longer hardcodes "Revenue this week". */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-          <div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <p style={{ fontSize: 22, fontWeight: 600, color: 'var(--ink)', margin: 0, fontFamily: FF }}>{greeting}</p>
-              {activeBranch && (
-                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'var(--brand-dim)', padding: '2px 8px', borderRadius: 999, letterSpacing: '0.03em', fontFamily: FF }}>
-                  {activeBranch.name}
-                </span>
-              )}
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--ink-muted)', margin: '4px 0 0', fontFamily: FF }}>{todayDate}</p>
-          </div>
-          <PeriodSelector value={period} onChange={setPeriod} />
-        </div>
+        {/* ── HERO ─────────────────────────────────────────────── */}
+        {/* One control owns the page: the money row and the growth row both read
+            the window it resolves, and each card states its own window in words
+            so a label can never drift from the SQL. */}
+        <HeroBand
+          greeting={greeting}
+          todayDate={todayDate}
+          branchName={activeBranch?.name}
+          summary={summary}
+          period={period}
+          setPeriod={setPeriod}
+          weather={weather}
+        />
 
         {/* ── NEEDS ATTENTION (risk first, hidden when clean) ───── */}
         <NeedsAttentionStrip
@@ -1045,16 +1282,12 @@ export default function Dashboard() {
         />
 
         {/* ── MONEY ────────────────────────────────────────────── */}
+        {/* Revenue booked is the hero above; this row is the rest of the money
+            picture. Receivables was removed at Sal's call — it lives on
+            /reports/receivables and was noise here. */}
         <div>
           <p style={SECTION_LABEL}>Money · {summary?.label ?? PERIODS.find(p => p.key === period)!.label}</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: GAP }}>
-            <MoneyCard
-              label="Revenue booked"
-              value={summary ? fmtWF(summary.revenue_booked.value) : '—'}
-              delta={summary?.revenue_booked.delta_pct}
-              sub={summary ? `${summary.revenue_booked.jobs} jobs scheduled ${summary.window.from.slice(5)} – ${summary.window.to.slice(5)}` : 'Loading…'}
-              href="/dispatch" navigate={navigate}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: GAP }}>
             <MoneyCard
               label="Cash collected"
               value={summary ? fmtWF(summary.collected.value) : '—'}
@@ -1062,18 +1295,19 @@ export default function Dashboard() {
               sub={summary ? `payments received${summary.collected.company_wide ? ' · all branches' : ''}` : 'Loading…'}
               href="/invoices" navigate={navigate}
             />
-            {/* A balance, not a flow — deliberately does NOT move with the
-                selector, and the card says so rather than implying it did. */}
             <MoneyCard
-              label="Receivables"
-              value={summary ? fmtWF(summary.receivables.value) : '—'}
-              sub={summary ? `${summary.receivables.invoice_count} open now · ${fmtWF(summary.receivables.over_30)} over 30 days` : 'Loading…'}
-              href="/reports/receivables" navigate={navigate}
+              label="Booked today"
+              value={hcp == null ? '—' : String(hcp.new_jobs_today)}
+              sub={hcp == null ? 'Loading…' : `${fmtWF(hcp.rev_booked_today)} scheduled for today`}
+              href={`/reports/jobs?booked_on=${ctToday()}`} navigate={navigate}
             />
+            {/* Arrears: always the last COMPLETED week, never the selector's
+                window. This week's commission isn't owed yet, so its ratio
+                would swing every morning and mean nothing. */}
             <MoneyCard
-              label="Payroll"
+              label="Payroll · last week"
               value={summary?.payroll.pct_of_revenue != null ? `${summary.payroll.pct_of_revenue}%` : '—'}
-              sub={summary ? `${fmtWF(summary.payroll.cost)} commission / revenue booked` : 'Loading…'}
+              sub={summary ? `${fmtWF(summary.payroll.cost)} commission on ${fmtWF(summary.payroll.revenue)} · ${summary.payroll.window.from.slice(5)} – ${summary.payroll.window.to.slice(5)}` : 'Loading…'}
               href="/reports/payroll" navigate={navigate}
             />
           </div>
@@ -1109,13 +1343,7 @@ export default function Dashboard() {
             they're one row now. "Booked today" keeps its #1196 drill-down. */}
         <div>
           <p style={SECTION_LABEL}>Book of business</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: GAP }}>
-            <MoneyCard
-              label="Booked today"
-              value={hcp == null ? '—' : String(hcp.new_jobs_today)}
-              sub={hcp == null ? 'Loading…' : `${fmtWF(hcp.rev_booked_today)} scheduled for today`}
-              href={`/reports/jobs?booked_on=${ctToday()}`} navigate={navigate}
-            />
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: GAP }}>
             <MoneyCard
               label="Avg bill"
               value={kpis == null ? '—' : (kpis.avg_bill > 0 ? `$${kpis.avg_bill.toFixed(0)}` : '—')}
@@ -1136,12 +1364,35 @@ export default function Dashboard() {
           </div>
         </div>
 
+        {/* ── RIGHT NOW: who's working + the two notification feeds ─ */}
+        {/* Techs Today used to sit beside the 12-month revenue chart, and the
+            three alert banners were stacked below everything. Both are
+            "someone has to look at this today" content, so they read together
+            here instead of bracketing half a page of trend charts. */}
+        {canAdmin && (
+          <NotificationsSection
+            techs={
+              <div style={{ ...CARD, padding: '20px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+                  <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, fontFamily: FF }}>Techs today</p>
+                  <button onClick={() => navigate('/employees/clocks')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, display: 'flex', alignItems: 'center', gap: 3, padding: 0 }}>
+                    Clock monitor <ChevronRight size={12} />
+                  </button>
+                </div>
+                {!techsData
+                  ? <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>Loading…</p>
+                  : <TechsTodayPanel techsData={techsData} navigate={navigate} />}
+              </div>
+            }
+          />
+        )}
+
         {/* ── OFFICE REMINDERS ─────────────────────────────────── */}
         {canAdmin && <OfficeReminders isMobile={isMobile} />}
-        {/* ── TWO-COLUMN: REVENUE CHART + TECHS TODAY ─────────── */}
-        <div style={{ display: 'flex', gap: 14, alignItems: 'stretch' }}>
-          {/* Revenue Chart — 60% */}
-          <div style={{ ...CARD, padding: '24px', flex: '0 0 60%', minWidth: 0 }}>
+
+        {/* ── REVENUE TREND ────────────────────────────────────── */}
+        <div style={{ display: 'flex', gap: GAP, alignItems: 'stretch' }}>
+          <div style={{ ...CARD, padding: '24px', flex: 1, minWidth: 0 }}>
             {chartData.length === 0 ? (
               <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF }}>No revenue data yet.</p>
@@ -1166,7 +1417,7 @@ export default function Dashboard() {
                     <span style={{ fontSize: 12, color: '#4A4845', fontFamily: FF }}>This year</span>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span style={{ display: 'inline-block', width: 14, height: 0, borderTop: '2px dashed #B5D4F4' }} />
+                    <span style={{ display: 'inline-block', width: 14, height: 0, borderTop: '2px dashed var(--ink-faint)' }} />
                     <span style={{ fontSize: 12, color: '#4A4845', fontFamily: FF }}>Prior year</span>
                   </div>
                 </div>
@@ -1206,11 +1457,11 @@ export default function Dashboard() {
                     <Line
                       type="monotone"
                       dataKey="prior_revenue"
-                      stroke="#B5D4F4"
+                      stroke="var(--ink-faint)"
                       strokeWidth={1.5}
                       strokeDasharray="4 3"
                       dot={false}
-                      activeDot={{ r: 3, fill: '#B5D4F4', strokeWidth: 0 }}
+                      activeDot={{ r: 3, fill: 'var(--ink-faint)', strokeWidth: 0 }}
                     />
                   </LineChart>
                 </ResponsiveContainer>
@@ -1218,71 +1469,49 @@ export default function Dashboard() {
             )}
           </div>
 
-          {/* Techs Today — 38% (always rendered, independent of chart data) */}
-          <div style={{ ...CARD, padding: '20px', flex: '0 0 38%', minWidth: 0 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <p style={{ fontSize: 11, fontWeight: 600, color: '#9E9B94', textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0, fontFamily: FF }}>Techs Today</p>
-              <button onClick={() => navigate('/employees/clocks')} style={{ fontSize: 11, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF, display: 'flex', alignItems: 'center', gap: 3, padding: 0 }}>
-                Clock Monitor <ChevronRight size={12} />
-              </button>
-            </div>
-            {!techsData ? (
-              <p style={{ fontSize: 12, color: '#9E9B94', margin: 0, fontFamily: FF }}>Loading…</p>
-            ) : (
-              <TechsTodayPanel techsData={techsData} navigate={navigate} />
-            )}
-          </div>
         </div>
 
-
-
         {/* ── INTELLIGENCE STRIP (hidden if all dashes, below Needs Attention) ── */}
+        {/* Was three tinted tiles — brand / green / blue — with 800-weight
+            numbers in three different colors. None of the three is a status,
+            so none of them earns a color: same white card as every other tile,
+            value in --ink, brand tick for the family. */}
         {kpis && !allIntelDashes && (
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: GAP }}>
             {[
-              { label: 'Revenue Forecast', value: kpis.forecast_next_month != null ? fmt$(kpis.forecast_next_month) : '—', sub: 'next 30 days', color: 'var(--brand)', bg: 'var(--brand-dim)' },
-              { label: 'Avg Client LTV', value: kpis.avg_ltv != null ? fmt$(kpis.avg_ltv) : '—', sub: 'estimated lifetime', color: '#16A34A', bg: '#DCFCE7' },
-              { label: 'Avg NPS', value: kpis.avg_nps != null ? kpis.avg_nps.toFixed(1) : '—', sub: 'last 90 days', color: '#1D4ED8', bg: '#DBEAFE' },
+              { label: 'Revenue forecast', value: kpis.forecast_next_month != null ? fmt$(kpis.forecast_next_month) : '—', sub: 'next 30 days' },
+              { label: 'Avg client LTV', value: kpis.avg_ltv != null ? fmt$(kpis.avg_ltv) : '—', sub: 'estimated lifetime' },
+              { label: 'Avg NPS', value: kpis.avg_nps != null ? kpis.avg_nps.toFixed(1) : '—', sub: 'last 90 days' },
             ].filter(w => w.value !== '—').map(w => (
-              <div key={w.label} style={{ backgroundColor: w.bg, border: '1px solid transparent', borderRadius: 10, padding: '14px 16px' }}>
-                <p style={{ fontSize: isMobile ? 10 : 11, fontWeight: 600, color: '#6B7280', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 4px', fontFamily: FF }}>{w.label}</p>
-                <p style={{ fontSize: isMobile ? 20 : 24, fontWeight: 800, color: w.color, margin: '0 0 2px', lineHeight: 1, fontFamily: FF }}>{w.value}</p>
-                <p style={{ fontSize: 10, color: '#9E9B94', margin: 0, fontFamily: FF }}>{w.sub}</p>
-              </div>
+              <MoneyCard key={w.label} label={w.label} value={w.value} sub={w.sub} />
             ))}
           </div>
         )}
 
         {/* ── BUSINESS HEALTH ──────────────────────────────────── */}
+        {/* Same three numbers, same sources — moved onto MoneyCard so this row
+            stops being a fourth card treatment (36px/500 values, orange for a
+            negative rate trend, teal for retention, its own 14px gap). Rate
+            trend keeps its sign in the text; it no longer needs a color to say
+            "down", which was the only number on the page painted by value. */}
         <div>
-          <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.05em', margin: '0 0 10px', marginTop: 2, fontFamily: FF }}>Business Health</p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}>
-            {/* Rate Trend */}
-            <div style={{ ...CARD, padding: '22px 24px', minHeight: 100 }}>
-              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Rate Trend</p>
-              <p style={{ fontSize: 36, fontWeight: 500, color: bizHealth && bizHealth.rate_trend < 0 ? '#D85A30' : '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
-                {bizHealth == null ? '—' : `${bizHealth.rate_trend > 0 ? '+' : ''}${bizHealth.rate_trend}%`}
-              </p>
-              <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>avg bill, 12mo vs prior 12mo</p>
-            </div>
-
-            {/* Payroll % */}
-            <div style={{ ...CARD, padding: '22px 24px', minHeight: 100 }}>
-              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Payroll %</p>
-              <p style={{ fontSize: 36, fontWeight: 500, color: '#1A1917', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
-                {bizHealth == null ? '—' : `${bizHealth.payroll_pct}%`}
-              </p>
-              <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>payroll cost / revenue, {bizHealth?.payroll_window ?? 'Apr 2026'}</p>
-            </div>
-
-            {/* Retention */}
-            <div style={{ ...CARD, padding: '22px 24px', minHeight: 100 }}>
-              <p style={{ fontSize: 11, fontWeight: 500, color: '#4A4845', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 10px', fontFamily: FF }}>Retention</p>
-              <p style={{ fontSize: 36, fontWeight: 500, color: '#2D9B83', margin: '0 0 6px', lineHeight: 1, fontFamily: FF }}>
-                {bizHealth == null ? '—' : `${bizHealth.retention}%`}
-              </p>
-              <p style={{ fontSize: 13, color: '#6B6860', margin: 0, fontFamily: FF }}>recurring clients active</p>
-            </div>
+          <p style={SECTION_LABEL}>Business health</p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: GAP }}>
+            <MoneyCard
+              label="Rate trend"
+              value={bizHealth == null ? '—' : `${bizHealth.rate_trend > 0 ? '+' : ''}${bizHealth.rate_trend}%`}
+              sub="avg bill, 12mo vs prior 12mo"
+            />
+            <MoneyCard
+              label="Payroll %"
+              value={bizHealth == null ? '—' : `${bizHealth.payroll_pct}%`}
+              sub={`payroll cost / revenue, ${bizHealth?.payroll_window ?? '—'}`}
+            />
+            <MoneyCard
+              label="Retention"
+              value={bizHealth == null ? '—' : `${bizHealth.retention}%`}
+              sub="recurring clients active"
+            />
           </div>
         </div>
 
@@ -1292,15 +1521,9 @@ export default function Dashboard() {
         {/* ── Recent Activity (under the revenue forecast) ── */}
         <RecentActivitySection />
 
-        {/* ── Commercial Alerts ── */}
-        {canAdmin && <CommercialAlertsBanner />}
-
-        {/* ── HR Alerts widget (owner/admin only) ── */}
-        {canAdmin && <HRAlertsBanner />}
-
-        {/* ── Mileage Pending queue (owner/admin only) ── */}
-        {canAdmin && <MileagePendingBanner />}
-
+        {/* Commercial alerts, HR alerts and the mileage queue used to stack here,
+            below every chart. They now render in the Right-now band near the top
+            of the page — same components, same data, same actions. */}
 
       </div>
       {showCloseDay && <CloseDayModal onClose={() => setShowCloseDay(false)} />}
@@ -1422,7 +1645,10 @@ function TechsTodayPanel({ techsData, navigate }: { techsData: any; navigate: (p
   );
 }
 
-function CommercialAlertsBanner() {
+// onCount lets the Notifications section know whether this feed has anything,
+// without lifting the fetch out of the banner. A feed that reports 0 is hidden
+// by its own `return null` AND lets the section hide its column heading.
+function CommercialAlertsBanner({ onCount }: { onCount?: (n: number) => void } = {}) {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [, navigate] = useLocation();
 
@@ -1430,8 +1656,8 @@ function CommercialAlertsBanner() {
     const base = import.meta.env.BASE_URL.replace(/\/$/, "");
     fetch(`${base}/api/dashboard/commercial-alerts`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : { alerts: [] })
-      .then(d => setAlerts(d.alerts || []))
-      .catch(() => {});
+      .then(d => { setAlerts(d.alerts || []); onCount?.((d.alerts || []).length); })
+      .catch(() => onCount?.(0));
   }, []);
 
   if (!alerts.length) return null;
@@ -1476,7 +1702,7 @@ function CommercialAlertsBanner() {
   );
 }
 
-function MileagePendingBanner() {
+function MileagePendingBanner({ onCount }: { onCount?: (n: number) => void } = {}) {
   const [requests, setRequests] = useState<any[]>([]);
   const [actioning, setActioning] = useState<Record<number, boolean>>({});
   const [denyingId, setDenyingId] = useState<number | null>(null);
@@ -1486,8 +1712,8 @@ function MileagePendingBanner() {
     const base = import.meta.env.BASE_URL.replace(/\/$/, "");
     fetch(`${base}/api/mileage-requests?status=pending`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : [])
-      .then(setRequests)
-      .catch(() => {});
+      .then((rows: any[]) => { setRequests(rows); onCount?.(rows.length); })
+      .catch(() => onCount?.(0));
   };
 
   useEffect(() => { load(); }, []);
@@ -1573,7 +1799,7 @@ function MileagePendingBanner() {
   );
 }
 
-function HRAlertsBanner() {
+function HRAlertsBanner({ onCount }: { onCount?: (n: number) => void } = {}) {
   const [alerts, setAlerts] = useState<any[]>([]);
   const [, navigate] = useLocation();
 
@@ -1588,8 +1814,9 @@ function HRAlertsBanner() {
         if (ncns.length > 0) hrAlerts.push({ level: "red", text: `${ncns.length} NCNS today — review required`, href: null });
         if (absences.length > 0) hrAlerts.push({ level: "amber", text: `${absences.length} absence(s) logged today`, href: null });
         setAlerts(hrAlerts);
+        onCount?.(hrAlerts.length);
       })
-      .catch(() => {});
+      .catch(() => onCount?.(0));
   }, []);
 
   if (!alerts.length) return null;

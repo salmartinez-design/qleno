@@ -1424,10 +1424,12 @@ async function computeLastWeekPayrollPct(companyId: number): Promise<{ payroll_p
 //     "revenue this week" ties to the KPI strip to the penny.
 //   collected     — payments RECEIVED in the window (payments.created_at).
 //     Booked ≠ collected; showing both side by side is the point.
-//   receivables   — open invoices (sent/overdue) as of NOW. A balance, not a
-//     flow, so it does NOT move with the period selector; the card says so.
-//   payroll       — commission for jobs COMPLETED in the window via the shared
-//     engine, over that same window's booked revenue.
+//   payroll       — [arrears 2026-07-22] ALWAYS the last COMPLETED Sun–Sat
+//     week, never the selected window. Phes pays in arrears: this week's
+//     commission isn't owed or even final yet, so dividing a partial week's
+//     cost by a partial week's revenue produced a number that swung wildly
+//     every morning and meant nothing. The card is labelled with the actual
+//     dates it covers and does NOT move with the period selector.
 
 type PeriodKey = "today" | "week" | "month";
 
@@ -1455,6 +1457,15 @@ function resolvePeriod(period: PeriodKey): { from: string; to: string; prevFrom:
   const s = d(now, -now.getDay());          // Sunday
   const e = d(s, 6);                        // Saturday
   return { from: ymd(s), to: ymd(e), prevFrom: ymd(d(s, -7)), prevTo: ymd(d(s, -1)), label: "This week" };
+}
+
+// The last COMPLETED Sun–Sat week. Independent of the page's period selector —
+// see the payroll note above.
+function lastCompletedWeek(): { from: string; to: string } {
+  const now = ctNow();
+  const d = (base: Date, days: number) => { const x = new Date(base); x.setDate(base.getDate() + days); return x; };
+  const thisSun = d(now, -now.getDay());
+  return { from: ymd(d(thisSun, -7)), to: ymd(d(thisSun, -1)) };
 }
 
 const pctDelta = (cur: number, prev: number): number | null =>
@@ -1552,20 +1563,15 @@ router.get("/summary", requireAuth, officeGate, async (req, res) => {
          AND created_at < (${to}::date + interval '1 day')
     `);
 
-    const [curRev, prevRev, curPaid, prevPaid, ar, payCost] = await Promise.all([
+    const pw = lastCompletedWeek();
+
+    const [curRev, prevRev, curPaid, prevPaid, payRev, payCost] = await Promise.all([
       revSql(w.from, w.to),
       revSql(w.prevFrom, w.prevTo),
       paidSql(w.from, w.to),
       paidSql(w.prevFrom, w.prevTo),
-      db.execute(sql`
-        SELECT COUNT(*)::int AS inv_count,
-               COALESCE(SUM(total), 0)::numeric AS total,
-               COALESCE(SUM(CASE WHEN created_at < now() - interval '30 days' THEN total ELSE 0 END), 0)::numeric AS over_30,
-               COUNT(CASE WHEN created_at < now() - interval '30 days' THEN 1 END)::int AS over_30_count
-          FROM invoices
-         WHERE company_id = ${companyId} AND status IN ('sent', 'overdue')
-      `),
-      commissionCostForRange(companyId, w.from, w.to, branchId),
+      revSql(pw.from, pw.to),
+      commissionCostForRange(companyId, pw.from, pw.to, branchId),
     ]);
 
     const n = (r: any, k: string) => parseFloat(String(r?.rows?.[0]?.[k] ?? 0)) || 0;
@@ -1593,16 +1599,14 @@ router.get("/summary", requireAuth, officeGate, async (req, res) => {
         // true when the number ignores the active branch filter
         company_wide: branchId != null,
       },
-      receivables: {
-        value: n(ar, "total"),
-        over_30: n(ar, "over_30"),
-        invoice_count: Number(ar.rows[0]?.inv_count ?? 0),
-        over_30_count: Number(ar.rows[0]?.over_30_count ?? 0),
-        as_of: "now",
-      },
+      // Last completed week, always — Phes pays in arrears. See the note above.
       payroll: {
         cost: Math.round(payCost * 100) / 100,
-        pct_of_revenue: revenue > 0 ? Math.round((payCost / revenue) * 1000) / 10 : null,
+        revenue: n(payRev, "total"),
+        pct_of_revenue: n(payRev, "total") > 0
+          ? Math.round((payCost / n(payRev, "total")) * 1000) / 10 : null,
+        window: { from: pw.from, to: pw.to },
+        label: "Last week",
       },
     });
   } catch (err) {
@@ -1883,6 +1887,117 @@ router.get("/recent-activity", requireAuth, officeGate, async (req, res) => {
   } catch (err) {
     console.error("Recent activity error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── Live weather for the dispatch day ───────────────────────────────────────
+// [dashboard-weather 2026-07-22] Weather is an operations input for a cleaning
+// crew, not decoration: snow and heavy rain move drive time, push arrival
+// windows, and drive same-day cancellations. The office should see it on the
+// dashboard rather than on a second tab.
+//
+// Source is Open-Meteo — free, no API key, no account. The only thing that
+// leaves this server is a city name (e.g. "Oak Lawn, IL"); no customer or
+// employee data is sent. Coordinates and the forecast are cached in-process so
+// a dashboard refresh doesn't re-hit the provider.
+//
+// Location comes from the ACTIVE BRANCH's city/state (branches.city/state),
+// falling back to the company's. Oak Lawn and Schaumburg are ~30 miles apart
+// with genuinely different lake-effect weather, so the branch matters — the
+// coordinates are never hardcoded per branch.
+const WMO: Record<number, string> = {
+  0: "Clear", 1: "Mostly clear", 2: "Partly cloudy", 3: "Overcast",
+  45: "Fog", 48: "Freezing fog",
+  51: "Light drizzle", 53: "Drizzle", 55: "Heavy drizzle",
+  56: "Freezing drizzle", 57: "Freezing drizzle",
+  61: "Light rain", 63: "Rain", 65: "Heavy rain",
+  66: "Freezing rain", 67: "Freezing rain",
+  71: "Light snow", 73: "Snow", 75: "Heavy snow", 77: "Snow grains",
+  80: "Rain showers", 81: "Rain showers", 82: "Heavy showers",
+  85: "Snow showers", 86: "Heavy snow showers",
+  95: "Thunderstorms", 96: "Thunderstorms", 99: "Severe thunderstorms",
+};
+
+// Codes where the office should expect schedule friction. Drives the card's
+// advisory line — the only opinion the endpoint offers.
+const ROUGH = new Set([56, 57, 65, 66, 67, 71, 73, 75, 77, 82, 85, 86, 95, 96, 99]);
+
+const geoCache = new Map<string, { lat: number; lon: number } | null>();
+const wxCache = new Map<string, { at: number; body: any }>();
+const WX_TTL_MS = 15 * 60 * 1000;
+
+async function geocode(place: string): Promise<{ lat: number; lon: number } | null> {
+  if (geoCache.has(place)) return geoCache.get(place)!;
+  const [city, state] = place.split(",").map(s => s.trim());
+  const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(city)}&count=10&country=US&language=en&format=json`;
+  const r = await fetch(url);
+  if (!r.ok) { geoCache.set(place, null); return null; }
+  const j: any = await r.json();
+  const hits: any[] = j?.results || [];
+  // Prefer the hit in the right state — "Schaumburg" is unambiguous, "Oak Lawn"
+  // is not.
+  const hit = hits.find(h => !state || h.admin1_code === state || h.admin1 === state) || hits[0];
+  const out = hit ? { lat: hit.latitude, lon: hit.longitude } : null;
+  geoCache.set(place, out);
+  return out;
+}
+
+router.get("/weather", requireAuth, officeGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const branchId = req.query.branch_id && req.query.branch_id !== "all"
+      ? parseInt(String(req.query.branch_id), 10) : null;
+
+    let place = "";
+    if (branchId != null) {
+      const b = await db.execute(sql`
+        SELECT city, state FROM branches WHERE id = ${branchId} AND company_id = ${companyId} LIMIT 1`);
+      const row: any = b.rows[0];
+      if (row?.city) place = `${row.city}, ${row.state || ""}`;
+    }
+    if (!place) {
+      const c = await db.execute(sql`SELECT city, state FROM companies WHERE id = ${companyId} LIMIT 1`);
+      const row: any = c.rows[0];
+      if (row?.city) place = `${row.city}, ${row.state || ""}`;
+    }
+    // No city on file is a data gap, not an error — the card just hides.
+    if (!place) return res.json({ available: false, reason: "no_location" });
+
+    const cached = wxCache.get(place);
+    if (cached && Date.now() - cached.at < WX_TTL_MS) return res.json(cached.body);
+
+    const geo = await geocode(place);
+    if (!geo) return res.json({ available: false, reason: "geocode_failed", place });
+
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${geo.lat}&longitude=${geo.lon}`
+      + `&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m`
+      + `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,weather_code`
+      + `&temperature_unit=fahrenheit&wind_speed_unit=mph&precipitation_unit=inch`
+      + `&timezone=America%2FChicago&forecast_days=1`;
+    const r = await fetch(url);
+    if (!r.ok) return res.json({ available: false, reason: "provider_error", place });
+    const j: any = await r.json();
+
+    const code = Number(j?.current?.weather_code ?? 0);
+    const body = {
+      available: true,
+      place,
+      temp: Math.round(Number(j?.current?.temperature_2m ?? 0)),
+      feels_like: Math.round(Number(j?.current?.apparent_temperature ?? 0)),
+      code,
+      condition: WMO[code] || "—",
+      wind_mph: Math.round(Number(j?.current?.wind_speed_10m ?? 0)),
+      high: Math.round(Number(j?.daily?.temperature_2m_max?.[0] ?? 0)),
+      low: Math.round(Number(j?.daily?.temperature_2m_min?.[0] ?? 0)),
+      precip_chance: Number(j?.daily?.precipitation_probability_max?.[0] ?? 0),
+      rough: ROUGH.has(code),
+    };
+    wxCache.set(place, { at: Date.now(), body });
+    return res.json(body);
+  } catch (err) {
+    console.error("GET /dashboard/weather error:", err);
+    // Weather must never break the dashboard.
+    return res.json({ available: false, reason: "error" });
   }
 });
 

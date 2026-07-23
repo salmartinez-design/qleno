@@ -69,11 +69,20 @@
   --border:     #E5E2DC;
   --border-sub: #EEECE7;
 
-  /* === BRAND (overridden by JS on login) === */
-  --brand:      #5B9BD5;
-  --brand-rgb:  91, 155, 213;
-  --brand-dim:  rgba(91, 155, 213, 0.12);
-  --brand-soft: rgba(91, 155, 213, 0.07);
+  /* === BRAND (overridden by JS on login) ===
+     Electric Mint is the Qleno brand. This is the DEFAULT — applyTenantColor()
+     still overwrites it at runtime from companies.brand_color, so a tenant that
+     stored a different hex keeps rendering that hex. Changing a tenant's live
+     color is a data edit, not a code edit. */
+  --brand:      #00C9A0;
+  --brand-rgb:  0, 201, 160;
+  --brand-dim:  rgba(0, 201, 160, 0.12);
+  --brand-soft: rgba(0, 201, 160, 0.07);
+
+  /* === QLENO NIGHT === the second brand color: dark surfaces, the hero band,
+     the darkest step of any brand ramp. Pairs with mint, never with a blue. */
+  --night:      #0A0E1A;
+  --night-2:    #123028;  /* mint-shifted night, for gradients off --night */
 
   /* === TEXT SYSTEM === */
   --ink:        #1A1917;  /* every value, every heading */
