@@ -2053,11 +2053,28 @@ router.patch("/:id", requireAuth, async (req, res) => {
       const blockedFields: string[] = [];
       if (scheduled_date !== undefined && scheduled_date !== before.scheduled_date) blockedFields.push("scheduled_date");
       if (scheduled_time !== undefined && scheduled_time !== before.scheduled_time) blockedFields.push("scheduled_time");
-      if (team_user_ids !== undefined) blockedFields.push("team_user_ids");
+      // [midjob-addon 2026-07-23] Only block a team change that ACTUALLY changes
+      // the team. The edit modal sends team_user_ids on every save (unchanged
+      // included), so blocking on its mere presence made it impossible to add an
+      // add-on / adjust price while a tech was clocked in — a client calling
+      // mid-job to add an oven or fridge got "Stop the timer" and nothing saved
+      // (Sal). Add-ons, price and notes are safe to change live; only a real
+      // reschedule or re-crew is not. Compare the incoming set to the current
+      // job_technicians set before deciding.
+      if (team_user_ids !== undefined) {
+        const curTeam = await db.execute(sql`
+          SELECT user_id FROM job_technicians WHERE job_id = ${jobId}`);
+        const curSet = new Set((curTeam.rows as any[]).map(r => Number(r.user_id)));
+        const nextSet = new Set(
+          (Array.isArray(team_user_ids) ? team_user_ids : [])
+            .map((x: any) => Number(x)).filter((n: number) => Number.isInteger(n)));
+        const sameTeam = curSet.size === nextSet.size && [...nextSet].every(id => curSet.has(id));
+        if (!sameTeam) blockedFields.push("team_user_ids");
+      }
       if (blockedFields.length) {
         return res.status(409).json({
           error: "Tech clocked in",
-          message: "A technician is currently clocked in. Stop the timer before changing date, time, or team.",
+          message: "A technician is currently clocked in. Stop the timer before changing date, time, or team. Add-ons and price can still be edited.",
           blocked_fields: blockedFields,
         });
       }
@@ -6553,6 +6570,68 @@ router.post("/:id/rate-mods", requireAuth, async (req, res) => {
   } catch (err) {
     console.error("POST /jobs/:id/rate-mods error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to add rate mod" });
+  }
+});
+
+// PATCH /api/jobs/:id/rate-mods/:modId — edit a mod in place
+// [adjustment-edit 2026-07-23] Before this the office could only add or delete
+// an adjustment, so fixing a typo'd "+45 min · +$50" meant delete-then-re-add
+// and losing the audit row (Sal: "we need to be able to edit the adjustments").
+// The time delta is applied to allowed_hours the same way POST/DELETE do — new
+// minutes minus old — so editing a time mod re-extends the visit correctly
+// instead of double-counting.
+router.patch("/:id/rate-mods/:modId", requireAuth, async (req, res) => {
+  try {
+    const jobId = parseInt(req.params.id);
+    const modId = parseInt(req.params.modId);
+    const companyId = req.auth!.companyId;
+    const role = req.auth!.role;
+    if (!["owner", "admin", "office", "super_admin"].includes(String(role))) {
+      return res.status(403).json({ error: "Forbidden", message: "Only office, admin, or owner can edit adjustments." });
+    }
+    const { mod_type, minutes, amount, reason, affects_commission } = req.body ?? {};
+    if (mod_type !== "time" && mod_type !== "flat") {
+      return res.status(400).json({ error: "Bad Request", message: "mod_type must be 'time' or 'flat'" });
+    }
+    if (mod_type === "time" && (minutes === undefined || minutes === null || Number.isNaN(Number(minutes)))) {
+      return res.status(400).json({ error: "Bad Request", message: "minutes is required for mod_type='time'" });
+    }
+    const amt = Number(amount);
+    if (Number.isNaN(amt)) return res.status(400).json({ error: "Bad Request", message: "amount must be numeric" });
+    if (!reason || typeof reason !== "string" || !reason.trim()) {
+      return res.status(400).json({ error: "Bad Request", message: "reason is required" });
+    }
+
+    const modRows = await db.execute(sql`
+      SELECT mod_type, minutes FROM job_rate_mods
+      WHERE id = ${modId} AND job_id = ${jobId} AND company_id = ${companyId} LIMIT 1`);
+    const prev = modRows.rows?.[0] as any;
+    if (!prev) return res.status(404).json({ error: "Not Found", message: "Rate mod not found" });
+
+    // The allowed-hours delta: how many time-minutes the job should net after
+    // this edit. Old time-minutes come off, new go on. A flat→time or time→flat
+    // switch is handled because the "old" side is 0 when the old type was flat.
+    const oldMin = prev.mod_type === "time" ? Number(prev.minutes || 0) : 0;
+    const newMin = mod_type === "time" ? Number(minutes) : 0;
+
+    await db.execute(sql`
+      UPDATE job_rate_mods
+         SET mod_type = ${mod_type},
+             minutes = ${mod_type === "time" ? Number(minutes) : null},
+             amount = ${amt.toFixed(2)},
+             reason = ${reason.trim()},
+             affects_commission = ${affects_commission === true}
+       WHERE id = ${modId} AND job_id = ${jobId} AND company_id = ${companyId}`);
+
+    const newBilled = await recomputeJobBilledAmount(jobId, companyId);
+    const newAllowedHours = (newMin - oldMin) !== 0
+      ? await adjustAllowedHours(jobId, companyId, newMin - oldMin) : null;
+    syncJobInvoiceDraft(jobId, companyId).catch(e => console.error("[rate-mod-edit] invoice draft sync non-fatal:", e));
+    logAudit(req, "UPDATE", "job_rate_mod", modId, null, { mod_type, minutes, amount: amt });
+    return res.json({ success: true, billed_amount: newBilled.toFixed(2), allowed_hours: newAllowedHours });
+  } catch (err) {
+    console.error("PATCH /jobs/:id/rate-mods/:modId error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to edit rate mod" });
   }
 });
 

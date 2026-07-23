@@ -2073,6 +2073,10 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [modAffectsCommission, setModAffectsCommission] = useState(false);
   const [modBusy, setModBusy] = useState(false);
   const [modError, setModError] = useState("");
+  // [adjustment-edit 2026-07-23] Non-null while editing an existing adjustment in
+  // place. The same form does add and edit; Save routes to PATCH when this is set
+  // (Sal: "we need to be able to edit the adjustments").
+  const [editingModId, setEditingModId] = useState<number | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -2105,23 +2109,43 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
     try {
       const body: any = { mod_type: modType, amount: amt, reason: modReason.trim(), affects_commission: modAffectsCommission };
       if (modType === "time") body.minutes = Number(modMinutes);
-      const r = await fetch(`${_API3}/api/jobs/${job.id}/rate-mods`, {
-        method: "POST",
+      // [adjustment-edit 2026-07-23] PATCH an existing adjustment, POST a new one.
+      const editing = editingModId != null;
+      const r = await fetch(`${_API3}/api/jobs/${job.id}/rate-mods${editing ? `/${editingModId}` : ""}`, {
+        method: editing ? "PATCH" : "POST",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
       const d = await r.json();
       if (!r.ok) throw new Error(d.message || d.error || "Failed");
-      setRateMods(prev => [...prev, d.mod as RateMod]);
+      if (editing) {
+        setRateMods(prev => prev.map(m => m.id === editingModId
+          ? { ...m, mod_type: modType, minutes: modType === "time" ? Number(modMinutes) : null, amount: amt.toFixed(2), reason: modReason.trim() }
+          : m));
+      } else {
+        setRateMods(prev => [...prev, d.mod as RateMod]);
+      }
       setModType("flat"); setModMinutes(""); setModAmount(""); setModReason(""); setModAffectsCommission(false);
-      setModAddOpen(false);
-      toast({ title: "Adjustment added" });
+      setModAddOpen(false); setEditingModId(null);
+      toast({ title: editing ? "Adjustment updated" : "Adjustment added" });
       onUpdate();
     } catch (err: any) {
-      setModError(err.message || "Failed to add adjustment");
+      setModError(err.message || "Failed to save adjustment");
     } finally {
       setModBusy(false);
     }
+  }
+
+  // [adjustment-edit 2026-07-23] Prefill the shared form from an existing mod and
+  // switch it into edit mode.
+  function startEditMod(m: RateMod) {
+    setEditingModId(m.id);
+    setModType(m.mod_type);
+    setModMinutes(m.minutes != null ? String(m.minutes) : "");
+    setModAmount(String(parseFloat(m.amount)));
+    setModReason(m.reason || "");
+    setModError("");
+    setModAddOpen(true);
   }
 
   async function deleteRateMod(modId: number) {
@@ -3019,11 +3043,20 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                             </div>
                           </div>
                           {adjUnlocked && (
-                            <button onClick={() => deleteRateMod(m.id)}
-                              style={{ marginLeft: 8, padding: 4, border: "none", background: "transparent", cursor: "pointer", color: "#9E9B94" }}
-                              title="Remove adjustment">
-                              <X size={14} />
-                            </button>
+                            <div style={{ display: "flex", alignItems: "center", gap: 2, marginLeft: 8, flexShrink: 0 }}>
+                              {/* [adjustment-edit 2026-07-23] Edit in place instead
+                                  of delete-then-re-add. */}
+                              <button onClick={() => startEditMod(m)}
+                                style={{ padding: 4, border: "none", background: "transparent", cursor: "pointer", color: "#9E9B94" }}
+                                title="Edit adjustment">
+                                <Pencil size={13} />
+                              </button>
+                              <button onClick={() => deleteRateMod(m.id)}
+                                style={{ padding: 4, border: "none", background: "transparent", cursor: "pointer", color: "#9E9B94" }}
+                                title="Remove adjustment">
+                                <X size={14} />
+                              </button>
+                            </div>
                           )}
                         </div>
                       );
@@ -3076,7 +3109,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                         style={{ flex: 1, padding: "6px 8px", border: "none", borderRadius: 6, background: "#0F7A63", color: "#FFFFFF", fontSize: 12, fontWeight: 600, cursor: modBusy ? "wait" : "pointer", fontFamily: FF }}>
                         {modBusy ? "Saving…" : "Save"}
                       </button>
-                      <button onClick={() => { setModAddOpen(false); setModError(""); }} disabled={modBusy}
+                      <button onClick={() => { setModAddOpen(false); setModError(""); setEditingModId(null); setModType("flat"); setModMinutes(""); setModAmount(""); setModReason(""); }} disabled={modBusy}
                         style={{ padding: "6px 10px", border: "1px solid #E5E2DC", borderRadius: 6, background: "#FFFFFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
                         Cancel
                       </button>
