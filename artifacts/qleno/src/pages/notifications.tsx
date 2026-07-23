@@ -14,7 +14,8 @@ const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 // map the bell uses (lib/notification-style), so the two surfaces can't drift
 // and an unmapped type degrades to a neutral office bell, never a red alarm.
 function notifIcon(type: string) {
-  const P = { size: 15, style: { color: styleOf(type).color } } as const;
+  const st = styleOf(type);
+  const P = { size: 15, style: { color: st.iconColor ?? st.color } } as const;
   switch (type) {
     case "new_message":          return <MessageSquare {...P} />;
     case "scheduled_sms_review": return <Clock {...P} />;
