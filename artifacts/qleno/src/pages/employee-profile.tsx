@@ -1143,10 +1143,14 @@ export default function EmployeeProfilePage() {
   // [90d-composite] Live 90-day rolling composite: three sub-scores + the
   // blended headline + counts. Drives the headline number and the breakdown
   // card below.
+  // [score-badge 2026-07-24] Fetch the composite on profile load (not just on the
+  // Performance Score tab) so the header Score badge shows the SAME rolling
+  // composite as the tab — previously the badge read the stale satisfaction-only
+  // scorecard_pct column and drifted (badge 95% vs real composite 90%).
   const { data: compositeData } = useQuery({
     queryKey: ['scorecard-composite', userId],
     queryFn: () => apiFetch(`/scorecards/composite/${userId}`),
-    enabled: activeTab === 'Performance Score',
+    enabled: !!userId,
   });
 
   // [GAP3] Office reply to customer feedback on a scorecard entry.
@@ -1537,7 +1541,7 @@ export default function EmployeeProfilePage() {
                   const y = Math.floor(months / 12), m = months % 12;
                   return y > 0 ? `${y} yr${y === 1 ? '' : 's'} ${m} mo` : `${m} mo`;
                 })() },
-              { label:'Score', value: scorePct != null ? `${scorePct.toFixed(0)}%` : '—' },
+              { label:'Score', value: compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—' },
             ].map(t => (
               <div key={t.label} style={{ background:'#F7F6F3', borderRadius:10, padding:'10px 16px', minWidth:104, flex: isMobile ? '1 1 0' : undefined }}>
                 <p style={{ fontSize:10.5, fontWeight:600, color:'#9E9B94', textTransform:'uppercase', letterSpacing:'0.05em', margin:'0 0 3px 0', whiteSpace:'nowrap' }}>{t.label}</p>
@@ -2299,7 +2303,7 @@ export default function EmployeeProfilePage() {
                       { label:'Time Off', value: t?.time_off?.count ?? 0, days: t?.time_off?.days },
                       { label:'Paid Time Off', value: t?.pto?.count ?? 0, days: t?.pto?.days },
                       { label:'Sick', value: t?.sick?.count ?? 0, days: t?.sick?.days },
-                      { label:'Score', value: scorePct != null ? `${scorePct.toFixed(0)}%` : '—' },
+                      { label:'Score', value: compositeScore != null ? `${compositeScore.toFixed(0)}%` : '—' },
                     ];
                     return rows.map(row => {
                       const clickable = Array.isArray(row.days);
