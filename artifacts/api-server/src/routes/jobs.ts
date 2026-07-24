@@ -4484,6 +4484,7 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
              j.charge_failed_at, j.charge_succeeded_at,
              c.stripe_customer_id, c.stripe_payment_method_id, c.payment_source,
              c.card_last_four, c.card_brand,
+             c.square_customer_id, c.square_card_last4, c.square_card_brand,
              c.first_name, c.last_name, c.email, c.phone,
              inv.id as invoice_id, inv.total as invoice_total, inv.status as invoice_status
       FROM jobs j
@@ -4497,13 +4498,9 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
     const job = jobRows.rows[0] as any;
 
     if (job.status !== "complete") return res.status(400).json({ error: "Job must be completed before charging" });
-    if (job.payment_source !== "stripe") return res.status(400).json({ error: "Client does not have Stripe on file" });
-    if (!job.stripe_customer_id || !job.stripe_payment_method_id) {
-      return res.status(400).json({ error: "No card on file for this client" });
-    }
     if (job.charge_succeeded_at) return res.status(400).json({ error: "Job already charged successfully" });
 
-    // Check for existing successful payment
+    // Check for existing successful payment (applies to both processors)
     const existingPmt = await db.execute(sql`
       SELECT id FROM payments WHERE job_id = ${jobId} AND status = 'completed' LIMIT 1
     `);
@@ -4512,6 +4509,75 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
     const chargeAmount = Number(job.billed_amount || job.base_fee || 0);
     if (chargeAmount <= 0) return res.status(400).json({ error: "Invalid charge amount" });
     const amountCents = Math.round(chargeAmount * 100);
+
+    const hasStripeCard = !!(job.stripe_customer_id && job.stripe_payment_method_id);
+
+    // ── Square branch ── charge the client's Square card on file. Mirrors the
+    // Stripe path below so the dispatch "Charge Client" button works for Square
+    // clients (existing Phes clients), not just Stripe ones. Same lib the
+    // customer-profile / invoice charge use.
+    if (!hasStripeCard && job.square_customer_id) {
+      const { chargeSquareCard } = await import("../lib/square-charge.js");
+      // Stable per-job key: a double-click returns the original result instead of
+      // double-charging (a job is charged at most once).
+      const result = await chargeSquareCard({
+        squareCustomerId: job.square_customer_id,
+        amountCents,
+        idempotencyKey: `job-${jobId}-${companyId}`,
+      });
+      if (!result.ok) {
+        await db.execute(sql`UPDATE jobs SET charge_failed_at = NOW() WHERE id = ${jobId}`).catch(() => {});
+        const status = result.code === "not_configured" ? 503 : result.code === "no_card" ? 400 : 402;
+        console.error(`[SQUARE] Charge failed — job_id=${jobId}: ${result.message}`);
+        return res.status(status).json({ error: result.message });
+      }
+      await db.insert(paymentsTable).values({
+        company_id: companyId,
+        client_id: job.client_id,
+        invoice_id: job.invoice_id || null,
+        job_id: jobId,
+        amount: String(chargeAmount),
+        method: "square",
+        status: "completed",
+        square_payment_id: result.paymentId,
+        last_4: job.square_card_last4 || null,
+        card_brand: job.square_card_brand || null,
+        processed_by: req.auth!.userId,
+        attempted_at: new Date(),
+      } as any);
+      if (job.invoice_id) {
+        await db.execute(sql`
+          UPDATE invoices SET status = 'paid', paid_at = NOW(), square_payment_id = ${result.paymentId}
+          WHERE id = ${job.invoice_id}
+        `);
+      }
+      await db.execute(sql`UPDATE jobs SET charge_succeeded_at = NOW(), charge_failed_at = NULL WHERE id = ${jobId}`);
+      try {
+        await sendNotification("payment_received", job.client_id, companyId, {
+          client_name: `${job.first_name} ${job.last_name}`,
+          client_email: job.email,
+          client_phone: job.phone,
+          amount: chargeAmount.toFixed(2),
+          card_brand: job.square_card_brand || "Card",
+          card_last_four: job.square_card_last4 || "****",
+        });
+      } catch (notifErr) {
+        console.error("[charge] notification error:", notifErr);
+      }
+      console.log(`[SQUARE] Charge succeeded — job_id=${jobId} amount=$${chargeAmount} pid=${result.paymentId}`);
+      return res.json({
+        ok: true,
+        amount: chargeAmount,
+        card_brand: job.square_card_brand,
+        card_last_four: job.square_card_last4,
+        square_payment_id: result.paymentId,
+      });
+    }
+
+    // ── Stripe branch ──
+    if (!hasStripeCard) {
+      return res.status(400).json({ error: "No card on file for this client" });
+    }
 
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     if (!stripeKey) return res.status(503).json({ error: "Stripe not configured" });

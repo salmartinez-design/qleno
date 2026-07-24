@@ -1643,7 +1643,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
       try {
         const r = await fetch(`${_API3}/api/clients/${job.client_id}`, { headers: { Authorization: `Bearer ${token}` } });
         const d = await r.json();
-        setChargeClientData({ card_last_four: d.card_last_four || d.default_card_last_4 || null, card_brand: d.card_brand || d.default_card_brand || null, payment_source: d.payment_source || null });
+        setChargeClientData({ card_last_four: d.card_last_four || d.square_card_last4 || d.default_card_last_4 || null, card_brand: d.card_brand || d.square_card_brand || d.default_card_brand || null, payment_source: d.payment_source || null });
       } catch { setChargeClientData({ card_last_four: null, card_brand: null, payment_source: null }); }
     }
   }
