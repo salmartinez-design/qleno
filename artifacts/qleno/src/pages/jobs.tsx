@@ -1401,7 +1401,7 @@ function InlineTimeEdit({ job, onUpdate }: { job: DispatchJob; onUpdate: () => v
 // uses — with cascade_scope:'this_job' so it only touches THIS occurrence, never
 // the whole series. Commercial-hourly prices as rate×hours (the base line is not
 // base_fee), so those stay read-only and route to the full editor.
-function InlinePricingEditor({ job, canEdit, onUpdate, adjustments }: { job: DispatchJob; canEdit: boolean; onUpdate: () => void; adjustments?: React.ReactNode }) {
+function InlinePricingEditor({ job, canEdit, onUpdate, adjustments, tipsTotal = 0 }: { job: DispatchJob; canEdit: boolean; onUpdate: () => void; adjustments?: React.ReactNode; tipsTotal?: number }) {
   const token = useAuthStore(s => s.token)!;
   const { toast } = useToast();
   const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -1538,9 +1538,23 @@ function InlinePricingEditor({ job, canEdit, onUpdate, adjustments }: { job: Dis
         {positives.map((a, i) => <div key={`p${i}`}>{line(`Add-on · ${a.name}`, num(Number(a.subtotal)))}</div>)}
         {discounts.map((a, i) => <div key={`d${i}`}>{line(a.name, `−$${Math.abs(Number(a.subtotal)).toFixed(2)}`, "#0F7A63")}</div>)}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 6, paddingTop: 8 }}>
-          <span style={{ fontWeight: 700, color: "#1A1917" }}>Total</span>
+          <span style={{ fontWeight: 700, color: "#1A1917" }}>{tipsTotal > 0 ? "Service total" : "Total"}</span>
           <span style={{ fontWeight: 800, color: "#1A1917" }}>{num(total)}</span>
         </div>
+        {/* [tip-reconcile 2026-07-24] A tip is billed on the invoice but isn't part
+            of the service price, so the service Total ($220) disagreed with the
+            invoice ($253) with nothing on the card explaining the $33 gap. Surface
+            the tip as its own line and reconcile to the invoice total (the authoritative
+            number, falling back to service+tip) so the card matches the invoice row. */}
+        {tipsTotal > 0 && (
+          <>
+            {line("Tip", num(tipsTotal), "#0F7A63")}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 6, paddingTop: 8 }}>
+              <span style={{ fontWeight: 700, color: "#1A1917" }}>Invoice total</span>
+              <span style={{ fontWeight: 800, color: "#1A1917" }}>{num(job.invoice_total != null ? Number(job.invoice_total) : total + tipsTotal)}</span>
+            </div>
+          </>
+        )}
         {editable && (
           <button onClick={() => { setBaseVal(baseInit.toFixed(2)); setItems(initAddOns.map(a => ({ ...a }))); setEditing(true); }}
             style={{ marginTop: 8, width: "100%", padding: "8px 12px", border: "1px solid #BDEBDD", borderRadius: 8, background: "#EAF9F4", color: "#06715C", fontSize: 12.5, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -3037,7 +3051,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               INLINE editor (Maribel): base rate + each add-on editable + removable
               right here, total recomputed. Residential only (commercial-hourly
               stays read-only — see InlinePricingEditor). */}
-          <InlinePricingEditor job={job} canEdit={canEditOfficeNotes} onUpdate={onUpdate}
+          <InlinePricingEditor job={job} canEdit={canEditOfficeNotes} onUpdate={onUpdate} tipsTotal={tipsTotal}
             adjustments={canManageMods ? (
               <div style={{ marginTop: 14, borderTop: "1px solid #F0EEE9", paddingTop: 12 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>Adjustments</div>
