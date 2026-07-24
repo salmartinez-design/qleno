@@ -31,7 +31,7 @@ export interface BucketDisplay {
 export const PHES_BUCKET_DISPLAY: Record<string, Omit<BucketDisplay, "slug" | "label">> = {
   pto_phes:     { tint: "#E9FBF5", accent: "#1D9E75", on_tint: "#00876B", board_label: "PTO",       chip_label: "PTO" },
   plawa:        { tint: "#FEF3C7", accent: "#378ADD", on_tint: "#92400E", board_label: "PLAWA",     chip_label: "Sick" },
-  unpaid_leave: { tint: "#EEF2F7", accent: "#BA7517", on_tint: "#334155", board_label: "Unpaid",    chip_label: "Unpaid" },
+  unpaid_leave: { tint: "#F1EBFB", accent: "#7C3AED", on_tint: "#6D28D9", board_label: "Unpaid",    chip_label: "Unpaid" },
   unexcused:    { tint: "#FCE7E7", accent: "#E24B4A", on_tint: "#991B1B", board_label: "Unexcused", chip_label: "Unexcused" },
 };
 
@@ -46,7 +46,7 @@ export const ABSENT_DISPLAY = { tint: "#FFEBEE", board_label: "Absent", accent: 
 const DEFAULT_BY_KIND: Array<{ test: RegExp; d: Omit<BucketDisplay, "slug" | "label"> }> = [
   { test: /plawa|sick/, d: { tint: "#FEF3C7", accent: "#378ADD", on_tint: "#92400E", board_label: "", chip_label: "" } },
   { test: /pto|vacation/, d: { tint: "#E9FBF5", accent: "#1D9E75", on_tint: "#00876B", board_label: "", chip_label: "" } },
-  { test: /unpaid/, d: { tint: "#EEF2F7", accent: "#BA7517", on_tint: "#334155", board_label: "", chip_label: "" } },
+  { test: /unpaid/, d: { tint: "#F1EBFB", accent: "#7C3AED", on_tint: "#6D28D9", board_label: "", chip_label: "" } },
   { test: /unexcused|absence/, d: { tint: "#FCE7E7", accent: "#E24B4A", on_tint: "#991B1B", board_label: "", chip_label: "" } },
 ];
 const FALLBACK_PALETTE = [

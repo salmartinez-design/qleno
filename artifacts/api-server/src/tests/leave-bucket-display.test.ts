@@ -20,7 +20,7 @@ import {
 const LEGACY = {
   pto_phes:     { display_name: "PTO",          tint: "#E9FBF5", accent: "#1D9E75", on_tint: "#00876B", board_label: "PTO",       chip_label: "PTO" },
   plawa:        { display_name: "PLAWA",         tint: "#FEF3C7", accent: "#378ADD", on_tint: "#92400E", board_label: "PLAWA",     chip_label: "Sick" },
-  unpaid_leave: { display_name: "Unpaid Leave",  tint: "#EEF2F7", accent: "#BA7517", on_tint: "#334155", board_label: "Unpaid",    chip_label: "Unpaid" },
+  unpaid_leave: { display_name: "Unpaid Leave",  tint: "#F1EBFB", accent: "#7C3AED", on_tint: "#6D28D9", board_label: "Unpaid",    chip_label: "Unpaid" },
   unexcused:    { display_name: "Unexcused",     tint: "#FCE7E7", accent: "#E24B4A", on_tint: "#991B1B", board_label: "Unexcused", chip_label: "Unexcused" },
 } as const;
 
