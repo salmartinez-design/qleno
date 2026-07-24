@@ -5341,7 +5341,7 @@ async function loadJobBilling(jobId: number, companyId: number): Promise<JobBill
 async function applyTipToInvoice(
   companyId: number, jobId: number, billing: JobBilling, tipTotal: number,
   processedByUserId: number,
-  paymentMeta: { stripe_payment_id?: string; method: string; last_4?: string | null; card_brand?: string | null },
+  paymentMeta: { stripe_payment_id?: string; method: string; last_4?: string | null; card_brand?: string | null } | null,
 ): Promise<{ id: number; tips: number; total: number; status: string } | null> {
   if (!billing.invoice) return null;
   const inv = billing.invoice;
@@ -5352,21 +5352,29 @@ async function applyTipToInvoice(
     UPDATE invoices SET tips = ${newTips.toFixed(2)}, total = ${newTotal.toFixed(2)}
     WHERE id = ${inv.id} AND company_id = ${companyId}`);
 
-  // Balancing payment row — the tip was collected (externally or via Stripe).
-  await db.insert(paymentsTable).values({
-    company_id: companyId,
-    client_id: billing.client_id!,
-    invoice_id: inv.id,
-    job_id: jobId,
-    amount: String(tipTotal.toFixed(2)),
-    method: paymentMeta.method,
-    status: "completed",
-    stripe_payment_id: paymentMeta.stripe_payment_id ?? null,
-    last_4: paymentMeta.last_4 ?? null,
-    card_brand: paymentMeta.card_brand ?? null,
-    processed_by: processedByUserId,
-    attempted_at: new Date(),
-  });
+  // Balancing payment row — ONLY when the tip money was actually collected
+  // (paymentMeta != null: Stripe charged it, or the office collected an
+  // incremental tip on an already-paid bill). When paymentMeta is null the tip
+  // just rolls into an UNPAID invoice's outstanding balance and is collected
+  // when the job is charged — recording a "completed" payment here would be
+  // phantom money AND would trip the charge endpoint's double-charge guard,
+  // silently blocking the real charge (the Todd Tue $253 bug).
+  if (paymentMeta) {
+    await db.insert(paymentsTable).values({
+      company_id: companyId,
+      client_id: billing.client_id!,
+      invoice_id: inv.id,
+      job_id: jobId,
+      amount: String(tipTotal.toFixed(2)),
+      method: paymentMeta.method,
+      status: "completed",
+      stripe_payment_id: paymentMeta.stripe_payment_id ?? null,
+      last_4: paymentMeta.last_4 ?? null,
+      card_brand: paymentMeta.card_brand ?? null,
+      processed_by: processedByUserId,
+      attempted_at: new Date(),
+    });
+  }
 
   // QB re-push (one-way, fire-and-forget, no-op when not connected).
   import("../services/quickbooks-sync.js").then(({ syncInvoice, syncPayment }) => {
@@ -5502,8 +5510,13 @@ router.post("/:id/tips", requireAuth, requireRole("owner", "admin", "office"), a
       } catch (e: any) {
         return res.status(402).json({ error: `Card charge failed: ${e?.message || "declined"}. Nothing was saved.` });
       }
-    } else if (updateInvoice && billing?.invoice) {
-      // Office collected it externally (Square/cash/etc.) — record it as such.
+    } else if (updateInvoice && billing?.invoice && billing.invoice.status === "paid") {
+      // Incremental tip on an ALREADY-PAID bill: the office is collecting it
+      // externally on top of a settled invoice, so record a balancing payment.
+      // If the invoice is still UNPAID we leave paymentMeta null — the tip rolls
+      // into the outstanding balance and is collected when the job is charged.
+      // Recording a payment on an unpaid invoice is phantom money and blocks the
+      // real charge via the double-charge guard (the Todd Tue $253 bug).
       paymentMeta = { method: billing.payment_source || "manual", last_4: null, card_brand: null };
     }
 
@@ -5523,9 +5536,12 @@ router.post("/:id/tips", requireAuth, requireRole("owner", "admin", "office"), a
     let invoiceResult: { id: number; tips: number; total: number; status: string } | null = null;
     let invoiceNote: string | null = null;
     if (updateInvoice) {
-      if (billing?.invoice && paymentMeta) {
+      if (billing?.invoice) {
+        // Always bump the invoice tip + total. paymentMeta is non-null only when
+        // the tip was actually collected (Stripe charge, or external on a paid
+        // bill) — that's the sole case that also records a balancing payment.
         invoiceResult = await applyTipToInvoice(companyId, jobId, billing, tipTotal, userId, paymentMeta);
-      } else if (!billing?.invoice) {
+      } else {
         invoiceNote = "No invoice on this job yet — tip paid to the cleaner, nothing to add to a bill.";
       }
     }
