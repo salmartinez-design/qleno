@@ -1078,7 +1078,15 @@ router.get("/:id/invoices", requireAuth, requireRole("owner", "admin", "office")
 
   try {
     const svcDate = sql<string>`COALESCE((SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}), ${invoicesTable.created_at}::date)`;
-    const conds = [eq(invoicesTable.account_id, id), eq(invoicesTable.company_id, companyId)];
+    const conds = [
+      eq(invoicesTable.account_id, id),
+      eq(invoicesTable.company_id, companyId),
+      // [invoice-list-declutter 2026-07-24] Hide the dead rows. SUPERSEDED
+      // invoices were merged into a parent (the parent is shown); VOID were
+      // cancelled. Listing them tripled the row count and made the month total
+      // meaningless (summed merged-away duplicates). Show only live invoices.
+      sql`${invoicesTable.status} NOT IN ('superseded', 'void')`,
+    ];
     if (/^\d{4}-\d{2}$/.test(month)) {
       conds.push(sql`to_char(${svcDate}, 'YYYY-MM') = ${month}`);
     }
