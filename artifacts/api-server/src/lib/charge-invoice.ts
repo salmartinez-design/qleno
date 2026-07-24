@@ -13,11 +13,13 @@
 //   - On failure: invoice stays 'sent', payment_failed=true, failure stamped on
 //     the job, office notified. Never retried.
 //
-// SQUARE NOTE: the `square` SDK is not installed and no SQUARE_* credentials are
-// provisioned in this environment. The Square branch attempts a dynamic import
-// guarded by SQUARE_ACCESS_TOKEN so it lights up automatically once infra adds
-// the dep + creds; until then it returns outcome 'needs_manual' (no crash, no
-// false 'paid'). Flagged for follow-up — Stripe + check/ach are fully live.
+// SQUARE NOTE: the `square` SDK (v44, the rewritten SquareClient API) IS
+// installed and the Square branch uses it directly. It is still runtime-guarded
+// by SQUARE_ACCESS_TOKEN (+ SQUARE_ENV=production) so a deploy without creds
+// returns outcome 'needs_manual' instead of crashing — but with creds present it
+// performs a real card-on-file charge. Uses the v44 surface: SquareClient /
+// SquareEnvironment, cards.list({ customerId }) (returns a pager → .data), and
+// payments.create({...}) (resolves to the body directly, no .result wrapper).
 import { db } from "@workspace/db";
 import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
@@ -224,28 +226,33 @@ async function chargeViaSquare(
   try {
     // Dynamic import so a missing 'square' dep never breaks the bundle/build.
     const squareMod: any = await import("square" as any).catch(() => null);
-    if (!squareMod) {
-      return { outcome: "needs_manual", source: "square", message: "Square SDK not installed — collect payment and mark the invoice paid manually", invoiceId: invoice.id, amount };
+    if (!squareMod?.SquareClient) {
+      return { outcome: "needs_manual", source: "square", message: "Square SDK not available — collect payment and mark the invoice paid manually", invoiceId: invoice.id, amount };
     }
-    const env = (process.env.SQUARE_ENV === "production") ? squareMod.Environment.Production : squareMod.Environment.Sandbox;
-    const square = new squareMod.Client({ accessToken: token, environment: env });
+    const { SquareClient, SquareEnvironment } = squareMod;
+    const environment = (process.env.SQUARE_ENV === "production") ? SquareEnvironment.Production : SquareEnvironment.Sandbox;
+    const square = new SquareClient({ token, environment });
     // Charge the customer's card on file. Square needs a stored card id; we read
-    // the default from the customer's cards. (Activates when creds + a stored
-    // card-on-file id are provisioned.)
-    const cards = await square.cardsApi.listCards(undefined, client.square_customer_id);
-    const cardId = cards?.result?.cards?.find((c: any) => c.enabled)?.id;
+    // the default enabled card from the customer's cards. (v44: cards.list returns
+    // a pager — the first page's .data holds the (few) cards a customer has.)
+    const cardsPage = await square.cards.list({ customerId: client.square_customer_id });
+    const cardList: any[] = cardsPage?.data ?? [];
+    const cardId = cardList.find((c: any) => c.enabled)?.id ?? cardList[0]?.id;
     if (!cardId) {
       await flagFailure(companyId, invoice.id, invoice.job_id, "No enabled Square card on file");
       return { outcome: "failed", source: "square", message: "No usable Square card on file", invoiceId: invoice.id, amount };
     }
+    // Stable per-invoice key: if the office double-clicks Charge, Square returns
+    // the original result instead of double-charging. (A genuine retry after a
+    // decline also returns that first decline — office collects manually then.)
     const idempotencyKey = `inv-${invoice.id}-${companyId}`;
-    const resp = await square.paymentsApi.createPayment({
+    const resp = await square.payments.create({
       sourceId: cardId,
       idempotencyKey,
       customerId: client.square_customer_id,
       amountMoney: { amount: BigInt(Math.round(amount * 100)), currency: "USD" },
     });
-    const payment = resp?.result?.payment;
+    const payment = resp?.payment;
     if (payment && (payment.status === "COMPLETED" || payment.status === "APPROVED")) {
       await markPaid(companyId, invoice.id, invoice.job_id, invoice.client_id, amount, "square", userId,
         { square: payment.id }, "Charged via Square");
