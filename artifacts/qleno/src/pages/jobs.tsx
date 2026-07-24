@@ -5444,11 +5444,13 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
           <User size={11} style={{ flexShrink: 0, opacity: 0.9 }} />
           <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isUn ? "Unassigned" : j.assigned_user_name}</span>
         </div>
-        {/* WHERE — address, one line, ellipsis (truncates sooner on a narrow tile). */}
+        {/* WHERE — FULL address; wraps up to 3 lines so the whole thing shows
+            (Sal: make the tile a tad taller for the full address). The tile
+            grows to fit; grid rows stay top-aligned so neighbors don't stretch. */}
         {j.address && (
-          <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sub, lineHeight: 1.2, minWidth: 0 }}>
-            <MapPin size={11} style={{ flexShrink: 0, opacity: 0.9 }} />
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.address}</span>
+          <div style={{ display: "flex", alignItems: "flex-start", gap: 4, fontSize: 11, color: sub, lineHeight: 1.25, minWidth: 0 }}>
+            <MapPin size={11} style={{ flexShrink: 0, opacity: 0.9, marginTop: 1 }} />
+            <span style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", wordBreak: "break-word" }}>{j.address}</span>
           </div>
         )}
         {/* End time — the tail the header time no longer carries. */}
