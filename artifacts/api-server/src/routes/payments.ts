@@ -71,10 +71,56 @@ router.post("/charge-card", requireAuth, requireRole("owner", "admin"), async (r
         stripe_payment_method_id: clientsTable.stripe_payment_method_id,
         card_last_four: clientsTable.card_last_four,
         card_brand: clientsTable.card_brand,
+        square_customer_id: clientsTable.square_customer_id,
+        square_card_last4: clientsTable.square_card_last4,
+        square_card_brand: clientsTable.square_card_brand,
       })
       .from(clientsTable)
       .where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, companyId)));
     if (!client) return res.status(404).json({ error: "Client not found" });
+
+    // [square-charge 2026-07-24] Route by processor so ONE "Charge card on file"
+    // button works for both. A Stripe card wins; otherwise a Square-linked client
+    // is charged against their Square card on file. Runs before the Stripe-secret
+    // check so a Square client never trips "Stripe is not configured".
+    const hasStripeCard = !!(client.stripe_customer_id && client.stripe_payment_method_id);
+    if (!hasStripeCard && client.square_customer_id) {
+      const { chargeSquareCard } = await import("../lib/square-charge.js");
+      const idempotencyKey = invoiceId
+        ? `inv-${invoiceId}-${companyId}`
+        : `chg-${clientId}-${companyId}-${Date.now()}`;
+      const result = await chargeSquareCard({
+        squareCustomerId: client.square_customer_id,
+        amountCents: Math.round(amount * 100),
+        idempotencyKey,
+      });
+      if (!result.ok) {
+        const status = result.code === "not_configured" ? 503 : result.code === "no_card" ? 400 : 402;
+        const error = result.code === "declined" ? "CHARGE_DECLINED"
+          : result.code === "no_card" ? "NO_CHARGEABLE_CARD" : "SQUARE_CHARGE_FAILED";
+        console.error("[charge-card] Square charge failed:", result.message, { clientId, amount });
+        return res.status(status).json({ error, message: result.message });
+      }
+      const [sp] = await db.insert(paymentsTable).values({
+        company_id: companyId,
+        client_id: clientId,
+        invoice_id: invoiceId,
+        amount: amount.toString(),
+        method: "square",
+        status: "completed",
+        last_4: client.square_card_last4 ?? null,
+        card_brand: client.square_card_brand ?? null,
+        square_payment_id: result.paymentId,
+        processed_by: req.auth!.userId,
+      } as any).returning();
+      if (invoiceId) {
+        await db.update(invoicesTable)
+          .set({ paid_at: new Date(), status: "paid" as any, square_payment_id: result.paymentId } as any)
+          .where(and(eq(invoicesTable.id, invoiceId), eq(invoicesTable.company_id, companyId)));
+      }
+      firePaymentReceivedNotification(companyId, clientId, amount, invoiceId);
+      return res.status(201).json({ ...sp, charged: true, square_payment_id: result.paymentId });
+    }
 
     const secret = process.env.STRIPE_SECRET_KEY;
     if (!secret || secret === "payments disabled") {

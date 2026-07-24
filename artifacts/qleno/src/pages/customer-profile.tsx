@@ -2164,7 +2164,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
   async function chargeCard() {
     const amt = parseFloat(chargeAmt);
     if (!amt || amt <= 0) { alert("Enter an amount to charge."); return; }
-    if (!confirm(`Charge $${amt.toFixed(2)} to ${client.first_name}'s ${client.card_brand || "card"} ending ${client.card_last_four}?`)) return;
+    if (!confirm(`Charge $${amt.toFixed(2)} to ${client.first_name}'s ${cardBrand || "card"} ending ${cardLast4 || "on file"}?`)) return;
     setChargeBusy(true);
     try {
       // [real-card-charge 2026-07-22] Must hit /payments/charge-card, NOT
@@ -2199,14 +2199,22 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
   const [savingParking, setSavingParking] = useState(false);
 
   const FF = "'Plus Jakarta Sans', sans-serif";
-  const hasCard = !!client.card_last_four;
-  // [real-card-charge 2026-07-22] A last-4 on the record is NOT proof we can
-  // charge it — the chargeable handle is stripe_payment_method_id. Cards saved
-  // through the card-on-file link before 2026-07-22 have the display fields but
-  // no payment-method id, so they render as a card yet cannot be charged. Gate
-  // the charge UI on the real thing and say so when they disagree.
-  const canCharge = !!(client as any).stripe_payment_method_id;
-  const brandIcon = client.card_brand ? client.card_brand.charAt(0).toUpperCase() + client.card_brand.slice(1) : "Card";
+  // [square-charge 2026-07-24] The card on file is Stripe OR Square. A Square
+  // client (square_customer_id set, no Stripe method) is charged against their
+  // Square card via the same "Charge card on file" button — POST
+  // /payments/charge-card routes by processor server-side. Switching a client to
+  // Stripe later (via the card-on-file link) repopulates the Stripe fields and
+  // the exact same layout drives the Stripe charge — nothing here is Square-only.
+  const isSquareCard = !!(client as any).square_customer_id && !(client as any).stripe_payment_method_id;
+  const cardLast4 = client.card_last_four || (client as any).square_card_last4 || null;
+  const cardBrand = client.card_brand || (client as any).square_card_brand || null;
+  const hasCard = !!cardLast4 || !!(client as any).square_customer_id;
+  // [real-card-charge 2026-07-22] A last-4 alone is NOT proof we can charge it —
+  // the chargeable handle is stripe_payment_method_id (Stripe) or a Square
+  // customer link (Square). Cards saved through the pre-2026-07-22 card-on-file
+  // link have the display fields but no chargeable handle; gate on the real thing.
+  const canCharge = !!(client as any).stripe_payment_method_id || !!(client as any).square_customer_id;
+  const brandIcon = cardBrand ? cardBrand.charAt(0).toUpperCase() + cardBrand.slice(1) : (isSquareCard ? "Square card" : "Card");
 
   async function saveCommercialRate() {
     setSavingRate(true);
@@ -2318,7 +2326,8 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 600, fontSize: 14, color: "#1A1917", fontFamily: FF }}>
-                  {brandIcon} •••• {client.card_last_four}
+                  {brandIcon} •••• {cardLast4}
+                  {isSquareCard && <span style={{ marginLeft: 8, fontWeight: 500, fontSize: 11, color: "#6B6860" }}>· Square</span>}
                   {client.card_expiry && <span style={{ marginLeft: 8, fontWeight: 400, color: "#6B6860", fontSize: 12 }}>expires {client.card_expiry}</span>}
                 </div>
                 {client.card_saved_at && (
@@ -2346,7 +2355,7 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
                 </button>
               ) : (
                 <div style={{ padding: "14px 16px", background: "#F0FDF4", border: "1px solid #C7E7DE", borderRadius: 8 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 10, fontFamily: FF }}>Charge {brandIcon} •••• {client.card_last_four}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", marginBottom: 10, fontFamily: FF }}>Charge {brandIcon} •••• {cardLast4}</div>
                   <div style={{ display: "flex", gap: 8, marginBottom: 10 }}>
                     <input type="number" step="0.01" placeholder="Amount" value={chargeAmt} onChange={e => setChargeAmt(e.target.value)}
                       style={{ flex: 1, padding: "9px 11px", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, fontFamily: FF, boxSizing: "border-box" }} />
