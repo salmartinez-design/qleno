@@ -30,7 +30,11 @@ router.get("/conversations", requireAuth, requireRole("owner", "admin", "office"
           (SELECT NULLIF(trim(c.first_name||' '||coalesce(c.last_name,'')),'') FROM clients c WHERE c.company_id = ${companyId}
               AND right(regexp_replace(coalesce(c.phone,''),'\\D','','g'),10) = s.contact_phone LIMIT 1),
           (SELECT NULLIF(trim(l.first_name||' '||coalesce(l.last_name,'')),'') FROM leads l WHERE l.company_id = ${companyId}
-              AND right(regexp_replace(coalesce(l.phone,''),'\\D','','g'),10) = s.contact_phone LIMIT 1)
+              AND right(regexp_replace(coalesce(l.phone,''),'\\D','','g'),10) = s.contact_phone LIMIT 1),
+          -- [sms-contact-label 2026-07-24] last fallback: an office-set label for a
+          -- bare number that isn't a client or lead.
+          (SELECT NULLIF(trim(scl.name),'') FROM sms_contact_labels scl
+              WHERE scl.company_id = ${companyId} AND scl.contact_phone = s.contact_phone LIMIT 1)
         ) AS name,
         -- [scheduled-visibility 2026-07-11] Flag threads with a pending scheduled
         -- reply so a teammate scanning the inbox sees it's already handled (and by
@@ -79,6 +83,32 @@ router.get("/conversations", requireAuth, requireRole("owner", "admin", "office"
     return res.json(list);
   } catch (err) {
     console.error("GET /sms/conversations:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ── PUT /api/sms/contact-label — name a bare-number thread ─────────────────────
+// [sms-contact-label 2026-07-24] Office-set display name for a phone that isn't a
+// client or lead, so the inbox reads a name instead of digits. Upsert by
+// (company_id, 10-digit phone); empty name clears the label. NOT a customer/lead.
+router.put("/contact-label", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const phone = String(req.body?.phone ?? "").replace(/\D/g, "").slice(-10);
+    const name = String(req.body?.name ?? "").trim();
+    if (phone.length !== 10) return res.status(400).json({ error: "Bad Request", message: "A 10-digit phone is required" });
+    if (!name) {
+      await db.execute(sql`DELETE FROM sms_contact_labels WHERE company_id = ${companyId} AND contact_phone = ${phone}`);
+      return res.json({ phone, name: null });
+    }
+    await db.execute(sql`
+      INSERT INTO sms_contact_labels (company_id, contact_phone, name, created_by)
+      VALUES (${companyId}, ${phone}, ${name}, ${req.auth!.userId})
+      ON CONFLICT (company_id, contact_phone)
+      DO UPDATE SET name = EXCLUDED.name, updated_at = now()`);
+    return res.json({ phone, name });
+  } catch (err) {
+    console.error("PUT /sms/contact-label:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
