@@ -64,6 +64,20 @@ const PLUS_STANDARD_NOTE: Bilingual = {
   es: "Primero haga todo lo de la Limpieza Estándar, luego agregue el trabajo detallado de abajo.",
 };
 
+// Recurring upkeep — the maintenance tasks recurring clients get on top of the
+// Standard Clean each visit (Sal, 2026-07-24).
+const RECURRING_UPKEEP: ChecklistSection = {
+  title: { en: "Recurring upkeep", es: "Mantenimiento recurrente" },
+  items: [
+    { en: "Dust baseboards", es: "Sacudir los zócalos" },
+    { en: "Wipe down doors when dirty", es: "Limpiar las puertas cuando estén sucias" },
+    { en: "Clean light switch covers in the kitchen", es: "Limpiar las tapas de los interruptores de luz en la cocina" },
+    { en: "Keep trash containers clean & wiped down", es: "Mantener los botes de basura limpios y pasarles un trapo" },
+    { en: "Wipe down kitchen cabinets", es: "Limpiar los gabinetes de la cocina" },
+    { en: "Clean top of fridge when clear of clutter", es: "Limpiar la parte de arriba del refrigerador cuando esté despejada" },
+  ],
+};
+
 // The three selectable clean types.
 export const CHECKLIST_SERVICES: ChecklistService[] = [
   {
@@ -129,6 +143,16 @@ export const CHECKLIST_SERVICES: ChecklistService[] = [
         ],
       },
     ],
+  },
+  {
+    key: "recurring",
+    title: { en: "Recurring", es: "Recurrente" },
+    subtitle: {
+      en: "For recurring clients — everything in the Standard Clean, plus the upkeep below.",
+      es: "Para clientes recurrentes — todo lo de la Limpieza Estándar, más el mantenimiento de abajo.",
+    },
+    note: PLUS_STANDARD_NOTE,
+    sections: [RECURRING_UPKEEP],
   },
   {
     key: "deep",
