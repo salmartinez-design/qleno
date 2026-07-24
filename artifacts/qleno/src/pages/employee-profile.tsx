@@ -77,7 +77,7 @@ const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Su
 const TABS = [
   'Information','Earnings','Attendance','Availability',
   'User Account','Performance Score','Pay Configuration','Additional Pay',
-  'Jobs','Notes','Incentives',
+  'Jobs','Notes',
   'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
 ];
 
@@ -1190,12 +1190,6 @@ export default function EmployeeProfilePage() {
   // Only the budgeted/time-target packages (the catalog) are shown — pure-hourly
   // packages are intentionally excluded from efficiency entirely.
   const effPackages = effCatalog;
-
-  const { data: incentivesData = [] } = useQuery<any[]>({
-    queryKey: ['incentives-earned', userId],
-    queryFn: () => apiFetch(`/incentives/earned?employee_id=${userId}`),
-    enabled: activeTab === 'Incentives',
-  });
 
   const [form, setForm] = useState<Record<string, any>>({});
   useEffect(() => { if (user) setForm(user); }, [user]);
@@ -2996,78 +2990,6 @@ export default function EmployeeProfilePage() {
               </table>
             </div>
           )}
-
-          {/* ── NOTES TAB ── */}
-          {activeTab === 'Incentives' && (() => {
-            const thisYear = new Date().getFullYear();
-            const ytdAll = incentivesData.filter((i: any) => i.earned_date && new Date(i.earned_date + 'T12:00').getFullYear() === thisYear);
-            const ytdEarned = ytdAll.reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
-            const ytdPaid = ytdAll.filter((i: any) => i.status === 'paid' || i.paid_date).reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
-            const pendingUnpaid = ytdAll.filter((i: any) => i.status === 'approved' && !i.paid_date).reduce((s: number, i: any) => s + parseFloat(i.amount || 0), 0);
-            const STATUS_S: Record<string, { bg: string; color: string; label: string }> = {
-              pending_approval: { bg:'#FDF3E4', color:'#B45309', label:'Pending Approval' },
-              approved:         { bg:'#EFEFF2', color:'#2F3646', label:'Approved' },
-              rejected:         { bg:'#F0EEE9', color:'#6B6860', label:'Rejected' },
-              paid:             { bg:'#E6F6F1', color:'#0F7A63', label:'Paid' },
-            };
-            return (
-              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-                {/* YTD summary cards */}
-                <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12 }}>
-                  {[
-                    { label:'Earned YTD', value:`$${ytdEarned.toFixed(2)}`, color:'#1A1917' },
-                    { label:'Paid YTD', value:`$${ytdPaid.toFixed(2)}`, color:'#0F7A63' },
-                    { label:'Approved — Unpaid', value:`$${pendingUnpaid.toFixed(2)}`, color: pendingUnpaid > 0 ? '#B45309' : '#9E9B94' },
-                  ].map(c => (
-                    <div key={c.label} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:8, padding:'14px 16px', textAlign:'center' }}>
-                      <div style={{ fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em', marginBottom:6 }}>{c.label}</div>
-                      <div style={{ fontSize:22, fontWeight:800, color:c.color }}>{c.value}</div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* History table */}
-                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, overflow:'hidden' }}>
-                  <div style={{ padding:'12px 18px', borderBottom:'1px solid #EEECE7' }}>
-                    <p style={{ margin:0, fontSize:13, fontWeight:700, color:'#1A1917' }}>Incentive History</p>
-                  </div>
-                  {incentivesData.length === 0 ? (
-                    <div style={{ padding:'40px 0', textAlign:'center', color:'#9E9B94', fontSize:13 }}>No incentives earned yet</div>
-                  ) : (
-                    <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                      <thead>
-                        <tr style={{ borderBottom:'1px solid #EEECE7' }}>
-                          {['Program','Amount','Earned Date','Status','Paid Date'].map(h => (
-                            <th key={h} style={{ padding:'10px 16px', textAlign:'left', fontSize:11, fontWeight:600, color:'#9E9B94', textTransform:'uppercase' as const, letterSpacing:'0.05em' }}>{h}</th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {incentivesData.map((inc: any) => {
-                          const s = STATUS_S[inc.status] ?? STATUS_S.approved;
-                          return (
-                            <tr key={inc.id} style={{ borderBottom:'1px solid #F0EEE9' }}>
-                              <td style={{ padding:'12px 16px', fontSize:13, fontWeight:600, color:'#1A1917' }}>{inc.program_name || '—'}</td>
-                              <td style={{ padding:'12px 16px', fontSize:13, fontWeight:700, color:'#0F7A63' }}>${parseFloat(inc.amount || 0).toFixed(2)}</td>
-                              <td style={{ padding:'12px 16px', fontSize:12, color:'#6B6860' }}>
-                                {inc.earned_date ? new Date(inc.earned_date + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
-                              </td>
-                              <td style={{ padding:'12px 16px' }}>
-                                <span style={{ padding:'2px 7px', borderRadius:4, fontSize:11, fontWeight:700, background:s.bg, color:s.color }}>{s.label}</span>
-                              </td>
-                              <td style={{ padding:'12px 16px', fontSize:12, color:'#6B6860' }}>
-                                {inc.paid_date ? new Date(inc.paid_date + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' }) : '—'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
 
           {activeTab === 'Notes' && (
             <div>
