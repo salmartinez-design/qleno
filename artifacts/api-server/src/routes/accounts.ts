@@ -34,7 +34,12 @@ async function getAccountStats(companyId: number, accountId: number) {
     .select({
       revenue_mtd: sql<string>`COALESCE(SUM(CASE WHEN ${invoicesTable.status} = 'paid' AND ${invoicesTable.created_at} >= ${startOfMonth()} THEN ${invoicesTable.total}::numeric ELSE 0 END), 0)`,
       revenue_12m: sql<string>`COALESCE(SUM(CASE WHEN ${invoicesTable.status} = 'paid' THEN ${invoicesTable.total}::numeric ELSE 0 END), 0)`,
-      outstanding_balance: sql<string>`COALESCE(SUM(CASE WHEN ${invoicesTable.status} IN ('draft','sent') THEN ${invoicesTable.total}::numeric ELSE 0 END), 0)`,
+      // [ar-fix 2026-07-24] Outstanding = issued-but-unpaid only. DRAFT invoices
+      // are pre-merge per-job scaffolding, NOT receivables — counting them
+      // inflated commercial accounts' balances by thousands (National Able showed
+      // ~$21k of stray daily drafts). SUPERSEDED (merged away) and paid/void are
+      // already excluded; 'overdue' is issued-and-past-due so it still counts.
+      outstanding_balance: sql<string>`COALESCE(SUM(CASE WHEN ${invoicesTable.status} IN ('sent','overdue') THEN ${invoicesTable.total}::numeric ELSE 0 END), 0)`,
     })
     .from(invoicesTable)
     .where(and(eq(invoicesTable.account_id, accountId), eq(invoicesTable.company_id, companyId)));
@@ -1293,7 +1298,9 @@ router.post("/:id/charge", requireAuth, requireRole("owner", "admin"), async (re
       .where(and(
         eq(invoicesTable.account_id, id),
         eq(invoicesTable.company_id, companyId),
-        inArray(invoicesTable.status, ["draft", "sent"]),
+        // [ar-fix 2026-07-24] Never bulk-charge DRAFT invoices — they're unissued
+        // per-job scaffolding; charging them would duplicate the weekly merge.
+        inArray(invoicesTable.status, ["sent", "overdue"]),
       ));
 
     if (outstanding.length === 0) {
@@ -1340,9 +1347,9 @@ router.get("/:id/payment-status", requireAuth, requireRole("owner", "admin", "of
 
     const summary = {
       paid: invoices.filter((i) => i.status === "paid").reduce((s, i) => s + parseFloat(i.total ?? "0"), 0),
-      outstanding: invoices.filter((i) => ["draft", "sent"].includes(i.status)).reduce((s, i) => s + parseFloat(i.total ?? "0"), 0),
+      outstanding: invoices.filter((i) => ["sent", "overdue"].includes(i.status)).reduce((s, i) => s + parseFloat(i.total ?? "0"), 0),
       count_paid: invoices.filter((i) => i.status === "paid").length,
-      count_outstanding: invoices.filter((i) => ["draft", "sent"].includes(i.status)).length,
+      count_outstanding: invoices.filter((i) => ["sent", "overdue"].includes(i.status)).length,
     };
 
     res.json({ summary, recent_invoices: invoices });
