@@ -661,6 +661,26 @@ async function runStartupMigrations() {
     console.error("[startup] ensureAutoChargeDefaultOff — non-fatal:", err?.message ?? err);
   }
   try {
+    // [unpaid-purple 2026-07-24] Recolor the Unpaid Leave bucket from the old
+    // gold (#BA7517) to purple (#7C3AED) — Sal hated the beige. The color is
+    // data-driven off leave_types.display_config (seeded once), so the code
+    // default alone wouldn't recolor the live bucket; update the stored value.
+    // Idempotent + non-destructive: only touches unpaid buckets still on the old
+    // gold (or with no accent set), so a deliberate custom color is left alone.
+    await withBootTimeout("recolorUnpaidBucket", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`
+        UPDATE leave_types
+           SET display_config = COALESCE(display_config, '{}'::jsonb)
+               || '{"accent":"#7C3AED","tint":"#F1EBFB","on_tint":"#6D28D9"}'::jsonb
+         WHERE slug ILIKE '%unpaid%'
+           AND COALESCE(display_config->>'accent', '#BA7517') = '#BA7517'`);
+    });
+  } catch (err: any) {
+    console.error("[startup] recolorUnpaidBucket — non-fatal:", err?.message ?? err);
+  }
+  try {
     // [square-webhook 2026-07-22] Square payment reconciliation ledger. The
     // unique index is the idempotency guarantee — Square retries any non-2xx,
     // and without it a retry would credit the same invoice twice.
