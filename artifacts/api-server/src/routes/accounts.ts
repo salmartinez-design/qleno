@@ -1376,7 +1376,10 @@ router.post("/:id/bill-week", requireAuth, requireRole("owner", "admin", "office
 // ─── CHARGE ──────────────────────────────────────────────────────────────────
 
 // POST /api/accounts/:id/charge  — attempt payment on all outstanding invoices
-router.post("/:id/charge", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+// [office-charge-parity 2026-07-24] office included: charging a commercial
+// account's open invoices is the same office-facing action as the per-client
+// "Charge this card" button. Mirrors the fix on /api/payments/charge-card.
+router.post("/:id/charge", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   const id = parseInt(req.params.id);
   if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
 

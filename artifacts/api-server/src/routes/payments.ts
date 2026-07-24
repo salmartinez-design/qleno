@@ -51,7 +51,13 @@ function firePaymentReceivedNotification(
 // This endpoint actually charges. Stripe runs FIRST; nothing is recorded and no
 // receipt goes out unless Stripe returns succeeded. A decline surfaces Stripe's
 // own message so the office knows why.
-router.post("/charge-card", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+// [office-charge-parity 2026-07-24] 'office' was missing here while the customer
+// profile shows the "Charge this card" button to office users — so Maribel /
+// Francisco saw the button but the call 403'd. Charging a card on file is exactly
+// the day-to-day office action the office-parity work intended to cover; the
+// newer charge endpoint just never got it. (Refund + raw record-payment stay
+// owner/admin — those weren't asked for and carry more risk.)
+router.post("/charge-card", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const clientId = parseInt(String(req.body?.client_id ?? ""), 10);
