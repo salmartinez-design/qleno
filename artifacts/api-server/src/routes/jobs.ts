@@ -378,6 +378,14 @@ router.post("/:id/redo", requireAuth, requireRole("owner", "admin", "office"), a
       } catch (e) { console.error("[redo] probation check failed for", accId, e); }
     }
 
+    // [complaint-satisfaction 2026-07-24] The redo just logged valid complaints on
+    // the ORIGINAL job (srcId) for its cleaners — inject the 1-of-4 satisfaction
+    // hit for that original team (never the redo tech, who's on the new job).
+    try {
+      const { syncJobComplaintScore } = await import("../lib/scorecard-composite.js");
+      await syncJobComplaintScore(companyId, srcId);
+    } catch (e) { console.error("[redo] complaint-score sync failed (non-fatal):", e); }
+
     return res.status(201).json({ redo_job: redo, accountable, probation });
   } catch (err) {
     console.error("[jobs redo]", err);

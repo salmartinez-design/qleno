@@ -1786,6 +1786,11 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const [redoMode, setRedoMode] = useState<"same" | "recovery">("same");
   const [redoRecoveryTech, setRedoRecoveryTech] = useState<number | null>(null);
   const [redoPay, setRedoPay] = useState("");
+  // [redo-nopay 2026-07-24] Explicit "don't pay the recovery cleaner" toggle. When
+  // a different tech covers a redo that wasn't their fault we normally pay them,
+  // but the office must be able to zero it deliberately (not by leaving the field
+  // blank) so sending someone else never quietly costs — or quietly pays — anyone.
+  const [redoNoPay, setRedoNoPay] = useState(false);
   const [redoDate, setRedoDate] = useState("");
   const [redoTime, setRedoTime] = useState("");
   const [redoMsg, setRedoMsg] = useState("");
@@ -1808,7 +1813,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
           accountable_user_ids: redoAccountable,
           mode: redoMode,
           recovery_user_id: redoMode === "recovery" ? redoRecoveryTech : undefined,
-          recovery_pay: redoMode === "recovery" ? (Number(redoPay) || 0) : undefined,
+          recovery_pay: redoMode === "recovery" ? (redoNoPay ? 0 : (Number(redoPay) || 0)) : undefined,
           scheduled_date: redoDate, scheduled_time: redoTime || job.scheduled_time || undefined,
         }),
       });
@@ -4119,9 +4124,19 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
                 </div>
                 <div style={{ width: 110 }}>
                   <label style={redoLbl}>Pay ($)</label>
-                  <input value={redoPay} onChange={e => setRedoPay(e.target.value)} placeholder="60" inputMode="decimal" style={redoInp} />
+                  <input value={redoNoPay ? "" : redoPay} onChange={e => setRedoPay(e.target.value)} disabled={redoNoPay} placeholder={redoNoPay ? "$0" : "60"} inputMode="decimal" style={{ ...redoInp, background: redoNoPay ? "#F3F2EF" : "#fff", color: redoNoPay ? "#9E9B94" : "#1A1917" }} />
                 </div>
               </div>
+            )}
+
+            {redoMode === "recovery" && (
+              <label style={{ display: "flex", alignItems: "flex-start", gap: 8, marginTop: 10, cursor: "pointer" }}>
+                <input type="checkbox" checked={redoNoPay} onChange={e => setRedoNoPay(e.target.checked)} style={{ marginTop: 2, accentColor: "var(--brand)", cursor: "pointer" }} />
+                <span style={{ fontSize: 12, color: "#1A1917", lineHeight: 1.4 }}>
+                  Don&rsquo;t pay this cleaner
+                  <span style={{ display: "block", fontSize: 10.5, color: "#9E9B94" }}>Zeros the recovery pay. Use when the redo is absorbed and the covering cleaner shouldn&rsquo;t be charged or credited for it.</span>
+                </span>
+              </label>
             )}
 
             <div style={{ display: "flex", gap: 10 }}>
