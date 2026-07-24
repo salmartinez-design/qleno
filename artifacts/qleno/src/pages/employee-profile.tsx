@@ -12,7 +12,7 @@ import { getAuthHeaders, getTokenRole } from "@/lib/auth";
 import { CalendarPopover } from "@/components/calendar-popover";
 import {
   ArrowLeft, Camera, Plus, X, ChevronLeft, ChevronRight,
-  Star, Save, Trash2, Edit2, Check, AlertCircle, Mail, Phone, Eye,
+  Star, Save, Trash2, Check, AlertCircle, Mail, Phone, Eye,
   Ban, ChevronDown, ChevronUp, DollarSign, Clock, TrendingUp, Download, Users,
   RotateCcw,
 } from "lucide-react";
@@ -75,8 +75,8 @@ const SCORE_BGS   = ['', '#FCEBEA', '#FDF3E4', '#EFEFF2', '#E6F6F1'];
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6 };
 const TABS = [
-  'Information','Pay','Earnings','Attendance','Availability',
-  'User Account','Contacts','Performance Score','Pay Configuration','Additional Pay',
+  'Information','Earnings','Attendance','Availability',
+  'User Account','Performance Score','Pay Configuration','Additional Pay',
   'Payroll History',
   'Contact Tickets','Jobs','Notes','Incentives',
   'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
@@ -653,6 +653,10 @@ export default function EmployeeProfilePage() {
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     if (t === 'one-on-ones' && isOwner) setActiveTab('1-on-1s');
+    // [tab-cleanup 2026-07-24] Pay folded into Earnings; Contacts lives on the
+    // Information tab now. Redirect any stale deep links / bookmarks.
+    if (t === 'pay') setActiveTab('Earnings');
+    if (t === 'contacts') setActiveTab('Information');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOwner]);
 
@@ -1103,7 +1107,8 @@ export default function EmployeeProfilePage() {
   const { data: payData } = useQuery({
     queryKey: ['pay-history', userId],
     queryFn: () => apiFetch(`/payroll/pay-history?user_id=${userId}`),
-    enabled: activeTab === 'Pay',
+    // [tab-cleanup 2026-07-24] Published Pay now lives under the Earnings tab.
+    enabled: activeTab === 'Earnings',
   });
 
   const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
@@ -1608,13 +1613,10 @@ export default function EmployeeProfilePage() {
         {/* ── TAB CONTENT ── */}
         <div style={{ marginBottom:40 }}>
 
-          {/* ── EARNINGS TAB ── (real-time commission/pay for the period) */}
-          {activeTab === 'Earnings' && (
-            <EarningsPanel userId={userId} />
-          )}
-
-          {/* ── PAY TAB ── published pay snapshots: current week + full history */}
-          {activeTab === 'Pay' && (() => {
+          {/* ── EARNINGS TAB ── one money page: live earnings (selectable range)
+              on top, published paychecks + history below. Pay used to be its own
+              tab; merged here 2026-07-24 to kill the redundant split. */}
+          {activeTab === 'Earnings' && (() => {
             const weeks: any[] = payData?.weeks ?? [];
             const money = (n: any) => `$${Number(n || 0).toFixed(2)}`;
             const fmtRange = (s: string, e: string) => {
@@ -1622,7 +1624,8 @@ export default function EmployeeProfilePage() {
               return `${d(s)} – ${d(e)}, ${s.slice(0, 4)}`;
             };
             return (
-              <div>
+              <div style={{ display:'flex', flexDirection:'column', gap:'24px' }}>
+                <EarningsPanel userId={userId} />
                 <SectionCard title="Published Pay">
                   {weeks.length === 0 ? (
                     <div style={{ padding:'24px', color:'#6B6860', fontSize:'14px' }}>No published pay yet. Once the office publishes a pay period, your weekly pay and history appear here.</div>
@@ -2556,39 +2559,8 @@ export default function EmployeeProfilePage() {
           )}
 
           {/* ── CONTACTS TAB ── */}
-          {activeTab === 'Contacts' && (
-            <SectionCard title="Emergency Contacts">
-              {(user.emergency_contact_name) ? (
-                <div style={{ border:'1px solid #E5E2DC', borderRadius:8, padding:'14px 16px', marginBottom:12 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
-                    <div>
-                      <p style={{ fontSize:13,fontWeight:600,color:'#1A1917',margin:'0 0 4px 0' }}>{user.emergency_contact_name}</p>
-                      {user.emergency_contact_relation && (
-                        <span style={{ fontSize:11,background:'#FBF0E9',color:'#9C4E2B',padding:'2px 8px',borderRadius:10,fontWeight:600 }}>{user.emergency_contact_relation}</span>
-                      )}
-                      {user.emergency_contact_phone && (
-                        <p style={{ fontSize:13,color:'#6B6860',margin:'6px 0 0 0',display:'flex',alignItems:'center',gap:5 }}>
-                          <Phone size={12}/>{user.emergency_contact_phone}
-                        </p>
-                      )}
-                    </div>
-                    <button onClick={() => setActiveTab('Information')}
-                      style={{ background:'none',border:'none',cursor:'pointer',color:'var(--brand)',fontSize:12,fontWeight:600,fontFamily:'inherit' }}>
-                      <Edit2 size={13}/> Edit
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ textAlign:'center', padding:'32px 0', color:'#9E9B94' }}>
-                  <p style={{ fontSize:14, margin:'0 0 12px 0' }}>No emergency contacts yet</p>
-                  <button onClick={() => setActiveTab('Information')}
-                    style={{ padding:'8px 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>
-                    <Plus size={13}/> Add in Information Tab
-                  </button>
-                </div>
-              )}
-            </SectionCard>
-          )}
+          {/* Contacts tab removed 2026-07-24 — emergency contacts are edited on
+              the Information tab; a separate read-only tab was redundant. */}
 
           {/* ── SCORECARDS TAB ── */}
           {activeTab === 'Performance Score' && (
