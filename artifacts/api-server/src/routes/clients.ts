@@ -487,6 +487,22 @@ router.get("/:id/full-profile", requireAuth, async (req, res) => {
     const mergedScorecards = [...(scorecards as any[]), ...entryScorecards]
       .sort((a, b) => String(b.created_at ?? b.scheduled_date ?? "").localeCompare(String(a.created_at ?? a.scheduled_date ?? "")));
 
+    // [square-charge 2026-07-24] Surface the linked Square card so the profile's
+    // "Charge card on file" button can render + charge it. The mapping mirrors
+    // square_customer_id onto clients but not the card details (those live in
+    // square_customer_map), so backfill them here for the UI when absent.
+    if (client.square_customer_id && !(client as any).square_card_last4) {
+      const sq = (await db.execute(sql`
+        SELECT card_last4, card_brand FROM square_customer_map
+        WHERE company_id = ${companyId} AND square_customer_id = ${client.square_customer_id}
+        ORDER BY (status = 'linked') DESC LIMIT 1
+      `)).rows[0] as any;
+      if (sq) {
+        (client as any).square_card_last4 = sq.card_last4 ?? null;
+        (client as any).square_card_brand = sq.card_brand ?? null;
+      }
+    }
+
     return res.json({
       ...client,
       ...(zoneData || {}),
