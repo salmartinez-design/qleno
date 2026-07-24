@@ -5461,22 +5461,24 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
         boxShadow: ring === "none" ? "0 1px 2px rgba(10,14,26,0.10)" : `${ring}, 0 1px 2px rgba(10,14,26,0.10)`,
         display: "flex", flexDirection: "column", gap: 5,
       }}>
-        {/* Time (+ recurring badge) + amount + completed check / no-show badge */}
+        {/* Time + amount + completed check / no-show badge */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
-            <span style={{ fontSize: 11, fontWeight: 800, color: ink, opacity: 0.95, flexShrink: 0 }}>{fmtRail(sMin)}</span>
-            {isRecurring && (
-              <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 8.5, fontWeight: 800, padding: "1px 6px", borderRadius: 999, background: "#0A0E1A", color: "#5EE6C7", textTransform: "uppercase", letterSpacing: "0.02em", whiteSpace: "nowrap", flexShrink: 0 }}>
-                <Repeat size={8} strokeWidth={2.75} />{recurrenceLabel(j.frequency)}
-              </span>
-            )}
-          </div>
+          <span style={{ fontSize: 11, fontWeight: 800, color: ink, opacity: 0.95, flexShrink: 0 }}>{fmtRail(sMin)}</span>
           <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
             {visual.showCheckmark && <Check size={13} color={ink} strokeWidth={3} />}
             {visual.showNoShowBadge && <span style={{ fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "2px 5px", borderRadius: 4, letterSpacing: "0.03em" }}>NO SHOW</span>}
             {amount && !visual.showNoShowBadge && <span style={{ fontSize: 13, fontWeight: 800, color: ink }}>{amount}</span>}
           </div>
         </div>
+        {/* [recurring-badge-line 2026-07-24] Recurring badge on its OWN line so
+            long cadences ("Every 3 weeks") have room and never collide with the
+            amount/checkmark on the narrow time-slot tiles (Sal: "jumbled"). */}
+        {isRecurring && (
+          <span style={{ display: "inline-flex", alignSelf: "flex-start", maxWidth: "100%", alignItems: "center", gap: 3, fontSize: 8.5, fontWeight: 800, padding: "2px 7px", borderRadius: 999, background: "#0A0E1A", color: "#5EE6C7", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+            <Repeat size={8} strokeWidth={2.75} style={{ flexShrink: 0 }} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{recurrenceLabel(j.frequency)}</span>
+          </span>
+        )}
         {/* WHO — client name (up to two lines, then clip). */}
         <div style={{ fontSize: 13.5, fontWeight: 800, color: ink, lineHeight: 1.15, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", wordBreak: "break-word", textDecoration: visual.strikethrough ? "line-through" : "none", minHeight: 31 }}>
           {j.display_name ?? j.client_name}
