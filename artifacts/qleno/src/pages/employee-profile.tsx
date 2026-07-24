@@ -77,7 +77,7 @@ const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Su
 const TABS = [
   'Information','Earnings','Attendance','Availability',
   'User Account','Performance Score','Pay Configuration','Additional Pay',
-  'Jobs','Notes','Incentives',
+  'Contact Tickets','Jobs','Notes','Incentives',
   'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
 ];
 
@@ -1092,12 +1092,6 @@ export default function EmployeeProfilePage() {
     queryKey: ['additional-pay', userId],
     queryFn: () => apiFetch(`/users/${userId}/additional-pay`),
     enabled: activeTab === 'Additional Pay',
-  });
-
-  const { data: payrollHistoryData } = useQuery({
-    queryKey: ['payroll-history', userId],
-    queryFn: () => apiFetch(`/users/${userId}/payroll-history`),
-    enabled: activeTab === 'Payroll History',
   });
 
   // [Phase 2] Published-pay snapshots for this tech. Access-scoping is enforced
@@ -2796,125 +2790,6 @@ export default function EmployeeProfilePage() {
                     </tbody>
                   </table>
                 </div>
-              </div>
-            );
-          })()}
-
-          {/* ── PAYROLL HISTORY TAB ── */}
-          {activeTab === 'Payroll History' && (() => {
-            const records: any[] = payrollHistoryData?.data || [];
-
-            const fmt = (v: any) => `$${parseFloat(v||0).toFixed(2)}`;
-            const fmtH = (v: any) => `${parseFloat(v||0).toFixed(1)} hrs`;
-
-            const PERIOD_LABELS: Record<string, string> = {
-              '2025-full': 'Full Year 2025',
-              '2026-ytd':  'YTD 2026',
-            };
-
-            const highlightRows = [
-              { key:'total_job_hours',   label:'Total Job Hours',     fmt: fmtH },
-              { key:'clock_hours',       label:'Clock Hours',         fmt: fmtH },
-              { key:'overtime_hours',    label:'Overtime Hours',      fmt: fmtH },
-              { key:'commission_pay',    label:'Commission Pay',      fmt },
-              { key:'hourly_pay',        label:'Hourly Pay',          fmt },
-              { key:'tips',              label:'Tips',                fmt },
-              { key:'bonus',             label:'Bonus',               fmt },
-              { key:'overtime',          label:'Overtime Pay',        fmt },
-              { key:'sick_pay',          label:'Sick Pay',            fmt },
-              { key:'holiday_pay',       label:'Holiday Pay',         fmt },
-              { key:'vacation_pay',      label:'Vacation Pay',        fmt },
-              { key:'reimbursements',    label:'Reimbursements',      fmt },
-              { key:'gross_wage',        label:'Gross Wage',          fmt },
-              { key:'avg_wage',          label:'Avg Wage/Hr',         fmt },
-            ];
-
-            if (!records.length) {
-              return (
-                <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, padding:'60px 0', textAlign:'center', color:'#9E9B94', fontSize:14 }}>
-                  <TrendingUp size={32} style={{ marginBottom:12, color:'#E5E2DC' }}/>
-                  <p style={{ margin:'0 0 4px 0', fontWeight:600 }}>No payroll history</p>
-                  <p style={{ margin:0, fontSize:12 }}>Imported MaidCentral data will appear here</p>
-                </div>
-              );
-            }
-
-            return (
-              <div style={{ display:'flex', flexDirection:'column', gap:14 }}>
-                {/* Source notice */}
-                <div style={{ background:'var(--brand-dim)', border:'1px solid rgba(var(--brand-rgb),0.2)', borderRadius:8, padding:'10px 16px', display:'flex', alignItems:'center', gap:10 }}>
-                  <TrendingUp size={14} style={{ color:'var(--brand)', flexShrink:0 }}/>
-                  <span style={{ fontSize:12, color:'var(--brand)', fontWeight:600 }}>
-                    Payroll data imported from MaidCentral — {records.length} period{records.length!==1?'s':''} on file
-                  </span>
-                </div>
-
-                {/* Period cards */}
-                {records.map((r: any) => {
-                  const isExpanded = expandedPeriod === r.id?.toString();
-                  const periodName = PERIOD_LABELS[r.period_label] || r.period_label;
-                  const start = new Date(r.period_start + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-                  const end   = new Date(r.period_end   + 'T12:00').toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
-
-                  return (
-                    <div key={r.id} style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:12, overflow:'hidden' }}>
-                      {/* Card header */}
-                      <div
-                        onClick={() => setExpandedPeriod(isExpanded ? null : r.id?.toString())}
-                        style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'16px 20px', cursor:'pointer', userSelect:'none' as const }}
-                      >
-                        <div>
-                          <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:4 }}>
-                            <span style={{ fontSize:15, fontWeight:700, color:'#1A1917' }}>{periodName}</span>
-                            <span style={{ fontSize:11, fontWeight:600, padding:'2px 8px', borderRadius:10, background:'var(--brand-dim)', color:'var(--brand)' }}>
-                              {r.migration_source === 'mc_import' ? 'MaidCentral' : r.migration_source}
-                            </span>
-                          </div>
-                          <span style={{ fontSize:12, color:'#9E9B94' }}>{start} — {end}</span>
-                        </div>
-                        <div style={{ display:'flex', alignItems:'center', gap:16 }}>
-                          {/* Quick stats */}
-                          <div style={{ textAlign:'right' as const }}>
-                            <div style={{ fontSize:11, color:'#9E9B94', marginBottom:2 }}>Gross Wage</div>
-                            <div style={{ fontSize:18, fontWeight:800, color:'#1A1917' }}>{fmt(r.gross_wage)}</div>
-                          </div>
-                          <div style={{ textAlign:'right' as const }}>
-                            <div style={{ fontSize:11, color:'#9E9B94', marginBottom:2 }}>Job Hours</div>
-                            <div style={{ fontSize:18, fontWeight:800, color:'var(--brand)' }}>{fmtH(r.total_job_hours)}</div>
-                          </div>
-                          <button
-                            onClick={e => { e.stopPropagation(); setPrintRecord({ ...r, periodName, start, end }); }}
-                            title="Download PDF"
-                            style={{ display:'flex',alignItems:'center',gap:5,padding:'6px 12px',border:'1px solid #E5E2DC',borderRadius:8,background:'#FFFFFF',cursor:'pointer',fontSize:12,fontWeight:600,color:'#6B6860',fontFamily:'inherit' }}>
-                            <Download size={13}/> PDF
-                          </button>
-                          {isExpanded
-                            ? <ChevronUp size={18} style={{ color:'#9E9B94' }}/>
-                            : <ChevronDown size={18} style={{ color:'#9E9B94' }}/>
-                          }
-                        </div>
-                      </div>
-
-                      {/* Expanded detail */}
-                      {isExpanded && (
-                        <div style={{ borderTop:'1px solid #EEECE7', padding:'20px', display:'grid', gridTemplateColumns:'1fr 1fr', gap:'0 40px' }}>
-                          {highlightRows.map((row, idx) => {
-                            const val = r[row.key];
-                            const isZero = !val || parseFloat(val) === 0;
-                            return (
-                              <div key={row.key} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'7px 0', borderBottom:'1px solid #F0EEE9', gridColumn: idx === highlightRows.length - 1 && highlightRows.length % 2 !== 0 ? '1 / -1' : undefined }}>
-                                <span style={{ fontSize:12, color: isZero ? '#C4C0B8' : '#6B6860' }}>{row.label}</span>
-                                <span style={{ fontSize:13, fontWeight:700, color: isZero ? '#C4C0B8' : (row.key === 'gross_wage' ? 'var(--brand)' : '#1A1917') }}>
-                                  {row.fmt(val)}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
               </div>
             );
           })()}
