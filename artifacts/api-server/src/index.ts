@@ -12,6 +12,7 @@ import { runSmokeTests } from "./lib/smoke-test.js";
 import { runAnnualCycleAutoOpen } from "./lib/lms-annual-cycle-cron.js";
 import { runLmsCompletionBackfill } from "./lib/lms-completion-backfill.js";
 import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
+import { runComplaintScoreBackfill } from "./lib/complaint-score-backfill.js";
 import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./lib/job-history-sync.js";
 import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
 import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
@@ -1243,6 +1244,20 @@ async function runPostListenDataTasks() {
     }
   } catch (err: any) {
     console.error("[startup] runLmsCertificateBackfill — non-fatal:", err?.message ?? err);
+  }
+  // [complaint-satisfaction 2026-07-24] Backfill the 1-of-4 satisfaction hit for
+  // cleaners who already had valid complaints / redos before the feature shipped
+  // (PR #1241). Self-terminating — only touches un-scored jobs, so it does no
+  // work after the first cold start. Non-fatal.
+  try {
+    const r = await runComplaintScoreBackfill();
+    if (r.jobs_synced > 0 || r.errors > 0) {
+      console.log(
+        `[complaint-score-backfill] scanned=${r.jobs_scanned} synced=${r.jobs_synced} errors=${r.errors}`,
+      );
+    }
+  } catch (err: any) {
+    console.error("[startup] runComplaintScoreBackfill — non-fatal:", err?.message ?? err);
   }
 }
 
