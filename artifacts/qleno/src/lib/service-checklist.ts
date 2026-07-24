@@ -20,7 +20,7 @@ export interface ChecklistService {
   key: string;
   title: Bilingual;
   subtitle: Bilingual;
-  // Optional emphasis line rendered under the subtitle (e.g. the add-on caveat).
+  // Optional emphasis line rendered under the subtitle.
   note?: Bilingual;
   sections: ChecklistSection[];
 }
@@ -29,22 +29,42 @@ export interface ChecklistService {
 export const CHECKLIST_UI = {
   title: { en: "Cleaning Checklist", es: "Lista de Limpieza" },
   subtitle: {
-    en: "What's included in each service — your on-the-job reference.",
-    es: "Lo que incluye cada servicio — su referencia en el trabajo.",
+    en: "Pick the type of clean — this is what's included.",
+    es: "Elija el tipo de limpieza — esto es lo que incluye.",
   },
   back: { en: "Back", es: "Atrás" },
   langLabel: { en: "Language", es: "Idioma" },
+  pickClean: { en: "Type of clean", es: "Tipo de limpieza" },
 };
 
 // The boundary rule — the whole reason this screen exists. Rendered up top.
 export const GOLDEN_RULE: { title: Bilingual; body: Bilingual } = {
   title: { en: "Do the booked scope — nothing more", es: "Haga el servicio reservado — nada más" },
   body: {
-    en: "Do everything listed for the service that was booked, and only that. Extras like inside the fridge or oven, interior windows, or laundry are paid add-ons — only do them if they're on the job order.",
-    es: "Haga todo lo que aparece para el servicio reservado, y solo eso. Los extras como el interior del refrigerador o el horno, las ventanas por dentro o la ropa son servicios adicionales pagados — hágalos solo si están en la orden de trabajo.",
+    en: "Do everything listed for the clean that was booked, and only that. Extras (see Add-Ons) are paid and only done when they're on the job order.",
+    es: "Haga todo lo que aparece para la limpieza reservada, y solo eso. Los extras (vea Adicionales) son pagados y solo se hacen cuando están en la orden de trabajo.",
   },
 };
 
+// Shared detail work — Deep Clean and Move-In/Out have the SAME extra scope on
+// phes.io ("Everything in the Standard Clean, plus the following detail work").
+const DETAIL_WORK: ChecklistSection = {
+  title: { en: "Extra detail work", es: "Trabajo detallado adicional" },
+  items: [
+    { en: "Clean baseboards in all rooms (if accessible)", es: "Limpiar los zócalos en todas las habitaciones (si son accesibles)" },
+    { en: "Dust & clean ceiling fans", es: "Sacudir y limpiar los ventiladores de techo" },
+    { en: "Wipe & sanitize doorknobs, door frames, light switches & handles", es: "Limpiar y desinfectar perillas, marcos de puertas, interruptores de luz y manijas" },
+    { en: "Clean storm doors & sliding patio doors (inside & outside glass)", es: "Limpiar contrapuertas y puertas corredizas del patio (vidrio por dentro y por fuera)" },
+    { en: "Dust & clean air vent covers", es: "Sacudir y limpiar las rejillas de ventilación" },
+  ],
+};
+
+const PLUS_STANDARD_NOTE: Bilingual = {
+  en: "Do everything in the Standard Clean first, then add the detail work below.",
+  es: "Primero haga todo lo de la Limpieza Estándar, luego agregue el trabajo detallado de abajo.",
+};
+
+// The three selectable clean types.
 export const CHECKLIST_SERVICES: ChecklistService[] = [
   {
     key: "standard",
@@ -111,43 +131,59 @@ export const CHECKLIST_SERVICES: ChecklistService[] = [
     ],
   },
   {
-    key: "deep_move",
-    title: { en: "Deep Clean & Move-In/Out", es: "Limpieza Profunda y Mudanza" },
+    key: "deep",
+    title: { en: "Deep Clean", es: "Limpieza Profunda" },
     subtitle: {
       en: "Everything in the Standard Clean, plus the detail work below.",
       es: "Todo lo de la Limpieza Estándar, más el trabajo detallado de abajo.",
     },
-    sections: [
-      {
-        title: { en: "Extra detail work", es: "Trabajo detallado adicional" },
-        items: [
-          { en: "Clean baseboards in all rooms (if accessible)", es: "Limpiar los zócalos en todas las habitaciones (si son accesibles)" },
-          { en: "Dust & clean ceiling fans", es: "Sacudir y limpiar los ventiladores de techo" },
-          { en: "Wipe & sanitize doorknobs, door frames, light switches & handles", es: "Limpiar y desinfectar perillas, marcos de puertas, interruptores de luz y manijas" },
-          { en: "Clean storm doors & sliding patio doors (inside & outside glass)", es: "Limpiar contrapuertas y puertas corredizas del patio (vidrio por dentro y por fuera)" },
-          { en: "Dust & clean air vent covers", es: "Sacudir y limpiar las rejillas de ventilación" },
-        ],
-      },
-    ],
+    note: PLUS_STANDARD_NOTE,
+    sections: [DETAIL_WORK],
   },
   {
-    key: "addons",
-    title: { en: "Add-Ons", es: "Servicios Adicionales" },
+    key: "move_in_out",
+    title: { en: "Move In / Move Out", es: "Mudanza (Entrada / Salida)" },
     subtitle: {
-      en: "Extra charge — do these ONLY if they're on the job order.",
-      es: "Cargo adicional — haga esto SOLO si está en la orden de trabajo.",
+      en: "Everything in the Standard Clean, plus the detail work below.",
+      es: "Todo lo de la Limpieza Estándar, más el trabajo detallado de abajo.",
     },
-    note: {
-      en: "If it's not on the order, don't do it — check with the office first.",
-      es: "Si no está en la orden, no lo haga — consulte con la oficina primero.",
-    },
-    sections: [
-      {
-        title: { en: "Available add-ons", es: "Adicionales disponibles" },
-        items: [
-          { en: "Inside refrigerator", es: "Interior del refrigerador" },
-        ],
-      },
-    ],
+    note: PLUS_STANDARD_NOTE,
+    sections: [DETAIL_WORK],
   },
 ];
+
+// Priced extras — only performed when they're on the job order.
+export interface AddonItem { label: Bilingual; price: Bilingual; }
+export const ADDONS: { title: Bilingual; subtitle: Bilingual; note: Bilingual; items: AddonItem[] } = {
+  title: { en: "Add-Ons", es: "Servicios Adicionales" },
+  subtitle: {
+    en: "Extra charge — do these ONLY if they're on the job order.",
+    es: "Cargo adicional — hágalos SOLO si están en la orden de trabajo.",
+  },
+  note: {
+    en: "Not on the order? Don't do it — check with the office first.",
+    es: "¿No está en la orden? No lo haga — consulte con la oficina primero.",
+  },
+  items: [
+    { label: { en: "Inside refrigerator", es: "Interior del refrigerador" }, price: { en: "$50", es: "$50" } },
+    { label: { en: "Inside oven", es: "Interior del horno" }, price: { en: "$50", es: "$50" } },
+    { label: { en: "Inside kitchen cabinets (must be empty)", es: "Interior de gabinetes de cocina (deben estar vacíos)" }, price: { en: "$50", es: "$50" } },
+    { label: { en: "Inside windows (excludes tracks & exterior panes)", es: "Ventanas por dentro (no incluye rieles ni vidrios exteriores)" }, price: { en: "Price varies", es: "Precio variable" } },
+  ],
+};
+
+// Hard boundaries — never done, on any job. Keeps the crew safe and pricing fair.
+export const NOT_OFFERED: { title: Bilingual; subtitle: Bilingual; items: Bilingual[] } = {
+  title: { en: "We Don't Do These", es: "Esto No Lo Hacemos" },
+  subtitle: {
+    en: "Outside our scope — never do these, on any job.",
+    es: "Fuera de nuestro alcance — nunca haga esto, en ningún trabajo.",
+  },
+  items: [
+    { en: "Carpet steam cleaning", es: "Limpieza de alfombras con vapor" },
+    { en: "Dishes, laundry, bed-making", es: "Lavar platos, lavar ropa, tender camas" },
+    { en: "Lifting/moving heavy furniture (over 25 lbs.)", es: "Levantar/mover muebles pesados (más de 25 libras)" },
+    { en: "Cleaning biohazards, animal waste, hoarding, or infestations", es: "Limpiar materiales peligrosos, desechos de animales, acumulación (hoarding) o plagas" },
+    { en: "Outdoor cleaning, fireplaces, errands", es: "Limpieza exterior, chimeneas, mandados" },
+  ],
+};

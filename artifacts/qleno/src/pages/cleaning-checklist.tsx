@@ -5,11 +5,13 @@
 // crew needs to read it on-site. Content lives in lib/service-checklist.ts.
 import { useState } from "react";
 import { useLocation } from "wouter";
-import { ChevronLeft, Check } from "lucide-react";
+import { ChevronLeft, Check, Plus, X } from "lucide-react";
 import {
   CHECKLIST_SERVICES,
   CHECKLIST_UI,
   GOLDEN_RULE,
+  ADDONS,
+  NOT_OFFERED,
   type ChecklistLang,
 } from "@/lib/service-checklist";
 
@@ -78,7 +80,8 @@ export default function CleaningChecklistPage() {
             <p style={{ fontSize: 13, color: "#EDEDED", margin: 0, lineHeight: 1.5 }}>{GOLDEN_RULE.body[lang]}</p>
           </div>
 
-          {/* Service selector */}
+          {/* Clean-type selector */}
+          <p style={{ fontSize: 11, fontWeight: 800, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 8px 2px" }}>{CHECKLIST_UI.pickClean[lang]}</p>
           <div style={{ display: "flex", gap: 8, overflowX: "auto", paddingBottom: 4, marginBottom: 14 }}>
             {CHECKLIST_SERVICES.map(s => (
               <button key={s.key} onClick={() => setActiveKey(s.key)} aria-pressed={activeKey === s.key}
@@ -117,6 +120,36 @@ export default function CleaningChecklistPage() {
               </div>
             </div>
           ))}
+
+          {/* Add-Ons — priced extras, only when on the order. Always shown. */}
+          <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #F1D9A8", borderRadius: 12, padding: "14px 16px", marginTop: 18, marginBottom: 12 }}>
+            <p style={{ fontSize: 15, fontWeight: 800, color: "#0A0E1A", margin: 0 }}>{ADDONS.title[lang]}</p>
+            <p style={{ fontSize: 12.5, color: "#6B6860", margin: "3px 0 0", lineHeight: 1.45 }}>{ADDONS.subtitle[lang]}</p>
+            <p style={{ fontSize: 12.5, fontWeight: 700, color: "#B45309", margin: "6px 0 10px", lineHeight: 1.45 }}>{ADDONS.note[lang]}</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              {ADDONS.items.map((item, j) => (
+                <div key={j} style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                  <Plus size={16} color="#B45309" strokeWidth={2.5} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span style={{ flex: 1, fontSize: 13.5, color: "#1A1917", lineHeight: 1.45 }}>{item.label[lang]}</span>
+                  <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 800, color: "#B45309" }}>{item.price[lang]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* We Don't Do These — hard boundaries, never done on any job. */}
+          <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #F0C9C4", borderRadius: 12, padding: "14px 16px", marginBottom: 12 }}>
+            <p style={{ fontSize: 15, fontWeight: 800, color: "#0A0E1A", margin: 0 }}>{NOT_OFFERED.title[lang]}</p>
+            <p style={{ fontSize: 12.5, color: "#6B6860", margin: "3px 0 10px", lineHeight: 1.45 }}>{NOT_OFFERED.subtitle[lang]}</p>
+            <div style={{ display: "flex", flexDirection: "column", gap: 9 }}>
+              {NOT_OFFERED.items.map((item, j) => (
+                <div key={j} style={{ display: "flex", alignItems: "flex-start", gap: 9 }}>
+                  <X size={16} color="#B3261E" strokeWidth={2.5} style={{ flexShrink: 0, marginTop: 2 }} />
+                  <span style={{ fontSize: 13.5, color: "#1A1917", lineHeight: 1.45 }}>{item[lang]}</span>
+                </div>
+              ))}
+            </div>
+          </div>
 
           <div style={{ height: 24 }} />
         </div>
