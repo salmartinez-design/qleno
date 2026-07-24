@@ -5507,32 +5507,55 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
     );
   };
 
-  // NOW divider — spans the full grid width before the first job at/after now.
+  // NOW divider — a full-width row placed before the first slot at/after now.
   const NowMarker = () => (
-    <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
       <span style={{ fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</span>
       <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
       <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
     </div>
   );
 
+  // [time-slots 2026-07-24] Group timed jobs into 30-MINUTE slots with a left
+  // time axis, so a 9:00 job sits in the 9:00 row BELOW a lone 7:00 job rather
+  // than beside it (Sal). Only occupied slots render (no empty ticks); within a
+  // slot the tiles stay 2-up. `sorted` is already time-ordered, so equal slots
+  // land adjacent.
+  const SLOT = 30;
+  const slotOf = (m: number) => Math.floor(m / SLOT) * SLOT;
+  const slotGroups: { slot: number; jobs: DispatchJob[] }[] = [];
+  for (const j of sorted) {
+    const s = slotOf(timeToMins(j.scheduled_time));
+    const last = slotGroups[slotGroups.length - 1];
+    if (last && last.slot === s) last.jobs.push(j);
+    else slotGroups.push({ slot: s, jobs: [j] });
+  }
   let nowInserted = false;
 
   return (
     <div style={{ fontFamily: FF }}>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "start" }}>
-        {sorted.map(j => {
-          const showNow = now && !nowInserted && timeToMins(j.scheduled_time) >= nowMin;
+      <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+        {slotGroups.map(g => {
+          const showNow = now && !nowInserted && g.slot >= nowMin;
           if (showNow) nowInserted = true;
           return (
-            <Fragment key={j.id}>
+            <Fragment key={g.slot}>
               {showNow && <NowMarker />}
-              <Row j={j} />
+              <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+                {/* Left time axis — the 30-minute slot this group starts in. */}
+                <div style={{ width: 46, flexShrink: 0, textAlign: "right", paddingTop: 2 }}>
+                  <span style={{ fontSize: 12, fontWeight: 800, color: "#1A1917" }}>{fmtRail(g.slot)}</span>
+                </div>
+                {/* Jobs starting in this slot — 2-up. */}
+                <div style={{ flex: 1, minWidth: 0, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "start" }}>
+                  {g.jobs.map(j => <Row key={j.id} j={j} />)}
+                </div>
+              </div>
             </Fragment>
           );
         })}
-        {/* now is past every timed job today — show the marker at the end. */}
-        {now && !nowInserted && sorted.length > 0 && <NowMarker />}
+        {/* now is past every timed slot today — show the marker at the end. */}
+        {now && !nowInserted && slotGroups.length > 0 && <NowMarker />}
       </div>
       {untimed.length > 0 && (
         <div style={{ marginTop: sorted.length ? 14 : 0 }}>
