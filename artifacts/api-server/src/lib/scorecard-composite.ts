@@ -210,6 +210,68 @@ export async function computeCompositeForEmployee(
   };
 }
 
+// [complaint-satisfaction 2026-07-24] A valid complaint / redo counts as a
+// "number one" (1 of 4) in the CUSTOMER SATISFACTION score — not just the 15%
+// complaint-free bucket (Sal: Jose's complaints weren't dragging his 91%
+// satisfaction). It hits the ORIGINAL team who cleaned the job, never the tech
+// who does the redo. Modeled as a real scorecard_entries row (source='complaint',
+// score 1/4) so it flows through the existing satisfaction average and shows in
+// Rating History. Idempotent per (job, tech): one synthetic 1 per original tech
+// per complained-about job, however many complaints/redos that job accrues, and
+// it's removed if the complaint is later un-validated with no redo.
+//
+// Trigger: a job "deserves" the 1 when ANY of its complaints is valid OR carries
+// a redo (redo_job_id set / re_clean_required). Called from complaint validate
+// and redo creation.
+export async function syncJobComplaintScore(companyId: number, jobId: number): Promise<number[]> {
+  // Should this job carry the complaint penalty?
+  const flag = await db.execute(sql`
+    SELECT EXISTS(
+      SELECT 1 FROM quality_complaints
+       WHERE company_id = ${companyId} AND job_id = ${jobId}
+         AND (valid = true OR redo_job_id IS NOT NULL OR re_clean_required = true)
+    ) AS deserves,
+    (SELECT complaint_date FROM quality_complaints
+       WHERE company_id = ${companyId} AND job_id = ${jobId}
+       ORDER BY complaint_date DESC LIMIT 1) AS on_date`);
+  const deserves = (flag.rows[0] as any)?.deserves === true;
+  const onDate = (flag.rows[0] as any)?.on_date ?? null;
+
+  // The ORIGINAL team who cleaned this job — job_technicians, falling back to the
+  // job's primary assignee. The redo is a SEPARATE job with its own techs, so its
+  // cleaner is never in this set and never gets the 1.
+  const teamRows = await db.execute(sql`
+    SELECT user_id FROM job_technicians WHERE job_id = ${jobId} AND company_id = ${companyId}
+    UNION
+    SELECT assigned_user_id AS user_id FROM jobs
+     WHERE id = ${jobId} AND company_id = ${companyId} AND assigned_user_id IS NOT NULL`);
+  const team = [...new Set((teamRows.rows as any[]).map(r => Number(r.user_id)).filter(Boolean))];
+
+  // Reconcile: exactly one source='complaint' entry per original tech when the
+  // job deserves it, none otherwise. Delete-then-insert keyed on (job, source).
+  await db.execute(sql`
+    DELETE FROM scorecard_entries
+     WHERE company_id = ${companyId} AND job_id = ${jobId} AND source = 'complaint'`);
+  if (deserves && team.length) {
+    for (const uid of team) {
+      await db.execute(sql`
+        INSERT INTO scorecard_entries
+          (company_id, employee_id, job_id, entry_date, score_value, max_value, source, excluded, notes)
+        VALUES
+          (${companyId}, ${uid}, ${jobId}, ${onDate ?? sql`CURRENT_DATE`}, 1, 4, 'complaint', false,
+           'Auto: valid complaint / redo counts as 1 of 4')`);
+    }
+  }
+
+  // Recompute every tech whose score this could have moved (current team; a
+  // previously-penalized tech no longer on the job is rare, but recompute is
+  // cheap and idempotent).
+  for (const uid of team) {
+    try { await recomputeCompositeScore(companyId, uid); } catch { /* non-fatal */ }
+  }
+  return team;
+}
+
 // Compute + persist the five score columns on the user row.
 export async function recomputeCompositeScore(
   companyId: number,

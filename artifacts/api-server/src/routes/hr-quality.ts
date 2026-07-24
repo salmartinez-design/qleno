@@ -96,9 +96,17 @@ router.put("/complaints/:id/validate", requireAuth, requireRole("owner", "admin"
 
     // [90d-composite] Validating a complaint (either direction) moves the tech's
     // complaint-free sub-score → recompute the rolling composite. Non-fatal.
+    // [complaint-satisfaction 2026-07-24] AND it now injects/removes a 1-of-4 in
+    // the CUSTOMER SATISFACTION score for the original team via
+    // syncJobComplaintScore (which recomputes the composite itself). When the
+    // complaint has no job link, fall back to the plain per-tech recompute.
     try {
-      const { recomputeCompositeScore } = await import("../lib/scorecard-composite.js");
-      await recomputeCompositeScore(companyId, result[0].employee_id);
+      const { recomputeCompositeScore, syncJobComplaintScore } = await import("../lib/scorecard-composite.js");
+      if (result[0].job_id != null) {
+        await syncJobComplaintScore(companyId, result[0].job_id);
+      } else {
+        await recomputeCompositeScore(companyId, result[0].employee_id);
+      }
     } catch (e: any) {
       console.error("[scorecard-composite] recompute after complaint validate failed (non-fatal):", e?.message ?? e);
     }
