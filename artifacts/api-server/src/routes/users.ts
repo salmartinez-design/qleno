@@ -3,8 +3,11 @@ import { db } from "@workspace/db";
 import { usersTable, scorecardsTable, additionalPayTable, jobsTable, clientsTable, serviceZoneEmployeesTable, serviceZonesTable, employeePayrollHistoryTable, lmsSettingsTable, lmsEnrollmentsTable, userCompaniesTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, sql, avg, count, desc, isNull, inArray } from "drizzle-orm";
 import bcrypt from "bcryptjs";
+import crypto from "crypto";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import { appBaseUrl } from "../lib/app-url.js";
+import { sendNotification } from "../services/notificationService.js";
 import {
   generateLmsTempPassword,
   isValidEmail,
@@ -331,6 +334,79 @@ router.post("/bulk-reset-password", requireAuth, requireRole("owner", "admin", "
   } catch (err) {
     console.error("Bulk password reset error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to bulk-reset passwords" });
+  }
+});
+
+// [password-sms 2026-07-24] Office-initiated password reset by SMS link. The
+// tech's self-service "Change Password" was removed; the ONLY supported path is
+// the office texting a one-time reset link. Mirrors the invite flow:
+//   1. Mint a reset token — same reset_token / reset_token_expires_at columns
+//      and 1-hour expiry as POST /auth/forgot-password (those columns live
+//      outside the drizzle schema, hence raw SQL).
+//   2. Attempt a TRANSACTIONAL SMS. transactional=true bypasses the per-tenant
+//      comms gate, but the GLOBAL COMMS_ENABLED gate still applies downstream in
+//      resolveSender — so while comms are off the text is suppressed (the hard
+//      rule is honored, never bypassed) and the office uses the copyable link.
+//   3. ALWAYS return the link so the office has a guaranteed fallback today and
+//      automatic texting the moment COMMS_ENABLED flips to true.
+router.post("/:id/send-reset-link", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
+  try {
+    const userId = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(userId)) return res.status(400).json({ error: "Bad Request", message: "Invalid user id" });
+    const companyId = req.auth!.companyId;
+    if (companyId == null) return res.status(400).json({ error: "Bad Request", message: "No company context" });
+
+    // Tenant-scoped lookup — home company OR a cross-tenant user_companies membership.
+    const rows = await db.execute(sql`
+      SELECT u.id, u.first_name, u.last_name, u.email, u.phone, u.role::text AS role
+        FROM users u
+       WHERE u.id = ${userId}
+         AND (u.company_id = ${companyId}
+              OR EXISTS (SELECT 1 FROM user_companies uc WHERE uc.user_id = u.id AND uc.company_id = ${companyId}))
+       LIMIT 1
+    `);
+    const user = (rows.rows as any[])[0];
+    if (!user) return res.status(404).json({ error: "Not Found", message: "User not found" });
+
+    // Parity with bulk-reset: only the owner/super_admin may reset an owner account.
+    if (user.role === "owner" && !OUTRANKS_OWNER(req.auth!.role)) {
+      return res.status(403).json({ error: "Forbidden", message: "Only the owner can reset the owner's password." });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+    await db.execute(sql`UPDATE users SET reset_token = ${token}, reset_token_expires_at = ${expires} WHERE id = ${userId}`);
+
+    const resetLink = `${appBaseUrl()}/reset-password?token=${token}`;
+    const fullName = `${user.first_name ?? ""} ${user.last_name ?? ""}`.trim();
+
+    // Best-effort transactional SMS; suppressed while COMMS_ENABLED!=true.
+    let smsSent = false;
+    if (user.phone) {
+      smsSent = await sendNotification(
+        "password_reset", "sms", companyId, null, user.phone,
+        { first_name: user.first_name ?? "", employee_name: fullName, reset_link: resetLink, reset_expiry: "1 hour" },
+        true,
+      );
+    }
+
+    await logAudit(req, "password_reset_link_sent", "user", userId, { channel: "sms", sms_sent: smsSent, has_phone: !!user.phone });
+
+    return res.json({
+      success: true,
+      reset_link: resetLink,
+      reset_expiry: "1 hour",
+      sms_sent: smsSent,
+      phone: user.phone ?? null,
+      message: smsSent
+        ? `Reset link texted to ${user.phone}`
+        : (user.phone
+            ? `Texting is off right now — copy the link and send it to ${fullName}`
+            : `No phone on file for ${fullName} — copy the link and send it`),
+    });
+  } catch (err) {
+    console.error("send-reset-link error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to generate reset link" });
   }
 });
 

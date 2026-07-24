@@ -658,6 +658,13 @@ export default function EmployeeProfilePage() {
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(''), 3000); };
 
+  // [password-sms 2026-07-24] Office texts the employee a one-time reset link
+  // (self-service Change Password was removed). We ALWAYS surface the copyable
+  // link so it works even while SMS is gated off (COMMS_ENABLED).
+  const [resetLinkInfo, setResetLinkInfo] = useState<{ link: string; smsSent: boolean; phone: string | null } | null>(null);
+  const [sendingReset, setSendingReset] = useState(false);
+  const [resetLinkCopied, setResetLinkCopied] = useState(false);
+
   const { data: user, isLoading, refetch: refetchUser } = useQuery({
     queryKey: ['user', userId],
     queryFn: () => apiFetch(`/users/${userId}`),
@@ -2479,7 +2486,51 @@ export default function EmployeeProfilePage() {
                     style={{ padding:'8px 14px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:12,fontWeight:600,background:'#FFFFFF',cursor:'pointer',color:'#6B6860',fontFamily:'inherit' }}>
                     Reset Password
                   </button>
+                  <button
+                    disabled={sendingReset}
+                    onClick={async () => {
+                      setSendingReset(true);
+                      setResetLinkInfo(null);
+                      setResetLinkCopied(false);
+                      try {
+                        const r = await apiFetch(`/users/${userId}/send-reset-link`, { method: "POST" });
+                        const d = await r.json();
+                        if (!r.ok || !d.success) { showToast(d?.message || "Couldn't create reset link"); return; }
+                        setResetLinkInfo({ link: d.reset_link, smsSent: !!d.sms_sent, phone: d.phone ?? null });
+                        showToast(d.message || "Reset link ready");
+                      } catch {
+                        showToast("Couldn't create reset link");
+                      } finally {
+                        setSendingReset(false);
+                      }
+                    }}
+                    style={{ padding:'8px 14px',border:'none',borderRadius:8,fontSize:12,fontWeight:700,background:'var(--brand, #00C9A0)',cursor: sendingReset ? 'default' : 'pointer',color:'#0A0E1A',fontFamily:'inherit',opacity: sendingReset ? 0.6 : 1 }}>
+                    {sendingReset ? "Working…" : "Text reset link"}
+                  </button>
                 </div>
+                {resetLinkInfo && (
+                  <div style={{ marginTop:12, padding:'12px 14px', background:'#F7F6F3', border:'1px solid #E5E2DC', borderRadius:8 }}>
+                    <p style={{ margin:'0 0 6px', fontSize:12, fontWeight:700, color:'#1A1917' }}>
+                      {resetLinkInfo.smsSent
+                        ? `Texted to ${resetLinkInfo.phone} — the link expires in 1 hour.`
+                        : resetLinkInfo.phone
+                          ? `Texting is off right now. Copy this link and send it to ${fullName} — it expires in 1 hour.`
+                          : `No phone on file for ${fullName}. Copy this link and send it — it expires in 1 hour.`}
+                    </p>
+                    <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                      <input readOnly value={resetLinkInfo.link} onFocus={e => e.currentTarget.select()}
+                        style={{ flex:1, minWidth:0, padding:'8px 10px', border:'1px solid #E5E2DC', borderRadius:6, fontSize:12, color:'#6B6860', fontFamily:'inherit', background:'#FFFFFF' }} />
+                      <button
+                        onClick={async () => {
+                          try { await navigator.clipboard.writeText(resetLinkInfo.link); setResetLinkCopied(true); setTimeout(() => setResetLinkCopied(false), 2000); }
+                          catch { /* clipboard blocked — link stays visible for manual copy */ }
+                        }}
+                        style={{ padding:'8px 12px', border:'1px solid #E5E2DC', borderRadius:6, fontSize:12, fontWeight:700, background:'#FFFFFF', cursor:'pointer', color:'#1A1917', fontFamily:'inherit', whiteSpace:'nowrap' }}>
+                        {resetLinkCopied ? "Copied" : "Copy link"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </SectionCard>
 
               <SectionCard title="Permissions">

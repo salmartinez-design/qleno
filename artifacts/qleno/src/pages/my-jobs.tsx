@@ -6,9 +6,8 @@ import { EarningsPanel } from "@/components/earnings-panel";
 import { TechScorecardPanel } from "@/components/tech-scorecard-panel";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { useToast } from "@/hooks/use-toast";
-import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, KeyRound, LogOut, Camera, Star, MessageSquare, Clock } from "lucide-react";
+import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, LogOut, Camera, Star, MessageSquare, Clock } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import { ChangePasswordModal } from "@/components/change-password-modal";
 import { NotificationBell } from "@/components/notification-bell";
 import { PushNudge } from "@/components/push-nudge";
 import { useEmployeeView } from "@/contexts/employee-view-context";
@@ -1471,7 +1470,6 @@ export default function MyJobsPage() {
   // Notification settings, Change Password, Sign Out, plus the tech's photo.
   const logout = useAuthStore(state => state.logout);
   const [acctOpen, setAcctOpen] = useState(false);
-  const [changePwOpen, setChangePwOpen] = useState(false);
   const acctRef = useRef<HTMLDivElement>(null);
   const { data: meData } = useQuery({
     // JWT carries no avatar_url, so fetch it for the header photo.
@@ -1776,10 +1774,10 @@ export default function MyJobsPage() {
                     style={acctItemStyle}>
                     <Bell size={15} style={{ color: "#6B6860" }} /> Notification settings
                   </button>
-                  <button onClick={() => { setAcctOpen(false); setChangePwOpen(true); }}
-                    style={acctItemStyle}>
-                    <KeyRound size={15} style={{ color: "#6B6860" }} /> Change Password
-                  </button>
+                  {/* [password-policy 2026-07-24] Self-service "Change Password"
+                      removed. Techs no longer set their own password from here —
+                      the office texts them a one-time reset link instead (Employee
+                      profile → "Text reset link"), which is the only supported path. */}
                   <div style={{ height: 1, background: "#F0EDEA", margin: "2px 0" }} />
                   <button onClick={() => { setAcctOpen(false); logout(); }}
                     style={{ ...acctItemStyle, color: "#B3261E" }}>
@@ -1790,7 +1788,6 @@ export default function MyJobsPage() {
             </div>
           </div>
         </div>
-        <ChangePasswordModal open={changePwOpen} onClose={() => setChangePwOpen(false)} />
 
         {/* Day navigation — page to other days; tap the date to jump back to today. */}
         <div style={{
