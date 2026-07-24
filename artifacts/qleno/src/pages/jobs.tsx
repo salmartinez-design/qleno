@@ -2960,29 +2960,41 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
             {(() => {
               const helpers = commTechs.filter(t => !t.is_primary);
               if (helpers.length === 0 && !canManageCommission) return null;
+              // [tech-display-parity 2026-07-24] Show EVERY tech the same way —
+              // the primary (InlineTechEdit above) renders an avatar + name row,
+              // so helpers do too, instead of the old bare gray chips (Sal: "the
+              // way jose is set up so should Vanessa"). Avatar comes from the
+              // dispatch employees list; EmployeeAvatar falls back to initials
+              // when the photo (or the list, off-dispatch) isn't available.
               return (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 6 }}>
-                  {helpers.map(t => (
-                    <span key={t.user_id} style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "3px 4px 3px 9px", fontSize: 11, fontWeight: 600, color: "#1A1917", background: "#F7F6F3", border: "1px solid #E5E2DC", borderRadius: 999 }}>
-                      {t.name}
-                      {canManageCommission && !isLocked && (
-                        <button
-                          onClick={() => removeTechFromJob(t.user_id)}
-                          disabled={removeTechBusy === t.user_id}
-                          title="Remove helper"
-                          aria-label={`Remove ${t.name}`}
-                          style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 16, height: 16, color: "#B3261E", border: "none", background: "transparent", borderRadius: 999, cursor: removeTechBusy === t.user_id ? "wait" : "pointer", opacity: removeTechBusy === t.user_id ? 0.6 : 1 }}
-                        >
-                          <X size={11} />
-                        </button>
-                      )}
-                    </span>
-                  ))}
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 2 }}>
+                  {helpers.map(t => {
+                    const avatarUrl = employees.find(e => e.id === t.user_id)?.avatar_url ?? null;
+                    return (
+                      <div key={t.user_id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                        <EmployeeAvatar name={t.name} avatarUrl={avatarUrl} size={28} fontSize={10} title={t.name} />
+                        <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF, background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 6, padding: "6px 8px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {t.name}
+                        </div>
+                        {canManageCommission && !isLocked && (
+                          <button
+                            onClick={() => removeTechFromJob(t.user_id)}
+                            disabled={removeTechBusy === t.user_id}
+                            title="Remove helper"
+                            aria-label={`Remove ${t.name}`}
+                            style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 28, height: 28, flexShrink: 0, color: "#B3261E", border: "1px solid #F3D2D2", background: "#FCEBEA", borderRadius: 6, cursor: removeTechBusy === t.user_id ? "wait" : "pointer", opacity: removeTechBusy === t.user_id ? 0.6 : 1 }}
+                          >
+                            <X size={13} />
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })}
                   {canManageCommission && (
                     <button onClick={() => job.status !== "cancelled" && setAddTechOpen(true)}
                       disabled={job.status === "cancelled"}
-                      style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: "3px 9px", fontSize: 11, fontWeight: 700, color: job.status === "cancelled" ? "#9E9B94" : "#0F7A63", border: `1px dashed ${job.status === "cancelled" ? "#E5E2DC" : "#0F7A63"}`, borderRadius: 999, background: "transparent", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
-                      <Plus size={11} /> Add tech
+                      style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", gap: 5, padding: "7px 10px", fontSize: 12, fontWeight: 700, color: job.status === "cancelled" ? "#9E9B94" : "#0F7A63", border: `1px dashed ${job.status === "cancelled" ? "#E5E2DC" : "#0F7A63"}`, borderRadius: 8, background: "transparent", cursor: job.status === "cancelled" ? "not-allowed" : "pointer", fontFamily: FF, opacity: job.status === "cancelled" ? 0.6 : 1 }}>
+                      <Plus size={13} /> Add tech
                     </button>
                   )}
                 </div>
