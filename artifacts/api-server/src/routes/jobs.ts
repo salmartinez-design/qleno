@@ -79,12 +79,16 @@ async function syncJobInvoiceDraft(
       return;
     }
 
-    // [manual-edit-detach 2026-07-06] The office hand-edited this invoice's
-    // amounts — it is deliberately detached from the job, so a later job edit
-    // must NOT clobber the manual figures. Void-on-cancel above still applies;
-    // the explicit "Recalc from job" action clears the flag and re-attaches.
-    if (existing.manually_edited_at) return;
-
+    // [always-mirror 2026-07-24] The unpaid invoice ALWAYS mirrors the job — the
+    // job is the single source of truth for pricing. We previously bailed here
+    // when `manually_edited_at` was set (a hand-edit on the invoice detached it
+    // from the job), but that silently stopped job adjustments from ever reaching
+    // the invoice unless the office knew to click "Recalc from Job" — the exact
+    // "I adjusted the total but the invoice doesn't show it" gap the office hit.
+    // Per Sal (2026-07-24): job pricing edits must flow to the unpaid invoice in
+    // real time, always. Only line items + totals are re-derived; invoice-level
+    // metadata (bill-to, notes) is left untouched. Paid/void invoices are still
+    // frozen by the guard above. ("Recalc from Job" stays as a manual re-sync.)
     const built = await buildJobLineItems(companyId, jobId);
     if (!built) return;
 
