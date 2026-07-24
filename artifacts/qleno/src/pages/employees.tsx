@@ -479,6 +479,7 @@ function dateLabel(r: any) {
 
 function TimeOffRequestsSection() {
   const role = getTokenRole();
+  const isMobile = useIsMobile();
   const canAct = role === 'owner' || role === 'admin' || role === 'office';
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -547,23 +548,47 @@ function TimeOffRequestsSection() {
           <div style={{ padding: 24, color: '#9E9B94', fontSize: 13 }}>No pending time-off requests.</div>
         ) : rows.map((r, i) => {
           const c = { bg: r.bucket_tint || '#F4F3F0', fg: r.bucket_on_tint || '#6B6860' };
-          return (
+          const approveBtn = (
+            <button disabled={busyId === r.id} onClick={() => act(r.id, 'approve')} style={{ fontSize: 12, fontWeight: 700, color: '#FFFFFF', background: 'var(--brand)', border: '1px solid var(--brand)', borderRadius: 8, padding: '9px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1, flex: isMobile ? 1 : undefined, minHeight: 40 }}>Approve</button>
+          );
+          const declineBtn = (
+            <button disabled={busyId === r.id} onClick={() => act(r.id, 'deny')} style={{ fontSize: 12, fontWeight: 700, color: '#6B6860', background: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: 8, padding: '9px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1, flex: isMobile ? 1 : undefined, minHeight: 40 }}>Decline</button>
+          );
+          const fileTag = r.attachment_url ? (
+            <a href={r.attachment_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 600, color: '#00876B', textDecoration: 'none', whiteSpace: 'nowrap' }}>Dr. note</a>
+          ) : (
+            <span style={{ fontSize: 11, color: '#C9C6BF', whiteSpace: 'nowrap' }}>no file</span>
+          );
+          const chip = <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', borderRadius: 999, padding: '3px 9px', background: c.bg, color: c.fg, whiteSpace: 'nowrap' }}>{r.bucket_name}</span>;
+          // [mobile-opt 2026-07-24] On phones the single flex row ran the
+          // Approve/Decline buttons off-screen (Sal: unusable on mobile). Stack
+          // it: identity + chip on top, full-width action buttons beneath, so
+          // both actions are reachable. Desktop keeps the inline row.
+          return isMobile ? (
+            <div key={r.id} style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: '14px 16px', borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <EmployeeAvatar name={`${r.first_name ?? ''} ${r.last_name ?? ''}`} avatarUrl={r.avatar_url} size={36} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1917' }}>{r.first_name} {r.last_name}</div>
+                  <div style={{ fontSize: 12, color: '#6B6860' }}>{dateLabel(r)}</div>
+                </div>
+                {chip}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                {fileTag}
+                <div style={{ display: 'flex', gap: 8, flex: 1 }}>{approveBtn}{declineBtn}</div>
+              </div>
+            </div>
+          ) : (
             <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px', borderTop: i ? '1px solid #E5E2DC' : 'none' }}>
               <EmployeeAvatar name={`${r.first_name ?? ''} ${r.last_name ?? ''}`} avatarUrl={r.avatar_url} size={36} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: '#1A1917' }}>{r.first_name} {r.last_name}</div>
                 <div style={{ fontSize: 12, color: '#6B6860' }}>{dateLabel(r)}</div>
               </div>
-              <span style={{ fontSize: 10, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.04em', borderRadius: 999, padding: '3px 9px', background: c.bg, color: c.fg, whiteSpace: 'nowrap' }}>{r.bucket_name}</span>
-              {r.attachment_url ? (
-                <a href={r.attachment_url} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 600, color: '#00876B', textDecoration: 'none', whiteSpace: 'nowrap' }}>Dr. note</a>
-              ) : (
-                <span style={{ fontSize: 11, color: '#C9C6BF', whiteSpace: 'nowrap' }}>no file</span>
-              )}
-              <div style={{ display: 'flex', gap: 8 }}>
-                <button disabled={busyId === r.id} onClick={() => act(r.id, 'approve')} style={{ fontSize: 12, fontWeight: 700, color: '#FFFFFF', background: 'var(--brand)', border: '1px solid var(--brand)', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1 }}>Approve</button>
-                <button disabled={busyId === r.id} onClick={() => act(r.id, 'deny')} style={{ fontSize: 12, fontWeight: 700, color: '#6B6860', background: '#FFFFFF', border: '1px solid #E5E2DC', borderRadius: 8, padding: '7px 14px', cursor: 'pointer', opacity: busyId === r.id ? 0.5 : 1 }}>Decline</button>
-              </div>
+              {chip}
+              {fileTag}
+              <div style={{ display: 'flex', gap: 8 }}>{approveBtn}{declineBtn}</div>
             </div>
           );
         })}
