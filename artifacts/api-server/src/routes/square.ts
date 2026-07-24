@@ -18,10 +18,43 @@ import { sql } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { reconcileSquarePayment, decimalToCents } from "../lib/square-payment-reconcile.js";
+import { syncSquareCustomerMap } from "../lib/square-customer-map.js";
 
 const router = Router();
 
 const officeOnly = [requireAuth, requireRole("owner", "admin", "office")] as const;
+const adminOnly = [requireAuth, requireRole("owner", "admin")] as const;
+
+// ── Re-sync Square customers → Qleno ─────────────────────────────────────────
+//
+// POST /api/square/sync-customers?dry_run=1
+//
+// The original customer-map sync was a ONE-TIME run, so any card saved directly
+// in the Square dashboard AFTER it — like Chris Glorioso's — never got linked:
+// Qleno had no square_customer_id for the client, so "No payment method saved"
+// and no charge button, even though the card was sitting in Square.
+//
+// This re-runs syncSquareCustomerMap on demand: pulls every Square customer +
+// card, (re)matches to Qleno clients/accounts, and backfills
+// clients.square_customer_id on confident links (into NULLs only — a manually
+// reviewed or already-linked row is never re-decided or clobbered). dry_run=1
+// returns the plan without writing a thing, so the office can see who WOULD link
+// before applying. This is the durable answer to "cards saved in Square don't
+// show up in Qleno."
+router.post("/sync-customers", ...adminOnly, async (req: any, res) => {
+  try {
+    const companyId = req.user.company_id;
+    const dryRun = req.query.dry_run === "1" || req.query.dry_run === "true" || req.body?.dry_run === true;
+    const { summary } = await syncSquareCustomerMap({ companyId, dryRun });
+    logAudit(req, dryRun ? "DRY_RUN" : "SYNC", "square_customer_map", 0, {}, summary as any);
+    res.json({ ok: true, dryRun, summary });
+  } catch (err: any) {
+    console.error("[square/sync-customers]", err?.message ?? err);
+    // Surface the real reason (e.g. missing SQUARE_ACCESS_TOKEN) so the office
+    // isn't left guessing why nothing linked.
+    res.status(500).json({ error: err?.message || "Square customer sync failed" });
+  }
+});
 
 // ── Customer map ────────────────────────────────────────────────────────────
 
