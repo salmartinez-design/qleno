@@ -1730,7 +1730,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   // Prefer the LIVE dispatch amount (base_fee + adjustments + add-ons) over the
   // billed_amount cache — that cache isn't refreshed on price/fee edits, so it
   // goes stale and makes the panel disagree with the chip/tech-row total.
-  const chargeAmount = Number(job.amount ?? job.billed_amount ?? 0);
+  // [charge-invoice-total 2026-07-24] Charge the unpaid INVOICE total (tips,
+  // add-ons, adjustments included) when one exists — matches the backend, so the
+  // Confirm Payment amount reflects the real invoice, not the job base.
+  const chargeAmount = (job.invoice_total != null && Number(job.invoice_total) > 0)
+    ? Number(job.invoice_total)
+    : Number(job.amount ?? job.billed_amount ?? 0);
 
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("customer_request");

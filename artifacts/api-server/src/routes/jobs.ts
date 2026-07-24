@@ -4510,7 +4510,15 @@ router.post("/:id/charge", requireAuth, async (req, res) => {
     `);
     if (existingPmt.rows.length > 0) return res.status(400).json({ error: "Payment already recorded for this job" });
 
-    const chargeAmount = Number(job.billed_amount || job.base_fee || 0);
+    // [charge-invoice-total 2026-07-24] Charge the UNPAID INVOICE total when one
+    // exists — it's the source of truth and already includes tips, add-ons, and
+    // adjustments. Sal hit this: a $33 tip on the invoice ($253) was skipped and
+    // the base ($220) was about to be charged. Fall back to the job's billed
+    // amount only when there's no open invoice yet.
+    const invoiceTotal = job.invoice_total != null ? Number(job.invoice_total) : null;
+    const chargeAmount = invoiceTotal && invoiceTotal > 0
+      ? invoiceTotal
+      : Number(job.billed_amount || job.base_fee || 0);
     if (chargeAmount <= 0) return res.status(400).json({ error: "Invalid charge amount" });
     const amountCents = Math.round(chargeAmount * 100);
 
