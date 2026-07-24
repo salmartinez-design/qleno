@@ -528,6 +528,31 @@ export default function MessagesPage() {
     }
   }, [toast]);
 
+  // [sms-contact-label 2026-07-24] Name a bare-number thread (not a client/lead)
+  // so the inbox reads a name, not digits. null = not editing; string = draft.
+  const [labelDraft, setLabelDraft] = useState<string | null>(null);
+  const [labelSaving, setLabelSaving] = useState(false);
+  const saveLabel = useCallback(async (c: Convo, name: string) => {
+    setLabelSaving(true);
+    try {
+      const r = await fetch(`${API}/api/sms/contact-label`, {
+        method: "PUT",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: c.contact_phone, name }),
+      });
+      if (!r.ok) { toast({ title: "Couldn't save name", description: "Please try again.", variant: "destructive" }); return; }
+      const nm = name.trim() || null;
+      setConvos(cs => cs.map(x => x.contact_phone === c.contact_phone ? { ...x, name: nm } : x));
+      setActive(a => a && a.contact_phone === c.contact_phone ? { ...a, name: nm } : a);
+      setLabelDraft(null);
+      toast({ title: nm ? "Name saved" : "Name cleared", description: nm ? `${nm} · ${fmtPhone(c.contact_phone)}` : fmtPhone(c.contact_phone) });
+    } catch {
+      toast({ title: "Couldn't save name", description: "Please try again.", variant: "destructive" });
+    } finally { setLabelSaving(false); }
+  }, [toast]);
+  // Reset the name-edit draft whenever the open thread changes.
+  useEffect(() => { setLabelDraft(null); }, [active?.contact_phone]);
+
   const loadScheduled = useCallback(async (c: Convo) => {
     try {
       const r = await fetch(`${API}/api/sms/scheduled?phone=${encodeURIComponent(c.contact_phone)}`, { headers: getAuthHeaders() });
@@ -916,8 +941,24 @@ export default function MessagesPage() {
                           style={{ fontSize: 15, fontWeight: 700, color: INK, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", textAlign: "left" }}>
                           {active.name || fmtPhone(active.contact_phone)}
                         </button>
+                      ) : labelDraft !== null ? (
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input autoFocus value={labelDraft} onChange={e => setLabelDraft(e.target.value)}
+                            onKeyDown={e => { if (e.key === "Enter") saveLabel(active, labelDraft); if (e.key === "Escape") setLabelDraft(null); }}
+                            placeholder="Name this contact" style={{ fontSize: 14, fontWeight: 700, color: INK, border: `1px solid ${BORDER}`, borderRadius: 6, padding: "4px 8px", outline: "none", fontFamily: FF, width: 200 }} />
+                          <button onClick={() => saveLabel(active, labelDraft)} disabled={labelSaving}
+                            style={{ padding: "5px 11px", background: "var(--brand)", color: "#fff", border: "none", borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>{labelSaving ? "…" : "Save"}</button>
+                          <button onClick={() => setLabelDraft(null)}
+                            style={{ padding: "5px 8px", background: "none", border: "none", color: MUTE, fontSize: 12, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                        </div>
                       ) : (
-                        <div style={{ fontSize: 15, fontWeight: 700, color: INK }}>{active.name || fmtPhone(active.contact_phone)}</div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 15, fontWeight: 700, color: INK }}>{active.name || fmtPhone(active.contact_phone)}</span>
+                          <button onClick={() => setLabelDraft(active.name || "")} title="Name this contact"
+                            style={{ background: "none", border: `1px solid ${BORDER}`, borderRadius: 6, padding: "2px 9px", color: MUTE, fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: FF, flexShrink: 0 }}>
+                            {active.name ? "Edit name" : "Add name"}
+                          </button>
+                        </div>
                       )}
                       <div style={{ fontSize: 12, color: MUTE }}>{fmtPhone(active.contact_phone)}{active.client_id ? " · Client" : active.lead_id ? " · Lead" : ""}</div>
                     </div>

@@ -661,6 +661,28 @@ async function runStartupMigrations() {
     console.error("[startup] ensureAutoChargeDefaultOff — non-fatal:", err?.message ?? err);
   }
   try {
+    // [sms-contact-label 2026-07-24] Let the office name a bare-number SMS thread
+    // (someone who isn't a client or lead) so the inbox shows a name, not digits.
+    // Lightweight label keyed by 10-digit phone — NOT a customer/lead record.
+    await withBootTimeout("ensureSmsContactLabelsSchema", SCHEMA_TIMEOUT_MS, async () => {
+      const { db } = await import("@workspace/db");
+      const { sql } = await import("drizzle-orm");
+      await db.execute(sql`
+        CREATE TABLE IF NOT EXISTS sms_contact_labels (
+          id serial PRIMARY KEY,
+          company_id integer NOT NULL REFERENCES companies(id),
+          contact_phone text NOT NULL,
+          name text NOT NULL,
+          created_by integer REFERENCES users(id),
+          created_at timestamptz NOT NULL DEFAULT now(),
+          updated_at timestamptz NOT NULL DEFAULT now()
+        )`);
+      await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS sms_contact_labels_company_phone_idx ON sms_contact_labels(company_id, contact_phone)`);
+    });
+  } catch (err: any) {
+    console.error("[startup] ensureSmsContactLabelsSchema — non-fatal:", err?.message ?? err);
+  }
+  try {
     // [unpaid-purple 2026-07-24] Recolor the Unpaid Leave bucket from the old
     // gold (#BA7517) to purple (#7C3AED) — Sal hated the beige. The color is
     // data-driven off leave_types.display_config (seeded once), so the code
