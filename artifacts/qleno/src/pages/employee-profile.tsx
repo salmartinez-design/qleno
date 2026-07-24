@@ -77,8 +77,7 @@ const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Su
 const TABS = [
   'Information','Earnings','Attendance','Availability',
   'User Account','Performance Score','Pay Configuration','Additional Pay',
-  'Payroll History',
-  'Contact Tickets','Jobs','Notes','Incentives',
+  'Jobs','Notes','Incentives',
   'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
 ];
 
