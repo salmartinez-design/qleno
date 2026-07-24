@@ -14,7 +14,7 @@ import {
   useDraggable, useDroppable, type DragEndEvent, type DragStartEvent,
 } from "@dnd-kit/core";
 import {
-  ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User,
+  ChevronLeft, ChevronRight, ChevronDown, Plus, Clock, Camera, X, MapPin, User, Users,
   DollarSign, CheckCircle, AlertCircle, LayoutGrid, List, Calendar,
   Building2, AlertTriangle, Repeat, Phone, MessageSquare, Send, Check, Info, Trash2, MoreVertical,
   Languages, Pencil, Paperclip, Image,
@@ -5408,7 +5408,13 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
     const onDark = zoneLuminance(color) < 0.62;
     const ink = onDark ? "#FFFFFF" : "#12100E";
     const sub = onDark ? "rgba(255,255,255,0.82)" : "rgba(18,16,14,0.60)";
-    const isUn = !j.assigned_user_name;
+    // [multi-tech 2026-07-24] Show the WHOLE crew, not just the primary — a
+    // 2-tech job read as a solo job before (Sal). Prefer the technicians roster
+    // (primary first), fall back to the mirrored assigned_user_name.
+    const techNames = (j.technicians && j.technicians.length > 0)
+      ? [...j.technicians].sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0)).map(t => t.name)
+      : (j.assigned_user_name ? [j.assigned_user_name] : []);
+    const isUn = techNames.length === 0;
     const sMin = timeToMins(j.scheduled_time);
     const eMin = sMin + (j.duration_minutes || 0);
     const amount = j.amount ? `$${j.amount.toFixed(0)}` : "";
@@ -5439,10 +5445,16 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
         <div style={{ fontSize: 13.5, fontWeight: 800, color: ink, lineHeight: 1.15, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", wordBreak: "break-word", textDecoration: visual.strikethrough ? "line-through" : "none", minHeight: 31 }}>
           {j.display_name ?? j.client_name}
         </div>
-        {/* Assigned tech (or Unassigned). */}
-        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: isUn ? (onDark ? "#FFE08A" : "#B45309") : sub, lineHeight: 1.2, minWidth: 0 }}>
-          <User size={11} style={{ flexShrink: 0, opacity: 0.9 }} />
-          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isUn ? "Unassigned" : j.assigned_user_name}</span>
+        {/* WHO — the full crew (all techs), or Unassigned. Multi-tech jobs show
+            every name; the roster wraps up to two lines and a group icon flags a
+            team. */}
+        <div style={{ display: "flex", alignItems: "flex-start", gap: 4, fontSize: 11, fontWeight: 700, color: isUn ? (onDark ? "#FFE08A" : "#B45309") : sub, lineHeight: 1.2, minWidth: 0 }}>
+          {techNames.length > 1
+            ? <Users size={11} style={{ flexShrink: 0, opacity: 0.9, marginTop: 1 }} />
+            : <User size={11} style={{ flexShrink: 0, opacity: 0.9, marginTop: 1 }} />}
+          <span style={{ overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", wordBreak: "break-word" }}>
+            {isUn ? "Unassigned" : techNames.join(", ")}
+          </span>
         </div>
         {/* WHERE — FULL address; wraps up to 3 lines so the whole thing shows
             (Sal: make the tile a tad taller for the full address). The tile
