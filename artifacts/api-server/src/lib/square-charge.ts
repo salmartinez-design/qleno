@@ -29,7 +29,12 @@ export async function chargeSquareCard(opts: {
   try {
     // Read the customer's default enabled card. (v44: cards.list returns a pager
     // — the first page's .data holds the few cards a customer has.)
-    const cardsPage = await square.cards.list({ customerId: opts.squareCustomerId });
+    // NOTE: sortOrder MUST be passed. The v44 SDK's cards.list serializes an
+    // omitted sortOrder to `sort_order=` (empty) in the query string instead of
+    // dropping it, and Square rejects that with
+    // `INVALID_ENUM_VALUE: `` is not a valid enum value for sort_order`. Passing
+    // an explicit "DESC" sends a valid `sort_order=DESC`. (Todd Tue $253 charge.)
+    const cardsPage = await square.cards.list({ customerId: opts.squareCustomerId, sortOrder: "DESC" });
     const cardList: any[] = cardsPage?.data ?? [];
     const cardId = cardList.find((c: any) => c.enabled)?.id ?? cardList[0]?.id;
     if (!cardId) {

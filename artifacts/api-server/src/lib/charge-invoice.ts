@@ -235,7 +235,9 @@ async function chargeViaSquare(
     // Charge the customer's card on file. Square needs a stored card id; we read
     // the default enabled card from the customer's cards. (v44: cards.list returns
     // a pager — the first page's .data holds the (few) cards a customer has.)
-    const cardsPage = await square.cards.list({ customerId: client.square_customer_id });
+    // sortOrder MUST be passed: the v44 SDK serializes an omitted sortOrder to
+    // `sort_order=` (empty), which Square rejects with INVALID_ENUM_VALUE.
+    const cardsPage = await square.cards.list({ customerId: client.square_customer_id, sortOrder: "DESC" });
     const cardList: any[] = cardsPage?.data ?? [];
     const cardId = cardList.find((c: any) => c.enabled)?.id ?? cardList[0]?.id;
     if (!cardId) {
