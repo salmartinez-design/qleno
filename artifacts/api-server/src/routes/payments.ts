@@ -51,7 +51,7 @@ function firePaymentReceivedNotification(
 // This endpoint actually charges. Stripe runs FIRST; nothing is recorded and no
 // receipt goes out unless Stripe returns succeeded. A decline surfaces Stripe's
 // own message so the office knows why.
-router.post("/charge-card", requireAuth, requireRole("owner", "admin"), async (req, res) => {
+router.post("/charge-card", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const clientId = parseInt(String(req.body?.client_id ?? ""), 10);
