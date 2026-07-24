@@ -1359,6 +1359,29 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
     onSuccess: () => refetch(),
   });
 
+  // [edit-address 2026-07-24] Edit an existing service address (Sal: needed a
+  // way to fix a street with no city/state/zip → no zone). Reuses the add form,
+  // prefilled, and PATCHes the home. Server re-resolves the zone from the new
+  // zip (same path set-primary uses).
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const updateMut = useMutation({
+    mutationFn: (data: any) => apiFetch(`/api/clients/${clientId}/homes/${editingId}`, { method: "PATCH", body: JSON.stringify(data) }),
+    onSuccess: () => { refetch(); setShowForm(false); setEditingId(null); setForm(blank); },
+  });
+  const str = (v: any) => (v == null ? "" : String(v));
+  function startEdit(home: any) {
+    setForm({
+      name: str(home.name), address: str(home.address), city: str(home.city), state: str(home.state), zip: str(home.zip),
+      bedrooms: str(home.bedrooms), bathrooms: str(home.bathrooms), sq_footage: str(home.sq_footage),
+      access_notes: str(home.access_notes), alarm_code: str(home.alarm_code), has_pets: !!home.has_pets,
+      pet_notes: str(home.pet_notes), parking_notes: str(home.parking_notes), is_primary: !!home.is_primary,
+      base_fee: str(home.base_fee), allowed_hours: str(home.allowed_hours), frequency: str(home.frequency), service_type: str(home.service_type),
+    });
+    setEditingId(home.id);
+    setShowForm(true);
+    setTimeout(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }), 60);
+  }
+
   const F = (field: string, label: string, type = "text", placeholder = "", extraProps?: Record<string, any>) => (
     <div>
       <label style={{ display: "block", fontSize: "11px", fontWeight: 600, color: "#6B6860", marginBottom: "4px" }}>{label}</label>
@@ -1405,6 +1428,9 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
                   Set as main
                 </button>
               )}
+              <button onClick={() => startEdit(home)} title="Edit address" style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: "4px" }}>
+                <Edit2 size={14} />
+              </button>
               <button onClick={() => deleteMut.mutate(home.id)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9E9B94", padding: "4px" }}>
                 <Trash2 size={14} />
               </button>
@@ -1448,7 +1474,7 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
       {/* Add home form */}
       {showForm ? (
         <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "10px", padding: "20px" }}>
-          <h3 style={{ margin: "0 0 16px", fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>Add Service Address</h3>
+          <h3 style={{ margin: "0 0 16px", fontSize: "14px", fontWeight: 700, color: "#1A1917" }}>{editingId ? "Edit Service Address" : "Add Service Address"}</h3>
           <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
             {F("name", "Home Name (optional)", "text", "e.g. Main Home, Vacation Home")}
             {/* [scheduling-engine 2026-04-29] Address input wired to
@@ -1488,9 +1514,9 @@ function HomesTab({ clientId, homes, refetch, zoneColor, zoneName }: { clientId:
             </label>
           </div>
           <div style={{ display: "flex", gap: "8px", marginTop: "16px" }}>
-            <button onClick={() => setShowForm(false)} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
-            <button onClick={() => createMut.mutate(form)} disabled={createMut.isPending} style={{ padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
-              {createMut.isPending ? "Saving..." : "Add Home"}
+            <button onClick={() => { setShowForm(false); setEditingId(null); setForm(blank); }} style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: "7px", background: "#FFFFFF", color: "#6B6860", fontSize: "13px", cursor: "pointer" }}>Cancel</button>
+            <button onClick={() => (editingId ? updateMut : createMut).mutate(form)} disabled={createMut.isPending || updateMut.isPending} style={{ padding: "8px 16px", background: "var(--brand)", border: "none", borderRadius: "7px", color: "#FFFFFF", fontSize: "13px", fontWeight: 600, cursor: "pointer" }}>
+              {(createMut.isPending || updateMut.isPending) ? "Saving..." : editingId ? "Save changes" : "Add Home"}
             </button>
           </div>
         </div>
