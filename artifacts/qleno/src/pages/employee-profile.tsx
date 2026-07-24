@@ -19,7 +19,7 @@ import {
 import { useEmployeeView } from "@/contexts/employee-view-context";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { OneOnOnesPanel } from "@/components/one-on-ones-panel";
-import { HRAttendanceTab, LeaveBalanceTab, DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
+import { DisciplineTab, QualityTab } from "./employee-profile-hr-tabs";
 import { parseLeaveNote, leaveBucketLabel, KIND_TONE_STYLE } from "@/lib/leave-note-format";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
@@ -78,7 +78,7 @@ const TABS = [
   'Information','Earnings','Attendance','Availability',
   'User Account','Performance Score','Pay Configuration','Additional Pay',
   'Jobs','Notes','Incentives',
-  'HR Attendance','Leave Balance','Discipline','Quality','Onboarding',
+  'Discipline','Quality','Onboarding',
 ];
 
 // [Phase 1] Leave bucket display helpers. NOTE: this slug→color map is
@@ -652,6 +652,9 @@ export default function EmployeeProfilePage() {
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get('tab');
     if (t === 'one-on-ones' && isOwner) setActiveTab('1-on-1s');
+    // [attendance-consolidate 2026-07-24] HR Attendance + Leave Balance folded
+    // into the Attendance tab — redirect any stale deep links / bookmarks.
+    if (t === 'hr-attendance' || t === 'leave-balance') setActiveTab('Attendance');
     // [tab-cleanup 2026-07-24] Pay folded into Earnings; Contacts lives on the
     // Information tab now. Redirect any stale deep links / bookmarks.
     if (t === 'pay') setActiveTab('Earnings');
@@ -1806,6 +1809,90 @@ export default function EmployeeProfilePage() {
 
           {/* ── ATTENDANCE TAB ── */}
           {activeTab === 'Attendance' && (
+            <div style={{ display:'flex', flexDirection:'column', gap:20 }}>
+              {/* [attendance-consolidate 2026-07-24] White hero: at-a-glance
+                  on-time ring + days/tardy/absent + leave balances. The full
+                  detailed bucket cards + calendar + stats stay below, unchanged. */}
+              {(() => {
+                const t = attnSummary?.tiles;
+                const scheduled = Number(user.total_jobs || 0);
+                const late = t?.late?.count ?? 0;
+                const absent = t?.absent?.count ?? 0;
+                // [bradford 2026-07-24] Bradford Factor = S² × D — S = separate
+                // absence spells (consecutive days = one spell), D = total absent
+                // days. Weights frequent short absences far heavier than one long
+                // one, so the "calls out every other Friday" pattern surfaces.
+                const bd = (() => {
+                  const dates = ((t?.absent?.days) || [])
+                    .map((x: any) => String(x?.date || '').slice(0, 10)).filter(Boolean).sort();
+                  const D = dates.length;
+                  let S = D > 0 ? 1 : 0;
+                  for (let i = 1; i < dates.length; i++) {
+                    const p = new Date(dates[i - 1] + 'T00:00:00').getTime();
+                    const c = new Date(dates[i] + 'T00:00:00').getTime();
+                    if (c - p > 86400000 * 1.5) S++;
+                  }
+                  return { S, D, B: S * S * D };
+                })();
+                const bSev = bd.B === 0 ? { c: '#9E9B94', l: 'none' }
+                  : bd.B <= 50 ? { c: '#0F7A63', l: 'low' }
+                  : bd.B <= 200 ? { c: '#B45309', l: 'watch' }
+                  : { c: '#B3261E', l: 'high' };
+                const worked = Math.max(0, scheduled - absent);
+                const onTime = worked > 0 ? Math.round(((worked - late) / worked) * 100) : null;
+                const C = 2 * Math.PI * 44;
+                const off = onTime != null ? C * (1 - onTime / 100) : C;
+                const balTiles = leaveBuckets.slice(0, 4);
+                const HT = (label: string, val: React.ReactNode, sub: string, color = '#1A1917') => (
+                  <div style={{ background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px' }}>
+                    <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:'0.07em', textTransform:'uppercase', color:'#9E9B94' }}>{label}</div>
+                    <div style={{ fontSize:23, fontWeight:800, lineHeight:1, marginTop:6, color }}>{val}</div>
+                    <div style={{ fontSize:10, color:'#9E9B94', marginTop:5 }}>{sub}</div>
+                  </div>
+                );
+                return (
+                  <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:16, padding:'22px 24px' }}>
+                    <div style={{ display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom:16 }}>
+                      <span style={{ fontSize:16, fontWeight:800, color:'#1A1917' }}>Attendance</span>
+                      <span style={{ fontSize:12, fontWeight:700, color:'#0A9E7E' }}>Trailing 180 days</span>
+                    </div>
+                    <div style={{ display:'flex', gap:22, alignItems:'center' }}>
+                      <div style={{ flexShrink:0, position:'relative', width:104, height:104 }}>
+                        <svg width="104" height="104" viewBox="0 0 104 104">
+                          <circle cx="52" cy="52" r="44" fill="none" stroke="#EDEBE5" strokeWidth="9"/>
+                          <circle cx="52" cy="52" r="44" fill="none" stroke="#00C9A0" strokeWidth="9" strokeLinecap="round" strokeDasharray={C} strokeDashoffset={off} transform="rotate(-90 52 52)"/>
+                        </svg>
+                        <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center' }}>
+                          <span style={{ fontSize:26, fontWeight:800, lineHeight:1, color:'#1A1917' }}>{onTime != null ? `${onTime}%` : '—'}</span>
+                          <span style={{ fontSize:9, color:'#9E9B94', marginTop:2 }}>on time</span>
+                        </div>
+                      </div>
+                      <div style={{ flex:1, display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
+                        {HT('Days worked', worked, `of ${scheduled} scheduled`)}
+                        {HT('Tardy', late, 'last 180 days', '#B45309')}
+                        {HT('Absent', absent, 'last 180 days', '#B3261E')}
+                        <div title="Bradford Factor = spells² × total days absent. Frequent short absences score far higher than one long absence — a standard HR early-warning metric." style={{ background:'#F7F6F3', border:'1px solid #ECE9E3', borderRadius:12, padding:'13px 15px' }}>
+                          <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:'0.07em', textTransform:'uppercase', color:'#9E9B94' }}>Absence pattern</div>
+                          <div style={{ fontSize:23, fontWeight:800, lineHeight:1, marginTop:6, color: bSev.c }}>{bd.B}</div>
+                          <div style={{ fontSize:10, color:'#9E9B94', marginTop:5 }}>Bradford · {bd.S} spell{bd.S === 1 ? '' : 's'} / {bd.D}d · {bSev.l}</div>
+                        </div>
+                      </div>
+                    </div>
+                    {balTiles.length > 0 && (
+                      <>
+                        <div style={{ height:1, background:'#F0EEE9', margin:'18px 0 14px' }}/>
+                        <div style={{ fontSize:9.5, fontWeight:800, letterSpacing:'0.07em', textTransform:'uppercase', color:'#9E9B94', marginBottom:10 }}>Leave balances</div>
+                        <div style={{ display:'grid', gridTemplateColumns:`repeat(${balTiles.length},1fr)`, gap:10 }}>
+                          {balTiles.map((b: any) => {
+                            const avail = Number(b.available || 0);
+                            return <div key={b.leave_type_id ?? b.slug}>{HT(b.display_name, <>{avail.toFixed(1)}<span style={{ fontSize:11, color:'#9E9B94', fontWeight:600 }}>h</span></>, `${Number(b.granted||0).toFixed(1)} granted · ${Number(b.used||0).toFixed(1)} used`, avail > 0 ? '#00C9A0' : '#9E9B94')}</div>;
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })()}
             <div style={{ display:'grid', gridTemplateColumns:'1fr 300px', gap:20, alignItems:'start' }}>
               <div style={{ background:'#FFFFFF', border:'1px solid #E5E2DC', borderRadius:10, padding:'20px 24px' }}>
                 <AttendanceCalendar userId={userId}/>
@@ -2385,6 +2472,7 @@ export default function EmployeeProfilePage() {
                   </div>
                 )}
               </div>
+            </div>
             </div>
           )}
 
@@ -3100,13 +3188,7 @@ export default function EmployeeProfilePage() {
             </div>
           )}
 
-          {activeTab === 'HR Attendance' && user && (
-            <HRAttendanceTab employeeId={user.id} />
-          )}
-
-          {activeTab === 'Leave Balance' && user && (
-            <LeaveBalanceTab employeeId={user.id} />
-          )}
+          {/* HR Attendance + Leave Balance folded into the Attendance tab 2026-07-24 */}
 
           {activeTab === 'Discipline' && user && (
             <DisciplineTab employeeId={user.id} />
