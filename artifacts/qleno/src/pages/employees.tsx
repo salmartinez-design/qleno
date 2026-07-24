@@ -75,7 +75,16 @@ export default function EmployeesPage() {
   const [showInactive, setShowInactive] = useState(false);
 
   const { activeBranchId } = useBranch();
-  const branchQuery = activeBranchId !== "all" ? { branch_id: String(activeBranchId) } : {};
+  // [roster-cap 2026-07-24] This page has NO pagination and strips inactive /
+  // sandbox rows CLIENT-side, but /api/users defaults to limit=25 taken from the
+  // FULL user set (inactive included) ordered by first_name. So inactive rows ate
+  // slots in the 25-row window and any active employee whose first name sorts
+  // late silently fell off — Vanessa Hernandez was missing here while active
+  // everywhere else. Pull the whole roster so the client-side filter + sort see
+  // every user. (A cleaning tenant's user table is small; 1000 is ample.)
+  const branchQuery = activeBranchId !== "all"
+    ? { branch_id: String(activeBranchId), limit: 1000 }
+    : { limit: 1000 };
   const { data, isLoading, refetch } = useListUsers(branchQuery, { request: { headers: getAuthHeaders() } });
   // [inactive-filter 2026-06-16] Refetch on mount so a just-saved
   // deactivation can't be masked by a stale cached list.

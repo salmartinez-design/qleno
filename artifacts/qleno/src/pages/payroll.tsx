@@ -993,7 +993,15 @@ function PayrollToRevenueChart() {
 export default function PayrollPage() {
   const qc = useQueryClient();
   const { activeBranchId } = useBranch();
-  const branchQuery = activeBranchId !== "all" ? { branch_id: String(activeBranchId) } : {};
+  // [roster-cap 2026-07-24] Load the FULL roster, not /api/users' default
+  // limit=25. The list is capped server-side (ordered by first_name, inactive
+  // rows included) and then narrowed to active field techs CLIENT-side here, so
+  // a tech whose first name sorts late could fall outside the 25-row window and
+  // silently drop off payroll entirely — an unpaid-tech risk, same root cause as
+  // the employees-list gap. A cleaning tenant's user table is small; 1000 is ample.
+  const branchQuery = activeBranchId !== "all"
+    ? { branch_id: String(activeBranchId), limit: 1000 }
+    : { limit: 1000 };
   const { data, isLoading } = useListUsers(branchQuery, { request: { headers: getAuthHeaders() } });
   const employees = data?.data || [];
   // Payroll only includes ACTIVE, real FIELD TECHS. Excludes owners, office
