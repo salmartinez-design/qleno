@@ -5295,22 +5295,33 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
           </div>
         )}
       </div>
-      {(job.assigned_user_name || job.clock_entry?.clock_in_at) && (
-        <div style={{ display: "flex", gap: 12, marginTop: 8, alignItems: "center" }}>
-          {job.assigned_user_name && (
-            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B6860" }}>
-              <User size={12} style={{ color: "#9E9B94" }} />
-              {job.assigned_user_name}
-            </div>
-          )}
-          {job.clock_entry?.clock_in_at && (
-            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#0F7A63", fontWeight: 600 }}>
-              <Clock size={11} />
-              Clocked in {fmtClock(job.clock_entry.clock_in_at)}
-            </div>
-          )}
-        </div>
-      )}
+      {(() => {
+        // [multi-tech 2026-07-24] Show the WHOLE crew on the Time + Team layouts
+        // too (same fix as the Grid tile), not just the primary. Reads the
+        // technicians roster (primary first), falls back to assigned_user_name.
+        const techNames = (job.technicians && job.technicians.length > 0)
+          ? [...job.technicians].sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0)).map(t => t.name)
+          : (job.assigned_user_name ? [job.assigned_user_name] : []);
+        if (techNames.length === 0 && !job.clock_entry?.clock_in_at) return null;
+        return (
+          <div style={{ display: "flex", gap: 12, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {techNames.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#6B6860", minWidth: 0 }}>
+                {techNames.length > 1
+                  ? <Users size={12} style={{ color: "#9E9B94", flexShrink: 0 }} />
+                  : <User size={12} style={{ color: "#9E9B94", flexShrink: 0 }} />}
+                <span>{techNames.join(", ")}</span>
+              </div>
+            )}
+            {job.clock_entry?.clock_in_at && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#0F7A63", fontWeight: 600 }}>
+                <Clock size={11} />
+                Clocked in {fmtClock(job.clock_entry.clock_in_at)}
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {(job.before_photo_count > 0 || job.after_photo_count > 0) && (
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           {job.before_photo_count > 0 && <span style={{ fontSize: 11, color: "#0284C7", fontWeight: 600 }}><Camera size={10} style={{ display: "inline", marginRight: 3 }} />{job.before_photo_count} before</span>}
