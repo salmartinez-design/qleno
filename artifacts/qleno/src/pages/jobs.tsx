@@ -5284,8 +5284,11 @@ function MobileJobCard({ job, onClick }: { job: DispatchJob; onClick: () => void
       })()}
       <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "center" }}>
         {job.frequency && job.frequency !== "on_demand" && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 700, color: "var(--brand)", background: "var(--brand-dim, #f0fdf9)", padding: "2px 7px", borderRadius: 4 }}>
-            <Repeat size={9} />{recurrenceLabel(job.frequency)}
+          // [recurring-distinguisher 2026-07-24] Bold Qleno-Night pill so a
+          // recurring (repeat-client) job stands out from a one-time visit at a
+          // glance — was a pale mint chip that blended into the card (Sal).
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 800, color: "#5EE6C7", background: "#0A0E1A", padding: "3px 9px", borderRadius: 999, textTransform: "uppercase", letterSpacing: "0.03em" }}>
+            <Repeat size={9} strokeWidth={2.75} /> Recurring · {recurrenceLabel(job.frequency)}
           </span>
         )}
         {job.address && (
@@ -5429,6 +5432,9 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
     const sMin = timeToMins(j.scheduled_time);
     const eMin = sMin + (j.duration_minutes || 0);
     const amount = j.amount ? `$${j.amount.toFixed(0)}` : "";
+    // [recurring-distinguisher 2026-07-24] Flag repeat-client jobs so they stand
+    // out from one-time visits (Sal). Same recurring test used across the app.
+    const isRecurring = !!j.frequency && j.frequency !== "on_demand";
     // Status accent: amber bar for active, red ring for late/no-show.
     const ring = visual.stripe
       ? `inset 5px 0 0 ${visual.stripe}`
@@ -5443,9 +5449,16 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
         boxShadow: ring === "none" ? "0 1px 2px rgba(10,14,26,0.10)" : `${ring}, 0 1px 2px rgba(10,14,26,0.10)`,
         display: "flex", flexDirection: "column", gap: 5,
       }}>
-        {/* Time + amount + completed check / no-show badge */}
+        {/* Time (+ recurring badge) + amount + completed check / no-show badge */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
-          <span style={{ fontSize: 11, fontWeight: 800, color: ink, opacity: 0.95 }}>{fmtRail(sMin)}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, minWidth: 0 }}>
+            <span style={{ fontSize: 11, fontWeight: 800, color: ink, opacity: 0.95, flexShrink: 0 }}>{fmtRail(sMin)}</span>
+            {isRecurring && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 2, fontSize: 8.5, fontWeight: 800, padding: "1px 6px", borderRadius: 999, background: "#0A0E1A", color: "#5EE6C7", textTransform: "uppercase", letterSpacing: "0.02em", whiteSpace: "nowrap", flexShrink: 0 }}>
+                <Repeat size={8} strokeWidth={2.75} />{recurrenceLabel(j.frequency)}
+              </span>
+            )}
+          </div>
           <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
             {visual.showCheckmark && <Check size={13} color={ink} strokeWidth={3} />}
             {visual.showNoShowBadge && <span style={{ fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "2px 5px", borderRadius: 4, letterSpacing: "0.03em" }}>NO SHOW</span>}
