@@ -4,6 +4,7 @@ import { useAuthStore, getTokenRole } from "@/lib/auth";
 import { InlinePriceEdit } from "@/components/inline-price-edit";
 import { EarningsPanel } from "@/components/earnings-panel";
 import { TechScorecardPanel } from "@/components/tech-scorecard-panel";
+import { TechEfficiencyPanel } from "@/components/tech-efficiency-panel";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { useToast } from "@/hooks/use-toast";
 import { Check, Eye, Navigation, Phone, GraduationCap, DollarSign, Users, MapPin, Sun, Cloud, CloudSun, CloudRain, CloudSnow, CloudDrizzle, CloudLightning, Plane, Bell, LogOut, Camera, Star, MessageSquare, Clock, ListChecks } from "lucide-react";
@@ -1464,6 +1465,8 @@ export default function MyJobsPage() {
   const [showPay, setShowPay] = useState(false);
   // [tech-scorecard 2026-07-14] Scorecard + job-history panel toggle.
   const [showScorecard, setShowScorecard] = useState(false);
+  // [tech-efficiency 2026-07-24] Efficiency tile expands to the rolling 90-day view.
+  const [showEfficiency, setShowEfficiency] = useState(false);
 
   // [tech-experience 2026-06-17] Account menu on the mobile My Jobs header —
   // the avatar is now tappable (was a dead circle) and carries Time Off,
@@ -1743,7 +1746,7 @@ export default function MyJobsPage() {
             <WeatherChip lat={wxLat} lng={wxLng} />
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <button onClick={() => { setShowPay(p => !p); setShowScorecard(false); }}
+            <button onClick={() => { setShowPay(p => !p); setShowScorecard(false); setShowEfficiency(false); }}
               style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', background: showPay ? 'var(--brand)' : 'var(--brand-dim)', color: showPay ? '#fff' : 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.2)', borderRadius: 8, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
               <DollarSign size={13}/> Pay
             </button>
@@ -1861,25 +1864,35 @@ export default function MyJobsPage() {
               )}
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <div style={{ flex: 1, background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 10, padding: "9px 11px" }}>
-                <p style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#A7AAB5", margin: "0 0 3px" }}>Efficiency</p>
+              {/* [tech-efficiency 2026-07-24] Tile still shows the DAY's efficiency
+                  (updates as each job's clock closes); tapping expands the rolling
+                  90-day view — mirrors the My Score tile. */}
+              <button
+                type="button"
+                onClick={() => { setShowEfficiency(s => !s); setShowScorecard(false); setShowPay(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                style={{ flex: 1, textAlign: "left", background: showEfficiency ? "rgba(var(--brand-rgb),0.14)" : "rgba(255,255,255,0.06)", border: `1px solid ${showEfficiency ? "rgba(var(--brand-rgb),0.5)" : "rgba(255,255,255,0.10)"}`, borderRadius: 10, padding: "9px 11px", cursor: "pointer", fontFamily: "inherit" }}
+              >
+                <p style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#A7AAB5", margin: "0 0 3px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span>Efficiency</span>
+                  <span style={{ color: "#9DEFD9", fontWeight: 800 }}>View ›</span>
+                </p>
                 <p style={{ fontSize: 21, fontWeight: 800, margin: 0, lineHeight: 1.05, color: efficiencyPct == null ? "#C9CCD6" : efficiencyPct >= 100 ? "#34E3B6" : efficiencyPct >= 85 ? "#FBBF55" : "#F87171" }}>
                   {efficiencyPct == null ? "—" : `${efficiencyPct}%`}
                 </p>
                 <p style={{ fontSize: 9.5, fontWeight: 600, color: "#C9CCD6", margin: "2px 0 0" }}>
                   {efficiencyPct == null
-                    ? "after first clock-out"
+                    ? "today · after first clock-out · tap ›"
                     : effTypeCount > 1
-                      ? `median · ${effTypeCount} service types`
-                      : `${totAllowed.toFixed(1)} allowed / ${totActual.toFixed(1)} actual`}
+                      ? `today · median · ${effTypeCount} types · tap ›`
+                      : `today · ${totAllowed.toFixed(1)} allowed / ${totActual.toFixed(1)} actual · tap ›`}
                 </p>
-              </div>
+              </button>
               {/* [tech-scorecard 2026-07-14] The Quality tile is the tap target
                   for the tech's full scorecard + client feedback (Sal: no extra
                   button — click the tile next to Efficiency). */}
               <button
                 type="button"
-                onClick={() => { setShowScorecard(s => !s); setShowPay(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                onClick={() => { setShowScorecard(s => !s); setShowPay(false); setShowEfficiency(false); window.scrollTo({ top: 0, behavior: "smooth" }); }}
                 style={{ flex: 1, textAlign: "left", background: showScorecard ? "rgba(var(--brand-rgb),0.14)" : "rgba(255,255,255,0.06)", border: `1px solid ${showScorecard ? "rgba(var(--brand-rgb),0.5)" : "rgba(255,255,255,0.10)"}`, borderRadius: 10, padding: "9px 11px", cursor: "pointer", fontFamily: "inherit" }}
               >
                 <p style={{ fontSize: 8.5, fontWeight: 800, letterSpacing: "0.06em", textTransform: "uppercase", color: "#A7AAB5", margin: "0 0 3px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1930,6 +1943,12 @@ export default function MyJobsPage() {
         {showScorecard && (
           <div style={{ padding: "16px 14px", borderBottom: "1px solid #E5E2DC", background: "#FBFAF8" }}>
             <TechScorecardPanel employeeId={employeeView?.employeeId} />
+          </div>
+        )}
+
+        {showEfficiency && (
+          <div style={{ padding: "16px 14px", borderBottom: "1px solid #E5E2DC", background: "#FBFAF8" }}>
+            <TechEfficiencyPanel employeeId={employeeView?.employeeId} />
           </div>
         )}
 

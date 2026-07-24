@@ -390,6 +390,86 @@ router.get("/scorecard", requireAuth, async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// [tech-efficiency 2026-07-24] GET /api/tech/efficiency
+// The tech's trailing-90-day rolling efficiency (Allowed ÷ Actual job hours —
+// Qleno's one canonical efficiency metric, ≥100% = under budget = good), so the
+// My Jobs Efficiency tile can expand the same way the score tile does. Mirrors
+// the client-side day calc: per SERVICE TYPE, then the MEDIAN across types
+// (keeps one slow package from skewing the number), plus an overall figure.
+// Allowed is charged PER TECH (allowed ÷ team size) so a 2-tech job doesn't read
+// as ~200%. Only jobs with a completed clock pair count. Self-scoped.
+// ─────────────────────────────────────────────────────────────────────────────
+router.get("/efficiency", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    if (companyId == null) return res.status(400).json({ error: "Bad Request", message: "User has no company assignment" });
+    const userId = resolveViewedUserId(req);
+
+    // One row per job (dedupe split clock pairs), then aggregate by service type.
+    const agg = await db.execute(sql`
+      WITH per_job AS (
+        SELECT
+          COALESCE(j.service_type, 'other') AS service_type,
+          (SELECT name FROM service_types st
+            WHERE st.company_id = j.company_id AND st.slug = j.service_type LIMIT 1) AS service_type_name,
+          j.allowed_hours::numeric
+            / GREATEST((SELECT COUNT(*) FROM job_technicians jt2 WHERE jt2.job_id = j.id), 1) AS allowed_per_tech,
+          (SELECT SUM(EXTRACT(EPOCH FROM (tc.clock_out_at - tc.clock_in_at)) / 3600.0)
+             FROM timeclock tc
+            WHERE tc.job_id = j.id AND tc.company_id = j.company_id AND tc.user_id = ${userId}
+              AND tc.clock_in_at IS NOT NULL AND tc.clock_out_at IS NOT NULL
+              AND tc.clock_out_at > tc.clock_in_at) AS actual
+        FROM jobs j
+        WHERE j.company_id = ${companyId}
+          AND j.allowed_hours IS NOT NULL AND j.allowed_hours > 0
+          AND j.scheduled_date >= (CURRENT_DATE - INTERVAL '90 days')
+          AND (j.assigned_user_id = ${userId}
+               OR EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = j.id AND jt.user_id = ${userId}))
+      )
+      SELECT service_type, MAX(service_type_name) AS service_type_name,
+             SUM(allowed_per_tech) AS allowed, SUM(actual) AS actual, COUNT(*)::int AS jobs
+        FROM per_job
+       WHERE actual IS NOT NULL AND actual > 0
+       GROUP BY service_type
+       ORDER BY jobs DESC`);
+
+    const byType = (agg.rows as any[]).map(r => {
+      const allowed = Number(r.allowed) || 0;
+      const actual = Number(r.actual) || 0;
+      return {
+        service_type: r.service_type as string,
+        service_type_name: (r.service_type_name as string | null) || null,
+        allowed: Math.round(allowed * 10) / 10,
+        actual: Math.round(actual * 10) / 10,
+        jobs: Number(r.jobs) || 0,
+        pct: actual > 0 ? Math.round((allowed / actual) * 100) : null,
+      };
+    });
+
+    // Headline = MEDIAN of per-type % (matches the day tile). Overall = pooled.
+    const pcts = byType.map(t => t.pct).filter((n): n is number => n != null).sort((a, b) => a - b);
+    const n = pcts.length;
+    const medianPct = n === 0 ? null
+      : (n % 2 ? pcts[(n - 1) / 2] : Math.round((pcts[n / 2 - 1] + pcts[n / 2]) / 2));
+    const totAllowed = byType.reduce((s, t) => s + t.allowed, 0);
+    const totActual = byType.reduce((s, t) => s + t.actual, 0);
+    const overallPct = totActual > 0 ? Math.round((totAllowed / totActual) * 100) : null;
+    const jobCount = byType.reduce((s, t) => s + t.jobs, 0);
+
+    return res.json({
+      efficiency_pct: medianPct,
+      overall_pct: overallPct,
+      by_type: byType,
+      job_count: jobCount,
+      window: "trailing 90 days",
+    });
+  } catch (err) {
+    console.error("tech efficiency error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
 // [tech-scorecard 2026-07-14] GET /api/tech/job-history?limit=&offset=
 // The tech's OWN completed-job history (beyond just today). Matches primary
 // (jobs.assigned_user_id) AND team-member (job_technicians) jobs — same OR
