@@ -86,7 +86,7 @@ const CONTACT_ROLES = [
   { value: "other", label: "Other" },
 ];
 
-type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs" | "invoices" | "messages" | "activity";
+type Tab = "overview" | "properties" | "rate_cards" | "contacts" | "calendar" | "jobs" | "invoices" | "messages" | "communications" | "activity";
 
 function fmt(n: number) {
   return n.toLocaleString("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 0, maximumFractionDigits: 0 });
@@ -843,6 +843,7 @@ export default function AccountDetailPage() {
     { key: "jobs", label: "Uninvoiced Jobs", count: jobs.length },
     { key: "invoices", label: "Invoices" },
     { key: "messages", label: "Messages" },
+    { key: "communications", label: "Communications" },
     { key: "activity", label: "Activity" },
   ];
 
@@ -965,23 +966,14 @@ export default function AccountDetailPage() {
               </div>
             </div>
 
-            {/* Communications — pause all automated SMS/email for this account */}
-            <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3 sm:col-span-2">
-              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Communications</p>
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium text-[#0A0E1A]">Automated customer messages</p>
-                  <p className="text-xs text-gray-500 mt-0.5 max-w-md">
-                    Reminders, on-my-way texts, completion &amp; receipt notices, review requests for every customer under this account.
-                    {account.comms_enabled === false
-                      ? " Currently PAUSED — nothing automated goes out. (Manual invoices still send.)"
-                      : " Turn off for property managers (PPM, KMA, …) who don't want the messaging."}
-                  </p>
-                </div>
-                <Switch checked={account.comms_enabled !== false} onCheckedChange={toggleComms} />
+            {/* Calendar — front and center. An account's schedule is the first
+                thing the office needs when they open it, especially when it has
+                jobs. Communications moved to its own tab to declutter this view. */}
+            {id && (
+              <div className="sm:col-span-2">
+                <AccountJobsCalendar accountId={id} initialPropertyId={calendarPropId} />
               </div>
-              <AccountNotificationPreferences accountId={String(id)} commsPaused={account.comms_enabled === false} />
-            </div>
+            )}
 
             {/* [tech-pref-accounts 2026-07-21] Preferred / do-not-schedule cleaner */}
             <AccountTechPreferences accountId={String(id)} />
@@ -1462,6 +1454,26 @@ export default function AccountDetailPage() {
         {/* ─── CALENDAR TAB ────────────────────────────────────────────────── */}
         {tab === "calendar" && id && (
           <AccountJobsCalendar accountId={id} initialPropertyId={calendarPropId} />
+        )}
+
+        {/* ─── COMMUNICATIONS TAB ─── moved off Overview to declutter it ────── */}
+        {tab === "communications" && (
+          <div className="bg-white border border-gray-100 rounded-xl p-4 space-y-3">
+            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Communications</p>
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-[#0A0E1A]">Automated customer messages</p>
+                <p className="text-xs text-gray-500 mt-0.5 max-w-md">
+                  Reminders, on-my-way texts, completion &amp; receipt notices, review requests for every customer under this account.
+                  {account.comms_enabled === false
+                    ? " Currently PAUSED — nothing automated goes out. (Manual invoices still send.)"
+                    : " Turn off for property managers (PPM, KMA, …) who don't want the messaging."}
+                </p>
+              </div>
+              <Switch checked={account.comms_enabled !== false} onCheckedChange={toggleComms} />
+            </div>
+            <AccountNotificationPreferences accountId={String(id)} commsPaused={account.comms_enabled === false} />
+          </div>
         )}
 
         {/* ─── JOBS TAB ────────────────────────────────────────────────────── */}
