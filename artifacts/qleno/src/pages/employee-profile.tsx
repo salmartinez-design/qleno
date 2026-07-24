@@ -74,6 +74,22 @@ const SCORE_BGS   = ['', '#FCEBEA', '#FDF3E4', '#EFEFF2', '#E6F6F1'];
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_IDX: Record<string, number> = { Mon:0,Tue:1,Wed:2,Thu:3,Fri:4,Sat:5,Sun:6 };
+// [notes-templates 2026-07-24] HR note types for the Add Note dropdown. The
+// hint pre-fills the textarea placeholder so each type prompts for the right
+// structure. value maps to employee_notes.note_type (backend already stores it).
+const NOTE_TYPES: { value: string; label: string; hint: string }[] = [
+  { value: 'documented_conversation', label: 'Documented Conversation', hint: 'What was discussed, who was present, and any agreed follow-up.' },
+  { value: 'coaching',        label: 'Coaching',                hint: 'The behavior or skill coached, the guidance given, and next steps.' },
+  { value: 'verbal_warning',  label: 'Verbal Warning',          hint: 'The issue, the policy involved, and the expectation going forward.' },
+  { value: 'written_warning', label: 'Written Warning',         hint: 'The issue, prior steps taken, the corrective action, and the consequence if it continues.' },
+  { value: 'performance',     label: 'Performance Discussion',  hint: 'Performance observed, specific examples, and the goals set.' },
+  { value: 'attendance',      label: 'Attendance Discussion',   hint: 'The attendance concern, the dates involved, and the expectation set.' },
+  { value: 'policy_ack',      label: 'Policy Acknowledgment',   hint: 'Which policy was reviewed or acknowledged, and when.' },
+  { value: 'recognition',     label: 'Recognition',             hint: 'What the employee did well and the impact it had.' },
+  { value: 'investigation',   label: 'Investigation',           hint: 'The concern, who was spoken with, the findings, and the outcome.' },
+  { value: 'general',         label: 'General Note',            hint: 'Note content…' },
+];
+
 const TABS = [
   'Information','Earnings','Attendance','Availability',
   'User Account','Performance Score','Pay Configuration','Additional Pay',
@@ -1256,10 +1272,11 @@ export default function EmployeeProfilePage() {
 
   const [noteModal, setNoteModal] = useState(false);
   const [noteContent, setNoteContent] = useState('');
+  const [noteType, setNoteType] = useState('documented_conversation');
   async function addNote() {
     if (!noteContent.trim()) return;
-    await apiFetch(`/users/${userId}/notes`, { method: 'POST', body: JSON.stringify({ content: noteContent }) });
-    setNoteModal(false); setNoteContent('');
+    await apiFetch(`/users/${userId}/notes`, { method: 'POST', body: JSON.stringify({ content: noteContent, note_type: noteType }) });
+    setNoteModal(false); setNoteContent(''); setNoteType('documented_conversation');
     refetchNotes();
     showToast('Note added');
   }
@@ -3171,7 +3188,9 @@ export default function EmployeeProfilePage() {
                     <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:6 }}>
                       <div style={{ display:'flex', alignItems:'center', gap:8 }}>
                         {n.is_system && <span style={{ fontSize:10,background:'#F0EEE9',color:'#6B6860',padding:'2px 6px',borderRadius:10,fontWeight:600 }}>SYSTEM</span>}
-                        <span style={{ fontSize:12,fontWeight:600,color:'#1A1917' }}>{n.note_type?.replace(/_/g,' ')}</span>
+                        <span style={{ fontSize:11,fontWeight:700,background:'#E6F8F3',color:'#0A6E5A',padding:'2px 9px',borderRadius:20 }}>
+                          {NOTE_TYPES.find(nt=>nt.value===n.note_type)?.label || (n.note_type?.replace(/_/g,' ') ?? 'Note')}
+                        </span>
                       </div>
                       <span style={{ fontSize:11,color:'#9E9B94' }}>{new Date(n.created_at).toLocaleString()}</span>
                     </div>
@@ -3209,10 +3228,16 @@ export default function EmployeeProfilePage() {
           <div style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.4)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:1000 }}>
             <div style={{ background:'#FFFFFF',borderRadius:12,padding:28,width:440,boxShadow:'0 20px 60px rgba(0,0,0,0.2)' }}>
               <h3 style={{ margin:'0 0 16px 0',fontSize:16,fontWeight:700,color:'#1A1917' }}>Add Note</h3>
-              <textarea value={noteContent} onChange={e=>setNoteContent(e.target.value)} placeholder="Note content…"
+              <label style={{ display:'block',fontSize:12,fontWeight:700,color:'#6B6860',marginBottom:5 }}>Note type</label>
+              <select value={noteType} onChange={e=>setNoteType(e.target.value)}
+                style={{ width:'100%',padding:'9px 12px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,fontFamily:'inherit',background:'#FFFFFF',color:'#1A1917',outline:'none',marginBottom:14,cursor:'pointer' }}>
+                {NOTE_TYPES.map(nt => <option key={nt.value} value={nt.value}>{nt.label}</option>)}
+              </select>
+              <textarea value={noteContent} onChange={e=>setNoteContent(e.target.value)}
+                placeholder={NOTE_TYPES.find(nt=>nt.value===noteType)?.hint || 'Note content…'}
                 style={{ width:'100%',height:100,padding:'10px 12px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,resize:'vertical',outline:'none',fontFamily:'inherit',marginBottom:16 }}/>
               <div style={{ display:'flex', gap:10, justifyContent:'flex-end' }}>
-                <button onClick={() => { setNoteModal(false); setNoteContent(''); }}
+                <button onClick={() => { setNoteModal(false); setNoteContent(''); setNoteType('documented_conversation'); }}
                   style={{ padding:'8px 16px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,background:'#FFFFFF',cursor:'pointer',fontFamily:'inherit' }}>Cancel</button>
                 <button onClick={addNote} style={{ padding:'8px 16px',background:'var(--brand)',color:'#FFFFFF',border:'none',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',fontFamily:'inherit' }}>Add Note</button>
               </div>
