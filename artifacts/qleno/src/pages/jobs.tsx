@@ -5394,8 +5394,12 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
   const now = isToday ? new Date() : null;
   const nowMin = now ? now.getHours() * 60 + now.getMinutes() : -1;
 
-  const RAIL = 56;
-
+  // [mobile-grid-vertical 2026-07-24] Vertical tiles, two per row (grid
+  // container below). Time folds into the top of each card (start here, "ends …"
+  // at the bottom) so the old left time-rail can go away and buy width —
+  // ~8 jobs fit per screen instead of ~3 (Sal request). Zone fill + every
+  // status treatment (completed check, active ring, no-show badge, cancel
+  // desaturate/strikethrough) carry over unchanged.
   const Row = ({ j }: { j: DispatchJob }) => {
     const visual = STATUS_VISUALS[getJobVisualStatus(j)];
     const baseColor = j.zone_color || "#9E9B94";
@@ -5408,62 +5412,57 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
     const sMin = timeToMins(j.scheduled_time);
     const eMin = sMin + (j.duration_minutes || 0);
     const amount = j.amount ? `$${j.amount.toFixed(0)}` : "";
-    // Left status accent: amber bar for active, red ring for late/no-show.
+    // Status accent: amber bar for active, red ring for late/no-show.
     const ring = visual.stripe
       ? `inset 5px 0 0 ${visual.stripe}`
       : visual.borderOverride
         ? `inset 0 0 0 2px ${visual.borderOverride}`
         : "none";
     return (
-      <div style={{ display: "flex", alignItems: "stretch", marginBottom: 8 }}>
-        {/* Left rail — start + end time. This is the "time on the left" the
-            block itself deliberately omits. */}
-        <div style={{ width: RAIL, flexShrink: 0, paddingTop: 8, paddingRight: 10, textAlign: "right" }}>
-          <div style={{ fontSize: 12, fontWeight: 800, color: "#1A1917", lineHeight: 1.1 }}>{fmtRail(sMin)}</div>
-          <div style={{ fontSize: 10, fontWeight: 600, color: "#9E9B94", lineHeight: 1.3 }}>{fmtRail(eMin)}</div>
+      <button onClick={() => onJobClick(j)} className={visual.glowActive ? "qleno-active-glow" : undefined} style={{
+        minWidth: 0, backgroundColor: color, borderRadius: 13, border: "none", textAlign: "left",
+        padding: "9px 11px 10px", cursor: "pointer", fontFamily: FF, boxSizing: "border-box",
+        opacity: visual.bodyOpacity, filter: visual.desaturate ? "grayscale(1)" : "none",
+        boxShadow: ring === "none" ? "0 1px 2px rgba(10,14,26,0.10)" : `${ring}, 0 1px 2px rgba(10,14,26,0.10)`,
+        display: "flex", flexDirection: "column", gap: 5,
+      }}>
+        {/* Time + amount + completed check / no-show badge */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6 }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: ink, opacity: 0.95 }}>{fmtRail(sMin)}</span>
+          <div style={{ display: "flex", alignItems: "center", gap: 5, flexShrink: 0 }}>
+            {visual.showCheckmark && <Check size={13} color={ink} strokeWidth={3} />}
+            {visual.showNoShowBadge && <span style={{ fontSize: 8, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "2px 5px", borderRadius: 4, letterSpacing: "0.03em" }}>NO SHOW</span>}
+            {amount && !visual.showNoShowBadge && <span style={{ fontSize: 13, fontWeight: 800, color: ink }}>{amount}</span>}
+          </div>
         </div>
-        {/* Full-width zone-colored row. */}
-        <button onClick={() => onJobClick(j)} className={visual.glowActive ? "qleno-active-glow" : undefined} style={{
-          flex: 1, minWidth: 0, backgroundColor: color, borderRadius: 12, border: "none", textAlign: "left",
-          padding: "10px 13px", cursor: "pointer", fontFamily: FF, boxSizing: "border-box",
-          opacity: visual.bodyOpacity, filter: visual.desaturate ? "grayscale(1)" : "none",
-          boxShadow: ring === "none" ? "0 1px 2px rgba(10,14,26,0.10)" : `${ring}, 0 1px 2px rgba(10,14,26,0.10)`,
-          display: "flex", flexDirection: "column", gap: 4,
-        }}>
-          {/* Name + amount + completed check / no-show badge */}
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 8 }}>
-            <div style={{ flex: 1, minWidth: 0, fontSize: 15, fontWeight: 800, color: ink, lineHeight: 1.2, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", wordBreak: "break-word", textDecoration: visual.strikethrough ? "line-through" : "none" }}>
-              {j.display_name ?? j.client_name}
-            </div>
-            {visual.showCheckmark && <Check size={15} color={ink} strokeWidth={3} style={{ flexShrink: 0, marginTop: 2 }} />}
-            {visual.showNoShowBadge && <span style={{ flexShrink: 0, fontSize: 9, fontWeight: 800, color: "#FFFFFF", backgroundColor: "#B3261E", padding: "2px 6px", borderRadius: 4, letterSpacing: "0.03em" }}>NO SHOW</span>}
-            {amount && !visual.showNoShowBadge && <div style={{ flexShrink: 0, fontSize: 14, fontWeight: 800, color: ink }}>{amount}</div>}
+        {/* WHO — client name (up to two lines, then clip). */}
+        <div style={{ fontSize: 13.5, fontWeight: 800, color: ink, lineHeight: 1.15, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", wordBreak: "break-word", textDecoration: visual.strikethrough ? "line-through" : "none", minHeight: 31 }}>
+          {j.display_name ?? j.client_name}
+        </div>
+        {/* Assigned tech (or Unassigned). */}
+        <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: isUn ? (onDark ? "#FFE08A" : "#B45309") : sub, lineHeight: 1.2, minWidth: 0 }}>
+          <User size={11} style={{ flexShrink: 0, opacity: 0.9 }} />
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isUn ? "Unassigned" : j.assigned_user_name}</span>
+        </div>
+        {/* WHERE — address, one line, ellipsis (truncates sooner on a narrow tile). */}
+        {j.address && (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: sub, lineHeight: 1.2, minWidth: 0 }}>
+            <MapPin size={11} style={{ flexShrink: 0, opacity: 0.9 }} />
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.address}</span>
           </div>
-          {/* WHO — assigned tech (or Unassigned). */}
-          <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, fontWeight: 700, color: isUn ? (onDark ? "#FFE08A" : "#B45309") : sub, lineHeight: 1.2, minWidth: 0 }}>
-            <User size={12} style={{ flexShrink: 0, opacity: 0.9 }} />
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{isUn ? "Unassigned" : j.assigned_user_name}</span>
-          </div>
-          {/* WHERE — full address, one line, ellipsis if very long. */}
-          {j.address && (
-            <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: sub, lineHeight: 1.25, minWidth: 0 }}>
-              <MapPin size={12} style={{ flexShrink: 0, opacity: 0.9 }} />
-              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{j.address}</span>
-            </div>
-          )}
-        </button>
-      </div>
+        )}
+        {/* End time — the tail the header time no longer carries. */}
+        <div style={{ fontSize: 9.5, fontWeight: 700, color: sub, opacity: 0.9 }}>ends {fmtRail(eMin)}</div>
+      </button>
     );
   };
 
-  // NOW divider — inserted before the first job that starts at/after now.
+  // NOW divider — spans the full grid width before the first job at/after now.
   const NowMarker = () => (
-    <div style={{ display: "flex", alignItems: "center", margin: "2px 0 10px" }}>
-      <div style={{ width: RAIL, flexShrink: 0, paddingRight: 10, textAlign: "right", fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</div>
-      <div style={{ flex: 1, display: "flex", alignItems: "center", gap: 0 }}>
-        <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
-        <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
-      </div>
+    <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 8, margin: "2px 0" }}>
+      <span style={{ fontSize: 10, fontWeight: 800, color: "#B3261E", letterSpacing: "0.04em" }}>NOW</span>
+      <div style={{ flex: 1, height: 2, backgroundColor: "#B3261E" }} />
+      <div style={{ width: 8, height: 8, borderRadius: "50%", backgroundColor: "#B3261E", flexShrink: 0 }} />
     </div>
   );
 
@@ -5471,18 +5470,20 @@ function MobileCalendarView({ jobs, onJobClick, isToday }: {
 
   return (
     <div style={{ fontFamily: FF }}>
-      {sorted.map(j => {
-        const showNow = now && !nowInserted && timeToMins(j.scheduled_time) >= nowMin;
-        if (showNow) nowInserted = true;
-        return (
-          <Fragment key={j.id}>
-            {showNow && <NowMarker />}
-            <Row j={j} />
-          </Fragment>
-        );
-      })}
-      {/* now is past every timed job today — show the marker at the end. */}
-      {now && !nowInserted && sorted.length > 0 && <NowMarker />}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, alignItems: "start" }}>
+        {sorted.map(j => {
+          const showNow = now && !nowInserted && timeToMins(j.scheduled_time) >= nowMin;
+          if (showNow) nowInserted = true;
+          return (
+            <Fragment key={j.id}>
+              {showNow && <NowMarker />}
+              <Row j={j} />
+            </Fragment>
+          );
+        })}
+        {/* now is past every timed job today — show the marker at the end. */}
+        {now && !nowInserted && sorted.length > 0 && <NowMarker />}
+      </div>
       {untimed.length > 0 && (
         <div style={{ marginTop: sorted.length ? 14 : 0 }}>
           <div style={{ fontSize: 10, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 2px 8px" }}>No time set</div>
