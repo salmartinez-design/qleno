@@ -1725,8 +1725,17 @@ export default function MyJobsPage() {
           padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-            {/* Tapping the logo/title returns the tech to today's main screen. */}
-            <button type="button" onClick={() => { setSelectedDate(todayYmd); setShowPay(false); }} aria-label="Back to today"
+            {/* Tapping the logo/title: a real tech returns to today's main
+                screen; an owner/office previewing a tech (employeeView) EXITS
+                the preview and goes back to the office home. Without the
+                employeeView branch the logo left them stuck in the tech view
+                with no way back to their own screen (Sal report 2026-07-24). */}
+            <button type="button"
+              onClick={() => {
+                if (employeeView) { exitView(); navigate("/"); }
+                else { setSelectedDate(todayYmd); setShowPay(false); }
+              }}
+              aria-label={employeeView ? "Exit preview and return to the main screen" : "Back to today"}
               style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "none", border: "none", padding: 0, cursor: "pointer", fontFamily: "inherit", minWidth: 0 }}>
               <QlenoMark size={32} />
               <span style={{ fontSize: 15, fontWeight: 700, color: "#1A1917", letterSpacing: "-0.01em" }}>My Jobs</span>
@@ -1908,7 +1917,10 @@ export default function MyJobsPage() {
             <span style={{ fontSize: 13, fontWeight: 600, color: "#fff", flex: 1 }}>
               Viewing as {employeeView.employeeName}
             </span>
-            <button type="button" onClick={exitView}
+            {/* Exit the preview AND leave the tech screen — clearing the
+                preview state alone would strand the owner on their own (empty)
+                My Jobs; send them back to the office home. */}
+            <button type="button" onClick={() => { exitView(); navigate("/"); }}
               style={{ fontSize: 12, fontWeight: 700, color: "var(--brand)", background: "#fff", border: "none", borderRadius: 6, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit" }}>
               Exit
             </button>
