@@ -812,6 +812,31 @@ export default function AccountDetailPage() {
     setGeneratingInvoice(false);
   }
 
+  // [bill-week 2026-07-24] One-click weekly batch: fold this week's daily draft
+  // invoices into a single weekly invoice (superseding the dailies).
+  async function billWeek() {
+    setGeneratingInvoice(true);
+    try {
+      const r = await fetch(`${API}/api/accounts/${id}/bill-week`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const data = await r.json();
+      if (r.ok) {
+        if ((data.merged_count ?? 0) >= 2) {
+          toast({ title: `Weekly invoice created — ${data.merged_count} visits folded into one ($${Number(data.total ?? 0).toFixed(2)})` });
+          load();
+        } else {
+          toast({ title: data.message ?? "Nothing to bill this week" });
+        }
+      } else {
+        toast({ title: data.error ?? "Failed to bill week", variant: "destructive" });
+      }
+    } catch { toast({ title: "Network error", variant: "destructive" }); }
+    setGeneratingInvoice(false);
+  }
+
   // ─── Render ───────────────────────────────────────────────────────────────
   if (loading) {
     return (
@@ -872,16 +897,28 @@ export default function AccountDetailPage() {
               </p>
             </div>
           </div>
-          {jobs.length > 0 && (
+          <div className="flex items-center gap-2">
             <Button
-              className="bg-[var(--brand)] hover:opacity-90 text-white gap-2"
-              onClick={generateInvoice}
+              variant="outline"
+              className="gap-2"
+              onClick={billWeek}
               disabled={generatingInvoice}
+              title="Fold this week's daily visits into one weekly invoice"
             >
               <FileText size={15} />
-              {generatingInvoice ? "Generating..." : `Generate Invoice (${jobs.length})`}
+              {generatingInvoice ? "Working…" : "Bill this week"}
             </Button>
-          )}
+            {jobs.length > 0 && (
+              <Button
+                className="bg-[var(--brand)] hover:opacity-90 text-white gap-2"
+                onClick={generateInvoice}
+                disabled={generatingInvoice}
+              >
+                <FileText size={15} />
+                {generatingInvoice ? "Generating..." : `Generate Invoice (${jobs.length})`}
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Stats Row */}

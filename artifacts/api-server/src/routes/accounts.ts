@@ -9,6 +9,7 @@ import { eq, and, sql, inArray, notExists, desc, gte, lte } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { utcIso } from "../lib/time-serialize.js";
 import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
+import { getNextInvoiceNumber } from "../lib/invoice-number.js";
 
 const router = Router();
 
@@ -1280,6 +1281,95 @@ router.post("/:id/generate-invoice", requireAuth, requireRole("owner", "admin"),
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to generate invoice" });
+  }
+});
+
+// ─── BILL THIS WEEK ──────────────────────────────────────────────────────────
+// POST /api/accounts/:id/bill-week — one-click batch billing. Folds the account's
+// unbilled DAILY draft invoices for a Sun–Sat billing week into ONE weekly
+// invoice, superseding the dailies (same fold behavior as POST /invoices/merge).
+// This is the office's weekly action instead of hunting drafts on the global
+// Invoices page. Optional body { week_start: "YYYY-MM-DD" } bills that week;
+// default is the current week.
+router.post("/:id/bill-week", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  const id = parseInt(req.params.id);
+  if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+  const companyId = req.auth!.companyId;
+  try {
+    const anchor = /^\d{4}-\d{2}-\d{2}$/.test(String(req.body?.week_start || ""))
+      ? new Date(String(req.body.week_start) + "T12:00:00Z")
+      : new Date();
+    const dow = anchor.getUTCDay(); // 0 = Sunday
+    const weekStart = new Date(anchor); weekStart.setUTCDate(anchor.getUTCDate() - dow);
+    const weekEnd = new Date(weekStart); weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
+    const ws = weekStart.toISOString().split("T")[0];
+    const we = weekEnd.toISOString().split("T")[0];
+
+    // Service date of an invoice = its linked job's scheduled_date (matches the
+    // account invoice list + generate-invoice attribution).
+    const svcDate = sql<string>`COALESCE((SELECT j.scheduled_date FROM jobs j WHERE j.id = ${invoicesTable.job_id}), ${invoicesTable.created_at}::date)`;
+    const drafts = await db
+      .select({ id: invoicesTable.id, total: invoicesTable.total, line_items: invoicesTable.line_items, job_id: invoicesTable.job_id, payment_terms: invoicesTable.payment_terms, due_date: invoicesTable.due_date })
+      .from(invoicesTable)
+      .where(and(
+        eq(invoicesTable.account_id, id),
+        eq(invoicesTable.company_id, companyId),
+        eq(invoicesTable.status, "draft"),
+        sql`${svcDate} >= ${ws} AND ${svcDate} <= ${we}`,
+      ))
+      .orderBy(svcDate);
+
+    if (drafts.length === 0) return res.json({ ok: true, invoice: null, merged_count: 0, week: { start: ws, end: we }, message: `No unbilled visits for the week of ${ws}` });
+    if (drafts.length === 1) return res.json({ ok: true, invoice: drafts[0], merged_count: 1, week: { start: ws, end: we }, message: "Only one visit this week — nothing to merge" });
+
+    // Fold: parent carries every child line (with job linkage preserved) + the
+    // summed total; children go 'superseded' + parent_invoice_id.
+    const parentLines: any[] = [];
+    let parentTotal = 0;
+    for (const r of drafts) {
+      parentTotal += parseFloat(String(r.total ?? "0"));
+      const childLines = Array.isArray(r.line_items) ? (r.line_items as any[]) : [];
+      if (childLines.length > 0) {
+        for (const l of childLines) parentLines.push(r.job_id != null && l.job_id == null ? { ...l, job_id: r.job_id } : l);
+      } else {
+        const t = parseFloat(String(r.total ?? "0"));
+        parentLines.push({ description: "Visit", quantity: 1, unit_price: t, total: t, ...(r.job_id != null ? { job_id: r.job_id } : {}) });
+      }
+    }
+    parentTotal = Math.round(parentTotal * 100) / 100;
+    const first = drafts[0];
+
+    const [parent] = await db.insert(invoicesTable).values({
+      company_id: companyId,
+      account_id: id,
+      client_id: null,
+      status: "draft",
+      line_items: parentLines,
+      subtotal: parentTotal.toFixed(2),
+      total: parentTotal.toFixed(2),
+      payment_terms: first.payment_terms,
+      due_date: first.due_date,
+      created_by: req.auth!.userId,
+    } as any).returning();
+
+    try {
+      const invNum = await getNextInvoiceNumber(companyId, parent.id);
+      await db.update(invoicesTable).set({ invoice_number: invNum }).where(eq(invoicesTable.id, parent.id));
+    } catch (e) { console.error("[bill-week] number assignment non-fatal:", e); }
+
+    const childIds = drafts.map((d) => d.id);
+    await db.update(invoicesTable)
+      .set({ status: "superseded", parent_invoice_id: parent.id })
+      .where(and(eq(invoicesTable.company_id, companyId), inArray(invoicesTable.id, childIds)));
+
+    import("../services/quickbooks-sync.js")
+      .then(({ syncInvoice }) => syncInvoice(companyId, parent.id).catch((e) => console.error("[bill-week] QB push non-fatal:", e)))
+      .catch(() => {});
+
+    return res.status(201).json({ ok: true, invoice: parent, merged_count: childIds.length, total: parentTotal, week: { start: ws, end: we } });
+  } catch (err) {
+    console.error("bill-week error:", err);
+    res.status(500).json({ error: "Failed to bill week" });
   }
 });
 
