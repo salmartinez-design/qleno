@@ -1537,10 +1537,17 @@ function InlinePricingEditor({ job, canEdit, onUpdate, adjustments, tipsTotal = 
           : line(fmtSvc(job.service_type), num(baseInit))}
         {positives.map((a, i) => <div key={`p${i}`}>{line(`Add-on · ${a.name}`, num(Number(a.subtotal)))}</div>)}
         {discounts.map((a, i) => <div key={`d${i}`}>{line(a.name, `−$${Math.abs(Number(a.subtotal)).toFixed(2)}`, "#0F7A63")}</div>)}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 6, paddingTop: 8 }}>
-          <span style={{ fontWeight: 700, color: "#1A1917" }}>{tipsTotal > 0 ? "Service total" : "Total"}</span>
-          <span style={{ fontWeight: 800, color: "#1A1917" }}>{num(total)}</span>
-        </div>
+        {/* [tip-reconcile 2026-07-24] When there are no add-ons the single service
+            line already IS the service total, so a separate "Service total" row just
+            repeats the same number (Sal: "i dont need to see 220 two times"). Only
+            render the service subtotal row when add-ons make it a genuine sum, OR when
+            there's no tip (legacy behavior — the bare "Total" row stays). */}
+        {!(tipsTotal > 0 && positives.length === 0 && discounts.length === 0) && (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 15, borderTop: "1px solid #E5E2DC", marginTop: 6, paddingTop: 8 }}>
+            <span style={{ fontWeight: 700, color: "#1A1917" }}>{tipsTotal > 0 ? "Service total" : "Total"}</span>
+            <span style={{ fontWeight: 800, color: "#1A1917" }}>{num(total)}</span>
+          </div>
+        )}
         {/* [tip-reconcile 2026-07-24] A tip is billed on the invoice but isn't part
             of the service price, so the service Total ($220) disagreed with the
             invoice ($253) with nothing on the card explaining the $33 gap. Surface
@@ -5969,10 +5976,27 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
       )}
 
       {/* ─── TOTAL + PAYMENT ─── */}
+      {/* [tip-reconcile 2026-07-24] The hover card only has `job` (no tips API call),
+          but the dispatch payload carries `invoice_total` (base + tip + any invoice
+          adjustments). When it exceeds the service amount, lead with the invoice total
+          — what the customer actually owes — and break out the tip underneath so the
+          popover matches the drawer's Service total / Tip / Invoice total instead of
+          contradicting it with a bare $220. */}
+      {(() => {
+        const svcAmount = job.amount || 0;
+        const invTotal = job.invoice_total != null ? Number(job.invoice_total) : null;
+        const tipDelta = invTotal != null ? invTotal - svcAmount : 0;
+        const showInvoice = invTotal != null && tipDelta > 0.005;
+        return (
       <div style={{ padding: "16px 20px", borderBottom: sectionBorder, display: "grid", gridTemplateColumns: paymentLabel ? "1fr 1fr" : "1fr", gap: "0 20px" }}>
         <div>
-          <div style={labelStyle}>Total</div>
-          <div style={valueStyle}>${(job.amount || 0).toFixed(2)}</div>
+          <div style={labelStyle}>{showInvoice ? "Invoice total" : "Total"}</div>
+          <div style={valueStyle}>${(showInvoice ? invTotal! : svcAmount).toFixed(2)}</div>
+          {showInvoice && (
+            <div style={{ fontSize: 12, color: "#6B6860", marginTop: 2 }}>
+              Service ${svcAmount.toFixed(2)} · Tip ${tipDelta.toFixed(2)}
+            </div>
+          )}
         </div>
         {paymentLabel && (
           <div>
@@ -5981,6 +6005,8 @@ function JobHoverCard({ job, assignedName }: { job: DispatchJob; assignedName?: 
           </div>
         )}
       </div>
+        );
+      })()}
 
       {/* ─── TECHNICIAN (name only, no pay $) ─── */}
       <div style={{ padding: "16px 20px", borderBottom: liveClock ? sectionBorder : undefined }}>
