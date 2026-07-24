@@ -31,6 +31,7 @@ const MileageReviewPage   = lazy(() => import("@/pages/mileage-review"));
 const LeaveReviewPage     = lazy(() => import("@/pages/leave-review"));
 const LeaveRequestPage    = lazy(() => import("@/pages/leave-request"));
 const CleancyclopediaPage = lazy(() => import("@/pages/cleancyclopedia"));
+const CleaningChecklistPage = lazy(() => import("@/pages/cleaning-checklist"));
 const HelpPage            = lazy(() => import("@/pages/help"));
 const HelpGuidePage       = lazy(() => import("@/pages/help-guide"));
 const DiscountsRedirect   = lazy(() => Promise.resolve({ default: () => { window.location.replace((import.meta.env.BASE_URL.replace(/\/$/, "")) + "/company?tab=pricing"); return null; } }));
@@ -271,6 +272,7 @@ function Router() {
             /leave-review — send them to the real page instead of a 404. */}
         <Route path="/leave-review">{() => <Redirect to="/payroll/leave-review" />}</Route>
         <Route path="/leave" component={LeaveRequestPage} />
+        <Route path="/checklist" component={CleaningChecklistPage} />
         <Route path="/cleancyclopedia" component={CleancyclopediaPage} />
         <Route path="/help/:slug" component={HelpGuidePage} />
         <Route path="/help" component={HelpPage} />
