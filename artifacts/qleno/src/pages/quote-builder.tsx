@@ -17,7 +17,7 @@ import {
 } from "@/components/ui/popover";
 import { QuoteAttachments } from "@/components/quote-attachments";
 import {
-  ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown,
+  ArrowLeft, Save, SendHorizonal, ArrowRight,
   User, Home, Calculator, PlusSquare, AlertCircle, CheckCircle2, Check,
   X, Phone, ImagePlus, Loader2, Trash2, CreditCard,
 } from "lucide-react";
@@ -182,6 +182,12 @@ interface SelectedScopeState {
   adjPlusReason: string;
   adjMinus: number;
   adjMinusReason: string;
+  // [discount-per-hour 2026-07-25] Discount input mode. "flat" = adjMinus is a
+  // total dollar discount; "per_hour" = adjMinus is $/hr and the real discount
+  // is adjMinus × billed hours (hourly scope → hours; sqft scope → calc.base_hours).
+  // Lets the office discount the hourly rate specifically WITHOUT editing the
+  // configured rate, so all discounting stays tracked as a price adjustment.
+  adjMinusMode: "flat" | "per_hour";
   // [combo-optional] Bundle ids the office toggled OFF for this scope. Passed
   // to the pricing engine so their discount isn't applied to the total.
   disabledBundleIds: number[];
@@ -529,6 +535,14 @@ export default function QuoteBuilderPage() {
     queryKey: ["pricing-scopes-office"],
     queryFn: () => apiFetch("/api/pricing/scopes?office=true"),
     staleTime: 0,
+  });
+
+  // [combo-select 2026-07-25] Company bundles (combos) with member addon ids,
+  // so each scope card can surface an applicable combo as a selectable line.
+  const { data: addonBundles = [] } = useQuery<{ id: number; name: string; discount_type: string; discount_value: number; required_ids: number[] }[]>({
+    queryKey: ["pricing-bundles"],
+    queryFn: () => apiFetch("/api/pricing/bundles"),
+    staleTime: 60_000,
   });
 
   // Full assignable roster — the same endpoint the dispatch Add-Team-Member
@@ -881,6 +895,20 @@ export default function QuoteBuilderPage() {
     return s.displayLabel ?? scopes.find(sc => sc.id === s.scope_id)?.name ?? "Service";
   }
 
+  // [cadence-carryover 2026-07-25] Human label for a scope's recurring cadence.
+  // The Hourly → Recurring cadence (weekly/bi-weekly/…) persists on the scope's
+  // `frequency` but was never shown on the Add-ons card or Price Preview, so it
+  // looked dropped. Returns "" for one-time / blank so flat services show no chip.
+  function cadenceLabel(freq?: string | null): string {
+    const f = (freq || "").toLowerCase();
+    const map: Record<string, string> = {
+      weekly: "Weekly", every_2_weeks: "Bi-Weekly", biweekly: "Bi-Weekly",
+      every_4_weeks: "Every 4 Weeks", monthly: "Monthly", monthly_weekday: "Monthly",
+      custom: "Custom", custom_recurrence: "Custom",
+    };
+    return map[f] ?? "";
+  }
+
   // ── Toggle scope selection ────────────────────────────────────────────────
   async function toggleScope(scope: PricingScope, initialState?: { frequency?: string; hours?: number; addon_ids?: number[]; hourly_rate_override?: number | null; displayLabel?: string }) {
     const isSelected = selectedScopesRef.current.some(s => s.scope_id === scope.id);
@@ -919,6 +947,7 @@ export default function QuoteBuilderPage() {
         adjPlusReason: "",
         adjMinus: 0,
         adjMinusReason: "",
+        adjMinusMode: "flat",
         disabledBundleIds: [],
         hourlyRateOverride: initialState?.hourly_rate_override ?? null,
         frequencies: freqs as PricingFrequency[],
@@ -934,7 +963,7 @@ export default function QuoteBuilderPage() {
       setSelectedScopes(prev => [...prev, {
         scope_id: scope.id, frequency: initialState?.frequency ?? "", hours: initialState?.hours ?? 0,
         hoursOverrideSet: false, addon_ids: initialState?.addon_ids ?? [],
-        addonQtys: {}, addonRecurring: {}, adjPlus: 0, adjPlusReason: "", adjMinus: 0, adjMinusReason: "",
+        addonQtys: {}, addonRecurring: {}, adjPlus: 0, adjPlusReason: "", adjMinus: 0, adjMinusReason: "", adjMinusMode: "flat",
         disabledBundleIds: [],
         hourlyRateOverride: initialState?.hourly_rate_override ?? null,
         frequencies: [], addons: [],
@@ -1047,6 +1076,58 @@ export default function QuoteBuilderPage() {
     setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, [field]: val } : s));
   }
 
+  // [discount-per-hour 2026-07-25] Switch the Discount cell between a flat total
+  // and a $/hr rate discount. Keeps the raw adjMinus value; discountTotal() below
+  // interprets it by mode.
+  function setScopeAdjMode(scopeId: number, mode: "flat" | "per_hour") {
+    setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, adjMinusMode: mode } : s));
+  }
+
+  // Billed hours a $/hr discount multiplies against: hourly scopes use the typed
+  // hours, sqft scopes use the engine's computed base_hours.
+  function scopeBilledHours(s: SelectedScopeState): number {
+    const meta = scopes.find(sc => sc.id === s.scope_id);
+    const isH = meta?.pricing_method === "hourly" || meta?.pricing_method === "simplified";
+    return isH ? (s.hours || 0) : (s.calc?.base_hours ?? 0);
+  }
+
+  // The real dollar discount for a scope, resolving per-hour mode to a total.
+  // Every dollar-total consumer (payload, review, grand total) MUST use this so
+  // a $/hr discount nets correctly and stays a single tracked adjustment.
+  function discountTotal(s: SelectedScopeState): number {
+    if (s.adjMinusMode === "per_hour") return (s.adjMinus || 0) * scopeBilledHours(s);
+    return s.adjMinus || 0;
+  }
+
+  // A discount's reason, annotated with the "$X/hr × Y hrs" math when it was
+  // entered as a rate discount, so the tracked price-adjustment record preserves
+  // that it was a rate cut (not a lump sum).
+  function discountReason(s: SelectedScopeState): string {
+    const base = s.adjMinusReason || "Discount";
+    if (s.adjMinusMode === "per_hour" && s.adjMinus > 0) {
+      const hrs = scopeBilledHours(s);
+      return `${base} ($${(s.adjMinus).toFixed(2)}/hr × ${hrs} hrs)`;
+    }
+    return base;
+  }
+
+  // [combo-select 2026-07-25] Tick/untick a combo: selecting it adds every member
+  // addon (the engine then auto-applies the bundle discount); unticking removes
+  // them. Mirrors how the office would hand-pick each member, in one action.
+  // Re-enabling also clears the bundle from disabledBundleIds so a combo turned
+  // off in Review doesn't silently suppress the discount here.
+  function toggleCombo(scopeId: number, bundleId: number, memberIds: number[], on: boolean) {
+    setSelectedScopes(prev => prev.map(s => {
+      if (s.scope_id !== scopeId) return s;
+      let addon_ids = [...s.addon_ids];
+      if (on) memberIds.forEach(m => { if (!addon_ids.includes(m)) addon_ids.push(m); });
+      else addon_ids = addon_ids.filter(id => !memberIds.includes(id));
+      const disabledBundleIds = on ? s.disabledBundleIds.filter(bid => bid !== bundleId) : s.disabledBundleIds;
+      return { ...s, addon_ids, disabledBundleIds };
+    }));
+    recalcScopeById(scopeId);
+  }
+
   // [combo-optional] Toggle a bundle (e.g. "Appliance Combo") on/off for a
   // scope, then recalc so the total reflects whether its discount applies.
   function toggleBundle(scopeId: number, bundleId: number) {
@@ -1114,7 +1195,7 @@ export default function QuoteBuilderPage() {
         addon_ids: s.addon_ids,
         // Include this scope's manual price adjustments so the saved total
         // matches the preview (the engine's final_total excludes them).
-        total: s.calc?.final_total != null ? s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0) : null,
+        total: s.calc?.final_total != null ? s.calc.final_total + (s.adjPlus || 0) - discountTotal(s) : null,
       }));
     return {
       client_id: selectedClientId || null,
@@ -1133,7 +1214,7 @@ export default function QuoteBuilderPage() {
       base_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.base_price) : null),
       addons_total: cr ? String(cr.addons_total) : "0",
       discount_amount: cr ? String(cr.discount_amount) : "0",
-      total_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.final_total + (primaryScopeState?.adjPlus || 0) - (primaryScopeState?.adjMinus || 0)) : null),
+      total_price: quickBookPrice != null ? String(quickBookPrice) : (cr ? String(cr.final_total + (primaryScopeState?.adjPlus || 0) - (primaryScopeState ? discountTotal(primaryScopeState) : 0)) : null),
       // [addon-hours 2026-06-04] Persist TOTAL hours (base + add-on time-adds)
       // so Hourly/Time-Add add-ons (Oven, Cabinets, Basement, etc.) flow into
       // the booked job's allowed hours. Was base_hours, which silently dropped
@@ -1158,7 +1239,7 @@ export default function QuoteBuilderPage() {
       manual_adjustments: selectedScopes.flatMap(s => {
         const items: Array<{ scope_id: number; type: string; amount: number; reason: string }> = [];
         if (s.adjPlus > 0) items.push({ scope_id: s.scope_id, type: "add", amount: s.adjPlus, reason: s.adjPlusReason || "" });
-        if (s.adjMinus > 0) items.push({ scope_id: s.scope_id, type: "subtract", amount: s.adjMinus, reason: s.adjMinusReason || "" });
+        if (s.adjMinus > 0) items.push({ scope_id: s.scope_id, type: "subtract", amount: discountTotal(s), reason: discountReason(s) });
         return items;
       }),
       status,
@@ -2851,72 +2932,10 @@ export default function QuoteBuilderPage() {
 
                   {/* Frequency moved to the Service & Pricing step (per-scope cadence) */}
 
-                  {/* B. Scope summary cards (collapsed by default) */}
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>Services on this quote</div>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                      {selectedScopes.map(s => {
-                        const scope = scopes.find(sc => sc.id === s.scope_id);
-                        if (!scope) return null;
-                        const isHourly = scope.pricing_method === "hourly" || scope.pricing_method === "simplified";
-                        const estHours = s.hours || s.calc?.base_hours || 0;
-                        const subtotal = s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : (isHourly && !s.hours ? "Enter hours" : "\u2014");
-                        return (
-                          <div key={s.scope_id} style={{ border: "0.5px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
-                            <button
-                              onClick={() => setSelectedScopes(prev => prev.map(ss => ss.scope_id === s.scope_id ? { ...ss, expanded: !ss.expanded } : ss))}
-                              style={{ width: "100%", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, background: s.expanded ? "#F7F6F3" : "#FFF", border: "none", cursor: "pointer", borderBottom: s.expanded ? "0.5px solid #E5E2DC" : "none" }}
-                            >
-                              <span style={{ flex: 1, textAlign: "left", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scopeLabel(s)}</span>
-                              {estHours > 0 && <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>{estHours} hrs est.</span>}
-                              <span style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF, minWidth: 60, textAlign: "right" }}>{subtotal}</span>
-                              <ChevronDown style={{ width: 14, height: 14, color: "#9E9B94", transform: s.expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }} />
-                            </button>
-                            {s.expanded && (
-                              <div style={{ padding: "12px 14px" }}>
-                                {/* [rate-override 2026-07-11] Editable $/hr for this quote (Sunday /
-                                    after-hours / special pricing). Blank = configured rate. */}
-                                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 8 }}>
-                                  <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>Rate: $</span>
-                                  <input type="number" min="0" step="1"
-                                    value={s.hourlyRateOverride ?? ""}
-                                    placeholder={Number(s.calc?.hourly_rate ?? scope.hourly_rate).toFixed(2)}
-                                    onChange={e => updateScopeRate(s.scope_id, e.target.value === "" ? null : parseFloat(e.target.value))}
-                                    title="Override the hourly rate for this quote only"
-                                    style={{ width: 74, height: 28, border: `1px solid ${s.hourlyRateOverride != null ? "var(--brand)" : "#E5E2DC"}`, borderRadius: 6, padding: "0 6px", fontSize: 13, fontFamily: FF, outline: "none", textAlign: "center" }} />
-                                  <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>/hr</span>
-                                  {s.hourlyRateOverride != null && (
-                                    <button onClick={() => updateScopeRate(s.scope_id, null)} title="Reset to the configured rate"
-                                      style={{ fontSize: 11, color: "#6B6860", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontFamily: FF, padding: 0 }}>reset</button>
-                                  )}
-                                </div>
-                                {!isHourly && s.calc && (
-                                  <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
-                                    {sqft > 0 ? `${sqft.toLocaleString()} sqft` : "No sqft"} {"\u2192"} {s.calc.base_hours || estHours} hrs {"\u00D7"} ${Number(s.calc.hourly_rate ?? scope.hourly_rate).toFixed(2)}/hr = ${s.calc.base_price.toFixed(2)}
-                                  </div>
-                                )}
-                                {isHourly && (
-                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                    <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>Hours:</span>
-                                    <button onClick={() => updateScopeHoursManual(s.scope_id, Math.max(0.5, (s.hours || 0) - 0.5))}
-                                      style={{ width: 28, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, background: "#F7F6F3", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
-                                    <input type="number" min="0.5" step="0.5" value={s.hours || ""} placeholder="0"
-                                      onChange={e => updateScopeHoursManual(s.scope_id, parseFloat(e.target.value) || 0.5)}
-                                      style={{ width: 60, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 13, fontFamily: FF, outline: "none", textAlign: "center" }} />
-                                    <button onClick={() => updateScopeHoursManual(s.scope_id, (s.hours || 0) + 0.5)}
-                                      style={{ width: 28, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, background: "#F7F6F3", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-                                    <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>
-                                      {s.hours ? `= $${(s.hours * (s.hourlyRateOverride ?? Number(scope.hourly_rate))).toFixed(2)}` : "Enter hours to calculate"}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  {/* Services on this quote — the rate/hours controls (formerly a separate
+                      collapsed "Services on this quote" block above) are folded
+                      into each service's own card below, so a service owns ONE
+                      card: header + rate/hours + add-ons + price adjustments. */}
 
                   {/* C. Add-ons & Discounts — one block PER selected service. Each
                       scope carries its own applicable add-ons + price adjustments, so
@@ -2924,22 +2943,74 @@ export default function QuoteBuilderPage() {
                       for BOTH, not just the first (Sal). Single-scope stays flat; with
                       2+ scopes each gets a titled sub-card. */}
                   {selectedScopes.length > 0 && (() => {
-                    const multiScope = selectedScopes.length > 1;
                     return (
                       <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>Add-ons &amp; Discounts</div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: multiScope ? 14 : 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>Services on this quote</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
                           {selectedScopes.map(targetScope => {
                             const scopeMeta = scopes.find(sc => sc.id === targetScope.scope_id);
-                            const activeAddons = targetScope.addons.filter(a => a.is_active);
+                            // [manual-adj-dedupe 2026-07-25] Drop the vestigial "Manual Adjustment"
+                            // add-on ($0, no-op) — Price Adjustments below is the canonical +/- path.
+                            const activeAddons = targetScope.addons.filter(a => a.is_active && a.price_type !== "manual_adj");
+                            const isHourly = scopeMeta?.pricing_method === "hourly" || scopeMeta?.pricing_method === "simplified";
+                            const estHours = targetScope.hours || targetScope.calc?.base_hours || 0;
+                            const subtotal = targetScope.calcLoading ? "..." : targetScope.calc ? `$${targetScope.calc.final_total.toFixed(2)}` : (isHourly && !targetScope.hours ? "Enter hours" : "—");
+                            const cad = cadenceLabel(targetScope.frequency);
                             return (
                               <div
                                 key={targetScope.scope_id}
-                                style={multiScope ? { border: "1px solid #E5E2DC", borderRadius: 10, padding: "12px 14px", background: "#FCFBF9" } : {}}
+                                style={{ border: "1px solid #E5E2DC", borderRadius: 10, padding: "12px 14px", background: "#FCFBF9" }}
                               >
-                                {multiScope && (
-                                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 8, fontFamily: FF }}>{scopeLabel(targetScope)}</div>
-                                )}
+                                {/* Header: label + cadence chip + est. hours + subtotal */}
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                                  <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>{scopeLabel(targetScope)}</span>
+                                  {cad && (
+                                    <span style={{ fontSize: 10, fontWeight: 700, color: "var(--brand)", background: "#EAF9F4", border: "1px solid #BFEDE0", borderRadius: 999, padding: "2px 8px", textTransform: "uppercase", letterSpacing: "0.04em", fontFamily: FF }}>{cad}</span>
+                                  )}
+                                  {estHours > 0 && <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>{estHours} hrs est.</span>}
+                                  <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF, minWidth: 60, textAlign: "right" }}>{subtotal}</span>
+                                </div>
+                                {/* [rate-fixed 2026-07-25] The configured $/hr is READ-ONLY here. Editing
+                                    the rate would bypass discount tracking (Sal), so a negotiated price
+                                    goes through Price Adjustments → Discount ($/hr) below instead — that
+                                    keeps every dollar off list price recorded as a tracked adjustment. */}
+                                {(() => {
+                                  const effRate = Number(targetScope.calc?.hourly_rate ?? scopeMeta?.hourly_rate ?? 0);
+                                  return (
+                                <div style={{ marginBottom: 12 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: isHourly ? 8 : 0 }}>
+                                    <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>Rate:</span>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${effRate.toFixed(2)}/hr</span>
+                                    <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>{"·"} fixed {"—"} use the Discount below to lower it</span>
+                                  </div>
+                                  {!isHourly && targetScope.calc && (
+                                    <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>
+                                      {sqft > 0 ? `${sqft.toLocaleString()} sqft` : "No sqft"} {"→"} {targetScope.calc.base_hours || estHours} hrs {"×"} ${effRate.toFixed(2)}/hr = ${targetScope.calc.base_price.toFixed(2)}
+                                    </div>
+                                  )}
+                                  {isHourly && (
+                                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                      <span style={{ fontSize: 12, color: "#6B6860", fontFamily: FF }}>Hours:</span>
+                                      <button onClick={() => updateScopeHoursManual(targetScope.scope_id, Math.max(0.5, (targetScope.hours || 0) - 0.5))}
+                                        style={{ width: 28, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, background: "#F7F6F3", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>-</button>
+                                      <input type="number" min="0.5" step="0.5" value={targetScope.hours || ""} placeholder="0"
+                                        onChange={e => updateScopeHoursManual(targetScope.scope_id, parseFloat(e.target.value) || 0.5)}
+                                        style={{ width: 60, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 13, fontFamily: FF, outline: "none", textAlign: "center" }} />
+                                      <button onClick={() => updateScopeHoursManual(targetScope.scope_id, (targetScope.hours || 0) + 0.5)}
+                                        style={{ width: 28, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, background: "#F7F6F3", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                                      <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>
+                                        {targetScope.hours ? `= $${(targetScope.hours * effRate).toFixed(2)}` : "Enter hours to calculate"}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                                  );
+                                })()}
+                                {/* Add-ons for THIS service */}
+                                <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8, fontFamily: FF, display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+                                  Add-ons
+                                  {isHourly && <span style={{ fontSize: 10, fontWeight: 500, color: "#9E9B94", textTransform: "none", letterSpacing: 0 }}>included with the hourly rate {"—"} no extra charge</span>}
+                                </div>
                                 {/* [addon-sqft-gate] A sqft-priced service (Deep Clean, Standard,
                                     Move In/Out) can't price its add-ons until square footage is set —
                                     recalcScopeById bails when sqft=0, so toggling an add-on here would
@@ -2960,9 +3031,16 @@ export default function QuoteBuilderPage() {
                                   ) : activeAddons.map(addon => {
                                     const isCounter = isCounterAddon(addon.name);
                                     const fromCalc = targetScope.calc?.addon_breakdown.find(b => b.id === addon.id);
-                                    const priceText = fromCalc
-                                      ? (fromCalc.amount < 0 ? `-$${Math.abs(fromCalc.amount).toFixed(2)}` : `$${fromCalc.amount.toFixed(2)}`)
-                                      : addonDisplayPrice(addon);
+                                    // [hourly-addon-informational 2026-07-25] On an hourly scope a
+                                    // time-based add-on adds $0 (the pricing engine skips time_only
+                                    // for dollars) and shouldn't read as a billable "time add" — show
+                                    // "Included". Real fees (flat/percent, e.g. Parking) still price.
+                                    const infoOnly = isHourly && addon.price_type === "time_only";
+                                    const priceText = infoOnly
+                                      ? "Included"
+                                      : fromCalc
+                                        ? (fromCalc.amount < 0 ? `-$${Math.abs(fromCalc.amount).toFixed(2)}` : `$${fromCalc.amount.toFixed(2)}`)
+                                        : addonDisplayPrice(addon);
                                     const qty = targetScope.addonQtys[addon.id] ?? 0;
                                     const isSel = isCounter ? qty > 0 : targetScope.addon_ids.includes(addon.id);
                                     return (
@@ -2982,10 +3060,35 @@ export default function QuoteBuilderPage() {
                                           <AddonIcon name={addon.name} size={13} />
                                           {addon.name}
                                         </span>
-                                        <span style={{ fontSize: 11, color: fromCalc && fromCalc.amount < 0 ? "#B3261E" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
+                                        <span style={{ fontSize: 11, color: infoOnly ? "#9E9B94" : (fromCalc && fromCalc.amount < 0 ? "#B3261E" : "#9E9B94"), fontStyle: infoOnly ? "italic" : "normal", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
                                       </div>
                                     );
                                   })}
+                                  {/* [combo-select 2026-07-25] Combos whose members are ALL offered by
+                                      this service render as their own selectable line (Sal: "I cannot
+                                      select the refrigerator and oven bundle"). Ticking one selects every
+                                      member add-on; the engine then applies the bundle discount. */}
+                                  {(() => {
+                                    const availIds = new Set(activeAddons.map(a => a.id));
+                                    const applicable = addonBundles.filter(b => b.required_ids.length > 0 && b.required_ids.every(id => availIds.has(id)));
+                                    return applicable.map(bundle => {
+                                      const on = bundle.required_ids.every(id => targetScope.addon_ids.includes(id));
+                                      const bd = targetScope.calc?.bundle_breakdown?.find(b => b.id === bundle.id);
+                                      const disc = bd?.discount ?? (bundle.discount_type === "flat" || bundle.discount_type === "flat_total" ? bundle.discount_value : 0);
+                                      const memberNames = bundle.required_ids.map(id => activeAddons.find(a => a.id === id)?.name).filter(Boolean).join(" + ");
+                                      return (
+                                        <div key={`bundle-${bundle.id}`} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, border: on ? "1px solid var(--brand)" : "1px solid transparent", background: on ? "#EAF9F4" : "transparent" }}>
+                                          <Checkbox checked={on} onCheckedChange={checked => toggleCombo(targetScope.scope_id, bundle.id, bundle.required_ids, Boolean(checked))} />
+                                          <span style={{ flex: 1, fontSize: 12, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                            <span style={{ fontWeight: 600 }}>{bundle.name}</span>
+                                            {disc > 0 && <span style={{ fontSize: 9, fontWeight: 700, color: "var(--brand)", background: "#EAF9F4", border: "1px solid #BFEDE0", borderRadius: 999, padding: "1px 6px", textTransform: "uppercase", letterSpacing: "0.04em" }}>Save ${disc.toFixed(0)}</span>}
+                                            {memberNames && <span style={{ fontSize: 10, color: "#9E9B94" }}>{memberNames}</span>}
+                                          </span>
+                                          <span style={{ fontSize: 11, color: "#B3261E", flexShrink: 0, fontFamily: FF }}>{disc > 0 ? `-$${disc.toFixed(2)}` : ""}</span>
+                                        </div>
+                                      );
+                                    });
+                                  })()}
                                 </div>
 
                                 {/* Manual price adjustments — per service */}
@@ -2997,11 +3100,30 @@ export default function QuoteBuilderPage() {
                                       { kind: "sub", amtField: "adjMinus", reasonField: "adjMinusReason", amt: targetScope.adjMinus, reason: targetScope.adjMinusReason, sign: "−", tint: "#B3261E", tintBg: "#FDF3F2", label: "Discount", ph: "Reason" },
                                     ] as const).map(row => {
                                       const active = (row.amt || 0) > 0;
+                                      // [discount-per-hour 2026-07-25] The Discount cell can discount a
+                                      // flat total OR the $/hr rate. In $/hr mode the entered value is
+                                      // per hour and the real discount = value × billed hours — shown
+                                      // below and saved as one tracked adjustment.
+                                      const isDiscount = row.kind === "sub";
+                                      const perHour = isDiscount && targetScope.adjMinusMode === "per_hour";
+                                      const billedHrs = scopeBilledHours(targetScope);
+                                      const perHourTotal = (targetScope.adjMinus || 0) * billedHrs;
                                       return (
                                         <div key={row.kind} style={{ border: `1px solid ${active ? row.tint : "#E5E2DC"}`, borderRadius: 10, padding: 10, background: active ? row.tintBg : "#FFF", transition: "all 0.15s", display: "flex", flexDirection: "column", gap: 8 }}>
                                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                             <span style={{ width: 18, height: 18, borderRadius: "50%", background: row.tint, color: "#FFF", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>{row.sign}</span>
                                             <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{row.label}</span>
+                                            {isDiscount && (
+                                              <div style={{ marginLeft: "auto", display: "flex", border: "1px solid #E5E2DC", borderRadius: 7, overflow: "hidden" }}>
+                                                {([["flat", "Flat $"], ["per_hour", "$/hr"]] as const).map(([m, lbl]) => {
+                                                  const sel = targetScope.adjMinusMode === m;
+                                                  return (
+                                                    <button key={m} type="button" onClick={() => setScopeAdjMode(targetScope.scope_id, m)}
+                                                      style={{ fontSize: 10, fontWeight: 700, fontFamily: FF, padding: "3px 8px", border: "none", cursor: "pointer", background: sel ? "var(--brand)" : "#FFF", color: sel ? "#FFF" : "#6B6860" }}>{lbl}</button>
+                                                  );
+                                                })}
+                                              </div>
+                                            )}
                                           </div>
                                           <div style={{ display: "flex", alignItems: "center", height: 34, border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFF", overflow: "hidden" }}>
                                             <span style={{ padding: "0 8px", fontSize: 14, color: "#9E9B94", fontFamily: FF, borderRight: "1px solid #E5E2DC", lineHeight: "34px", background: "#FAF9F7" }}>$</span>
@@ -3010,7 +3132,15 @@ export default function QuoteBuilderPage() {
                                               value={row.amt ? String(row.amt) : ""}
                                               onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ""); updateScopeAdj(targetScope.scope_id, row.amtField, parseFloat(v) || 0); }}
                                               style={{ flex: 1, minWidth: 0, height: 34, border: "none", padding: "0 8px", fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF, outline: "none", background: "transparent" }} />
+                                            {perHour && <span style={{ padding: "0 8px", fontSize: 12, color: "#9E9B94", fontFamily: FF, borderLeft: "1px solid #E5E2DC", lineHeight: "34px", background: "#FAF9F7" }}>/hr</span>}
                                           </div>
+                                          {perHour && (targetScope.adjMinus || 0) > 0 && (
+                                            <div style={{ fontSize: 11, color: "#B3261E", fontFamily: FF }}>
+                                              {billedHrs > 0
+                                                ? `= -$${perHourTotal.toFixed(2)} off  ·  ${billedHrs} hrs × $${(targetScope.adjMinus).toFixed(2)}/hr`
+                                                : "Set hours to price this rate discount"}
+                                            </div>
+                                          )}
                                           <input
                                             type="text" placeholder={row.ph} value={row.reason}
                                             onChange={e => updateScopeAdj(targetScope.scope_id, row.reasonField, e.target.value)}
@@ -3452,7 +3582,7 @@ export default function QuoteBuilderPage() {
                       )}
                       {s.adjMinus > 0 && (
                         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#B3261E" }}>
-                          <span>−{s.adjMinusReason || "Adjustment"}</span><span>-${s.adjMinus.toFixed(2)}</span>
+                          <span>−{discountReason(s)}</span><span>-${discountTotal(s).toFixed(2)}</span>
                         </div>
                       )}
                       {/* Estimated hours — total_hours from the backend already includes
@@ -3465,11 +3595,11 @@ export default function QuoteBuilderPage() {
                       )}
                       <div style={{ display: "flex", justifyContent: "space-between", paddingTop: 8, borderTop: "1px solid #E5E2DC", marginTop: 4 }}>
                         <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>Total</span>
-                        <span style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${(s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0)).toFixed(2)}</span>
+                        <span style={{ fontSize: 22, fontWeight: 700, color: "#1A1917", fontFamily: FF }}>${(s.calc.final_total + (s.adjPlus || 0) - discountTotal(s)).toFixed(2)}</span>
                       </div>
                       {/* Commission breakdown */}
                       {(() => {
-                        const total = s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0);
+                        const total = s.calc.final_total + (s.adjPlus || 0) - discountTotal(s);
                         // [addon-time 2026-05-27] Use total_hours so commission-per-tech
                         // hours reflect add-on time (e.g. Oven +45 min) just like the
                         // Est. hours line above.
@@ -3510,7 +3640,7 @@ export default function QuoteBuilderPage() {
 
             {/* 2+ scopes — list with hours + commission */}
             {selectedScopes.length >= 2 && (() => {
-              const grandTotal = selectedScopes.reduce((sum, s) => sum + (s.calc?.final_total ?? 0) + (s.adjPlus || 0) - (s.adjMinus || 0), 0);
+              const grandTotal = selectedScopes.reduce((sum, s) => sum + (s.calc?.final_total ?? 0) + (s.adjPlus || 0) - discountTotal(s), 0);
               // [addon-time 2026-05-27] Sum total_hours so add-on time-adds roll up
               // into the multi-scope grand total (was summing base_hours and dropping
               // Oven/Refrigerator/etc. minutes).
@@ -3521,7 +3651,7 @@ export default function QuoteBuilderPage() {
               // (35% × standard + 32% × deep), not a flat 35%.
               const perScopeCommission = selectedScopes.reduce((sum, ss) => {
                 const sc = scopes.find(sx => sx.id === ss.scope_id);
-                const t = (ss.calc?.final_total ?? 0) + (ss.adjPlus || 0) - (ss.adjMinus || 0);
+                const t = (ss.calc?.final_total ?? 0) + (ss.adjPlus || 0) - discountTotal(ss);
                 return sum + t * (sc ? (sc.name ? (/\bdeep\s*clean\b|\bmove[-\s]?(in|out)\b/i.test(sc.name) ? 0.32 : 0.35) : 0.35) : 0.35);
               }, 0);
               const cs = calculateCommissionSplit(grandTotal, totalHours, techCount);

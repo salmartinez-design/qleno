@@ -266,6 +266,39 @@ router.get("/scopes/:id/addons", requireAuth, async (req, res) => {
   }
 });
 
+// [combo-select 2026-07-25] Active addon bundles (combos) with their member
+// addon ids, so the quote-builder Add-ons step can render a combo as a
+// selectable line and tick its members. Same company-scoped shape the pricing
+// engine matches on (required_ids). Office-authed twin of the public
+// /public/bundles/:companyId widget endpoint.
+router.get("/bundles", requireAuth, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const result = await db.execute(sql`
+      SELECT ab.id, ab.name, ab.discount_type, ab.discount_value,
+             array_agg(abi.addon_id ORDER BY abi.id) AS required_ids
+        FROM addon_bundles ab
+        JOIN addon_bundle_items abi ON abi.bundle_id = ab.id
+       WHERE ab.company_id = ${companyId} AND ab.active = true
+       GROUP BY ab.id, ab.name, ab.discount_type, ab.discount_value
+       ORDER BY ab.discount_value DESC
+    `);
+    const rows = ((result as any).rows ?? []).map((r: any) => ({
+      id: Number(r.id),
+      name: r.name,
+      discount_type: r.discount_type,
+      discount_value: Number(r.discount_value),
+      required_ids: [...new Set((r.required_ids ?? [])
+        .map((x: any) => parseInt(String(x)))
+        .filter((n: number) => !isNaN(n)))],
+    }));
+    return res.json(rows);
+  } catch (err) {
+    console.error("GET /pricing/bundles:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 router.post("/addons", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
