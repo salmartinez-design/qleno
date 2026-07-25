@@ -291,6 +291,11 @@ export default function QuoteBuilderPage() {
   const [unitSuite, setUnitSuite] = useState("");
   const [zipCode, setZipCode] = useState("");
   const [referralSource, setReferralSource] = useState("");
+  // [referral-required-step 2026-07-25] A new lead must pick how they heard
+  // about us before leaving Customer Info — the save() gate at status="sent"
+  // caught it too late (whole quote built, then blocked). Existing clients are
+  // exempt (they already answered). referralError drives the red field + hint.
+  const [referralError, setReferralError] = useState(false);
   const [zipZone, setZipZone] = useState<{ name: string; color: string } | null | "uncovered">(null);
   const [checkingZip, setCheckingZip] = useState(false);
   const [zoneOverride, setZoneOverride] = useState(false);
@@ -1914,6 +1919,19 @@ export default function QuoteBuilderPage() {
     );
   }
 
+  // [referral-required-step 2026-07-25] New leads must answer "How did you
+  // hear about us?" before leaving Customer Info. Existing clients already
+  // answered, so they're exempt. Used to gate both the Next button and any
+  // forward tab jump; returns false (and flags the field) when it should block.
+  const referralMissing = !selectedClientId && !referralSource;
+  function guardLeaveCustomerInfo(target: number): boolean {
+    if (activeSection === 0 && target > 0 && referralMissing) {
+      setReferralError(true);
+      return false;
+    }
+    return true;
+  }
+
   // ── DESKTOP LAYOUT ────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen" style={{ background: "#F7F6F3", fontFamily: FF }}>
@@ -2000,7 +2018,7 @@ export default function QuoteBuilderPage() {
               const Icon = SECTION_ICONS[i];
               const isActive = activeSection === i;
               return (
-                <button key={i} onClick={() => setActiveSection(i)} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: FF, cursor: "pointer", border: "none", transition: "all 0.15s", background: isActive ? "var(--brand)" : "#F7F6F3", color: isActive ? "#FFF" : "#6B6860" }}>
+                <button key={i} onClick={() => { if (!guardLeaveCustomerInfo(i)) return; setActiveSection(i); }} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 14px", borderRadius: 8, fontSize: 13, fontWeight: 600, fontFamily: FF, cursor: "pointer", border: "none", transition: "all 0.15s", background: isActive ? "var(--brand)" : "#F7F6F3", color: isActive ? "#FFF" : "#6B6860" }}>
                   <Icon style={{ width: 14, height: 14 }} />
                   {label}
                   {sectionComplete[i] && !isActive && <span style={{ width: 6, height: 6, background: "#22C55E", borderRadius: "50%", display: "inline-block" }} />}
@@ -2245,15 +2263,17 @@ export default function QuoteBuilderPage() {
                   <span style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>No techs in zone — will be unassigned</span>
                 )}
 
-                {/* How did you hear about us? — only for new leads */}
+                {/* How did you hear about us? — required for new leads */}
                 {!selectedClientId && (
                   <div>
-                    <Label className="text-xs">How did you hear about us?</Label>
+                    <Label className="text-xs">
+                      How did you hear about us? <span style={{ color: "#C0392B" }}>*</span>
+                    </Label>
                     <select
                       value={referralSource}
-                      onChange={e => setReferralSource(e.target.value)}
-                      className="mt-1 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
-                      style={{ height: 36 }}
+                      onChange={e => { setReferralSource(e.target.value); if (e.target.value) setReferralError(false); }}
+                      className="mt-1 w-full rounded-md bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                      style={{ height: 36, border: referralError ? "1px solid #C0392B" : "1px solid hsl(var(--input))" }}
                     >
                       {/* Same nine enum slugs as the intake select above — see
                           the note there. Keep the two lists identical. */}
@@ -2268,6 +2288,11 @@ export default function QuoteBuilderPage() {
                       <option value="website">Our website</option>
                       <option value="other">Other</option>
                     </select>
+                    {referralError && (
+                      <span style={{ display: "block", marginTop: 5, fontSize: 11, color: "#C0392B", fontFamily: FF }}>
+                        Pick how they heard about us to continue. Use “Other” if unknown.
+                      </span>
+                    )}
                   </div>
                 )}
 
@@ -2288,13 +2313,14 @@ export default function QuoteBuilderPage() {
 
                 <div className="flex justify-end">
                   <button
-                    onClick={() => setActiveSection(1)}
+                    onClick={() => { if (!guardLeaveCustomerInfo(1)) return; setActiveSection(1); }}
                     style={{
                       display: "inline-flex", alignItems: "center", gap: 8,
                       padding: "0 24px", height: 46, borderRadius: 10, border: "none",
                       fontSize: 15, fontWeight: 700, fontFamily: FF,
-                      background: "var(--brand)", color: "#FFF", cursor: "pointer",
-                      boxShadow: "0 2px 8px rgba(0,201,160,0.35)", transition: "all 0.15s",
+                      background: referralMissing ? "#B8B4AC" : "var(--brand)", color: "#FFF",
+                      cursor: referralMissing ? "not-allowed" : "pointer",
+                      boxShadow: referralMissing ? "none" : "0 2px 8px rgba(0,201,160,0.35)", transition: "all 0.15s",
                     }}
                     className="hover:opacity-90"
                   >
