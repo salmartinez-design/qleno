@@ -77,6 +77,11 @@ export const recurringSchedulesTable = pgTable("recurring_schedules", {
   // [commercial-cadence] For frequency='monthly_weekday' ("3rd Wednesday",
   // "last Friday"): 1..4 = first..fourth, 5 = last. Pairs with day_of_week.
   week_of_month: integer("week_of_month"),
+  // [custom-recurring] Month step for frequency='monthly_weekday'. null/1 =
+  // every month; 2 = "every 2 months on the Nth weekday", etc. Phase-anchored
+  // on start_date's month by the cadence engine. Added by the quote builder's
+  // Custom recurring card (2026-07-24).
+  month_interval: integer("month_interval"),
   // [AH] Cascade target for commercial hourly rate. When the user picks
   // "this and all future" on a commercial recurring job, this column gets
   // the rate so the engine can re-derive base_fee for spawned jobs.

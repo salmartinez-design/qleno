@@ -159,6 +159,36 @@ describe("Recurring engine — custom interval (custom_frequency_weeks)", () => 
   });
 });
 
+describe("Recurring engine — monthly_weekday with month_interval (Custom recurring card)", () => {
+  it("every 2 months on the 1st Tuesday → Jun 2, skip July, Aug 4", () => {
+    const dates = generateOccurrences(
+      mkSchedule({ frequency: "monthly_weekday", day_of_week: "tuesday", week_of_month: 1, month_interval: 2 }),
+      WINDOW_START, WINDOW_END,
+    );
+    assert.deepEqual(dates.map(isoOf), ["2026-06-02", "2026-08-04"]);
+    for (const d of dates) assert.equal(dowOf(d), "Tue");
+  });
+
+  it("month_interval null → every month (legacy behavior preserved)", () => {
+    const dates = generateOccurrences(
+      mkSchedule({ frequency: "monthly_weekday", day_of_week: "tuesday", week_of_month: 1 }),
+      WINDOW_START, WINDOW_END,
+    );
+    // 1st Tuesday of Jun, Jul, Aug 2026
+    assert.deepEqual(dates.map(isoOf), ["2026-06-02", "2026-07-07", "2026-08-04"]);
+  });
+
+  it("every 3 months on the last Friday → phase-anchored on start month", () => {
+    const dates = generateOccurrences(
+      mkSchedule({ frequency: "monthly_weekday", day_of_week: "friday", week_of_month: 5, month_interval: 3, start_date: "2026-06-01" }),
+      WINDOW_START, new Date(2026, 11, 31), // through Dec 2026
+    );
+    // Jun (offset 0) + Sep (offset 3) + Dec (offset 6); skip Jul/Aug/Oct/Nov
+    assert.deepEqual(dates.map(isoOf), ["2026-06-26", "2026-09-25", "2026-12-25"]);
+    for (const d of dates) assert.equal(dowOf(d), "Fri");
+  });
+});
+
 describe("Recurring engine — monthly cadence", () => {
   it("monthly with days_of_month=[15] → 15th of every month (with weekend snap-forward)", () => {
     const dates = generateOccurrences(

@@ -210,6 +210,10 @@ async function runBookingSchemaGuard(): Promise<void> {
     // [recurring-delete-skip 2026-06-05] Deleted-occurrence tombstones so a
     // recurring occurrence the office removed isn't regenerated next run.
     { label: "recurring_schedules.skipped_dates", stmt: "ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS skipped_dates DATE[] DEFAULT '{}'" },
+    // [custom-recurring 2026-07-24] Month step for frequency='monthly_weekday'
+    // ("every N months on the Nth weekday"), set by the quote builder's Custom
+    // recurring card. null/1 = every month.
+    { label: "recurring_schedules.month_interval", stmt: "ALTER TABLE recurring_schedules ADD COLUMN IF NOT EXISTS month_interval INTEGER" },
     // [recurring-reschedule 2026-06-05] Stable cadence-slot identity for the
     // recurrence dedup (see lib/recurring-jobs.ts). Column add then a one-time
     // backfill so existing recurring jobs get occurrence_date = scheduled_date

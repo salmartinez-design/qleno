@@ -212,6 +212,25 @@ const DIRT_LEVELS = [
   { value: "heavy", label: "3 — Very Dirty" },
 ];
 
+// [custom-recurring] Sentinel frequency for a scope whose cadence is the
+// flexible custom pattern (see the customRec state). Kept off the standard
+// SNAP_KEY set so the convert route branches on `custom_recurrence` instead.
+const CUSTOM_FREQ = "custom_pattern";
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const WEEK_OF_MONTH = [
+  { value: 1, label: "1st" }, { value: 2, label: "2nd" }, { value: 3, label: "3rd" },
+  { value: 4, label: "4th" }, { value: 5, label: "Last" },
+];
+// Ordinal helper for the live-preview sentence ("every 3 weeks", "every 2 months").
+function customRecSummary(r: { interval: number; unit: "weeks" | "months"; weekday: number; weekOfMonth: number }): string {
+  const every = r.interval === 1 ? "" : `${r.interval} `;
+  if (r.unit === "weeks") {
+    return `Every ${every}${r.interval === 1 ? "week" : "weeks"} on ${WEEKDAYS[r.weekday]}`;
+  }
+  const nth = WEEK_OF_MONTH.find(w => w.value === r.weekOfMonth)?.label ?? "1st";
+  return `Every ${every}${r.interval === 1 ? "month" : "months"}, on the ${nth} ${WEEKDAYS[r.weekday]}`;
+}
+
 export default function QuoteBuilderPage() {
   const [matchEdit, editParams] = useRoute("/quotes/:id/edit");
   const id = editParams?.id;
@@ -429,6 +448,21 @@ export default function QuoteBuilderPage() {
   const [hourlyExpanded, setHourlyExpanded] = useState(false);
   const [hourlySubType, setHourlySubType] = useState<string | null>(null);
   const [callNotesOpen, setCallNotesOpen] = useState(false);
+
+  // ── Custom recurrence ──────────────────────────────────────────────────────
+  // [custom-recurring] A flexible pattern shared by TWO entry points: the
+  // "Custom" card in the Recurring group, and the "Custom…" option in the
+  // Hourly cadence dropdown. The card/cadence sets a base scope's frequency to
+  // the CUSTOM_FREQ sentinel; when that's active we pass `custom_recurrence` on
+  // convert and the server maps it to recurring_schedules columns:
+  //   unit=weeks  → frequency='custom' + custom_frequency_weeks=interval + day_of_week
+  //   unit=months → frequency='monthly_weekday' + week_of_month + day_of_week + month_interval
+  // Price is unchanged — the base recurring (or hourly) scope drives it. Custom
+  // ONLY changes WHEN the visits land (Sal: "same per-visit recurring rate").
+  const [customRecOpen, setCustomRecOpen] = useState(false);
+  const [customRec, setCustomRec] = useState<{ interval: number; unit: "weeks" | "months"; weekday: number; weekOfMonth: number }>(
+    { interval: 2, unit: "weeks", weekday: 2, weekOfMonth: 1 }
+  );
 
   // ── Mobile ───────────────────────────────────────────────────────────────
   const isMobile = useIsMobile();
@@ -898,6 +932,54 @@ export default function QuoteBuilderPage() {
     setTimeout(() => recalcScopeById(scopeId), 50);
   }
 
+  // [custom-recurring] Shared flexible-recurrence builder. Rendered under BOTH
+  // the Recurring group's "Custom" card and the Hourly "Custom…" cadence. It's
+  // pure UI over the `customRec` state; convert() ships that state as
+  // `custom_recurrence` and the server maps it onto recurring_schedules columns.
+  // Pricing is NOT touched here — each visit stays at the scope's recurring rate.
+  function renderCustomBuilder() {
+    const r = customRec;
+    const set = (patch: Partial<typeof customRec>) => setCustomRec(prev => ({ ...prev, ...patch }));
+    const miniSel: React.CSSProperties = {
+      padding: "6px 8px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFF",
+      fontSize: 13, color: "#1A1917", fontFamily: FF, cursor: "pointer",
+    };
+    return (
+      <div style={{ marginTop: 10, padding: "12px 14px", border: "1px solid #E5E2DC", borderRadius: 10, background: "#FBFDFC" }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#00A886", letterSpacing: "0.06em", marginBottom: 10, fontFamily: FF }}>CUSTOM SCHEDULE</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 13, color: "#4A4845", fontFamily: FF }}>Repeat every</span>
+          <input
+            type="number" min={1} max={52} value={r.interval}
+            onChange={e => set({ interval: Math.min(52, Math.max(1, parseInt(e.target.value) || 1)) })}
+            style={{ width: 56, padding: "6px 8px", borderRadius: 8, border: "1px solid #E5E2DC", fontSize: 13, fontFamily: FF, textAlign: "center" }}
+          />
+          <select value={r.unit} onChange={e => set({ unit: e.target.value as "weeks" | "months" })} style={miniSel}>
+            <option value="weeks">{r.interval === 1 ? "week" : "weeks"}</option>
+            <option value="months">{r.interval === 1 ? "month" : "months"}</option>
+          </select>
+          {r.unit === "months" ? (
+            <>
+              <span style={{ fontSize: 13, color: "#4A4845", fontFamily: FF }}>on the</span>
+              <select value={r.weekOfMonth} onChange={e => set({ weekOfMonth: parseInt(e.target.value) })} style={miniSel}>
+                {WEEK_OF_MONTH.map(w => <option key={w.value} value={w.value}>{w.label}</option>)}
+              </select>
+            </>
+          ) : (
+            <span style={{ fontSize: 13, color: "#4A4845", fontFamily: FF }}>on</span>
+          )}
+          <select value={r.weekday} onChange={e => set({ weekday: parseInt(e.target.value) })} style={miniSel}>
+            {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+          </select>
+        </div>
+        <div style={{ marginTop: 10, fontSize: 12.5, fontWeight: 600, color: "#00A886", fontFamily: FF }}>↻ {customRecSummary(r)}</div>
+        <div style={{ marginTop: 6, fontSize: 11.5, color: "#9E9B94", fontFamily: FF, lineHeight: 1.5 }}>
+          Per-visit price = your standard recurring rate. Custom only changes when visits recur.
+        </div>
+      </div>
+    );
+  }
+
   function updateScopeAddonQty(scopeId: number, addonId: number, qty: number) {
     setSelectedScopes(prev => prev.map(s => {
       if (s.scope_id !== scopeId) return s;
@@ -1131,6 +1213,15 @@ export default function QuoteBuilderPage() {
             // job_technicians row per cleaner.
             assigned_user_id: selectedTechIds[0] || undefined,
             team_user_ids: selectedTechIds,
+            // [custom-recurring] When the office chose a flexible pattern (Recurring
+            // "Custom" card or Hourly "Custom…" cadence), ship it so the server maps
+            // it onto the recurring_schedules columns instead of the baked cadence.
+            custom_recurrence: customRecOpen ? {
+              interval: customRec.interval,
+              unit: customRec.unit,
+              weekday: customRec.weekday,
+              week_of_month: customRec.weekOfMonth,
+            } : undefined,
           },
         });
         toast.success("Quote converted to job.");
@@ -2155,10 +2246,20 @@ export default function QuoteBuilderPage() {
                   </div>
                 )}
 
-                <div className="flex justify-end gap-2">
-                  <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(1)}>
-                    Next: Service &amp; Pricing <ArrowRight className="w-3.5 h-3.5" />
-                  </Button>
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setActiveSection(1)}
+                    style={{
+                      display: "inline-flex", alignItems: "center", gap: 8,
+                      padding: "0 24px", height: 46, borderRadius: 10, border: "none",
+                      fontSize: 15, fontWeight: 700, fontFamily: FF,
+                      background: "var(--brand)", color: "#FFF", cursor: "pointer",
+                      boxShadow: "0 2px 8px rgba(0,201,160,0.35)", transition: "all 0.15s",
+                    }}
+                    className="hover:opacity-90"
+                  >
+                    Next: Service &amp; Pricing <ArrowRight className="w-4 h-4" />
+                  </button>
                 </div>
               </div>
             </div>
@@ -2258,7 +2359,10 @@ export default function QuoteBuilderPage() {
                           { key: "standard", label: "Standard Cleaning", scopeMatch: /hourly.*standard/i },
                           { key: "deep", label: "Deep Clean", scopeMatch: /hourly.*deep/i },
                           { key: "moveinout", label: "Move In / Move Out", scopeMatch: /hourly.*(move|in.*out)/i },
-                          { key: "other", label: "Other", scopeMatch: null },
+                          // [custom-recurring] "Other" renamed "Recurring" (Sal, mock v2).
+                          // Maps to the Hourly Standard scope so its per-visit rate
+                          // ($65) aligns with the recurring-cleaning rate.
+                          { key: "recurring", label: "Recurring", scopeMatch: /hourly.*standard/i },
                         ];
                         return (
                           <div key={groupKey} style={{ marginBottom: 16 }}>
@@ -2287,7 +2391,7 @@ export default function QuoteBuilderPage() {
                             >
                               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                                 <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>
-                                  Hourly{hourlySubType ? ` — ${HOURLY_SUBS.find(s => s.key === hourlySubType)?.label}` : ""}
+                                  Hourly
                                 </div>
                                 <Checkbox checked={hourlyExpanded || hourlySelected} onCheckedChange={() => {
                                   if (hourlyExpanded) {
@@ -2349,8 +2453,20 @@ export default function QuoteBuilderPage() {
                                 <div style={{ marginTop: 10, paddingLeft: 12 }}>
                                   <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Cadence</div>
                                   <select
-                                    value={hourlySel.frequency || "onetime"}
-                                    onChange={e => updateScopeFrequency(hourlySel.scope_id, e.target.value)}
+                                    value={customRecOpen ? CUSTOM_FREQ : (hourlySel.frequency || "onetime")}
+                                    onChange={e => {
+                                      const v = e.target.value;
+                                      if (v === CUSTOM_FREQ) {
+                                        // Custom pattern: keep a real recurring frequency on the
+                                        // scope (so convert creates a schedule) while the builder
+                                        // drives the actual cadence via custom_recurrence.
+                                        setCustomRecOpen(true);
+                                        updateScopeFrequency(hourlySel.scope_id, "weekly");
+                                      } else {
+                                        setCustomRecOpen(false);
+                                        updateScopeFrequency(hourlySel.scope_id, v);
+                                      }
+                                    }}
                                     style={{
                                       width: "100%", maxWidth: 240, padding: "8px 10px", borderRadius: 8,
                                       border: "1px solid #E5E2DC", background: "#FFF", fontSize: 13, color: "#1A1917",
@@ -2358,7 +2474,9 @@ export default function QuoteBuilderPage() {
                                     }}
                                   >
                                     {cadenceOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                    <option value={CUSTOM_FREQ}>＋ Custom…</option>
                                   </select>
+                                  {customRecOpen && renderCustomBuilder()}
                                 </div>
                               );
                             })()}
@@ -2367,6 +2485,28 @@ export default function QuoteBuilderPage() {
                       }
 
                       // ── Standard group rendering ──
+                      // [custom-recurring] The Recurring group gains a 4th "Custom" card that
+                      // anchors pricing to the Every-4-Weeks scope (same $65 recurring rate)
+                      // and opens the shared flexible-pattern builder. Custom is treated as the
+                      // single cadence: opening it clears any other selected recurring scope.
+                      const isRecurringGroup = groupKey === "recurring cleaning";
+                      const baseScope = isRecurringGroup
+                        ? (groupScopes.find(s => /every\s*4\s*weeks/i.test(s.name)) ?? groupScopes[groupScopes.length - 1])
+                        : null;
+                      const baseSelState = baseScope ? selectedScopes.find(s => s.scope_id === baseScope.id) : null;
+                      const customPriceText = baseSelState?.calcLoading
+                        ? "..."
+                        : baseSelState?.calc ? `$${baseSelState.calc.final_total.toFixed(2)} / visit` : "";
+                      const openCustom = async () => {
+                        if (!baseScope) return;
+                        groupScopes.forEach(s => { if (s.id !== baseScope.id && selectedScopeIds.includes(s.id)) toggleScope(s); });
+                        if (!selectedScopeIds.includes(baseScope.id)) await toggleScope(baseScope);
+                        setCustomRecOpen(true);
+                      };
+                      const closeCustom = () => {
+                        if (baseScope && selectedScopeIds.includes(baseScope.id)) toggleScope(baseScope);
+                        setCustomRecOpen(false);
+                      };
                       return (
                         <div key={groupKey} style={{ marginBottom: 16 }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -2376,7 +2516,8 @@ export default function QuoteBuilderPage() {
                           </div>
                           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
                             {groupScopes.map(scope => {
-                              const isSel = selectedScopeIds.includes(scope.id);
+                              // Hide the base scope's own selection highlight while Custom owns it.
+                              const isSel = selectedScopeIds.includes(scope.id) && !(customRecOpen && baseScope != null && scope.id === baseScope.id);
                               const selState = selectedScopes.find(s => s.scope_id === scope.id);
                               const priceText = selState?.calcLoading
                                 ? "..."
@@ -2401,16 +2542,6 @@ export default function QuoteBuilderPage() {
                                   </div>
                                   <div>
                                     <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", paddingRight: 28, fontFamily: FF }}>{scope.name}</div>
-                                    {isSel && selState && selState.frequencies.length > 0 && (
-                                      <select
-                                        value={selState.frequency || ""}
-                                        onClick={e => e.stopPropagation()}
-                                        onChange={e => { e.stopPropagation(); updateScopeFrequency(scope.id, e.target.value); }}
-                                        style={{ marginTop: 6, width: "100%", padding: "5px 8px", borderRadius: 6, border: "1px solid #E5E2DC", background: "#FFF", fontSize: 12, color: "#1A1917", fontFamily: FF, cursor: "pointer" }}
-                                      >
-                                        {selState.frequencies.map(f => <option key={f.id} value={f.frequency}>{f.label || f.frequency}</option>)}
-                                      </select>
-                                    )}
                                   </div>
                                   {priceText && (
                                     <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", textAlign: "right", marginTop: 6, fontFamily: FF }}>
@@ -2420,7 +2551,36 @@ export default function QuoteBuilderPage() {
                                 </div>
                               );
                             })}
+                            {isRecurringGroup && baseScope && (
+                              <div
+                                onClick={() => (customRecOpen ? closeCustom() : openCustom())}
+                                style={{
+                                  position: "relative",
+                                  border: customRecOpen ? "1.5px solid var(--brand)" : "0.5px solid #E5E2DC",
+                                  background: customRecOpen ? "#EAF9F4" : "#FFFFFF",
+                                  borderRadius: 10, padding: "12px 14px 10px", cursor: "pointer",
+                                  transition: "all 0.15s", minHeight: 70,
+                                  display: "flex", flexDirection: "column" as const, justifyContent: "space-between",
+                                }}
+                              >
+                                <div style={{ position: "absolute", top: 10, right: 10 }}>
+                                  <Checkbox checked={customRecOpen} onCheckedChange={() => (customRecOpen ? closeCustom() : openCustom())} onClick={e => e.stopPropagation()} />
+                                </div>
+                                <div>
+                                  <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", paddingRight: 28, fontFamily: FF }}>
+                                    Custom
+                                    <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "var(--brand)", border: "1px solid var(--brand)", borderRadius: 4, padding: "1px 4px", letterSpacing: "0.04em", verticalAlign: "middle" }}>NEW</span>
+                                  </div>
+                                </div>
+                                {customRecOpen && customPriceText && (
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", textAlign: "right", marginTop: 6, fontFamily: FF }}>
+                                    {customPriceText}
+                                  </div>
+                                )}
+                              </div>
+                            )}
                           </div>
+                          {isRecurringGroup && customRecOpen && renderCustomBuilder()}
                         </div>
                       );
                     })}
@@ -2564,11 +2724,21 @@ export default function QuoteBuilderPage() {
                   </div>
                 </div>
               </div>
-              <div className="flex justify-between mt-6">
+              <div className="flex justify-between items-center mt-6">
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(1)}>Back</Button>
-                <Button size="sm" style={{ background: "var(--brand)", color: "#FFF" }} className="gap-1.5 hover:opacity-90" onClick={() => setActiveSection(3)}>
-                  Next: Add-ons &amp; Notes <ArrowRight className="w-3.5 h-3.5" />
-                </Button>
+                <button
+                  onClick={() => setActiveSection(3)}
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 8,
+                    padding: "0 24px", height: 46, borderRadius: 10, border: "none",
+                    fontSize: 15, fontWeight: 700, fontFamily: FF,
+                    background: "var(--brand)", color: "#FFF", cursor: "pointer",
+                    boxShadow: "0 2px 8px rgba(0,201,160,0.35)", transition: "all 0.15s",
+                  }}
+                  className="hover:opacity-90"
+                >
+                  Next: Add-ons &amp; Notes <ArrowRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
           )}
@@ -2826,17 +2996,22 @@ export default function QuoteBuilderPage() {
 
               <div className="flex justify-between mt-6">
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(2)}>Back</Button>
-                <Button
-                  size="sm"
+                <button
                   onClick={() => {
                     if (selectedScopes.length === 1 && !finalScopeId) setFinalScopeId(selectedScopes[0].scope_id);
                     setActiveSection(4);
                   }}
-                  style={{ background: "var(--brand)", color: "#FFF" }}
-                  className="gap-1.5 hover:opacity-90"
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 8,
+                    padding: "0 24px", height: 46, borderRadius: 10, border: "none",
+                    fontSize: 15, fontWeight: 700, fontFamily: FF,
+                    background: "var(--brand)", color: "#FFF", cursor: "pointer",
+                    boxShadow: "0 2px 8px rgba(0,201,160,0.35)", transition: "all 0.15s",
+                  }}
+                  className="hover:opacity-90"
                 >
-                  Next: Review <ArrowRight className="w-3.5 h-3.5" />
-                </Button>
+                  Next: Review <ArrowRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
           )}

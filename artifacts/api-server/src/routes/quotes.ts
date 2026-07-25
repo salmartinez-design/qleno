@@ -488,7 +488,31 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
   try {
     const id = parseInt(req.params.id);
     const companyId = req.auth!.companyId;
-    const { scheduled_date, scheduled_time, assigned_user_id, team_user_ids } = req.body || {};
+    const { scheduled_date, scheduled_time, assigned_user_id, team_user_ids, custom_recurrence } = req.body || {};
+
+    // [custom-recurring] The quote builder's Custom recurring card / Hourly
+    // "Custom…" cadence ships a flexible pattern. Normalize it here into the
+    // recurring_schedules cadence columns:
+    //   unit=weeks  → frequency='custom' + custom_frequency_weeks=interval
+    //   unit=months → frequency='monthly_weekday' + week_of_month + month_interval
+    // Both carry day_of_week. Invalid/absent payload leaves cadence untouched.
+    const CUSTOM_DAY_NAMES = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+    let customCadence: {
+      frequency: string; day_of_week: string;
+      custom_frequency_weeks: number | null; week_of_month: number | null; month_interval: number | null;
+    } | null = null;
+    if (custom_recurrence && typeof custom_recurrence === "object") {
+      const cr = custom_recurrence as any;
+      const interval = Math.max(1, Math.min(52, parseInt(String(cr.interval)) || 1));
+      const weekday = CUSTOM_DAY_NAMES[Number(cr.weekday)] ? Number(cr.weekday) : 2;
+      const dayName = CUSTOM_DAY_NAMES[weekday];
+      if (cr.unit === "months") {
+        const wom = Math.max(1, Math.min(5, parseInt(String(cr.week_of_month)) || 1));
+        customCadence = { frequency: "monthly_weekday", day_of_week: dayName, custom_frequency_weeks: null, week_of_month: wom, month_interval: interval };
+      } else {
+        customCadence = { frequency: "custom", day_of_week: dayName, custom_frequency_weeks: interval, week_of_month: null, month_interval: null };
+      }
+    }
 
     // Mark quote as booked
     const [q] = await db.update(quotesTable)
@@ -707,6 +731,35 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
           base_fee: recurringFee != null ? String(recurringFee) : null,
           notes: q.internal_memo || null,
         }).returning();
+      }
+
+      // [custom-recurring 2026-07-24] If the office chose a Custom cadence in the
+      // quote builder (Custom recurring card / Hourly "Custom…"), the frontend
+      // still sends a real recurring frequency (weekly/monthly) so pricing +
+      // isRecurring resolve correctly — but the actual pattern lives in
+      // custom_recurrence. Stamp it onto the schedule row (weeks → 'custom' +
+      // custom_frequency_weeks; months → 'monthly_weekday' + week_of_month +
+      // month_interval) and patch the in-memory sched so generation below walks
+      // the right cadence. Applied uniformly to both the reused and new rows.
+      if (customCadence) {
+        await db.execute(sql`
+          UPDATE recurring_schedules
+             SET frequency = ${customCadence.frequency}::recurring_frequency,
+                 day_of_week = ${customCadence.day_of_week}::recurring_day,
+                 custom_frequency_weeks = ${customCadence.custom_frequency_weeks},
+                 week_of_month = ${customCadence.week_of_month},
+                 month_interval = ${customCadence.month_interval},
+                 days_of_week = NULL,
+                 days_of_month = NULL
+           WHERE id = ${sched.id} AND company_id = ${companyId}
+        `);
+        sched.frequency = customCadence.frequency;
+        sched.day_of_week = customCadence.day_of_week;
+        sched.custom_frequency_weeks = customCadence.custom_frequency_weeks;
+        sched.week_of_month = customCadence.week_of_month;
+        sched.month_interval = customCadence.month_interval;
+        sched.days_of_week = null;
+        sched.days_of_month = null;
       }
 
       // [quote-convert-stickiness 2026-06-10] Persist the (new) add-ons onto the
