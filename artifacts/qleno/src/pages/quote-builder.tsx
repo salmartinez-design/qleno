@@ -2414,13 +2414,22 @@ export default function QuoteBuilderPage() {
                                         // Deselect previous hourly scope
                                         groupScopes.forEach(s => { if (selectedScopeIds.includes(s.id)) toggleScope(s); });
                                         setHourlySubType(sub.key);
+                                        // [custom-recurring] "Recurring" sub-type carries a real
+                                        // recurring cadence, never one-time. Seed it to weekly so
+                                        // the Cadence dropdown opens on a recurring value; the other
+                                        // sub-types keep their scope default (one-time). toggleScope
+                                        // is async (awaits the freq/addon fetch), so the seed MUST go
+                                        // through initialState — a post-call updateScopeFrequency
+                                        // would race ahead of the scope being added.
+                                        setCustomRecOpen(false);
+                                        const seed = sub.key === "recurring" ? { frequency: "weekly" } : undefined;
                                         // Select matching scope
                                         if (sub.scopeMatch) {
                                           const match = groupScopes.find(s => sub.scopeMatch!.test(s.name));
-                                          if (match) toggleScope(match);
+                                          if (match) toggleScope(match, seed);
                                         } else {
                                           // "Other" — select first hourly scope as fallback
-                                          if (groupScopes[0]) toggleScope(groupScopes[0]);
+                                          if (groupScopes[0]) toggleScope(groupScopes[0], seed);
                                         }
                                       }}
                                       style={{
@@ -2441,7 +2450,20 @@ export default function QuoteBuilderPage() {
                             {hourlySubType && (() => {
                               const hourlySel = selectedScopes.find(s => groupScopes.some(gs => gs.id === s.scope_id));
                               if (!hourlySel) return null;
-                              const cadenceOpts = hourlySel.frequencies.length
+                              // [custom-recurring] The "Recurring" sub-type must offer real
+                              // recurring cadences inline (weekly / bi-weekly / monthly + Custom)
+                              // and NOT one-time — a recurring service is by definition not a
+                              // single visit. Force the canonical recurring set regardless of the
+                              // scope's own frequency list (Hourly Standard only carries onetime).
+                              // Other sub-types keep the scope's frequencies (or the mixed fallback).
+                              const isRecurringSub = hourlySubType === "recurring";
+                              const cadenceOpts = isRecurringSub
+                                ? [
+                                    { value: "weekly", label: "Weekly" },
+                                    { value: "every_2_weeks", label: "Bi-Weekly" },
+                                    { value: "every_4_weeks", label: "Monthly" },
+                                  ]
+                                : hourlySel.frequencies.length
                                 ? hourlySel.frequencies.map(f => ({ value: f.frequency, label: f.label || f.frequency }))
                                 : [
                                     { value: "onetime", label: "One Time" },
@@ -2453,7 +2475,7 @@ export default function QuoteBuilderPage() {
                                 <div style={{ marginTop: 10, paddingLeft: 12 }}>
                                   <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Cadence</div>
                                   <select
-                                    value={customRecOpen ? CUSTOM_FREQ : (hourlySel.frequency || "onetime")}
+                                    value={customRecOpen ? CUSTOM_FREQ : (hourlySel.frequency && (!isRecurringSub || hourlySel.frequency !== "onetime") ? hourlySel.frequency : (isRecurringSub ? "weekly" : "onetime"))}
                                     onChange={e => {
                                       const v = e.target.value;
                                       if (v === CUSTOM_FREQ) {
@@ -2569,7 +2591,6 @@ export default function QuoteBuilderPage() {
                                 <div>
                                   <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", paddingRight: 28, fontFamily: FF }}>
                                     Custom
-                                    <span style={{ marginLeft: 6, fontSize: 9, fontWeight: 700, color: "var(--brand)", border: "1px solid var(--brand)", borderRadius: 4, padding: "1px 4px", letterSpacing: "0.04em", verticalAlign: "middle" }}>NEW</span>
                                   </div>
                                 </div>
                                 {customRecOpen && customPriceText && (
