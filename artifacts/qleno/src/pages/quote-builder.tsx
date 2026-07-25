@@ -463,6 +463,15 @@ export default function QuoteBuilderPage() {
   const [customRec, setCustomRec] = useState<{ interval: number; unit: "weeks" | "months"; weekday: number; weekOfMonth: number }>(
     { interval: 2, unit: "weeks", weekday: 2, weekOfMonth: 1 }
   );
+  // [custom-recurring] The Hourly → Recurring "Custom…" cadence gets its OWN
+  // open-state + pattern, fully separate from the top Recurring-group Custom
+  // card above. They are different services (hourly-billed vs flat recurring),
+  // so opening one must NOT light up / open the other (Sal: "they are
+  // separate"). convert() ships whichever one is active.
+  const [hourlyCustomOpen, setHourlyCustomOpen] = useState(false);
+  const [hourlyCustomRec, setHourlyCustomRec] = useState<{ interval: number; unit: "weeks" | "months"; weekday: number; weekOfMonth: number }>(
+    { interval: 2, unit: "weeks", weekday: 2, weekOfMonth: 1 }
+  );
 
   // ── Mobile ───────────────────────────────────────────────────────────────
   const isMobile = useIsMobile();
@@ -937,9 +946,12 @@ export default function QuoteBuilderPage() {
   // pure UI over the `customRec` state; convert() ships that state as
   // `custom_recurrence` and the server maps it onto recurring_schedules columns.
   // Pricing is NOT touched here — each visit stays at the scope's recurring rate.
-  function renderCustomBuilder() {
-    const r = customRec;
-    const set = (patch: Partial<typeof customRec>) => setCustomRec(prev => ({ ...prev, ...patch }));
+  function renderCustomBuilder(
+    rec: typeof customRec = customRec,
+    setRec: typeof setCustomRec = setCustomRec,
+  ) {
+    const r = rec;
+    const set = (patch: Partial<typeof customRec>) => setRec(prev => ({ ...prev, ...patch }));
     const miniSel: React.CSSProperties = {
       padding: "6px 8px", borderRadius: 8, border: "1px solid #E5E2DC", background: "#FFF",
       fontSize: 13, color: "#1A1917", fontFamily: FF, cursor: "pointer",
@@ -1214,14 +1226,13 @@ export default function QuoteBuilderPage() {
             assigned_user_id: selectedTechIds[0] || undefined,
             team_user_ids: selectedTechIds,
             // [custom-recurring] When the office chose a flexible pattern (Recurring
-            // "Custom" card or Hourly "Custom…" cadence), ship it so the server maps
-            // it onto the recurring_schedules columns instead of the baked cadence.
-            custom_recurrence: customRecOpen ? {
-              interval: customRec.interval,
-              unit: customRec.unit,
-              weekday: customRec.weekday,
-              week_of_month: customRec.weekOfMonth,
-            } : undefined,
+            // "Custom" card OR Hourly "Custom…" cadence — separate, independent
+            // states), ship it so the server maps it onto the recurring_schedules
+            // columns instead of the baked cadence. Hourly wins if both are open.
+            custom_recurrence: (() => {
+              const cr = hourlyCustomOpen ? hourlyCustomRec : (customRecOpen ? customRec : null);
+              return cr ? { interval: cr.interval, unit: cr.unit, weekday: cr.weekday, week_of_month: cr.weekOfMonth } : undefined;
+            })(),
           },
         });
         toast.success("Quote converted to job.");
@@ -2421,7 +2432,7 @@ export default function QuoteBuilderPage() {
                                         // is async (awaits the freq/addon fetch), so the seed MUST go
                                         // through initialState — a post-call updateScopeFrequency
                                         // would race ahead of the scope being added.
-                                        setCustomRecOpen(false);
+                                        setHourlyCustomOpen(false);
                                         const seed = sub.key === "recurring" ? { frequency: "weekly" } : undefined;
                                         // Select matching scope
                                         if (sub.scopeMatch) {
@@ -2475,17 +2486,19 @@ export default function QuoteBuilderPage() {
                                 <div style={{ marginTop: 10, paddingLeft: 12 }}>
                                   <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Cadence</div>
                                   <select
-                                    value={customRecOpen ? CUSTOM_FREQ : (hourlySel.frequency && (!isRecurringSub || hourlySel.frequency !== "onetime") ? hourlySel.frequency : (isRecurringSub ? "weekly" : "onetime"))}
+                                    value={hourlyCustomOpen ? CUSTOM_FREQ : (hourlySel.frequency && (!isRecurringSub || hourlySel.frequency !== "onetime") ? hourlySel.frequency : (isRecurringSub ? "weekly" : "onetime"))}
                                     onChange={e => {
                                       const v = e.target.value;
                                       if (v === CUSTOM_FREQ) {
                                         // Custom pattern: keep a real recurring frequency on the
                                         // scope (so convert creates a schedule) while the builder
-                                        // drives the actual cadence via custom_recurrence.
-                                        setCustomRecOpen(true);
+                                        // drives the actual cadence via custom_recurrence. Uses the
+                                        // Hourly-specific state so the top Recurring Custom card is
+                                        // untouched.
+                                        setHourlyCustomOpen(true);
                                         updateScopeFrequency(hourlySel.scope_id, "weekly");
                                       } else {
-                                        setCustomRecOpen(false);
+                                        setHourlyCustomOpen(false);
                                         updateScopeFrequency(hourlySel.scope_id, v);
                                       }
                                     }}
@@ -2498,7 +2511,7 @@ export default function QuoteBuilderPage() {
                                     {cadenceOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                                     <option value={CUSTOM_FREQ}>＋ Custom…</option>
                                   </select>
-                                  {customRecOpen && renderCustomBuilder()}
+                                  {hourlyCustomOpen && renderCustomBuilder(hourlyCustomRec, setHourlyCustomRec)}
                                 </div>
                               );
                             })()}
@@ -2844,80 +2857,97 @@ export default function QuoteBuilderPage() {
                     </div>
                   </div>
 
-                  {/* C. Unified Add-ons & Discounts */}
-                  {(() => {
-                    // Use first scope's addons as the canonical list
-                    const primaryScope = selectedScopes[0];
-                    if (!primaryScope) return null;
-                    const activeAddons = primaryScope.addons.filter(a => a.is_active);
+                  {/* C. Add-ons & Discounts — one block PER selected service. Each
+                      scope carries its own applicable add-ons + price adjustments, so
+                      a quote with e.g. Deep Clean + Hourly lets the office pick add-ons
+                      for BOTH, not just the first (Sal). Single-scope stays flat; with
+                      2+ scopes each gets a titled sub-card. */}
+                  {selectedScopes.length > 0 && (() => {
                     const multiScope = selectedScopes.length > 1;
                     return (
                       <div>
                         <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>Add-ons &amp; Discounts</div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                          {activeAddons.map(addon => {
-                            const isCounter = isCounterAddon(addon.name);
-                            const targetScope = primaryScope;
-                            const fromCalc = targetScope.calc?.addon_breakdown.find(b => b.id === addon.id);
-                            const priceText = fromCalc
-                              ? (fromCalc.amount < 0 ? `-$${Math.abs(fromCalc.amount).toFixed(2)}` : `$${fromCalc.amount.toFixed(2)}`)
-                              : addonDisplayPrice(addon);
-                            const qty = targetScope.addonQtys[addon.id] ?? 0;
-                            const isSel = isCounter ? qty > 0 : targetScope.addon_ids.includes(addon.id);
+                        <div style={{ display: "flex", flexDirection: "column", gap: multiScope ? 14 : 0 }}>
+                          {selectedScopes.map(targetScope => {
+                            const scopeMeta = scopes.find(sc => sc.id === targetScope.scope_id);
+                            const activeAddons = targetScope.addons.filter(a => a.is_active);
                             return (
-                              <div key={addon.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, border: isSel ? "1px solid var(--brand)" : "1px solid transparent", background: isSel ? "#EAF9F4" : "transparent" }}>
-                                {isCounter ? (
-                                  <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                                    <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty - 1)} disabled={qty === 0}
-                                      style={{ width: 22, height: 22, border: "1px solid #E5E2DC", borderRadius: 4, background: qty === 0 ? "#F7F6F3" : "#FFF", cursor: qty === 0 ? "not-allowed" : "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", color: qty === 0 ? "#C4C2BB" : "#1A1917" }}>-</button>
-                                    <span style={{ width: 18, textAlign: "center", fontSize: 12, fontWeight: 600, fontFamily: FF }}>{qty}</span>
-                                    <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty + 1)}
-                                      style={{ width: 22, height: 22, border: "1px solid #E5E2DC", borderRadius: 4, background: "#FFF", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-                                  </div>
-                                ) : (
-                                  <Checkbox checked={isSel} onCheckedChange={checked => updateScopeAddon(targetScope.scope_id, addon.id, Boolean(checked))} />
+                              <div
+                                key={targetScope.scope_id}
+                                style={multiScope ? { border: "1px solid #E5E2DC", borderRadius: 10, padding: "12px 14px", background: "#FCFBF9" } : {}}
+                              >
+                                {multiScope && (
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 8, fontFamily: FF }}>{scopeMeta?.name ?? "Service"}</div>
                                 )}
-                                <span style={{ flex: 1, fontSize: 12, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
-                                  <AddonIcon name={addon.name} size={13} />
-                                  {addon.name}
-                                </span>
-                                <span style={{ fontSize: 11, color: fromCalc && fromCalc.amount < 0 ? "#B3261E" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
+                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                                  {activeAddons.length === 0 ? (
+                                    <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF, padding: "2px 0" }}>No add-ons available for this service.</div>
+                                  ) : activeAddons.map(addon => {
+                                    const isCounter = isCounterAddon(addon.name);
+                                    const fromCalc = targetScope.calc?.addon_breakdown.find(b => b.id === addon.id);
+                                    const priceText = fromCalc
+                                      ? (fromCalc.amount < 0 ? `-$${Math.abs(fromCalc.amount).toFixed(2)}` : `$${fromCalc.amount.toFixed(2)}`)
+                                      : addonDisplayPrice(addon);
+                                    const qty = targetScope.addonQtys[addon.id] ?? 0;
+                                    const isSel = isCounter ? qty > 0 : targetScope.addon_ids.includes(addon.id);
+                                    return (
+                                      <div key={addon.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, border: isSel ? "1px solid var(--brand)" : "1px solid transparent", background: isSel ? "#EAF9F4" : "transparent" }}>
+                                        {isCounter ? (
+                                          <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
+                                            <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty - 1)} disabled={qty === 0}
+                                              style={{ width: 22, height: 22, border: "1px solid #E5E2DC", borderRadius: 4, background: qty === 0 ? "#F7F6F3" : "#FFF", cursor: qty === 0 ? "not-allowed" : "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", color: qty === 0 ? "#C4C2BB" : "#1A1917" }}>-</button>
+                                            <span style={{ width: 18, textAlign: "center", fontSize: 12, fontWeight: 600, fontFamily: FF }}>{qty}</span>
+                                            <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty + 1)}
+                                              style={{ width: 22, height: 22, border: "1px solid #E5E2DC", borderRadius: 4, background: "#FFF", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                                          </div>
+                                        ) : (
+                                          <Checkbox checked={isSel} onCheckedChange={checked => updateScopeAddon(targetScope.scope_id, addon.id, Boolean(checked))} />
+                                        )}
+                                        <span style={{ flex: 1, fontSize: 12, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
+                                          <AddonIcon name={addon.name} size={13} />
+                                          {addon.name}
+                                        </span>
+                                        <span style={{ fontSize: 11, color: fromCalc && fromCalc.amount < 0 ? "#B3261E" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+
+                                {/* Manual price adjustments — per service */}
+                                <div style={{ marginTop: 14 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8, fontFamily: FF }}>Price Adjustments</div>
+                                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                                    {([
+                                      { kind: "add", amtField: "adjPlus", reasonField: "adjPlusReason", amt: targetScope.adjPlus, reason: targetScope.adjPlusReason, sign: "+", tint: "#22C55E", tintBg: "#F0FBF4", label: "Add charge", ph: "Extra fee" },
+                                      { kind: "sub", amtField: "adjMinus", reasonField: "adjMinusReason", amt: targetScope.adjMinus, reason: targetScope.adjMinusReason, sign: "−", tint: "#B3261E", tintBg: "#FDF3F2", label: "Discount", ph: "Reason" },
+                                    ] as const).map(row => {
+                                      const active = (row.amt || 0) > 0;
+                                      return (
+                                        <div key={row.kind} style={{ border: `1px solid ${active ? row.tint : "#E5E2DC"}`, borderRadius: 10, padding: 10, background: active ? row.tintBg : "#FFF", transition: "all 0.15s", display: "flex", flexDirection: "column", gap: 8 }}>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                            <span style={{ width: 18, height: 18, borderRadius: "50%", background: row.tint, color: "#FFF", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>{row.sign}</span>
+                                            <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{row.label}</span>
+                                          </div>
+                                          <div style={{ display: "flex", alignItems: "center", height: 34, border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFF", overflow: "hidden" }}>
+                                            <span style={{ padding: "0 8px", fontSize: 14, color: "#9E9B94", fontFamily: FF, borderRight: "1px solid #E5E2DC", lineHeight: "34px", background: "#FAF9F7" }}>$</span>
+                                            <input
+                                              type="text" inputMode="decimal" placeholder="0.00"
+                                              value={row.amt ? String(row.amt) : ""}
+                                              onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ""); updateScopeAdj(targetScope.scope_id, row.amtField, parseFloat(v) || 0); }}
+                                              style={{ flex: 1, minWidth: 0, height: 34, border: "none", padding: "0 8px", fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF, outline: "none", background: "transparent" }} />
+                                          </div>
+                                          <input
+                                            type="text" placeholder={row.ph} value={row.reason}
+                                            onChange={e => updateScopeAdj(targetScope.scope_id, row.reasonField, e.target.value)}
+                                            style={{ width: "100%", boxSizing: "border-box", height: 32, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 8px", fontSize: 12, color: "#1A1917", fontFamily: FF, outline: "none", background: "#FFF" }} />
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
                               </div>
                             );
                           })}
-                        </div>
-
-                        {/* Manual price adjustments */}
-                        <div style={{ marginTop: 14 }}>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8, fontFamily: FF }}>Price Adjustments</div>
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                            {([
-                              { kind: "add", amtField: "adjPlus", reasonField: "adjPlusReason", amt: primaryScope.adjPlus, reason: primaryScope.adjPlusReason, sign: "+", tint: "#22C55E", tintBg: "#F0FBF4", label: "Add charge", ph: "Extra fee" },
-                              { kind: "sub", amtField: "adjMinus", reasonField: "adjMinusReason", amt: primaryScope.adjMinus, reason: primaryScope.adjMinusReason, sign: "−", tint: "#B3261E", tintBg: "#FDF3F2", label: "Discount", ph: "Reason" },
-                            ] as const).map(row => {
-                              const active = (row.amt || 0) > 0;
-                              return (
-                                <div key={row.kind} style={{ border: `1px solid ${active ? row.tint : "#E5E2DC"}`, borderRadius: 10, padding: 10, background: active ? row.tintBg : "#FFF", transition: "all 0.15s", display: "flex", flexDirection: "column", gap: 8 }}>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                    <span style={{ width: 18, height: 18, borderRadius: "50%", background: row.tint, color: "#FFF", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>{row.sign}</span>
-                                    <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{row.label}</span>
-                                  </div>
-                                  <div style={{ display: "flex", alignItems: "center", height: 34, border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFF", overflow: "hidden" }}>
-                                    <span style={{ padding: "0 8px", fontSize: 14, color: "#9E9B94", fontFamily: FF, borderRight: "1px solid #E5E2DC", lineHeight: "34px", background: "#FAF9F7" }}>$</span>
-                                    <input
-                                      type="text" inputMode="decimal" placeholder="0.00"
-                                      value={row.amt ? String(row.amt) : ""}
-                                      onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ""); updateScopeAdj(primaryScope.scope_id, row.amtField, parseFloat(v) || 0); }}
-                                      style={{ flex: 1, minWidth: 0, height: 34, border: "none", padding: "0 8px", fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF, outline: "none", background: "transparent" }} />
-                                  </div>
-                                  <input
-                                    type="text" placeholder={row.ph} value={row.reason}
-                                    onChange={e => updateScopeAdj(primaryScope.scope_id, row.reasonField, e.target.value)}
-                                    style={{ width: "100%", boxSizing: "border-box", height: 32, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 8px", fontSize: 12, color: "#1A1917", fontFamily: FF, outline: "none", background: "#FFF" }} />
-                                </div>
-                              );
-                            })}
-                          </div>
                         </div>
                       </div>
                     );
