@@ -245,6 +245,18 @@ export default function QuoteBuilderPage() {
   const [activeSection, setActiveSection] = useState(0);
   const [saving, setSaving] = useState(false);
 
+  // [sqft-notice-gate 2026-07-25] The "prices are estimated — enter sqft"
+  // banner on Service & Pricing (Step 2) must NOT fire before the user has
+  // actually reached Property Details (Step 3, the sqft entry). On a fresh
+  // quote sqft defaults to 0, so the banner used to show immediately on
+  // Step 2 telling the user to go "back" to a step that's still ahead —
+  // premature and backwards. Only warn once they've visited Property
+  // Details and left sqft blank. Property Details is activeSection === 2.
+  const [reachedPropertyDetails, setReachedPropertyDetails] = useState(false);
+  useEffect(() => {
+    if (activeSection >= 2) setReachedPropertyDetails(true);
+  }, [activeSection]);
+
   // [scroll-on-step 2026-05-27] Snap viewport to top whenever the user
   // advances or backs up a section. Without this the page keeps its
   // prior scroll position — the new section's "Next" button sat in view
@@ -2280,8 +2292,10 @@ export default function QuoteBuilderPage() {
           {activeSection === 1 && (
             <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 24 }}>
 
-              {/* sqft missing notice */}
-              {sqft === 0 && (
+              {/* sqft missing notice — only after the user has actually
+                  reached Property Details (Step 3) and left sqft blank.
+                  Never fire on the first pass through Step 2. */}
+              {sqft === 0 && reachedPropertyDetails && (
                 <div style={{ background: "#FAEEDA", border: "1px solid #BA7517", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "#854F0B", marginBottom: 16, display: "flex", alignItems: "center", gap: 8 }}>
                   <AlertCircle style={{ width: 14, height: 14, flexShrink: 0 }} />
                   Property details incomplete — prices are estimated. Go back to Property Details (Step 3) to enter sqft.
