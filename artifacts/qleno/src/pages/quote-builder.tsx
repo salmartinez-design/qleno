@@ -2333,6 +2333,35 @@ export default function QuoteBuilderPage() {
                                 })}
                               </div>
                             )}
+                            {/* Cadence dropdown — how often this hourly service recurs */}
+                            {hourlySubType && (() => {
+                              const hourlySel = selectedScopes.find(s => groupScopes.some(gs => gs.id === s.scope_id));
+                              if (!hourlySel) return null;
+                              const cadenceOpts = hourlySel.frequencies.length
+                                ? hourlySel.frequencies.map(f => ({ value: f.frequency, label: f.label || f.frequency }))
+                                : [
+                                    { value: "onetime", label: "One Time" },
+                                    { value: "weekly", label: "Weekly" },
+                                    { value: "every_2_weeks", label: "Bi-Weekly" },
+                                    { value: "every_4_weeks", label: "Monthly" },
+                                  ];
+                              return (
+                                <div style={{ marginTop: 10, paddingLeft: 12 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Cadence</div>
+                                  <select
+                                    value={hourlySel.frequency || "onetime"}
+                                    onChange={e => updateScopeFrequency(hourlySel.scope_id, e.target.value)}
+                                    style={{
+                                      width: "100%", maxWidth: 240, padding: "8px 10px", borderRadius: 8,
+                                      border: "1px solid #E5E2DC", background: "#FFF", fontSize: 13, color: "#1A1917",
+                                      fontFamily: FF, cursor: "pointer",
+                                    }}
+                                  >
+                                    {cadenceOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                                  </select>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       }
@@ -2372,8 +2401,15 @@ export default function QuoteBuilderPage() {
                                   </div>
                                   <div>
                                     <div style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", paddingRight: 28, fontFamily: FF }}>{scope.name}</div>
-                                    {selState?.frequency && (
-                                      <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF }}>{selState.frequency}</div>
+                                    {isSel && selState && selState.frequencies.length > 0 && (
+                                      <select
+                                        value={selState.frequency || ""}
+                                        onClick={e => e.stopPropagation()}
+                                        onChange={e => { e.stopPropagation(); updateScopeFrequency(scope.id, e.target.value); }}
+                                        style={{ marginTop: 6, width: "100%", padding: "5px 8px", borderRadius: 6, border: "1px solid #E5E2DC", background: "#FFF", fontSize: 12, color: "#1A1917", fontFamily: FF, cursor: "pointer" }}
+                                      >
+                                        {selState.frequencies.map(f => <option key={f.id} value={f.frequency}>{f.label || f.frequency}</option>)}
+                                      </select>
                                     )}
                                   </div>
                                   {priceText && (
@@ -2470,17 +2506,25 @@ export default function QuoteBuilderPage() {
                 </div>
               )}
 
-              <div className="flex justify-between mt-4">
+              <div className="flex justify-between items-center mt-5">
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(0)}>Back</Button>
-                <Button
-                  size="sm"
+                <button
                   onClick={() => setActiveSection(2)}
                   disabled={selectedScopes.length === 0}
-                  style={selectedScopes.length === 0 ? { background: "#E5E2DC", color: "#9E9B94", cursor: "not-allowed" } : { background: "var(--brand)", color: "#FFF" }}
-                  className="gap-1.5 hover:opacity-90"
+                  style={{
+                    display: "inline-flex", alignItems: "center", gap: 8,
+                    padding: "0 24px", height: 46, borderRadius: 10, border: "none",
+                    fontSize: 15, fontWeight: 700, fontFamily: FF,
+                    background: selectedScopes.length === 0 ? "#E5E2DC" : "var(--brand)",
+                    color: selectedScopes.length === 0 ? "#9E9B94" : "#FFF",
+                    cursor: selectedScopes.length === 0 ? "not-allowed" : "pointer",
+                    boxShadow: selectedScopes.length === 0 ? "none" : "0 2px 8px rgba(0,201,160,0.35)",
+                    transition: "all 0.15s",
+                  }}
+                  className="hover:opacity-90"
                 >
-                  Next: Property Details <ArrowRight className="w-3.5 h-3.5" />
-                </Button>
+                  Next: Property Details <ArrowRight className="w-4 h-4" />
+                </button>
               </div>
             </div>
           )}
@@ -2540,29 +2584,7 @@ export default function QuoteBuilderPage() {
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
 
-                  {/* A. Quote-level Frequency picker */}
-                  {(() => {
-                    const allFreqs = selectedScopes.flatMap(s => s.frequencies);
-                    const uniqueFreqs = Array.from(new Map(allFreqs.map(f => [f.frequency, f])).values());
-                    const currentFreq = selectedScopes[0]?.frequency || "onetime";
-                    if (uniqueFreqs.length === 0) return null;
-                    return (
-                      <div>
-                        <div style={{ fontSize: 11, fontWeight: 700, color: "#4A4845", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>Frequency</div>
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {uniqueFreqs.map(f => {
-                            const isActive = currentFreq === f.frequency;
-                            return (
-                              <button key={f.frequency} onClick={() => selectedScopes.forEach(s => updateScopeFrequency(s.scope_id, f.frequency))}
-                                style={{ padding: "6px 14px", borderRadius: 8, border: isActive ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: isActive ? "#EAF9F4" : "#FFF", color: isActive ? "#0A0E1A" : "#6B6860", fontSize: 12, fontWeight: isActive ? 600 : 400, cursor: "pointer", fontFamily: FF }}>
-                                {f.label || f.frequency}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })()}
+                  {/* Frequency moved to the Service & Pricing step (per-scope cadence) */}
 
                   {/* B. Scope summary cards (collapsed by default) */}
                   <div>
@@ -2675,27 +2697,35 @@ export default function QuoteBuilderPage() {
                         </div>
 
                         {/* Manual price adjustments */}
-                        <div style={{ marginTop: 12 }}>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6, fontFamily: FF }}>Price Adjustments</div>
-                          <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ fontSize: 12, color: "#22C55E", fontWeight: 700, width: 12, flexShrink: 0 }}>+</span>
-                              <input type="number" min="0" step="1" placeholder="$0" value={primaryScope.adjPlus || ""}
-                                onChange={e => updateScopeAdj(primaryScope.scope_id, "adjPlus", parseFloat(e.target.value) || 0)}
-                                style={{ width: 70, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 12, fontFamily: FF, outline: "none" }} />
-                              <input type="text" placeholder="Reason" value={primaryScope.adjPlusReason}
-                                onChange={e => updateScopeAdj(primaryScope.scope_id, "adjPlusReason", e.target.value)}
-                                style={{ flex: 1, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 12, fontFamily: FF, outline: "none" }} />
-                            </div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <span style={{ fontSize: 12, color: "#B3261E", fontWeight: 700, width: 12, flexShrink: 0 }}>-</span>
-                              <input type="number" min="0" step="1" placeholder="$0" value={primaryScope.adjMinus || ""}
-                                onChange={e => updateScopeAdj(primaryScope.scope_id, "adjMinus", parseFloat(e.target.value) || 0)}
-                                style={{ width: 70, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 12, fontFamily: FF, outline: "none" }} />
-                              <input type="text" placeholder="Reason" value={primaryScope.adjMinusReason}
-                                onChange={e => updateScopeAdj(primaryScope.scope_id, "adjMinusReason", e.target.value)}
-                                style={{ flex: 1, height: 28, border: "1px solid #E5E2DC", borderRadius: 6, padding: "0 6px", fontSize: 12, fontFamily: FF, outline: "none" }} />
-                            </div>
+                        <div style={{ marginTop: 14 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8, fontFamily: FF }}>Price Adjustments</div>
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                            {([
+                              { kind: "add", amtField: "adjPlus", reasonField: "adjPlusReason", amt: primaryScope.adjPlus, reason: primaryScope.adjPlusReason, sign: "+", tint: "#22C55E", tintBg: "#F0FBF4", label: "Add charge", ph: "Extra fee" },
+                              { kind: "sub", amtField: "adjMinus", reasonField: "adjMinusReason", amt: primaryScope.adjMinus, reason: primaryScope.adjMinusReason, sign: "−", tint: "#B3261E", tintBg: "#FDF3F2", label: "Discount", ph: "Reason" },
+                            ] as const).map(row => {
+                              const active = (row.amt || 0) > 0;
+                              return (
+                                <div key={row.kind} style={{ border: `1px solid ${active ? row.tint : "#E5E2DC"}`, borderRadius: 10, padding: 10, background: active ? row.tintBg : "#FFF", transition: "all 0.15s", display: "flex", flexDirection: "column", gap: 8 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <span style={{ width: 18, height: 18, borderRadius: "50%", background: row.tint, color: "#FFF", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0, lineHeight: 1 }}>{row.sign}</span>
+                                    <span style={{ fontSize: 12, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{row.label}</span>
+                                  </div>
+                                  <div style={{ display: "flex", alignItems: "center", height: 34, border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFF", overflow: "hidden" }}>
+                                    <span style={{ padding: "0 8px", fontSize: 14, color: "#9E9B94", fontFamily: FF, borderRight: "1px solid #E5E2DC", lineHeight: "34px", background: "#FAF9F7" }}>$</span>
+                                    <input
+                                      type="text" inputMode="decimal" placeholder="0.00"
+                                      value={row.amt ? String(row.amt) : ""}
+                                      onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ""); updateScopeAdj(primaryScope.scope_id, row.amtField, parseFloat(v) || 0); }}
+                                      style={{ flex: 1, minWidth: 0, height: 34, border: "none", padding: "0 8px", fontSize: 14, fontWeight: 600, color: "#1A1917", fontFamily: FF, outline: "none", background: "transparent" }} />
+                                  </div>
+                                  <input
+                                    type="text" placeholder={row.ph} value={row.reason}
+                                    onChange={e => updateScopeAdj(primaryScope.scope_id, row.reasonField, e.target.value)}
+                                    style={{ width: "100%", boxSizing: "border-box", height: 32, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 8px", fontSize: 12, color: "#1A1917", fontFamily: FF, outline: "none", background: "#FFF" }} />
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       </div>
