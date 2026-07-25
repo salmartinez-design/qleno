@@ -113,6 +113,10 @@ export interface CadenceInput {
   // [commercial-cadence] 1..4 = first..fourth, 5 = last. Pairs with
   // day_of_week for the monthly_weekday cadence ("3rd Wednesday" etc).
   week_of_month?: number | null;
+  // [custom-recurring] Month step for monthly_weekday ("every N months on the
+  // Nth weekday"). null/1 = every month (backward-compatible). Phase is anchored
+  // on start_date's month, so N=2 emits the start month, +2, +4, …
+  month_interval?: number | null;
   // string from a Drizzle typed select; Date from a raw pg `date` column.
   start_date: string | Date;
   end_date?: string | Date | null;
@@ -209,10 +213,18 @@ export function generateCadenceDates(
   // [commercial-cadence] week_of_month (1..4, or 5=last) + day_of_week.
   if (freq === "monthly_weekday") {
     const nth = schedule.week_of_month ?? 1;
+    // [custom-recurring] Month step, phase-anchored on the start month so
+    // "every 2 months" lands on start, start+2, start+4 — never drifting to the
+    // off-months. null/≤1 keeps the legacy every-month behavior.
+    const step = Math.max(1, schedule.month_interval ?? 1);
     let cursor = new Date(fromDate.getFullYear(), fromDate.getMonth(), 1);
     while (cursor <= effectiveEnd) {
-      const d = nthWeekdayOfMonth(cursor.getFullYear(), cursor.getMonth(), nth, targetDow);
-      if (d >= start && d >= fromDate && d <= effectiveEnd) dates.push(d);
+      const monthsSinceStart =
+        (cursor.getFullYear() - start.getFullYear()) * 12 + (cursor.getMonth() - start.getMonth());
+      if (monthsSinceStart >= 0 && monthsSinceStart % step === 0) {
+        const d = nthWeekdayOfMonth(cursor.getFullYear(), cursor.getMonth(), nth, targetDow);
+        if (d >= start && d >= fromDate && d <= effectiveEnd) dates.push(d);
+      }
       cursor = addMonths(cursor, 1);
     }
     return dates;
