@@ -196,6 +196,13 @@ interface SelectedScopeState {
   calc: CalcResult | null;
   calcLoading: boolean;
   expanded: boolean;
+  // [hourly-recurring-label] The "Recurring" hourly sub-type reuses the Hourly
+  // Standard scope for pricing, so its raw scope name is "Hourly Standard
+  // Cleaning" — misleading when the office picked Recurring. displayLabel, set
+  // at selection time, overrides the shown name on every surface (Services list,
+  // Price Preview, add-ons header, Review) so it reads "Hourly Recurring
+  // Cleaning". null/undefined = fall back to the real scope name.
+  displayLabel?: string;
 }
 
 interface SuggestedTech { id: number; name: string; zone_name: string; zone_color: string; }
@@ -861,8 +868,16 @@ export default function QuoteBuilderPage() {
     }, delay);
   }
 
+  // [hourly-recurring-label] Display name for a selected scope. Prefers the
+  // per-scope displayLabel override (set when the Recurring hourly sub-type is
+  // chosen) so the office never sees the misleading "Hourly Standard Cleaning"
+  // when they picked Recurring. Falls back to the real scope name.
+  function scopeLabel(s: SelectedScopeState): string {
+    return s.displayLabel ?? scopes.find(sc => sc.id === s.scope_id)?.name ?? "Service";
+  }
+
   // ── Toggle scope selection ────────────────────────────────────────────────
-  async function toggleScope(scope: PricingScope, initialState?: { frequency?: string; hours?: number; addon_ids?: number[]; hourly_rate_override?: number | null }) {
+  async function toggleScope(scope: PricingScope, initialState?: { frequency?: string; hours?: number; addon_ids?: number[]; hourly_rate_override?: number | null; displayLabel?: string }) {
     const isSelected = selectedScopesRef.current.some(s => s.scope_id === scope.id);
     if (isSelected && !initialState) {
       setSelectedScopes(prev => prev.filter(s => s.scope_id !== scope.id));
@@ -906,6 +921,7 @@ export default function QuoteBuilderPage() {
         calc: null,
         calcLoading: false,
         expanded: true,
+        displayLabel: initialState?.displayLabel,
       };
       setSelectedScopes(prev => [...prev, newState]);
       setTimeout(() => recalcScopeById(scope.id, 100), 50);
@@ -918,6 +934,7 @@ export default function QuoteBuilderPage() {
         hourlyRateOverride: initialState?.hourly_rate_override ?? null,
         frequencies: [], addons: [],
         calc: null, calcLoading: false, expanded: true,
+        displayLabel: initialState?.displayLabel,
       }]);
     }
   }
@@ -1087,7 +1104,7 @@ export default function QuoteBuilderPage() {
       .filter(s => s.scope_id !== primaryScopeId)
       .map(s => ({
         scope_id: s.scope_id,
-        scope_name: scopes.find(sc => sc.id === s.scope_id)?.name ?? "",
+        scope_name: scopeLabel(s),
         frequency: s.frequency,
         addon_ids: s.addon_ids,
         // Include this scope's manual price adjustments so the saved total
@@ -1710,7 +1727,7 @@ export default function QuoteBuilderPage() {
               const activeAddons = s.addons.filter(a => a.is_active);
               return (
                 <div key={s.scope_id} style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 12 }}>{scope.name}</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 12 }}>{scopeLabel(s)}</div>
                   {s.frequencies.length > 0 && (
                     <div style={{ marginBottom: 14 }}>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Frequency</div>
@@ -1776,7 +1793,7 @@ export default function QuoteBuilderPage() {
                     const scope = scopes.find(sc => sc.id === s.scope_id);
                     return (
                       <div key={s.scope_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 8, marginBottom: 8, borderBottom: "1px solid #F0EEE9" }}>
-                        <span style={{ fontSize: 14, color: "#1A1917" }}>{scope?.name}</span>
+                        <span style={{ fontSize: 14, color: "#1A1917" }}>{scopeLabel(s)}</span>
                         <span style={{ fontSize: 14, fontWeight: 700, color: "#1A1917" }}>{s.calcLoading ? "…" : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "—"}</span>
                       </div>
                     );
@@ -2447,7 +2464,11 @@ export default function QuoteBuilderPage() {
                                         // through initialState — a post-call updateScopeFrequency
                                         // would race ahead of the scope being added.
                                         setHourlyCustomOpen(false);
-                                        const seed = sub.key === "recurring" ? { frequency: "weekly" } : undefined;
+                                        // [hourly-recurring-label] Recurring reuses the Hourly Standard
+                                        // scope for its $65 rate, so carry a displayLabel override so
+                                        // every surface reads "Hourly Recurring Cleaning" instead of
+                                        // the scope's real "Hourly Standard Cleaning" name.
+                                        const seed = sub.key === "recurring" ? { frequency: "weekly", displayLabel: "Hourly Recurring Cleaning" } : undefined;
                                         // Select matching scope
                                         if (sub.scopeMatch) {
                                           const match = groupScopes.find(s => sub.scopeMatch!.test(s.name));
@@ -2820,7 +2841,7 @@ export default function QuoteBuilderPage() {
                               onClick={() => setSelectedScopes(prev => prev.map(ss => ss.scope_id === s.scope_id ? { ...ss, expanded: !ss.expanded } : ss))}
                               style={{ width: "100%", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, background: s.expanded ? "#F7F6F3" : "#FFF", border: "none", cursor: "pointer", borderBottom: s.expanded ? "0.5px solid #E5E2DC" : "none" }}
                             >
-                              <span style={{ flex: 1, textAlign: "left", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scope.name}</span>
+                              <span style={{ flex: 1, textAlign: "left", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scopeLabel(s)}</span>
                               {estHours > 0 && <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>{estHours} hrs est.</span>}
                               <span style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF, minWidth: 60, textAlign: "right" }}>{subtotal}</span>
                               <ChevronDown style={{ width: 14, height: 14, color: "#9E9B94", transform: s.expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }} />
@@ -2891,7 +2912,21 @@ export default function QuoteBuilderPage() {
                                 style={multiScope ? { border: "1px solid #E5E2DC", borderRadius: 10, padding: "12px 14px", background: "#FCFBF9" } : {}}
                               >
                                 {multiScope && (
-                                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 8, fontFamily: FF }}>{scopeMeta?.name ?? "Service"}</div>
+                                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1A1917", marginBottom: 8, fontFamily: FF }}>{scopeLabel(targetScope)}</div>
+                                )}
+                                {/* [addon-sqft-gate] A sqft-priced service (Deep Clean, Standard,
+                                    Move In/Out) can't price its add-ons until square footage is set —
+                                    recalcScopeById bails when sqft=0, so toggling an add-on here would
+                                    silently do nothing ("the add-ons aren't loading"). Tell the office
+                                    why instead of leaving the click inert. */}
+                                {scopeMeta?.pricing_method === "sqft" && !sqft && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setActiveSection(2)}
+                                    style={{ display: "block", width: "100%", textAlign: "left", fontSize: 11, color: "#8A5A00", fontFamily: FF, marginBottom: 8, padding: "7px 9px", background: "#FBF3E2", border: "1px solid #F0D9A8", borderRadius: 6, cursor: "pointer" }}
+                                  >
+                                    Enter square footage on the Property Details step to price this service and its add-ons.
+                                  </button>
                                 )}
                                 <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
                                   {activeAddons.length === 0 ? (
@@ -3120,7 +3155,7 @@ export default function QuoteBuilderPage() {
                       >
                         <input type="radio" checked={isFinal} onChange={() => setFinalScopeId(s.scope_id)} style={{ flexShrink: 0, accentColor: "var(--brand)", width: 16, height: 16 }} onClick={e => e.stopPropagation()} />
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scope?.name}{addonSummary}</div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scopeLabel(s)}{addonSummary}</div>
                           {s.frequency && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF }}>{s.frequency}</div>}
                         </div>
                         <div style={{ fontSize: 16, fontWeight: 500, color: "#1A1917", flexShrink: 0, fontFamily: FF }}>
@@ -3333,7 +3368,7 @@ export default function QuoteBuilderPage() {
               const scope = scopes.find(sc => sc.id === s.scope_id);
               return (
                 <div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF, marginBottom: 10 }}>{scope?.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF, marginBottom: 10 }}>{scopeLabel(s)}</div>
                   {s.calcLoading && <div style={{ fontSize: 13, color: "#9E9B94", fontFamily: FF }}>Calculating...</div>}
                   {!s.calcLoading && s.calc ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -3473,7 +3508,7 @@ export default function QuoteBuilderPage() {
                     return (
                       <div key={s.scope_id} style={{ padding: "8px 0", borderBottom: "1px solid #F0EEE9" }}>
                         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                          <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>{scope?.name}</span>
+                          <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>{scopeLabel(s)}</span>
                           <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
                             {s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "\u2014"}
                           </span>
