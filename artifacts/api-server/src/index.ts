@@ -477,6 +477,10 @@ async function runStartupMigrations() {
       // has no individual client — Mark Paid on Cucci/PPM/National Able 500'd on
       // the payments.client_id NOT NULL constraint. Drop it. Idempotent.
       await db.execute(sql`ALTER TABLE payments ALTER COLUMN client_id DROP NOT NULL`);
+      // [square-default 2026-07-24] Card-on-file links now carry a processor.
+      // Office-initiated links save to Square; the website widget stays Stripe.
+      // Existing rows backfill to 'stripe' (their historical behaviour). Idempotent.
+      await db.execute(sql`ALTER TABLE payment_links ADD COLUMN IF NOT EXISTS provider text NOT NULL DEFAULT 'stripe'`);
     });
   } catch (err: any) {
     console.error("[startup] addInvoiceColumns — non-fatal:", err?.message ?? err);

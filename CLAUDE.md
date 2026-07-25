@@ -16,7 +16,7 @@
 - Frontend: React 18, Tailwind CSS, Vite, Wouter (routing)
 - Backend: Node.js, Express 5, TypeScript
 - Database: Supabase Postgres, RLS enabled, Drizzle ORM, multi-tenant scoped by company_id
-- Payments: Stripe (new bookings), Square (existing Phes clients only)
+- Payments: Stripe (public website booking widget), Square (all office-initiated card capture — the house rail as of 2026-07-24)
 - Comms: Twilio (SMS), Resend (email)
 - Hosting: Railway (production), auto-deploys from GitHub main
 
@@ -378,7 +378,13 @@ files or pays it.)*
 
 ## Hard Rules — Never Reverse
 - No QuickBooks bidirectional sync — QB is write-only (Qleno pushes to QB, never pulls)
-- Square is for existing Phes clients only — new bookings always use Stripe
+- Card capture is two-rail: the PUBLIC website booking widget always uses
+  Stripe; ALL office-initiated card-on-file capture (quote builder Review,
+  customer profile, account invoices, leave-a-card links) defaults to Square.
+  *(REVERSED 2026-07-24 by Sal — was "Square is for existing Phes clients
+  only; new bookings always use Stripe." Square is now the house rail for
+  office capture. The widget-stays-Stripe half is unchanged. Gated on
+  SQUARE_APPLICATION_ID + SQUARE_LOCATION_ID env vars — inert until set.)*
 - Schaumburg branch does NOT migrate from MaidCentral
 - Seed files must always use ON CONFLICT DO UPDATE — never plain INSERT
 - COMMS_ENABLED=false gate must never be bypassed — all SMS and email are suppressed until explicitly flipped to true in Railway env vars

@@ -527,15 +527,48 @@ export default function AccountDetailPage() {
   const [acctInvoices, setAcctInvoices] = useState<any[]>([]);
   const [acctInvTotal, setAcctInvTotal] = useState("0.00");
   const [invLoading, setInvLoading] = useState(false);
-  useEffect(() => {
-    if (tab !== "invoices" || !id) return;
+  // [square-default 2026-07-24] Whether this account has a chargeable card on
+  // file (drives the "Charge" button on unpaid invoice rows).
+  const [acctHasCard, setAcctHasCard] = useState(false);
+  const [chargingInvId, setChargingInvId] = useState<number | null>(null);
+  function loadAcctInvoices() {
+    if (!id) return;
     setInvLoading(true);
     fetch(`${API}/api/accounts/${id}/invoices?month=${invMonth}`, { headers: getAuthHeaders() })
       .then(r => r.ok ? r.json() : { data: [], total: "0.00" })
-      .then(d => { setAcctInvoices(d.data || []); setAcctInvTotal(d.total || "0.00"); })
-      .catch(() => { setAcctInvoices([]); setAcctInvTotal("0.00"); })
+      .then(d => { setAcctInvoices(d.data || []); setAcctInvTotal(d.total || "0.00"); setAcctHasCard(!!d.account_has_card); })
+      .catch(() => { setAcctInvoices([]); setAcctInvTotal("0.00"); setAcctHasCard(false); })
       .finally(() => setInvLoading(false));
+  }
+  useEffect(() => {
+    if (tab !== "invoices" || !id) return;
+    loadAcctInvoices();
   }, [tab, id, invMonth]);
+
+  // Charge an account invoice against the account's card on file. Confirm first
+  // (Sal's rule) — this moves real money.
+  async function chargeAcctInvoice(inv: any) {
+    const amt = parseFloat(inv.total || "0");
+    if (!window.confirm(`Charge ${fmtDecimal(amt)} for ${formatInvoiceNumber(inv)} to the card on file?`)) return;
+    setChargingInvId(inv.id);
+    try {
+      const r = await fetch(`${API}/api/invoices/${inv.id}/charge`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+        body: "{}",
+      });
+      const result = await r.json().catch(() => ({}));
+      if (!r.ok) { alert(result.message || result.error || "Charge failed"); return; }
+      if (result.outcome === "paid") { alert(`Charged ${fmtDecimal(amt)} successfully.`); }
+      else if (result.outcome === "needs_manual") { alert(result.message || "This account has no card — collect payment and mark the invoice paid manually."); }
+      else { alert(result.message || "Charge did not complete."); }
+      loadAcctInvoices();
+    } catch {
+      alert("Network error — please try again.");
+    } finally {
+      setChargingInvId(null);
+    }
+  }
   function shiftMonth(delta: number) {
     const [y, m] = invMonth.split("-").map(Number);
     const d = new Date(y, m - 1 + delta, 1);
@@ -1670,6 +1703,7 @@ export default function AccountDetailPage() {
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider hidden sm:table-cell">Description</th>
                       <th className="text-left px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
                       <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider">Amount</th>
+                      {acctHasCard && <th className="text-right px-4 py-2.5 text-xs font-semibold text-gray-400 uppercase tracking-wider"></th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-50">
@@ -1680,6 +1714,9 @@ export default function AccountDetailPage() {
                       // at completion, never emailed — never label it "sent".
                       const stLabel = st === "sent" && !inv.sent_at ? "issued" : st;
                       const stCls = st === "paid" ? "bg-green-50 text-green-700" : st === "sent" ? "bg-blue-50 text-blue-700" : st === "overdue" ? "bg-red-50 text-red-700" : "bg-gray-100 text-gray-500";
+                      // Only issued/overdue invoices can be charged (draft = send
+                      // first; paid/void = nothing to charge).
+                      const chargeable = st === "sent" || st === "overdue";
                       return (
                         <tr key={inv.id} className="hover:bg-gray-50">
                           <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{inv.service_date}</td>
@@ -1689,6 +1726,20 @@ export default function AccountDetailPage() {
                           <td className="px-4 py-3 text-gray-500 truncate max-w-[280px] hidden sm:table-cell">{desc}</td>
                           <td className="px-4 py-3"><span className={`text-xs font-semibold px-2 py-0.5 rounded uppercase ${stCls}`}>{stLabel}</span></td>
                           <td className="px-4 py-3 text-right font-semibold text-[var(--brand)]">{fmtDecimal(parseFloat(inv.total || "0"))}</td>
+                          {acctHasCard && (
+                            <td className="px-4 py-3 text-right whitespace-nowrap">
+                              {chargeable && (
+                                <button
+                                  onClick={() => chargeAcctInvoice(inv)}
+                                  disabled={chargingInvId === inv.id}
+                                  className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white disabled:opacity-60"
+                                  style={{ background: "#0F7A63" }}
+                                >
+                                  {chargingInvId === inv.id ? "Charging…" : `Charge ${fmtDecimal(parseFloat(inv.total || "0"))}`}
+                                </button>
+                              )}
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -1697,6 +1748,7 @@ export default function AccountDetailPage() {
                     <tr className="border-t border-gray-100 bg-gray-50">
                       <td colSpan={4} className="px-4 py-2.5 text-sm font-semibold text-gray-500">Total — {monthLabel}</td>
                       <td className="px-4 py-2.5 text-right text-sm font-bold text-[var(--brand)]">{fmtDecimal(parseFloat(acctInvTotal))}</td>
+                      {acctHasCard && <td className="px-4 py-2.5"></td>}
                     </tr>
                   </tfoot>
                 </table>
