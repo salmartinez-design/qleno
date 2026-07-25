@@ -755,6 +755,11 @@ export default function InvoicesPage() {
   let userRole = "office";
   try { userRole = JSON.parse(atob(token.split(".")[1])).role || "office"; } catch {}
   const canAdmin = userRole === "owner" || userRole === "admin";
+  // Charging a card on file is office work, not just owner/admin. The /charge,
+  // /ready-to-charge, and /failed endpoints already allow office server-side
+  // (#1267); the "Ready to Charge" + "Failed Payments" panels must match, or
+  // office staff (Maribel/Francisco) can never see the Charge Now button.
+  const canCharge = userRole === "owner" || userRole === "admin" || userRole === "office";
   const { activeBranchId } = useBranch();
 
   const [readyExpanded, setReadyExpanded] = useState(true);
@@ -772,14 +777,14 @@ export default function InvoicesPage() {
   const { data: readyData, refetch: refetchReady } = useQuery({
     queryKey: ["ready-to-charge"],
     queryFn: () => apiFetch("/api/jobs/ready-to-charge"),
-    enabled: canAdmin,
+    enabled: canCharge,
   });
   const readyJobs: any[] = readyData?.data || [];
 
   const { data: failedData, refetch: refetchFailed } = useQuery({
     queryKey: ["failed-payments"],
     queryFn: () => apiFetch("/api/payments/failed"),
-    enabled: canAdmin,
+    enabled: canCharge,
   });
   const failedPayments: any[] = failedData?.data || [];
 
@@ -819,7 +824,11 @@ export default function InvoicesPage() {
       setPayingInvoiceId(null);
     }
   }
-  async function chargeInvoiceRow(invId: number) {
+  async function chargeInvoiceRow(invId: number, inv?: any) {
+    // Confirm before moving real money (Sal's rule — parity with invoice-detail).
+    const last4 = inv?.card_last_four ? ` (•••• ${inv.card_last_four})` : "";
+    const amtStr = inv?.total != null ? `$${parseFloat(String(inv.total)).toFixed(2)} ` : "";
+    if (!window.confirm(`Charge ${amtStr}to the card on file${last4}?`)) return;
     setPayingInvoiceId(invId);
     try {
       const r = await apiFetch(`/api/invoices/${invId}/charge`, { method: "POST", body: JSON.stringify({}) });
@@ -1008,7 +1017,7 @@ export default function InvoicesPage() {
           </div>
 
           {/* ── Ready to Charge ──────────────────────────────────────────────── */}
-          {canAdmin && readyJobs.length > 0 && (
+          {canCharge && readyJobs.length > 0 && (
             <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #6EE7B7", borderRadius: 10, overflow: "hidden" }}>
               <button onClick={() => setReadyExpanded(e => !e)}
                 style={{ width: "100%", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
@@ -1045,7 +1054,7 @@ export default function InvoicesPage() {
           )}
 
           {/* ── Failed Payments ───────────────────────────────────────────────── */}
-          {canAdmin && failedPayments.length > 0 && (
+          {canCharge && failedPayments.length > 0 && (
             <div style={{ backgroundColor: "#FFFFFF", border: "1px solid #F1D0CB", borderRadius: 10, overflow: "hidden" }}>
               <button onClick={() => setFailedExpanded(e => !e)}
                 style={{ width: "100%", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "none", border: "none", cursor: "pointer", fontFamily: FF }}>
@@ -1364,7 +1373,7 @@ export default function InvoicesPage() {
                       </td>
                       <td style={{ padding: "13px 18px", textAlign: "right", whiteSpace: "nowrap" }} onClick={e => e.stopPropagation()}>
                         {(effectiveStatus === "sent" || effectiveStatus === "overdue") && inv.has_card_on_file && (
-                          <button onClick={() => chargeInvoiceRow(inv.id)} disabled={payingInvoiceId === inv.id}
+                          <button onClick={() => chargeInvoiceRow(inv.id, inv)} disabled={payingInvoiceId === inv.id}
                             title={`Charge card on file${inv.card_last_four ? ` (•••• ${inv.card_last_four})` : ""}`}
                             style={{ marginRight: 8, padding: "5px 10px", border: "none", backgroundColor: "var(--brand)", color: "#FFFFFF", fontSize: 12, fontWeight: 700, borderRadius: 6, cursor: "pointer", fontFamily: FF }}>
                             {payingInvoiceId === inv.id ? "…" : (inv.card_last_four ? `Charge •••• ${inv.card_last_four}` : "Charge")}

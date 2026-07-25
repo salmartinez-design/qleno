@@ -1644,10 +1644,12 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
   const assignedEmp = employees.find(e => e.id === job.assigned_user_id);
   const endMins = timeToMins(job.scheduled_time) + job.duration_minutes;
 
-  // Role check for charge button
+  // Role check for charge button. Office does collections too — the
+  // /api/jobs/:id/charge endpoint is requireAuth-only server-side, so office
+  // must see the button (Maribel/Francisco). Techs are excluded.
   let userRole = "office";
   try { userRole = JSON.parse(atob(token.split(".")[1])).role || "office"; } catch {}
-  const canCharge = (userRole === "owner" || userRole === "admin");
+  const canCharge = (userRole === "owner" || userRole === "admin" || userRole === "office");
 
   // Charge modal state
   const [chargeOpen, setChargeOpen] = useState(false);
@@ -3979,7 +3981,7 @@ export function JobPanel({ job, employees, onClose, onUpdate, mobile }: {
               Start Job
             </button>
           )}
-          {/* Charge Client — owner/admin only, completed Stripe jobs not yet charged */}
+          {/* Charge Client — owner/admin/office, completed jobs not yet charged */}
           {canCharge && job.status === "complete" && !job.charge_succeeded_at && (
             <button onClick={openChargeModal}
               style={{ padding: "10px 12px", border: "1px solid #6EE7B7", borderRadius: 8, backgroundColor: "#E6F6F1", color: "#065F46", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF, display: "flex", alignItems: "center", gap: 5 }}>
