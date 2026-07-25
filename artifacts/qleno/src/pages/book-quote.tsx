@@ -38,6 +38,12 @@ const freqLabel = (f: string | null | undefined) => {
     monthly: "Monthly", quarterly: "Quarterly" } as Record<string, string>)[k] || (f ? String(f).replace(/_/g, " ") : "");
 };
 
+// [multi-option 2026-07-25] One of the alternates the office quoted alongside the
+// primary. Saved on the quote as alternate_options; total is the pre-computed price.
+interface AltOption {
+  scope_id: number | null; scope_name: string; frequency: string | null;
+  addon_ids: number[]; total: number | string | null;
+}
 interface Quote {
   quote_id: number; company_id: number; company_slug: string;
   first_name: string; last_name: string; email: string; phone: string; address: string;
@@ -46,6 +52,14 @@ interface Quote {
   estimated_hours: string | null;
   bedrooms: number | null; bathrooms: number | null; half_baths: number | null;
   dirt_level: string | null; pets: number | null;
+  alternate_options?: AltOption[] | null;
+}
+
+// A single bookable choice the client sees. The primary is built from the flat
+// quote fields; alternates come from alternate_options.
+interface BookOption {
+  scope_id: number | null; scope_name: string; frequency: string | null;
+  addon_ids: number[]; addons: any[]; total_price: string | null; estimated_hours: string | null;
 }
 
 export default function BookQuotePage() {
@@ -59,6 +73,7 @@ export default function BookQuotePage() {
   const [booking, setBooking] = useState(false);
   const [bookErr, setBookErr] = useState("");
   const [done, setDone] = useState(false);
+  const [optionIdx, setOptionIdx] = useState(0); // which quoted option the client picked
 
   // Stripe
   const [stripeEnabled, setStripeEnabled] = useState<boolean | null>(null);
@@ -76,6 +91,33 @@ export default function BookQuotePage() {
     d.setDate(d.getDate() + 1);
     return d.toISOString().slice(0, 10);
   }, [selectedDate]);
+
+  // [multi-option 2026-07-25] The full set of choices to show the client: the
+  // primary (from the flat quote fields) first, then any alternates the office
+  // added. The selected one drives the summary, price, and the booking payload.
+  const options = useMemo<BookOption[]>(() => {
+    if (!quote) return [];
+    const primary: BookOption = {
+      scope_id: quote.scope_id,
+      scope_name: quote.service_type || "Cleaning",
+      frequency: quote.frequency,
+      addon_ids: quote.addon_ids || [],
+      addons: quote.addons || [],
+      total_price: quote.total_price,
+      estimated_hours: quote.estimated_hours,
+    };
+    const alts: BookOption[] = (quote.alternate_options || []).map((a) => ({
+      scope_id: a.scope_id,
+      scope_name: a.scope_name || "Cleaning",
+      frequency: a.frequency,
+      addon_ids: Array.isArray(a.addon_ids) ? a.addon_ids : [],
+      addons: [],
+      total_price: a.total != null ? String(a.total) : null,
+      estimated_hours: null,
+    }));
+    return [primary, ...alts];
+  }, [quote]);
+  const opt = options[optionIdx] || options[0] || null;
 
   // Load the quote + its company branding.
   useEffect(() => {
@@ -160,8 +202,9 @@ export default function BookQuotePage() {
         body: JSON.stringify({
           company_id: quote.company_id,
           first_name: quote.first_name, last_name: quote.last_name, phone: quote.phone, email: quote.email,
-          scope_id: quote.scope_id, sqft: quote.sqft, frequency: quote.frequency || "onetime",
-          addon_ids: quote.addon_ids || [],
+          // Book the option the client picked (falls back to the primary).
+          scope_id: (opt?.scope_id ?? quote.scope_id), sqft: quote.sqft, frequency: (opt?.frequency || quote.frequency || "onetime"),
+          addon_ids: (opt?.addon_ids ?? quote.addon_ids ?? []),
           bedrooms: quote.bedrooms, bathrooms: quote.bathrooms, half_baths: quote.half_baths, pets: quote.pets,
           address: quote.address,
           preferred_date: selectedDate,
@@ -193,7 +236,7 @@ export default function BookQuotePage() {
   if (done) return <div style={wrap}><div style={{ ...card, padding: 36, textAlign: "center" }}>
     <div style={{ width: 52, height: 52, borderRadius: 26, background: "#E4F8F2", color: "#048E72", fontSize: 26, fontWeight: 800, lineHeight: "52px", margin: "0 auto 14px" }}>✓</div>
     <p style={{ fontSize: 20, fontWeight: 800, margin: "0 0 6px" }}>You're booked!</p>
-    <p style={{ fontSize: 14, color: MUTE, margin: "0 0 4px", lineHeight: 1.6 }}>Your {quote.service_type || "cleaning"} is scheduled for {new Date(selectedDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}. We've saved your card and will confirm your arrival window shortly.</p>
+    <p style={{ fontSize: 14, color: MUTE, margin: "0 0 4px", lineHeight: 1.6 }}>Your {opt?.scope_name || "cleaning"} is scheduled for {new Date(selectedDate + "T00:00:00").toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })}. We've saved your card and will confirm your arrival window shortly.</p>
     <p style={{ fontSize: 13, color: MUTE, margin: "12px 0 0" }}>A confirmation email from {cn} is on its way.</p>
   </div></div>;
 
@@ -208,19 +251,48 @@ export default function BookQuotePage() {
         {company?.logo_url ? <img src={company.logo_url} alt={cn} height={54} style={{ height: 54, width: "auto" }} /> : <span style={{ fontSize: 20, fontWeight: 800 }}>{cn}</span>}
       </div>
       <div style={{ padding: "24px 28px 30px" }}>
-        <p style={{ fontSize: 20, fontWeight: 800, margin: "0 0 4px" }}>Book your {quote.service_type || "cleaning"}</p>
-        <p style={{ fontSize: 14, color: MUTE, margin: "0 0 20px", lineHeight: 1.6 }}>Hi {quote.first_name || "there"} — everything from your quote is set. Just pick a date and add a card, and you're booked. No need to re-enter anything.</p>
+        {options.length > 1 ? <>
+          {/* [multi-option 2026-07-25] The office quoted more than one option — let
+              the client pick. Selection drives the summary, price, and booking. */}
+          <p style={{ fontSize: 20, fontWeight: 800, margin: "0 0 4px" }}>Choose your cleaning</p>
+          <p style={{ fontSize: 14, color: MUTE, margin: "0 0 18px", lineHeight: 1.6 }}>Hi {quote.first_name || "there"} — here are your options. Pick whichever works best, choose a date, and add a card. Nothing is charged until the day of service.</p>
 
-        {/* Quote summary */}
-        <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-            <span style={{ fontSize: 14, fontWeight: 800 }}>{quote.service_type || "Cleaning"}{quote.frequency ? <span style={{ color: MUTE, fontWeight: 600 }}> · {freqLabel(quote.frequency)}</span> : null}</span>
-            <span style={{ fontSize: 16, fontWeight: 800 }}>{money(quote.total_price)}</span>
+          <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: MUTE, display: "block", marginBottom: 8 }}>Your options</label>
+          <div style={{ marginBottom: 20 }}>
+            {options.map((o, i) => {
+              const sel = i === optionIdx;
+              return (
+                <div key={i} onClick={() => setOptionIdx(i)}
+                  style={{ border: sel ? `1.5px solid ${BRAND}` : `1px solid ${BORDER}`, background: sel ? "var(--brand-soft, #EAF9F4)" : "#fff", borderRadius: 10, padding: "14px 16px", marginBottom: 10, cursor: "pointer", display: "flex", alignItems: "flex-start", gap: 12, transition: "all .15s" }}>
+                  <span style={{ width: 18, height: 18, borderRadius: 9, border: `2px solid ${sel ? BRAND : BORDER}`, flexShrink: 0, marginTop: 2, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    {sel && <span style={{ width: 9, height: 9, borderRadius: 5, background: BRAND }} />}
+                  </span>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 800 }}>{o.scope_name}{o.frequency ? <span style={{ color: MUTE, fontWeight: 600 }}> · {freqLabel(o.frequency)}</span> : null}{i === 0 ? <span style={{ display: "inline-block", fontSize: 10.5, fontWeight: 700, color: "#048E72", background: "#E4F8F2", borderRadius: 6, padding: "2px 7px", marginLeft: 6, verticalAlign: "middle" }}>RECOMMENDED</span> : null}</div>
+                    {estTime(o.estimated_hours) && <div style={{ fontSize: 12.5, color: MUTE, marginTop: 4 }}>Estimated time · {estTime(o.estimated_hours)}</div>}
+                    {o.addons.length > 0 && <div style={{ fontSize: 12.5, color: MUTE, marginTop: 4 }}>Includes: {o.addons.map((a: any) => a?.name).filter(Boolean).join(" · ")}</div>}
+                  </div>
+                  <span style={{ fontSize: 16, fontWeight: 800, flexShrink: 0 }}>{money(o.total_price)}</span>
+                </div>
+              );
+            })}
           </div>
-          <div style={{ fontSize: 12.5, color: MUTE }}>{quote.address}</div>
-          {estTime(quote.estimated_hours) && <div style={{ fontSize: 12.5, color: MUTE, marginTop: 6 }}>Estimated time · {estTime(quote.estimated_hours)}</div>}
-          {(quote.addons?.length ?? 0) > 0 && <div style={{ fontSize: 12.5, color: MUTE, marginTop: 6 }}>Includes: {quote.addons.map((a: any) => a?.name).filter(Boolean).join(" · ")}</div>}
-        </div>
+          <div style={{ fontSize: 12.5, color: MUTE, marginBottom: 20 }}>{quote.address}</div>
+        </> : <>
+          <p style={{ fontSize: 20, fontWeight: 800, margin: "0 0 4px" }}>Book your {opt?.scope_name || "cleaning"}</p>
+          <p style={{ fontSize: 14, color: MUTE, margin: "0 0 20px", lineHeight: 1.6 }}>Hi {quote.first_name || "there"} — everything from your quote is set. Just pick a date and add a card, and you're booked. No need to re-enter anything.</p>
+
+          {/* Quote summary */}
+          <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+              <span style={{ fontSize: 14, fontWeight: 800 }}>{opt?.scope_name || "Cleaning"}{opt?.frequency ? <span style={{ color: MUTE, fontWeight: 600 }}> · {freqLabel(opt.frequency)}</span> : null}</span>
+              <span style={{ fontSize: 16, fontWeight: 800 }}>{money(opt?.total_price)}</span>
+            </div>
+            <div style={{ fontSize: 12.5, color: MUTE }}>{quote.address}</div>
+            {estTime(opt?.estimated_hours) && <div style={{ fontSize: 12.5, color: MUTE, marginTop: 6 }}>Estimated time · {estTime(opt?.estimated_hours)}</div>}
+            {(opt?.addons?.length ?? 0) > 0 && <div style={{ fontSize: 12.5, color: MUTE, marginTop: 6 }}>Includes: {opt!.addons.map((a: any) => a?.name).filter(Boolean).join(" · ")}</div>}
+          </div>
+        </>}
 
         {/* Date */}
         <label style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", textTransform: "uppercase", color: MUTE, display: "block", marginBottom: 6 }}>Preferred date</label>
@@ -241,7 +313,7 @@ export default function BookQuotePage() {
           onClick={confirmBooking}
           disabled={booking || !selectedDate || (stripeEnabled !== false && !cardReady)}
           style={{ width: "100%", padding: "14px", border: "none", borderRadius: 10, background: BRAND, color: "#052e26", fontSize: 16, fontWeight: 800, cursor: "pointer", fontFamily: FONT, opacity: (booking || !selectedDate || (stripeEnabled !== false && !cardReady)) ? 0.55 : 1 }}>
-          {booking ? "Booking…" : `Confirm & book — ${money(quote.total_price)}`}
+          {booking ? "Booking…" : `Confirm & book — ${money(opt?.total_price)}`}
         </button>
       </div>
     </div>
