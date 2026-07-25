@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from "./customer-profile-tabs2";
 import { JobWizard } from "@/components/job-wizard";
+import { SquareCardForm } from "@/components/square-card-form";
 import { TeamPhotoNotes } from "@/components/team-photo-notes";
 import { ActivityFeed } from "@/components/activity-feed";
 // [job-card-redesign 2026-06-25] The SAME editable dispatch card, opened from the
@@ -2156,6 +2157,13 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
   const [sending, setSending] = useState<"email" | "sms" | null>(null);
   const [sent, setSent] = useState<"email" | "sms" | null>(null);
   const [togglingAutoCharge, setTogglingAutoCharge] = useState(false);
+  // [square-default 2026-07-24] "Enter card now" — type the card straight into
+  // Qleno (no dashboard, no link). Opens a modal that loads the Square Web
+  // Payments SDK, tokenizes the card, and saves it on file via Square.
+  const [enterCardOpen, setEnterCardOpen] = useState(false);
+  const [sqCfg, setSqCfg] = useState<{ configured: boolean; applicationId: string | null; locationId: string | null; environment: "production" | "sandbox" } | null>(null);
+  const [sqCfgLoading, setSqCfgLoading] = useState(false);
+  const [enterCardSaved, setEnterCardSaved] = useState(false);
   // Charge-on-command, right where the card lives (same flow as the Payments tab).
   const [chargeOpen, setChargeOpen] = useState(false);
   const [chargeAmt, setChargeAmt] = useState("");
@@ -2288,6 +2296,41 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
     }
   }
 
+  // [square-default 2026-07-24] Open the "Enter card now" modal, loading the
+  // public Square config on demand so the SDK gets the right app/location/env.
+  async function openEnterCard() {
+    setEnterCardSaved(false);
+    setEnterCardOpen(true);
+    if (!sqCfg) {
+      setSqCfgLoading(true);
+      try {
+        const r = await fetch(`${API}/api/square/config`, { headers: { ...getAuthHeaders() } });
+        const cfg = await r.json().catch(() => null);
+        if (cfg) setSqCfg(cfg);
+      } finally {
+        setSqCfgLoading(false);
+      }
+    }
+  }
+
+  // SquareCardForm hands us the one-time nonce; save it as a durable card-on-file.
+  async function saveSquareCard(sourceId: string) {
+    const r = await fetch(`${API}/api/square/clients/${client.id}/save-card`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...getAuthHeaders() },
+      body: JSON.stringify({ source_id: sourceId }),
+    });
+    const result = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      // Re-throw so the card form clears its busy state and shows the message.
+      throw new Error(result.message || result.error || "Could not save the card.");
+    }
+    setEnterCardSaved(true);
+    refetch();
+    // Brief success beat, then close.
+    setTimeout(() => { setEnterCardOpen(false); }, 1400);
+  }
+
   async function toggleAutoCharge() {
     setTogglingAutoCharge(true);
     try {
@@ -2395,8 +2438,15 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
               </button>
             </div>
 
-            {/* Send new link */}
-            <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginBottom: 8 }}>Send a new card link to update the saved method:</div>
+            {/* [square-default 2026-07-24] Update the saved card by typing a new
+                one in, or by sending the client a fresh link. */}
+            <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, marginBottom: 8 }}>Update the saved method:</div>
+            <button
+              onClick={openEnterCard}
+              style={{ width: "100%", padding: "10px 0", background: "var(--brand)", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, color: "#fff", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}
+            >
+              <CreditCard size={15} /> Enter new card now
+            </button>
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 onClick={() => sendCardLink("email")}
@@ -2422,13 +2472,22 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
               </div>
               <div style={{ fontSize: 13, color: "#6B6860", fontFamily: FF }}>No payment method saved</div>
             </div>
+            {/* [square-default 2026-07-24] Enter the card straight into Qleno —
+                the primary path (no Square dashboard, no waiting on the client). */}
+            <button
+              onClick={openEnterCard}
+              style={{ width: "100%", padding: "12px 0", background: "var(--brand)", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, color: "#fff", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 7 }}
+            >
+              <CreditCard size={15} /> Enter card now
+            </button>
+            <div style={{ fontSize: 12, color: "#6B6860", fontFamily: FF, margin: "4px 0 8px" }}>Or send the client a secure link to save their own card:</div>
             <div style={{ display: "flex", gap: 8 }}>
               <button
                 onClick={() => sendCardLink("email")}
                 disabled={!!sending}
-                style={{ flex: 1, padding: "11px 0", background: "var(--brand)", border: "none", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, color: "#fff" }}
+                style={{ flex: 1, padding: "11px 0", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, color: sending === "email" ? "#9E9B94" : "#1A1917" }}
               >
-                {sent === "email" ? "Sent!" : sending === "email" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : "Send Card Link via Email"}
+                {sent === "email" ? "Sent!" : sending === "email" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : "Send Link via Email"}
               </button>
               <button
                 onClick={() => sendCardLink("sms")}
@@ -2436,8 +2495,47 @@ function CardOnFileTab({ client, refetch }: { client: any; refetch: () => void }
                 title={!client.phone ? "No phone on file" : ""}
                 style={{ flex: 1, padding: "11px 0", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 7, fontSize: 13, fontWeight: 600, cursor: client.phone ? "pointer" : "not-allowed", fontFamily: FF, color: client.phone ? "#1A1917" : "#9E9B94" }}
               >
-                {sent === "sms" ? "Sent!" : sending === "sms" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : "Send Card Link via SMS"}
+                {sent === "sms" ? "Sent!" : sending === "sms" ? <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> : "Send Link via SMS"}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* [square-default 2026-07-24] Enter-card modal (Square Web Payments). */}
+        {enterCardOpen && (
+          <div
+            onClick={() => setEnterCardOpen(false)}
+            style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 }}
+          >
+            <div onClick={e => e.stopPropagation()} style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 420, padding: 24, fontFamily: FF, boxShadow: "0 8px 40px rgba(0,0,0,0.2)" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+                <div style={{ fontWeight: 700, fontSize: 16, color: "#1A1917" }}>Enter card on file</div>
+                <button onClick={() => setEnterCardOpen(false)} style={{ background: "none", border: "none", fontSize: 22, lineHeight: 1, color: "#9E9B94", cursor: "pointer", padding: 0 }}>×</button>
+              </div>
+              <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 18 }}>
+                Saving a card for {client.first_name} {client.last_name}. The card is not charged now.
+              </div>
+
+              {enterCardSaved ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "#E7F5F0", border: "1px solid #B6E3D6", borderRadius: 8, color: "#0F7A63", fontSize: 14, fontWeight: 600 }}>
+                  <CheckCircle size={18} /> Card saved on file.
+                </div>
+              ) : sqCfgLoading ? (
+                <div style={{ padding: "24px 0", textAlign: "center", color: "#9E9B94", fontSize: 13 }}>Loading secure card field…</div>
+              ) : sqCfg?.configured && sqCfg.applicationId && sqCfg.locationId ? (
+                <SquareCardForm
+                  applicationId={sqCfg.applicationId}
+                  locationId={sqCfg.locationId}
+                  environment={sqCfg.environment}
+                  onToken={saveSquareCard}
+                  submitLabel="Save Card on File"
+                  busyLabel="Saving…"
+                />
+              ) : (
+                <div style={{ padding: "12px 14px", border: "1px solid #F1D0CB", background: "#FCEBEA", borderRadius: 8, fontSize: 13, color: "#B3261E" }}>
+                  Card entry isn't configured yet. Add SQUARE_APPLICATION_ID and SQUARE_LOCATION_ID in Railway, or send the client a card link instead.
+                </div>
+              )}
             </div>
           </div>
         )}

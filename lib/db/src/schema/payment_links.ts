@@ -15,6 +15,12 @@ export const paymentLinksTable = pgTable("payment_links", {
   purpose: paymentLinkPurposeEnum("purpose").notNull().default("save_card"),
   invoice_id: integer("invoice_id"),
   amount: numeric("amount", { precision: 10, scale: 2 }),
+  // [square-default 2026-07-24] Which processor this link captures a card on.
+  // Office-initiated links default to 'square' (Sal: Square is the house rail);
+  // the website booking widget stays 'stripe'. The public /pay page branches on
+  // this to render either the Stripe SetupIntent flow or the Square Web Payments
+  // SDK card form. Existing rows backfill to 'stripe' (their historical behaviour).
+  provider: text("provider").notNull().default("stripe"),
   stripe_setup_intent_id: text("stripe_setup_intent_id"),
   expires_at: timestamp("expires_at").notNull(),
   used_at: timestamp("used_at"),

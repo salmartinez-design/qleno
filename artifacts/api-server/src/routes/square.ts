@@ -19,11 +19,62 @@ import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { reconcileSquarePayment, decimalToCents } from "../lib/square-payment-reconcile.js";
 import { syncSquareCustomerMap } from "../lib/square-customer-map.js";
+import { getSquarePublicConfig } from "../lib/square-config.js";
+import { saveSquareCardOnFile } from "../lib/square-card-onfile.js";
+import crypto from "crypto";
 
 const router = Router();
 
 const officeOnly = [requireAuth, requireRole("owner", "admin", "office")] as const;
 const adminOnly = [requireAuth, requireRole("owner", "admin")] as const;
+
+// ── Square Web Payments SDK config ───────────────────────────────────────────
+//
+// GET /api/square/config
+//
+// The office "Enter card now" form initializes the Web Payments SDK with these
+// PUBLIC ids (application + location). No secret leaves the server. `configured`
+// is false until SQUARE_APPLICATION_ID + SQUARE_LOCATION_ID (+ SQUARE_ACCESS_TOKEN)
+// are set in the environment, so the UI can show a clean "not set up yet" state
+// instead of a broken card form.
+router.get("/config", ...officeOnly, async (_req: any, res) => {
+  res.json(getSquarePublicConfig());
+});
+
+// ── Office: save a card on file to Square ────────────────────────────────────
+//
+// POST /api/square/clients/:id/save-card   body: { source_id }
+//
+// The "Enter card now" path (client profile + quote Review step). The browser
+// tokenizes the card with the Web Payments SDK and posts the one-time nonce here;
+// we turn it into a durable Square card-on-file and write the chargeable handle
+// onto the client. Office-role gated to match the charge button. Nothing is
+// charged — card-on-file only.
+router.post("/clients/:id/save-card", ...officeOnly, async (req: any, res) => {
+  try {
+    const companyId = req.user.company_id;
+    const clientId = Number(req.params.id);
+    const sourceId = req.body?.source_id;
+    if (!Number.isFinite(clientId)) return res.status(400).json({ error: "Invalid client id" });
+    if (!sourceId) return res.status(400).json({ error: "source_id (card token) required" });
+
+    const result = await saveSquareCardOnFile({
+      companyId,
+      clientId,
+      sourceId,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    if (!result.ok) {
+      const status = result.code === "not_configured" ? 503 : result.code === "declined" ? 402 : 400;
+      return res.status(status).json({ error: result.message, code: result.code });
+    }
+    logAudit(req, "SAVE_CARD", "client", clientId, {}, { processor: "square", last4: result.last4 } as any);
+    res.json({ success: true, brand: result.brand, last4: result.last4 });
+  } catch (err: any) {
+    console.error("[square/save-card]", err?.message ?? err);
+    res.status(500).json({ error: err?.message || "Failed to save card" });
+  }
+});
 
 // ── Re-sync Square customers → Qleno ─────────────────────────────────────────
 //

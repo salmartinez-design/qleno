@@ -1112,7 +1112,35 @@ router.get("/:id/invoices", requireAuth, requireRole("owner", "admin", "office")
       .orderBy(desc(svcDate));
 
     const total = rows.reduce((s, r) => s + parseFloat((r.total as string) || "0"), 0);
-    res.json({ data: rows, count: rows.length, total: total.toFixed(2), month: /^\d{4}-\d{2}$/.test(month) ? month : null });
+
+    // [square-default 2026-07-24] Whether the office can charge these invoices in
+    // one click depends on the ACCOUNT's card (account invoices carry no
+    // client_id — the card lives on the account). Surface it once so the
+    // Invoices tab can show a "Charge" button on each unpaid row.
+    const [acct] = await db
+      .select({
+        payment_method: accountsTable.payment_method,
+        stripe_customer_id: accountsTable.stripe_customer_id,
+        square_customer_id: accountsTable.square_customer_id,
+      })
+      .from(accountsTable)
+      .where(and(eq(accountsTable.id, id), eq(accountsTable.company_id, companyId)))
+      .limit(1);
+    // Chargeable = a card-on-file account (not check/ach/invoice_only) with a
+    // processor customer link. Square is the Phes default; Stripe if that's the
+    // only link present.
+    const chargeMethod = acct?.payment_method || null;
+    const accountHasCard =
+      chargeMethod === "card_on_file" && !!(acct?.square_customer_id || acct?.stripe_customer_id);
+
+    res.json({
+      data: rows,
+      count: rows.length,
+      total: total.toFixed(2),
+      month: /^\d{4}-\d{2}$/.test(month) ? month : null,
+      account_has_card: accountHasCard,
+      account_charge_method: chargeMethod,
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to list account invoices" });

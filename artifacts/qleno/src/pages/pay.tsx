@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRoute } from "wouter";
 import { ShieldCheck, AlertCircle, Clock, CheckCircle, CreditCard } from "lucide-react";
+import { SquareCardForm } from "@/components/square-card-form";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -12,8 +13,16 @@ interface LinkData {
   company: { id: number; name: string; logo_url: string | null; brand_color: string };
   client: { id: number; first_name: string; last_name: string } | null;
   invoice_number: string | null;
+  // [square-default 2026-07-24] The link now declares which processor captures
+  // the card. Stripe branch carries the publishable key + secret; Square branch
+  // carries the two public Web Payments SDK identifiers.
+  provider?: "stripe" | "square";
   stripe_publishable_key: string | null;
   client_secret: string | null;
+  square_configured?: boolean;
+  square_application_id?: string | null;
+  square_location_id?: string | null;
+  square_environment?: "production" | "sandbox";
 }
 
 export default function PayPage() {
@@ -151,6 +160,29 @@ export default function PayPage() {
     }
   }
 
+  // [square-default 2026-07-24] Square save-card path. The SquareCardForm hands
+  // us a one-time `cnon:` nonce; we POST it to the Square save-card endpoint,
+  // which turns it into a durable card-on-file. Square links are always
+  // purpose="save_card" (pay_invoice always routes to Stripe on the server), so
+  // there's no charge branch here.
+  async function handleSquareToken(sourceId: string) {
+    if (!data) return;
+    setState("saving");
+    const res = await fetch(`${BASE}/api/payment-links/public/${token}/save-card-square`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ source_id: sourceId }),
+    });
+    const result = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      setErrorMsg(result.error || "Failed to save card");
+      setState("error");
+      // Re-throw so the card form clears its busy state and lets the user retry.
+      throw new Error(result.error || "save failed");
+    }
+    setState("success");
+  }
+
   const brand = data?.company?.brand_color || "var(--brand)";
   const companyName = data?.company?.name || "Qleno";
   const clientName = data?.client ? `${data.client.first_name} ${data.client.last_name}` : "there";
@@ -254,7 +286,7 @@ export default function PayPage() {
 
           {/* Valid — card form */}
           {(state === "valid" || state === "saving") && data && (
-            <form onSubmit={handleSubmit} style={{ padding: "32px" }}>
+            <div style={{ padding: "32px" }}>
               {/* Purpose header */}
               <div style={{ marginBottom: 24 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
@@ -272,44 +304,67 @@ export default function PayPage() {
                 </p>
               </div>
 
-              {/* Stripe Payment Element — card / debit, Apple Pay, Google Pay,
-                  and ACH bank debit (whichever are enabled in the Dashboard). */}
-              <div style={{ marginBottom: 20 }}>
-                {data.stripe_publishable_key ? (
-                  <div id="payment-element" style={{ minHeight: 44 }} />
+              {/* [square-default 2026-07-24] Square vs Stripe capture. Square is
+                  card-on-file only (save_card); Stripe covers both save + pay. */}
+              {data.provider === "square" ? (
+                data.square_configured && data.square_application_id && data.square_location_id ? (
+                  <SquareCardForm
+                    applicationId={data.square_application_id}
+                    locationId={data.square_location_id}
+                    environment={data.square_environment || "production"}
+                    onToken={handleSquareToken}
+                    submitLabel="Save Card Securely"
+                    busyLabel="Saving..."
+                    accent={brand}
+                    disabled={state === "saving"}
+                  />
                 ) : (
                   <div style={{ padding: "12px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#F7F6F3", fontSize: 13, color: "#9E9B94" }}>
                     Payment processing is not yet configured for this company.
                   </div>
-                )}
-              </div>
+                )
+              ) : (
+                <form onSubmit={handleSubmit}>
+                  {/* Stripe Payment Element — card / debit, Apple Pay, Google Pay,
+                      and ACH bank debit (whichever are enabled in the Dashboard). */}
+                  <div style={{ marginBottom: 20 }}>
+                    {data.stripe_publishable_key ? (
+                      <div id="payment-element" style={{ minHeight: 44 }} />
+                    ) : (
+                      <div style={{ padding: "12px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#F7F6F3", fontSize: 13, color: "#9E9B94" }}>
+                        Payment processing is not yet configured for this company.
+                      </div>
+                    )}
+                  </div>
 
-              <button
-                type="submit"
-                disabled={state === "saving" || !data.stripe_publishable_key}
-                style={{
-                  width: "100%",
-                  background: (!data.stripe_publishable_key) ? "#E5E2DC" : brand,
-                  color: (!data.stripe_publishable_key) ? "#9E9B94" : "#fff",
-                  border: "none", borderRadius: 8, padding: "14px 0",
-                  fontWeight: 600, fontSize: 15, cursor: (!data.stripe_publishable_key) ? "not-allowed" : "pointer",
-                  fontFamily: FF, marginBottom: 16,
-                  opacity: state === "saving" ? 0.7 : 1,
-                }}
-              >
-                {state === "saving"
-                  ? "Saving..."
-                  : data.link.purpose === "pay_invoice"
-                    ? `Pay $${parseFloat(data.link.amount || "0").toFixed(2)}`
-                    : "Save Card Securely"}
-              </button>
+                  <button
+                    type="submit"
+                    disabled={state === "saving" || !data.stripe_publishable_key}
+                    style={{
+                      width: "100%",
+                      background: (!data.stripe_publishable_key) ? "#E5E2DC" : brand,
+                      color: (!data.stripe_publishable_key) ? "#9E9B94" : "#fff",
+                      border: "none", borderRadius: 8, padding: "14px 0",
+                      fontWeight: 600, fontSize: 15, cursor: (!data.stripe_publishable_key) ? "not-allowed" : "pointer",
+                      fontFamily: FF, marginBottom: 16,
+                      opacity: state === "saving" ? 0.7 : 1,
+                    }}
+                  >
+                    {state === "saving"
+                      ? "Saving..."
+                      : data.link.purpose === "pay_invoice"
+                        ? `Pay $${parseFloat(data.link.amount || "0").toFixed(2)}`
+                        : "Save Card Securely"}
+                  </button>
 
-              {/* Security badge */}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, color: "#9E9B94" }}>
-                <ShieldCheck size={14} />
-                <span>Secured by Stripe. Your card details are never stored on our servers.</span>
-              </div>
-            </form>
+                  {/* Security badge */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontSize: 12, color: "#9E9B94" }}>
+                    <ShieldCheck size={14} />
+                    <span>Secured by Stripe. Your card details are never stored on our servers.</span>
+                  </div>
+                </form>
+              )}
+            </div>
           )}
         </div>
       </div>

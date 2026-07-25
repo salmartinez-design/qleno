@@ -19,12 +19,13 @@ import { QuoteAttachments } from "@/components/quote-attachments";
 import {
   ArrowLeft, Save, SendHorizonal, ArrowRight, ChevronDown,
   User, Home, Calculator, PlusSquare, AlertCircle, CheckCircle2, Check,
-  X, Phone, ImagePlus, Loader2, Trash2,
+  X, Phone, ImagePlus, Loader2, Trash2, CreditCard,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { calculateCommissionSplit } from "@/lib/commission";
 import { AddonIcon } from "@/lib/addon-icons";
+import { SquareCardForm } from "@/components/square-card-form";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -323,6 +324,101 @@ export default function QuoteBuilderPage() {
     setSelectedTechIds(prev => (prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]));
   const [techAvailability, setTechAvailability] = useState<Record<number, number>>({});
   const [techAvailLoading, setTechAvailLoading] = useState(false);
+
+  // ── Card on file (Square) — Review step ───────────────────────────────────
+  // Two ways to put a card on file from the quote: capture it now (type it in
+  // via the Square Web Payments SDK), or send the customer a leave-a-card link.
+  // Both are gated on a real, saved client (selectedClientId) — you can't save
+  // a card to a lead that has no client row yet.
+  const [cardModalOpen, setCardModalOpen] = useState(false);
+  const [sqCfg, setSqCfg] = useState<{ configured: boolean; applicationId: string; locationId: string; environment: "sandbox" | "production" } | null>(null);
+  const [sqCfgLoading, setSqCfgLoading] = useState(false);
+  const [cardSaved, setCardSaved] = useState(false);
+  const [linkSending, setLinkSending] = useState<null | "email" | "sms">(null);
+  const [linkSent, setLinkSent] = useState<null | "email" | "sms">(null);
+  // The customer's phone/email cascade here from the Customer Info step so the
+  // office can text/email the leave-a-card link without re-typing — but stay
+  // editable (send it to a spouse's phone, fix a typo) before sending. Once the
+  // office edits a field, we stop auto-syncing it so their edit sticks.
+  const [cardLinkPhone, setCardLinkPhone] = useState("");
+  const [cardLinkEmail, setCardLinkEmail] = useState("");
+  const cardLinkPhoneEdited = useRef(false);
+  const cardLinkEmailEdited = useRef(false);
+  useEffect(() => {
+    if (!cardLinkPhoneEdited.current) setCardLinkPhone(clientLoaded?.phone || leadPhone || "");
+  }, [clientLoaded?.phone, leadPhone]);
+  useEffect(() => {
+    if (!cardLinkEmailEdited.current) setCardLinkEmail(clientLoaded?.email || leadEmail || "");
+  }, [clientLoaded?.email, leadEmail]);
+
+  const openCardModal = async () => {
+    setCardModalOpen(true);
+    if (sqCfg) return;
+    setSqCfgLoading(true);
+    try {
+      const r = await fetch(`${API}/api/square/config`, { headers: getAuthHeaders() });
+      const d = await r.json();
+      setSqCfg({
+        configured: !!d.configured,
+        applicationId: d.application_id || "",
+        locationId: d.location_id || "",
+        environment: d.environment === "production" ? "production" : "sandbox",
+      });
+    } catch {
+      setSqCfg({ configured: false, applicationId: "", locationId: "", environment: "sandbox" });
+    } finally {
+      setSqCfgLoading(false);
+    }
+  };
+
+  const saveSquareCard = async (sourceId: string) => {
+    if (!selectedClientId) throw new Error("No client selected");
+    const r = await fetch(`${API}/api/square/clients/${selectedClientId}/save-card`, {
+      method: "POST",
+      headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({ source_id: sourceId }),
+    });
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      throw new Error(d.error || d.message || "Could not save card");
+    }
+    setCardSaved(true);
+    setTimeout(() => setCardModalOpen(false), 1400);
+  };
+
+  const sendCardLink = async (channel: "email" | "sms") => {
+    if (!selectedClientId) return;
+    if (channel === "sms" && !cardLinkPhone.trim()) { toast.error("Enter a mobile number to text the card link."); return; }
+    if (channel === "email" && !cardLinkEmail.trim()) { toast.error("Enter an email to send the card link."); return; }
+    setLinkSending(channel);
+    try {
+      const r = await fetch(`${API}/api/payment-links`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_id: selectedClientId,
+          purpose: "save_card",
+          provider: "square",
+          send_email: channel === "email",
+          send_sms: channel === "sms",
+          // Editable recipient overrides — backend honors to_phone/to_email.
+          to_phone: channel === "sms" ? cardLinkPhone.trim() : undefined,
+          to_email: channel === "email" ? cardLinkEmail.trim() : undefined,
+        }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        toast.error(d.error || d.message || "Could not send card link");
+        return;
+      }
+      setLinkSent(channel);
+      toast.success(channel === "email" ? "Card link emailed to the customer." : "Card link texted to the customer.");
+    } catch {
+      toast.error("Could not send card link");
+    } finally {
+      setLinkSending(null);
+    }
+  };
 
   // ── Quick Book (returning client) ─────────────────────────────────────────
   const [preferredTech, setPreferredTech] = useState<PreferredTech | null>(null);
@@ -1259,6 +1355,46 @@ export default function QuoteBuilderPage() {
     ? clients.filter(c => `${c.first_name} ${c.last_name} ${c.email}`.toLowerCase().includes(mobileClientSearch.toLowerCase())).slice(0, 30)
     : clients.slice(0, 30);
 
+  // Shared Square card-capture modal — rendered in both the mobile and desktop
+  // return trees so "Save card on file now" works from either Review layout.
+  const cardModalEl = cardModalOpen ? (
+    <div onClick={() => setCardModalOpen(false)}
+      style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={e => e.stopPropagation()}
+        style={{ background: "#FFF", borderRadius: 14, width: "100%", maxWidth: 420, padding: 22, fontFamily: FF, boxShadow: "0 20px 50px rgba(0,0,0,0.25)" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#1A1917" }}>Save card on file</div>
+          <button type="button" onClick={() => setCardModalOpen(false)} style={{ border: "none", background: "none", cursor: "pointer", color: "#9E9B94", padding: 4 }}><X size={18} /></button>
+        </div>
+        <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 16 }}>
+          {selectedClient ? `${selectedClient.first_name} ${selectedClient.last_name}` : "This client"} — card is stored securely with Square, not on our servers.
+        </div>
+        {cardSaved ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#0F7A63", fontWeight: 600, padding: "12px 0" }}>
+            <CheckCircle2 size={18} /> Card saved on file.
+          </div>
+        ) : sqCfgLoading ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#6B6860", padding: "12px 0" }}>
+            <Loader2 size={15} className="animate-spin" /> Loading secure card form…
+          </div>
+        ) : sqCfg && sqCfg.configured ? (
+          <SquareCardForm
+            applicationId={sqCfg.applicationId}
+            locationId={sqCfg.locationId}
+            environment={sqCfg.environment}
+            onToken={saveSquareCard}
+            submitLabel="Save card on file"
+            busyLabel="Saving…"
+          />
+        ) : (
+          <div style={{ fontSize: 13, color: "#BA7517", background: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 12px" }}>
+            Square card capture isn't configured yet. Use "Text link" or "Email link" to have the customer add their card, or save it from Square directly.
+          </div>
+        )}
+      </div>
+    </div>
+  ) : null;
+
   // ── MOBILE LAYOUT ────────────────────────────────────────────────────────
   if (isMobile) {
     const MOBILE_FINAL_STEP = 4;
@@ -1546,8 +1682,52 @@ export default function QuoteBuilderPage() {
                 </div>
               </div>
             )}
+            {/* Card on file (Square) */}
+            <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 10 }}>Payment Method</div>
+              {selectedClientId ? (
+                cardSaved ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#0F7A63", fontWeight: 600 }}>
+                    <CheckCircle2 size={16} /> Card saved on file.
+                  </div>
+                ) : (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                    <button type="button" onClick={openCardModal}
+                      style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6, width: "100%", padding: "12px", borderRadius: 8, border: "none", background: "var(--brand)", color: "#FFF", fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                      <CreditCard size={16} /> Save card on file now
+                    </button>
+                    <div style={{ fontSize: 12, color: "#9E9B94" }}>Or send a link for the customer to add it:</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input value={cardLinkPhone} onChange={e => { cardLinkPhoneEdited.current = true; setCardLinkPhone(e.target.value); if (linkSent === "sms") setLinkSent(null); }}
+                        placeholder="Mobile number" type="tel" inputMode="tel"
+                        style={{ flex: 1, minWidth: 0, height: 42, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 12px", fontSize: 14, fontFamily: FF, outline: "none", background: "#FFF" }} />
+                      <button type="button" onClick={() => sendCardLink("sms")} disabled={linkSending !== null}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "0 14px", borderRadius: 8, border: "1px solid #E5E2DC", background: linkSent === "sms" ? "#EAF9F4" : "#F7F6F3", color: "#1A1917", fontSize: 13, fontWeight: 600, cursor: linkSending ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                        {linkSending === "sms" ? <Loader2 size={14} className="animate-spin" /> : linkSent === "sms" ? <Check size={14} style={{ color: "#0F7A63" }} /> : null}
+                        {linkSent === "sms" ? "Sent" : "Text"}
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input value={cardLinkEmail} onChange={e => { cardLinkEmailEdited.current = true; setCardLinkEmail(e.target.value); if (linkSent === "email") setLinkSent(null); }}
+                        placeholder="Email" type="email" inputMode="email"
+                        style={{ flex: 1, minWidth: 0, height: 42, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 12px", fontSize: 14, fontFamily: FF, outline: "none", background: "#FFF" }} />
+                      <button type="button" onClick={() => sendCardLink("email")} disabled={linkSending !== null}
+                        style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "0 14px", borderRadius: 8, border: "1px solid #E5E2DC", background: linkSent === "email" ? "#EAF9F4" : "#F7F6F3", color: "#1A1917", fontSize: 13, fontWeight: 600, cursor: linkSending ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                        {linkSending === "email" ? <Loader2 size={14} className="animate-spin" /> : linkSent === "email" ? <Check size={14} style={{ color: "#0F7A63" }} /> : null}
+                        {linkSent === "email" ? "Sent" : "Email"}
+                      </button>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div style={{ fontSize: 13, color: "#9E9B94" }}>
+                  Select an existing client to save a card on file — new leads can add one from their profile after converting.
+                </div>
+              )}
+            </div>
           </div>
         )}
+        {cardModalEl}
 
         {/* Call Notes FAB */}
         <button onClick={() => setCallNotesMobileOpen(true)} style={{ position: "fixed", bottom: 82, right: 16, zIndex: 45, width: 52, height: 52, borderRadius: "50%", background: callNotes ? "#1A1917" : "#F7F6F3", border: callNotes ? "none" : "1.5px solid #E5E2DC", display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "0 2px 12px rgba(0,0,0,0.18)", cursor: "pointer" }}>
@@ -2762,6 +2942,56 @@ export default function QuoteBuilderPage() {
                 )}
               </div>
 
+              {/* ── Card on file (Square) ── */}
+              <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 16, marginTop: 16 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10, fontFamily: FF }}>
+                  Payment Method
+                </div>
+                {selectedClientId ? (
+                  cardSaved ? (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#0F7A63", fontWeight: 600, fontFamily: FF }}>
+                      <CheckCircle2 size={16} /> Card saved on file for {selectedClient?.first_name || "this client"}.
+                    </div>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                      <div>
+                        <button type="button" onClick={openCardModal}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "9px 14px", borderRadius: 8, border: "none", background: "var(--brand)", color: "#FFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                          <CreditCard size={15} /> Save card on file now
+                        </button>
+                      </div>
+                      <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>Or send the customer a link to add it themselves:</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 12 }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input value={cardLinkPhone} onChange={e => { cardLinkPhoneEdited.current = true; setCardLinkPhone(e.target.value); if (linkSent === "sms") setLinkSent(null); }}
+                            placeholder="Mobile number" type="tel" inputMode="tel"
+                            style={{ width: 150, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 10px", fontSize: 13, fontFamily: FF, outline: "none", background: "#FFF" }} />
+                          <button type="button" onClick={() => sendCardLink("sms")} disabled={linkSending !== null}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 12px", borderRadius: 8, border: "1px solid #E5E2DC", background: linkSent === "sms" ? "#EAF9F4" : "#FFF", color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: linkSending ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                            {linkSending === "sms" ? <Loader2 size={13} className="animate-spin" /> : linkSent === "sms" ? <Check size={13} style={{ color: "#0F7A63" }} /> : null}
+                            {linkSent === "sms" ? "Text sent" : "Text link"}
+                          </button>
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <input value={cardLinkEmail} onChange={e => { cardLinkEmailEdited.current = true; setCardLinkEmail(e.target.value); if (linkSent === "email") setLinkSent(null); }}
+                            placeholder="Email" type="email" inputMode="email"
+                            style={{ width: 190, height: 36, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 10px", fontSize: 13, fontFamily: FF, outline: "none", background: "#FFF" }} />
+                          <button type="button" onClick={() => sendCardLink("email")} disabled={linkSending !== null}
+                            style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "8px 12px", borderRadius: 8, border: "1px solid #E5E2DC", background: linkSent === "email" ? "#EAF9F4" : "#FFF", color: "#1A1917", fontSize: 12, fontWeight: 600, cursor: linkSending ? "default" : "pointer", fontFamily: FF, whiteSpace: "nowrap" }}>
+                            {linkSending === "email" ? <Loader2 size={13} className="animate-spin" /> : linkSent === "email" ? <Check size={13} style={{ color: "#0F7A63" }} /> : null}
+                            {linkSent === "email" ? "Email sent" : "Email link"}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                ) : (
+                  <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF }}>
+                    Select an existing client above to save a card on file — new leads can add one from their profile after converting.
+                  </div>
+                )}
+              </div>
+
               <div className="flex justify-between mt-4">
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(3)}>Back</Button>
                 <div className="flex gap-2">
@@ -3028,6 +3258,7 @@ export default function QuoteBuilderPage() {
           </div>
         </div>
       </div>
+      {cardModalEl}
     </div>
   );
 }

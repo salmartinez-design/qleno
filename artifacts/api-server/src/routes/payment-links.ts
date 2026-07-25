@@ -7,6 +7,8 @@ import {
 import { eq, and } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { appBaseUrl } from "../lib/app-url.js";
+import { getSquarePublicConfig } from "../lib/square-config.js";
+import { saveSquareCardOnFile } from "../lib/square-card-onfile.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -40,9 +42,21 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
     // record holds (Sal: "send this as an SMS… with the ability to edit the
     // number so clients can leave a card on file"). Omitted = client record, so
     // every existing caller is unchanged.
-    const { client_id, purpose = "save_card", invoice_id, amount, send_email, send_sms, to_email, to_phone } = req.body;
+    const { client_id, purpose = "save_card", invoice_id, amount, send_email, send_sms, to_email, to_phone, provider } = req.body;
     const overrideEmail = typeof to_email === "string" && to_email.trim() ? to_email.trim() : null;
     const overridePhone = typeof to_phone === "string" && to_phone.trim() ? to_phone.trim() : null;
+
+    // [square-default 2026-07-24] Office-initiated card-on-file links save to
+    // Square by default (Sal: Square is the house rail; only the website widget
+    // stays Stripe). A caller may still force a processor with `provider`. An
+    // invoice-PAY link is a Stripe PaymentIntent flow end-to-end, so it's always
+    // 'stripe' regardless — Square only handles the save_card purpose here.
+    const linkProvider =
+      purpose === "pay_invoice"
+        ? "stripe"
+        : provider === "stripe" || provider === "square"
+        ? provider
+        : "square";
 
     if (!client_id) return res.status(400).json({ error: "client_id required" });
 
@@ -69,6 +83,7 @@ router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (re
         client_id,
         token,
         purpose,
+        provider: linkProvider,
         invoice_id: invoice_id ?? null,
         amount: amount ?? null,
         expires_at: expiresAt,
@@ -240,6 +255,27 @@ router.get("/public/:token", async (req, res) => {
       invoiceJobId = inv?.job_id ?? null;
     }
 
+    // [square-default 2026-07-24] A Square-provider link renders the Web Payments
+    // SDK card form instead of Stripe Elements. We return the PUBLIC Square config
+    // and skip the Stripe intent entirely — the card is tokenized client-side and
+    // saved via /public/:token/save-card-square. The Square customer is created at
+    // save time (saveSquareCardOnFile ensures it), so there's nothing to set up here.
+    if (link.provider === "square") {
+      const sq = getSquarePublicConfig();
+      return res.json({
+        link: { id: link.id, purpose: link.purpose, amount: link.amount, expires_at: link.expires_at },
+        company,
+        client: client ? { id: client.id, first_name: client.first_name, last_name: client.last_name } : null,
+        invoice_number: invoiceNumber,
+        invoice_paid: invoiceAlreadyPaid,
+        provider: "square",
+        square_configured: sq.configured,
+        square_application_id: sq.applicationId,
+        square_location_id: sq.locationId,
+        square_environment: sq.environment,
+      });
+    }
+
     // Create Stripe setup intent if Stripe is configured
     let stripePublishableKey: string | null = null;
     let clientSecret: string | null = null;
@@ -320,6 +356,7 @@ router.get("/public/:token", async (req, res) => {
       client: client ? { id: client.id, first_name: client.first_name, last_name: client.last_name } : null,
       invoice_number: invoiceNumber,
       invoice_paid: invoiceAlreadyPaid,
+      provider: "stripe",
       stripe_publishable_key: stripePublishableKey,
       client_secret: clientSecret,
     });
@@ -403,6 +440,48 @@ router.post("/public/:token/save-card", async (req, res) => {
     res.json({ success: true });
   } catch (err: any) {
     console.error("Save card error:", err);
+    res.status(500).json({ error: err.message || "Failed to save card" });
+  }
+});
+
+// ─── POST /pay/:token/save-card-square — PUBLIC: save a Square card on file ───
+// The Square mirror of /save-card. The customer tokenized their card with the
+// Web Payments SDK client-side; we turn that one-time nonce into a durable Square
+// card-on-file and write the chargeable handle onto the client. Marks the link
+// used on success. Nothing is charged.
+router.post("/public/:token/save-card-square", async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { source_id } = req.body;
+
+    const [link] = await db
+      .select()
+      .from(paymentLinksTable)
+      .where(eq(paymentLinksTable.token, token));
+
+    if (!link) return res.status(404).json({ error: "INVALID_LINK" });
+    if (link.used_at) return res.status(410).json({ error: "ALREADY_USED" });
+    if (link.expires_at < new Date()) return res.status(410).json({ error: "EXPIRED" });
+    if (!source_id) return res.status(400).json({ error: "source_id (card token) required" });
+
+    const result = await saveSquareCardOnFile({
+      companyId: link.company_id,
+      clientId: link.client_id,
+      sourceId: source_id,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    if (!result.ok) {
+      const status = result.code === "not_configured" ? 503 : result.code === "declined" ? 402 : 400;
+      return res.status(status).json({ error: result.message, code: result.code });
+    }
+
+    await db.update(paymentLinksTable)
+      .set({ used_at: new Date() })
+      .where(eq(paymentLinksTable.id, link.id));
+
+    res.json({ success: true, brand: result.brand, last4: result.last4 });
+  } catch (err: any) {
+    console.error("Save Square card error:", err);
     res.status(500).json({ error: err.message || "Failed to save card" });
   }
 });

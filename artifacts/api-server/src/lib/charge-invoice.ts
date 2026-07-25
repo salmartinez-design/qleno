@@ -21,7 +21,7 @@
 // SquareEnvironment, cards.list({ customerId }) (returns a pager → .data), and
 // payments.create({...}) (resolves to the body directly, no .result wrapper).
 import { db } from "@workspace/db";
-import { invoicesTable, clientsTable, jobsTable, paymentsTable, notificationLogTable } from "@workspace/db/schema";
+import { invoicesTable, clientsTable, accountsTable, jobsTable, paymentsTable, notificationLogTable } from "@workspace/db/schema";
 import { eq, and } from "drizzle-orm";
 import { resolveInvoicePaymentSource } from "./payment-source.js";
 
@@ -46,6 +46,7 @@ export async function chargeInvoice(
     .select({
       id: invoicesTable.id,
       client_id: invoicesTable.client_id,
+      account_id: invoicesTable.account_id,
       job_id: invoicesTable.job_id,
       total: invoicesTable.total,
       status: invoicesTable.status,
@@ -69,26 +70,78 @@ export async function chargeInvoice(
     return { outcome: "invalid_state", source: invoice.payment_source || "", message: "Invoice total is zero", invoiceId };
   }
 
-  const [client] = await db
-    .select({
-      id: clientsTable.id,
-      first_name: clientsTable.first_name,
-      last_name: clientsTable.last_name,
-      stripe_customer_id: clientsTable.stripe_customer_id,
-      stripe_payment_method_id: clientsTable.stripe_payment_method_id,
-      square_customer_id: clientsTable.square_customer_id,
-      payment_source: clientsTable.payment_source,
-      card_last_four: clientsTable.card_last_four,
-    })
-    .from(clientsTable)
-    .where(eq(clientsTable.id, invoice.client_id as number))
-    .limit(1);
+  // Resolve the payer's card. A residential invoice carries client_id → the
+  // client's card. A COMMERCIAL/account invoice has client_id = NULL and instead
+  // carries account_id — the card lives on the account (accounts.square_customer_id
+  // / stripe_customer_id). [square-default 2026-07-24] Without this account
+  // fallback, "Charge" on an account invoice found no card and always failed.
+  let payer:
+    | {
+        first_name?: string | null;
+        stripe_customer_id?: string | null;
+        stripe_payment_method_id?: string | null;
+        square_customer_id?: string | null;
+        payment_source?: string | null;
+        card_last_four?: string | null;
+      }
+    | undefined;
+  // An account invoice can carry an explicit billing method (check/ach/invoice_only)
+  // that overrides the derived source; a residential invoice uses its own stamp.
+  let stampedSource: string | null | undefined = invoice.payment_source;
 
-  const source = resolveInvoicePaymentSource(invoice.payment_source, client ?? {});
+  if (invoice.client_id) {
+    [payer] = await db
+      .select({
+        id: clientsTable.id,
+        first_name: clientsTable.first_name,
+        last_name: clientsTable.last_name,
+        stripe_customer_id: clientsTable.stripe_customer_id,
+        stripe_payment_method_id: clientsTable.stripe_payment_method_id,
+        square_customer_id: clientsTable.square_customer_id,
+        payment_source: clientsTable.payment_source,
+        card_last_four: clientsTable.card_last_four,
+      })
+      .from(clientsTable)
+      .where(eq(clientsTable.id, invoice.client_id as number))
+      .limit(1);
+  } else if (invoice.account_id) {
+    const [account] = await db
+      .select({
+        account_name: accountsTable.account_name,
+        payment_method: accountsTable.payment_method,
+        stripe_customer_id: accountsTable.stripe_customer_id,
+        square_customer_id: accountsTable.square_customer_id,
+      })
+      .from(accountsTable)
+      .where(and(eq(accountsTable.id, invoice.account_id as number), eq(accountsTable.company_id, companyId)))
+      .limit(1);
+    if (account) {
+      // invoice_only accounts never have a card — collect + mark paid by hand.
+      if (account.payment_method === "invoice_only") {
+        return { outcome: "needs_manual", source: "", message: "This account is invoice-only — no card on file. Collect payment and mark the invoice paid manually.", invoiceId, amount };
+      }
+      // Map the account's billing method onto the charge source. card_on_file
+      // derives (square unless a Stripe method exists — accounts hold none, so
+      // square, matching Phes where account cards live in Square).
+      if (account.payment_method === "check") stampedSource = "check";
+      else if (account.payment_method === "ach") stampedSource = "ach";
+      payer = {
+        first_name: account.account_name,
+        stripe_customer_id: account.stripe_customer_id,
+        stripe_payment_method_id: null,
+        square_customer_id: account.square_customer_id,
+        payment_source: null,
+        card_last_four: null,
+      };
+    }
+  }
+
+  const client = payer;
+  const source = resolveInvoicePaymentSource(stampedSource, client ?? {});
 
   // check / ach — no electronic charge. Office collects + marks paid manually.
   if (source === "check" || source === "ach") {
-    return { outcome: "needs_manual", source, message: `${source.toUpperCase()} client — collect payment and mark the invoice paid manually`, invoiceId, amount };
+    return { outcome: "needs_manual", source, message: `${source.toUpperCase()} account — collect payment and mark the invoice paid manually`, invoiceId, amount };
   }
 
   if (source === "stripe") {
