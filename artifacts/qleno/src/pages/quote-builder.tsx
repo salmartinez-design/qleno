@@ -331,6 +331,12 @@ export default function QuoteBuilderPage() {
 
   // ── Section 4: Review — final scope selection ────────────────────────────
   const [finalScopeId, setFinalScopeId] = useState<number | null>(null);
+  // [multi-option-send 2026-07-25] When 2+ scopes are on the quote, the office
+  // decides at send time whether the client sees BOTH options (they pick one)
+  // or only the recommended one. `finalScopeId` is the recommended/only scope;
+  // this flag decides whether the others ride along as alternate_options on the
+  // client's booking page. Defaults to sending both. Irrelevant for 1 scope.
+  const [sendBoth, setSendBoth] = useState(true);
 
   // ── Call Notes ───────────────────────────────────────────────────────────
   const [callNotes, setCallNotes] = useState("");
@@ -1151,7 +1157,12 @@ export default function QuoteBuilderPage() {
       call_notes: callNotes || null,
       unit_suite: unitSuite || null,
       referral_source: referralSource || null,
-      alternate_options: alternateOptions.length > 0 ? alternateOptions : null,
+      // [multi-option-send 2026-07-25] The stored alternate_options ARE what the
+      // client's booking page renders. When the office chose "send one option
+      // only", drop them so the client sees just the recommended scope. Drafts
+      // always keep every scope so reopening a parked quote is lossless — the
+      // send-mode choice only bites on the sent/converted row.
+      alternate_options: (alternateOptions.length > 0 && (sendBoth || status === "draft")) ? alternateOptions : null,
       zone_override: zoneOverride || null,
       address_verified: addressVerified === true,
       photo_urls: photoUploads.filter(p => !p.uploading && p.objectPath).map(p => p.objectPath),
@@ -2576,6 +2587,36 @@ export default function QuoteBuilderPage() {
                                 </div>
                               );
                             })()}
+                            {/* [hourly-hours 2026-07-25] How many hours this hourly
+                                service is quoted for. Lives right where the office picks
+                                the service (previously only editable on the Add-ons step,
+                                buried in a collapsed card) so the estimate stops silently
+                                defaulting to the engine's guess. Drives base_price = hours
+                                × rate via updateScopeHoursManual. */}
+                            {hourlySubType && (() => {
+                              const hourlySel = selectedScopes.find(s => groupScopes.some(gs => gs.id === s.scope_id));
+                              if (!hourlySel) return null;
+                              const hScope = scopes.find(sc => sc.id === hourlySel.scope_id);
+                              const rate = hourlySel.hourlyRateOverride ?? Number(hScope?.hourly_rate ?? 0);
+                              const hrs = hourlySel.hours || 0;
+                              return (
+                                <div style={{ marginTop: 10, paddingLeft: 12 }}>
+                                  <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", marginBottom: 4, fontFamily: FF }}>Hours</div>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <button type="button" onClick={() => updateScopeHoursManual(hourlySel.scope_id, Math.max(0.5, hrs - 0.5))}
+                                      style={{ width: 32, height: 32, border: "1px solid #E5E2DC", borderRadius: 8, background: "#F7F6F3", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FF }}>−</button>
+                                    <input type="number" min="0.5" step="0.5" value={hourlySel.hours || ""} placeholder="0"
+                                      onChange={e => updateScopeHoursManual(hourlySel.scope_id, parseFloat(e.target.value) || 0.5)}
+                                      style={{ width: 72, height: 32, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 8px", fontSize: 14, fontFamily: FF, outline: "none", textAlign: "center" }} />
+                                    <button type="button" onClick={() => updateScopeHoursManual(hourlySel.scope_id, hrs + 0.5)}
+                                      style={{ width: 32, height: 32, border: "1px solid #E5E2DC", borderRadius: 8, background: "#F7F6F3", cursor: "pointer", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: FF }}>+</button>
+                                    <span style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF, marginLeft: 2 }}>
+                                      {hrs ? `${hrs} hrs × $${rate.toFixed(2)}/hr = $${(hrs * rate).toFixed(2)}` : "Enter hours to price this service"}
+                                    </span>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       }
@@ -3124,7 +3165,10 @@ export default function QuoteBuilderPage() {
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(2)}>Back</Button>
                 <button
                   onClick={() => {
-                    if (selectedScopes.length === 1 && !finalScopeId) setFinalScopeId(selectedScopes[0].scope_id);
+                    // Default the recommended/only scope so Save & Send is never
+                    // blocked — with 2+ scopes the office can still re-pick which
+                    // one is the recommendation on the Review step.
+                    if (!finalScopeId && selectedScopes.length >= 1) setFinalScopeId(selectedScopes[0].scope_id);
                     setActiveSection(4);
                   }}
                   style={{
@@ -3158,39 +3202,78 @@ export default function QuoteBuilderPage() {
                 </div>
               )}
 
-              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 14, fontFamily: FF }}>
-                Select option to send client
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 6, fontFamily: FF }}>
+                {selectedScopes.length >= 2 ? "What to send the client" : "Option to send client"}
               </div>
+
+              {/* [multi-option-send 2026-07-25] With 2+ scopes the office chooses
+                  whether the client sees both options (and picks one on their
+                  booking page) or only the recommended one. Nothing sends here —
+                  this only shapes what the "Save & Send Quote" email contains. */}
+              {selectedScopes.length >= 2 && (
+                <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+                  {[
+                    { key: true, title: "Send both options", sub: "Client picks one" },
+                    { key: false, title: "Send one option", sub: "Only the one you choose" },
+                  ].map(opt => {
+                    const active = sendBoth === opt.key;
+                    return (
+                      <button
+                        key={String(opt.key)}
+                        type="button"
+                        onClick={() => setSendBoth(opt.key)}
+                        style={{ flex: 1, textAlign: "left", padding: "10px 14px", borderRadius: 8, cursor: "pointer", fontFamily: FF, border: active ? "1.5px solid var(--brand)" : "1px solid #E5E2DC", background: active ? "var(--brand-soft)" : "#FFF" }}
+                      >
+                        <div style={{ fontSize: 13, fontWeight: 700, color: "#1A1917" }}>{opt.title}</div>
+                        <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2 }}>{opt.sub}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
               {selectedScopes.length === 0 ? (
                 <div style={{ textAlign: "center", fontSize: 14, color: "#9E9B94", padding: "24px 0" }}>
                   No scopes selected. <button onClick={() => setActiveSection(1)} style={{ color: "var(--brand)", background: "none", border: "none", cursor: "pointer", fontWeight: 600 }}>Go back to Service &amp; Pricing</button>
                 </div>
               ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
-                  {selectedScopes.map(s => {
-                    const scope = scopes.find(sc => sc.id === s.scope_id);
-                    const isFinal = finalScopeId === s.scope_id;
-                    const addonNames = s.addons.filter(a => s.addon_ids.includes(a.id)).map(a => a.name);
-                    const addonSummary = addonNames.length > 0 ? ` + ${addonNames.join(", ")}` : "";
-                    return (
-                      <div
-                        key={s.scope_id}
-                        onClick={() => setFinalScopeId(s.scope_id)}
-                        style={{ border: isFinal ? "1.5px solid var(--brand)" : "0.5px solid #E5E2DC", background: isFinal ? "var(--brand-soft)" : "#FFF", padding: "12px 16px", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, transition: "all 0.15s" }}
-                      >
-                        <input type="radio" checked={isFinal} onChange={() => setFinalScopeId(s.scope_id)} style={{ flexShrink: 0, accentColor: "var(--brand)", width: 16, height: 16 }} onClick={e => e.stopPropagation()} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scopeLabel(s)}{addonSummary}</div>
-                          {s.frequency && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF }}>{s.frequency}</div>}
+                <>
+                  {selectedScopes.length >= 2 && (
+                    <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 8, fontFamily: FF }}>
+                      {sendBoth ? "Mark the recommended option — the client sees both and both are on the booking page." : "Choose the one option to send — the client sees only this."}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
+                    {selectedScopes.map(s => {
+                      const scope = scopes.find(sc => sc.id === s.scope_id);
+                      const isFinal = finalScopeId === s.scope_id;
+                      const dropped = selectedScopes.length >= 2 && !sendBoth && !isFinal;
+                      const addonNames = s.addons.filter(a => s.addon_ids.includes(a.id)).map(a => a.name);
+                      const addonSummary = addonNames.length > 0 ? ` + ${addonNames.join(", ")}` : "";
+                      return (
+                        <div
+                          key={s.scope_id}
+                          onClick={() => setFinalScopeId(s.scope_id)}
+                          style={{ border: isFinal ? "1.5px solid var(--brand)" : "0.5px solid #E5E2DC", background: isFinal ? "var(--brand-soft)" : "#FFF", padding: "12px 16px", borderRadius: 8, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, transition: "all 0.15s", opacity: dropped ? 0.5 : 1 }}
+                        >
+                          <input type="radio" checked={isFinal} onChange={() => setFinalScopeId(s.scope_id)} style={{ flexShrink: 0, accentColor: "var(--brand)", width: 16, height: 16 }} onClick={e => e.stopPropagation()} />
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
+                              {scopeLabel(s)}{addonSummary}
+                              {isFinal && selectedScopes.length >= 2 && sendBoth && (
+                                <span style={{ marginLeft: 8, fontSize: 10, fontWeight: 700, color: "#0F7A63", background: "#E4F8F2", borderRadius: 6, padding: "2px 7px", verticalAlign: "middle" }}>RECOMMENDED</span>
+                              )}
+                            </div>
+                            {s.frequency && <div style={{ fontSize: 11, color: "#9E9B94", marginTop: 2, fontFamily: FF }}>{s.frequency}{dropped ? " · not sent" : ""}</div>}
+                          </div>
+                          <div style={{ fontSize: 16, fontWeight: 500, color: "#1A1917", flexShrink: 0, fontFamily: FF }}>
+                            {s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "—"}
+                          </div>
                         </div>
-                        <div style={{ fontSize: 16, fontWeight: 500, color: "#1A1917", flexShrink: 0, fontFamily: FF }}>
-                          {s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "—"}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                </>
               )}
 
               {/* ── Schedule & Assign (for Convert to Job) ── */}
@@ -3323,6 +3406,11 @@ export default function QuoteBuilderPage() {
                 )}
               </div>
 
+              {/* [multi-option-send 2026-07-25] Make the no-auto-email rule
+                  explicit: booking on the call never emails; only Save & Send does. */}
+              <div style={{ fontSize: 11.5, color: "#9E9B94", fontFamily: FF, marginTop: 16, marginBottom: 2 }}>
+                Booking on the call (Convert to Job) does not email the client. Only <strong style={{ color: "#6B6860" }}>Save &amp; Send</strong> emails the quote.
+              </div>
               <div className="flex justify-between mt-4">
                 <Button size="sm" variant="ghost" onClick={() => setActiveSection(3)}>Back</Button>
                 <div className="flex gap-2">
@@ -3330,7 +3418,8 @@ export default function QuoteBuilderPage() {
                     <Save className="w-3.5 h-3.5" /> Save Draft
                   </Button>
                   <Button variant="outline" size="sm" onClick={() => save("sent")} disabled={saving || !finalScopeId} className="gap-1.5">
-                    <SendHorizonal className="w-3.5 h-3.5" /> Save &amp; Send Quote
+                    <SendHorizonal className="w-3.5 h-3.5" />
+                    {selectedScopes.length >= 2 && sendBoth ? "Save & Send Both" : "Save & Send Quote"}
                   </Button>
                   <Button size="sm" onClick={() => {
                       // Never a silent no-op: tell the office exactly what's missing
