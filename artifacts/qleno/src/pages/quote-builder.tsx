@@ -390,6 +390,30 @@ export default function QuoteBuilderPage() {
     lookupRentcast();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [addressVerified, addressFormatted]);
+  // [rentcast-autofill 2026-07-27] When RentCast finds the property, carry its
+  // sqft / beds / baths over to Property Details as a starting point — but
+  // NON-destructively: only fill a field the office hasn't already set (still
+  // 0 / empty). Never overwrites a value the office typed. rcAppliedRef pins
+  // the applied result object so a later re-render (or the office editing a
+  // field, which re-runs this effect) can't re-fill anything — it applies once
+  // per distinct lookup result. RentCast has no half-bath figure, so
+  // bathrooms → Full Bathrooms only; Half Bathrooms / Pets stay untouched.
+  const rcAppliedRef = useRef<any>(null);
+  useEffect(() => {
+    if (!rcResult || !rcResult.found || rcAppliedRef.current === rcResult) return;
+    rcAppliedRef.current = rcResult;
+    const sf = parseInt(rcResult.square_footage, 10);
+    if (!sqft && !isNaN(sf) && sf > 0) setSqft(sf);
+    if (!bedrooms && rcResult.bedrooms != null) {
+      const b = parseInt(rcResult.bedrooms, 10);
+      if (!isNaN(b) && b > 0) setBedrooms(b);
+    }
+    if (!bathrooms && rcResult.bathrooms != null) {
+      const ba = parseInt(rcResult.bathrooms, 10);
+      if (!isNaN(ba) && ba > 0) setBathrooms(ba);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rcResult]);
   // [maps-runtime-fallback] Cache the resolved Maps key so the geocode
   // helper (separate REST call) doesn't need to know how it was sourced.
   const mapsKeyRef = useRef<string>("");
@@ -3881,11 +3905,29 @@ function Stepper({ value, onChange, min = 0, max = 10 }: { value: number; onChan
     color: disabled ? "#E5E2DC" : "#1A1917", fontSize: 18, fontWeight: 700, cursor: disabled ? "not-allowed" : "pointer",
     fontFamily: FF, display: "flex", alignItems: "center", justifyContent: "center",
   });
+  // [typeable-steppers 2026-07-27] The office hates clicking +/-, so the middle
+  // is now a real number input they can type into and TAB between (sqft → beds →
+  // full bath → half bath → pets). The − / + buttons stay for anyone who wants
+  // them but are pulled out of the tab order (tabIndex -1) so TAB flows
+  // field-to-field, not through every button. Whole numbers only, clamped to
+  // [min, max] — the same clamp the buttons enforce.
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
   return (
     <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden", height: 44, marginTop: 6 }}>
-      <button style={btn(value <= min)} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
-      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF, borderLeft: "1px solid #E5E2DC", borderRight: "1px solid #E5E2DC" }}>{value}</div>
-      <button style={btn(value >= max)} onClick={() => onChange(Math.min(max, value + 1))}>+</button>
+      <button type="button" tabIndex={-1} style={btn(value <= min)} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={min}
+        max={max}
+        value={value || ""}
+        onChange={e => {
+          const n = parseInt(e.target.value, 10);
+          onChange(isNaN(n) ? min : clamp(n));
+        }}
+        style={{ flex: 1, width: "100%", minWidth: 0, textAlign: "center", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF, border: "none", borderLeft: "1px solid #E5E2DC", borderRight: "1px solid #E5E2DC", outline: "none", background: "#FFF", padding: 0, boxSizing: "border-box" }}
+      />
+      <button type="button" tabIndex={-1} style={btn(value >= max)} onClick={() => onChange(Math.min(max, value + 1))}>+</button>
     </div>
   );
 }
