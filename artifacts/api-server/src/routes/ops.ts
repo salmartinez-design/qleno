@@ -36,6 +36,7 @@ import {
 import { and, asc, desc, eq, inArray, isNull, isNotNull, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { LATE_THRESHOLD_MINUTES } from "../lib/job-status-constants.js";
+import { isR2Key, r2SignedGetUrl } from "../lib/r2.js";
 
 const router = Router();
 
@@ -822,10 +823,13 @@ router.get("/jobs/:jobId/detail", async (req, res) => {
           gps_accuracy_meters:
             e.gps_accuracy_meters != null ? Number(e.gps_accuracy_meters) : null,
         })),
-        photos: photos.map((p) => ({
+        // [photos-r2] Sign R2 object keys into short-lived GET URLs; without
+        // this the ops drawer renders bare object keys as <img src> and breaks.
+        photos: await Promise.all(photos.map(async (p) => ({
           ...p,
+          url: isR2Key(p.url) ? await r2SignedGetUrl(p.url) : p.url,
           timestamp: p.timestamp?.toISOString() ?? null,
-        })),
+        }))),
         notes: notes.map((n) => ({
           ...n,
           created_at: n.created_at?.toISOString() ?? null,

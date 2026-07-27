@@ -328,6 +328,7 @@ export type Job = {
   account_property_id: number | null;
   property_name: string | null;
   access_notes: string | null;
+  home_access_notes: string | null;
   base_fee: number;
   estimated_hours: number | null;
   allowed_hours: number | null;
@@ -1244,6 +1245,17 @@ export function JobCard({ job, empPos, onRefresh, isPreviewMode, actingForUserId
         <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
           <p style={{ fontSize: 10, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Building Access</p>
           <p style={{ fontSize: 12, color: "#B45309", margin: 0, lineHeight: 1.5 }}>{job.access_notes}</p>
+        </div>
+      )}
+
+      {/* [entry-notes 2026-07-27] Residential Entry Instructions
+          (clients.home_access_notes) — the standing every-visit access memo the
+          office keeps on the Property tab (gate code, lockbox, park here). Was
+          never delivered to the tech, so the office kept re-adding it. */}
+      {job.home_access_notes && (
+        <div style={{ backgroundColor: "#FDF3E4", border: "1px solid #F2DFB8", borderRadius: 8, padding: "10px 12px", marginTop: 12 }}>
+          <p style={{ fontSize: 10, fontWeight: 700, color: "#B45309", textTransform: "uppercase", letterSpacing: "0.06em", margin: "0 0 4px" }}>Entry Instructions — every visit</p>
+          <TranslatableNote text={job.home_access_notes} color="#B45309" linkColor="#B45309" fontSize={12} fontWeight={400} />
         </div>
       )}
 

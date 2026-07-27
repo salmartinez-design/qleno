@@ -14,6 +14,7 @@ import { logAudit } from "../lib/audit.js";
 import { utcIso } from "../lib/time-serialize.js";
 import { syncCustomer, queueSync } from "../services/quickbooks-sync.js";
 import { resolveZoneForZip } from "./zones.js";
+import { isR2Key, r2SignedGetUrl } from "../lib/r2.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -2149,7 +2150,15 @@ router.get("/:id/job-photos", requireAuth, async (req, res) => {
       .innerJoin(jobsTable, and(eq(jobPhotosTable.job_id, jobsTable.id), eq(jobsTable.client_id, clientId), eq(jobsTable.company_id, companyId)))
       .leftJoin(usersTable, eq(jobPhotosTable.uploaded_by, usersTable.id))
       .orderBy(desc(jobsTable.scheduled_date), desc(jobPhotosTable.timestamp));
-    return res.json(rows);
+    // [photos-r2] R2-stored photos carry an object key in `url`; sign it into a
+    // short-lived GET URL the browser can load. Without this the Property tab
+    // "Home Images" grid renders the bare object key as <img src> and every
+    // thumbnail breaks. Legacy base64 / already-URL rows pass through untouched.
+    const signed = await Promise.all(rows.map(async (r) => ({
+      ...r,
+      url: isR2Key(r.url) ? await r2SignedGetUrl(r.url) : r.url,
+    })));
+    return res.json(signed);
   } catch (err) {
     console.error("Job photos error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
