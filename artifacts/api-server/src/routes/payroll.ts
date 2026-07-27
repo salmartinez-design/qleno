@@ -596,6 +596,23 @@ router.get("/detail", requireAuth, async (req, res) => {
     const canSeeAll = ["owner", "admin", "office", "super_admin"].includes(role);
     const filterUserId = canSeeAll ? (user_id ? parseInt(user_id as string) : null) : myUserId;
 
+    // [tech-pay-visibility 2026-07-27] Techs may see ONLY published pay — never
+    // the live, current/unpublished week. Letting them pull live in-progress pay
+    // was driving inter-staff conflict (comparing / assuming each other's pay —
+    // Sal). Office roles (canSeeAll) are unaffected: they run and publish payroll
+    // from this live view. A period is "published" once payroll_period_snapshots
+    // rows exist; we gate on the tech's LATEST published period end (robust to
+    // any week-boundary mismatch between this panel and the payroll page) — any
+    // requested window ending AFTER it (the in-progress week, or the future) is
+    // withheld. The tech's published paychecks still come from /payroll/pay-history.
+    if (!canSeeAll) {
+      const pub = await db.execute(sql`SELECT MAX(pay_period_end)::text AS max_end FROM payroll_period_snapshots WHERE company_id = ${companyId} AND user_id = ${filterUserId}`);
+      const maxEnd = (pub.rows[0] as any)?.max_end as string | null;
+      if (!maxEnd || String(pay_period_end) > maxEnd) {
+        return res.status(403).json({ error: "not_published", published: false, message: "This pay period hasn't been published yet." });
+      }
+    }
+
     // Get company payroll settings (using raw SQL since columns added via ALTER TABLE)
     // [AI.7.5.hotfix] Resilient SELECT — see routes/dispatch.ts for the
     // same pattern. If commercial_* columns are absent (migration hadn't

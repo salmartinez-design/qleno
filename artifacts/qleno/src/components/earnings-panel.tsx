@@ -67,6 +67,11 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
   const [preset, setPreset] = useState<"this" | "last" | "month" | "custom">("this");
   const [data, setData] = useState<EmpEarnings | null>(null);
   const [loading, setLoading] = useState(true);
+  // [tech-pay-visibility 2026-07-27] The server returns 403 { not_published } when
+  // a non-office role requests a period that hasn't been published yet (the live,
+  // current week). Show a clear notice instead of a misleading $0. Office roles
+  // never hit this branch.
+  const [blocked, setBlocked] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -80,10 +85,19 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
     // right; the screen was a period behind. On a pay figure, a stale number is
     // worse than no number, so it blanks rather than lingers.
     setData(null);
+    setBlocked(false);
     const uq = userId ? `&user_id=${userId}` : "";
     fetch(`${API}/api/payroll/detail?pay_period_start=${period.start}&pay_period_end=${period.end}${uq}`, { headers: getAuthHeaders() })
-      .then(r => r.ok ? r.json() : null)
-      .then(d => { if (!cancelled) setData((d?.data && d.data[0]) || null); })
+      .then(r => {
+        // 403 = period not published yet for this (non-office) viewer.
+        if (r.status === 403) return { __blocked: true };
+        return r.ok ? r.json() : null;
+      })
+      .then(d => {
+        if (cancelled) return;
+        if (d && (d as any).__blocked) { setBlocked(true); setData(null); }
+        else setData((d?.data && d.data[0]) || null);
+      })
       .catch(() => { if (!cancelled) setData(null); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -144,10 +158,19 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
         <CalendarPopover value={period.end} ariaLabel="Period end" onChange={ymd => { setPreset("custom"); setPeriod(p => ({ ...p, end: ymd })); }} />
       </div>
 
+      {/* [tech-pay-visibility 2026-07-27] Not-published notice (techs only). */}
+      {blocked && (
+        <div style={{ background: "#FDF6E9", border: "1px solid #F2DFB8", borderRadius: 12, padding: "16px 18px", color: "#7A5A12", fontSize: 13, lineHeight: 1.5 }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>Pay for this period isn't published yet</div>
+          Your pay shows here once the office publishes payroll — usually the following week. Tap <strong>Last week</strong> to see your most recent published pay.
+        </div>
+      )}
+
       {/* Summary */}
       {/* [pay-stale-period 2026-07-23] While a period is loading every figure
           reads "—". Showing $0.00 would be its own wrong number, and showing the
           last period's money under new dates is what caused the bug report. */}
+      {!blocked && (
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, opacity: loading ? 0.6 : 1, transition: "opacity .15s" }}>
         <SummaryCard icon={<TrendingUp size={14} />} label="Commission earned" value={loading ? "—" : money(commission)} accent />
         {/* [rate-labels 2026-07-23] "Commission rate", not "Effective rate".
@@ -167,9 +190,10 @@ export function EarningsPanel({ userId, title = "Earnings" }: { userId?: number;
         <SummaryCard icon={<DollarSign size={14} />} label="Mileage" value={loading ? "—" : money(mileage)} />
         <SummaryCard icon={<DollarSign size={14} />} label="Total rewards" value={loading ? "—" : money(rewards)} strong />
       </div>
+      )}
 
       {/* Total rewards tracker — this week / this month / year-to-date */}
-      {roll && (
+      {!blocked && roll && (
         <div style={{ background: "#fff", border: "1px solid #E5E2DC", borderRadius: 12, padding: "14px 16px" }}>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
             <p style={{ fontSize: 12, fontWeight: 800, color: "#1A1917", margin: 0 }}>Your total rewards</p>
