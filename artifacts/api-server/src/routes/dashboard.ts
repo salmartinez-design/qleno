@@ -337,12 +337,20 @@ router.get("/today", requireAuth, officeGate, async (req, res) => {
         const empJobs = todayJobs.filter(j =>
           j.assigned_user_id === emp.id && j.scheduled_time && j.status === 'scheduled');
         for (const job of empJobs) {
-          // Fires only inside a ±15-minute band around the Central start time.
+          // [late-threshold 2026-07-27] A tech is NOT late until they are past
+          // their shift start with no clock-in. Per the locked Time Clock design
+          // (LATE_THRESHOLD_MINUTES = 20, lib/job-status.ts): nothing negative
+          // fires BEFORE scheduled_start — a future job is always on time. The old
+          // ±15 band raised "hasn't clocked in — job starts in 9 min" a quarter
+          // hour BEFORE the shift began (Sal, 2026-07-27: "this banner should not
+          // populate before their shift"). Fire only once the tech is >= 20 min
+          // late; cap at 3h so a genuine no-show doesn't sit on the strip all day.
           const diffMin = minsUntil(job.scheduled_time);
-          if (diffMin != null && diffMin <= 15 && diffMin >= -15) {
+          const lateMin = diffMin == null ? null : -diffMin; // minutes PAST start
+          if (lateMin != null && lateMin >= 20 && lateMin <= 180) {
             alerts.push({
               type: 'warning',
-              message: `${emp.first_name} ${emp.last_name} hasn't clocked in — job starts${diffMin > 0 ? ` in ${diffMin} min` : ' now'}`,
+              message: `${emp.first_name} ${emp.last_name} hasn't clocked in — ${lateMin} min late`,
               action: 'call_employee',
               id: emp.id,
             });
