@@ -62,6 +62,18 @@ export async function ensureQuotePricingSetup(): Promise<void> {
     // capture. Plain text (not the clients referral_source enum) so non-enum
     // office values like 'existing_client' persist. Idempotent — safe on boot.
     await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS referral_source text`);
+    // [quote-dropped-columns 2026-07-27] Five more quote fields the routes write
+    // (POST insert / PATCH allowed-list) and the builder sends, but that were
+    // missing from the drizzle schema — drizzle silently dropped them on write
+    // and the GET never returned them (same bug class as referral_source above).
+    // unit_suite + photo_urls had no ALTER anywhere; the other three already run
+    // in phes-data-migration but are repeated here (idempotent) to co-locate the
+    // guarantee with the drizzle write path. Safe on every boot.
+    await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS unit_suite text`);
+    await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS address_verified boolean DEFAULT false`);
+    await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS photo_urls jsonb DEFAULT '[]'::jsonb`);
+    await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS alternate_options jsonb`);
+    await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS zone_override boolean DEFAULT false`);
   } catch (err) {
     console.error("[quote-pricing] ensure setup error (non-fatal):", err);
   }
