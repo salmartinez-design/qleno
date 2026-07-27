@@ -367,6 +367,20 @@ export default function QuoteBuilderPage() {
   const [inputMounted, setInputMounted] = useState(false);
   const [addressVerified, setAddressVerified] = useState<boolean | null>(null);
   const [addressFormatted, setAddressFormatted] = useState("");
+  // [rentcast 2026-07-27] Auto-look up the property's sq ft the moment the
+  // address verifies, right here on Customer Info (where the office is typing) —
+  // Sal wants "type the address and RentCast just shows the sq ft it has." Guard
+  // on the last-looked-up address so it fires once per address, not every render
+  // (protects the RentCast API quota). Inert until RENTCAST_API_KEY is set.
+  const rcLastAddrRef = useRef<string>("");
+  useEffect(() => {
+    if (addressVerified !== true) return;
+    const addr = (addressFormatted || [address, zipCode].filter(Boolean).join(", ")).trim();
+    if (!addr || addr === rcLastAddrRef.current) return;
+    rcLastAddrRef.current = addr;
+    lookupRentcast();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addressVerified, addressFormatted]);
   // [maps-runtime-fallback] Cache the resolved Maps key so the geocode
   // helper (separate REST call) doesn't need to know how it was sourced.
   const mapsKeyRef = useRef<string>("");
@@ -2278,6 +2292,21 @@ export default function QuoteBuilderPage() {
                       <Checkbox checked={zoneOverride} onCheckedChange={v => setZoneOverride(Boolean(v))} />
                       Override — office confirmed.
                     </label>
+                  </div>
+                )}
+
+                {/* [rentcast 2026-07-27] Reference sq ft for the verified address,
+                    auto-fetched on verify (see the effect near addressVerified).
+                    Display only — never auto-fills the quote. Hidden entirely when
+                    RentCast isn't configured (configured === false). */}
+                {addressVerified === true && (rcLoading || (rcResult && rcResult.configured !== false)) && (
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontFamily: FF, color: "#6B6860" }}>
+                    <span style={{ fontWeight: 600 }}>RentCast:</span>
+                    {rcLoading
+                      ? <span style={{ color: "#9E9B94" }}>checking sq ft…</span>
+                      : rcResult.found
+                        ? <span style={{ color: "#0A6E5A" }}>{rcResult.square_footage ? `${Number(rcResult.square_footage).toLocaleString()} sq ft` : "no sq ft on file"}{rcResult.bedrooms != null ? ` · ${rcResult.bedrooms} bd` : ""}{rcResult.bathrooms != null ? ` · ${rcResult.bathrooms} ba` : ""} <span style={{ color: "#9E9B94" }}>· reference only</span></span>
+                        : <span style={{ color: "#9E9B94" }}>no record for this address</span>}
                   </div>
                 )}
 
