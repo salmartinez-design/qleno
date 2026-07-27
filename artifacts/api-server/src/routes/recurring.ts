@@ -5,6 +5,7 @@ import { eq, and, isNull, lte, sql, inArray } from "drizzle-orm";
 import { requireAuth } from "../lib/auth.js";
 import { requireRole } from "../lib/auth.js";
 import { generateRecurringJobs, computeOccurrencesForSchedule, generateJobsFromSchedule, DAYS_AHEAD } from "../lib/recurring-jobs.js";
+import { normalizeRecurringFreq } from "../lib/recurring-cadences.js";
 
 const router = Router();
 
@@ -101,10 +102,13 @@ router.patch("/bulk", requireAuth, requireRole("owner", "admin", "office"), asyn
 
 router.post("/", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
   try {
-    const { customer_id, frequency, day_of_week, start_date, end_date, assigned_employee_id, service_type, duration_minutes, base_fee, notes } = req.body;
-    if (!customer_id || !frequency || !start_date) {
+    const { customer_id, frequency: frequencyRaw, day_of_week, start_date, end_date, assigned_employee_id, service_type, duration_minutes, base_fee, notes } = req.body;
+    if (!customer_id || !frequencyRaw || !start_date) {
       return res.status(400).json({ error: "customer_id, frequency, start_date required" });
     }
+    // [biweekly-fix 2026-07-27] Canonicalize every_2_weeks -> biweekly so the
+    // recurring_frequency enum insert doesn't reject it (and the engine agrees).
+    const frequency = normalizeRecurringFreq(frequencyRaw);
     const [row] = await db.insert(recurringSchedulesTable).values({
       company_id: req.auth!.companyId,
       customer_id,

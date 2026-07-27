@@ -4,6 +4,7 @@ import { jobsTable, clientsTable, usersTable, jobPhotosTable, timeclockTable, in
 import { computeTipSplit, type TipSplitTech } from "../lib/tip-split.js";
 import { eq, and, gte, lte, count, desc, sql, notExists, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import { ctDate } from "../lib/ct-day.js";
+import { normalizeRecurringFreq } from "../lib/recurring-cadences.js";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { getResendEmailStatus } from "../lib/comms-sender.js";
 import { gatherConfirmationData, buildConfirmationPdf } from "../lib/confirmation-pdf.js";
@@ -509,13 +510,20 @@ router.post("/", requireAuth, async (req, res) => {
   try {
     const {
       client_id, assigned_user_id, service_type, scheduled_date, scheduled_time,
-      frequency, base_fee, allowed_hours, notes,
+      frequency: frequencyRaw, base_fee, allowed_hours, notes,
       account_id, account_property_id, billing_method, hourly_rate, estimated_hours,
       branch_id, add_ons, team_user_ids, days_of_week,
       // [monthly-weekday 2026-07-21] Nth/last weekday of month. week_of_month:
       // 1..4 = first..fourth, 5 = last. day_of_week: recurring_day enum string.
       week_of_month, day_of_week,
     } = req.body;
+    // [biweekly-fix 2026-07-27] Canonicalize the frequency BEFORE it hits the
+    // recurrence fan-out gate / enum insert below. The cadence UI emits
+    // every_2_weeks; the gate (RECURRING_FREQS) and the recurring_frequency enum
+    // only know biweekly — so an un-normalized every_2_weeks created the anchor
+    // job but silently skipped the series (Maribel: "every two weeks only books
+    // the first one"). All downstream uses read this normalized `frequency`.
+    const frequency = normalizeRecurringFreq(frequencyRaw);
 
     // [multi-tech-create 2026-06-04] The wizard's tech picker is multi-select.
     // Persist the WHOLE team to job_technicians here, atomically with the job,
@@ -1980,7 +1988,11 @@ router.patch("/:id", requireAuth, async (req, res) => {
       "weekly", "biweekly", "every_3_weeks", "monthly", "daily", "weekdays", "custom_days",
     ]);
     const wantsCreateRecurring = cascade_scope === "create_recurring";
-    const effectiveFrequency = frequency !== undefined ? frequency : (before.frequency as string | null);
+    // [biweekly-fix 2026-07-27] Canonicalize every_2_weeks -> biweekly (etc.) so
+    // it passes the allowlist below AND the recurring_frequency enum insert.
+    const effectiveFrequency = normalizeRecurringFreq(
+      frequency !== undefined ? frequency : (before.frequency as string | null),
+    );
     if (wantsCreateRecurring) {
       if (before.recurring_schedule_id != null) {
         return res.status(400).json({
