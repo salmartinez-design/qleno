@@ -3082,7 +3082,14 @@ export default function QuoteBuilderPage() {
                           {selectedScopes.map(targetScope => {
                             const scopeMeta = scopes.find(sc => sc.id === targetScope.scope_id);
                             const scopeIsHourly = scopeMeta?.pricing_method === "hourly" || scopeMeta?.pricing_method === "simplified";
-                            const activeAddons = targetScope.addons.filter(a => a.is_active);
+                            // [addon-adjustment-exclude 2026-07-27] "Manual Adjustment"
+                            // and "Commercial Adjustment" aren't real add-ons — they're
+                            // free-form price levers already covered by the Price
+                            // Adjustments box below. Keep them out of the tile grid in
+                            // every scope group.
+                            const activeAddons = targetScope.addons.filter(
+                              a => a.is_active && !/manual adjustment|commercial adjustment/i.test(a.name ?? "")
+                            );
                             return (
                               <div
                                 key={targetScope.scope_id}
