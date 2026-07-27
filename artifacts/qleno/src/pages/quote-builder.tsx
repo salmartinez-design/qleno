@@ -223,6 +223,15 @@ const DIRT_LEVELS = [
 // flexible custom pattern (see the customRec state). Kept off the standard
 // SNAP_KEY set so the convert route branches on `custom_recurrence` instead.
 const CUSTOM_FREQ = "custom_pattern";
+// [cadence-display 2026-07-27] Human labels for the recurring cadence shown on
+// each quote line (drives the hourly-recurring $60/$65/$70 rate). One-time keys
+// map to null so no chip renders for a single visit.
+const CADENCE_LABELS: Record<string, string | null> = {
+  weekly: "Weekly", every_2_weeks: "Bi-Weekly", biweekly: "Bi-Weekly",
+  every_3_weeks: "Every 3 Weeks", every_4_weeks: "Monthly", monthly: "Monthly",
+  semi_monthly: "Twice a Month", monthly_weekday: "Monthly", custom: "Custom",
+  onetime: null, one_time: null,
+};
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const WEEK_OF_MONTH = [
   { value: 1, label: "1st" }, { value: 2, label: "2nd" }, { value: 3, label: "3rd" },
@@ -2965,13 +2974,20 @@ export default function QuoteBuilderPage() {
                         const isHourly = scope.pricing_method === "hourly" || scope.pricing_method === "simplified";
                         const estHours = s.hours || s.calc?.base_hours || 0;
                         const subtotal = s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : (isHourly && !s.hours ? "Enter hours" : "\u2014");
+                        // [cadence-display 2026-07-27] Surface the recurring cadence on the line.
+                        // It drives the hourly-recurring rate ($60 weekly / $65 biweekly / $70
+                        // monthly), so the office must see WHICH cadence is being priced. One-time
+                        // carries no cadence chip.
+                        const cadence = s.frequency ? (CADENCE_LABELS[s.frequency] ?? null) : null;
                         return (
                           <div key={s.scope_id} style={{ border: "0.5px solid #E5E2DC", borderRadius: 8, overflow: "hidden" }}>
                             <button
                               onClick={() => setSelectedScopes(prev => prev.map(ss => ss.scope_id === s.scope_id ? { ...ss, expanded: !ss.expanded } : ss))}
                               style={{ width: "100%", padding: "10px 14px", display: "flex", alignItems: "center", gap: 8, background: s.expanded ? "#F7F6F3" : "#FFF", border: "none", cursor: "pointer", borderBottom: s.expanded ? "0.5px solid #E5E2DC" : "none" }}
                             >
-                              <span style={{ flex: 1, textAlign: "left", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scopeLabel(s)}</span>
+                              <span style={{ textAlign: "left", fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{scopeLabel(s)}</span>
+                              {cadence && <span style={{ fontSize: 10, fontWeight: 600, background: "#EAF9F4", color: "#0A6E5A", borderRadius: 10, padding: "2px 8px", fontFamily: FF }}>{cadence}</span>}
+                              <span style={{ flex: 1 }} />
                               {estHours > 0 && <span style={{ fontSize: 11, color: "#6B6860", fontFamily: FF }}>{estHours} hrs est.</span>}
                               <span style={{ fontSize: 13, fontWeight: 500, color: "#1A1917", fontFamily: FF, minWidth: 60, textAlign: "right" }}>{subtotal}</span>
                               <ChevronDown style={{ width: 14, height: 14, color: "#9E9B94", transform: s.expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }} />
@@ -3683,15 +3699,48 @@ export default function QuoteBuilderPage() {
                   {selectedScopes.map(s => {
                     const scope = scopes.find(sc => sc.id === s.scope_id);
                     const estHrs = s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0;
+                    const cad = s.frequency ? (CADENCE_LABELS[s.frequency] ?? null) : null;
+                    const hasDetail = !!s.calc && ((s.calc.addon_breakdown?.length ?? 0) > 0 || (s.calc.bundle_breakdown?.length ?? 0) > 0);
                     return (
                       <div key={s.scope_id} style={{ padding: "8px 0", borderBottom: "1px solid #F0EEE9" }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 6 }}>
                           <span style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>{scopeLabel(s)}</span>
+                          {cad && <span style={{ fontSize: 9, fontWeight: 600, background: "#EAF9F4", color: "#0A6E5A", borderRadius: 10, padding: "1px 7px", fontFamily: FF }}>{cad}</span>}
+                          <span style={{ flex: 1 }} />
                           <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>
                             {s.calcLoading ? "..." : s.calc ? `$${s.calc.final_total.toFixed(2)}` : "\u2014"}
                           </span>
                         </div>
-                        {estHrs > 0 && <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>Est. {estHrs} hrs</div>}
+                        {/* [addon-breakdown 2026-07-27] Multi-scope quotes now show each
+                            scope's Base + add-on lines + combo-bundle toggles \u2014 the same
+                            detail the single-scope preview always had. It was collapsed to
+                            a lump total, so the office couldn't see the add-on math or
+                            CHOOSE whether to apply each bundle discount (Sal, office quote). */}
+                        {hasDetail && (
+                          <div style={{ marginTop: 5, paddingLeft: 10, display: "flex", flexDirection: "column", gap: 3 }}>
+                            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#9E9B94", fontFamily: FF }}>
+                              <span>Base</span><span>${s.calc!.base_price.toFixed(2)}</span>
+                            </div>
+                            {s.calc!.addon_breakdown.map(a => (
+                              <div key={a.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#6B6860", fontFamily: FF }}>
+                                <span>{a.name}</span><span>{a.amount < 0 ? `-$${Math.abs(a.amount).toFixed(2)}` : `+$${a.amount.toFixed(2)}`}</span>
+                              </div>
+                            ))}
+                            {(s.calc!.bundle_breakdown ?? []).map((b, i) => (
+                              <div key={`bundle-${b.id ?? i}`} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11, color: b.applied ? "#0F7A63" : "#9E9B94", fontFamily: FF }}>
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                                  <button type="button" onClick={() => toggleBundle(s.scope_id, b.id)} title={b.applied ? "Remove this combo discount" : "Apply this combo discount"}
+                                    style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 15, height: 15, borderRadius: 4, border: "1px solid #E5E2DC", background: b.applied ? "#0F7A63" : "#FFF", color: b.applied ? "#FFF" : "#9E9B94", fontSize: 10, lineHeight: 1, cursor: "pointer", padding: 0, fontFamily: FF }}>
+                                    {b.applied ? "\u00d7" : "+"}
+                                  </button>
+                                  <span style={{ textDecoration: b.applied ? "none" : "line-through" }}>{b.name || "Bundle discount"}</span>
+                                </span>
+                                <span style={{ textDecoration: b.applied ? "none" : "line-through" }}>-${b.discount.toFixed(2)}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {estHrs > 0 && <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF, marginTop: 3 }}>Est. {estHrs} hrs</div>}
                       </div>
                     );
                   })}
