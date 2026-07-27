@@ -19,6 +19,23 @@ export const DAY_NAME_TO_NUM: Record<string, number> = {
   thursday: 4, friday: 5, saturday: 6,
 };
 
+/**
+ * Canonicalize the recurring-frequency vocabulary. The app carries TWO names for
+ * the same cadence: the DB enum + this engine use `biweekly`/`monthly`, while the
+ * quote/cadence UI and some business logic emit `every_2_weeks`/`every_4_weeks`
+ * (and `bi-weekly`). Un-normalized, those legacy values silently fail the
+ * fan-out gates in routes/jobs.ts (schedule created but only the FIRST job books
+ * — Maribel's "every two weeks only books the first one") or fail the enum
+ * INSERT outright. Every path that WRITES a recurring frequency must route it
+ * through here so the gate, the enum column, and the date engine all agree.
+ */
+export function normalizeRecurringFreq(f: unknown): string {
+  const s = String(f ?? "").trim().toLowerCase();
+  if (s === "every_2_weeks" || s === "bi-weekly") return "biweekly";
+  if (s === "every_4_weeks") return "monthly";
+  return s;
+}
+
 export function addDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() + days);
