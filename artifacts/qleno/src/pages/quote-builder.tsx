@@ -1109,6 +1109,37 @@ export default function QuoteBuilderPage() {
             {WEEKDAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
           </select>
         </div>
+        {/* [residential-custom-recurrence 2026-07-27] Maribel: "for residential
+            there's no custom option for recurrence such as every 5, 6, 7 weeks."
+            Weekly / bi-weekly / every-3 / every-4(monthly) all have dedicated
+            scope cards; 5–8 weeks did not. The number input above already accepts
+            any 1–52 interval and round-trips as frequency='custom' +
+            custom_frequency_weeks — these chips just surface the named cadences as
+            one tap. Weeks-only (months uses the week-of-month picker instead). */}
+        {r.unit === "weeks" && (
+          <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+            <span style={{ fontSize: 11.5, color: "#9E9B94", fontFamily: FF }}>Quick pick:</span>
+            {[5, 6, 7, 8].map(n => {
+              const active = r.interval === n;
+              return (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => set({ interval: n, unit: "weeks" })}
+                  style={{
+                    padding: "4px 10px", borderRadius: 999, cursor: "pointer", fontFamily: FF,
+                    fontSize: 12, fontWeight: 600,
+                    border: active ? "1.5px solid var(--brand)" : "1px solid #E5E2DC",
+                    background: active ? "#EAF9F4" : "#FFFFFF",
+                    color: active ? "#0A6E5A" : "#4A4845",
+                  }}
+                >
+                  {n} weeks
+                </button>
+              );
+            })}
+          </div>
+        )}
         <div style={{ marginTop: 10, fontSize: 12.5, fontWeight: 600, color: "#00A886", fontFamily: FF }}>↻ {customRecSummary(r)}</div>
         <div style={{ marginTop: 6, fontSize: 11.5, color: "#9E9B94", fontFamily: FF, lineHeight: 1.5 }}>
           Per-visit price = your standard recurring rate. Custom only changes when visits recur.
