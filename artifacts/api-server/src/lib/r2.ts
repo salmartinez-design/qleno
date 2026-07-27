@@ -88,6 +88,23 @@ export async function r2Delete(key: string): Promise<void> {
   await client().send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key }));
 }
 
+/** Fetch an object's raw bytes into a Buffer. Used for server-side downloads
+ *  (forced Content-Disposition) and for building zip archives, where the
+ *  browser can't reach R2 directly (no CORS) and we don't want to leak signed
+ *  URLs. Returns the buffer plus the stored content type. */
+export async function r2GetBuffer(
+  key: string
+): Promise<{ body: Buffer; contentType: string }> {
+  const out = await client().send(
+    new GetObjectCommand({ Bucket: BUCKET, Key: key })
+  );
+  const bytes = await out.Body!.transformToByteArray();
+  return {
+    body: Buffer.from(bytes),
+    contentType: out.ContentType || "application/octet-stream",
+  };
+}
+
 /** A stored job_photos.url is a legacy inline image when it's a data: URL.
  *  Anything starting with http(s):// or / is already a servable URL. Otherwise
  *  it's an R2 object key that must be signed before serving. */

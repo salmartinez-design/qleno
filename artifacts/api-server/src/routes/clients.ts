@@ -14,6 +14,11 @@ import { logAudit } from "../lib/audit.js";
 import { utcIso } from "../lib/time-serialize.js";
 import { syncCustomer, queueSync } from "../services/quickbooks-sync.js";
 import { resolveZoneForZip } from "./zones.js";
+import {
+  r2SignedGetUrl, r2GetBuffer, r2Delete,
+  isR2Key, isLegacyDataUrl,
+} from "../lib/r2.js";
+import { buildZip } from "../lib/zip.js";
 import crypto from "crypto";
 
 const router = Router();
@@ -2129,6 +2134,12 @@ router.patch("/:id/recurring-schedule", requireAuth, async (req, res) => {
 });
 
 // ─── JOB PHOTOS FOR CLIENT ────────────────────────────────────────────────────
+// [photo-mgmt 2026-07-27] R2-stored photos MUST be signed before they can be
+// rendered — the raw job_photos.url is just an object key (broken <img>). This
+// is why the profile gallery showed "uploaded" thumbnails that never loaded.
+// Legacy data:/absolute URLs pass through untouched. Also stamp a download
+// filename + storage flag so the frontend knows whether to hit the server
+// download route (R2) or save the URL directly (data:/absolute).
 router.get("/:id/job-photos", requireAuth, async (req, res) => {
   try {
     const clientId = parseInt(req.params.id);
@@ -2149,9 +2160,195 @@ router.get("/:id/job-photos", requireAuth, async (req, res) => {
       .innerJoin(jobsTable, and(eq(jobPhotosTable.job_id, jobsTable.id), eq(jobsTable.client_id, clientId), eq(jobsTable.company_id, companyId)))
       .leftJoin(usersTable, eq(jobPhotosTable.uploaded_by, usersTable.id))
       .orderBy(desc(jobsTable.scheduled_date), desc(jobPhotosTable.timestamp));
-    return res.json(rows);
+
+    // Per (job, type) running index so filenames are stable + human-readable.
+    const seq = new Map<string, number>();
+    const out = await Promise.all(rows.map(async (r: any) => {
+      const isR2 = isR2Key(r.url);
+      let display = r.url;
+      if (isR2) {
+        try { display = await r2SignedGetUrl(r.url); }
+        catch (e) { console.error("Sign R2 photo failed", r.photo_id, e); display = null; }
+      }
+      const seqKey = `${r.job_id}:${r.photo_type}`;
+      const n = (seq.get(seqKey) || 0) + 1;
+      seq.set(seqKey, n);
+      const datePart = r.job_date ? String(r.job_date).slice(0, 10) : "photo";
+      const filename = `${datePart}_${r.photo_type}_${n}.jpg`;
+      return {
+        ...r,
+        url: display,          // signed (R2) or original (data:/absolute)
+        filename,
+        storage: isR2 ? "r2" : (isLegacyDataUrl(r.url) ? "data" : "url"),
+        downloadable: isR2,    // true → use GET .../download; else save url client-side
+      };
+    }));
+    return res.json(out);
   } catch (err) {
     console.error("Job photos error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [photo-mgmt 2026-07-27] Resolve a single photo row and assert it belongs to
+// this client + tenant. Shared by download + delete so ownership is checked
+// one way. Returns null when not found / cross-tenant.
+async function loadClientPhoto(clientId: number, companyId: number, photoId: number) {
+  const [row] = await db.select({
+    photo_id: jobPhotosTable.id,
+    job_id: jobPhotosTable.job_id,
+    photo_type: jobPhotosTable.photo_type,
+    url: jobPhotosTable.url,
+    job_date: jobsTable.scheduled_date,
+  })
+    .from(jobPhotosTable)
+    .innerJoin(jobsTable, and(
+      eq(jobPhotosTable.job_id, jobsTable.id),
+      eq(jobsTable.client_id, clientId),
+      eq(jobsTable.company_id, companyId),
+    ))
+    .where(eq(jobPhotosTable.id, photoId))
+    .limit(1);
+  return row || null;
+}
+
+// [photo-mgmt 2026-07-27] Stream one photo back with a forced-download
+// Content-Disposition. Server-side so the browser never touches R2 directly
+// (no CORS) and we control the saved filename.
+router.get("/:id/job-photos/:photoId/download", requireAuth, async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const photoId = parseInt(req.params.photoId);
+    const companyId = req.auth!.companyId;
+    if (!Number.isFinite(clientId) || !Number.isFinite(photoId)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+    const row = await loadClientPhoto(clientId, companyId, photoId);
+    if (!row) return res.status(404).json({ error: "Photo not found" });
+
+    const datePart = row.job_date ? String(row.job_date).slice(0, 10) : "photo";
+    const filename = `${datePart}_${row.photo_type}_${photoId}.jpg`;
+
+    if (isR2Key(row.url)) {
+      const { body, contentType } = await r2GetBuffer(row.url);
+      res.setHeader("Content-Type", contentType);
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      return res.send(body);
+    }
+    if (isLegacyDataUrl(row.url)) {
+      // data:<mime>;base64,<payload>
+      const m = /^data:([^;,]+)?(;base64)?,(.*)$/s.exec(row.url || "");
+      if (!m) return res.status(422).json({ error: "Unreadable image data" });
+      const mime = m[1] || "image/jpeg";
+      const buf = m[2] ? Buffer.from(m[3], "base64") : Buffer.from(decodeURIComponent(m[3]));
+      res.setHeader("Content-Type", mime);
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      return res.send(buf);
+    }
+    // Already an absolute/relative URL — let the client fetch it directly.
+    return res.redirect(row.url as string);
+  } catch (err) {
+    console.error("Photo download error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [photo-mgmt 2026-07-27] Bundle the requested photos into a single .zip and
+// stream it. STORE method (photos are already-compressed JPEGs). Only R2 +
+// legacy data: photos can be bundled server-side; absolute-URL rows are
+// skipped (rare — pre-R2 external links) and reported in a header.
+router.post("/:id/job-photos/zip", requireAuth, async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const companyId = req.auth!.companyId;
+    if (!Number.isFinite(clientId)) return res.status(400).json({ error: "Invalid client id" });
+
+    const ids: number[] = Array.isArray(req.body?.photo_ids)
+      ? req.body.photo_ids.map((x: any) => parseInt(x)).filter((n: number) => Number.isFinite(n))
+      : [];
+    if (!ids.length) return res.status(400).json({ error: "No photos selected" });
+    if (ids.length > 200) return res.status(400).json({ error: "Too many photos (max 200)" });
+
+    const rows = await db.select({
+      photo_id: jobPhotosTable.id,
+      photo_type: jobPhotosTable.photo_type,
+      url: jobPhotosTable.url,
+      job_date: jobsTable.scheduled_date,
+    })
+      .from(jobPhotosTable)
+      .innerJoin(jobsTable, and(
+        eq(jobPhotosTable.job_id, jobsTable.id),
+        eq(jobsTable.client_id, clientId),
+        eq(jobsTable.company_id, companyId),
+      ))
+      .where(inArray(jobPhotosTable.id, ids))
+      .orderBy(desc(jobsTable.scheduled_date), desc(jobPhotosTable.timestamp));
+
+    const entries: { name: string; data: Buffer }[] = [];
+    let skipped = 0;
+    for (const r of rows as any[]) {
+      const datePart = r.job_date ? String(r.job_date).slice(0, 10) : "photo";
+      const name = `${datePart}_${r.photo_type}_${r.photo_id}.jpg`;
+      try {
+        if (isR2Key(r.url)) {
+          const { body } = await r2GetBuffer(r.url);
+          entries.push({ name, data: body });
+        } else if (isLegacyDataUrl(r.url)) {
+          const m = /^data:[^;,]*(;base64)?,(.*)$/s.exec(r.url || "");
+          if (m) {
+            const buf = m[1] ? Buffer.from(m[2], "base64") : Buffer.from(decodeURIComponent(m[2]));
+            entries.push({ name, data: buf });
+          } else skipped++;
+        } else skipped++;
+      } catch (e) {
+        console.error("Zip fetch failed for photo", r.photo_id, e);
+        skipped++;
+      }
+    }
+
+    if (!entries.length) return res.status(422).json({ error: "No downloadable photos in selection" });
+
+    const zip = buildZip(entries);
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader("Content-Type", "application/zip");
+    res.setHeader("Content-Disposition", `attachment; filename="photos_${stamp}.zip"`);
+    res.setHeader("X-Photos-Included", String(entries.length));
+    res.setHeader("X-Photos-Skipped", String(skipped));
+    return res.send(zip);
+  } catch (err) {
+    console.error("Photo zip error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// [photo-mgmt 2026-07-27] Delete one photo: remove the R2 object (best-effort)
+// then the DB row. Office+ only — techs never manage the office gallery. R2
+// delete failures don't block the row delete (avoids an un-deletable ghost),
+// but are logged so an orphaned object can be reaped later.
+router.delete("/:id/job-photos/:photoId", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const clientId = parseInt(req.params.id);
+    const photoId = parseInt(req.params.photoId);
+    const companyId = req.auth!.companyId;
+    if (!Number.isFinite(clientId) || !Number.isFinite(photoId)) {
+      return res.status(400).json({ error: "Invalid id" });
+    }
+    const row = await loadClientPhoto(clientId, companyId, photoId);
+    if (!row) return res.status(404).json({ error: "Photo not found" });
+
+    if (isR2Key(row.url)) {
+      try { await r2Delete(row.url as string); }
+      catch (e) { console.error("R2 delete failed (row still removed)", row.url, e); }
+    }
+    await db.delete(jobPhotosTable).where(eq(jobPhotosTable.id, photoId));
+
+    await logAudit(req, "photo.delete", "job_photo", photoId, null, {
+      client_id: clientId, job_id: row.job_id, photo_type: row.photo_type,
+    });
+
+    return res.json({ ok: true, deleted: photoId });
+  } catch (err) {
+    console.error("Photo delete error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });

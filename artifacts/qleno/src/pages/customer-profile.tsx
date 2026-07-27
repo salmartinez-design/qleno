@@ -14,6 +14,7 @@ import {
   Phone, Mail, MapPin, MessageSquare, Send, AlertTriangle, TrendingUp,
   ClipboardList, DollarSign, BookOpen, Paperclip, ShieldCheck, Loader2,
   MessageCircle, RefreshCw, Activity, Upload, Image, Calendar, Clock, Wrench,
+  Download, CheckCircle2,
 } from "lucide-react";
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from "./customer-profile-tabs2";
 import { JobWizard } from "@/components/job-wizard";
@@ -4952,12 +4953,25 @@ function AttachmentsSection({ clientId }: { clientId: number }) {
 }
 
 // ─── Home Images Section ──────────────────────────────────────────────────────
-function HomeImagesSection({ clientId }: { clientId: number }) {
+// [photo-mgmt 2026-07-27] Full photo management on the client profile: open
+// full-size (lightbox w/ prev-next + keyboard), download one, batch-download a
+// selection as a .zip, and delete (office+). Server signs R2 keys before they
+// reach here, so <img src> renders; downloads/zip stream back through the API
+// (never the browser→R2 directly — R2 has no CORS for fetch()).
+function HomeImagesSection({ clientId, showToast }: { clientId: number; showToast: (msg: string, type?: "success" | "error") => void }) {
+  const qc = useQueryClient();
+  const role = getTokenRole();
+  const canManage = ["owner", "admin", "office"].includes(role || "");
   const { data: photos = [], isLoading } = useQuery<any[]>({
     queryKey: ["client-job-photos", clientId],
     queryFn: () => apiFetch(`/api/clients/${clientId}/job-photos`),
     staleTime: 60000,
   });
+
+  const [selectMode, setSelectMode] = useState(false);
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
 
   const byJob = photos.reduce((acc: Record<number, any[]>, p: any) => {
     if (!acc[p.job_id]) acc[p.job_id] = [];
@@ -4980,13 +4994,152 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
     photos: rows,
   })).sort((a, b) => (b.takenDate || "").localeCompare(a.takenDate || ""));
 
+  // Flat, display-ordered list — the lightbox pages across ALL photos, not just
+  // one job group.
+  const ordered: any[] = jobGroups.flatMap(g => g.photos.map((p: any) => ({ ...p, _group: g })));
+  const total = ordered.length;
+
+  function toggleSel(id: number) {
+    setSelected(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
+  function exitSelect() { setSelectMode(false); setSelected(new Set()); }
+
+  function saveBlob(blob: Blob, filename: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  async function downloadOne(p: any) {
+    setBusy(true);
+    try {
+      if (p.storage === "url") {
+        // External/relative URL — save directly, no server round-trip needed.
+        const a = document.createElement("a");
+        a.href = p.url; a.download = p.filename || `photo_${p.photo_id}.jpg`; a.target = "_blank";
+        document.body.appendChild(a); a.click(); a.remove();
+      } else {
+        const r = await fetch(`${API}/api/clients/${clientId}/job-photos/${p.photo_id}/download`, { headers: getAuthHeaders() });
+        if (!r.ok) throw new Error(await r.text());
+        saveBlob(await r.blob(), p.filename || `photo_${p.photo_id}.jpg`);
+      }
+    } catch { showToast("Download failed", "error"); }
+    finally { setBusy(false); }
+  }
+
+  async function downloadSelected() {
+    const ids = [...selected];
+    if (!ids.length) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${API}/api/clients/${clientId}/job-photos/zip`, {
+        method: "POST",
+        headers: { ...getAuthHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({ photo_ids: ids }),
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const stamp = new Date().toISOString().slice(0, 10);
+      saveBlob(await r.blob(), `photos_${stamp}.zip`);
+      const skipped = Number(r.headers.get("X-Photos-Skipped") || 0);
+      showToast(skipped ? `Downloaded ${ids.length - skipped} photos (${skipped} skipped)` : `Downloaded ${ids.length} photos`);
+      exitSelect();
+    } catch { showToast("Batch download failed", "error"); }
+    finally { setBusy(false); }
+  }
+
+  async function deleteOne(p: any, fromLightbox = false) {
+    if (!window.confirm("Delete this photo? This can't be undone.")) return;
+    setBusy(true);
+    try {
+      await apiFetch(`/api/clients/${clientId}/job-photos/${p.photo_id}`, { method: "DELETE" });
+      await qc.invalidateQueries({ queryKey: ["client-job-photos", clientId] });
+      setSelected(prev => { const n = new Set(prev); n.delete(p.photo_id); return n; });
+      showToast("Photo deleted");
+      if (fromLightbox) {
+        // total shrinks by one; clamp or close.
+        setLightboxIdx(idx => (idx === null ? null : (total - 1 <= 0 ? null : Math.min(idx, total - 2))));
+      }
+    } catch { showToast("Delete failed", "error"); }
+    finally { setBusy(false); }
+  }
+
+  async function deleteSelected() {
+    const ids = [...selected];
+    if (!ids.length) return;
+    if (!window.confirm(`Delete ${ids.length} photo${ids.length > 1 ? "s" : ""}? This can't be undone.`)) return;
+    setBusy(true);
+    let ok = 0;
+    try {
+      for (const id of ids) {
+        try { await apiFetch(`/api/clients/${clientId}/job-photos/${id}`, { method: "DELETE" }); ok++; }
+        catch { /* count failures below */ }
+      }
+      await qc.invalidateQueries({ queryKey: ["client-job-photos", clientId] });
+      showToast(ok === ids.length ? `Deleted ${ok} photos` : `Deleted ${ok} of ${ids.length}`, ok ? "success" : "error");
+      exitSelect();
+    } finally { setBusy(false); }
+  }
+
+  // Keyboard nav for the lightbox.
+  useEffect(() => {
+    if (lightboxIdx === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setLightboxIdx(null);
+      else if (e.key === "ArrowLeft") setLightboxIdx(i => (i === null ? i : (i > 0 ? i - 1 : i)));
+      else if (e.key === "ArrowRight") setLightboxIdx(i => (i === null ? i : (i < total - 1 ? i + 1 : i)));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightboxIdx, total]);
+
+  const current = lightboxIdx !== null ? ordered[lightboxIdx] : null;
+
+  const chipStyle = (t: string): React.CSSProperties => ({
+    fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em",
+    background: t === "before" ? "#FDF3E4" : "#E6F6F1", color: t === "before" ? "#B45309" : "#0F7A63",
+    padding: "2px 6px", borderRadius: 4,
+  });
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-      <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF, opacity: 0.5 }} title="Photo uploads are taken by technicians during jobs">
-          <Upload size={13} /> Upload Photo
-        </button>
+      <style>{`.photo-cell:hover .photo-hover{opacity:1 !important;}`}</style>
+      {/* Toolbar */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+        {selectMode ? (
+          <>
+            <span style={{ fontSize: 13, fontWeight: 600, color: "#1A1917" }}>{selected.size} selected</span>
+            <button onClick={() => setSelected(new Set(ordered.map(p => p.photo_id)))} style={ghostBtn}>Select all</button>
+            <button onClick={() => setSelected(new Set())} style={ghostBtn}>Clear</button>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              <button onClick={downloadSelected} disabled={busy || selected.size === 0} style={{ ...primaryBtn, opacity: (busy || selected.size === 0) ? 0.5 : 1 }}>
+                <Download size={13} /> Download {selected.size ? `(${selected.size})` : ""} .zip
+              </button>
+              {canManage && (
+                <button onClick={deleteSelected} disabled={busy || selected.size === 0} style={{ ...dangerBtn, opacity: (busy || selected.size === 0) ? 0.5 : 1 }}>
+                  <Trash2 size={13} /> Delete
+                </button>
+              )}
+              <button onClick={exitSelect} style={ghostBtn}>Cancel</button>
+            </div>
+          </>
+        ) : (
+          <>
+            {total > 0 && <button onClick={() => setSelectMode(true)} style={outlineBtn}><CheckCircle2 size={13} /> Select</button>}
+            <div style={{ marginLeft: "auto" }}>
+              <button style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "not-allowed", fontFamily: FF, opacity: 0.5 }} title="Photo uploads are taken by technicians during jobs" disabled>
+                <Upload size={13} /> Upload Photo
+              </button>
+            </div>
+          </>
+        )}
       </div>
+
       {isLoading ? (
         <div style={{ textAlign: "center" as const, color: "#9E9B94", fontSize: 13, padding: 24 }}>Loading...</div>
       ) : jobGroups.length === 0 ? (
@@ -5002,21 +5155,90 @@ function HomeImagesSection({ clientId }: { clientId: number }) {
               <a href={`/dispatch?date=${(group.jobDate || "").slice(0, 10)}&job=${group.jobId}`} style={{ marginLeft: "auto", fontSize: 11, fontWeight: 600, color: "var(--brand)", textDecoration: "none" }}>Job #{group.jobId}</a>
             </div>
             <div style={{ padding: 12, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(140px, 1fr))", gap: 10 }}>
-              {group.photos.map((p: any) => (
-                <div key={p.photo_id} style={{ border: "1px solid #E5E2DC", borderRadius: 7, overflow: "hidden", position: "relative" }}>
-                  <img src={p.url} alt={`Job ${group.jobId} photo`} style={{ width: "100%", height: 110, objectFit: "cover" as const, display: "block" }} />
-                  {p.photo_type && (
-                    <div style={{ position: "absolute", top: 6, left: 6, fontSize: 9, fontWeight: 700, textTransform: "uppercase" as const, background: p.photo_type === "before" ? "#FDF3E4" : "#E6F6F1", color: p.photo_type === "before" ? "#B45309" : "#0F7A63", padding: "2px 6px", borderRadius: 4 }}>{p.photo_type}</div>
-                  )}
-                </div>
-              ))}
+              {group.photos.map((p: any) => {
+                const flatIdx = ordered.findIndex(o => o.photo_id === p.photo_id);
+                const isSel = selected.has(p.photo_id);
+                return (
+                  <div
+                    key={p.photo_id}
+                    className="photo-cell"
+                    onClick={() => { if (selectMode) toggleSel(p.photo_id); else setLightboxIdx(flatIdx); }}
+                    style={{ border: isSel ? "2px solid var(--brand)" : "1px solid #E5E2DC", borderRadius: 7, overflow: "hidden", position: "relative", cursor: "pointer", background: "#F7F6F3" }}
+                  >
+                    {p.url ? (
+                      <img src={p.url} alt={`Job ${group.jobId} photo`} style={{ width: "100%", height: 110, objectFit: "cover" as const, display: "block", opacity: selectMode && !isSel ? 0.72 : 1 }} loading="lazy" />
+                    ) : (
+                      <div style={{ width: "100%", height: 110, display: "flex", alignItems: "center", justifyContent: "center", color: "#B7B3AB", fontSize: 11 }}>Unavailable</div>
+                    )}
+                    {p.photo_type && (
+                      <div style={{ position: "absolute", top: 6, left: 6, ...chipStyle(p.photo_type) }}>{p.photo_type}</div>
+                    )}
+                    {selectMode && (
+                      <div style={{ position: "absolute", top: 6, right: 6, width: 20, height: 20, borderRadius: "50%", background: isSel ? "var(--brand)" : "rgba(255,255,255,0.9)", border: isSel ? "none" : "1px solid #C9C5BD", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {isSel && <Check size={13} color="#fff" />}
+                      </div>
+                    )}
+                    {!selectMode && (
+                      <div className="photo-hover" style={{ position: "absolute", bottom: 0, left: 0, right: 0, display: "flex", justifyContent: "flex-end", gap: 4, padding: 6, background: "linear-gradient(to top, rgba(0,0,0,0.45), transparent)", opacity: 0, transition: "opacity 0.15s" }}>
+                        <button onClick={(e) => { e.stopPropagation(); downloadOne(p); }} title="Download" style={iconBtn}><Download size={13} color="#1A1917" /></button>
+                        {canManage && <button onClick={(e) => { e.stopPropagation(); deleteOne(p); }} title="Delete" style={iconBtn}><Trash2 size={13} color="#C0392B" /></button>}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           </div>
         ))
       )}
+
+      {/* Lightbox */}
+      {current && (
+        <div
+          onClick={() => setLightboxIdx(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.82)", zIndex: 1000, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}
+        >
+          {/* Top bar */}
+          <div onClick={(e) => e.stopPropagation()} style={{ position: "absolute", top: 16, left: 0, right: 0, display: "flex", alignItems: "center", gap: 12, padding: "0 20px", color: "#fff" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {current.photo_type && <span style={chipStyle(current.photo_type)}>{current.photo_type}</span>}
+              <span style={{ fontSize: 13, fontWeight: 600 }}>{fmtDate(current._group?.takenDate)}</span>
+              {current._group?.techName && <span style={{ fontSize: 12, color: "#C9C5BD" }}>{current._group.techName}</span>}
+              <span style={{ fontSize: 12, color: "#C9C5BD" }}>· Job #{current.job_id}</span>
+            </div>
+            <span style={{ marginLeft: "auto", fontSize: 12, color: "#C9C5BD", fontVariantNumeric: "tabular-nums" }}>{(lightboxIdx ?? 0) + 1} / {total}</span>
+            <button onClick={() => downloadOne(current)} disabled={busy} style={lbBtn}><Download size={14} /> Download</button>
+            {canManage && <button onClick={() => deleteOne(current, true)} disabled={busy} style={{ ...lbBtn, color: "#FF8B7A" }}><Trash2 size={14} /> Delete</button>}
+            <button onClick={() => setLightboxIdx(null)} style={{ ...lbBtn, padding: "6px 8px" }}><X size={16} /></button>
+          </div>
+
+          {/* Prev */}
+          {lightboxIdx! > 0 && (
+            <button onClick={(e) => { e.stopPropagation(); setLightboxIdx(i => (i! > 0 ? i! - 1 : i)); }} style={{ ...lbArrow, left: 16 }}><ChevronLeft size={26} /></button>
+          )}
+          {/* Image */}
+          {current.url ? (
+            <img onClick={(e) => e.stopPropagation()} src={current.url} alt="Full size" style={{ maxWidth: "88vw", maxHeight: "78vh", objectFit: "contain", borderRadius: 8, boxShadow: "0 8px 40px rgba(0,0,0,0.5)" }} />
+          ) : (
+            <div onClick={(e) => e.stopPropagation()} style={{ color: "#C9C5BD", fontSize: 14 }}>Image unavailable</div>
+          )}
+          {/* Next */}
+          {lightboxIdx! < total - 1 && (
+            <button onClick={(e) => { e.stopPropagation(); setLightboxIdx(i => (i! < total - 1 ? i! + 1 : i)); }} style={{ ...lbArrow, right: 16 }}><ChevronRight size={26} /></button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
+
+const ghostBtn: React.CSSProperties = { display: "flex", alignItems: "center", gap: 5, padding: "7px 12px", background: "none", border: "none", borderRadius: 8, color: "#6B6860", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF };
+const outlineBtn: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#fff", border: "1px solid #E5E2DC", borderRadius: 8, color: "#1A1917", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF };
+const primaryBtn: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "var(--brand)", border: "none", borderRadius: 8, color: "#fff", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF };
+const dangerBtn: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", background: "#fff", border: "1px solid #F0C9C2", borderRadius: 8, color: "#C0392B", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF };
+const iconBtn: React.CSSProperties = { display: "flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, background: "rgba(255,255,255,0.92)", border: "none", borderRadius: 6, cursor: "pointer" };
+const lbBtn: React.CSSProperties = { display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 8, color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: FF };
+const lbArrow: React.CSSProperties = { position: "absolute", top: "50%", transform: "translateY(-50%)", width: 44, height: 44, borderRadius: "50%", background: "rgba(255,255,255,0.14)", border: "1px solid rgba(255,255,255,0.2)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" };
 
 // ─── Loyalty Program Card ──────────────────────────────────────────────────────
 function LoyaltyProgramCard({ clientId, loyaltyRecord, loyaltyTiers, loyaltyStats, effectiveTierName, loyaltyTierBadge, refetch, showToast }: {
@@ -6446,7 +6668,7 @@ export default function CustomerProfilePage() {
             {/* Home Images */}
             <div style={CS}>
               <SectionHead title="Home Images" />
-              <HomeImagesSection clientId={clientId} />
+              <HomeImagesSection clientId={clientId} showToast={showToast} />
             </div>
           </div>
         </div>
