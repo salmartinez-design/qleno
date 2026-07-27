@@ -280,7 +280,35 @@ router.get("/scopes/:id/addons", requireAuth, async (req, res) => {
              AND is_active = true
            ORDER BY addon_type, sort_order, id
         `);
-        rows = (allRes as any).rows ?? [];
+        const allRows = (allRes as any).rows ?? [];
+        // [hourly-addon-curation 2026-07-27] The full catalog floods the hourly
+        // group with ~14 tiles — duplicates ("Oven Cleaning" AND "Oven Cleaning
+        // (Hourly …)"), Parking Fee, Windows, and the Manual/Commercial
+        // Adjustment mechanisms (those belong to the Price Adjustments box, not
+        // the add-on grid). Sal wants exactly five concepts here: Oven,
+        // Refrigerator, Kitchen Cabinets, Baseboards, Clean Basement. Collapse
+        // each concept to ONE row, preferring the clean base row over its
+        // "(Hourly — Time Add)" twin. Safe because hourly add-ons are
+        // display-only — the quote builder strips addon_ids for hourly scopes
+        // (recalcScopeById), so price_type never reaches /calculate and only the
+        // name is shown as "Included · no extra charge".
+        const HOURLY_CONCEPTS: { key: string; match: RegExp }[] = [
+          { key: "oven",         match: /oven/i },
+          { key: "refrigerator", match: /refrigerator|fridge/i },
+          { key: "cabinets",     match: /kitchen cabinet/i },
+          { key: "baseboards",   match: /baseboard/i },
+          { key: "basement",     match: /basement/i },
+        ];
+        const curated: any[] = [];
+        for (const c of HOURLY_CONCEPTS) {
+          const candidates = allRows.filter((r: any) => c.match.test(r.name ?? ""));
+          if (candidates.length === 0) continue;
+          // Prefer the non-"(Hourly)" base row for a cleaner label; else the
+          // first candidate (already ordered by sort_order).
+          const pick = candidates.find((r: any) => !/hourly/i.test(r.name ?? "")) ?? candidates[0];
+          curated.push(pick);
+        }
+        rows = curated;
       }
     }
 
