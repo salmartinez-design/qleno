@@ -279,6 +279,12 @@ function n(v: string | number | null | undefined): number | null {
 }
 
 function asPayType(v: string | null): PayType | null {
+  // [trainee-paytype 2026-07-27] 'trainee' is a stored display label for the
+  // existing hourly exclude-from-pool path — it resolves to 'hourly' here so
+  // ALL pay math (pool split denominator, hourly payout, efficiency) treats a
+  // trainee exactly as an hourly cleaner. The raw 'trainee' string is only
+  // used by the UI to show the "Trainee" label; the money is identical.
+  if (v === "trainee") return "hourly";
   return v === "fee_split" || v === "allowed_hours" || v === "hourly" ? v : null;
 }
 

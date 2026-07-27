@@ -5,6 +5,7 @@ import { eq, and, gte, lte, desc, sql, count } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
 import { computePerTechCommissionRows, isCommercialJob, type JobTechRow } from "../lib/commission-paytype.js";
+import { computeJobBilledNet } from "../lib/job-billed.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { parseResRatesRow } from "../lib/commission-rates.js";
 import { unionHoursByKey } from "../lib/timeclock-hours.js";
@@ -929,8 +930,12 @@ router.put("/office/job/:jobId/tech/:userId/pay", requireAuth, requireRole("owne
     if (!jobId || !userId) return res.status(400).json({ error: "jobId and userId are required" });
 
     const payType = req.body?.pay_type ?? null;
-    if (payType !== null && !["fee_split", "allowed_hours", "hourly"].includes(payType))
-      return res.status(400).json({ error: "pay_type must be fee_split, allowed_hours, hourly, or null" });
+    // [trainee-paytype 2026-07-27] 'trainee' is accepted as a distinct stored
+    // label; the pay engine (asPayType) resolves it to 'hourly' so it excludes
+    // the tech from the fee-split pool and pays $/hr — identical money, clearer
+    // intent than picking "Hourly".
+    if (payType !== null && !["fee_split", "allowed_hours", "hourly", "trainee"].includes(payType))
+      return res.status(400).json({ error: "pay_type must be fee_split, allowed_hours, hourly, trainee, or null" });
 
     const numOrNull = (v: any): number | null => {
       if (v === null || v === undefined || v === "") return null;
@@ -1076,6 +1081,11 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
              j.service_type::text AS service_type, j.address_street,
              j.job_lat, j.job_lng, j.address_lat, j.address_lng,
              j.account_id, j.client_id, j.base_fee, j.billed_amount, j.commission_base, j.allowed_hours, j.estimated_hours, j.branch_id, j.scheduled_date::text AS scheduled_date,
+             -- [billed-reconcile 2026-07-27] hourly_rate + manual_rate_override feed
+             -- the canonical BILLED total (lib/job-billed.ts) so the clock's revenue
+             -- matches the Jobs page ($50/hr × 8h + parking), not the stale
+             -- commission_base cache.
+             j.hourly_rate, j.manual_rate_override,
              c.client_type, c.lat AS client_lat, c.lng AS client_lng,
              -- Service address so the office can tell apart multiple jobs for the
              -- same client/account on one day (e.g. several PPM units) without
@@ -1177,6 +1187,49 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     `)).rows as any[]) : [];
 
     const jobById = new Map<number, any>(jobs.map(j => [Number(j.job_id), j]));
+
+    // [billed-reconcile 2026-07-27] Canonical BILLED total per job — the number
+    // the client was invoiced — via the same computation the dispatch board uses
+    // (lib/job-billed.ts). The parking fee and every other add-on live in
+    // job_add_ons, NOT in base_fee/billed_amount/commission_base, so the clock's
+    // old feeOf() read a figure that silently dropped them (National Able #4357
+    // showed $380 here vs the correct $420 on the Jobs page). We sum rate-mods,
+    // add-ons, and discounts once (keyed by job_id) and feed them to the helper.
+    // Display-only — commission is unaffected (it flows through the pay engine).
+    const modSumByJob = new Map<number, { mods: number; flatMods: number }>();
+    const addOnSumByJob = new Map<number, number>();
+    const discountSumByJob = new Map<number, number>();
+    if (inList) {
+      try {
+        const modRows = (await db.execute(sql`
+          SELECT job_id, COALESCE(SUM(amount),0)::numeric AS total,
+                 COALESCE(SUM(amount) FILTER (WHERE mod_type = 'flat'),0)::numeric AS flat_total
+            FROM job_rate_mods WHERE job_id IN (${inList}) GROUP BY job_id`)).rows as any[];
+        for (const r of modRows) modSumByJob.set(Number(r.job_id), { mods: parseFloat(String(r.total ?? "0")), flatMods: parseFloat(String(r.flat_total ?? "0")) });
+      } catch { /* job_rate_mods absent — treat as 0 */ }
+      try {
+        const addRows = (await db.execute(sql`
+          SELECT job_id, COALESCE(SUM(subtotal),0)::numeric AS total
+            FROM job_add_ons WHERE job_id IN (${inList}) GROUP BY job_id`)).rows as any[];
+        for (const r of addRows) addOnSumByJob.set(Number(r.job_id), parseFloat(String(r.total ?? "0")));
+      } catch { /* job_add_ons absent — treat as 0 */ }
+      try {
+        const discRows = (await db.execute(sql`
+          SELECT job_id, COALESCE(SUM(amount),0)::numeric AS total
+            FROM job_discounts WHERE job_id IN (${inList}) GROUP BY job_id`)).rows as any[];
+        for (const r of discRows) discountSumByJob.set(Number(r.job_id), parseFloat(String(r.total ?? "0")));
+      } catch { /* job_discounts absent — treat as 0 */ }
+    }
+    const billedOf = (j: any): number => {
+      const jid = Number(j.job_id ?? j.id);
+      const m = modSumByJob.get(jid);
+      return computeJobBilledNet(
+        { base_fee: j.base_fee, billed_amount: j.billed_amount, hourly_rate: j.hourly_rate, allowed_hours: j.allowed_hours, manual_rate_override: j.manual_rate_override },
+        { mods: m?.mods ?? 0, flatMods: m?.flatMods ?? 0, addOns: addOnSumByJob.get(jid) ?? 0, discount: discountSumByJob.get(jid) ?? 0 },
+        isCommercialJob(j.account_id, j.service_type, j.client_type)
+      );
+    };
+
     const techsByJob = new Map<number, { user_id: number; name: string; is_primary: boolean }[]>();
     for (const t of techRows) {
       const arr = techsByJob.get(Number(t.job_id)) || [];
@@ -1301,6 +1354,14 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
                  // opening the job). Mirrors the commission engine's base:
                  // commission_base ?? max(base_fee, billed_amount).
                  fee: number | null;
+                 // [billed-reconcile 2026-07-27] The canonical BILLED total the
+                 // client was invoiced (service + add-ons + mods − discounts),
+                 // matching the Jobs page. Distinct from `fee`: `fee` is the
+                 // residential fee-split commission base (base_fee, which already
+                 // folds add-ons in), while `billed` is the all-in revenue that
+                 // ADDS the parking fee on commercial jobs. The UI shows `billed`
+                 // as "billed $X"; `fee` stays the commission math input.
+                 billed: number | null;
                  // The pay type this row resolves to (override or smart default),
                  // so the UI shows the right verification chip for every client.
                  effective_pay_type: "fee_split" | "allowed_hours" | "hourly";
@@ -1352,6 +1413,11 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     // from the same source that computed the pay — no client-side account_id
     // guess that would misclassify commercial-by-service-type / client_type jobs.
     const asPT = (v: any): "fee_split" | "allowed_hours" | "hourly" | null =>
+      // [trainee-paytype 2026-07-27] 'trainee' is a display label for the
+      // existing exclude-from-pool behavior — it resolves to 'hourly' for all
+      // pay math (excluded from the fee-split pool, paid $/hr). The raw
+      // 'trainee' string stays on the row so the dropdown shows "Trainee".
+      v === "trainee" ? "hourly" :
       v === "fee_split" || v === "allowed_hours" || v === "hourly" ? v : null;
     const resolvedPayTypeOf = (j: any, rawPayType: any): "fee_split" | "allowed_hours" | "hourly" => {
       const override = asPT(rawPayType);
@@ -1432,6 +1498,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
           allowed_hours: j.allowed_hours != null ? Number(j.allowed_hours) : null,
           estimated_hours: j.estimated_hours != null ? Number(j.estimated_hours) : null,
           fee: feeOf(j),
+          billed: billedOf(j),
           effective_pay_type: resolvedPayTypeOf(j, payByJobUser.get(`${jid}:${t.user_id}`)?.pay_type ?? null),
           ...payOf(jid, t.user_id), ...payRowOf(jid, t.user_id), source: e?.source ?? null,
           ...gpsOf(e), ...coordsOf(j),
@@ -1450,6 +1517,7 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
         allowed_hours: j?.allowed_hours != null ? Number(j.allowed_hours) : null,
         estimated_hours: j?.estimated_hours != null ? Number(j.estimated_hours) : null,
         fee: feeOf(j),
+        billed: j ? billedOf(j) : null,
         effective_pay_type: resolvedPayTypeOf(j, payByJobUser.get(`${Number(e.job_id)}:${Number(e.user_id)}`)?.pay_type ?? null),
         ...payOf(Number(e.job_id), Number(e.user_id)), ...payRowOf(Number(e.job_id), Number(e.user_id)), source: e.source ?? null,
         ...gpsOf(e), ...coordsOf(j),
@@ -1475,7 +1543,12 @@ router.get("/day", requireAuth, requireRole("owner", "admin", "office"), async (
     // Day-level business metrics for the summary bar. Revenue is summed per
     // UNIQUE job (not per tech-row, which would double-count multi-tech jobs).
     const pf = (v: any) => { const n = parseFloat(String(v)); return Number.isFinite(n) ? n : 0; };
-    const revenue = Math.round(jobs.reduce((s, j: any) => s + (pf(j.billed_amount) || pf(j.base_fee)), 0) * 100) / 100;
+    // [billed-reconcile 2026-07-27] Top-line revenue must reconcile to the
+    // dispatch board / invoice — sum the canonical all-in billed per job
+    // (service + add-ons + mods − discounts), NOT the stale
+    // billed_amount/base_fee columns which drop the parking fee. National
+    // Able #4357 read $380 here vs $420 on Jobs before this fix.
+    const revenue = Math.round(jobs.reduce((s, j: any) => s + billedOf(j), 0) * 100) / 100;
     const allowedHoursTotal = Math.round(jobs.reduce((s, j: any) => s + pf(j.allowed_hours), 0) * 100) / 100;
 
     // Today's additional pay (bonuses, sick/holiday, etc.) so the Payroll %

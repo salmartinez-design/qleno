@@ -120,7 +120,13 @@ type Row = {
   address?: string | null; client_id?: number | null; account_id?: number | null;
   entry_id: number | null; clock_in_at: string | null; clock_out_at: string | null; flagged: boolean; minutes: number | null;
   allowed_hours?: number | null; estimated_hours?: number | null;
-  fee?: number | null; effective_pay_type?: "fee_split" | "allowed_hours" | "hourly";
+  fee?: number | null;
+  // [billed-reconcile 2026-07-27] Canonical all-in invoiced total (service +
+  // add-ons + mods − discounts) — what the Jobs page / invoice shows. Distinct
+  // from `fee` (the residential fee-split commission base, which omits the
+  // parking add-on). Prefer this for the "billed $X" chip.
+  billed?: number | null;
+  effective_pay_type?: "fee_split" | "allowed_hours" | "hourly";
   pay_type: string | null; hourly_rate: string | null; commission_pct: string | null;
   pay_deduction_pct: string | null; pay_deduction_flat: string | null;
   pay?: number | null; pay_kind?: "commission" | "cancellation"; cancel_action?: string | null;
@@ -208,13 +214,19 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
           // Commercial pay is $20/hr — pre-fill the rate so the office doesn't
           // type it every time (still editable). Only when switching to a
           // $/hr type with no rate yet; fee_split keeps its % handling.
-          if ((v === "allowed_hours" || v === "hourly") && !rate.trim()) setRate("20");
+          // Trainee is paid $/hr too, so it pre-fills the same way.
+          if ((v === "allowed_hours" || v === "hourly" || v === "trainee") && !rate.trim()) setRate("20");
         }}
         style={{ height: 28, border: "1px solid #E5E2DC", borderRadius: 6, fontSize: 12, fontFamily: FF, color: "#1A1917", background: "#fff", padding: "0 6px" }}>
         <option value="">Default</option>
         <option value="fee_split">Fee Split</option>
         <option value="allowed_hours">Allowed Hours</option>
         <option value="hourly">Hourly</option>
+        {/* [trainee-paytype 2026-07-27] Trainee = one-click "exclude from the
+            commission pool, pay $/hr." Behaves exactly as Hourly under the hood
+            (server resolves 'trainee' → 'hourly'); the distinct label makes the
+            intent obvious on the roster and matches the auto TRAINEE tag. */}
+        <option value="trainee">Trainee</option>
       </select>
       {payType !== "" && (
         <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
@@ -223,14 +235,25 @@ function PayEditor({ emp, row, onChanged, toastFn }: {
           <span style={{ fontSize: 11, color: "#9E9B94" }}>{unit}</span>
         </div>
       )}
+      {payType === "trainee" && (
+        <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase", color: "#0A7C66", background: "#E6F7F1", borderRadius: 999, padding: "3px 9px" }}
+          title="Trainee: excluded from the commission pool for this job. The other cleaners split the full pool; the trainee is paid this hourly rate on top.">
+          Excluded from pool · paid hourly
+        </span>
+      )}
       {/* BILLED — shown on EVERY row, whatever the pay type (Sal: need the total
           billed to verify pay, including on commercial/allowed-hours jobs —
           allowed hours alone can't be checked against). "billed $X" = what the
-          client was charged for this job. */}
-      {row.fee != null && row.fee > 0 ? (
+          client was charged for this job.
+          [billed-reconcile 2026-07-27] Prefer `row.billed` (the canonical all-in
+          invoiced total that INCLUDES the parking fee + every add-on, matching
+          the Jobs page). `row.fee` is the fee-split commission base and silently
+          drops add-ons — National Able #4357 read $380 here vs $420 on Jobs.
+          Fall back to `fee` only for older payloads that predate `billed`. */}
+      {(row.billed ?? row.fee) != null && (row.billed ?? row.fee)! > 0 ? (
         <span style={{ fontSize: 11, fontWeight: 700, color: "#1A1917", background: "#F1EEE8", border: "1px solid #E5E2DC", borderRadius: 999, padding: "3px 9px" }}
-          title="Total billed to the client for this job. For fee split: pay = billed × %. For allowed hours: this is the revenue; pay = allowed hours × rate.">
-          billed ${row.fee.toFixed(2)}
+          title="Total billed to the client for this job (includes add-ons like the parking fee). For fee split: pay = billed × %. For allowed hours: this is the revenue; pay = allowed hours × rate.">
+          billed ${(row.billed ?? row.fee)!.toFixed(2)}
         </span>
       ) : (
         <span style={{ fontSize: 11, fontWeight: 700, color: "#B45309", background: "#FDF3E4", borderRadius: 999, padding: "3px 9px" }}
