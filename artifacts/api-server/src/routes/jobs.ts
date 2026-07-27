@@ -952,6 +952,14 @@ router.get("/my-jobs", requireAuth, async (req, res) => {
         geocode_failed: jobsTable.geocode_failed,
         client_phone: clientsTable.phone,
         client_notes: clientsTable.notes,
+        // [entry-notes 2026-07-27] Residential "Entry Instructions"
+        // (clients.home_access_notes) — the standing every-visit access memo the
+        // office maintains on the Property tab "Access & Entry" section (gate
+        // code, lockbox, "park on the south side"). It was never joined into the
+        // tech payload, so techs never saw it and the office kept re-adding the
+        // same note. access_notes (below) is the account-property analog for
+        // commercial jobs; this is the residential-client one.
+        home_access_notes: clientsTable.home_access_notes,
         service_type: jobsTable.service_type,
         status: jobsTable.status,
         scheduled_date: jobsTable.scheduled_date,
