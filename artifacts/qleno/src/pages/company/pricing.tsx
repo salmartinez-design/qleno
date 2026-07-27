@@ -263,8 +263,22 @@ export function PricingTab() {
 
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {/* Regular active scopes (excluding recurring group 4/9/10 and inactive) */}
-          {scopes.filter(s => !RECURRING_IDS.includes(s.id)).map(scope => (
-            <div key={scope.id} style={{ border: `1px solid ${!scope.is_active ? "#E5E2DC" : scope.displayed_for_office ? "#E5E2DC" : "#E5E2DC"}`, borderRadius: 10, background: "#fff", overflow: "hidden", opacity: scope.is_active ? 1 : 0.5 }}>
+          {(() => {
+            // [scope-grouping 2026-07-27] Group scopes by scope_group so all the
+            // Hourly scopes sit together (Sal: "not 4 different places of hourly"),
+            // with an uppercase section header before each group.
+            const GROUP_ORDER = ["Residential", "Hourly", "Commercial"];
+            const gi = (g: string) => { const i = GROUP_ORDER.indexOf(g); return i === -1 ? 90 : i; };
+            const visibleScopes = [...scopes.filter(s => !RECURRING_IDS.includes(s.id))]
+              .sort((a, b) => gi(a.scope_group) - gi(b.scope_group) || (a.sort_order ?? 0) - (b.sort_order ?? 0));
+            let lastGroup = "";
+            return visibleScopes.map(scope => {
+              const showHeader = scope.scope_group !== lastGroup;
+              lastGroup = scope.scope_group;
+              return (
+            <div key={scope.id}>
+              {showHeader && <div style={{ fontSize: 11, fontWeight: 700, color: "#9E9B94", textTransform: "uppercase", letterSpacing: "0.06em", margin: "16px 0 8px" }}>{scope.scope_group}</div>}
+              <div style={{ border: `1px solid ${!scope.is_active ? "#E5E2DC" : scope.displayed_for_office ? "#E5E2DC" : "#E5E2DC"}`, borderRadius: 10, background: "#fff", overflow: "hidden", opacity: scope.is_active ? 1 : 0.5 }}>
 
               {/* ── Edit mode row ── */}
               {editingScope === scope.id ? (
@@ -355,7 +369,10 @@ export function PricingTab() {
                 </div>
               )}
             </div>
-          ))}
+              </div>
+              );
+            });
+          })()}
 
           {/* Recurring Cleaning — combined accordion, grouped by scope_group='Recurring Cleaning' */}
           {scopes.some(s => RECURRING_IDS.includes(s.id) && s.is_active) && (() => {
