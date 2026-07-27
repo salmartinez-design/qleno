@@ -741,6 +741,12 @@ export default function QuoteBuilderPage() {
     if (existingQuote.scope_id && scopes.length > 0) {
       const scope = scopes.find((s: PricingScope) => s.id === existingQuote.scope_id);
       if (scope) {
+        // [discount-rehydrate 2026-07-27] Pull this scope's saved manual
+        // adjustments back out of manual_adjustments so the Add charge / Discount
+        // the office entered is restored on reopen (was silently dropped).
+        const adjs = Array.isArray(existingQuote.manual_adjustments) ? existingQuote.manual_adjustments : [];
+        const addAdj = adjs.find((a: any) => a?.type === "add" && Number(a?.scope_id) === Number(existingQuote.scope_id));
+        const subAdj = adjs.find((a: any) => a?.type === "subtract" && Number(a?.scope_id) === Number(existingQuote.scope_id));
         toggleScope(scope, {
           frequency: existingQuote.frequency || "",
           hours: existingQuote.estimated_hours ? parseFloat(existingQuote.estimated_hours) : 0,
@@ -748,6 +754,10 @@ export default function QuoteBuilderPage() {
           // [rate-override 2026-07-11] Restore the explicit per-quote rate override
           // so editing a quote doesn't silently drop it.
           hourly_rate_override: existingQuote.hourly_rate_override != null ? parseFloat(existingQuote.hourly_rate_override) : null,
+          adjPlus: addAdj ? Number(addAdj.amount) || 0 : 0,
+          adjPlusReason: addAdj ? String(addAdj.reason || "") : "",
+          adjMinus: subAdj ? Number(subAdj.amount) || 0 : 0,
+          adjMinusReason: subAdj ? String(subAdj.reason || "") : "",
         });
       }
     }
@@ -958,7 +968,7 @@ export default function QuoteBuilderPage() {
   }
 
   // ── Toggle scope selection ────────────────────────────────────────────────
-  async function toggleScope(scope: PricingScope, initialState?: { frequency?: string; hours?: number; addon_ids?: number[]; hourly_rate_override?: number | null; displayLabel?: string }) {
+  async function toggleScope(scope: PricingScope, initialState?: { frequency?: string; hours?: number; addon_ids?: number[]; hourly_rate_override?: number | null; displayLabel?: string; adjPlus?: number; adjPlusReason?: string; adjMinus?: number; adjMinusReason?: string }) {
     const isSelected = selectedScopesRef.current.some(s => s.scope_id === scope.id);
     if (isSelected && !initialState) {
       setSelectedScopes(prev => prev.filter(s => s.scope_id !== scope.id));
@@ -991,10 +1001,13 @@ export default function QuoteBuilderPage() {
         addon_ids: initialState?.addon_ids ?? [],
         addonQtys: seededQtys,
         addonRecurring: {},
-        adjPlus: 0,
-        adjPlusReason: "",
-        adjMinus: 0,
-        adjMinusReason: "",
+        // [discount-rehydrate 2026-07-27] Restore the saved per-scope manual
+        // adjustments (Add charge / Discount) so reopening a quote doesn't wipe
+        // the discount the office already entered.
+        adjPlus: initialState?.adjPlus ?? 0,
+        adjPlusReason: initialState?.adjPlusReason ?? "",
+        adjMinus: initialState?.adjMinus ?? 0,
+        adjMinusReason: initialState?.adjMinusReason ?? "",
         disabledBundleIds: [],
         hourlyRateOverride: initialState?.hourly_rate_override ?? null,
         frequencies: freqs as PricingFrequency[],
@@ -1010,7 +1023,9 @@ export default function QuoteBuilderPage() {
       setSelectedScopes(prev => [...prev, {
         scope_id: scope.id, frequency: initialState?.frequency ?? "", hours: initialState?.hours ?? 0,
         hoursOverrideSet: false, addon_ids: initialState?.addon_ids ?? [],
-        addonQtys: {}, addonRecurring: {}, adjPlus: 0, adjPlusReason: "", adjMinus: 0, adjMinusReason: "",
+        addonQtys: {}, addonRecurring: {},
+        adjPlus: initialState?.adjPlus ?? 0, adjPlusReason: initialState?.adjPlusReason ?? "",
+        adjMinus: initialState?.adjMinus ?? 0, adjMinusReason: initialState?.adjMinusReason ?? "",
         disabledBundleIds: [],
         hourlyRateOverride: initialState?.hourly_rate_override ?? null,
         frequencies: [], addons: [],
@@ -3741,13 +3756,23 @@ export default function QuoteBuilderPage() {
                       </div>
                       {/* Commission breakdown */}
                       {(() => {
-                        const total = s.calc.final_total + (s.adjPlus || 0) - (s.adjMinus || 0);
+                        // [discount-commission 2026-07-27] Commission is paid on the
+                        // PRE-discount service price (Maribel: "the discount shouldn't
+                        // affect the cleaner's commission"). Base = subtotal (base +
+                        // add-ons) + the additive Add-charge adjustment, EXCLUDING the
+                        // promo/bundle discount AND the manual Discount (adjMinus). We
+                        // rebuild it from final_total by adding back every discount the
+                        // engine already subtracted so bundles are covered too.
+                        const commissionBase = s.calc.final_total
+                          + (s.calc.discount_amount || 0)
+                          + (s.calc.bundle_discount || 0)
+                          + (s.adjPlus || 0);
                         // [addon-time 2026-05-27] Use total_hours so commission-per-tech
                         // hours reflect add-on time (e.g. Oven +45 min) just like the
                         // Est. hours line above.
                         const estHrs = s.calc?.total_hours ?? s.hours ?? s.calc?.base_hours ?? 0;
                         const techCount = selectedTechIds.length;
-                        const cs = calculateCommissionSplit(total, estHrs, techCount, undefined, "residential", scope?.name);
+                        const cs = calculateCommissionSplit(commissionBase, estHrs, techCount, undefined, "residential", scope?.name);
                         const ratePct = Math.round((cs.commissionRate ?? 0.35) * 100);
                         return (
                           <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #E5E2DC" }}>
@@ -3793,7 +3818,13 @@ export default function QuoteBuilderPage() {
               // (35% × standard + 32% × deep), not a flat 35%.
               const perScopeCommission = selectedScopes.reduce((sum, ss) => {
                 const sc = scopes.find(sx => sx.id === ss.scope_id);
-                const t = (ss.calc?.final_total ?? 0) + (ss.adjPlus || 0) - (ss.adjMinus || 0);
+                // [discount-commission 2026-07-27] Pay commission on the pre-discount
+                // price: add back every discount the engine netted out and the
+                // additive Add-charge, but NOT the manual Discount (adjMinus).
+                const t = (ss.calc?.final_total ?? 0)
+                  + (ss.calc?.discount_amount || 0)
+                  + (ss.calc?.bundle_discount || 0)
+                  + (ss.adjPlus || 0);
                 return sum + t * (sc ? (sc.name ? (/\bdeep\s*clean\b|\bmove[-\s]?(in|out)\b/i.test(sc.name) ? 0.32 : 0.35) : 0.35) : 0.35);
               }, 0);
               const cs = calculateCommissionSplit(grandTotal, totalHours, techCount);

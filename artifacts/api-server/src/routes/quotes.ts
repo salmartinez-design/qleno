@@ -72,6 +72,7 @@ async function getQuoteWithDetails(id: number, companyId: number) {
       manual_hours: quotesTable.manual_hours,
       office_notes: quotesTable.office_notes,
       manual_adjustments: quotesTable.manual_adjustments,
+      referral_source: quotesTable.referral_source,
       expires_at: quotesTable.expires_at,
       sign_token: quotesTable.sign_token,
       client_first: clientsTable.first_name,

@@ -58,6 +58,10 @@ export async function ensureQuotePricingSetup(): Promise<void> {
     await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS frequency_options jsonb`);
     await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS selected_frequency text`);
     await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS selected_frequency_at timestamp`);
+    // [leadsource-persist 2026-07-27] The quote's "How did you hear about us?"
+    // capture. Plain text (not the clients referral_source enum) so non-enum
+    // office values like 'existing_client' persist. Idempotent — safe on boot.
+    await db.execute(sql`ALTER TABLE quotes ADD COLUMN IF NOT EXISTS referral_source text`);
   } catch (err) {
     console.error("[quote-pricing] ensure setup error (non-fatal):", err);
   }

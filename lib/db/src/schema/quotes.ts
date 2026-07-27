@@ -53,6 +53,12 @@ export const quotesTable = pgTable("quotes", {
   call_notes: text("call_notes"),
   office_notes: text("office_notes"),
   manual_adjustments: jsonb("manual_adjustments").default([]),
+  // [leadsource-persist 2026-07-27] "How did you hear about us?" captured on the
+  // office quote. Plain text (NOT the clients referral_source enum) because the
+  // quote select also emits non-enum values like "existing_client". Previously
+  // this column was absent from the schema, so drizzle silently DROPPED
+  // referral_source on insert/update and the lead source was lost on every save.
+  referral_source: text("referral_source"),
 });
 
 export const insertQuoteSchema = createInsertSchema(quotesTable).omit({ id: true, created_at: true });
