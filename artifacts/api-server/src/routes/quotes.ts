@@ -73,6 +73,13 @@ async function getQuoteWithDetails(id: number, companyId: number) {
       office_notes: quotesTable.office_notes,
       manual_adjustments: quotesTable.manual_adjustments,
       referral_source: quotesTable.referral_source,
+      // [quote-dropped-columns 2026-07-27] Select the newly-added columns so the
+      // builder re-hydrates them when a saved/parked quote is reopened.
+      unit_suite: quotesTable.unit_suite,
+      address_verified: quotesTable.address_verified,
+      photo_urls: quotesTable.photo_urls,
+      alternate_options: quotesTable.alternate_options,
+      zone_override: quotesTable.zone_override,
       expires_at: quotesTable.expires_at,
       sign_token: quotesTable.sign_token,
       client_first: clientsTable.first_name,

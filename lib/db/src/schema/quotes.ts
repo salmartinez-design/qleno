@@ -1,4 +1,4 @@
-import { pgTable, serial, text, integer, timestamp, numeric, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, integer, timestamp, numeric, jsonb, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { companiesTable } from "./companies";
@@ -59,6 +59,16 @@ export const quotesTable = pgTable("quotes", {
   // this column was absent from the schema, so drizzle silently DROPPED
   // referral_source on insert/update and the lead source was lost on every save.
   referral_source: text("referral_source"),
+  // [quote-dropped-columns 2026-07-27] These five were referenced by the routes
+  // (POST insert via `as any`, PATCH allowed-list) and sent by the quote-builder
+  // buildPayload, but were ABSENT from the drizzle table — so drizzle silently
+  // dropped them on every insert/update and getQuoteWithDetails never returned
+  // them, exactly like the referral_source bug fixed in #1293. Same class of bug.
+  unit_suite: text("unit_suite"),
+  address_verified: boolean("address_verified").default(false),
+  photo_urls: jsonb("photo_urls").default([]),
+  alternate_options: jsonb("alternate_options"),
+  zone_override: boolean("zone_override").default(false),
 });
 
 export const insertQuoteSchema = createInsertSchema(quotesTable).omit({ id: true, created_at: true });
