@@ -304,6 +304,20 @@ export default function QuoteBuilderPage() {
   const [sqft, setSqft] = useState<number>(0);
   const [bedrooms, setBedrooms] = useState<number>(0);
   const [bathrooms, setBathrooms] = useState<number>(0);
+  // [rentcast 2026-07-27] Look up what RentCast has for the typed address and just
+  // SHOW it (sqft/beds/baths) as a reference — never auto-fills the field (Sal:
+  // "just shows us the sq ft it has, is all"). Backend is gated on
+  // RENTCAST_API_KEY, so this is inert until that key is set in Railway.
+  const [rcResult, setRcResult] = useState<any>(null);
+  const [rcLoading, setRcLoading] = useState(false);
+  async function lookupRentcast() {
+    const addr = (addressFormatted || [address, zipCode].filter(Boolean).join(", ")).trim();
+    if (!addr) { setRcResult({ configured: true, found: false, no_address: true }); return; }
+    setRcLoading(true); setRcResult(null);
+    try { setRcResult(await apiFetch(`/api/property-lookup?address=${encodeURIComponent(addr)}`)); }
+    catch { setRcResult({ configured: true, found: false }); }
+    finally { setRcLoading(false); }
+  }
   const [halfBaths, setHalfBaths] = useState<number>(0);
   const [pets, setPets] = useState<number>(0);
   const [dirtLevel, setDirtLevel] = useState("standard");
@@ -1700,6 +1714,25 @@ export default function QuoteBuilderPage() {
               <div>
                 <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 6 }}>Square Footage</div>
                 <input type="number" value={sqft || ""} onChange={e => setSqft(parseInt(e.target.value) || 0)} placeholder="e.g. 1800" style={{ width: "100%", boxSizing: "border-box", height: 44, border: "1px solid #E5E2DC", borderRadius: 8, padding: "0 14px", fontSize: 16, fontFamily: FF, outline: "none" }} />
+                {/* [rentcast 2026-07-27] Reference only — shows what RentCast has for
+                    this address so the office doesn't open Google in another tab. */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}>
+                  <button type="button" onClick={lookupRentcast} disabled={rcLoading}
+                    style={{ padding: "6px 12px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFF", color: "#6B6860", fontSize: 12, fontWeight: 600, cursor: rcLoading ? "default" : "pointer", fontFamily: FF }}>
+                    {rcLoading ? "Checking RentCast…" : "Check RentCast for sq ft"}
+                  </button>
+                  {rcResult && (
+                    <span style={{ fontSize: 12.5, color: rcResult.configured === false ? "#9E9B94" : rcResult.found ? "#0A6E5A" : "#B45309" }}>
+                      {rcResult.configured === false
+                        ? "RentCast isn't set up yet."
+                        : rcResult.no_address
+                          ? "Enter the address first."
+                          : rcResult.found
+                            ? `RentCast has ${rcResult.square_footage ? Number(rcResult.square_footage).toLocaleString() + " sq ft" : "no sq ft on file"}${rcResult.bedrooms != null ? ` · ${rcResult.bedrooms} bd` : ""}${rcResult.bathrooms != null ? ` · ${rcResult.bathrooms} ba` : ""}`
+                            : "RentCast has no record for this address."}
+                    </span>
+                  )}
+                </div>
               </div>
               <div>
                 <div style={{ fontSize: 12, color: "#6B6860", marginBottom: 6 }}>Bedrooms</div>
