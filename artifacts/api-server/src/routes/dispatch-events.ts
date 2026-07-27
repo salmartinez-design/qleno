@@ -151,6 +151,39 @@ router.post("/", requireAuth, officeGate, async (req, res) => {
   }
 });
 
+// PATCH /api/dispatch-events/:id — reschedule / reassign one event (company-scoped).
+// Body: { start_time?, end_time?, assigned_user_id? }. Powers the dispatch board's
+// drag-to-move (the same gesture that reschedules a job chip). Only the passed
+// fields are touched; times run through normTime so "HH:MM" is normalized like
+// on create. Office-tier gate, same as the rest of this surface.
+router.patch("/:id", requireAuth, officeGate, async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const id = parseInt(String(req.params.id), 10);
+    if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid id" });
+
+    const b = req.body ?? {};
+    const patch: Record<string, unknown> = {};
+    if ("start_time" in b) patch.start_time = normTime(b.start_time);
+    if ("end_time" in b) patch.end_time = normTime(b.end_time);
+    if ("assigned_user_id" in b) {
+      patch.assigned_user_id = Number.isFinite(b.assigned_user_id) ? b.assigned_user_id : null;
+    }
+    if (Object.keys(patch).length === 0) return res.status(400).json({ error: "nothing to update" });
+
+    const [row] = await db
+      .update(dispatchEventsTable)
+      .set(patch)
+      .where(and(eq(dispatchEventsTable.id, id), eq(dispatchEventsTable.company_id, companyId)))
+      .returning();
+    if (!row) return res.status(404).json({ error: "not found" });
+    return res.json(row);
+  } catch (err) {
+    console.error("PATCH /dispatch-events error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
 // DELETE /api/dispatch-events/:id — remove one event (company-scoped).
 router.delete("/:id", requireAuth, officeGate, async (req, res) => {
   try {
