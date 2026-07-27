@@ -6779,6 +6779,11 @@ function packLanes(jobs: DispatchJob[]): { topById: Map<number, number>; rowHeig
 // a job chip so they read as first-class but still distinct from jobs (Sal).
 const EVENT_H = CHIP_H - 8; // 44 vs the 52px job chip
 const EVENT_GAP = 4;
+// [1on1-draggable 2026-07-27] Floor the rendered width so a short- or
+// zero-duration event (e.g. a 15–30 min 1-on-1) is always wide enough to read
+// its label. The old SLOT_W*0.9 (~58px) truncated "1-on-1" to "1-o…". Purely
+// visual: `left` still maps to the real start time — only the width is floored.
+const EVENT_MIN_W = 104;
 
 // Minutes window for an event, defaulting a missing end to +60 and clamping to
 // the visible grid so a chip can never render off-canvas.
@@ -6810,7 +6815,7 @@ function packEvents(evs: DispatchEvent[]): { laneById: Map<number, number>; lane
 function EventChip({ ev, top, onDelete, onOpen }: { ev: DispatchEvent; top: number; onDelete: (ev: DispatchEvent) => void; onOpen?: (ev: DispatchEvent) => void }) {
   const { start, end } = eventWindowMins(ev);
   const left = Math.max(0, ((start - DAY_START) / 30) * SLOT_W);
-  const width = Math.max(SLOT_W * 0.9, ((end - start) / 30) * SLOT_W);
+  const width = Math.max(EVENT_MIN_W, ((end - start) / 30) * SLOT_W);
   const timeLabel = ev.start_time ? `${fmtTime(ev.start_time)}${ev.end_time ? `–${fmtTime(ev.end_time)}` : ""}` : "";
   const isOneOnOne = ev.kind === "one_on_one";
   const sub = ev.kind === "client_visit" ? (ev.client_name || "Client visit") : timeLabel;
@@ -6822,12 +6827,22 @@ function EventChip({ ev, top, onDelete, onOpen }: { ev: DispatchEvent; top: numb
     ? `1-on-1${timeLabel ? ` · ${timeLabel}` : ""}${ev.address ? `\n${ev.address}` : ""}${onOpen ? "\nclick to open (owner only)" : ""}`
     : `${ev.title}${timeLabel ? ` · ${timeLabel}` : ""}${ev.address ? `\n${ev.address}` : ""}${ev.notes ? `\n${ev.notes}` : ""}`;
   const Icon = isOneOnOne ? MessageSquare : Clock;
+  // [1on1-draggable 2026-07-27] Events reschedule via the SAME @dnd-kit drag
+  // mechanism as job chips (see JobChip's useDraggable). Every EventChip sits on
+  // a tech row — company_day events render in CompanyDayBanner, never here — so
+  // dragging one between rows / along the timeline is safe. The page-level
+  // onDragEnd branches on data.type === "event" and PATCHes /api/dispatch-events/:id
+  // (time + tech), the event-world analogue of a job drag's patchJob.
+  const dnd = useDraggable({ id: `event-${ev.id}`, data: { event: ev, originalLeft: left, type: "event" } });
   return (
     <div
+      ref={dnd.setNodeRef}
       title={title}
       onClick={clickable ? () => onOpen!(ev) : undefined}
+      {...dnd.listeners} {...dnd.attributes}
       style={{
-        position: "absolute", top, left, width, height: EVENT_H, zIndex: 2,
+        position: "absolute", top, left, width, height: EVENT_H,
+        zIndex: dnd.isDragging ? 0 : 2,
         boxSizing: "border-box", borderRadius: 7, padding: "3px 8px",
         // 1-on-1 is a deliberate standout: solid Qleno Night fill + Electric
         // Mint border/icon so it reads as a special owner event, not a
@@ -6836,7 +6851,10 @@ function EventChip({ ev, top, onDelete, onOpen }: { ev: DispatchEvent; top: numb
         border: isOneOnOne ? "1px solid var(--brand)" : "1px dashed #B8B2A6",
         boxShadow: isOneOnOne ? "0 1px 6px rgba(var(--brand-rgb),0.35)" : "none",
         color: isOneOnOne ? "#FFFFFF" : "#44413B",
-        cursor: clickable ? "pointer" : "default",
+        cursor: dnd.isDragging ? "grabbing" : clickable ? "pointer" : "grab",
+        opacity: dnd.isDragging ? 0.3 : undefined,
+        transform: dnd.transform ? `translate(${dnd.transform.x}px, ${dnd.transform.y}px)` : undefined,
+        userSelect: "none",
         display: "flex", alignItems: "center", gap: 6, overflow: "hidden", fontFamily: FF,
       }}
     >
@@ -7774,6 +7792,9 @@ export default function JobsPage() {
   // "+ New job" deep link; null for a plain New → Job open.
   const [wizardPreset, setWizardPreset] = useState<{ accountId: number | null; propertyId: number | null; date: string | null } | null>(null);
   const [draggingJob, setDraggingJob] = useState<DispatchJob | null>(null);
+  // [1on1-draggable 2026-07-27] Mirror of draggingJob for a dispatch event being
+  // dragged, so the DragOverlay can render a matching ghost while it moves.
+  const [draggingEvent, setDraggingEvent] = useState<DispatchEvent | null>(null);
   // [panel-resync 2026-06-18] Keep the open drawer in sync with refreshed board
   // data. After a reassign/edit, load() refetches `data` but selectedJob still
   // held the pre-save snapshot (old tech), so the drawer showed no change even
@@ -8148,11 +8169,60 @@ export default function JobsPage() {
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
   );
-  function onDragStart(e: DragStartEvent) { setDraggingJob(e.active.data.current?.job ?? null); }
+  function onDragStart(e: DragStartEvent) {
+    setDraggingJob(e.active.data.current?.job ?? null);
+    setDraggingEvent(e.active.data.current?.event ?? null);
+  }
+  // [1on1-draggable 2026-07-27] Reschedule a dispatch event dropped on the board.
+  // Events are NOT jobs — there's no job_technicians row and no assignment mirror
+  // — so this never touches reassign-tech / patchJob. It PATCHes the dedicated
+  // /api/dispatch-events/:id endpoint with the new start/end (duration preserved)
+  // and, for tech_block / client_visit, the new tech. A one_on_one keeps its tech:
+  // its assigned_user_id is the link to the owner's private 1-on-1 record (the
+  // openOneOnOne deep-link), so moving it to another row would orphan that record
+  // — the same reason its delete is blocked. Time reschedule is still allowed.
+  async function onEventDragEnd(ev: DispatchEvent, over: NonNullable<DragEndEvent["over"]>, delta: { x: number; y: number }) {
+    const empId = parseInt(String(over.id).replace("row-", ""), 10);
+    const win = eventWindowMins(ev);
+    const durMins = Math.max(30, win.end - win.start);
+    const originalLeft = ((win.start - DAY_START) / 30) * SLOT_W;
+    const newStart = DAY_START + Math.round((originalLeft + delta.x) / SLOT_W) * 30;
+    const clampedStart = Math.max(DAY_START, Math.min(DAY_END - durMins, newStart));
+    const fmt = (m: number) => `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}:00`;
+    const newStartStr = fmt(clampedStart);
+    const newEndStr = fmt(clampedStart + durMins);
+    const allowTechChange = ev.kind !== "one_on_one";
+    const techChanged = allowTechChange && Number.isFinite(empId) && empId !== ev.assigned_user_id;
+    const newAssigned = techChanged ? empId : ev.assigned_user_id;
+    // Optimistic move — same pattern as the job drag below.
+    setEvents(prev => prev.map(e =>
+      e.id === ev.id ? { ...e, start_time: newStartStr, end_time: newEndStr, assigned_user_id: newAssigned } : e));
+    try {
+      const API = import.meta.env.BASE_URL.replace(/\/$/, "");
+      const body: any = { start_time: newStartStr, end_time: newEndStr };
+      if (techChanged) body.assigned_user_id = empId;
+      const r = await fetch(`${API}/api/dispatch-events/${ev.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) { const d = await r.json().catch(() => ({})); throw new Error(d.error || `HTTP ${r.status}`); }
+    } catch (err) {
+      toast({ title: "Failed to move event", description: err instanceof Error ? err.message : String(err), variant: "destructive" });
+      load(); // resync so the chip snaps back if the save failed
+    }
+  }
   async function onDragEnd(e: DragEndEvent) {
     setDraggingJob(null);
+    setDraggingEvent(null);
     const { active, over, delta } = e;
     if (!over || !data) return;
+    // [1on1-draggable 2026-07-27] Event drops take the dedicated event path.
+    const draggedEvent: DispatchEvent | undefined = active.data.current?.event;
+    if (active.data.current?.type === "event" && draggedEvent) {
+      await onEventDragEnd(draggedEvent, over, delta);
+      return;
+    }
     const job: DispatchJob = active.data.current?.job;
     if (!job) return;
     const empId = parseInt(String(over.id).replace("row-", ""), 10);
@@ -9209,6 +9279,28 @@ export default function JobsPage() {
           {draggingJob && (
             <JobChip job={draggingJob} onClick={() => {}} layout="drag" />
           )}
+          {/* [1on1-draggable 2026-07-27] Event ghost — a lightweight clone of the
+              EventChip look (can't reuse EventChip: it registers a useDraggable
+              with the same id, which would collide with the source). */}
+          {draggingEvent && (() => {
+            const isOOO = draggingEvent.kind === "one_on_one";
+            const evWidth = Math.max(EVENT_MIN_W, ((eventWindowMins(draggingEvent).end - eventWindowMins(draggingEvent).start) / 30) * SLOT_W);
+            return (
+              <div style={{
+                width: evWidth, height: EVENT_H, boxSizing: "border-box", borderRadius: 7,
+                padding: "3px 8px", opacity: 0.95, fontFamily: FF,
+                background: isOOO ? "#0A0E1A" : "#F1EFEA",
+                border: isOOO ? "1px solid var(--brand)" : "1px dashed #B8B2A6",
+                color: isOOO ? "#FFFFFF" : "#44413B",
+                boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+                display: "flex", alignItems: "center", gap: 6, overflow: "hidden",
+              }}>
+                <span style={{ minWidth: 0, flex: 1, overflow: "hidden", whiteSpace: "nowrap", textOverflow: "ellipsis", fontSize: 11, fontWeight: isOOO ? 800 : 700 }}>
+                  {isOOO ? "1-on-1" : draggingEvent.title}
+                </span>
+              </div>
+            );
+          })()}
         </DragOverlay>
       </DndContext>
 
