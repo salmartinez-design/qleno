@@ -2472,9 +2472,10 @@ export default function QuoteBuilderPage() {
                           { key: "deep", label: "Deep Clean", scopeMatch: /hourly.*deep/i },
                           { key: "moveinout", label: "Move In / Move Out", scopeMatch: /hourly.*(move|in.*out)/i },
                           // [custom-recurring] "Other" renamed "Recurring" (Sal, mock v2).
-                          // Maps to the Hourly Standard scope so its per-visit rate
-                          // ($65) aligns with the recurring-cleaning rate.
-                          { key: "recurring", label: "Recurring", scopeMatch: /hourly.*standard/i },
+                          // Maps to the dedicated "Hourly Recurring Cleaning" scope
+                          // ($65) — split out from Hourly Standard ($70) so the two
+                          // rates are independent and separately editable in Settings.
+                          { key: "recurring", label: "Recurring", scopeMatch: /hourly.*recurring/i },
                         ];
                         return (
                           <div key={groupKey} style={{ marginBottom: 16 }}>

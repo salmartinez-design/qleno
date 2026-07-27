@@ -77,7 +77,7 @@ router.put("/scopes/:id", requireAuth, async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const id = parseInt(req.params.id);
-    const { name, scope_group, pricing_method, hourly_rate, minimum_bill, displayed_for_office, is_active, sort_order } = req.body;
+    const { name, scope_group, pricing_method, hourly_rate, minimum_bill, displayed_for_office, show_online, is_active, sort_order } = req.body;
     const updates: Record<string, unknown> = { updated_at: new Date() };
     if (name !== undefined) updates.name = name;
     if (scope_group !== undefined) updates.scope_group = scope_group;
@@ -85,6 +85,9 @@ router.put("/scopes/:id", requireAuth, async (req, res) => {
     if (hourly_rate !== undefined) updates.hourly_rate = hourly_rate;
     if (minimum_bill !== undefined) updates.minimum_bill = minimum_bill;
     if (displayed_for_office !== undefined) updates.displayed_for_office = displayed_for_office;
+    // show_online gates public booking-widget visibility (public.ts filters on it).
+    // Office-only scopes (e.g. Hourly Recurring) must be able to turn this off.
+    if (show_online !== undefined) updates.show_online = show_online;
     if (is_active !== undefined) updates.is_active = is_active;
     if (sort_order !== undefined) updates.sort_order = sort_order;
     const [scope] = await db
