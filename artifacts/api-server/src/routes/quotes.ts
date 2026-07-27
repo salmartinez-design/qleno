@@ -788,7 +788,11 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
       // office notes of every generated recurring visit, so the office can find
       // them after convert (same as the one-time path below).
       try {
-        const recurringOfficeNotes = [(q as any).call_notes, (q as any).office_notes]
+        // [unit-suite-convert 2026-07-27] Same as the one-time path — carry the
+        // quote's Unit/Access field into each recurring visit's office notes.
+        const recUnitLine = (q as any).unit_suite && String((q as any).unit_suite).trim()
+          ? `Unit / Access: ${String((q as any).unit_suite).trim()}` : null;
+        const recurringOfficeNotes = [recUnitLine, (q as any).call_notes, (q as any).office_notes]
           .filter((x: any) => x && String(x).trim()).join("\n\n");
         if (recurringOfficeNotes) {
           await db.execute(sql`
@@ -869,7 +873,16 @@ router.post("/:id/convert", requireAuth, requireRole("owner", "admin", "office")
     // job's OFFICE NOTES so the office can find them after convert (Maribel:
     // "these notes should go to office notes, can't find them"). Combine with
     // the quote's own office_notes if both are present.
-    const jobOfficeNotes = [(q as any).call_notes, (q as any).office_notes]
+    // [unit-suite-convert 2026-07-27] The "Unit, Suite, or Additional Access
+    // Instructions" field the office types on the quote was saved on the quote
+    // row but NEVER carried onto the job — so after convert it showed up
+    // nowhere in the address or notes (Maribel: "the box where we input the
+    // unit doesn't save and doesn't show anywhere"). Jobs have no dedicated
+    // unit column, so fold it into office_notes with a clear label — that's the
+    // notes surface the office + techs already read on the job card.
+    const unitLine = (q as any).unit_suite && String((q as any).unit_suite).trim()
+      ? `Unit / Access: ${String((q as any).unit_suite).trim()}` : null;
+    const jobOfficeNotes = [unitLine, (q as any).call_notes, (q as any).office_notes]
       .filter((x: any) => x && String(x).trim())
       .join("\n\n") || null;
     const jobResult = await db.execute(sql`
