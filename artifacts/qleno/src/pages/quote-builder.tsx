@@ -887,8 +887,17 @@ export default function QuoteBuilderPage() {
       }
       setSelectedScopes(prev => prev.map(s => s.scope_id === scopeId ? { ...s, calcLoading: true } : s));
       try {
-        const counterAddonIds = Object.keys(state.addonQtys).filter(k => (state.addonQtys[Number(k)] ?? 0) > 0).map(Number);
-        const allAddonIds = [...new Set([...state.addon_ids, ...counterAddonIds])];
+        // [hourly-included-addons 2026-07-27] On hourly/simplified scopes the
+        // price is strictly hours × rate — add-ons are performed within the
+        // hourly rate at NO extra charge. We still track the office's add-on
+        // selection in `state.addon_ids` (so it rides onto the quote/job via
+        // buildPayload's extraSelectedAddons as amount:0 rows), but we must NOT
+        // send those ids to /calculate or the engine would add their price and
+        // inflate final_total. Strip them here so toggling an included add-on
+        // never moves the total.
+        const isHourlyMethod = method === "hourly" || method === "simplified";
+        const counterAddonIds = isHourlyMethod ? [] : Object.keys(state.addonQtys).filter(k => (state.addonQtys[Number(k)] ?? 0) > 0).map(Number);
+        const allAddonIds = isHourlyMethod ? [] : [...new Set([...state.addon_ids, ...counterAddonIds])];
         const addonQtysFiltered: Record<string, number> = {};
         for (const id of counterAddonIds) {
           addonQtysFiltered[String(id)] = state.addonQtys[id];
@@ -1797,6 +1806,7 @@ export default function QuoteBuilderPage() {
               const scope = scopes.find(sc => sc.id === s.scope_id);
               if (!scope) return null;
               const activeAddons = s.addons.filter(a => a.is_active);
+              const scopeIsHourly = scope.pricing_method === "hourly" || scope.pricing_method === "simplified";
               return (
                 <div key={s.scope_id} style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
                   <div style={{ fontSize: 14, fontWeight: 700, color: "#1A1917", marginBottom: 12 }}>{scopeLabel(s)}</div>
@@ -1815,19 +1825,39 @@ export default function QuoteBuilderPage() {
                   {activeAddons.length > 0 && (
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Add-ons</div>
-                      {activeAddons.map(a => (
-                        <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid #F5F3F0", cursor: "pointer" }}>
-                          <input type="checkbox" checked={s.addon_ids.includes(a.id)} onChange={e => updateScopeAddon(s.scope_id, a.id, e.target.checked)} style={{ width: 18, height: 18, flexShrink: 0 }} />
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 13, color: "#1A1917", fontFamily: FF }}>{a.name}</div>
-                            <div style={{ fontSize: 11, color: "#9E9B94", fontFamily: FF }}>{addonDisplayPrice(a)}</div>
-                          </div>
-                        </label>
-                      ))}
+                      {scopeIsHourly && (
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#E9F6F1", border: "1px solid #CDE9E0", color: "#0F7A63", borderRadius: 9, padding: "8px 11px", fontSize: 11.5, fontWeight: 600, marginBottom: 10, fontFamily: FF }}>
+                          <Check size={15} strokeWidth={2.2} style={{ flexShrink: 0 }} />
+                          <span>Included in the hourly rate — no extra charge.</span>
+                        </div>
+                      )}
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                        {activeAddons.map(a => {
+                          const isPct = a.price_type === "percentage";
+                          const isSel = s.addon_ids.includes(a.id);
+                          const clay = isPct && !scopeIsHourly;
+                          const chipBg = clay ? "#F3ECDD" : "var(--brand-dim)";
+                          const chipColor = clay ? "#8A6D2E" : "#0F7A63";
+                          const selBorder = clay ? "#CBB37A" : "var(--brand)";
+                          const selBg = clay ? "#FBF6EC" : "var(--brand-soft)";
+                          return (
+                            <label key={a.id} style={{ display: "flex", alignItems: "center", gap: 11, padding: "10px 11px", borderRadius: 10, border: `1px solid ${isSel ? selBorder : "#E5E2DC"}`, background: isSel ? selBg : "#FFF", cursor: "pointer" }}>
+                              <span style={{ flex: "none", width: 34, height: 34, borderRadius: 9, display: "grid", placeItems: "center", background: chipBg, color: chipColor }}>
+                                <AddonIcon name={a.name} size={18} color={chipColor} />
+                              </span>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 600, color: "#1A1917", fontFamily: FF }}>{a.name}</div>
+                                <div style={{ fontSize: 11, fontFamily: FF, color: scopeIsHourly ? "#0F7A63" : "#6B6860", fontWeight: scopeIsHourly ? 600 : 400 }}>{scopeIsHourly ? "Included" : addonDisplayPrice(a)}</div>
+                              </div>
+                              <input type="checkbox" checked={isSel} onChange={e => updateScopeAddon(s.scope_id, a.id, e.target.checked)} style={{ width: 18, height: 18, flexShrink: 0 }} />
+                            </label>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                   {activeAddons.length === 0 && s.frequencies.length === 0 && (
-                    <div style={{ fontSize: 13, color: "#9E9B94" }}>No add-ons available for this service.</div>
+                    <div style={{ fontSize: 13, color: "#9E9B94" }}>{scopeIsHourly ? "Included · no extra charge" : "No add-ons available for this service."}</div>
                   )}
                 </div>
               );
@@ -3051,6 +3081,7 @@ export default function QuoteBuilderPage() {
                         <div style={{ display: "flex", flexDirection: "column", gap: multiScope ? 14 : 0 }}>
                           {selectedScopes.map(targetScope => {
                             const scopeMeta = scopes.find(sc => sc.id === targetScope.scope_id);
+                            const scopeIsHourly = scopeMeta?.pricing_method === "hourly" || scopeMeta?.pricing_method === "simplified";
                             const activeAddons = targetScope.addons.filter(a => a.is_active);
                             return (
                               <div
@@ -3074,46 +3105,88 @@ export default function QuoteBuilderPage() {
                                     Enter square footage on the Property Details step to price this service and its add-ons.
                                   </button>
                                 )}
-                                <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-                                  {activeAddons.length === 0 ? (
-                                    <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF, padding: "2px 0" }}>No add-ons available for this service.</div>
-                                  ) : activeAddons.map(addon => {
-                                    const isCounter = isCounterAddon(addon.name);
-                                    const fromCalc = targetScope.calc?.addon_breakdown.find(b => b.id === addon.id);
-                                    const priceText = fromCalc
-                                      ? (fromCalc.amount < 0 ? `-$${Math.abs(fromCalc.amount).toFixed(2)}` : `$${fromCalc.amount.toFixed(2)}`)
-                                      : addonDisplayPrice(addon);
-                                    const qty = targetScope.addonQtys[addon.id] ?? 0;
-                                    const isSel = isCounter ? qty > 0 : targetScope.addon_ids.includes(addon.id);
-                                    return (
-                                      <div key={addon.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 8px", borderRadius: 6, border: isSel ? "1px solid var(--brand)" : "1px solid transparent", background: isSel ? "#EAF9F4" : "transparent" }}>
-                                        {isCounter ? (
-                                          <div style={{ display: "flex", alignItems: "center", gap: 3, flexShrink: 0 }}>
-                                            <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty - 1)} disabled={qty === 0}
-                                              style={{ width: 22, height: 22, border: "1px solid #E5E2DC", borderRadius: 4, background: qty === 0 ? "#F7F6F3" : "#FFF", cursor: qty === 0 ? "not-allowed" : "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center", color: qty === 0 ? "#C4C2BB" : "#1A1917" }}>-</button>
-                                            <span style={{ width: 18, textAlign: "center", fontSize: 12, fontWeight: 600, fontFamily: FF }}>{qty}</span>
-                                            <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty + 1)}
-                                              style={{ width: 22, height: 22, border: "1px solid #E5E2DC", borderRadius: 4, background: "#FFF", cursor: "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                                {/* [addons-redesign 2026-07-27] Hourly services carry
+                                    their add-ons as "included in the hourly rate" — the
+                                    office picks what gets performed, but nothing is billed
+                                    on top of hours × rate. */}
+                                {scopeIsHourly && activeAddons.length > 0 && (
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#E9F6F1", border: "1px solid #CDE9E0", color: "#0F7A63", borderRadius: 9, padding: "8px 11px", fontSize: 11.5, fontWeight: 600, marginBottom: 10, fontFamily: FF }}>
+                                    <Check size={15} strokeWidth={2.2} style={{ flexShrink: 0 }} />
+                                    <span>Add-ons are <strong>included in the hourly rate</strong> — select what to perform, no extra charge.</span>
+                                  </div>
+                                )}
+                                {activeAddons.length === 0 ? (
+                                  <div style={{ fontSize: 12, color: "#9E9B94", fontFamily: FF, padding: "2px 0" }}>
+                                    {scopeIsHourly ? "Included · no extra charge" : "No add-ons available for this service."}
+                                  </div>
+                                ) : (
+                                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 230px), 1fr))", gap: 8 }}>
+                                    {activeAddons.map(addon => {
+                                      const isCounter = !scopeIsHourly && isCounterAddon(addon.name);
+                                      const isPct = addon.price_type === "percentage";
+                                      const fromCalc = targetScope.calc?.addon_breakdown.find(b => b.id === addon.id);
+                                      const qty = targetScope.addonQtys[addon.id] ?? 0;
+                                      const isSel = isCounter ? qty > 0 : targetScope.addon_ids.includes(addon.id);
+                                      const priceText = scopeIsHourly
+                                        ? "Included"
+                                        : fromCalc
+                                          ? (fromCalc.amount < 0 ? `-$${Math.abs(fromCalc.amount).toFixed(2)}` : `+$${fromCalc.amount.toFixed(2)}`)
+                                          : addonDisplayPrice(addon);
+                                      // Clay tint for percentage-priced add-ons (billed scopes only);
+                                      // mint for everything else and for hourly-included tiles.
+                                      const clay = isPct && !scopeIsHourly;
+                                      const chipBg = clay ? "#F3ECDD" : "var(--brand-dim)";
+                                      const chipColor = clay ? "#8A6D2E" : "#0F7A63";
+                                      const selBorder = clay ? "#CBB37A" : "var(--brand)";
+                                      const selBg = clay ? "#FBF6EC" : "var(--brand-soft)";
+                                      return (
+                                        <div key={addon.id} style={{ display: "flex", alignItems: "center", gap: 11, background: isSel ? selBg : "#FFF", border: `1px solid ${isSel ? selBorder : "#E5E2DC"}`, borderRadius: 10, padding: "10px 11px", transition: "border-color 0.12s, background 0.12s" }}>
+                                          <span style={{ flex: "none", width: 34, height: 34, borderRadius: 9, display: "grid", placeItems: "center", background: chipBg, color: chipColor }}>
+                                            <AddonIcon name={addon.name} size={18} color={chipColor} />
+                                          </span>
+                                          <div style={{ minWidth: 0, flex: 1 }}>
+                                            <div style={{ fontSize: 12.5, fontWeight: 600, color: "#1A1917", fontFamily: FF, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{addon.name}</div>
+                                            <div style={{ fontSize: 11, marginTop: 1, fontFamily: FF, color: scopeIsHourly ? "#0F7A63" : (fromCalc && fromCalc.amount < 0 ? "#B3261E" : "#6B6860"), fontWeight: scopeIsHourly ? 600 : 400 }}>{priceText}</div>
                                           </div>
-                                        ) : (
-                                          <Checkbox checked={isSel} onCheckedChange={checked => updateScopeAddon(targetScope.scope_id, addon.id, Boolean(checked))} />
-                                        )}
-                                        <span style={{ flex: 1, fontSize: 12, color: "#1A1917", fontFamily: FF, display: "flex", alignItems: "center", gap: 6 }}>
-                                          <AddonIcon name={addon.name} size={13} />
-                                          {addon.name}
-                                        </span>
-                                        <span style={{ fontSize: 11, color: fromCalc && fromCalc.amount < 0 ? "#B3261E" : "#9E9B94", flexShrink: 0, fontFamily: FF }}>{priceText}</span>
-                                      </div>
-                                    );
-                                  })}
-                                </div>
+                                          <div style={{ display: "flex", alignItems: "center", gap: 6, flex: "none" }}>
+                                            {scopeIsHourly ? (
+                                              isSel ? (
+                                                <button onClick={() => updateScopeAddon(targetScope.scope_id, addon.id, false)} title="Remove"
+                                                  style={{ fontSize: 10, fontWeight: 700, color: "#0F7A63", background: "#E9F6F1", border: "none", borderRadius: 20, padding: "3px 9px", cursor: "pointer", fontFamily: FF }}>Included</button>
+                                              ) : (
+                                                <button onClick={() => updateScopeAddon(targetScope.scope_id, addon.id, true)}
+                                                  style={{ fontSize: 11, fontWeight: 700, color: "var(--brand)", border: "1px solid var(--brand)", background: "#FFF", borderRadius: 7, padding: "5px 11px", cursor: "pointer", fontFamily: FF }}>Add</button>
+                                              )
+                                            ) : isCounter ? (
+                                              <>
+                                                <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty - 1)} disabled={qty === 0}
+                                                  style={{ width: 26, height: 26, borderRadius: 7, border: "1px solid #E5E2DC", background: qty === 0 ? "#F7F6F3" : "#FFF", color: qty === 0 ? "#C4C2BB" : "#6B6860", fontSize: 15, lineHeight: 1, cursor: qty === 0 ? "not-allowed" : "pointer", display: "grid", placeItems: "center" }}>−</button>
+                                                <span style={{ minWidth: 16, textAlign: "center", fontSize: 13, fontWeight: 600, fontFamily: FF, fontVariantNumeric: "tabular-nums" }}>{qty}</span>
+                                                <button onClick={() => updateScopeAddonQty(targetScope.scope_id, addon.id, qty + 1)}
+                                                  style={{ width: 26, height: 26, borderRadius: 7, border: "1px solid #E5E2DC", background: "#FFF", color: "#6B6860", fontSize: 15, lineHeight: 1, cursor: "pointer", display: "grid", placeItems: "center" }}>+</button>
+                                              </>
+                                            ) : isSel ? (
+                                              <button onClick={() => updateScopeAddon(targetScope.scope_id, addon.id, false)} title="Remove"
+                                                style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, fontWeight: 700, color: clay ? "#8A6D2E" : "var(--brand)", border: `1px solid ${clay ? "#CBB37A" : "var(--brand)"}`, background: "#FFF", borderRadius: 7, padding: "5px 10px", cursor: "pointer", fontFamily: FF }}>
+                                                <Check size={12} strokeWidth={2.6} /> Added
+                                              </button>
+                                            ) : (
+                                              <button onClick={() => updateScopeAddon(targetScope.scope_id, addon.id, true)}
+                                                style={{ fontSize: 11, fontWeight: 700, color: clay ? "#8A6D2E" : "var(--brand)", border: `1px solid ${clay ? "#CBB37A" : "var(--brand)"}`, background: "#FFF", borderRadius: 7, padding: "5px 11px", cursor: "pointer", fontFamily: FF }}>Add</button>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
 
                                 {/* Manual price adjustments — per service */}
                                 <div style={{ marginTop: 14 }}>
                                   <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8, fontFamily: FF }}>Price Adjustments</div>
                                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
                                     {([
-                                      { kind: "add", amtField: "adjPlus", reasonField: "adjPlusReason", amt: targetScope.adjPlus, reason: targetScope.adjPlusReason, sign: "+", tint: "#22C55E", tintBg: "#F0FBF4", label: "Add charge", ph: "Extra fee" },
+                                      { kind: "add", amtField: "adjPlus", reasonField: "adjPlusReason", amt: targetScope.adjPlus, reason: targetScope.adjPlusReason, sign: "+", tint: "#1E8C4E", tintBg: "#F0FBF4", label: "Add charge", ph: "Reason (e.g. extra bathroom)" },
                                       { kind: "sub", amtField: "adjMinus", reasonField: "adjMinusReason", amt: targetScope.adjMinus, reason: targetScope.adjMinusReason, sign: "−", tint: "#B3261E", tintBg: "#FDF3F2", label: "Discount", ph: "Reason" },
                                     ] as const).map(row => {
                                       const active = (row.amt || 0) > 0;
@@ -3157,13 +3230,13 @@ export default function QuoteBuilderPage() {
                     <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", fontFamily: FF }}>Job Notes</div>
                     <JobNotesTranslate text={internalMemo} />
                   </div>
-                  <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Visible to technician.</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Visible to the technician on the job card.</div>
                   <Textarea value={internalMemo} onChange={e => setInternalMemo(e.target.value)} placeholder="Instructions and notes for the technician..." rows={3} className="mt-1 text-sm" />
                   {pushConfirmed && <p style={{ fontSize: 11, color: "#9E9B94", marginTop: 4, fontFamily: FF }}>✓ Added from call notes.</p>}
                 </div>
                 <div>
                   <div style={{ fontSize: 12, fontWeight: 500, color: "#1A1917", marginBottom: 2, fontFamily: FF }}>Client-Facing Notes</div>
-                  <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Visible to client on the quote.</div>
+                  <div style={{ fontSize: 11, color: "#9E9B94", marginBottom: 6, fontFamily: FF }}>Shown to the client on the quote.</div>
                   <Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Notes visible to the client..." rows={3} className="mt-1 text-sm" />
                 </div>
                 <div>

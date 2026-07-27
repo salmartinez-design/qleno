@@ -259,6 +259,31 @@ router.get("/scopes/:id/addons", requireAuth, async (req, res) => {
        ORDER BY addon_type, sort_order, id
     `);
     let rows = (result as any).rows ?? [];
+
+    // [hourly-included-addons 2026-07-27] Hourly / simplified scopes have no
+    // add-ons associated to them (add-ons fold into the hourly rate, they aren't
+    // billed line items), so the association query above returns nothing and the
+    // quote builder showed "No add-ons available". For these scopes, fall back to
+    // the company's full active add-on catalog so the office can still pick WHICH
+    // extras get performed — the frontend renders them as "included, no extra
+    // charge" and never sends them to /calculate, so the price stays hours × rate.
+    if (rows.length === 0) {
+      const scopeRes = await db.execute(sql`
+        SELECT pricing_method FROM pricing_scopes
+         WHERE id = ${scopeId} AND company_id = ${companyId} LIMIT 1
+      `);
+      const method = ((scopeRes as any).rows ?? [])[0]?.pricing_method;
+      if (method === "hourly" || method === "simplified") {
+        const allRes = await db.execute(sql`
+          SELECT * FROM pricing_addons
+           WHERE company_id = ${companyId}
+             AND is_active = true
+           ORDER BY addon_type, sort_order, id
+        `);
+        rows = (allRes as any).rows ?? [];
+      }
+    }
+
     if (officeOnly) {
       rows = rows.filter((r: any) => r.show_office);
     }
