@@ -177,6 +177,30 @@ function quoteFreqLabel(f: string | null | undefined): string {
   return map[k] || (f ? String(f).replace(/_/g, " ") : "");
 }
 
+// [discount-email 2026-07-27] The discount + manual-adjustment lines to itemize
+// under a quote's base + add-ons so the option's rows RECONCILE to its Total.
+// Without these the email showed only positive lines while Total already netted
+// the discount — the discount was invisible and the total looked like broken
+// addition. Filters manual_adjustments to the quote's PRIMARY scope (the only
+// scope its stored total_price reflects); the promo/code discount rides on
+// discount_amount. Returns entries as positive magnitudes + a negative flag.
+function quoteAdjustmentLines(q: any): { label: string; amount: number; negative: boolean }[] {
+  const out: { label: string; amount: number; negative: boolean }[] = [];
+  const adjs = Array.isArray(q.manual_adjustments) ? q.manual_adjustments : [];
+  const scopeId = q.scope_id != null ? Number(q.scope_id) : null;
+  for (const a of adjs) {
+    // Only the primary scope's adjustments are baked into this quote's total_price.
+    if (scopeId != null && a?.scope_id != null && Number(a.scope_id) !== scopeId) continue;
+    const amt = Number(a?.amount) || 0;
+    if (amt <= 0) continue;
+    if (a?.type === "add") out.push({ label: a?.reason ? String(a.reason) : "Additional charge", amount: amt, negative: false });
+    else if (a?.type === "subtract") out.push({ label: a?.reason ? `Discount — ${a.reason}` : "Discount", amount: amt, negative: true });
+  }
+  const promo = Number(q.discount_amount) || 0;
+  if (promo > 0) out.push({ label: "Discount", amount: promo, negative: true });
+  return out;
+}
+
 // Render ONE quote as an itemized option block: an optional heading
 // (service · frequency) + a line-item table (base + each add-on) + a Total row.
 // Mirrors the booking-confirmation breakdown so every option reads the same.
@@ -188,6 +212,12 @@ function renderQuoteOption(q: any, showHeading: boolean): string {
   for (const a of addons) {
     const amt = a?.amount ?? a?.price;
     rows.push(`<tr><td style="padding:6px 0;color:#1A1917;">${a?.name || "Add-on"}</td><td style="padding:6px 0;text-align:right;color:#1A1917;">${amt != null ? "$" + Number(amt).toFixed(2) : "—"}</td></tr>`);
+  }
+  // Discount + manual adjustment lines so base + add-ons ± adjustments = Total.
+  for (const adj of quoteAdjustmentLines(q)) {
+    const color = adj.negative ? "#0F7A63" : "#1A1917";
+    const amt = `${adj.negative ? "−$" : "+$"}${adj.amount.toFixed(2)}`;
+    rows.push(`<tr><td style="padding:6px 0;color:${color};">${adj.label}</td><td style="padding:6px 0;text-align:right;color:${color};">${amt}</td></tr>`);
   }
   const est = estTimeLabel(q.manual_hours) || estTimeLabel(q.estimated_hours);
   const estLine = est ? `<p style="font-size:13px;color:#6B6860;margin:2px 0 0;">Estimated time &middot; ${est}</p>` : "";
@@ -205,6 +235,7 @@ async function loadQuoteEmailData(companyId: number, quoteId: number): Promise<{
   const r = await db.execute(sql`
     SELECT q.id, q.total_price, q.base_price, q.address, q.service_type, q.frequency, q.addons,
            q.sign_token, q.lead_email, q.lead_phone, q.client_id, q.estimated_hours, q.manual_hours,
+           q.scope_id, q.discount_amount, q.manual_adjustments,
            c.name AS company_name, c.phone AS company_phone, c.email AS company_email, c.logo_url AS company_logo
     FROM quotes q JOIN companies c ON c.id = q.company_id
     WHERE q.id = ${quoteId} AND q.company_id = ${companyId} LIMIT 1
@@ -220,7 +251,7 @@ async function loadQuoteEmailData(companyId: number, quoteId: number): Promise<{
   const leadPhone10 = String(q.lead_phone || "").replace(/\D/g, "").slice(-10);
   const allRows = await db.execute(sql`
     SELECT id, total_price, base_price, service_type, frequency, addons, sign_token,
-           estimated_hours, manual_hours
+           estimated_hours, manual_hours, scope_id, discount_amount, manual_adjustments
     FROM quotes
     WHERE company_id = ${companyId}
       AND status NOT IN ('accepted','booked','converted','expired','declined','lost')
@@ -244,6 +275,11 @@ function quoteAsOption(qq: any): QuoteOption {
   for (const a of (Array.isArray(qq.addons) ? qq.addons : [])) {
     const amt = a?.amount ?? a?.price;
     rows.push({ label: a?.name || "Add-on", amount: amt != null ? `+$${Number(amt).toFixed(2)}` : "—" });
+  }
+  // [discount-email 2026-07-27] Itemize the discount + manual adjustments so the
+  // card's rows reconcile to the Total (was hiding the discount entirely).
+  for (const adj of quoteAdjustmentLines(qq)) {
+    rows.push({ label: adj.label, amount: `${adj.negative ? "−$" : "+$"}${adj.amount.toFixed(2)}` });
   }
   return {
     title: qq.service_type || "Cleaning service",
