@@ -6356,7 +6356,11 @@ router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "supe
              COUNT(*) FILTER (WHERE j.status = 'complete') AS jobs,
              COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status = 'complete'), 0) AS revenue
       ${JOBS_V2_FROM} WHERE ${where} AND j.assigned_user_id IS NOT NULL
-      GROUP BY j.assigned_user_id, name
+      -- [kpi-name-ambiguous 2026-07-28] GROUP BY the underlying columns, NOT the
+      -- output alias: JOBS_V2_FROM joins service_zones sz and branches b, both of
+      -- which have their own name column, so a bare name here is ambiguous and
+      -- 500'd the whole KPI endpoint (took down /reports/jobs).
+      GROUP BY j.assigned_user_id, u.first_name, u.last_name
       HAVING COUNT(*) FILTER (WHERE j.status = 'complete') > 0
       ORDER BY revenue DESC, jobs DESC
       LIMIT 8
@@ -6553,7 +6557,10 @@ router.get("/v2/service-types", requireAuth, requireRole("owner", "admin", "offi
         LEFT JOIN commercial_service_types cst
           ON cst.company_id = j.company_id AND cst.slug = j.service_type
        WHERE j.company_id = ${companyId}
-         AND j.service_type IS NOT NULL AND j.service_type <> ''
+         -- [service-type-enum-cast 2026-07-28] service_type is a Postgres enum;
+         -- comparing it to the text literal '' throws "operator does not exist:
+         -- text = service_type" (500). Cast to text before the empty-string guard.
+         AND j.service_type IS NOT NULL AND j.service_type::text <> ''
        ORDER BY value
     `);
     const list = ((result as any).rows ?? []).map((r: any) => ({
