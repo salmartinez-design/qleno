@@ -378,7 +378,7 @@ async function sendOnMyWayForJob(
   if (omwTpl && !omwTpl.is_active) {
     return { status: "suppressed_tenant_disabled" };
   }
-  return sendOnMyWaySms({
+  const result = await sendOnMyWaySms({
     toPhone: client?.phone ?? null,
     fromPhone,
     companyName: tenant?.name ?? "",
@@ -391,6 +391,22 @@ async function sendOnMyWayForJob(
     clientOptedIn: client?.wants_on_my_way_notifications !== false && !smsOptedOut && !accountPaused && omwPrefOn,
     bodyOverride: omwTpl?.body,
   });
+  // [auto-sms-thread-log 2026-07-28] Mirror the On-My-Way text into the two-way
+  // SMS store so it appears in the client message thread AND the Communications
+  // hub. Only on an ACTUAL send; suppressed/opted-out results are not recorded
+  // (nothing reached the customer). Non-fatal — never blocks the OMW flow.
+  if (result.status === "sent") {
+    const { recordClientAutoSms } = await import("../lib/sms-store.js");
+    await recordClientAutoSms({
+      companyId,
+      toPhone: client?.phone ?? null,
+      fromNumber: fromPhone,
+      body: result.body,
+      clientId: job.client_id ?? null,
+      providerId: result.sid,
+    });
+  }
+  return result;
 }
 
 function parseScheduledStart(dateStr: string, time: string): Date | null {

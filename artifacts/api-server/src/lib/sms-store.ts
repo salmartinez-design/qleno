@@ -112,6 +112,44 @@ export async function recordOutboundSms(args: {
   return { id: Number((r.rows[0] as any).id) };
 }
 
+// [auto-sms-thread-log 2026-07-28] Record a system/auto-triggered OUTBOUND
+// client SMS into the two-way store so it surfaces in BOTH surfaces the office
+// watches: the client message thread (getThread reads sms_messages) AND the
+// Customer Communications hub (GET /api/comms merges sms_messages by client_id).
+// The automated cleaner-triggered status/survey texts (On My Way, job started,
+// job finished, satisfaction survey) previously bypassed this store entirely, so
+// they showed up in NEITHER surface. This is a thin, guarded wrapper around
+// recordOutboundSms — NON-FATAL by contract: a logging failure must never break
+// the send flow or the caller's response. Sending stays untouched; this only
+// records what was already sent. Writing to sms_messages (not communication_log)
+// is deliberate: both surfaces read this store, so ONE write covers both without
+// the duplicate a parallel communication_log row would create in the hub.
+export async function recordClientAutoSms(args: {
+  companyId: number;
+  toPhone: string | null | undefined;
+  fromNumber?: string | null;
+  body: string;
+  clientId?: number | null;
+  providerId?: string | null;
+  status?: string;
+}): Promise<void> {
+  try {
+    if (!args.toPhone || !phone10(args.toPhone)) return; // no phone → nothing to thread
+    if (!args.body || !args.body.trim()) return;         // empty body → skip
+    await recordOutboundSms({
+      companyId: args.companyId,
+      toRaw: args.toPhone,
+      fromNumber: args.fromNumber ?? null,
+      body: args.body,
+      clientId: args.clientId ?? null,
+      providerId: args.providerId ?? null,
+      status: args.status ?? "sent",
+    });
+  } catch (e) {
+    console.error("[sms-store] recordClientAutoSms failed (non-fatal):", (e as any)?.message ?? e);
+  }
+}
+
 // Read a contact's SMS thread (chronological) by client_id, lead_id, or phone.
 // Returns sent_by_name so the UI can show which team member sent each outbound message.
 export async function getThread(companyId: number, key: { clientId?: number | null; leadId?: number | null; phone?: string | null }) {

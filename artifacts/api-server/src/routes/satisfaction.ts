@@ -141,14 +141,32 @@ router.post("/send", requireAuth, async (req, res) => {
       .replace(/\{\{\s*company_name\s*\}\}/g, company.name || "We")
       .replace(/\{\{\s*first_name\s*\}\}/g, client!.first_name || "there")
       .replace(/\{\{\s*survey_link\s*\}\}/g, link);
+    let surveyTwilioSid: string | null = null;
     try {
-      await sendSmsVia(sender, client!.phone!, body);
+      const tw: any = await sendSmsVia(sender, client!.phone!, body);
+      surveyTwilioSid = tw?.sid ?? null;
     } catch (e: any) {
       const [survey] = await db.insert(satisfactionSurveysTable).values({
         company_id: companyId, job_id: parseInt(job_id), customer_id: parseInt(customer_id),
         token, sent_at: new Date(), suppressed: true, suppressed_reason: `twilio_error: ${String(e?.message ?? e).slice(0, 120)}`,
       }).returning();
       return res.status(201).json({ sent: false, reason: "twilio_error", survey, survey_url: link, survey_email_sent: surveyEmailSent });
+    }
+    // [auto-sms-thread-log 2026-07-28] Mirror the satisfaction-survey text into
+    // the two-way store so it shows in the client message thread AND the
+    // Communications hub (both previously missed this on-completion survey text).
+    // Reached only after a successful send (the catch above returns early).
+    // Non-fatal — the survey row + response below are unaffected on any error.
+    {
+      const { recordClientAutoSms } = await import("../lib/sms-store.js");
+      await recordClientAutoSms({
+        companyId: companyId!,
+        toPhone: client!.phone!,
+        fromNumber: sender.from_number,
+        body,
+        clientId: parseInt(customer_id),
+        providerId: surveyTwilioSid,
+      });
     }
 
     const [survey] = await db.insert(satisfactionSurveysTable).values({
