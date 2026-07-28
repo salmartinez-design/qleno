@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from "react";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useLocation } from "wouter";
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
-import { getAuthHeaders } from "@/lib/auth";
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { getAuthHeaders, getTokenRole } from "@/lib/auth";
+import { useQuery, keepPreviousData, useQueryClient } from "@tanstack/react-query";
 import { useBranch } from "@/contexts/branch-context";
 import { toast } from "sonner";
-import { Plus, Search, Phone, Mail, MapPin, Download, MessageSquare, UserPlus, ChevronDown, X, Loader2, RefreshCw } from "lucide-react";
+import { Plus, Search, Phone, Mail, MapPin, Download, MessageSquare, UserPlus, ChevronDown, X, Loader2, RefreshCw, GitMerge } from "lucide-react";
+import { MergeClientModal } from "@/components/merge-client-modal";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 
@@ -55,7 +56,11 @@ export default function CustomersPage() {
   const [selected, setSelected] = useState<number[]>([]);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [limit, setLimit] = useState(PAGE_SIZE);
+  const [mergeOpen, setMergeOpen] = useState(false);
   const { activeBranchId } = useBranch();
+  const queryClient = useQueryClient();
+  // [client-dedup 2026-07-28] Merge is destructive — office/admin/owner only.
+  const dedupRole = (() => { const r = getTokenRole(); return r === "owner" || r === "admin" || r === "office"; })();
 
   // Restore scroll position when returning from a customer profile
   useEffect(() => {
@@ -217,12 +222,25 @@ export default function CustomersPage() {
                 {selected.length} selected <ChevronDown size={12} />
               </button>
               {bulkOpen && (
-                <div style={{ position: "absolute", top: "36px", left: 0, backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "8px", boxShadow: "0 4px 16px rgba(0,0,0,0.08)", zIndex: 100, minWidth: "160px", overflow: "hidden" }}>
+                <div style={{ position: "absolute", top: "36px", left: 0, backgroundColor: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: "8px", boxShadow: "0 4px 16px rgba(0,0,0,0.08)", zIndex: 100, minWidth: "180px", overflow: "hidden" }}>
                   {[{ icon: MessageSquare, label: "Send SMS" }, { icon: UserPlus, label: "Send Portal Invite" }, { icon: Download, label: "Export CSV" }].map(({ icon: Icon, label }) => (
                     <button key={label} onClick={() => setBulkOpen(false)} style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "10px 14px", background: "none", border: "none", fontSize: "13px", color: "#1A1917", cursor: "pointer", textAlign: "left" }}>
                       <Icon size={13} strokeWidth={1.5} /> {label}
                     </button>
                   ))}
+                  {/* [client-dedup 2026-07-28] Merge two duplicates into one. Only
+                      valid for exactly two selected clients; office/admin/owner. */}
+                  {dedupRole && (
+                    <button
+                      onClick={() => {
+                        if (selected.length !== 2) { toast("Select exactly two clients", { description: "Merge combines two duplicate records into one." }); return; }
+                        setBulkOpen(false); setMergeOpen(true);
+                      }}
+                      style={{ display: "flex", alignItems: "center", gap: "10px", width: "100%", padding: "10px 14px", background: "none", border: "none", borderTop: "1px solid #F0EEE9", fontSize: "13px", color: selected.length === 2 ? "#1A1917" : "#B4B0A8", cursor: "pointer", textAlign: "left" }}
+                    >
+                      <GitMerge size={13} strokeWidth={1.5} /> Merge duplicates
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -450,6 +468,24 @@ export default function CustomersPage() {
           @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         `}</style>
       </div>
+
+      {/* [client-dedup 2026-07-28] Merge two selected duplicates into one. */}
+      {mergeOpen && selected.length === 2 && (
+        <MergeClientModal
+          candidates={selected
+            .map((id) => clients.find((c) => c.id === id))
+            .filter((c): c is Client => !!c)
+            .map((c) => ({ id: c.id, first_name: c.first_name, last_name: c.last_name, email: c.email, phone: c.phone }))}
+          onClose={() => setMergeOpen(false)}
+          onMerged={(survivorId) => {
+            setMergeOpen(false);
+            setSelected([]);
+            queryClient.invalidateQueries({ queryKey: ["clients"] });
+            toast("Clients merged", { description: "All history moved to the client you kept." });
+            navigate(`/customers/${survivorId}`);
+          }}
+        />
+      )}
     </DashboardLayout>
   );
 }

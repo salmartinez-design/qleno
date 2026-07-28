@@ -11,6 +11,9 @@ import {
 import { eq, and, ilike, or, count, sum, desc, sql, gte, inArray, ne } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { logAudit } from "../lib/audit.js";
+import {
+  getClientMergeImpact, mergeClients, getClientDeleteGuard, deleteEmptyClient,
+} from "../lib/client-merge.js";
 import { utcIso } from "../lib/time-serialize.js";
 import { syncCustomer, queueSync } from "../services/quickbooks-sync.js";
 import { resolveZoneForZip } from "./zones.js";
@@ -916,14 +919,81 @@ router.put("/:id", requireAuth, async (req, res) => {
   }
 });
 
-// ─── DELETE CLIENT ─────────────────────────────────────────────────────────────
-router.delete("/:id", requireAuth, async (req, res) => {
+// ─── CLIENT DEDUP: MERGE + GUARDED DELETE ───────────────────────────────────────
+// [client-dedup 2026-07-28] The office (Maribel) asked to "delete and merge
+// clients to get rid of duplicates". A raw client delete used to either FK-error
+// (child tables reference clients.id with NO ACTION) or orphan history — so
+// dupes were only ever flagged. These routes reassign every client reference
+// from a duplicate to a survivor, or hard-delete only a truly empty duplicate.
+// Office/admin/owner only — never technicians (the old DELETE was requireAuth,
+// so any signed-in user, including a tech, could delete a client). The merge
+// engine + the authoritative table list live in lib/client-merge.ts.
+const DEDUP_ROLES = ["owner", "admin", "office"] as const;
+
+// Dry-run: what a merge of :id (duplicate) into ?survivorId would move.
+router.get("/:id/merge-impact", requireAuth, requireRole(...DEDUP_ROLES), async (req, res) => {
   try {
-    const clientId = parseInt(req.params.id);
-    await db.delete(clientsTable).where(and(eq(clientsTable.id, clientId), eq(clientsTable.company_id, req.auth!.companyId)));
-    logAudit(req, "DELETE", "client", clientId, null, null);
-    return res.json({ success: true });
+    const companyId = req.auth!.companyId as number;
+    const duplicateId = parseInt(String(req.params.id));
+    const survivorId = parseInt(String(req.query.survivorId ?? ""));
+    if (!Number.isFinite(duplicateId) || !Number.isFinite(survivorId)) {
+      return res.status(400).json({ error: "Bad Request", message: "duplicateId and survivorId are required." });
+    }
+    const impact = await getClientMergeImpact(companyId, duplicateId, survivorId);
+    return res.json(impact);
+  } catch (err: any) {
+    if (err?.status) return res.status(err.status).json({ error: "Merge preview failed", message: err.message });
+    console.error("Merge impact error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Execute: merge :id (duplicate) into { survivorId }. Destructive — the
+// duplicate is removed after everything is reassigned. Audited.
+router.post("/:id/merge", requireAuth, requireRole(...DEDUP_ROLES), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId as number;
+    const duplicateId = parseInt(String(req.params.id));
+    const survivorId = parseInt(String(req.body?.survivorId ?? ""));
+    if (!Number.isFinite(duplicateId) || !Number.isFinite(survivorId)) {
+      return res.status(400).json({ error: "Bad Request", message: "survivorId is required." });
+    }
+    const result = await mergeClients(companyId, duplicateId, survivorId);
+    // Audit trail — who merged which duplicate into which survivor, and what moved.
+    await logAudit(req, "MERGE", "client", survivorId,
+      { duplicate_id: duplicateId },
+      { survivor_id: survivorId, moved: result.moved, total_moved: result.totalMoved, filled_fields: result.filledFields });
+    return res.json(result);
+  } catch (err: any) {
+    if (err?.status) return res.status(err.status).json({ error: "Merge failed", message: err.message });
+    console.error("Merge client error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// Dry-run: can :id be hard-deleted, or does it have history (→ must merge)?
+router.get("/:id/delete-guard", requireAuth, requireRole(...DEDUP_ROLES), async (req, res) => {
+  try {
+    const clientId = parseInt(String(req.params.id));
+    const guard = await getClientDeleteGuard(req.auth!.companyId as number, clientId);
+    return res.json(guard);
   } catch (err) {
+    console.error("Delete guard error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// ─── DELETE CLIENT ─────────────────────────────────────────────────────────────
+// Guarded: only a truly empty duplicate can be hard-deleted. Anything with
+// jobs / invoices / history returns 409 and the office is told to merge instead.
+router.delete("/:id", requireAuth, requireRole(...DEDUP_ROLES), async (req, res) => {
+  try {
+    const clientId = parseInt(String(req.params.id));
+    await deleteEmptyClient(req.auth!.companyId as number, clientId);
+    await logAudit(req, "DELETE", "client", clientId, null, null);
+    return res.json({ success: true });
+  } catch (err: any) {
+    if (err?.status) return res.status(err.status).json({ error: "Delete blocked", message: err.message });
     console.error("Delete client error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
