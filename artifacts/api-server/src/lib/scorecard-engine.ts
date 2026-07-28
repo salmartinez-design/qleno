@@ -15,6 +15,21 @@ export async function ensureScorecardReplyColumns(): Promise<void> {
     await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS dismissed_at timestamptz`);
     await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS dismissed_by_user_id integer`);
     await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS dismiss_reason text`);
+    // [dismiss-500 fix 2026-07-28] The users.scorecard_pct* columns that
+    // recomputeEmployeeScorecard() WRITES (`scorecard_pct`, `scorecard_pct_source`,
+    // `scorecard_pct_mc`) were previously created only inside the 7000-line
+    // runPhesDataMigration (bounded by a 45s boot timeout). On a DB where that
+    // long migration timed out before reaching those late ALTERs, the columns are
+    // absent, so recomputeEmployeeScorecard threw "column scorecard_pct_source does
+    // not exist" — which surfaced as a 500 ("Failed to dismiss rating") on the
+    // Dismiss action (the read path only selects scorecard_entries, so it kept
+    // working, masking the gap). Ensure them here, in the lightweight scorecard
+    // ensure that reliably runs on every boot, so every recomputeEmployeeScorecard
+    // caller (dismiss / undismiss / exclude / survey capture) has its target
+    // columns. Idempotent no-op where they already exist.
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS scorecard_pct numeric(5,2)`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS scorecard_pct_mc numeric(5,2)`);
+    await db.execute(sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS scorecard_pct_source text DEFAULT 'mc'`);
     console.log("[scorecard-reply] columns ready");
   } catch (err) {
     console.error("[scorecard-reply] ensure columns error (non-fatal):", err);
