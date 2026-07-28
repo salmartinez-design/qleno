@@ -1530,6 +1530,40 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
         ${lastHistDate ? sql`AND j.scheduled_date > ${lastHistDate}::date` : sql``}
       ORDER BY j.scheduled_date DESC
     `);
+    // [job-history-duration 2026-07-28] Per-cleaner worked duration from the
+    // load-bearing per-house clock pairs (`timeclock`). Each tech runs their own
+    // clock-in/out at the house, so a completed pair (clock_out_at NOT NULL) is
+    // that cleaner's actual worked time; multiple rows/techs on a job give the
+    // per-cleaner breakdown the Job History DUR. column needs. Only real live
+    // jobs have clock data — the frozen MaidCentral import (`job_history`) never
+    // does, so those rows stay on their notes-based fallback. Synthetic
+    // 'estimated' pairs (stamped by /complete on one-tap done) count too: they
+    // carry the operator's best duration signal when no real punch exists.
+    const liveJobIds = (liveRes.rows as any[]).map(r => Number(r.id)).filter(n => Number.isFinite(n));
+    const durationsByJob = new Map<number, Array<{ name: string; minutes: number }>>();
+    if (liveJobIds.length > 0) {
+      const tcRes = await db.execute(sql`
+        SELECT tc.job_id,
+               (u.first_name || ' ' || u.last_name) AS name,
+               ROUND(SUM(EXTRACT(EPOCH FROM (tc.clock_out_at - tc.clock_in_at)) / 60.0))::int AS minutes,
+               MIN(tc.clock_in_at) AS first_in
+        FROM timeclock tc
+        LEFT JOIN users u ON u.id = tc.user_id
+        WHERE tc.company_id = ${companyId}
+          AND tc.job_id = ANY(${liveJobIds}::int[])
+          AND tc.clock_out_at IS NOT NULL
+        GROUP BY tc.job_id, tc.user_id, u.first_name, u.last_name
+        ORDER BY tc.job_id, MIN(tc.clock_in_at)
+      `);
+      for (const row of tcRes.rows as any[]) {
+        const jid = Number(row.job_id);
+        const minutes = Number(row.minutes);
+        if (!Number.isFinite(minutes) || minutes <= 0) continue; // skip zero/negative (bad pair)
+        const arr = durationsByJob.get(jid) || [];
+        arr.push({ name: (row.name && String(row.name).trim()) || "Cleaner", minutes });
+        durationsByJob.set(jid, arr);
+      }
+    }
     const liveRecords = (liveRes.rows as any[]).map(r => ({
       // Negative id: live jobs and job_history share an id space, and the table
       // uses id as its React key. Negating the (positive) job id guarantees a
@@ -1540,6 +1574,9 @@ router.get("/:id/job-history", requireAuth, async (req, res) => {
       service_type: r.service_type ?? null,
       technician: (r.technician && String(r.technician).trim()) || null,
       notes: null as string | null,
+      // Per-cleaner worked durations from the clock pairs (empty when the job
+      // has no completed clock data — the DUR. column then shows "—" honestly).
+      durations: durationsByJob.get(Number(r.id)) || [],
     }));
     // Live rows are strictly newer than every imported row, so plain concat keeps
     // the overall newest-first order the response and stats rely on.
