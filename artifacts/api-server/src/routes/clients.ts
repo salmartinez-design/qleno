@@ -770,7 +770,7 @@ router.put("/:id", requireAuth, async (req, res) => {
     const {
       first_name, last_name, email, phone, address, city, state, zip, notes, company_name,
       frequency, service_type, base_fee, allowed_hours, is_active, home_access_notes,
-      alarm_code, pets, client_since,
+      alarm_code, pets, client_since, referral_source,
       client_type, commercial_category, billing_contact_name, billing_contact_email, billing_contact_phone,
       po_number_required, default_po_number, payment_terms, auto_charge,
       card_last_four, card_brand, card_expiry, card_saved_at,
@@ -812,6 +812,12 @@ router.put("/:id", requireAuth, async (req, res) => {
       ...(home_access_notes !== undefined && { home_access_notes }),
       ...(alarm_code !== undefined && { alarm_code }),
       ...(pets !== undefined && { pets }),
+      // [leadsource-unify 2026-07-28] Persist "How did you hear about us?" from
+      // the customer profile. This field was previously destructured nowhere and
+      // silently dropped on save — the acquisition-source dropdown never stuck.
+      // Empty string means "unset" (column is TEXT / nullable); store the raw
+      // acquisition_sources slug otherwise.
+      ...(referral_source !== undefined && { referral_source: referral_source === "" ? null : referral_source }),
       // [client-save-fix 2026-07-01] The edit drawer sends "" for an empty
       // Client Since; `client_since` is a DATE column and Postgres rejects ''
       // ("invalid input syntax for type date"), which failed the WHOLE update

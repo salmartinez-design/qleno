@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { calculateCommissionSplit } from "@/lib/commission";
+import { usePickerSources } from "@/lib/acquisition-sources";
 import { AddonIcon } from "@/lib/addon-icons";
 import { SquareCardForm } from "@/components/square-card-form";
 
@@ -300,6 +301,12 @@ export default function QuoteBuilderPage() {
   const [unitSuite, setUnitSuite] = useState("");
   const [zipCode, setZipCode] = useState("");
   const [referralSource, setReferralSource] = useState("");
+  // [leadsource-unify 2026-07-28] Options come from Settings (acquisition_sources)
+  // so this picker always matches the configured "How did you hear about us?"
+  // list — no longer a hardcoded enum that diverged from Settings. The stored
+  // value is the source slug (referral_source is TEXT). "existing_client" is set
+  // programmatically for known clients and never offered as an option.
+  const referralOptions = usePickerSources();
   // [referral-required-step 2026-07-25] A new lead must pick how they heard
   // about us before leaving Customer Info — the save() gate at status="sent"
   // caught it too late (whole quote built, then blocked). Existing clients are
@@ -1764,23 +1771,13 @@ export default function QuoteBuilderPage() {
                     style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 14px", fontFamily: FF }} />
                   <select value={referralSource} onChange={e => setReferralSource(e.target.value)}
                     style={{ width: "100%", boxSizing: "border-box", height: 48, border: "1px solid #E5E2DC", borderRadius: 8, fontSize: 16, padding: "0 12px", fontFamily: FF, background: "#FFF" }}>
-                    {/* [referral-vocabulary 2026-07-23] Values are the
-                        referral_source ENUM, not display strings. This select
-                        used to emit google_local_services / manual / Nextdoor
-                        (capital N) and the one on the Review step emitted a
-                        THIRD set ("Referral - Friend/Family") — three
-                        vocabularies for one column, so the reports grouped on
-                        noise. Both selects now emit the same nine slugs. */}
+                    {/* [leadsource-unify 2026-07-28] Options are the tenant's
+                        configured acquisition_sources (Settings), so this select
+                        matches Settings and the booking widget. The stored value
+                        is the source slug. Both this select and the Review-step
+                        one below share the same list. */}
                     <option value="">How did they hear about us?</option>
-                    <option value="google">Google</option>
-                    <option value="facebook">Facebook</option>
-                    <option value="nextdoor">Nextdoor</option>
-                    <option value="yelp">Yelp</option>
-                    <option value="client_referral">Friend or family</option>
-                    <option value="door_hanger">Door hanger / flyer</option>
-                    <option value="yard_sign">Yard sign</option>
-                    <option value="website">Our website</option>
-                    <option value="other">Other</option>
+                    {referralOptions.map(s => <option key={s.slug} value={s.slug}>{s.name}</option>)}
                   </select>
                 </div>
               </div>
@@ -2457,18 +2454,10 @@ export default function QuoteBuilderPage() {
                       className="mt-1 w-full rounded-md bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                       style={{ height: 36, border: referralError ? "1px solid #C0392B" : "1px solid hsl(var(--input))" }}
                     >
-                      {/* Same nine enum slugs as the intake select above — see
-                          the note there. Keep the two lists identical. */}
+                      {/* Same Settings-configured list as the intake select
+                          above — see the note there. Keep the two identical. */}
                       <option value="">Select…</option>
-                      <option value="google">Google</option>
-                      <option value="facebook">Facebook</option>
-                      <option value="nextdoor">Nextdoor</option>
-                      <option value="yelp">Yelp</option>
-                      <option value="client_referral">Friend or family</option>
-                      <option value="door_hanger">Door hanger / flyer</option>
-                      <option value="yard_sign">Yard sign</option>
-                      <option value="website">Our website</option>
-                      <option value="other">Other</option>
+                      {referralOptions.map(s => <option key={s.slug} value={s.slug}>{s.name}</option>)}
                     </select>
                     {referralError && (
                       <span style={{ display: "block", marginTop: 5, fontSize: 11, color: "#C0392B", fontFamily: FF }}>

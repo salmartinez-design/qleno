@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { usePickerSources } from "@/lib/acquisition-sources";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "Plus Jakarta Sans, system-ui, sans-serif";
@@ -2083,6 +2084,10 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   });
 
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }));
+  // [leadsource-unify 2026-07-28] The referral options come from Settings
+  // (acquisition_sources), not a hardcoded enum, so this picker always matches
+  // what the office configured — and matches the public booking widget.
+  const sourceOptions = usePickerSources();
   const addrRef = useRef<HTMLInputElement>(null);
   useAddressAutocomplete(addrRef, true, (p) => setForm(f => ({
     ...f, address: p.street || f.address, city: p.city || f.city, state: p.state || f.state, zip: p.zip || f.zip,
@@ -2121,15 +2126,7 @@ function AddLeadDrawer({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             <label style={lbl}>How did you hear about us?</label>
             <select value={form.referral_source} onChange={e => set("referral_source", e.target.value)} style={selectStyle}>
               <option value="">Ask the customer…</option>
-              <option value="google">Google</option>
-              <option value="client_referral">Referral from a client</option>
-              <option value="facebook">Facebook</option>
-              <option value="nextdoor">Nextdoor</option>
-              <option value="yelp">Yelp</option>
-              <option value="door_hanger">Door hanger</option>
-              <option value="yard_sign">Yard sign</option>
-              <option value="website">Our website</option>
-              <option value="other">Other</option>
+              {sourceOptions.map(s => <option key={s.slug} value={s.slug}>{s.name}</option>)}
             </select>
           </div>
 

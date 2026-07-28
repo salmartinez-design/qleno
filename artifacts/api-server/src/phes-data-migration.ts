@@ -2048,6 +2048,30 @@ async function runBookingSchemaGuard(): Promise<void> {
                 AND q.scope_id IS NOT NULL
                 AND q.service_type IS DISTINCT FROM ps.name
                 AND q.service_type IN (SELECT name FROM quote_scopes)` },
+    // [leadsource-unify 2026-07-28] Convert clients.referral_source and
+    // leads.referral_source from the fixed 9-value `referral_source` pg enum to
+    // plain TEXT. The office pickers (quote-builder, leads, customer profile)
+    // and the dashboard "How they heard about us" report now read the
+    // tenant-managed acquisition_sources list (Settings), whose slugs
+    // (google_ads, thumbtack, word_of_mouth, …) are NOT enum members — writing
+    // them to an enum column threw. TEXT lets every surface store and report the
+    // exact Settings vocabulary. Idempotent: guarded on udt_name so it fires
+    // once (an already-text column has udt_name='text', not 'referral_source').
+    // Historical enum values survive verbatim as text and still display.
+    { label: "referral_source enum -> text (clients + leads)",
+      stmt: `DO $$
+             BEGIN
+               IF EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='clients' AND column_name='referral_source'
+                             AND udt_name='referral_source') THEN
+                 ALTER TABLE clients ALTER COLUMN referral_source TYPE text USING referral_source::text;
+               END IF;
+               IF EXISTS (SELECT 1 FROM information_schema.columns
+                           WHERE table_name='leads' AND column_name='referral_source'
+                             AND udt_name='referral_source') THEN
+                 ALTER TABLE leads ALTER COLUMN referral_source TYPE text USING referral_source::text;
+               END IF;
+             END $$` },
   ];
 
   for (const { label, stmt } of guards) {
