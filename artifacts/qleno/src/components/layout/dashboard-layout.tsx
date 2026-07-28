@@ -59,7 +59,7 @@ const BOTTOM_TABS_TECH = [
 ];
 
 function getBottomTabs(role?: string) {
-  return (role === 'technician' || role === 'team_lead') ? BOTTOM_TABS_TECH : BOTTOM_TABS_MANAGER;
+  return (role === 'technician' || role === 'trainee' || role === 'team_lead') ? BOTTOM_TABS_TECH : BOTTOM_TABS_MANAGER;
 }
 
 const MORE_CARDS = [
@@ -411,7 +411,7 @@ function useSmsUnread(role: string | undefined) {
   const token = useAuthStore(s => s.token); // re-fetch on company switch (token changes)
   const [count, setCount] = useState(0);
   useEffect(() => {
-    if (role === "technician") return;
+    if (role === "technician" || role === "trainee") return; // [trainee-role] no SMS inbox for field roles
     let alive = true;
     const fetch_ = async () => {
       try {
@@ -586,7 +586,10 @@ export function DashboardLayout({ children, title, fullBleed, onNewJob, hideTitl
   // confined field view on EVERY screen size — never the office shell/sidebar.
   // A tech on desktop must see only the technician view (Sal). Drives the layout
   // branch below plus the office-only affordances (Quick Create, More sheet).
-  const isTech = user?.role === 'technician' || user?.role === 'team_lead';
+  // [trainee-role 2026-07-28] trainee = tech view. Cast only the trainee compare
+  // (the UserProfile.role union doesn't list the field-tech values) so no new
+  // typecheck error is introduced beyond the pre-existing technician/team_lead ones.
+  const isTech = user?.role === 'technician' || (user?.role as string) === 'trainee' || user?.role === 'team_lead';
   // [tech-experience 2026-06-17] Keyboard shortcuts + the shortcuts overlay /
   // help button are office-tier only — every shortcut targets an office page
   // (Quotes, Dispatch, Payroll, Employees…). Techs (technician/team_lead) see

@@ -1012,6 +1012,11 @@ async function runBookingSchemaGuard(): Promise<void> {
     // is enforced globally in requireAuth; this just lets the role value exist.
     { label: "user_role.accountant",
       stmt: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'accountant'` },
+    // [trainee-role 2026-07-28] Real, selectable "Trainee" role (User Account →
+    // Role dropdown). Access identical to technician; the value just has to exist
+    // so PUT /api/users/:id can persist role='trainee'. Idempotent on PG 12+.
+    { label: "user_role.trainee",
+      stmt: `ALTER TYPE user_role ADD VALUE IF NOT EXISTS 'trainee'` },
     { label: "frequency.daily",
       stmt: `ALTER TYPE frequency ADD VALUE IF NOT EXISTS 'daily'` },
     { label: "frequency.weekdays",

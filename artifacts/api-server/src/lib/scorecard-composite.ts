@@ -302,7 +302,8 @@ export async function recomputeAllComposites(
   const ids = await db.execute(sql`
     SELECT id FROM users
      WHERE company_id = ${companyId}
-       AND role IN ('technician', 'team_lead')`);
+       -- [trainee-role] trainees get composite scorecards like technicians
+       AND role IN ('technician', 'trainee', 'team_lead')`);
   let updated = 0;
   for (const row of ids.rows as any[]) {
     try {

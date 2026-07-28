@@ -50,7 +50,8 @@ export default function Login() {
           toast({ title: "Welcome back", description: `Logged in as ${res.user.first_name}` });
           if (res.user.role === 'super_admin') {
             setLocation("/admin");
-          } else if (res.user.role === 'technician' || res.user.role === 'team_lead') {
+          } else if (res.user.role === 'technician' || res.user.role === 'trainee' || res.user.role === 'team_lead') {
+            // [trainee-role 2026-07-28] Trainee routes to /my-jobs like a technician.
             setLocation("/my-jobs");
           } else if (res.user.role === 'accountant') {
             // [accountant-readonly 2026-06-20] CPA lands on Invoices (their main

@@ -1215,7 +1215,8 @@ router.post("/suggest-tech", requireAuth, async (req, res) => {
     const bufStart = toMinutes(start_time) - 30;
     const bufEnd   = toMinutes(end_time)   + 30;
 
-    // 1. All active technicians for this company
+    // 1. All active technicians for this company ([trainee-role] trainees are
+    //    assignable field cleaners, so include them in availability suggestions)
     const techs = await db
       .select({
         id: usersTable.id,
@@ -1230,7 +1231,7 @@ router.post("/suggest-tech", requireAuth, async (req, res) => {
         and(
           eq(usersTable.company_id, companyId),
           eq(usersTable.is_active, true),
-          inArray(usersTable.role, ["technician"] as any),
+          inArray(usersTable.role, ["technician", "trainee"] as any),
         )
       );
 

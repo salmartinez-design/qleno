@@ -7825,7 +7825,7 @@ export default function JobsPage() {
       return "office";
     }
   })();
-  const showAttendanceButton = jobsPageUserRole !== "technician";
+  const showAttendanceButton = jobsPageUserRole !== "technician" && jobsPageUserRole !== "trainee"; // [trainee-role] trainee = tech, no office attendance button
   const [jobDates, setJobDates] = useState<Set<string>>(new Set());
   const refreshRef = useRef(0);
   const [zones, setZones] = useState<{ id: number; name: string; color: string; location?: string }[]>([]);

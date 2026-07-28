@@ -199,7 +199,9 @@ function TechRouteGuard({ children }: { children: React.ReactNode }) {
   const token = useAuthStore((s) => s.token);
   const role = token ? getTokenRole() : null;
   const [location, navigate] = useLocation();
-  const isTech = role === "technician" || role === "team_lead";
+  // [trainee-role 2026-07-28] Trainee is a field cleaner — treat exactly like a
+  // technician so they're bounced to /my-jobs and can't reach the office app.
+  const isTech = role === "technician" || role === "trainee" || role === "team_lead";
   const blocked = isTech && !isTechAllowedPath(location);
 
   useEffect(() => {

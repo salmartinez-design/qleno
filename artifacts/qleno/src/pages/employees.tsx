@@ -16,6 +16,8 @@ const ROLE_BADGES: Record<string, React.CSSProperties> = {
   owner:       { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
   admin:       { background: '#FBF0E9', color: '#9C4E2B', border: '1px solid #EFDCCE' },
   technician:  { background: '#E6F6F1', color: '#0F7A63', border: '1px solid #C7E7DE' },
+  // [trainee-role 2026-07-28] Amber, matching the dispatch board TRAINEE tag.
+  trainee:     { background: '#FDF3E4', color: '#B45309', border: '1px solid #F2DFB8' },
   office:      { background: '#FDF3E4', color: '#B45309', border: '1px solid #F2DFB8' },
   team_lead:   { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
   super_admin: { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
@@ -98,7 +100,7 @@ export default function EmployeesPage() {
   // inactive because only is_active was checked.
   const isInactive = (u: any) => u.is_active === false || !!u.termination_date || !!u.archived_at;
   const isStub = (u: any) => /\b(generic|test)\b/i.test(`${u.first_name} ${u.last_name} ${u.email ?? ""}`);
-  const roleRank = (u: any) => isStub(u) ? 3 : (u.role === "technician" ? 0 : u.role === "office" ? 1 : 2);
+  const roleRank = (u: any) => isStub(u) ? 3 : (u.role === "technician" || u.role === "trainee" ? 0 : u.role === "office" ? 1 : 2);
   const employees = (data?.data || [])
     .filter(u => showInactive || !isInactive(u))
     .filter(u => !search || `${u.first_name} ${u.last_name} ${u.email}`.toLowerCase().includes(search.toLowerCase()))
@@ -394,6 +396,7 @@ export default function EmployeesPage() {
                 <select value={newEmp.role} onChange={e=>setNewEmp(p=>({...p,role:e.target.value}))}
                   style={{ width:'100%',height:36,padding:'0 10px',border:'1px solid #E5E2DC',borderRadius:8,fontSize:13,outline:'none',background:'#FFFFFF' }}>
                   <option value="technician">Technician</option>
+                  <option value="trainee">Trainee</option>
                   <option value="office">Office</option>
                   <option value="admin">Admin</option>
                   <option value="accountant">Accountant (View-only)</option>

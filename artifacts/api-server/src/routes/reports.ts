@@ -6,7 +6,7 @@ import {
   contactTicketsTable,
 } from "@workspace/db/schema";
 import { eq, and, gte, lte, desc, count, avg, sum, sql, lt, inArray, isNull, ne } from "drizzle-orm";
-import { requireAuth, requireRole } from "../lib/auth.js";
+import { requireAuth, requireRole, isTechnicianRole } from "../lib/auth.js";
 import { computePeriodPayLines } from "../lib/period-pay.js";
 
 const router = Router();
@@ -725,7 +725,7 @@ router.get("/tips", requireAuth, requireRole("owner", "admin", "office", "techni
     const companyId = req.auth!.companyId!;
     const authUserId = req.auth!.userId!;
     const authRole   = req.auth!.role!;
-    const isTech     = authRole === "technician";
+    const isTech     = isTechnicianRole(authRole); // [trainee-role] trainee scoped to own tips, like a technician
     const now = new Date();
     const fromStr = (req.query.from as string) || dateStr(new Date(now.getTime() - 30 * 86400000));
     const toStr   = (req.query.to   as string) || dateStr(now);

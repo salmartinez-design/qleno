@@ -19,7 +19,7 @@ import { readFile } from "fs/promises";
 import { db } from "@workspace/db";
 import { guidesTable, type Guide, type GuideStep } from "@workspace/db/schema";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { requireAuth } from "../lib/auth.js";
+import { requireAuth, isTechnicianRole } from "../lib/auth.js";
 import { generateGuidePdf, type GuidePdfStep } from "../lib/guide-pdf.js";
 
 const router = Router();
@@ -29,7 +29,7 @@ const __moduleDir = path.dirname(fileURLToPath(import.meta.url));
 // Which audiences a role may see. Techs are walled to tech/all; everyone else
 // sees office/all; the privileged roles that author content see the lot.
 function visibleAudiences(role: string): string[] {
-  if (role === "technician" || role === "team_lead") return ["tech", "all"];
+  if (isTechnicianRole(role) || role === "team_lead") return ["tech", "all"]; // [trainee-role] trainee sees tech guides, not office
   if (role === "owner" || role === "admin" || role === "super_admin") {
     return ["tech", "office", "all"];
   }

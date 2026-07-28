@@ -41,6 +41,9 @@ const ROLE_BADGES: Record<string, React.CSSProperties> = {
   owner:      { background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
   admin:      { background: '#FBF0E9', color: '#9C4E2B', border: '1px solid #EFDCCE' },
   technician: { background: '#E6F6F1', color: '#0F7A63', border: '1px solid #C7E7DE' },
+  // [trainee-role 2026-07-28] Amber, matching the dispatch board TRAINEE tag so the
+  // label reads identically on the profile header, employees list, and the board.
+  trainee:    { background: '#FDF3E4', color: '#B45309', border: '1px solid #F2DFB8' },
   office:     { background: '#FDF3E4', color: '#B45309', border: '1px solid #F2DFB8' },
   team_lead:  { background: '#FFF7ED', color: '#C2410C', border: '1px solid #FED7AA' },
   super_admin:{ background: 'var(--brand-dim)', color: 'var(--brand)', border: '1px solid rgba(var(--brand-rgb),0.3)' },
@@ -2580,6 +2583,7 @@ export default function EmployeeProfilePage() {
                       <Select value={form.role||''} onChange={v=>setField('role',v)} options={[
                         {value:'owner',label:'Owner'},{value:'admin',label:'Admin'},
                         {value:'office',label:'Office'},{value:'technician',label:'Technician'},
+                        {value:'trainee',label:'Trainee'},
                         {value:'accountant',label:'Accountant (View-only)'}
                       ]}/>
                     ) : (
