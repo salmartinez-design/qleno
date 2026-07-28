@@ -163,7 +163,7 @@ export function renderPhesQuote(o: PhesQuoteOpts): string {
       <p style="margin:10px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;"><strong style="color:${MUTE};">Non-solicitation:</strong> By using our services, you agree not to solicit, hire, or contract any ${esc(o.companyName)} staff member privately. Breach terminates your service agreement.</p>
       <p style="margin:10px 0 0;font-family:${FONT};font-size:12px;color:#9E9B94;line-height:1.6;">Review our full <a href="https://${escAttr(o.website)}/terms" style="color:${BRAND};text-decoration:underline;">Terms and Conditions</a> and <a href="https://${escAttr(o.website)}/privacy" style="color:${BRAND};text-decoration:underline;">Privacy Policy</a>.</p>
 
-      <p style="margin:20px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;">Questions? Call or text <a href="tel:${escAttr(o.companyPhoneTel)}" style="color:${BRAND};text-decoration:none;font-weight:600;">${esc(o.companyPhone)}</a> or just reply to this email.<br/>${phoneBtn}</p>
+      <p style="margin:20px 0 0;font-family:${FONT};font-size:14px;color:${INK};line-height:1.6;">Questions? Call or text us, or just reply to this email.<br/>${phoneBtn}</p>
     </td></tr>
 
     <!-- Footer: navy band -->

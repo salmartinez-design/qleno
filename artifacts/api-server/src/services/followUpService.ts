@@ -233,11 +233,15 @@ function renderQuoteOption(q: any, showHeading: boolean): string {
 // buildPhesQuoteEmailHtml (the bespoke on-brand email).
 async function loadQuoteEmailData(companyId: number, quoteId: number): Promise<{ q: any; quotes: any[] } | null> {
   const r = await db.execute(sql`
-    SELECT q.id, q.total_price, q.base_price, q.address, q.service_type, q.frequency, q.addons,
+    SELECT q.id, q.total_price, q.base_price, q.address,
+           COALESCE(NULLIF(q.service_type, ''), ps.name) AS service_type,
+           q.frequency, q.addons,
            q.sign_token, q.lead_email, q.lead_phone, q.client_id, q.estimated_hours, q.manual_hours,
-           q.scope_id, q.discount_amount, q.manual_adjustments,
+           q.scope_id, q.discount_amount, q.manual_adjustments, q.alternate_options,
            c.name AS company_name, c.phone AS company_phone, c.email AS company_email, c.logo_url AS company_logo
-    FROM quotes q JOIN companies c ON c.id = q.company_id
+    FROM quotes q
+    JOIN companies c ON c.id = q.company_id
+    LEFT JOIN pricing_scopes ps ON ps.id = q.scope_id
     WHERE q.id = ${quoteId} AND q.company_id = ${companyId} LIMIT 1
   `);
   const q: any = r.rows[0];
@@ -250,20 +254,69 @@ async function loadQuoteEmailData(companyId: number, quoteId: number): Promise<{
   const leadEmail = String(q.lead_email || "").trim().toLowerCase();
   const leadPhone10 = String(q.lead_phone || "").replace(/\D/g, "").slice(-10);
   const allRows = await db.execute(sql`
-    SELECT id, total_price, base_price, service_type, frequency, addons, sign_token,
-           estimated_hours, manual_hours, scope_id, discount_amount, manual_adjustments
-    FROM quotes
-    WHERE company_id = ${companyId}
-      AND status NOT IN ('accepted','booked','converted','expired','declined','lost')
-      AND (sent_at IS NOT NULL OR id = ${quoteId})
+    SELECT q2.id, q2.total_price, q2.base_price,
+           COALESCE(NULLIF(q2.service_type, ''), ps.name) AS service_type,
+           q2.frequency, q2.addons, q2.sign_token,
+           q2.estimated_hours, q2.manual_hours, q2.scope_id, q2.discount_amount, q2.manual_adjustments
+    FROM quotes q2
+    LEFT JOIN pricing_scopes ps ON ps.id = q2.scope_id
+    WHERE q2.company_id = ${companyId}
+      AND q2.status NOT IN ('accepted','booked','converted','expired','declined','lost')
+      AND (q2.sent_at IS NOT NULL OR q2.id = ${quoteId})
       AND (
-        (${q.client_id}::int IS NOT NULL AND client_id = ${q.client_id})
-        OR (${q.client_id}::int IS NULL AND ${leadEmail} <> '' AND lower(lead_email) = ${leadEmail})
-        OR (${q.client_id}::int IS NULL AND ${leadPhone10} <> '' AND right(regexp_replace(coalesce(lead_phone,''),'\\D','','g'),10) = ${leadPhone10})
+        (${q.client_id}::int IS NOT NULL AND q2.client_id = ${q.client_id})
+        OR (${q.client_id}::int IS NULL AND ${leadEmail} <> '' AND lower(q2.lead_email) = ${leadEmail})
+        OR (${q.client_id}::int IS NULL AND ${leadPhone10} <> '' AND right(regexp_replace(coalesce(q2.lead_phone,''),'\\D','','g'),10) = ${leadPhone10})
       )
-    ORDER BY (frequency IS NULL OR lower(frequency) IN ('onetime','one_time','one-time')) DESC, id ASC
+    ORDER BY (q2.frequency IS NULL OR lower(q2.frequency) IN ('onetime','one_time','one-time')) DESC, q2.id ASC
   `);
   const quotes: any[] = (allRows.rows && allRows.rows.length ? allRows.rows : [q]);
+
+  // [two-option-email 2026-07-28] The quote Review step's "Send both options"
+  // stores the SECOND option INLINE on the triggering quote row as
+  // alternate_options ({total, scope_id, addon_ids, frequency, scope_name}) —
+  // NOT as a separate quote row. The public /book-quote page already reads it
+  // and lets the client pick, but this loader only ever enumerated separate
+  // quote ROWS, so the alternate was silently dropped from the email body
+  // (Sal: "I selected to send both quotes and it only sent one"). Expand each
+  // alternate into a synthetic option so quoteAsOption / renderQuoteOption
+  // render it as its own card. Its Book button deep-links to the SAME
+  // /book-quote/<token> (that page shows both options and lets the client
+  // choose). Appended after the primary so the recommended option leads. No
+  // itemized breakdown is stored, so base_price = total (single clean line).
+  const alts = (Array.isArray(q.alternate_options) ? q.alternate_options : []).filter((a: any) => a && a.total != null);
+  if (alts.length) {
+    // alternate_options carries NO hours, but the customer-facing card must
+    // still show the estimated time (Sal: "the deep clean is not displaying the
+    // time estimate which should carry over"). The quote builder derives it as
+    // total ÷ the scope's hourly_rate (e.g. $416 ÷ $80/hr = 5.2 hrs), so
+    // recompute the same way from pricing_scopes. Rate ≤ 0 / unknown → no line.
+    const psRates = await db.execute(sql`
+      SELECT id, hourly_rate FROM pricing_scopes WHERE company_id = ${companyId}
+    `);
+    const rateByScope = new Map<number, number>();
+    for (const row of (psRates.rows as any[])) rateByScope.set(Number(row.id), Number(row.hourly_rate));
+    for (const a of alts) {
+      const rate = a.scope_id != null ? rateByScope.get(Number(a.scope_id)) : undefined;
+      const hrs = rate && rate > 0 ? Number(a.total) / rate : null;
+      quotes.push({
+        id: q.id,
+        total_price: a.total,
+        base_price: a.total,
+        service_type: a.scope_name || "Cleaning service",
+        frequency: a.frequency ?? null,
+        addons: [],
+        sign_token: q.sign_token,
+        estimated_hours: hrs,
+        manual_hours: null,
+        scope_id: a.scope_id ?? null,
+        discount_amount: null,
+        manual_adjustments: null,
+        _is_alternate: true,
+      });
+    }
+  }
+
   return { q, quotes };
 }
 
@@ -334,6 +387,19 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
     ? quotes.map((qq) => renderQuoteOption(qq, true)).join("")
     : renderQuoteOption(quotes[0], false);
 
+  // [quote-sms-cascade 2026-07-28] Plain-text price clause for the quote SMS so
+  // it cascades the SAME options as the bespoke email ({{line_items}}) instead
+  // of a lone {{quote_total}} that dropped the alternate + showed a generic
+  // "cleaning service" label. Single-option case is byte-identical to the old
+  // "- $240.00" so un-changed sends stay unchanged; multi lists each option's
+  // real service name + total ("Hourly Recurring Cleaning $240.00 or Deep
+  // Clean $416.00"). GSM-7-safe (plain hyphen, no fancy punctuation).
+  const optMoney = (qq: any) => `$${Number(qq.total_price ?? qq.base_price ?? 0).toFixed(2)}`;
+  const quoteSummary = multi
+    ? `with ${quotes.length === 2 ? "two options" : `${quotes.length} options`} - ` +
+      quotes.map((qq) => `${qq.service_type || "Cleaning service"} ${optMoney(qq)}`).join(" or ")
+    : `- $${Number(total).toFixed(2)}`;
+
   return {
     company_name:    q.company_name || "Phes",
     company_phone:   q.company_phone || "(773) 706-6000",
@@ -341,6 +407,7 @@ async function buildQuoteMergeVars(companyId: number, quoteId: number): Promise<
     estimate_link:   link,
     quote_number:    String(q.id),
     quote_total:     Number(total).toFixed(2),
+    quote_summary:   quoteSummary,
     quote_count:     String(quotes.length),
     service_address: q.address || "",
     customer_email:  q.lead_email || "",
@@ -1304,6 +1371,7 @@ export async function runSequenceTest(
     resume_link: "https://app.qleno.com/book?resume=test",
     quote_link: "https://app.qleno.com/quote/test", estimate_link: "https://app.qleno.com/estimate/test",
     line_items: "Deep Clean (2,000 sqft), Oven Cleaning", quote_total: "$581.00",
+    quote_summary: "with two options - Deep Clean $581.00 or Recurring Cleaning $240.00",
     monthly: "$0.00", property: "123 Sample St",
   };
 

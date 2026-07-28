@@ -82,6 +82,7 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
   // helper's exact table markup so a test shows the itemized quote + total.
   quote_number: "1042",
   quote_total: "698.00",
+  quote_summary: "with two options - Deep Clean $608.00 or Recurring Cleaning $240.00",
   quote_count: "2",
   estimate_link: "https://app.qleno.com/quote/sample",
   // Two-option sample (a one-time deep clean + 2 add-ons AND a recurring plan) so
@@ -89,7 +90,7 @@ const SAMPLE_CUSTOMER_VARS: Record<string, string> = {
   // than one option. Mirrors renderQuoteOption(multi) markup in followUpService.
   line_items:
     '<p style="font-size:15px;font-weight:700;color:#1A1917;margin:2px 0 2px;">Deep Clean &middot; One-time</p>' +
-    '<p style="font-size:13px;color:#6B6860;margin:2px 0 0;">Estimated time &middot; ~5 hours</p>' +
+    '<p style="font-size:13px;color:#6B6860;margin:2px 0 0;">Estimated time &middot; 5 hours</p>' +
     '<table style="width:100%;border-collapse:collapse;font-size:14px;margin:8px 0;">' +
     '<tr><td style="padding:6px 0;color:#1A1917;">Deep Clean</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$608.00</td></tr>' +
     '<tr><td style="padding:6px 0;color:#1A1917;">Oven cleaning</td><td style="padding:6px 0;text-align:right;color:#1A1917;">$50.00</td></tr>' +
