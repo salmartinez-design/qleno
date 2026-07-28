@@ -1,5 +1,6 @@
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Link } from "wouter";
+import { getTokenRole } from "@/lib/auth";
 import {
   TrendingUp, DollarSign, Banknote, Activity, UserCheck, Star,
   ReceiptText, Clipboard, Calendar, LayoutList, ClipboardList,
@@ -41,8 +42,10 @@ const REPORT_GROUPS = [
       { title: "Employee Stats",       desc: "Individual attendance, efficiency, and revenue stats.",  url: "/reports/employee-stats",   icon: UserCheck },
       { title: "Tips Report",          desc: "Tips earned by employee across a date range.",           url: "/reports/tips",             icon: Star },
       { title: "Scorecard Results",    desc: "Post-job survey responses — sent, returned, score, and trend per customer.", url: "/reports/satisfaction", icon: Star },
-      { title: "Performance Score Results",    desc: "Client ratings distribution and employee averages.",     url: "/reports/scorecards",       icon: ClipboardList },
-      { title: "Quality & Efficiency", desc: "Performance Score + efficiency by package — company or per-tech, time-bucketed.", url: "/reports/quality-efficiency", icon: ClipboardList },
+      // [scorecard-consolidation 2026-07-28] The one company-wide scorecard —
+      // replaces the legacy "Performance Score Results" + "Quality & Efficiency"
+      // cards (their routes now redirect here). Office/admin only.
+      { title: "Scorecard",            desc: "Company-wide performance: 60/25/15 composite, satisfaction, response rate, efficiency, distribution, and verbatim feedback.", url: "/reports/scorecard-report", icon: ClipboardList, roles: ["owner", "admin", "office", "super_admin"] },
       { title: "Cancellations",        desc: "Clients with cancelled jobs, tenure, and revenue lost.", url: "/reports/cancellations",    icon: AlertTriangle },
       { title: "Contact Tickets",      desc: "Complaints, breakages, compliments, and incidents.",     url: "/reports/contact-tickets",  icon: FileText },
       { title: "Redos & Quality",      desc: "Re-cleans by cleaner, clients with repeat complaints, and top reasons.", url: "/reports/redos", icon: RefreshCw },
@@ -60,15 +63,24 @@ const REPORT_GROUPS = [
 ];
 
 export default function ReportsIndexPage() {
+  // Per-card role gate. A report with a `roles` list renders only for those
+  // roles; cards without one keep their current (office-reachable) behavior.
+  const role = getTokenRole() ?? "";
+  const canSee = (r: { roles?: string[] }) => !r.roles || r.roles.includes(role);
+  const groups = REPORT_GROUPS
+    .map(g => ({ ...g, reports: g.reports.filter(canSee) }))
+    .filter(g => g.reports.length > 0);
+  const total = groups.reduce((n, g) => n + g.reports.length, 0);
+
   return (
     <DashboardLayout title="Reports">
       <div style={{ padding: '24px 28px', maxWidth: 1200 }}>
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: '#1A1917' }}>Reports</h1>
-          <p style={{ margin: '6px 0 0', fontSize: 14, color: '#6B6860' }}>20 reports covering financials, operations, client quality, and growth.</p>
+          <p style={{ margin: '6px 0 0', fontSize: 14, color: '#6B6860' }}>{total} reports covering financials, operations, client quality, and growth.</p>
         </div>
 
-        {REPORT_GROUPS.map(group => (
+        {groups.map(group => (
           <div key={group.label} style={{ marginBottom: 36 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
               <div style={{ width: 3, height: 18, borderRadius: 2, backgroundColor: group.color }} />

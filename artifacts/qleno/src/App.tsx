@@ -59,6 +59,7 @@ const EfficiencyPage      = lazy(() => import("@/pages/reports/efficiency"));
 const WeekReviewPage      = lazy(() => import("@/pages/reports/week-review"));
 const ScorecardsReportPage= lazy(() => import("@/pages/reports/scorecards"));
 const QualityEfficiencyReportPage = lazy(() => import("@/pages/reports/quality-efficiency"));
+const ScorecardReportPage = lazy(() => import("@/pages/reports/scorecard-report"));
 const CancellationsPage   = lazy(() => import("@/pages/reports/cancellations"));
 const ContactTicketsReportPage = lazy(() => import("@/pages/reports/contact-tickets"));
 const RedosReportPage = lazy(() => import("@/pages/reports/redos"));
@@ -299,8 +300,13 @@ function Router() {
         <Route path="/reports/payroll-to-revenue" component={PayrollToRevenuePage} />
         <Route path="/reports/efficiency" component={EfficiencyPage} />
         <Route path="/reports/week-review" component={WeekReviewPage} />
-        <Route path="/reports/scorecards" component={ScorecardsReportPage} />
-        <Route path="/reports/quality-efficiency" component={QualityEfficiencyReportPage} />
+        {/* [scorecard-consolidation 2026-07-28] The two thin legacy scorecard
+            reports are folded into the one /reports/scorecard-report. Their nav
+            cards are removed; the old routes redirect so bookmarks don't 404.
+            Page files + their endpoints are kept (other code may reference them). */}
+        <Route path="/reports/scorecard-report" component={ScorecardReportPage} />
+        <Route path="/reports/scorecards"><Redirect to="/reports/scorecard-report" /></Route>
+        <Route path="/reports/quality-efficiency"><Redirect to="/reports/scorecard-report" /></Route>
         <Route path="/reports/cancellations" component={CancellationsPage} />
         <Route path="/reports/contact-tickets" component={ContactTicketsReportPage} />
         <Route path="/reports/redos" component={RedosReportPage} />

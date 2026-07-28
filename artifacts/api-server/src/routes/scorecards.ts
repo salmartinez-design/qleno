@@ -77,6 +77,273 @@ router.get("/report", requireAuth, requireRole("owner", "admin", "office"), asyn
   }
 });
 
+// GET /api/scorecards/company-report — the consolidated company-wide Scorecard
+// Report powering /reports/scorecard-report. One payload for the whole page:
+// KPI row, composite breakdown (60/25/15), weekly trend, per-tech table, by-branch
+// + by-channel tables, score distribution, efficiency, and the verbatim comment
+// feed. Owner/admin/office only (techs never see this report — 403).
+//   ?from=&to=  (or ?period=rolling_90d|month|quarter|year)  &branch_id=
+// Two time bases coexist, matching the design:
+//  • WINDOW (the selected period) governs surveys, trend, distribution, comments,
+//    efficiency, and the per-tech Responses / response-rate columns.
+//  • COMPOSITE is the trailing-90-day standing read from the persisted per-tech
+//    score_*_90d columns (nightly cron); company sub-scores = mean of the
+//    non-null per-tech values, blended with the tenant 60/25/15 weights.
+// All queries are company_id-scoped. branch_id (when set) filters the
+// survey/entry/window metrics via jobs.branch_id; the composite columns and the
+// by-branch breakdown are always company-wide.
+router.get("/company-report", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const win = resolveWindow(String(req.query.period ?? "custom"), {
+      anchor: req.query.date, from: req.query.from, to: req.query.to,
+    });
+    const branchId = Number.isFinite(Number(req.query.branch_id)) && req.query.branch_id
+      ? parseInt(String(req.query.branch_id)) : null;
+    // Reusable branch predicate against an already-joined `jobs j`.
+    const bj = branchId ? sql`AND j.branch_id = ${branchId}` : sql``;
+    // Window predicate on satisfaction_surveys.sent_at (inclusive of the whole `to` day).
+    const sentWin = sql`s.sent_at >= ${win.from}::date AND s.sent_at < (${win.to}::date + INTERVAL '1 day')`;
+    const num = (v: any) => (v == null ? null : parseFloat(v));
+    const int = (v: any) => Number(v ?? 0);
+
+    // Tenant composite weights (60/25/15 default).
+    const wRow = await db.execute(sql`
+      SELECT COALESCE(score_weight_satisfaction, 60) AS s, COALESCE(score_weight_attendance, 25) AS a,
+             COALESCE(score_weight_complaint_free, 15) AS c FROM companies WHERE id = ${companyId} LIMIT 1`);
+    const weights = {
+      satisfaction: int((wRow.rows[0] as any)?.s ?? 60),
+      attendance: int((wRow.rows[0] as any)?.a ?? 25),
+      complaint_free: int((wRow.rows[0] as any)?.c ?? 15),
+    };
+    const blend = (sat: number | null, att: number | null, cf: number | null): number | null => {
+      const parts: Array<{ v: number; w: number }> = [];
+      if (sat != null) parts.push({ v: sat, w: weights.satisfaction });
+      if (att != null) parts.push({ v: att, w: weights.attendance });
+      if (cf != null) parts.push({ v: cf, w: weights.complaint_free });
+      const tw = parts.reduce((a, p) => a + p.w, 0);
+      // Satisfaction is required for a meaningful composite (mirrors scorecard-composite.ts).
+      return sat != null && parts.length && tw > 0
+        ? Math.round((parts.reduce((a, p) => a + p.v * p.w, 0) / tw) * 100) / 100 : null;
+    };
+
+    // ── Per-tech persisted composite columns (trailing-90d standing) ──
+    const techRows = await db.execute(sql`
+      SELECT id AS user_id, TRIM(first_name || ' ' || COALESCE(last_name, '')) AS name,
+             scorecard_composite_90d AS composite, score_satisfaction_90d AS sat,
+             score_attendance_90d AS att, score_complaint_free_90d AS cf
+        FROM users
+       WHERE company_id = ${companyId} AND role IN ('technician', 'team_lead')`);
+
+    // ── Per-tech window survey counts (attributed to the job's primary tech) ──
+    const techSurvey = await db.execute(sql`
+      SELECT j.assigned_user_id AS user_id,
+             COUNT(*)::int AS sent,
+             COUNT(*) FILTER (WHERE s.responded_at IS NOT NULL)::int AS responses
+        FROM satisfaction_surveys s
+        JOIN jobs j ON j.id = s.job_id AND j.company_id = s.company_id
+       WHERE s.company_id = ${companyId} AND s.suppressed = false AND ${sentWin}
+         AND j.assigned_user_id IS NOT NULL ${bj}
+       GROUP BY j.assigned_user_id`);
+    const surveyByTech = new Map<number, { sent: number; responses: number }>();
+    for (const r of techSurvey.rows as any[]) surveyByTech.set(int(r.user_id), { sent: int(r.sent), responses: int(r.responses) });
+
+    // ── Per-tech window efficiency (Allowed ÷ Actual job hours — canonical) ──
+    const techEff = await db.execute(sql`
+      SELECT employee_id AS user_id,
+             ROUND(100 * SUM(allowed_share) / NULLIF(SUM(actual_hours), 0), 2) AS efficiency_pct
+        FROM efficiency_entries
+       WHERE company_id = ${companyId} AND source = 'qleno'
+         AND entry_date >= ${win.from} AND entry_date <= ${win.to}
+       GROUP BY employee_id`);
+    const effByTech = new Map<number, number | null>();
+    for (const r of techEff.rows as any[]) effByTech.set(int(r.user_id), num(r.efficiency_pct));
+
+    const technicians = (techRows.rows as any[])
+      .map(r => {
+        const sv = surveyByTech.get(int(r.user_id)) ?? { sent: 0, responses: 0 };
+        return {
+          user_id: int(r.user_id), name: r.name || "—",
+          composite_pct: num(r.composite), satisfaction_pct: num(r.sat),
+          attendance_pct: num(r.att), complaint_free_pct: num(r.cf),
+          responses: sv.responses,
+          response_rate_pct: sv.sent > 0 ? Math.round((sv.responses / sv.sent) * 100) : null,
+          efficiency_pct: effByTech.get(int(r.user_id)) ?? null,
+        };
+      })
+      .filter(t => t.composite_pct != null || t.responses > 0 || t.efficiency_pct != null)
+      .sort((a, b) => (b.composite_pct ?? -1) - (a.composite_pct ?? -1));
+
+    // Company sub-scores = mean of the non-null per-tech persisted values.
+    const meanOf = (key: "satisfaction_pct" | "attendance_pct" | "complaint_free_pct"): number | null => {
+      const vals = technicians.map(t => t[key]).filter((v): v is number => v != null);
+      return vals.length ? Math.round((vals.reduce((a, v) => a + v, 0) / vals.length) * 100) / 100 : null;
+    };
+    const coSat = meanOf("satisfaction_pct"), coAtt = meanOf("attendance_pct"), coCf = meanOf("complaint_free_pct");
+    const coComposite = blend(coSat, coAtt, coCf);
+
+    // ── Company window KPIs from satisfaction_surveys ──
+    const kpiRow = await db.execute(sql`
+      SELECT COUNT(*)::int AS sent,
+             COUNT(*) FILTER (WHERE s.responded_at IS NOT NULL)::int AS returned,
+             COUNT(*) FILTER (WHERE s.follow_up_required = true AND s.responded_at IS NOT NULL)::int AS follow_ups,
+             ROUND(AVG(s.survey_score) FILTER (WHERE s.survey_score IS NOT NULL)::numeric, 2) AS avg_score
+        FROM satisfaction_surveys s
+        LEFT JOIN jobs j ON j.id = s.job_id AND j.company_id = s.company_id
+       WHERE s.company_id = ${companyId} AND s.suppressed = false AND ${sentWin} ${bj}`);
+    const k: any = kpiRow.rows[0] ?? {};
+    const sent = int(k.sent), returned = int(k.returned);
+    const avgScore = num(k.avg_score);
+
+    // Dismissed ratings in the window (surfaced separately from scored aggregates).
+    const dismissRow = await db.execute(sql`
+      SELECT COUNT(*)::int AS n
+        FROM scorecard_entries e
+        LEFT JOIN jobs j ON j.id = e.job_id AND j.company_id = e.company_id
+       WHERE e.company_id = ${companyId} AND e.dismissed_at IS NOT NULL
+         AND e.entry_date >= ${win.from} AND e.entry_date <= ${win.to} ${bj}`);
+    const dismissedCount = int((dismissRow.rows[0] as any)?.n);
+
+    // ── By branch (Oak Lawn / Schaumburg) — always company-wide breakdown ──
+    const branchRows = await db.execute(sql`
+      SELECT b.name AS branch,
+             ROUND(AVG(s.survey_score) FILTER (WHERE s.survey_score IS NOT NULL) / 4.0 * 100) AS satisfaction_pct,
+             ROUND(100.0 * COUNT(*) FILTER (WHERE s.responded_at IS NOT NULL) / NULLIF(COUNT(*), 0)) AS response_rate_pct,
+             COUNT(*)::int AS surveys
+        FROM satisfaction_surveys s
+        JOIN jobs j ON j.id = s.job_id AND j.company_id = s.company_id
+        JOIN branches b ON b.id = j.branch_id AND b.company_id = s.company_id
+       WHERE s.company_id = ${companyId} AND s.suppressed = false AND ${sentWin}
+       GROUP BY b.name ORDER BY b.name`);
+
+    // ── By channel — INFERRED from the customer's contact info (no channel is
+    // stored on the survey). phone → SMS, else email → Email. Labeled inferred. ──
+    const channelRows = await db.execute(sql`
+      SELECT CASE WHEN c.phone IS NOT NULL AND c.phone <> '' THEN 'SMS'
+                  WHEN c.email IS NOT NULL AND c.email <> '' THEN 'Email'
+                  ELSE 'Unknown' END AS channel,
+             COUNT(*)::int AS sent,
+             COUNT(*) FILTER (WHERE s.responded_at IS NOT NULL)::int AS returned
+        FROM satisfaction_surveys s
+        JOIN clients c ON c.id = s.customer_id AND c.company_id = s.company_id
+        LEFT JOIN jobs j ON j.id = s.job_id AND j.company_id = s.company_id
+       WHERE s.company_id = ${companyId} AND s.suppressed = false AND ${sentWin} ${bj}
+       GROUP BY 1 ORDER BY sent DESC`);
+
+    // ── Score distribution 0..4 (responded surveys in window) ──
+    const distRows = await db.execute(sql`
+      SELECT s.survey_score AS score, COUNT(*)::int AS count
+        FROM satisfaction_surveys s
+        LEFT JOIN jobs j ON j.id = s.job_id AND j.company_id = s.company_id
+       WHERE s.company_id = ${companyId} AND s.responded_at IS NOT NULL
+         AND s.survey_score IS NOT NULL AND ${sentWin} ${bj}
+       GROUP BY s.survey_score`);
+    const distMap = new Map<number, number>();
+    for (const r of distRows.rows as any[]) distMap.set(int(r.score), int(r.count));
+    const distribution = [0, 1, 2, 3, 4].map(score => ({ score, count: distMap.get(score) ?? 0 }));
+
+    // ── Weekly trend: satisfaction% + response-rate% across the window ──
+    const trendRows = await db.execute(sql`
+      SELECT to_char(date_trunc('week', s.sent_at), 'YYYY-MM-DD') AS week_start,
+             ROUND(AVG(s.survey_score) FILTER (WHERE s.survey_score IS NOT NULL) / 4.0 * 100) AS satisfaction_pct,
+             ROUND(100.0 * COUNT(*) FILTER (WHERE s.responded_at IS NOT NULL) / NULLIF(COUNT(*), 0)) AS response_rate_pct
+        FROM satisfaction_surveys s
+        LEFT JOIN jobs j ON j.id = s.job_id AND j.company_id = s.company_id
+       WHERE s.company_id = ${companyId} AND s.suppressed = false AND ${sentWin} ${bj}
+       GROUP BY 1 ORDER BY 1`);
+
+    // ── Efficiency by package (canonical Allowed ÷ Actual) ──
+    const effRows = await db.execute(sql`
+      SELECT package,
+             ROUND(100 * SUM(allowed_share) / NULLIF(SUM(actual_hours), 0), 2) AS efficiency_pct,
+             SUM(allowed_share)::numeric AS allowed, SUM(actual_hours)::numeric AS actual,
+             COUNT(*)::int AS jobs, COUNT(DISTINCT employee_id)::int AS techs
+        FROM efficiency_entries
+       WHERE company_id = ${companyId} AND source = 'qleno'
+         AND entry_date >= ${win.from} AND entry_date <= ${win.to}
+       GROUP BY package ORDER BY efficiency_pct DESC NULLS LAST`);
+    const effAllowed = (effRows.rows as any[]).reduce((a, r) => a + parseFloat(r.allowed || 0), 0);
+    const effActual = (effRows.rows as any[]).reduce((a, r) => a + parseFloat(r.actual || 0), 0);
+    const efficiency = {
+      overall_pct: effActual > 0 ? Math.round((100 * effAllowed / effActual) * 100) / 100 : null,
+      packages: (effRows.rows as any[]).map(r => ({
+        package: r.package, efficiency_pct: num(r.efficiency_pct), jobs: int(r.jobs), techs: int(r.techs),
+      })),
+    };
+
+    // ── Verbatim comment feed — recent scored entries carrying a comment ──
+    const commentRows = await db.execute(sql`
+      SELECT e.id, e.job_id, e.employee_id, e.score_value AS score, e.max_value AS max,
+             e.notes AS comment, e.office_reply, e.dismissed_at, e.entry_date,
+             TRIM(tu.first_name || ' ' || COALESCE(tu.last_name, '')) AS tech,
+             cl.id AS customer_id, TRIM(cl.first_name || ' ' || COALESCE(cl.last_name, '')) AS customer,
+             COALESCE(ss.follow_up_required, false) AS follow_up_required
+        FROM scorecard_entries e
+        LEFT JOIN users tu ON tu.id = e.employee_id AND tu.company_id = e.company_id
+        LEFT JOIN jobs j ON j.id = e.job_id AND j.company_id = e.company_id
+        LEFT JOIN clients cl ON cl.id = j.client_id AND cl.company_id = e.company_id
+        LEFT JOIN satisfaction_surveys ss ON ss.id = e.survey_id AND ss.company_id = e.company_id
+       WHERE e.company_id = ${companyId}
+         AND e.entry_date >= ${win.from} AND e.entry_date <= ${win.to}
+         AND e.notes IS NOT NULL AND TRIM(e.notes) <> '' ${bj}
+       ORDER BY e.entry_date DESC, e.id DESC
+       LIMIT 30`);
+    const comments = (commentRows.rows as any[]).map(r => ({
+      id: int(r.id), job_id: r.job_id != null ? int(r.job_id) : null,
+      customer: r.customer || "—", customer_id: r.customer_id != null ? int(r.customer_id) : null,
+      tech: r.tech || "—", score: num(r.score), max: num(r.max) ?? 4,
+      comment: r.comment || "", follow_up_required: r.follow_up_required === true,
+      office_reply: r.office_reply || null, dismissed_at: r.dismissed_at ?? null,
+    }));
+
+    return res.json({
+      window: win,
+      composite_window_days: 90,
+      weights,
+      branch_id: branchId,
+      kpis: {
+        composite_pct: coComposite,
+        satisfaction_pct: coSat,
+        avg_score: avgScore,
+        surveys_sent: sent,
+        surveys_returned: returned,
+        response_rate_pct: sent > 0 ? Math.round((returned / sent) * 100) : 0,
+        follow_ups_flagged: int(k.follow_ups),
+        dismissed_count: dismissedCount,
+        efficiency_pct: efficiency.overall_pct,
+      },
+      composite: {
+        composite_pct: coComposite, satisfaction_pct: coSat,
+        attendance_pct: coAtt, complaint_free_pct: coCf, weights,
+      },
+      technicians,
+      company_totals: {
+        composite_pct: coComposite, satisfaction_pct: coSat, attendance_pct: coAtt,
+        complaint_free_pct: coCf, responses: returned,
+        response_rate_pct: sent > 0 ? Math.round((returned / sent) * 100) : 0,
+      },
+      by_branch: (branchRows.rows as any[]).map(r => ({
+        branch: r.branch, satisfaction_pct: num(r.satisfaction_pct),
+        response_rate_pct: num(r.response_rate_pct), surveys: int(r.surveys),
+      })),
+      by_channel: (channelRows.rows as any[]).map(r => ({
+        channel: r.channel, sent: int(r.sent), returned: int(r.returned),
+        response_rate_pct: int(r.sent) > 0 ? Math.round((int(r.returned) / int(r.sent)) * 100) : 0,
+      })),
+      distribution,
+      trend: (trendRows.rows as any[]).map(r => ({
+        week_start: r.week_start, satisfaction_pct: num(r.satisfaction_pct),
+        response_rate_pct: num(r.response_rate_pct),
+      })),
+      efficiency,
+      comments,
+    });
+  } catch (err) {
+    console.error("Scorecard company-report error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to build scorecard company report" });
+  }
+});
+
 // PATCH /api/scorecards/entries/:id/exclude { excluded } — office "Exclude from
 // employee" action; recomputes the affected tech's headline.
 router.patch("/entries/:id/exclude", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
