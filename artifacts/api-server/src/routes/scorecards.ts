@@ -141,8 +141,13 @@ router.post("/entries/:id/dismiss", requireAuth, requireRole("owner", "admin", "
       .returning();
 
     // Recompute the affected tech's satisfaction headline AND rolling composite
-    // so the dismissed rating stops counting right away.
-    await recomputeEmployeeScorecard(companyId, entry.employee_id);
+    // so the dismissed rating stops counting right away. Both are best-effort
+    // side effects — the dismissal itself (the UPDATE above) has already
+    // committed, and the DISPLAYED Performance Score is computed live from
+    // scorecard_entries (dismissed_at IS NULL), so a recompute hiccup must never
+    // fail the request. (Previously recomputeEmployeeScorecard was unguarded,
+    // turning a missing users.scorecard_pct_source column into a 500.)
+    try { await recomputeEmployeeScorecard(companyId, entry.employee_id); } catch (e) { console.error("dismiss recomputeEmployeeScorecard (non-fatal):", e); }
     try { await recomputeCompositeScore(companyId, entry.employee_id); } catch { /* non-fatal */ }
 
     // Customer audit trail — write to the client's Communication timeline
@@ -197,7 +202,9 @@ router.post("/entries/:id/undismiss", requireAuth, requireRole("owner", "admin",
       .where(and(eq(scorecardEntriesTable.id, id), eq(scorecardEntriesTable.company_id, companyId)))
       .returning({ employee_id: scorecardEntriesTable.employee_id });
     if (!updated) return res.status(404).json({ error: "Not Found", message: "Scorecard entry not found" });
-    await recomputeEmployeeScorecard(companyId, updated.employee_id);
+    // Best-effort recompute — see the dismiss handler above. The undismiss UPDATE
+    // has already committed, so a recompute failure must not fail the request.
+    try { await recomputeEmployeeScorecard(companyId, updated.employee_id); } catch (e) { console.error("undismiss recomputeEmployeeScorecard (non-fatal):", e); }
     try { await recomputeCompositeScore(companyId, updated.employee_id); } catch { /* non-fatal */ }
     return res.json({ ok: true, employee_id: updated.employee_id });
   } catch (err) {
