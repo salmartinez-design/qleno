@@ -56,9 +56,16 @@ const selectStyle: React.CSSProperties = { border: "1px solid #E5E2DC", borderRa
 
 export default function LeadsReportsPage() {
   const { toast } = useToast();
-  const [period, setPeriod] = useState("rolling_90d");
-  const [cFrom, setCFrom] = useState("");
-  const [cTo, setCTo] = useState("");
+  // Honor a window handed in via the URL (e.g. the dashboard "How they heard
+  // about us / Full report →" link, which carries ?period=custom&from&to so the
+  // drill-down opens on the exact window the card was showing).
+  const initialQuery = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const qPeriod = initialQuery.get("period");
+  const qFrom = initialQuery.get("from") || "";
+  const qTo = initialQuery.get("to") || "";
+  const [period, setPeriod] = useState(qPeriod || "rolling_90d");
+  const [cFrom, setCFrom] = useState(qPeriod === "custom" ? qFrom : "");
+  const [cTo, setCTo] = useState(qPeriod === "custom" ? qTo : "");
   const [report, setReport] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [cards, setCards] = useState<string[]>(["leads", "lead_to_book", "close_rate"]);

@@ -789,36 +789,15 @@ function useLeadReport(win: { from: string; to: string } | null) {
   return data;
 }
 
-// [referral-window 2026-07-23] "How they heard about us" gets its OWN trailing
-// 90-day window instead of following the period selector.
-//
-// On a Today view the selector window is a single day, and a single day almost
-// always has zero new leads — so the card sat on "No leads in this window"
-// permanently and read as broken. Referral source is a slow marketing signal,
-// not a daily operational one: nobody makes a decision off "who heard about us
-// on Tuesday". Ninety days is enough sample for the mix to mean something.
-// The card states its own window in the subhead so it can't be misread as
-// belonging to the period above it.
-const REFERRAL_WINDOW_DAYS = 90;
-function useReferralReport(win: { from: string; to: string } | null) {
-  const [data, setData] = useState<any>(null);
-  const to = win?.to ?? null;
-  useEffect(() => {
-    if (!to) return;
-    let alive = true;
-    // Parse as local Y/M/D — `new Date('2026-07-23')` is UTC midnight and would
-    // slide the window a day west of Central.
-    const [y, m, d] = to.split('-').map(Number);
-    const start = new Date(y, m - 1, d);
-    start.setDate(start.getDate() - (REFERRAL_WINDOW_DAYS - 1));
-    const p = (n: number) => String(n).padStart(2, '0');
-    const from = `${start.getFullYear()}-${p(start.getMonth() + 1)}-${p(start.getDate())}`;
-    fetchJsonWithRetry(`/api/lead-analytics/report?period=custom&from=${from}&to=${to}`)
-      .then(j => { if (alive && j) setData(j); });
-    return () => { alive = false; };
-  }, [to]);
-  return data;
-}
+// [referral-follows-period 2026-07-28] "How they heard about us" now follows the
+// hero period selector (Today / This week / This month) like every other Growth
+// card — Sal's call, reversing the [referral-window 2026-07-23] trailing-90-day
+// carve-out. The attribution figures come straight off the same
+// `/api/lead-analytics/report` payload the sibling Leads-closed card already
+// fetches for the active window (`leadReport.by_referral`), so the two cards can
+// never disagree about the window or the cohort (leads CREATED in the window).
+// Small windows (a single Today) can legitimately return zero rows — the card
+// shows that honestly instead of silently widening back to 90 days.
 
 // ── Live weather ─────────────────────────────────────────────────────────────
 // [dashboard-weather 2026-07-22] Operations input, not decoration: snow and
@@ -1271,7 +1250,13 @@ const REFERRAL_COLOR: Record<string, string> = {
 };
 const referralColor = (s: string | null) => REFERRAL_COLOR[s ?? 'unasked'] ?? '#C8C4BC';
 
-function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: string) => void }) {
+function LeadSourcesCard({ report, periodLabel, win, navigate }: { report: any; periodLabel: string; win: { from: string; to: string } | null; navigate: (p: string) => void }) {
+  // Lowercase to sit inside the running subhead: "today", "this week", "this
+  // month" — mirrors ConversionCard's "leads created {periodLabel}" phrasing.
+  const winLabel = periodLabel.toLowerCase();
+  // Drill-down opens the full report on the SAME window as the card, so the
+  // numbers reconcile after the click.
+  const reportHref = win ? `/leads/reports?period=custom&from=${win.from}&to=${win.to}` : '/leads/reports';
   const all: any[] = report?.by_referral || [];
   // Answered channels first by volume; "Not asked" is pinned last no matter how
   // large it gets, so it reads as the footnote it is rather than the headline.
@@ -1287,21 +1272,20 @@ function LeadSourcesCard({ report, navigate }: { report: any; navigate: (p: stri
     <div style={{ ...CARD, padding: '18px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
         <p style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: 0, fontFamily: FF }}>How they heard about us</p>
-        <button onClick={() => navigate('/leads/reports')} style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Full report →</button>
+        <button onClick={() => navigate(reportHref)} style={{ fontSize: 11, fontWeight: 600, color: 'var(--brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: FF }}>Full report →</button>
       </div>
       <p style={{ fontSize: 11, color: 'var(--ink-faint)', margin: '0 0 12px', fontFamily: FF }}>
-        {/* [referral-window 2026-07-23] Always name the 90 days. This card is
-            the one thing on the page that does NOT follow the period selector,
-            so leaving the window implicit would let a Today view be read as
-            "nobody heard about us today". */}
+        {/* [referral-follows-period 2026-07-28] Name the ACTIVE window so the
+            card can't be misread — it now tracks the period selector above it.
+            The counts recompute from that window's payload. */}
         {total > 0
-          ? `last 90 days · ${answered} of ${total} lead${total === 1 ? '' : 's'} told us`
-          : 'last 90 days · referral source, not entry channel'}
+          ? `${winLabel} · ${answered} of ${total} lead${total === 1 ? '' : 's'} told us`
+          : `${winLabel} · referral source, not entry channel`}
       </p>
       {report == null ? (
         <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>Loading…</p>
       ) : rows.length === 0 ? (
-        <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>No leads in the last 90 days.</p>
+        <p style={{ fontSize: 12, color: 'var(--ink-faint)', margin: 0, fontFamily: FF }}>No leads {winLabel}.</p>
       ) : (
         <table style={{ width: '100%', borderCollapse: 'collapse', fontFamily: FF }}>
           <thead>
@@ -1440,8 +1424,10 @@ export default function Dashboard() {
   // default.
   const [period, setPeriod] = useState<Period>('today');
   const summary = useSummary(period, activeBranchId);
+  // One fetch feeds both Growth attribution cards: Leads-closed reads
+  // `by_source`/funnel and How-they-heard reads `by_referral` off the same
+  // active-window payload, so they always agree on the window and cohort.
   const leadReport = useLeadReport(summary?.window ?? null);
-  const referralReport = useReferralReport(summary?.window ?? null);
   const booked = useBooked(period, activeBranchId);
   const weather = useWeather(activeBranchId);
 
@@ -1623,7 +1609,7 @@ export default function Dashboard() {
               <ConversionCard report={leadReport} periodLabel={summary?.label ?? 'this week'} navigate={navigate} />
               <BookedCard booked={booked} navigate={navigate} />
             </div>
-            <LeadSourcesCard report={referralReport} navigate={navigate} />
+            <LeadSourcesCard report={leadReport} periodLabel={summary?.label ?? 'this week'} win={summary?.window ?? null} navigate={navigate} />
           </div>
         </div>
 
