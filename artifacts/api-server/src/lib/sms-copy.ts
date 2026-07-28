@@ -16,8 +16,12 @@ export const SURVEY_SMS =
   "{{company_name}}: thanks for letting us clean for you. How did we do? {{survey_link}}";
 
 // Quote follow-up cadence (quote_followup SMS steps).
+// {{quote_summary}} cascades the SAME options as the quote email: single-option
+// renders "- $240.00" (identical to the old {{quote_total}} copy), multi-option
+// renders "with two options - Hourly Recurring Cleaning $240.00 or Deep Clean
+// $416.00". Built in followUpService.buildQuoteMergeVars.
 export const QUOTE_SMS =
-  "{{company_name}}: your quote is ready - ${{quote_total}}. View and book: {{estimate_link}}";
+  "{{company_name}}: your quote is ready {{quote_summary}}. View and book: {{estimate_link}}";
 export const QUOTE_NUDGE_SMS =
   "{{company_name}}: checking in on your quote. Happy to answer questions or get you booked whenever you're ready.";
 export const QUOTE_LAST_SMS =
@@ -36,6 +40,10 @@ const OLD = {
     "Hi {{first_name}}, thanks for choosing us! How was your cleaning today? Tap to rate: {{survey_link}}",
   quote:
     "Hi {{first_name}}, your {{company_name}} quote is ready - ${{quote_total}}. View and book: {{estimate_link}} or reply with questions.",
+  // Prior QUOTE_SMS default (single {{quote_total}}); rewritten to the
+  // {{quote_summary}} multi-option copy by the idempotent upgrade below.
+  quoteV3:
+    "{{company_name}}: your quote is ready - ${{quote_total}}. View and book: {{estimate_link}}",
   quoteNudge:
     "Hi {{first_name}}, checking in on your {{company_name}} quote. Happy to answer any questions or book your first clean whenever you are ready.",
   quoteLast:
@@ -114,6 +122,11 @@ export async function upgradeCustomerSmsCopy(): Promise<void> {
       FROM follow_up_sequences s
       WHERE st.sequence_id = s.id AND s.sequence_type = 'quote_followup'
         AND st.channel = 'sms' AND st.message_template = ${OLD.quote}`);
+    await db.execute(sql`
+      UPDATE follow_up_steps st SET message_template = ${QUOTE_SMS}
+      FROM follow_up_sequences s
+      WHERE st.sequence_id = s.id AND s.sequence_type = 'quote_followup'
+        AND st.channel = 'sms' AND st.message_template = ${OLD.quoteV3}`);
     await db.execute(sql`
       UPDATE follow_up_steps st SET message_template = ${QUOTE_NUDGE_SMS}
       FROM follow_up_sequences s
