@@ -13,8 +13,9 @@ import {
   Plus, Trash2, Edit2, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Check, X, Eye, EyeOff,
   Phone, Mail, MapPin, MessageSquare, Send, AlertTriangle, TrendingUp,
   ClipboardList, DollarSign, BookOpen, Paperclip, ShieldCheck, Loader2,
-  MessageCircle, RefreshCw, Activity, Upload, Image, Calendar, Clock, Wrench,
+  MessageCircle, RefreshCw, Activity, Upload, Image, Calendar, Clock, Wrench, GitMerge,
 } from "lucide-react";
+import { MergeClientModal } from "@/components/merge-client-modal";
 import { QuotesTab, PaymentsTab, QuickBooksTab, AttachmentsTab, CommLog2 } from "./customer-profile-tabs2";
 import { JobWizard } from "@/components/job-wizard";
 import { SquareCardForm } from "@/components/square-card-form";
@@ -988,7 +989,140 @@ function ServiceStatusCard({ client, refetch }: { client: any; refetch: () => vo
   );
 }
 
-function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (data: any) => Promise<void>; refetch: () => void }) {
+// [client-dedup 2026-07-28] Merge-or-delete this client. Merge folds another
+// duplicate into (or this one into a survivor); delete is GUARDED — only a truly
+// empty duplicate can be removed, anything with history must be merged. Office/
+// admin/owner only; the server role-gates + audits both routes.
+function ClientDedupCard({ client, onToast }: { client: any; onToast: (m: string, t?: "success" | "error") => void }) {
+  const FF = "'Plus Jakarta Sans', sans-serif";
+  const [, navigate] = useLocation();
+  const role = getTokenRole();
+  const canManage = role === "owner" || role === "admin" || role === "office";
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [deleteState, setDeleteState] = useState<null | { checking: boolean; deletable?: boolean; blockers?: { label: string; count: number }[]; total?: number }>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  if (!canManage) return null;
+
+  const openDelete = async () => {
+    setDeleteState({ checking: true });
+    try {
+      const g = await apiFetch(`/api/clients/${client.id}/delete-guard`);
+      setDeleteState({ checking: false, deletable: g.deletable, blockers: g.blockers, total: g.totalRecords });
+    } catch {
+      setDeleteState(null);
+      onToast("Could not check whether this client can be deleted", "error");
+    }
+  };
+
+  const doDelete = async () => {
+    setDeleting(true);
+    try {
+      await apiFetch(`/api/clients/${client.id}`, { method: "DELETE" });
+      onToast("Client deleted");
+      navigate("/customers");
+    } catch (e: any) {
+      let msg = "Delete failed";
+      try { msg = JSON.parse(String(e.message)).message || msg; } catch { /* keep default */ }
+      onToast(msg, "error");
+      setDeleting(false);
+      setDeleteState(null);
+    }
+  };
+
+  return (
+    <div style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, padding: "18px 20px", fontFamily: FF }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 14, fontWeight: 800, color: "#1A1917" }}>Duplicate cleanup</div>
+          <div style={{ fontSize: 12.5, color: "#9E9B94", marginTop: 3, maxWidth: 380 }}>
+            Merge this client with a duplicate to combine their history, or delete an empty duplicate.
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: 8, flexShrink: 0 }}>
+          <button onClick={() => setMergeOpen(true)}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#1A1917", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+            <GitMerge size={13} /> Merge
+          </button>
+          <button onClick={openDelete}
+            style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 14px", border: "1px solid #F5C6C2", borderRadius: 8, background: "#FFFFFF", color: "#B3261E", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: FF }}>
+            <Trash2 size={13} /> Delete
+          </button>
+        </div>
+      </div>
+
+      {mergeOpen && (
+        <MergeClientModal
+          candidates={[{ id: client.id, first_name: client.first_name, last_name: client.last_name, email: client.email, phone: client.phone }]}
+          onClose={() => setMergeOpen(false)}
+          onMerged={(survivorId) => {
+            setMergeOpen(false);
+            onToast("Clients merged");
+            navigate(`/customers/${survivorId}`);
+          }}
+        />
+      )}
+
+      {/* Guarded delete confirmation */}
+      {deleteState && (
+        <div onClick={() => !deleting && setDeleteState(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(10,14,26,0.45)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "#FFFFFF", border: "1px solid #E5E2DC", borderRadius: 10, width: "100%", maxWidth: 440, padding: 22, fontFamily: FF }}>
+            {deleteState.checking ? (
+              <div style={{ fontSize: 13, color: "#6B6860", display: "flex", alignItems: "center", gap: 8 }}>
+                <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} /> Checking client history…
+              </div>
+            ) : deleteState.deletable ? (
+              <>
+                <div style={{ fontSize: 16, fontWeight: 800, color: "#0A0E1A", marginBottom: 6 }}>Delete this client?</div>
+                <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 20 }}>
+                  {client.first_name} {client.last_name} has no jobs, invoices, or history. This permanently removes the record and cannot be undone.
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button onClick={() => setDeleteState(null)} disabled={deleting}
+                    style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Cancel</button>
+                  <button onClick={doDelete} disabled={deleting}
+                    style={{ padding: "8px 16px", border: "none", borderRadius: 8, background: "#B3261E", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: deleting ? "default" : "pointer", opacity: deleting ? 0.6 : 1, fontFamily: FF }}>
+                    {deleting ? "Deleting…" : "Delete client"}
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                  <AlertTriangle size={17} style={{ color: "#B45309" }} />
+                  <div style={{ fontSize: 16, fontWeight: 800, color: "#0A0E1A" }}>Can’t delete — this client has history</div>
+                </div>
+                <div style={{ fontSize: 13, color: "#6B6860", marginBottom: 12 }}>
+                  Deleting would orphan {deleteState.total?.toLocaleString()} linked record{deleteState.total === 1 ? "" : "s"}. Merge this client into the correct one instead so nothing is lost.
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 18 }}>
+                  {(deleteState.blockers || []).slice(0, 8).map((b) => (
+                    <div key={b.label} style={{ display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 11px", background: "#F7F6F3", border: "1px solid #EEECE7", borderRadius: 7 }}>
+                      <span style={{ fontSize: 12, color: "#6B6860", textTransform: "capitalize", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{b.label}</span>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: "#1A1917" }}>{b.count.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+                  <button onClick={() => setDeleteState(null)}
+                    style={{ padding: "8px 16px", border: "1px solid #E5E2DC", borderRadius: 8, background: "#FFFFFF", color: "#6B6860", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>Close</button>
+                  <button onClick={() => { setDeleteState(null); setMergeOpen(true); }}
+                    style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 16px", border: "none", borderRadius: 8, background: "var(--brand)", color: "#FFFFFF", fontSize: 13, fontWeight: 700, cursor: "pointer", fontFamily: FF }}>
+                    <GitMerge size={13} /> Merge instead
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function OverviewTab({ client, onUpdate, refetch, onToast }: { client: any; onUpdate: (data: any) => Promise<void>; refetch: () => void; onToast: (m: string, t?: "success" | "error") => void }) {
   const { data: companyMe } = useQuery<any>({ queryKey: ["company-me"], queryFn: () => apiFetch("/api/companies/me") });
   const companySlug = companyMe?.slug ?? "phes-cleaning";
   const [editing, setEditing] = useState(false);
@@ -1094,6 +1228,9 @@ function OverviewTab({ client, onUpdate, refetch }: { client: any; onUpdate: (da
 
       {/* [service-suspension 2026-07-11] Suspend / resume service */}
       <ServiceStatusCard client={client} refetch={refetch} />
+
+      {/* [client-dedup 2026-07-28] Merge / guarded-delete duplicates */}
+      <ClientDedupCard client={client} onToast={onToast} />
 
       {/* Intelligence Badges (NPS / Churn) */}
       {((client.latest_nps_score !== null && client.latest_nps_score !== undefined) || (client.churn_risk_score !== null && client.churn_risk_score !== undefined)) && (
@@ -6512,7 +6649,7 @@ export default function CustomerProfilePage() {
             {/* Rate Locks */}
             <div style={CS}>
               <SectionHead title="Rate Locks" />
-              <OverviewTab client={profile} onUpdate={updateMut.mutateAsync} refetch={refetchProfile} />
+              <OverviewTab client={profile} onUpdate={updateMut.mutateAsync} refetch={refetchProfile} onToast={showToast} />
             </div>
 
             {/* Home Images */}
