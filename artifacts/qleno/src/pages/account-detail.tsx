@@ -332,7 +332,7 @@ function AccountTechPreferences({ accountId }: { accountId: string }) {
         <div className="border border-gray-200 rounded-lg p-3 space-y-2">
           <select value={form.user_id} onChange={e => setForm(f => ({ ...f, user_id: e.target.value }))} className="w-full px-2.5 py-2 border border-gray-200 rounded-md text-sm bg-white">
             <option value="">Select technician…</option>
-            {employees.filter((e: any) => e.role === "technician").map((e: any) => (
+            {employees.filter((e: any) => e.role === "technician" || e.role === "trainee").map((e: any) => (
               <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
             ))}
           </select>

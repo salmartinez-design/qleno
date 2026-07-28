@@ -25,18 +25,13 @@ const dispatchOfficeGate = requireRole("owner", "admin", "office", "super_admin"
 // GET "/" handler so the cross-company /all-locations route can reuse it per
 // owned company. Single-company behavior is unchanged — the route below just
 // calls this and res.json()s the result.
-// [trainee 2026-06-19] Trainee is DERIVED from hire_date — the first 3 weeks
-// on the job — not a stored status. Phes has no "primary" tech; everyone is a
-// technician, and a brand-new one is flagged "trainee" for 21 days so the
-// office sees it on the board.
-const TRAINEE_WINDOW_DAYS = 21;
-function isTraineeFromHire(hireDate: string | Date | null | undefined): boolean {
-  if (!hireDate) return false;
-  const h = new Date(`${String(hireDate).slice(0, 10)}T00:00:00`);
-  if (isNaN(h.getTime())) return false;
-  const days = (Date.now() - h.getTime()) / 86400000;
-  return days >= 0 && days <= TRAINEE_WINDOW_DAYS;
-}
+// [trainee-role 2026-07-28] The board's TRAINEE tag now derives from the STORED
+// role (role === 'trainee') — the single source of truth shared with the profile
+// header and the employees list, so a person's label is identical on every
+// surface. This replaces the old "first 21 days from hire_date" heuristic, which
+// auto-tagged brand-new *technicians* (e.g. Vanessa Hernandez, Anissa Bello) as
+// TRAINEE on the board while their profile/list correctly read TECHNICIAN — the
+// split-brain Sal reported. Trainee is now an explicit, owner-set role.
 
 async function buildDispatchPayload(
   companyId: number,
@@ -500,7 +495,7 @@ async function buildDispatchPayload(
         employees: employees.map(e => ({
           ...e,
           name: `${e.first_name} ${e.last_name}`,
-          is_trainee: isTraineeFromHire(e.hire_date),
+          is_trainee: (e.role as string) === "trainee", // [trainee-role] label off the stored role (cast: enum union may predate rebuild)
           jobs: [],
           zone: empZoneMap[e.id] ?? null,
           time_off: getTimeOff(e.id),
@@ -1368,7 +1363,7 @@ async function buildDispatchPayload(
         id: e.id,
         name: `${e.first_name} ${e.last_name}`,
         role: e.role,
-        is_trainee: isTraineeFromHire(e.hire_date),
+        is_trainee: (e.role as string) === "trainee", // [trainee-role] label off the stored role (cast: enum union may predate rebuild)
         jobs: jobsByEmployee.get(e.id) || [],
         zone: empZoneMap[e.id] ?? null,
         time_off: getTimeOff(e.id),

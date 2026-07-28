@@ -5,7 +5,17 @@ import { companiesTable } from "./companies";
 import { branchesTable } from "./branches";
 
 export const userRoleEnum = pgEnum("user_role", [
-  "owner", "admin", "office", "technician", "team_lead", "super_admin",
+  "owner", "admin", "office", "technician",
+  // [trainee-role 2026-07-28] A trainee is a field cleaner in training. For
+  // ACCESS it behaves EXACTLY like a technician everywhere (my-jobs, clock,
+  // dispatch visibility, tech-scoped data) — the ONLY differences are the
+  // "Trainee" label shown on the profile / employees list / dispatch board and
+  // the existing non-primary-assignment + hourly pay-type conventions. Kept as
+  // a real, selectable role (replaces the old auto "first 21 days from hire"
+  // heuristic that mis-tagged real technicians on the board). Trainee is granted
+  // wherever technician is granted via requireRole's auto-elevation.
+  "trainee",
+  "team_lead", "super_admin",
   // [accountant-readonly 2026-06-20] External view-only role (e.g. the company
   // CPA). Read-everything, edit-nothing — enforced globally in requireAuth
   // (every non-GET request from this role is rejected).

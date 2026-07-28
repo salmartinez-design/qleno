@@ -10,6 +10,8 @@ const FF = "'Plus Jakarta Sans', sans-serif";
 
 const ROLES = [
   { value: "technician", label: "Technician" },
+  // [trainee-role 2026-07-28] Field cleaner in training; access identical to technician.
+  { value: "trainee", label: "Trainee" },
   { value: "team_lead", label: "Team Lead" },
   { value: "office", label: "Office" },
   { value: "admin", label: "Admin" },

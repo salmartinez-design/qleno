@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { quoteAttachmentsTable, quotesTable, jobsTable, jobTechniciansTable } from "@workspace/db/schema";
 import { eq, and, desc, count } from "drizzle-orm";
-import { requireAuth, requireRole } from "../lib/auth.js";
+import { requireAuth, requireRole, isTechnicianRole } from "../lib/auth.js";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
@@ -167,7 +167,7 @@ jobAttachmentsRouter.get("/:id/attachments", requireAuth, async (req, res) => {
 
     const role = req.auth!.role;
     const userId = req.auth!.userId;
-    if (role === "technician") {
+    if (isTechnicianRole(role)) { // [trainee-role] trainee walled to own crew's jobs, like a technician
       const isPrimary = job.assigned_user_id === userId;
       let isOnCrew = false;
       if (!isPrimary) {

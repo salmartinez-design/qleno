@@ -1967,7 +1967,7 @@ function TechPrefsTab({ clientId, prefs, refetch }: { clientId: number; prefs: a
               <label style={{ fontSize: "11px", fontWeight: 600, color: "#6B6860", display: "block", marginBottom: "4px" }}>Technician</label>
               <select value={form.user_id} onChange={e => setForm(f => ({ ...f, user_id: e.target.value }))} style={{ width: "100%", padding: "8px 10px", border: "1px solid #E5E2DC", borderRadius: "6px", fontSize: "13px", outline: "none", background: "#FFFFFF" }}>
                 <option value="">Select technician...</option>
-                {(employees || []).filter((e: any) => e.role === "technician").map((e: any) => (
+                {(employees || []).filter((e: any) => e.role === "technician" || e.role === "trainee").map((e: any) => (
                   <option key={e.id} value={e.id}>{e.first_name} {e.last_name}</option>
                 ))}
               </select>

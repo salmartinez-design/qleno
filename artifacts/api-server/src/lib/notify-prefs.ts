@@ -22,7 +22,9 @@ export const TYPE_TO_CATEGORY: Record<string, Category> = {
 function roleDefault(role: string, category: Category, channel: Channel): boolean {
   if (channel === "email") return false; // email opt-in everywhere
   const isOffice = ["owner", "admin", "office", "super_admin"].includes(role);
-  const isTech = ["technician", "team_lead"].includes(role);
+  // [trainee-role 2026-07-28] Trainee = field cleaner; same notification defaults
+  // as a technician (job alerts ON) so a trainee doesn't miss new-job / change pushes.
+  const isTech = ["technician", "trainee", "team_lead"].includes(role);
   // in-app AND push share the same role defaults: techs → job categories on;
   // office → messages on. (Push only actually fires once the device is subscribed.)
   if (category === "messages") return isOffice;

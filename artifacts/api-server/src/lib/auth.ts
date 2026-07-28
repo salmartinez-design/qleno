@@ -74,6 +74,15 @@ export function requireAuth(req: Request, res: Response, next: NextFunction): vo
   }
 }
 
+// [trainee-role 2026-07-28] True for the field-cleaner roles that must be scoped
+// to their OWN data (own jobs / pay / tips / mileage). A trainee is treated
+// identically to a technician by every inline `role === "technician"` scope-down
+// check — omitting trainee here would let a trainee fall through to the office
+// branch and read other people's data, so use this helper, not a bare equality.
+export function isTechnicianRole(role: string | null | undefined): boolean {
+  return role === "technician" || role === "trainee";
+}
+
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!req.auth) {
@@ -87,7 +96,15 @@ export function requireRole(...roles: string[]) {
     // NOT cover owner-only routes (requireRole("owner") with no "admin") — those
     // stay owner-restricted, e.g. payroll-policy config. Single choke point so
     // no settings endpoint is missed and future admin routes inherit it.
-    const allowed = roles.includes("admin") ? [...roles, "office"] : roles;
+    const withOffice = roles.includes("admin") ? [...roles, "office"] : [...roles];
+    // [trainee-role 2026-07-28] A trainee behaves EXACTLY like a technician for
+    // access. Single choke point (same pattern as office/admin above): anywhere a
+    // route grants 'technician', 'trainee' is granted too, so a trainee is never
+    // locked out of a technician-gated endpoint (my-jobs, clock, etc.). This does
+    // NOT grant any office/admin capability — trainee only rides technician's grants.
+    const allowed = withOffice.includes("technician") && !withOffice.includes("trainee")
+      ? [...withOffice, "trainee"]
+      : withOffice;
     if (!allowed.includes(req.auth.role)) {
       res.status(403).json({ error: "Forbidden", message: "Insufficient permissions" });
       return;

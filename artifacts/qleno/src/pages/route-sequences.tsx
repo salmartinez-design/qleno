@@ -63,7 +63,7 @@ export default function RouteSequencesPage() {
     }
   }
 
-  const techCount = employees.filter((e: any) => e.role === "technician" || e.role === "team_lead").length;
+  const techCount = employees.filter((e: any) => e.role === "technician" || e.role === "trainee" || e.role === "team_lead").length;
 
   return (
     <DashboardLayout>

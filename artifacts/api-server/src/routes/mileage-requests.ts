@@ -2,7 +2,7 @@ import { Router } from "express";
 import { db } from "@workspace/db";
 import { mileageRequestsTable, additionalPayTable, companiesTable } from "@workspace/db/schema";
 import { eq, and, sql } from "drizzle-orm";
-import { requireAuth, requireRole } from "../lib/auth.js";
+import { requireAuth, requireRole, isTechnicianRole } from "../lib/auth.js";
 
 const router = Router();
 
@@ -15,7 +15,7 @@ router.get("/", requireAuth, async (req, res) => {
 
     const conditions: any[] = [eq(mileageRequestsTable.company_id, companyId)];
     if (user_id) conditions.push(eq(mileageRequestsTable.user_id, parseInt(user_id as string)));
-    else if (role === "technician") conditions.push(eq(mileageRequestsTable.user_id, userId));
+    else if (isTechnicianRole(role)) conditions.push(eq(mileageRequestsTable.user_id, userId)); // [trainee-role] scoped to own requests
     if (status) conditions.push(eq(mileageRequestsTable.status, status as any));
 
     const requests = await db
