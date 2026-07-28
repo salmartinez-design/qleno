@@ -90,6 +90,17 @@ export function ActivityFeed({ endpoint, queryKey, introText }: {
       case "add_ons":       return "Add-ons updated";
       case "service_type":  return `Service changed to ${label(String(n))}`;
       case "notes": case "office_notes": return "Notes updated";
+      case "status": {
+        // [completion-audit 2026-07-28] Status transitions written by the
+        // completion paths + the ghost auto-revert. new_value carries a
+        // human-readable `source` (the path) and an optional `note`. Actor
+        // renders separately as "· <user>".
+        const src = nv && typeof nv === "object" && nv.source ? String(nv.source) : null;
+        const note = nv && typeof nv === "object" && nv.note ? String(nv.note) : null;
+        if (note) return note;
+        if (n === "complete") return `Marked complete${src ? ` — ${src}` : ""}`;
+        return `Status changed${o ? ` from ${label(String(o))}` : ""} to ${label(String(n))}${src ? ` — ${src}` : ""}`;
+      }
       case "auto_scheduled": {
         // [system-schedule-log 2026-07-21] Qleno's recurrence engine created this
         // visit (and maybe auto-assigned a tech). Lets the office catch auto-

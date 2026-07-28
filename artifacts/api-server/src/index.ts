@@ -13,6 +13,7 @@ import { runAnnualCycleAutoOpen } from "./lib/lms-annual-cycle-cron.js";
 import { runLmsCompletionBackfill } from "./lib/lms-completion-backfill.js";
 import { runLmsCertificateBackfill } from "./lib/lms-certificate-backfill.js";
 import { runComplaintScoreBackfill } from "./lib/complaint-score-backfill.js";
+import { healGhostCompletions } from "./lib/completion-revert.js";
 import { ensureJobHistoryLiveBridgeSchema, syncJobHistoryLiveBridge } from "./lib/job-history-sync.js";
 import { bootstrapOnboardingPasswords } from "./lib/onboarding-password-backfill.js";
 import { runLeaveAccrualCron } from "./lib/leave-accrual-cron.js";
@@ -1304,6 +1305,20 @@ async function runPostListenDataTasks() {
     }
   } catch (err: any) {
     console.error("[startup] runComplaintScoreBackfill — non-fatal:", err?.message ?? err);
+  }
+  // [ghost-completion-heal 2026-07-28] One-time, idempotent, bounded, logged
+  // correction for jobs left "Complete but 0 punched" because a clock-out
+  // completion's punch was deleted (deleting a punch never reverted the status —
+  // the Furness Rockwell / Anissa Bello bug). The tight predicate only matches
+  // clock-out completions with zero clock evidence and no settlement; once
+  // reverted a job no longer matches, so re-runs are no-ops. Non-fatal.
+  try {
+    const r = await healGhostCompletions();
+    if (r.healed > 0) {
+      console.log(`[ghost-completion-heal] reverted ${r.healed} ghost completion(s) to scheduled — job ids: ${r.jobIds.join(", ")}`);
+    }
+  } catch (err: any) {
+    console.error("[startup] healGhostCompletions — non-fatal:", err?.message ?? err);
   }
 }
 
