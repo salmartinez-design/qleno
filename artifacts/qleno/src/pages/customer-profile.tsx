@@ -3457,6 +3457,60 @@ function TechAvatar({ name, size = 24 }: { name: string; size?: number }) {
   );
 }
 
+// ─── Job History duration (per-cleaner worked time) ──────────────────────────
+// [job-history-duration 2026-07-28] The DUR. column reads ACTUAL worked time
+// from the per-house clock pairs (`timeclock`), surfaced by the job-history API
+// as `row.durations` = [{ name, minutes }] per cleaner. Frozen MaidCentral rows
+// carry no clock data, so those fall back to the legacy notes "Xh" stamp; when
+// neither exists the cell shows "—" honestly rather than fabricating a value.
+type CleanerDuration = { name: string; minutes: number };
+
+// Standard app duration format ("2h 15m" / "45m") — matches jobs.tsx / time-clock.tsx.
+function fmtWorkedMins(min: number): string {
+  const h = Math.floor(min / 60), m = min % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function rowDurations(row: any): CleanerDuration[] {
+  return Array.isArray(row?.durations)
+    ? row.durations.filter((d: any) => d && Number(d.minutes) > 0)
+    : [];
+}
+
+// Compact one-line summary used in the hover tooltip.
+function durationSummary(row: any): string | null {
+  const durs = rowDurations(row);
+  if (durs.length === 0) {
+    const { duration } = parseJobNotes(row.notes);
+    return duration ? `${duration}h` : null;
+  }
+  return durs.map(d => fmtWorkedMins(d.minutes)).join(" + ");
+}
+
+// DUR. table cell. Single cleaner → "2h 15m". Multiple cleaners → per-cleaner
+// rows, each initials-labeled so the breakdown reads clearly even though the
+// Technician(s) column shows only the primary. tabular-nums keeps digits aligned.
+function DurationCell({ row }: { row: any }) {
+  const durs = rowDurations(row);
+  if (durs.length === 0) {
+    const { duration } = parseJobNotes(row.notes);
+    return <span style={{ fontVariantNumeric: "tabular-nums" }}>{duration ? `${duration}h` : "—"}</span>;
+  }
+  if (durs.length === 1) {
+    return <span style={{ fontVariantNumeric: "tabular-nums" }}>{fmtWorkedMins(durs[0].minutes)}</span>;
+  }
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+      {durs.map((d, i) => (
+        <span key={i} style={{ fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" as const, fontSize: 10.5, lineHeight: 1.2 }} title={`${d.name}: ${fmtWorkedMins(d.minutes)}`}>
+          <span style={{ color: "#B7B4AD", fontWeight: 700, marginRight: 3 }}>{makeInitials(d.name)}</span>
+          {fmtWorkedMins(d.minutes)}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 // [PR #58] Plain-English frequency labels. Operator-facing strings —
 // reads like how you'd describe the cadence to a customer on the phone.
 // Canonical enum values stay the same in DB.
@@ -3855,7 +3909,24 @@ function JobDetailSlideOver({ row, profile, onClose }: { row: any; profile?: any
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
             {row.service_type && <Field label="Service Type" value={row.service_type} />}
-            {duration && <Field label="Duration" value={`${duration} hours`} />}
+            {(() => {
+              const durs = rowDurations(row);
+              if (durs.length === 0) {
+                return duration ? <Field label="Duration" value={`${duration} hours`} /> : null;
+              }
+              if (durs.length === 1) {
+                return <Field label="Duration" value={fmtWorkedMins(durs[0].minutes)} />;
+              }
+              return (
+                <Field label="Duration (per cleaner)" value={
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                    {durs.map((d, i) => (
+                      <span key={i} style={{ fontVariantNumeric: "tabular-nums" }}>{d.name}: {fmtWorkedMins(d.minutes)}</span>
+                    ))}
+                  </div>
+                } />
+              );
+            })()}
             {addOn && <Field label="Add-On" value={addOn} />}
             {address && <Field label="Service Address" value={address} />}
           </div>
@@ -3940,7 +4011,7 @@ function JobHistoryPanel({ clientId: _clientId, jhData, isLoading, profile }: { 
               </thead>
               <tbody>
                 {pageRows.map((row: any) => {
-                  const { duration, addOn, tech2 } = parseJobNotes(row.notes);
+                  const { addOn, tech2 } = parseJobNotes(row.notes);
                   const techDisplay = tech2 ? `${row.technician} + ${tech2}` : (row.technician || "—");
                   return (
                     <tr
@@ -3962,7 +4033,7 @@ function JobHistoryPanel({ clientId: _clientId, jhData, isLoading, profile }: { 
                         </div>
                         {addOn && <div style={{ fontSize: 10, color: "#9E9B94", marginTop: 1, paddingLeft: 26 }}>{addOn}</div>}
                       </td>
-                      <td style={{ ...TD_STYLE, borderBottom: "none", padding: "9px 6px", fontSize: 11, color: "#9E9B94", whiteSpace: "nowrap" as const }}>{duration ? `${duration}h` : "—"}</td>
+                      <td style={{ ...TD_STYLE, borderBottom: "none", padding: "9px 6px", fontSize: 11, color: "#9E9B94", whiteSpace: "nowrap" as const }}><DurationCell row={row} /></td>
                       <td style={{ ...TD_STYLE, borderBottom: "none", padding: "9px 14px 9px 6px", fontSize: 12, fontWeight: 700, color: "#1A1917", textAlign: "right" as const, whiteSpace: "nowrap" as const }}>${parseFloat(row.revenue).toFixed(0)}</td>
                     </tr>
                   );
@@ -3995,7 +4066,8 @@ function JobHistoryPanel({ clientId: _clientId, jhData, isLoading, profile }: { 
 
       {/* Hover tooltip */}
       {tooltip && (() => {
-        const { duration, tech2 } = parseJobNotes(tooltip.row.notes);
+        const { tech2 } = parseJobNotes(tooltip.row.notes);
+        const durText = durationSummary(tooltip.row) || "—";
         const techDisplay = tech2 ? `${tooltip.row.technician} + ${tech2}` : (tooltip.row.technician || "—");
         return (
           <div style={{
@@ -4009,7 +4081,7 @@ function JobHistoryPanel({ clientId: _clientId, jhData, isLoading, profile }: { 
             pointerEvents: "none" as const,
             boxShadow: "0 2px 8px rgba(0,0,0,0.22)",
           }}>
-            {techDisplay} · {duration ? `${duration}h` : "—"} · ${parseFloat(tooltip.row.revenue).toFixed(0)} · {tooltip.row.service_type || "—"}
+            {techDisplay} · {durText} · ${parseFloat(tooltip.row.revenue).toFixed(0)} · {tooltip.row.service_type || "—"}
             <div style={{ position: "absolute", bottom: -5, left: "50%", transform: "translateX(-50%)", width: 0, height: 0, borderLeft: "5px solid transparent", borderRight: "5px solid transparent", borderTop: "5px solid #1A1917" }} />
           </div>
         );
