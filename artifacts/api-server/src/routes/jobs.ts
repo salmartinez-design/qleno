@@ -6224,6 +6224,33 @@ function buildJobWhereClause(query: any, companyId: number, cursorId?: number | 
   return sql.join(parts, sql` AND `);
 }
 
+// [jobs-report-redesign 2026-07-28] The BOOKED lens (sales/pipeline) counts jobs
+// by the day they were BOOKED/created, not scheduled — the same predicate as the
+// dashboard's "New Jobs Booked" tile and the report's booked_on drill-down: real
+// bookings only, so recurring-engine occurrences (many future visits carrying one
+// booking's created_at) and cancelled jobs are excluded. The period tabs' window
+// (date_from/date_to, on scheduled_date in the main query) is reinterpreted here
+// against created_at so "BOOKED · this week" means booked THIS week. In booked_on
+// mode the single day is authoritative. Non-date filters that also make sense for
+// a pipeline count (branch, zone) are honored; row-level filters (status/payment/
+// flagged) are intentionally NOT — the booked count is a clean sales figure.
+function buildBookedWhere(query: any, companyId: number) {
+  const parts: ReturnType<typeof sql>[] = [
+    sql`j.company_id = ${companyId}`,
+    sql`j.recurring_schedule_id IS NULL`,
+    sql`j.status != 'cancelled'`,
+  ];
+  if (query.branch_id && query.branch_id !== "all") { const v = parseInt(query.branch_id); if (!isNaN(v)) parts.push(sql`j.branch_id = ${v}`); }
+  if (query.zone_id) { const v = parseInt(query.zone_id); if (!isNaN(v)) parts.push(sql`j.zone_id = ${v}`); }
+  if (query.booked_on && DATE_RE.test(query.booked_on)) {
+    parts.push(sql`${ctDate(sql`j.created_at`)} = ${query.booked_on}::date`);
+  } else {
+    if (query.date_from && DATE_RE.test(query.date_from)) parts.push(sql`${ctDate(sql`j.created_at`)} >= ${query.date_from}::date`);
+    if (query.date_to && DATE_RE.test(query.date_to)) parts.push(sql`${ctDate(sql`j.created_at`)} <= ${query.date_to}::date`);
+  }
+  return sql.join(parts, sql` AND `);
+}
+
 // [account-client-name 2026-07-28] `a` (accounts) joined so commercial/account
 // jobs — which carry account_id and a NULL personal client — resolve a name
 // from accounts.account_name instead of rendering "—". Mirrors the canonical
@@ -6275,20 +6302,155 @@ router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "supe
              ELSE 0 END AS avg_job,
         COUNT(*) AS total_jobs,
         COUNT(DISTINCT j.scheduled_date) AS distinct_days,
-        COUNT(*) FILTER (WHERE j.assigned_user_id IS NULL) AS unassigned
+        COUNT(*) FILTER (WHERE j.assigned_user_id IS NULL) AS unassigned,
+        COUNT(*) FILTER (WHERE j.status = 'cancelled') AS cancelled_count,
+        COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status = 'cancelled'), 0) AS cancelled_revenue,
+        COUNT(*) FILTER (WHERE j.status NOT IN ('cancelled','complete') AND j.assigned_user_id IS NULL) AS mix_unassigned,
+        COUNT(*) FILTER (WHERE j.status NOT IN ('cancelled','complete') AND j.assigned_user_id IS NOT NULL) AS mix_scheduled
       ${JOBS_V2_FROM} WHERE ${where}
     `);
     const row = (result as any).rows?.[0] ?? {};
     const totalJobs = parseInt(row.total_jobs) || 0;
     const distinctDays = parseInt(row.distinct_days) || 1;
+    const completed = parseInt(row.completed) || 0;
+    const cancelledCount = parseInt(row.cancelled_count) || 0;
+
+    // [jobs-report-redesign 2026-07-28] Mutually-exclusive status mix summing to
+    // total_jobs (Scheduled = non-terminal + assigned; Unassigned = non-terminal
+    // + no tech; Complete; Cancelled) — the same four buckets the redesigned
+    // status-mix bar and Cancellations-lost card render. Rates use total_jobs
+    // (all statuses in window) as the denominator so completion + cancellation +
+    // the two open buckets reconcile to 100%.
+    const statusMix = {
+      scheduled: parseInt(row.mix_scheduled) || 0,
+      complete: completed,
+      cancelled: cancelledCount,
+      unassigned: parseInt(row.mix_unassigned) || 0,
+    };
+    const completionRate = totalJobs > 0 ? completed / totalJobs : 0;
+    const cancellationRate = totalJobs > 0 ? cancelledCount / totalJobs : 0;
+
+    // ── Revenue-by-day series (current window, non-cancelled) ─────────────────
+    // [jobs-report-redesign 2026-07-28] Feeds the dashboard-style mint line. The
+    // where clause already bounds scheduled_date in period mode; when unbounded
+    // (All / Booked-On) we floor at 92 days back so the payload stays small while
+    // still including all future scheduled dates (>= floor).
+    const seriesFloor = (req.query.date_from && DATE_RE.test(req.query.date_from as string))
+      ? sql`` : sql` AND j.scheduled_date >= (CURRENT_DATE - INTERVAL '92 days')`;
+    const seriesRes = await db.execute(sql`
+      SELECT to_char(j.scheduled_date, 'YYYY-MM-DD') AS date,
+             COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status != 'cancelled'), 0) AS revenue,
+             COUNT(*) FILTER (WHERE j.status != 'cancelled') AS jobs
+      ${JOBS_V2_FROM} WHERE ${where}${seriesFloor}
+      GROUP BY j.scheduled_date
+      ORDER BY j.scheduled_date ASC
+    `);
+    const series = ((seriesRes as any).rows ?? []).map((r: any) => ({
+      date: r.date as string, revenue: parseFloat(r.revenue) || 0, jobs: parseInt(r.jobs) || 0,
+    }));
+
+    // ── Tech leaderboard (completed jobs + revenue per primary tech) ──────────
+    const lbRes = await db.execute(sql`
+      SELECT j.assigned_user_id AS user_id,
+             NULLIF(TRIM(concat(u.first_name, ' ', u.last_name)), '') AS name,
+             COUNT(*) FILTER (WHERE j.status = 'complete') AS jobs,
+             COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status = 'complete'), 0) AS revenue
+      ${JOBS_V2_FROM} WHERE ${where} AND j.assigned_user_id IS NOT NULL
+      GROUP BY j.assigned_user_id, name
+      HAVING COUNT(*) FILTER (WHERE j.status = 'complete') > 0
+      ORDER BY revenue DESC, jobs DESC
+      LIMIT 8
+    `);
+    const leaderboard = ((lbRes as any).rows ?? []).map((r: any) => ({
+      user_id: r.user_id, name: (r.name as string | null) || "Tech",
+      jobs: parseInt(r.jobs) || 0, revenue: parseFloat(r.revenue) || 0,
+    }));
+
+    // ── Prior-period comparison (only for a bounded period window) ────────────
+    // [jobs-report-redesign 2026-07-28] Powers the dashed comparison line + the
+    // Revenue delta pill. Shifted back by exactly the window length against
+    // scheduled_date; skipped in Booked-On / All modes (no bounded window) and
+    // for very long spans (keeps it to the tab presets).
+    let prior: any = null;
+    const dfrom = req.query.date_from as string | undefined;
+    const dto = req.query.date_to as string | undefined;
+    if (!req.query.booked_on && dfrom && dto && DATE_RE.test(dfrom) && DATE_RE.test(dto)) {
+      const fromD = new Date(`${dfrom}T00:00:00Z`);
+      const toD = new Date(`${dto}T00:00:00Z`);
+      const lenDays = Math.round((toD.getTime() - fromD.getTime()) / 86400000) + 1;
+      if (lenDays >= 1 && lenDays <= 120) {
+        const priorToD = new Date(fromD.getTime() - 86400000);
+        const priorFromD = new Date(fromD.getTime() - lenDays * 86400000);
+        const pf = priorFromD.toISOString().slice(0, 10);
+        const pt = priorToD.toISOString().slice(0, 10);
+        const priorQuery: any = { ...req.query, date_from: pf, date_to: pt };
+        delete priorQuery.booked_on;
+        const pw = buildJobWhereClause(priorQuery, companyId!);
+        const [pSeriesRes, pTotRes] = await Promise.all([
+          db.execute(sql`
+            SELECT to_char(j.scheduled_date, 'YYYY-MM-DD') AS date,
+                   COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status != 'cancelled'), 0) AS revenue
+            ${JOBS_V2_FROM} WHERE ${pw}
+            GROUP BY j.scheduled_date ORDER BY j.scheduled_date ASC
+          `),
+          db.execute(sql`
+            SELECT COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status != 'cancelled'), 0) AS revenue_total,
+                   COUNT(*) FILTER (WHERE j.status = 'complete') AS completed
+            ${JOBS_V2_FROM} WHERE ${pw}
+          `),
+        ]);
+        const pRow = (pTotRes as any).rows?.[0] ?? {};
+        prior = {
+          from: pf, to: pt,
+          series: ((pSeriesRes as any).rows ?? []).map((r: any) => ({ date: r.date as string, revenue: parseFloat(r.revenue) || 0 })),
+          revenue_total: parseFloat(pRow.revenue_total) || 0,
+          completed: parseInt(pRow.completed) || 0,
+        };
+      }
+    }
+
+    // ── BOOKED lens (sales/pipeline — booked/created in the window) ───────────
+    const bookedWhere = buildBookedWhere(req.query, companyId!);
+    const [bookedRes, bookedSrcRes] = await Promise.all([
+      db.execute(sql`
+        SELECT COUNT(*) AS cnt, COALESCE(SUM(${JOBS_V2_REVENUE}), 0) AS val
+        ${JOBS_V2_FROM} WHERE ${bookedWhere}
+      `),
+      db.execute(sql`
+        SELECT COALESCE(NULLIF(c.referral_source, ''), 'unknown') AS source, COUNT(*) AS cnt
+        ${JOBS_V2_FROM} WHERE ${bookedWhere}
+        GROUP BY 1 ORDER BY cnt DESC LIMIT 5
+      `),
+    ]);
+    const bookedRow = (bookedRes as any).rows?.[0] ?? {};
+    const booked = {
+      count: parseInt(bookedRow.cnt) || 0,
+      value: parseFloat(bookedRow.val) || 0,
+      sources: ((bookedSrcRes as any).rows ?? []).map((r: any) => ({ source: r.source as string, count: parseInt(r.cnt) || 0 })),
+    };
+
     return res.json({
+      // ── existing contract (unchanged) ──
       revenue_min: parseFloat(row.revenue_min) || 0,
       revenue_max: parseFloat(row.revenue_max) || 0,
       revenue_total: parseFloat(row.revenue_total) || 0,
-      completed: parseInt(row.completed) || 0,
+      completed,
       avg_job: parseFloat(row.avg_job) || 0,
       jobs_per_day: Math.round((totalJobs / distinctDays) * 10) / 10,
       unassigned: parseInt(row.unassigned) || 0,
+      // ── redesign additions (SCHEDULED & COMPLETED lens) ──
+      total_jobs: totalJobs,
+      cancelled_count: cancelledCount,
+      cancelled_revenue: parseFloat(row.cancelled_revenue) || 0,
+      completion_rate: completionRate,
+      cancellation_rate: cancellationRate,
+      needs_staffing: statusMix.unassigned,
+      status_mix: statusMix,
+      series,
+      prior,
+      leaderboard,
+      // ── BOOKED lens ──
+      booked,
     });
   } catch (err) {
     console.error("GET /jobs/v2/kpi error:", err);

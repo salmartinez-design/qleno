@@ -8,6 +8,7 @@ import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { CalendarPopover } from "@/components/calendar-popover";
 import { X } from "lucide-react";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from "recharts";
 
 const API = import.meta.env.BASE_URL.replace(/\/$/, "");
 const FF = "'Plus Jakarta Sans', sans-serif";
@@ -20,6 +21,22 @@ const TXT2  = "#6B6860";
 const BORDER = "#E5E2DC";
 const ACCENT = "#0F7A63";
 const HOVER = "#F7F6F3";
+// [jobs-report-redesign 2026-07-28] Brand tokens shared with dashboard.tsx /
+// reports/_shared.tsx so the redesigned KPI sections, chart, leaderboard and
+// status-mix read as native Qleno: mint is reserved for the tick / current
+// chart line / bars, slate for the "Scheduled" badge, the ok/danger pairs for
+// delta pills, #F0EEE9 for the horizontal-only grid.
+const MINT     = "#00C9A0";
+const FAINT    = "#9E9B94";
+const GRIDLINE = "#F0EEE9";
+const OK       = "#0F7A63";
+const OK_BG    = "#E6F6F1";
+const DANGER   = "#B3261E";
+const DANGER_BG = "#FCEBEA";
+const SLATE    = "#2F3646";
+const SLATE_BG = "#EFEFF2";
+const CLAY     = "#C2673F";
+const SECLABEL: React.CSSProperties = { fontSize: 11, fontWeight: 600, color: FAINT, textTransform: "uppercase", letterSpacing: "0.08em", margin: "0 0 12px" };
 
 // ── Column definitions ───────────────────────────────────────────────────────
 interface ColDef {
@@ -44,8 +61,12 @@ const ALL_COLUMNS: ColDef[] = [
   { key: "created_at",       label: "Created",       default: false, width: 100 },
 ];
 
+// [jobs-report-redesign 2026-07-28] Scheduled uses the canonical slate badge
+// (#2F3646 on #EFEFF2), NOT the old cool-blue #4338CA/#EEF2FF — matching the
+// dispatch/board "Scheduled" chip so the report reads native. In-progress stays
+// amber, complete green, cancelled muted.
 const STATUS_STYLE: Record<string, { bg: string; color: string; label: string }> = {
-  scheduled:   { bg: "#EEF2FF", color: "#4338CA", label: "Scheduled" },
+  scheduled:   { bg: SLATE_BG, color: SLATE,     label: "Scheduled" },
   in_progress: { bg: "#FDF3E4", color: "#B45309", label: "In Progress" },
   complete:    { bg: "#E6F6F1", color: "#15803D", label: "Complete" },
   cancelled:   { bg: "#F0EEE9", color: "#6B6860", label: "Cancelled" },
@@ -425,6 +446,59 @@ export default function JobsListPage() {
   // ── Render ─────────────────────────────────────────────────────────────────
   const kpi = kpiQuery.data;
 
+  // [jobs-report-redesign 2026-07-28] Derive the redesign's visuals from the
+  // (extended) /v2/kpi payload. All numbers come from the server so they
+  // reconcile with the table footer; nothing is summed from the paginated rows.
+  const eachDay = (from: string, to: string): string[] => {
+    const out: string[] = [];
+    const [fy, fm, fd] = from.split("-").map(Number);
+    const [ty, tm, td] = to.split("-").map(Number);
+    const cur = new Date(fy, fm - 1, fd), end = new Date(ty, tm - 1, td);
+    let guard = 0;
+    while (cur <= end && guard++ < 400) {
+      out.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}-${String(cur.getDate()).padStart(2, "0")}`);
+      cur.setDate(cur.getDate() + 1);
+    }
+    return out;
+  };
+  const dayLabel = (d: string, n: number): string => {
+    const [y, m, dd] = d.split("-").map(Number);
+    const dt = new Date(y, m - 1, dd);
+    return n <= 8 ? dt.toLocaleDateString("en-US", { weekday: "short" }).toUpperCase() : `${m}/${dd}`;
+  };
+  // Continuous daily axis in a bounded period window (0 on gap days), with the
+  // prior-period series aligned by day-offset for the dashed comparison line;
+  // unbounded (All / Booked-On) just plots the sparse series the server returned.
+  const chartData: any[] = (() => {
+    const s: any[] = kpi?.series ?? [];
+    if (!s.length) return [];
+    const revByDate = new Map<string, number>(s.map((r: any) => [r.date, r.revenue]));
+    if (dateRange.from && dateRange.to) {
+      const days = eachDay(dateRange.from, dateRange.to);
+      const priorByOffset = new Map<number, number>();
+      if (kpi?.prior?.from && kpi?.prior?.to) {
+        const pDays = eachDay(kpi.prior.from, kpi.prior.to);
+        const pRev = new Map<string, number>((kpi.prior.series ?? []).map((r: any) => [r.date, r.revenue]));
+        pDays.forEach((d, i) => priorByOffset.set(i, pRev.get(d) ?? 0));
+      }
+      return days.map((d, i) => ({
+        label: dayLabel(d, days.length),
+        revenue: revByDate.get(d) ?? 0,
+        ...(kpi?.prior ? { prior: priorByOffset.get(i) ?? 0 } : {}),
+      }));
+    }
+    return s.map((r: any) => ({ label: dayLabel(r.date, s.length), revenue: r.revenue }));
+  })();
+  const hasPrior = !!kpi?.prior;
+  const revDeltaPct = hasPrior && kpi.prior.revenue_total > 0
+    ? (kpi.revenue_total - kpi.prior.revenue_total) / kpi.prior.revenue_total : null;
+  const completedDelta = hasPrior ? (kpi.completed - kpi.prior.completed) : null;
+  const mix = kpi?.status_mix ?? { scheduled: 0, complete: 0, cancelled: 0, unassigned: 0 };
+  const mixTotal = mix.scheduled + mix.complete + mix.cancelled + mix.unassigned;
+  const leaderboard: any[] = kpi?.leaderboard ?? [];
+  const lbMax = leaderboard.reduce((m: number, t: any) => Math.max(m, t.revenue), 0) || 1;
+  const topSource = (kpi?.booked?.sources ?? []).find((x: any) => x.source && x.source !== "unknown");
+
   return (
     <DashboardLayout title="Jobs">
       <div style={{ padding: "0", fontFamily: FF, minHeight: "100%", background: BG }}>
@@ -491,29 +565,122 @@ export default function JobsListPage() {
           </div>
         )}
 
-        {/* KPI Strip — auto-fit so it wraps to 2–3 per row on phones instead of
-            forcing 5 wide columns off-screen. */}
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 16, marginBottom: 24 }}>
-          {[
-            { label: "REVENUE", value: kpi ? fmtMoney(kpi.revenue_total) : "\u2014", accent: true },
-            { label: "COMPLETED", value: kpi?.completed?.toLocaleString() ?? "\u2014" },
-            { label: "AVG JOB", value: kpi ? fmtMoney(kpi.avg_job) : "\u2014" },
-            { label: "JOBS / DAY", value: kpi?.jobs_per_day ?? "\u2014" },
-            { label: "UNASSIGNED", value: kpi?.unassigned?.toLocaleString() ?? "\u2014" },
-          ].map((card, i) => (
-            <div key={i} style={{
-              background: CARD, borderRadius: 10, padding: "20px 24px",
-              borderBottom: card.accent ? `3px solid ${ACCENT}` : `1px solid ${BORDER}`,
-              border: card.accent ? undefined : `1px solid ${BORDER}`,
-            }}>
-              <div style={{ fontSize: 32, fontWeight: 600, color: TXT, fontFamily: FF, lineHeight: 1.1, fontVariantNumeric: "tabular-nums" }}>
-                {card.value}
+        {/* ══ SCHEDULED & COMPLETED — the operations / revenue lens ══
+            [jobs-report-redesign 2026-07-28] Every number here reconciles with
+            the table footer: Revenue = kpi.revenue_total (non-cancelled), Avg =
+            the #1313 revenue-bearing-avg the footer uses, Completed/Cancelled/
+            Unassigned from the same window aggregate. Auto-fit wraps to 2-3 per
+            row on phones instead of forcing 6 columns off-screen. */}
+        <p style={SECLABEL}>Scheduled &amp; Completed</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 16 }}>
+          <Tile accent label="Revenue" value={kpi ? fmtMoney(kpi.revenue_total) : "\u2014"}
+            delta={revDeltaPct == null ? undefined : { dir: revDeltaPct >= 0 ? "up" : "down", text: `${revDeltaPct >= 0 ? "+" : ""}${Math.round(revDeltaPct * 100)}%` }}
+            sub={hasPrior ? "non-cancelled \u00b7 vs prior" : "non-cancelled"} />
+          <Tile label="Completed" value={kpi ? kpi.completed.toLocaleString() : "\u2014"}
+            delta={completedDelta == null ? undefined : { dir: completedDelta > 0 ? "up" : completedDelta < 0 ? "down" : "flat", text: `${completedDelta >= 0 ? "+" : ""}${completedDelta}` }}
+            sub={kpi ? `of ${kpi.total_jobs.toLocaleString()} in view` : undefined} />
+          <Tile label="Avg job" value={kpi ? fmtMoney(kpi.avg_job) : "\u2014"} sub="revenue-bearing" />
+          <Tile label="Completion" value={kpi ? `${Math.round(kpi.completion_rate * 100)}%` : "\u2014"} sub="complete \u00f7 all" />
+          <Tile label="Cancel rate" value={kpi ? `${Math.round(kpi.cancellation_rate * 100)}%` : "\u2014"} sub={kpi ? `${kpi.cancelled_count} cancelled` : undefined} />
+          <Tile label="Unassigned" value={kpi ? kpi.needs_staffing.toLocaleString() : "\u2014"} sub="needs staffing" />
+        </div>
+
+        {/* Revenue-by-day trend + Status mix / Cancellations */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 12, marginBottom: 12 }}>
+          <div style={{ flex: "2 1 340px", minWidth: 0, background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 20, boxSizing: "border-box" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: TXT2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Revenue by day</span>
+              <span style={{ fontSize: 22, fontWeight: 600, color: TXT, fontVariantNumeric: "tabular-nums" }}>{kpi ? fmtMoney(kpi.revenue_total) : "\u2014"}</span>
+            </div>
+            <div style={{ display: "flex", gap: 16, marginBottom: 8, fontSize: 11, color: TXT2, alignItems: "center" }}>
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 14, height: 2, background: MINT, borderRadius: 1 }} />This period</span>
+              {hasPrior && <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}><span style={{ width: 14, height: 0, borderTop: `2px dashed ${FAINT}` }} />Prior period</span>}
+            </div>
+            {chartData.length === 0 ? (
+              <div style={{ height: 196, display: "grid", placeItems: "center", fontSize: 13, color: FAINT }}>No revenue in this window.</div>
+            ) : (
+              <ResponsiveContainer width="100%" height={196}>
+                <LineChart data={chartData} margin={{ top: 6, right: 6, bottom: 0, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={GRIDLINE} vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 10, fill: FAINT, fontFamily: FF }} axisLine={false} tickLine={false}
+                    interval={chartData.length > 20 ? Math.floor(chartData.length / 8) : 0} minTickGap={8} />
+                  <YAxis tick={{ fontSize: 10, fill: FAINT, fontFamily: FF }} axisLine={false} tickLine={false} width={44}
+                    tickFormatter={(v: number) => v >= 1000 ? `$${(v / 1000).toFixed(0)}k` : `$${v}`} />
+                  <Tooltip contentStyle={{ fontFamily: FF, fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}` }}
+                    formatter={(val: number, name: string) => [fmtMoney(val), name === "revenue" ? "This period" : "Prior period"]}
+                    labelStyle={{ fontWeight: 600, color: TXT }} />
+                  <Line type="monotone" dataKey="revenue" stroke={MINT} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: MINT, strokeWidth: 0 }} />
+                  {hasPrior && <Line type="monotone" dataKey="prior" stroke={FAINT} strokeWidth={1.5} strokeDasharray="4 3" dot={false} activeDot={{ r: 3, fill: FAINT, strokeWidth: 0 }} />}
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+
+          <div style={{ flex: "1 1 260px", minWidth: 0, background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 20, boxSizing: "border-box" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 }}>
+              <span style={{ fontSize: 11, fontWeight: 600, color: TXT2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Status mix</span>
+              <span style={{ fontSize: 13, color: TXT2, fontVariantNumeric: "tabular-nums" }}>{mixTotal.toLocaleString()} jobs</span>
+            </div>
+            <div style={{ height: 8, borderRadius: 6, overflow: "hidden", display: "flex", margin: "2px 0 14px", background: HOVER }}>
+              {mixTotal > 0 && ([
+                { w: mix.scheduled, c: SLATE }, { w: mix.complete, c: MINT }, { w: mix.cancelled, c: "#C9C4BC" }, { w: mix.unassigned, c: CLAY },
+              ].map((seg, i) => seg.w > 0 ? <span key={i} style={{ width: `${(seg.w / mixTotal) * 100}%`, background: seg.c }} /> : null))}
+            </div>
+            {[
+              { nm: "Scheduled", c: SLATE, ct: mix.scheduled },
+              { nm: "Complete", c: MINT, ct: mix.complete },
+              { nm: "Cancelled", c: "#C9C4BC", ct: mix.cancelled },
+              { nm: "Unassigned", c: CLAY, ct: mix.unassigned },
+            ].map(r => (
+              <div key={r.nm} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, padding: "5px 0" }}>
+                <span style={{ width: 8, height: 8, borderRadius: 2, background: r.c, flex: "none" }} />
+                <span style={{ flex: 1, color: TXT2 }}>{r.nm}</span>
+                <span style={{ fontWeight: 600, color: TXT, fontVariantNumeric: "tabular-nums" }}>{r.ct.toLocaleString()}</span>
               </div>
-              <div style={{ fontSize: 13, fontWeight: 500, color: TXT2, textTransform: "uppercase", letterSpacing: "0.02em", marginTop: 6 }}>
-                {card.label}
+            ))}
+            <div style={{ background: DANGER_BG, border: "1px solid #EFD3CF", borderRadius: 10, padding: "13px 15px", marginTop: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: DANGER, textTransform: "uppercase", letterSpacing: "0.06em" }}>Cancellations \u2014 revenue lost</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 9 }}>
+                <span style={{ fontSize: 22, fontWeight: 600, color: "#8A1E17", fontVariantNumeric: "tabular-nums" }}>{(kpi?.cancelled_count ?? 0).toLocaleString()} {(kpi?.cancelled_count === 1) ? "job" : "jobs"}</span>
+                <span style={{ fontSize: 14, fontWeight: 600, color: "#8A1E17", fontVariantNumeric: "tabular-nums" }}>{"\u2212"}{fmtMoney(kpi?.cancelled_revenue ?? 0)}</span>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Tech leaderboard */}
+        <div style={{ background: CARD, border: `1px solid ${BORDER}`, borderRadius: 10, padding: 20, marginBottom: 20 }}>
+          <div style={{ marginBottom: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: TXT2, textTransform: "uppercase", letterSpacing: "0.06em" }}>Tech leaderboard \u00b7 completed this window</span>
+          </div>
+          {leaderboard.length === 0 ? (
+            <div style={{ padding: "16px 0", fontSize: 13, color: FAINT }}>No completed jobs by tech in this window.</div>
+          ) : leaderboard.map((t: any, i: number) => (
+            <div key={t.user_id ?? i} style={{ display: "grid", gridTemplateColumns: "20px minmax(120px, 168px) 1fr 84px 62px", gap: 12, alignItems: "center", padding: "9px 0", borderTop: i === 0 ? "none" : "1px solid #EEECE7", fontSize: 13 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: FAINT, textAlign: "center" }}>{i + 1}</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+                <span style={{ width: 32, height: 32, borderRadius: 16, background: "rgba(0,201,160,0.12)", color: OK, fontSize: 12, fontWeight: 700, display: "grid", placeItems: "center", flex: "none" }}>{initials(t.name)}</span>
+                <span style={{ fontWeight: 600, color: TXT, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{shortName(t.name)}</span>
+              </span>
+              <span style={{ height: 6, borderRadius: 3, background: HOVER, overflow: "hidden" }}>
+                <span style={{ display: "block", height: "100%", width: `${Math.max(4, (t.revenue / lbMax) * 100)}%`, background: MINT, borderRadius: 3 }} />
+              </span>
+              <span style={{ textAlign: "right", fontWeight: 600, color: TXT, fontVariantNumeric: "tabular-nums" }}>{fmtMoney(t.revenue)}</span>
+              <span style={{ textAlign: "right", color: TXT2, fontVariantNumeric: "tabular-nums" }}>{t.jobs} {t.jobs === 1 ? "job" : "jobs"}</span>
+            </div>
           ))}
+        </div>
+
+        {/* \u2550\u2550 BOOKED \u2014 the sales / pipeline lens \u2550\u2550
+            [jobs-report-redesign 2026-07-28] The Booked-On data given its own
+            labeled home (jobs CREATED in the window), so booked-vs-scheduled
+            never blur. In Booked-On mode this is the single day; otherwise it's
+            the period tab's window reinterpreted against created_at. */}
+        <p style={SECLABEL}>Booked</p>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12, marginBottom: 24 }}>
+          <Tile label="Jobs booked" value={kpi?.booked ? kpi.booked.count.toLocaleString() : "\u2014"} sub={bookedMode ? "on this day" : "created in window"} />
+          <Tile label="Booked value" value={kpi?.booked ? fmtMoney(kpi.booked.value) : "\u2014"} sub="new bookings" />
+          <Tile label="Top source" value={topSource ? fmtSource(topSource.source) : "\u2014"} sub={topSource ? `${topSource.count} booked` : "no source data"} />
         </div>
 
         {/* Toolbar */}
@@ -724,7 +891,7 @@ export default function JobsListPage() {
                           {col.key === "time" && <span style={{ color: TXT2 }}>{fmtTime(job.scheduled_time)}</span>}
                           {col.key === "service" && <span style={{ color: TXT }}>{serviceLabelOf(job.service_type)}</span>}
                           {col.key === "status" && (
-                            <span style={{ display: "inline-block", padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: ss.bg, color: ss.color }}>
+                            <span style={{ display: "inline-block", padding: "3px 8px", borderRadius: 4, fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", background: ss.bg, color: ss.color }}>
                               {ss.label}
                             </span>
                           )}
@@ -864,6 +1031,56 @@ function FilterDateField({ label, value, onChange }: { label: string; value: str
       <CalendarPopover value={value} ariaLabel={label} onChange={onChange} block />
     </div>
   );
+}
+
+// [jobs-report-redesign 2026-07-28] MoneyCard-style KPI tile matching
+// dashboard.tsx: the 3×12px mint tick left of an 11px/600/uppercase label, an
+// ink-not-colored 28px tabular number, and — per the brand rule — any delta on
+// a SEPARATE pill (up = ok/green, down = danger/red, flat = muted), never
+// coloring the number itself. `accent` adds the green bottom rule for the hero
+// Revenue tile.
+function Tile({ label, value, delta, sub, accent }: {
+  label: string; value: React.ReactNode;
+  delta?: { dir: "up" | "down" | "flat"; text: string };
+  sub?: string; accent?: boolean;
+}) {
+  const pill = delta
+    ? delta.dir === "up" ? { color: OK, background: OK_BG }
+    : delta.dir === "down" ? { color: DANGER, background: DANGER_BG }
+    : { color: TXT2, background: HOVER }
+    : null;
+  return (
+    <div style={{
+      background: CARD, borderRadius: 10, padding: "16px 18px", minHeight: 104,
+      display: "flex", flexDirection: "column", justifyContent: "space-between",
+      border: `1px solid ${BORDER}`, ...(accent ? { borderBottom: `3px solid ${OK}` } : {}),
+    }}>
+      <div>
+        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 12 }}>
+          <span style={{ width: 3, height: 12, borderRadius: 2, background: MINT, flex: "none" }} />
+          <span style={{ fontSize: 11, fontWeight: 600, color: TXT2, textTransform: "uppercase", letterSpacing: "0.06em" }}>{label}</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+          <span style={{ fontSize: 28, fontWeight: 600, color: TXT, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>{value}</span>
+          {delta && pill && <span style={{ fontSize: 12, fontWeight: 600, borderRadius: 4, padding: "1px 6px", ...pill }}>{delta.text}</span>}
+        </div>
+      </div>
+      {sub && <div style={{ fontSize: 12, color: FAINT, marginTop: 6 }}>{sub}</div>}
+    </div>
+  );
+}
+
+// Avatar initials + "First L." short name for the tech leaderboard.
+function initials(name: string) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts[1]?.[0] ?? "")).toUpperCase();
+}
+function shortName(name: string) {
+  const parts = (name || "").trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return "Tech";
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
 }
 
 function BulkBtn({ label, onClick }: { label: string; onClick: () => void }) {
