@@ -1974,12 +1974,16 @@ export default function QuoteBuilderPage() {
                 </>
               )}
             </div>
-            {(sqft > 0 || bedrooms > 0 || bathrooms > 0) && (
+            {(sqft > 0 || bedrooms > 0 || bathrooms > 0 || rcResult?.found) && (
               <div style={{ background: "#FFF", border: "1px solid #E5E2DC", borderRadius: 12, padding: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 8 }}>Property</div>
-                <div style={{ fontSize: 14, color: "#6B6860" }}>
-                  {[sqft > 0 && `${sqft} sqft`, bedrooms > 0 && `${bedrooms} bed`, bathrooms > 0 && `${bathrooms} bath`, halfBaths > 0 && `${halfBaths} half bath`, pets > 0 && `${pets} pet${pets > 1 ? "s" : ""}`].filter(Boolean).join(" · ")}
-                </div>
+                {(sqft > 0 || bedrooms > 0 || bathrooms > 0) && (
+                  <div style={{ fontSize: 14, color: "#6B6860" }}>
+                    {[sqft > 0 && `${sqft} sqft`, bedrooms > 0 && `${bedrooms} bed`, bathrooms > 0 && `${bathrooms} bath`, halfBaths > 0 && `${halfBaths} half bath`, pets > 0 && `${pets} pet${pets > 1 ? "s" : ""}`].filter(Boolean).join(" · ")}
+                  </div>
+                )}
+                {/* [rentcast-carry 2026-07-28] RentCast reference carried onto Review, reference only. */}
+                {rcResult?.found && <div style={{ marginTop: (sqft > 0 || bedrooms > 0 || bathrooms > 0) ? 6 : 0 }}><RentcastRef rc={rcResult} /></div>}
               </div>
             )}
             {/* Card on file (Square) */}
@@ -2993,6 +2997,10 @@ export default function QuoteBuilderPage() {
                 <div className="col-span-2">
                   <Label className="text-xs">Square Footage</Label>
                   <Input type="number" value={sqft || ""} onChange={e => setSqft(parseInt(e.target.value) || 0)} placeholder="e.g. 1800" className="mt-1" />
+                  {/* [rentcast-carry 2026-07-28] Carry the Customer-Info RentCast
+                      reference here so the office can compare it against what they
+                      type. Reference only — never auto-fills. Hidden if no record. */}
+                  {rcResult?.found && <div style={{ marginTop: 6 }}><RentcastRef rc={rcResult} /></div>}
                 </div>
                 <div>
                   <Label className="text-xs">Bedrooms</Label>
@@ -3494,6 +3502,18 @@ export default function QuoteBuilderPage() {
                 </>
               )}
 
+              {/* [rentcast-carry 2026-07-28] RentCast reference carried onto the
+                  Review step (reference only — never fills the quote). Hidden when
+                  RentCast found no record / isn't configured. */}
+              {rcResult?.found && (
+                <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 16, marginTop: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 8, fontFamily: FF }}>
+                    Property Reference
+                  </div>
+                  <RentcastRef rc={rcResult} />
+                </div>
+              )}
+
               {/* ── Schedule & Assign (for Convert to Job) ── */}
               <div style={{ borderTop: "1px solid #E5E2DC", paddingTop: 16, marginTop: 16 }}>
                 <div style={{ fontSize: 11, fontWeight: 700, color: "#6B6860", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 10, fontFamily: FF }}>
@@ -3950,6 +3970,27 @@ export default function QuoteBuilderPage() {
   );
 }
 
+// [rentcast-carry 2026-07-28] Reference-only RentCast line, reused from Customer
+// Info onto Property Details + Review so the fetched numbers follow the office
+// through the whole wizard. Matches the Customer Info "found" styling exactly
+// (mint value + muted "· reference only"). Renders NOTHING when RentCast found
+// no record / isn't configured — never an empty "reference" line. Display only:
+// it never writes back to sqft/beds/baths.
+function RentcastRef({ rc }: { rc: any }) {
+  if (!rc || !rc.found) return null;
+  const parts = [
+    rc.square_footage ? `${Number(rc.square_footage).toLocaleString()} sq ft` : null,
+    rc.bedrooms != null ? `${rc.bedrooms} bd` : null,
+    rc.bathrooms != null ? `${rc.bathrooms} ba` : null,
+  ].filter(Boolean);
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, fontFamily: FF, color: "#6B6860" }}>
+      <span style={{ fontWeight: 600 }}>RentCast:</span>
+      <span style={{ color: "#0A6E5A" }}>{parts.length ? parts.join(" · ") : "no sq ft on file"} <span style={{ color: "#9E9B94" }}>· reference only</span></span>
+    </div>
+  );
+}
+
 function Stepper({ value, onChange, min = 0, max = 10 }: { value: number; onChange: (v: number) => void; min?: number; max?: number }) {
   const btn = (disabled: boolean): React.CSSProperties => ({
     width: 44, height: 44, border: "1px solid #E5E2DC", borderRadius: 0, background: disabled ? "#F7F6F3" : "#FFF",
@@ -3967,14 +4008,16 @@ function Stepper({ value, onChange, min = 0, max = 10 }: { value: number; onChan
     <div style={{ display: "flex", border: "1px solid #E5E2DC", borderRadius: 8, overflow: "hidden", height: 44, marginTop: 6 }}>
       <button type="button" tabIndex={-1} style={btn(value <= min)} onClick={() => onChange(Math.max(min, value - 1))}>−</button>
       <input
-        type="number"
+        // [no-native-spinner 2026-07-28] type="text" + inputMode="numeric" so the
+        // browser's native up/down spin caret never renders (redundant next to the
+        // − / + buttons). Still typeable and TAB-navigable; digits-only, clamped to
+        // [min, max] — same behavior the number input had.
+        type="text"
         inputMode="numeric"
-        min={min}
-        max={max}
         value={value || ""}
         onChange={e => {
-          const n = parseInt(e.target.value, 10);
-          onChange(isNaN(n) ? min : clamp(n));
+          const digits = e.target.value.replace(/[^0-9]/g, "");
+          onChange(digits === "" ? min : clamp(parseInt(digits, 10)));
         }}
         style={{ flex: 1, width: "100%", minWidth: 0, textAlign: "center", fontSize: 16, fontWeight: 700, color: "#1A1917", fontFamily: FF, border: "none", borderLeft: "1px solid #E5E2DC", borderRight: "1px solid #E5E2DC", outline: "none", background: "#FFF", padding: 0, boxSizing: "border-box" }}
       />
