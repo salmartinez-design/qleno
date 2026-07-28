@@ -6555,11 +6555,12 @@ router.get("/v2/service-types", requireAuth, requireRole("owner", "admin", "offi
       SELECT DISTINCT j.service_type AS value, cst.name AS label
         FROM jobs j
         LEFT JOIN commercial_service_types cst
-          ON cst.company_id = j.company_id AND cst.slug = j.service_type
+          -- [service-type-enum-cast 2026-07-28] service_type is a Postgres enum;
+          -- cst.slug is text. Comparing text = enum (here AND in the WHERE guard
+          -- below) throws "operator does not exist: text = service_type" (500).
+          -- Cast the enum to text on BOTH comparisons.
+          ON cst.company_id = j.company_id AND cst.slug = j.service_type::text
        WHERE j.company_id = ${companyId}
-         -- [service-type-enum-cast 2026-07-28] service_type is a Postgres enum;
-         -- comparing it to the text literal '' throws "operator does not exist:
-         -- text = service_type" (500). Cast to text before the empty-string guard.
          AND j.service_type IS NOT NULL AND j.service_type::text <> ''
        ORDER BY value
     `);
