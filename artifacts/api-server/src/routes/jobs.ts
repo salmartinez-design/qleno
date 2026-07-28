@@ -20,6 +20,7 @@ import { INVOICE_CUTOVER_DATE } from "../lib/ensure-invoice.js";
 import { ensureInvoiceForCompletedJob } from "../lib/ensure-invoice.js";
 import { isSameDayTimeChange, markTimeChangePending, clearTimeChangePending, sendTimeChangeNotification } from "../lib/time-change-notice.js";
 import { buildJobLineItems } from "../lib/invoice-line-items.js";
+import { jobRevenueExpr } from "../lib/job-revenue-sql.js";
 import multer from "multer";
 import crypto from "node:crypto";
 import { r2Configured, r2Upload, r2SignedGetUrl, isR2Key, jobPhotoKey } from "../lib/r2.js";
@@ -6149,18 +6150,35 @@ function buildJobWhereClause(query: any, companyId: number, cursorId?: number | 
 
 const JOBS_V2_FROM = sql`FROM jobs j LEFT JOIN clients c ON j.client_id = c.id LEFT JOIN users u ON j.assigned_user_id = u.id LEFT JOIN service_zones sz ON j.zone_id = sz.id LEFT JOIN branches b ON j.branch_id = b.id`;
 
+// [jobs-report-revenue 2026-07-28] Canonical per-job revenue for every Jobs
+// Report surface (KPI, list Amount, export), mirroring dashboard.ts:1587.
+// Commercial work bills hourly_rate × allowed_hours, else billed_amount, else
+// base_fee — so commercial/PPM jobs report real dollars instead of the raw
+// base_fee $0. JOBS_V2_FROM exposes `j` (jobs) and `c` (clients) which is
+// exactly what jobRevenueExpr's commercial detection reads.
+const JOBS_V2_REVENUE = jobRevenueExpr(sql`COALESCE(j.billed_amount, j.base_fee, 0)`);
+
 // GET /api/jobs/v2/kpi
 router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
   try {
     const companyId = req.auth!.companyId;
     const where = buildJobWhereClause(req.query, companyId);
+    // [jobs-report-revenue 2026-07-28] Money now flows through jobRevenueExpr
+    // (commercial = hourly_rate × allowed_hours, else billed_amount, else
+    // base_fee) instead of raw base_fee — commercial/PPM jobs no longer report
+    // $0. Cancelled jobs are excluded from revenue AND the average everywhere
+    // (previously only the booked_on branch filtered them out), and avg_job is
+    // based on completed jobs, not every row.
     const result = await db.execute(sql`
       SELECT
-        COALESCE(MIN(CAST(j.base_fee AS NUMERIC)), 0) AS revenue_min,
-        COALESCE(MAX(CAST(j.base_fee AS NUMERIC)), 0) AS revenue_max,
-        COALESCE(SUM(CAST(j.base_fee AS NUMERIC)), 0) AS revenue_total,
+        COALESCE(MIN(${JOBS_V2_REVENUE}) FILTER (WHERE j.status != 'cancelled'), 0) AS revenue_min,
+        COALESCE(MAX(${JOBS_V2_REVENUE}) FILTER (WHERE j.status != 'cancelled'), 0) AS revenue_max,
+        COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status != 'cancelled'), 0) AS revenue_total,
         COUNT(*) FILTER (WHERE j.status = 'complete') AS completed,
-        CASE WHEN COUNT(*) > 0 THEN ROUND(SUM(CAST(j.base_fee AS NUMERIC)) / COUNT(*), 2) ELSE 0 END AS avg_job,
+        CASE WHEN COUNT(*) FILTER (WHERE j.status = 'complete') > 0
+             THEN ROUND(COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status = 'complete'), 0)
+                        / COUNT(*) FILTER (WHERE j.status = 'complete'), 2)
+             ELSE 0 END AS avg_job,
         COUNT(*) AS total_jobs,
         COUNT(DISTINCT j.scheduled_date) AS distinct_days,
         COUNT(*) FILTER (WHERE j.assigned_user_id IS NULL) AS unassigned
@@ -6196,13 +6214,27 @@ router.get("/v2/list", requireAuth, requireRole("owner", "admin", "office", "sup
 
     const where = buildJobWhereClause(req.query, companyId, cursor);
 
+    // [jobs-report-sort 2026-07-28] Accept BOTH the frontend column keys
+    // (client/date/service/amount/tech/branch/zone) and the legacy backend
+    // names — the table sends its column key as the sort col, so the old map
+    // silently no-op'd those clicks. Amount sorts by the canonical revenue
+    // expression, not raw base_fee, so it matches the displayed dollars.
     const validSorts: Record<string, ReturnType<typeof sql>> = {
+      // legacy / seed keys (initial state still sends these)
       scheduled_date: sql`j.scheduled_date`,
       client_name: sql`concat(c.first_name, ' ', c.last_name)`,
-      status: sql`j.status`,
-      base_fee: sql`CAST(j.base_fee AS NUMERIC)`,
       service_type: sql`j.service_type`,
+      base_fee: JOBS_V2_REVENUE,
+      status: sql`j.status`,
       created_at: sql`j.created_at`,
+      // frontend column keys
+      date: sql`j.scheduled_date`,
+      client: sql`concat(c.first_name, ' ', c.last_name)`,
+      service: sql`j.service_type`,
+      amount: JOBS_V2_REVENUE,
+      tech: sql`concat(u.first_name, ' ', u.last_name)`,
+      branch: sql`b.name`,
+      zone: sql`sz.name`,
     };
     const orderExpr = validSorts[sortCol] || sql`j.scheduled_date`;
 
@@ -6213,7 +6245,8 @@ router.get("/v2/list", requireAuth, requireRole("owner", "admin", "office", "sup
         j.allowed_hours, j.actual_hours, j.notes, j.flagged, j.zone_id, j.branch_id,
         j.charge_succeeded_at, j.charge_failed_at, j.charge_attempted_at,
         j.created_at, j.office_notes,
-        concat(c.first_name, ' ', c.last_name) AS client_name,
+        ${JOBS_V2_REVENUE} AS amount,
+        NULLIF(TRIM(concat(c.first_name, ' ', c.last_name)), '') AS client_name,
         c.address AS client_address, c.city AS client_city, c.state AS client_state, c.zip AS client_zip, c.referral_source,
         concat(u.first_name, ' ', u.last_name) AS tech_name,
         sz.name AS zone_name, sz.color AS zone_color, b.name AS branch_name
@@ -6229,6 +6262,7 @@ router.get("/v2/list", requireAuth, requireRole("owner", "admin", "office", "sup
     const mapped = data.map((r: any) => ({
       ...r,
       base_fee: r.base_fee ? parseFloat(r.base_fee) : 0,
+      amount: r.amount != null ? parseFloat(r.amount) : 0,
       payment_status: r.charge_succeeded_at ? "paid" : r.charge_failed_at ? "failed" : r.charge_attempted_at ? "pending" : "unpaid",
     }));
 
@@ -6438,11 +6472,11 @@ router.get("/v2/export", requireAuth, requireRole("owner", "admin", "office", "s
     const where = buildJobWhereClause(req.query, companyId);
     const result = await db.execute(sql`
       SELECT
-        j.id, concat(c.first_name, ' ', c.last_name) AS client_name,
+        j.id, NULLIF(TRIM(concat(c.first_name, ' ', c.last_name)), '') AS client_name,
         c.address AS client_address, c.city AS client_city,
         concat(u.first_name, ' ', u.last_name) AS tech_name,
         j.scheduled_date, j.scheduled_time, j.service_type, j.status,
-        j.base_fee, j.frequency, j.flagged,
+        ${JOBS_V2_REVENUE} AS amount, j.frequency, j.flagged,
         b.name AS branch_name, sz.name AS zone_name, c.referral_source,
         CASE WHEN j.charge_succeeded_at IS NOT NULL THEN 'paid'
              WHEN j.charge_failed_at IS NOT NULL THEN 'failed'
@@ -6461,7 +6495,7 @@ router.get("/v2/export", requireAuth, requireRole("owner", "admin", "office", "s
         `"${(r.client_city || "").replace(/"/g, '""')}"`,
         `"${(r.tech_name || "Unassigned").replace(/"/g, '""')}"`,
         r.scheduled_date, r.scheduled_time || "",
-        r.service_type, r.status, r.base_fee || "0",
+        r.service_type, r.status, r.amount != null ? Number(r.amount).toFixed(2) : "0",
         r.frequency, r.flagged ? "Yes" : "No",
         r.branch_name || "", r.zone_name || "",
         r.referral_source || "", r.payment_status,
