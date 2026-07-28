@@ -161,7 +161,17 @@ export default function JobsListPage() {
   const [viewMenuOpen, setViewMenuOpen] = useState<number | null>(null);
 
   // ── Build query params ─────────────────────────────────────────────────────
-  const dateRange = period === "all" ? { from: "", to: "" } : period === "custom" ? { from: filters.date_from || "", to: filters.date_to || "" } : getDateRange(period);
+  // [jobs-report 2026-07-28] Two mutually exclusive scoping modes:
+  //   • period tabs → filter by SCHEDULED date (date_from/date_to)
+  //   • Booked On   → filter by the day a job was BOOKED/created (booked_on)
+  // They must never both apply — a scheduled-date range AND'd on top of "booked
+  // that day" almost never overlaps, so the list would silently show ~0. When a
+  // booked_on filter is active it is authoritative: the scheduled-date range is
+  // suppressed and no period tab is highlighted (see the tab render below).
+  const bookedMode = !!filters.booked_on;
+  const dateRange = bookedMode
+    ? { from: "", to: "" }
+    : period === "all" ? { from: "", to: "" } : period === "custom" ? { from: filters.date_from || "", to: filters.date_to || "" } : getDateRange(period);
 
   const queryParams: Record<string, string> = {
     ...filters,
@@ -312,6 +322,18 @@ export default function JobsListPage() {
   useEffect(() => {
     if (filters.booked_on) setVisibleCols(prev => prev.includes("created_at") ? prev : [...prev, "created_at"]);
   }, [filters.booked_on]);
+  // [jobs-report 2026-07-28] Keep the URL's ?booked_on= param in lockstep with
+  // the active filter. Without this, clicking a period tab cleared the filter
+  // state but left a stale ?booked_on=YYYY-MM-DD in the address bar — a
+  // contradictory URL that reintroduced the filter on refresh or share. Setting
+  // a booked_on writes the param; clearing it (period tab, banner, Clear all)
+  // deletes it, so the URL always names exactly one active mode.
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    if (filters.booked_on) url.searchParams.set("booked_on", filters.booked_on);
+    else url.searchParams.delete("booked_on");
+    window.history.replaceState({}, "", url.toString());
+  }, [filters.booked_on]);
   const colLabel = (col: ColDef) => {
     if (filters.booked_on) {
       if (col.key === "date") return "Scheduled";
@@ -345,35 +367,47 @@ export default function JobsListPage() {
         {/* Header */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28 }}>
           <h1 style={{ fontSize: 28, fontWeight: 700, color: TXT, margin: 0, letterSpacing: "-0.02em" }}>Jobs</h1>
-          <div style={{ display: "flex", gap: 6 }}>
+          {/* [jobs-report 2026-07-28] These tabs scope by SCHEDULED date. The
+              muted caption names that explicitly so it reads distinctly from the
+              Booked On (booked/created date) filter in the drawer. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: TXT2, textTransform: "uppercase", letterSpacing: "0.04em" }}>Scheduled</span>
+            <div style={{ display: "flex", gap: 6 }}>
             {[
               { key: "today", label: "Today" }, { key: "yesterday", label: "Yesterday" },
               { key: "this_week", label: "Week" },
               { key: "this_month", label: "Month" }, { key: "last_30", label: "30d" },
               { key: "last_90", label: "90d" }, { key: "ytd", label: "YTD" },
               { key: "all", label: "All" },
-            ].map(p => (
-              // [jobs-report 2026-07-28] Selecting a scheduled-date period tab clears
-              // any active booked_on filter — the two AND together to zero results
-              // (a scheduled range on top of "booked that day" almost never overlaps).
+            ].map(p => {
+              // [jobs-report 2026-07-28] Period tabs and Booked On are mutually
+              // exclusive. Selecting a tab clears any active booked_on filter (the
+              // URL param is dropped by the sync effect above). While booked_on is
+              // active NO tab is highlighted — the booked-on banner names the mode
+              // instead — so the two never appear simultaneously selected.
+              const tabActive = !bookedMode && period === p.key;
+              return (
               <button key={p.key} onClick={() => { setPeriod(p.key); if (filters.booked_on) setFilter("booked_on", ""); }}
                 style={{
                   padding: "6px 14px", fontSize: 12, fontWeight: 600, fontFamily: FF, border: "none",
                   borderRadius: 6, cursor: "pointer", transition: "all 0.15s",
-                  background: period === p.key ? TXT : "transparent",
-                  color: period === p.key ? "#FFFFFF" : TXT2,
+                  background: tabActive ? TXT : "transparent",
+                  color: tabActive ? "#FFFFFF" : TXT2,
                 }}>
                 {p.label}
               </button>
-            ))}
+              );
+            })}
+            </div>
           </div>
         </div>
 
         {/* [booked-today-drilldown 2026-07-22] Say what this filtered view IS.
-            Arriving from the dashboard tile, the period buttons above read "All"
-            and the list shows jobs scheduled across many months — without this
-            banner that looks broken rather than deliberate. Also the only way to
-            clear booked_on, since it has no FilterSelect of its own. */}
+            In booked mode NO period tab is highlighted (booked_on and the
+            scheduled-date tabs are mutually exclusive), so this banner is what
+            names the active mode and explains why the list spans many scheduled
+            months. Its Clear button drops booked_on and returns to the month
+            view. */}
         {filters.booked_on && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
             background: "#EAFBF6", border: "1px solid #A7F3D0", borderRadius: 10,
@@ -513,12 +547,13 @@ export default function JobsListPage() {
                 dispatch, the other Reports pages, and the quote builder) instead
                 of the OS-native <input type="date"> popover, which didn't match
                 the Qleno design system. Value stays a YYYY-MM-DD string, so the
-                backend contract is unchanged. Setting a day switches the period
-                to "all" so the scheduled-date range doesn't AND against it and
-                zero the results; clearing restores the default month view. */}
+                backend contract is unchanged. Setting a day enters booked mode
+                (bookedMode above suppresses the scheduled-date range and clears
+                the tab highlight, so the two never AND to zero); clearing drops
+                back to the default month view. */}
             <FilterDateField label="Booked On" value={filters.booked_on || ""}
               onChange={v => {
-                if (v) { setFilter("booked_on", v); setPeriod("all"); }
+                if (v) setFilter("booked_on", v);
                 else { setFilter("booked_on", ""); setPeriod("this_month"); }
               }} />
             <div>
