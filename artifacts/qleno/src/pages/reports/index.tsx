@@ -41,7 +41,6 @@ const REPORT_GROUPS = [
       { title: "Performance Insights", desc: "Top performers, at-risk clients, and team alerts.",      url: "/reports/insights",         icon: TrendingUp },
       { title: "Employee Stats",       desc: "Individual attendance, efficiency, and revenue stats.",  url: "/reports/employee-stats",   icon: UserCheck },
       { title: "Tips Report",          desc: "Tips earned by employee across a date range.",           url: "/reports/tips",             icon: Star },
-      { title: "Scorecard Results",    desc: "Post-job survey responses — sent, returned, score, and trend per customer.", url: "/reports/satisfaction", icon: Star },
       // [scorecard-consolidation 2026-07-28] The one company-wide scorecard —
       // replaces the legacy "Performance Score Results" + "Quality & Efficiency"
       // cards (their routes now redirect here). Office/admin only.

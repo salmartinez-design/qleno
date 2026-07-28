@@ -242,6 +242,44 @@ router.get("/company-report", requireAuth, requireRole("owner", "admin", "office
     for (const r of distRows.rows as any[]) distMap.set(int(r.score), int(r.count));
     const distribution = [0, 1, 2, 3, 4].map(score => ({ score, count: distMap.get(score) ?? 0 }));
 
+    // ── By job type & cadence (the cut Sal called out) ──
+    // A job is RECURRING when it has a recurring-schedule link, a real cadence
+    // (frequency <> on_demand), or a recurring service slug; else one-time. The
+    // summary (by_work_type) is the 2-row One-time vs Recurring split; the detail
+    // (by_job_type) buckets one-time work by service_type (Move In/Out and the
+    // commercial slugs collapsed to single labels) and recurring work by cadence.
+    const recurringExpr = sql`(j.recurring_schedule_id IS NOT NULL
+        OR j.frequency::text <> 'on_demand'
+        OR j.service_type::text IN ('recurring', 'recurring_commercial_cleaning'))`;
+    const rowMetrics = sql`
+      COUNT(*)::int AS sent,
+      COUNT(*) FILTER (WHERE s.responded_at IS NOT NULL)::int AS returned,
+      ROUND(100.0 * COUNT(*) FILTER (WHERE s.responded_at IS NOT NULL) / NULLIF(COUNT(*), 0)) AS response_rate_pct,
+      ROUND(AVG(s.survey_score) FILTER (WHERE s.survey_score IS NOT NULL)::numeric, 2) AS avg_score`;
+    const workTypeRows = await db.execute(sql`
+      SELECT CASE WHEN ${recurringExpr} THEN 'Recurring' ELSE 'One-time' END AS type, ${rowMetrics}
+        FROM satisfaction_surveys s
+        JOIN jobs j ON j.id = s.job_id AND j.company_id = s.company_id
+       WHERE s.company_id = ${companyId} AND s.suppressed = false AND ${sentWin} ${bj}
+       GROUP BY 1 ORDER BY 1`);
+    const jobTypeRows = await db.execute(sql`
+      SELECT CASE
+               WHEN ${recurringExpr} THEN 'Recurring · ' || CASE WHEN j.frequency::text = 'on_demand'
+                    THEN 'Other' ELSE INITCAP(REPLACE(j.frequency::text, '_', ' ')) END
+               WHEN j.service_type::text IN ('move_in', 'move_out') THEN 'Move In/Out'
+               WHEN j.service_type::text IN ('commercial_cleaning', 'office_cleaning', 'common_areas',
+                    'retail_store', 'medical_office', 'ppm_turnover', 'ppm_common_areas', 'post_event') THEN 'Commercial'
+               ELSE INITCAP(REPLACE(j.service_type::text, '_', ' '))
+             END AS type, ${rowMetrics}
+        FROM satisfaction_surveys s
+        JOIN jobs j ON j.id = s.job_id AND j.company_id = s.company_id
+       WHERE s.company_id = ${companyId} AND s.suppressed = false AND ${sentWin} ${bj}
+       GROUP BY 1 ORDER BY sent DESC`);
+    const shapeType = (rows: any[]) => rows.map(r => ({
+      type: r.type, sent: int(r.sent), returned: int(r.returned),
+      response_rate_pct: num(r.response_rate_pct) ?? 0, avg_score: num(r.avg_score),
+    }));
+
     // ── Weekly trend: satisfaction% + response-rate% across the window ──
     const trendRows = await db.execute(sql`
       SELECT to_char(date_trunc('week', s.sent_at), 'YYYY-MM-DD') AS week_start,
@@ -330,6 +368,8 @@ router.get("/company-report", requireAuth, requireRole("owner", "admin", "office
         channel: r.channel, sent: int(r.sent), returned: int(r.returned),
         response_rate_pct: int(r.sent) > 0 ? Math.round((int(r.returned) / int(r.sent)) * 100) : 0,
       })),
+      by_work_type: shapeType(workTypeRows.rows as any[]),
+      by_job_type: shapeType(jobTypeRows.rows as any[]),
       distribution,
       trend: (trendRows.rows as any[]).map(r => ({
         week_start: r.week_start, satisfaction_pct: num(r.satisfaction_pct),

@@ -333,7 +333,10 @@ function Router() {
         <Route path="/route-sequences" component={RouteSequencesPage} />
         <Route path="/intelligence/churn" component={ChurnBoardPage} />
         <Route path="/intelligence/retention" component={RetentionBoardPage} />
-        <Route path="/reports/satisfaction" component={SatisfactionReportPage} />
+        {/* [scorecard-consolidation 2026-07-28] "Scorecard Results" folded into
+            the one Scorecard report — its full sent-survey list + Resend live in
+            the new report's "All surveys" section. Endpoint kept; route redirects. */}
+        <Route path="/reports/satisfaction"><Redirect to="/reports/scorecard-report" /></Route>
         <Route path="/reports/recurring" component={RecurringRevenuePage} />
         <Route path="/ares" component={RecurringRevenuePage} />
         <Route path="/reports/referrals" component={ReferralReportPage} />
