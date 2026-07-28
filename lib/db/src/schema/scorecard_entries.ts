@@ -33,6 +33,15 @@ export const scorecardEntriesTable = pgTable("scorecard_entries", {
   office_reply: text("office_reply"),
   office_reply_by_user_id: integer("office_reply_by_user_id").references(() => usersTable.id),
   office_reply_at: timestamp("office_reply_at"),
+  // [dismiss-rating 2026-07-28] Owner/office "Dismiss erroneous rating" action.
+  // A dismissed entry is soft-voided: it stays in the history (rendered muted /
+  // struck-through) but drops out of the Customer Satisfaction average AND the
+  // survey count that feed the rolling composite. Used e.g. when a survey fired
+  // off a mistaken clock-in before any cleaning happened. `dismiss_reason` is
+  // required; the who/when are captured for the customer audit trail.
+  dismissed_at: timestamp("dismissed_at"),
+  dismissed_by_user_id: integer("dismissed_by_user_id").references(() => usersTable.id),
+  dismiss_reason: text("dismiss_reason"),
   created_at: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
   index("idx_scorecard_entries_emp").on(t.company_id, t.employee_id),

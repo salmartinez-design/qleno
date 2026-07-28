@@ -5,7 +5,7 @@ import { eq, and, avg, count, desc, sql, inArray } from "drizzle-orm";
 import { requireAuth, requireRole } from "../lib/auth.js";
 import { resolveWindow } from "../lib/report-periods.js";
 import { recomputeAllScorecards, recomputeEmployeeScorecard } from "../lib/scorecard-engine.js";
-import { computeCompositeForEmployee, recomputeAllComposites } from "../lib/scorecard-composite.js";
+import { computeCompositeForEmployee, recomputeAllComposites, recomputeCompositeScore } from "../lib/scorecard-composite.js";
 
 const router = Router();
 
@@ -25,6 +25,7 @@ router.get("/report", requireAuth, requireRole("owner", "admin", "office"), asyn
     // Column-qualified WHERE so the company byTech JOIN (users also has
     // company_id) isn't ambiguous. `a` is a literal alias prefix we control.
     const cond = (a: string) => sql`${sql.raw(a)}source = 'qleno' AND ${sql.raw(a)}excluded = false
+      AND ${sql.raw(a)}dismissed_at IS NULL
       AND ${sql.raw(a)}company_id = ${companyId}
       AND ${sql.raw(a)}entry_date >= ${win.from} AND ${sql.raw(a)}entry_date <= ${win.to}`;
 
@@ -94,6 +95,114 @@ router.patch("/entries/:id/exclude", requireAuth, requireRole("owner", "admin", 
   } catch (err) {
     console.error("Scorecard exclude error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to update entry" });
+  }
+});
+
+// POST /api/scorecards/entries/:id/dismiss { reason } — owner/office "Dismiss
+// erroneous rating" action. Soft-voids a scorecard_entries row: it stays in the
+// history (shown muted / struck-through) but drops out of the Customer
+// Satisfaction average AND the survey count feeding the rolling composite, so
+// the tech's Performance Score lifts immediately. A non-empty `reason` is
+// REQUIRED. The who/when/job#/rating/reason are logged to the CUSTOMER's audit
+// trail (communication_log, channel='note') so the void is visible on the
+// client's record. Owner/admin/office only; tenant-scoped.
+router.post("/entries/:id/dismiss", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const userId = req.auth!.userId!;
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    if (!reason) return res.status(400).json({ error: "Bad Request", message: "A dismissal reason is required" });
+
+    // Fetch first so we can capture the rating value + job for the audit trail.
+    const [entry] = await db
+      .select({
+        id: scorecardEntriesTable.id,
+        employee_id: scorecardEntriesTable.employee_id,
+        job_id: scorecardEntriesTable.job_id,
+        score_value: scorecardEntriesTable.score_value,
+        max_value: scorecardEntriesTable.max_value,
+        dismissed_at: scorecardEntriesTable.dismissed_at,
+      })
+      .from(scorecardEntriesTable)
+      .where(and(eq(scorecardEntriesTable.id, id), eq(scorecardEntriesTable.company_id, companyId)))
+      .limit(1);
+    if (!entry) return res.status(404).json({ error: "Not Found", message: "Scorecard entry not found" });
+
+    const [updated] = await db
+      .update(scorecardEntriesTable)
+      .set({
+        dismissed_at: new Date(),
+        dismissed_by_user_id: userId,
+        dismiss_reason: reason.slice(0, 2000),
+      })
+      .where(and(eq(scorecardEntriesTable.id, id), eq(scorecardEntriesTable.company_id, companyId)))
+      .returning();
+
+    // Recompute the affected tech's satisfaction headline AND rolling composite
+    // so the dismissed rating stops counting right away.
+    await recomputeEmployeeScorecard(companyId, entry.employee_id);
+    try { await recomputeCompositeScore(companyId, entry.employee_id); } catch { /* non-fatal */ }
+
+    // Customer audit trail — write to the client's Communication timeline
+    // (communication_log, channel='note') when the rating maps to a job we can
+    // resolve to a customer. Non-fatal: the dismissal itself still succeeds.
+    let audit_logged = false;
+    try {
+      if (entry.job_id != null) {
+        const jr = await db.execute(sql`
+          SELECT client_id FROM jobs WHERE id = ${entry.job_id} AND company_id = ${companyId} LIMIT 1`);
+        const clientId = (jr.rows[0] as any)?.client_id ?? null;
+        if (clientId != null) {
+          const nr = await db.execute(sql`
+            SELECT NULLIF(trim(first_name || ' ' || coalesce(last_name, '')), '') AS n
+              FROM users WHERE id = ${userId} AND company_id = ${companyId} LIMIT 1`);
+          const staffName = (nr.rows[0] as any)?.n ?? "Office";
+          const val = Number(entry.score_value);
+          const max = Number(entry.max_value) || 4;
+          const ratingLabel = max === 100 ? `${val.toFixed(0)}%` : `${val} / ${max}`;
+          const summary = `Scorecard rating dismissed — Job #${entry.job_id}, rating ${ratingLabel}. Reason: ${reason}`;
+          await db.execute(sql`
+            INSERT INTO communication_log
+              (company_id, customer_id, job_id, direction, channel, summary, body,
+               source, sent_by, logged_by, delivery_status)
+            VALUES
+              (${companyId}, ${clientId}, ${entry.job_id}, 'internal', 'note', ${summary}, ${summary},
+               'system', ${staffName}, ${userId}, 'logged')`);
+          audit_logged = true;
+        }
+      }
+    } catch (auditErr) {
+      console.error("Scorecard dismiss audit-log error (non-fatal):", auditErr);
+    }
+
+    return res.json({ ok: true, entry: updated, employee_id: entry.employee_id, audit_logged });
+  } catch (err) {
+    console.error("Scorecard dismiss error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to dismiss rating" });
+  }
+});
+
+// POST /api/scorecards/entries/:id/undismiss — reverse a dismissal (cheap undo).
+// Clears the dismiss columns and recomputes so the rating counts again.
+router.post("/entries/:id/undismiss", requireAuth, requireRole("owner", "admin", "office"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId!;
+    const id = parseInt(String(req.params.id));
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid id" });
+    const [updated] = await db
+      .update(scorecardEntriesTable)
+      .set({ dismissed_at: null, dismissed_by_user_id: null, dismiss_reason: null })
+      .where(and(eq(scorecardEntriesTable.id, id), eq(scorecardEntriesTable.company_id, companyId)))
+      .returning({ employee_id: scorecardEntriesTable.employee_id });
+    if (!updated) return res.status(404).json({ error: "Not Found", message: "Scorecard entry not found" });
+    await recomputeEmployeeScorecard(companyId, updated.employee_id);
+    try { await recomputeCompositeScore(companyId, updated.employee_id); } catch { /* non-fatal */ }
+    return res.json({ ok: true, employee_id: updated.employee_id });
+  } catch (err) {
+    console.error("Scorecard undismiss error:", err);
+    return res.status(500).json({ error: "Internal Server Error", message: "Failed to restore rating" });
   }
 });
 
@@ -214,7 +323,22 @@ router.get("/entries/:employee_id", requireAuth, async (req, res) => {
       ))
       .orderBy(desc(scorecardEntriesTable.entry_date));
 
-    return res.json({ scorecard_pct: emp?.scorecard_pct ?? null, entries });
+    // [dismiss-rating] Resolve the dismisser's display name so the UI can show
+    // "Dismissed by <name>" without a second round-trip.
+    const dismisserIds = [...new Set(entries.map(e => e.dismissed_by_user_id).filter((v): v is number => v != null))];
+    let nameById = new Map<number, string>();
+    if (dismisserIds.length) {
+      const names = await db.execute(sql`
+        SELECT id, NULLIF(trim(first_name || ' ' || coalesce(last_name, '')), '') AS n
+          FROM users WHERE company_id = ${companyId} AND id IN (${sql.join(dismisserIds, sql`, `)})`);
+      nameById = new Map((names.rows as any[]).map(r => [Number(r.id), r.n as string]));
+    }
+    const enriched = entries.map(e => ({
+      ...e,
+      dismissed_by_name: e.dismissed_by_user_id != null ? (nameById.get(e.dismissed_by_user_id) ?? null) : null,
+    }));
+
+    return res.json({ scorecard_pct: emp?.scorecard_pct ?? null, entries: enriched });
   } catch (err) {
     console.error("Scorecard entries error:", err);
     return res.status(500).json({ error: "Internal Server Error", message: "Failed to fetch scorecard entries" });

@@ -1195,6 +1195,41 @@ export default function EmployeeProfilePage() {
     }
   }
 
+  // [dismiss-rating 2026-07-28] Owner/office "Dismiss erroneous rating" action.
+  // Requires a reason; the dismissed entry drops out of the Performance Score
+  // and is logged to the customer's audit trail. Refreshes the entries + the
+  // composite so the headline lifts immediately.
+  const canDismissRating = ['owner', 'admin', 'office'].includes(getTokenRole() || '');
+  const [dismissOpenId, setDismissOpenId] = useState<number | null>(null);
+  const [dismissReason, setDismissReason] = useState('');
+  const [dismissSaving, setDismissSaving] = useState(false);
+  async function submitDismiss(entryId: number) {
+    const reason = dismissReason.trim();
+    if (!reason) { showToast('A reason is required to dismiss a rating'); return; }
+    setDismissSaving(true);
+    try {
+      await apiFetch(`/scorecards/entries/${entryId}/dismiss`, { method: 'POST', body: JSON.stringify({ reason }) });
+      setDismissOpenId(null); setDismissReason('');
+      await Promise.all([refetchScEntries(), refetchScores?.()]);
+      await qc.invalidateQueries({ queryKey: ['scorecard-composite', userId] });
+      showToast('Rating dismissed');
+    } catch (e: any) {
+      showToast(e?.message === '403' ? 'Only owners and office can dismiss ratings' : 'Failed to dismiss rating');
+    } finally {
+      setDismissSaving(false);
+    }
+  }
+  async function undoDismiss(entryId: number) {
+    try {
+      await apiFetch(`/scorecards/entries/${entryId}/undismiss`, { method: 'POST' });
+      await Promise.all([refetchScEntries(), refetchScores?.()]);
+      await qc.invalidateQueries({ queryKey: ['scorecard-composite', userId] });
+      showToast('Rating restored');
+    } catch {
+      showToast('Failed to restore rating');
+    }
+  }
+
   // Efficiency by Qleno package/scope (MaidCentral parity). catalog = every
   // Qleno package; rows = the ones with data. No-data packages render blank.
   const { data: efficiencyData } = useQuery({
@@ -2728,18 +2763,59 @@ export default function EmployeeProfilePage() {
                       const val = parseFloat(s.score_value);
                       const max = parseFloat(s.max_value) || 100;
                       const scoreLabel = max === 100 ? `${val.toFixed(0)}%` : `${val.toFixed(1)} / ${max.toFixed(0)}`;
+                      const dismissed = !!s.dismissed_at;
                       return (
-                        <tr key={s.id} style={{ borderBottom:'1px solid #F0EEE9' }}>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#1A1917' }}>{new Date(s.entry_date + 'T00:00:00').toLocaleDateString()}</td>
-                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860' }}>{s.job_id ? `#${s.job_id}` : '—'}</td>
+                        <tr key={s.id} style={{ borderBottom:'1px solid #F0EEE9', opacity: dismissed ? 0.55 : 1, background: dismissed ? '#FAF9F6' : 'transparent' }}>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#1A1917',textDecoration: dismissed ? 'line-through' : 'none' }}>{new Date(s.entry_date + 'T00:00:00').toLocaleDateString()}</td>
+                          <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860',textDecoration: dismissed ? 'line-through' : 'none' }}>{s.job_id ? `#${s.job_id}` : '—'}</td>
                           <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860' }}>{s.source === 'mc' ? 'MaidCentral' : 'Qleno'}</td>
                           <td style={{ padding:'12px 16px' }}>
-                            <span style={{ background:'var(--brand-dim)', color:'var(--brand)', padding:'3px 10px', borderRadius:20, fontSize:12, fontWeight:600 }}>
+                            <span style={{ background: dismissed ? '#F0EEE9' : 'var(--brand-dim)', color: dismissed ? '#9E9B94' : 'var(--brand)', padding:'3px 10px', borderRadius:20, fontSize:12, fontWeight:600, textDecoration: dismissed ? 'line-through' : 'none' }}>
                               {scoreLabel}
                             </span>
                           </td>
                           <td style={{ padding:'12px 16px',fontSize:13,color:'#6B6860' }}>
-                            <div>{s.notes || '—'}</div>
+                            <div style={{ textDecoration: dismissed ? 'line-through' : 'none' }}>{s.notes || '—'}</div>
+                            {dismissed && (
+                              <div style={{ marginTop:8, padding:'8px 10px', background:'#F0EEE9', border:'1px solid #E5E2DC', borderRadius:8, color:'#1A1917' }}>
+                                <span style={{ fontSize:11, fontWeight:700, color:'#6B6860', textTransform:'uppercase', letterSpacing:'0.04em' }}>Dismissed — not counted</span>
+                                <div style={{ fontSize:13, marginTop:2 }}>{s.dismiss_reason || 'No reason recorded'}</div>
+                                <div style={{ fontSize:11, color:'#9E9B94', marginTop:4 }}>
+                                  {s.dismissed_by_name ? `By ${s.dismissed_by_name}` : 'By office'}
+                                  {s.dismissed_at ? ` · ${new Date(s.dismissed_at).toLocaleDateString()}` : ''}
+                                </div>
+                                {canDismissRating && (
+                                  <button onClick={() => undoDismiss(s.id)}
+                                    style={{ marginTop:6, background:'none', color:'var(--brand)', border:'none', padding:0, fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                                    Undo dismissal
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                            {canDismissRating && !dismissed && (
+                              dismissOpenId === s.id ? (
+                                <div style={{ marginTop:8 }}>
+                                  <textarea value={dismissReason} onChange={e => setDismissReason(e.target.value)} rows={2} autoFocus
+                                    placeholder="Why is this rating being dismissed? (required)"
+                                    style={{ width:'100%', resize:'vertical', padding:'8px 10px', border:'1px solid #E5E2DC', borderRadius:8, fontSize:13, fontFamily:"'Plus Jakarta Sans', sans-serif" }} />
+                                  <div style={{ display:'flex', gap:8, marginTop:6 }}>
+                                    <button onClick={() => submitDismiss(s.id)} disabled={dismissSaving || !dismissReason.trim()}
+                                      style={{ background:'var(--brand)', color:'#FFFFFF', border:'none', borderRadius:6, padding:'5px 12px', fontSize:12, fontWeight:700, cursor: (dismissSaving || !dismissReason.trim()) ? 'not-allowed' : 'pointer', opacity:(dismissSaving || !dismissReason.trim())?0.6:1 }}>
+                                      {dismissSaving ? 'Dismissing…' : 'Dismiss rating'}
+                                    </button>
+                                    <button onClick={() => { setDismissOpenId(null); setDismissReason(''); }}
+                                      style={{ background:'none', color:'#6B6860', border:'1px solid #E5E2DC', borderRadius:6, padding:'5px 12px', fontSize:12, cursor:'pointer' }}>
+                                      Cancel
+                                    </button>
+                                  </div>
+                                </div>
+                              ) : (
+                                <button onClick={() => { setDismissOpenId(s.id); setDismissReason(''); }}
+                                  style={{ marginTop:6, marginRight:12, background:'none', color:'#B4453C', border:'none', padding:0, fontSize:12, fontWeight:600, cursor:'pointer' }}>
+                                  Dismiss
+                                </button>
+                              )
+                            )}
                             {s.office_reply && (
                               <div style={{ marginTop:8, padding:'8px 10px', background:'#F3F8F6', border:'1px solid #D7EBE4', borderRadius:8, color:'#1A1917' }}>
                                 <span style={{ fontSize:11, fontWeight:700, color:'#0A7C63', textTransform:'uppercase', letterSpacing:'0.04em' }}>Office reply</span>

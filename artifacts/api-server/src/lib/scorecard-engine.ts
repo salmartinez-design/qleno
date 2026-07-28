@@ -9,6 +9,12 @@ export async function ensureScorecardReplyColumns(): Promise<void> {
     await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS office_reply text`);
     await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS office_reply_by_user_id integer`);
     await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS office_reply_at timestamp`);
+    // [dismiss-rating 2026-07-28] Soft-dismiss columns for voiding an erroneous
+    // rating (e.g. a survey fired by a mistaken clock-in). Dismissed entries are
+    // excluded from the satisfaction average + survey count but kept in history.
+    await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS dismissed_at timestamptz`);
+    await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS dismissed_by_user_id integer`);
+    await db.execute(sql`ALTER TABLE scorecard_entries ADD COLUMN IF NOT EXISTS dismiss_reason text`);
     console.log("[scorecard-reply] columns ready");
   } catch (err) {
     console.error("[scorecard-reply] ensure columns error (non-fatal):", err);
@@ -28,7 +34,7 @@ export async function recomputeEmployeeScorecard(companyId: number, employeeId: 
       SELECT employee_id, ROUND(AVG(score_value / NULLIF(max_value, 0)) * 100, 2) AS pct
         FROM scorecard_entries
        WHERE company_id = ${companyId} AND employee_id = ${employeeId}
-         AND source = 'qleno' AND excluded = false
+         AND source = 'qleno' AND excluded = false AND dismissed_at IS NULL
        GROUP BY employee_id
     ) sub
     WHERE u.id = sub.employee_id AND u.company_id = ${companyId}
@@ -41,7 +47,7 @@ export async function recomputeAllScorecards(companyId: number): Promise<{ emplo
     FROM (
       SELECT employee_id, ROUND(AVG(score_value / NULLIF(max_value, 0)) * 100, 2) AS pct
         FROM scorecard_entries
-       WHERE company_id = ${companyId} AND source = 'qleno' AND excluded = false
+       WHERE company_id = ${companyId} AND source = 'qleno' AND excluded = false AND dismissed_at IS NULL
        GROUP BY employee_id
     ) sub
     WHERE u.id = sub.employee_id AND u.company_id = ${companyId}

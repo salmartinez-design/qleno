@@ -122,6 +122,7 @@ export async function computeCompositeForEmployee(
     SELECT ROUND(AVG(score_value / NULLIF(max_value, 0)) * 100, 2) AS pct, COUNT(*)::int AS n
       FROM scorecard_entries
      WHERE company_id = ${companyId} AND employee_id = ${employeeId} AND excluded = false
+       AND dismissed_at IS NULL
        AND entry_date >= ${fromDate} AND entry_date <= ${toDate}`);
   const satN = Number((satRow.rows[0] as any)?.n ?? 0);
   let satisfaction = satN > 0 && (satRow.rows[0] as any)?.pct != null
