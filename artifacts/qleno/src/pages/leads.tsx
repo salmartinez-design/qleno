@@ -2696,7 +2696,15 @@ export default function LeadsPage() {
   }
 
   return (
-    <DashboardLayout>
+    // [lead-card-overflow 2026-07-28] fullBleed skips DashboardLayout's <main>
+    // padding + `maxWidth: 1600; margin: 0 auto` wrapper (same as the dispatch
+    // board). That centered/padded wrapper was the containing block for the
+    // board-mode detail drawer (position:absolute; right:0), so on wide monitors
+    // the drawer pinned to the inset/centered edge instead of the true content
+    // edge and the office saw the opened lead card cut off past the right edge.
+    // fullBleed lets the app-shell own the full height + width; the drawer's
+    // right:0 now reaches the real viewport edge and stays fully visible.
+    <DashboardLayout fullBleed>
       {/* Top bar */}
       <div style={{ background: "#0A0E1A", padding: "0 20px", height: 48, display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
         {/* Title doubles as the "back to the list" affordance — no redundant
@@ -2729,10 +2737,19 @@ export default function LeadsPage() {
         ) : <div />}
       </div>
 
-      {mainView === "reports" && <ReportsView />}
-      {mainView === "sequences" && <SequencesView focusSeqId={focusSeqId} onSeeEnrolled={openEnrollments} />}
-      {mainView === "enrollments" && <EnrollmentsView initialSeqId={enrollSeqId} onOpenSequence={openSequence} />}
-      {mainView === "logs" && <LogsView onOpenSequence={openSequence} />}
+      {/* [lead-card-overflow 2026-07-28] Under fullBleed the DashboardLayout
+          <main> scroll container is gone, so the non-pipeline sub-views (each a
+          self-padded, overflowY:auto root) need their own flex scroll region to
+          fill the remaining height and scroll — otherwise they'd clip against the
+          shell's overflow:hidden. The pipeline branch below owns its own flex:1. */}
+      {mainView !== "pipeline" && (
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto" }}>
+          {mainView === "reports" && <ReportsView />}
+          {mainView === "sequences" && <SequencesView focusSeqId={focusSeqId} onSeeEnrolled={openEnrollments} />}
+          {mainView === "enrollments" && <EnrollmentsView initialSeqId={enrollSeqId} onOpenSequence={openSequence} />}
+          {mainView === "logs" && <LogsView onOpenSequence={openSequence} />}
+        </div>
+      )}
 
       {mainView === "pipeline" && (
         <div style={{ display: "flex", flexDirection: "column", flex: 1, overflow: "hidden" }}>
