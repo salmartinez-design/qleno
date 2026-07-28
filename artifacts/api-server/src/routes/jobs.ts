@@ -6105,9 +6105,36 @@ const VALID_STATUSES = ["scheduled", "in_progress", "complete", "cancelled"];
 const VALID_SERVICE_TYPES = ["standard_clean", "deep_clean", "move_out", "recurring", "post_construction", "move_in", "office_cleaning", "common_areas", "retail_store", "medical_office", "ppm_turnover", "post_event"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+// [status-derived 2026-07-28] The report's Status was matching the STORED
+// jobs.status column, but the app's real "in progress" is DERIVED from clock
+// state, not stored — a tech clocked in on a job typically leaves the row at
+// status='scheduled'. So "Today + In Progress" returned 0 even with a live
+// job (Alma on the National Able commercial job, clocked in 6:56am). This
+// CASE replicates lib/job-status.ts / getJobVisualStatus's precedence for the
+// four report buckets (cancelled → complete → active → scheduled), where
+// active = status='in_progress' OR an open timeclock entry (clock_in_at set,
+// clock_out_at null) on a non-terminal job. Used for BOTH the Status filter
+// and the displayed STATUS column, so the report and the dispatch board agree
+// and the filter can never miss a clock-active job.
+const JOBS_V2_DERIVED_STATUS = sql`CASE
+  WHEN j.status = 'cancelled' THEN 'cancelled'
+  WHEN j.status = 'complete'  THEN 'complete'
+  WHEN j.status = 'in_progress' THEN 'in_progress'
+  WHEN EXISTS (
+    SELECT 1 FROM timeclock tc
+    WHERE tc.job_id = j.id AND tc.company_id = j.company_id
+      AND tc.clock_in_at IS NOT NULL AND tc.clock_out_at IS NULL
+  ) THEN 'in_progress'
+  ELSE 'scheduled'
+END`;
+
 function buildJobWhereClause(query: any, companyId: number, cursorId?: number | null) {
   const parts: ReturnType<typeof sql>[] = [sql`j.company_id = ${companyId}`];
-  if (query.status && VALID_STATUSES.includes(query.status)) parts.push(sql`j.status = ${query.status}`);
+  // [status-derived 2026-07-28] Filter on the DERIVED status (same CASE the
+  // list SELECT displays), not the raw column — otherwise a clocked-in job
+  // (status still 'scheduled') is invisible under the "In Progress" filter and
+  // wrongly appears under "Scheduled".
+  if (query.status && VALID_STATUSES.includes(query.status)) parts.push(sql`(${JOBS_V2_DERIVED_STATUS}) = ${query.status}`);
   if (query.branch_id && query.branch_id !== "all") { const v = parseInt(query.branch_id); if (!isNaN(v)) parts.push(sql`j.branch_id = ${v}`); }
   if (query.zone_id) { const v = parseInt(query.zone_id); if (!isNaN(v)) parts.push(sql`j.zone_id = ${v}`); }
   if (query.date_from && DATE_RE.test(query.date_from)) parts.push(sql`j.scheduled_date >= ${query.date_from}`);
@@ -6128,7 +6155,11 @@ function buildJobWhereClause(query: any, companyId: number, cursorId?: number | 
   }
   if (query.assigned_user_id) {
     if (query.assigned_user_id === "unassigned") parts.push(sql`j.assigned_user_id IS NULL`);
-    else { const v = parseInt(query.assigned_user_id); if (!isNaN(v)) parts.push(sql`j.assigned_user_id = ${v}`); }
+    // [tech-filter-real 2026-07-28] Match the tech as EITHER the primary
+    // (assigned_user_id) OR any team member on the job (job_technicians) — the
+    // assignment-mirror rule: a job shows on every assigned tech's board, so the
+    // report must return it for a secondary team member too, not only the primary.
+    else { const v = parseInt(query.assigned_user_id); if (!isNaN(v)) parts.push(sql`(j.assigned_user_id = ${v} OR EXISTS (SELECT 1 FROM job_technicians jt WHERE jt.job_id = j.id AND jt.user_id = ${v}))`); }
   }
   if (query.client_id) { const v = parseInt(query.client_id); if (!isNaN(v)) parts.push(sql`j.client_id = ${v}`); }
   if (query.service_type && VALID_SERVICE_TYPES.includes(query.service_type)) parts.push(sql`j.service_type = ${query.service_type}`);
@@ -6148,7 +6179,18 @@ function buildJobWhereClause(query: any, companyId: number, cursorId?: number | 
   return sql.join(parts, sql` AND `);
 }
 
-const JOBS_V2_FROM = sql`FROM jobs j LEFT JOIN clients c ON j.client_id = c.id LEFT JOIN users u ON j.assigned_user_id = u.id LEFT JOIN service_zones sz ON j.zone_id = sz.id LEFT JOIN branches b ON j.branch_id = b.id`;
+// [account-client-name 2026-07-28] `a` (accounts) joined so commercial/account
+// jobs — which carry account_id and a NULL personal client — resolve a name
+// from accounts.account_name instead of rendering "—". Mirrors the canonical
+// convention at jobs.ts:938 and the dispatch/estimates joins. LEFT JOIN on a
+// unique account_id can't fan out rows, so KPI/count aggregates are unaffected.
+const JOBS_V2_FROM = sql`FROM jobs j LEFT JOIN clients c ON j.client_id = c.id LEFT JOIN users u ON j.assigned_user_id = u.id LEFT JOIN service_zones sz ON j.zone_id = sz.id LEFT JOIN branches b ON j.branch_id = b.id LEFT JOIN accounts a ON a.id = j.account_id`;
+
+// [account-client-name 2026-07-28] Canonical client-name for every Jobs Report
+// surface (list + export): the account/business name for commercial jobs, the
+// person's name otherwise. NULLIF(TRIM(...), '') → NULL (renders "—") only when
+// no name exists from any source.
+const JOBS_V2_CLIENT_NAME = sql`NULLIF(TRIM(CASE WHEN j.account_id IS NOT NULL THEN a.account_name ELSE concat(c.first_name, ' ', c.last_name) END), '')`;
 
 // [jobs-report-revenue 2026-07-28] Canonical per-job revenue for every Jobs
 // Report surface (KPI, list Amount, export), mirroring dashboard.ts:1587.
@@ -6167,17 +6209,24 @@ router.get("/v2/kpi", requireAuth, requireRole("owner", "admin", "office", "supe
     // (commercial = hourly_rate × allowed_hours, else billed_amount, else
     // base_fee) instead of raw base_fee — commercial/PPM jobs no longer report
     // $0. Cancelled jobs are excluded from revenue AND the average everywhere
-    // (previously only the booked_on branch filtered them out), and avg_job is
-    // based on completed jobs, not every row.
+    // (previously only the booked_on branch filtered them out).
+    //
+    // [avg-job-parity 2026-07-28] avg_job = revenue ÷ revenue-bearing jobs IN
+    // VIEW (non-cancelled AND revenue > 0) — NOT completed-only. The #1303
+    // completed-only basis divided by COUNT(complete), which is 0 in Booked-On
+    // mode (all future Scheduled visits) → the card read $0 while the list
+    // footer showed avg $289. This single definition matches the footer's
+    // tableAvg in jobs-list.tsx so the KPI card and the footer never disagree,
+    // in both Booked-On and period (Today/Week/…) modes.
     const result = await db.execute(sql`
       SELECT
         COALESCE(MIN(${JOBS_V2_REVENUE}) FILTER (WHERE j.status != 'cancelled'), 0) AS revenue_min,
         COALESCE(MAX(${JOBS_V2_REVENUE}) FILTER (WHERE j.status != 'cancelled'), 0) AS revenue_max,
         COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status != 'cancelled'), 0) AS revenue_total,
         COUNT(*) FILTER (WHERE j.status = 'complete') AS completed,
-        CASE WHEN COUNT(*) FILTER (WHERE j.status = 'complete') > 0
-             THEN ROUND(COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status = 'complete'), 0)
-                        / COUNT(*) FILTER (WHERE j.status = 'complete'), 2)
+        CASE WHEN COUNT(*) FILTER (WHERE j.status != 'cancelled' AND ${JOBS_V2_REVENUE} > 0) > 0
+             THEN ROUND(COALESCE(SUM(${JOBS_V2_REVENUE}) FILTER (WHERE j.status != 'cancelled'), 0)
+                        / COUNT(*) FILTER (WHERE j.status != 'cancelled' AND ${JOBS_V2_REVENUE} > 0), 2)
              ELSE 0 END AS avg_job,
         COUNT(*) AS total_jobs,
         COUNT(DISTINCT j.scheduled_date) AS distinct_days,
@@ -6225,7 +6274,7 @@ router.get("/v2/list", requireAuth, requireRole("owner", "admin", "office", "sup
       client_name: sql`concat(c.first_name, ' ', c.last_name)`,
       service_type: sql`j.service_type`,
       base_fee: JOBS_V2_REVENUE,
-      status: sql`j.status`,
+      status: JOBS_V2_DERIVED_STATUS,
       created_at: sql`j.created_at`,
       // frontend column keys
       date: sql`j.scheduled_date`,
@@ -6240,13 +6289,14 @@ router.get("/v2/list", requireAuth, requireRole("owner", "admin", "office", "sup
 
     const result = await db.execute(sql`
       SELECT
-        j.id, j.client_id, j.assigned_user_id, j.service_type, j.status,
+        j.id, j.client_id, j.assigned_user_id, j.service_type,
+        ${JOBS_V2_DERIVED_STATUS} AS status,
         j.scheduled_date, j.scheduled_time, j.frequency, j.base_fee,
         j.allowed_hours, j.actual_hours, j.notes, j.flagged, j.zone_id, j.branch_id,
         j.charge_succeeded_at, j.charge_failed_at, j.charge_attempted_at,
         j.created_at, j.office_notes,
         ${JOBS_V2_REVENUE} AS amount,
-        NULLIF(TRIM(concat(c.first_name, ' ', c.last_name)), '') AS client_name,
+        ${JOBS_V2_CLIENT_NAME} AS client_name,
         c.address AS client_address, c.city AS client_city, c.state AS client_state, c.zip AS client_zip, c.referral_source,
         concat(u.first_name, ' ', u.last_name) AS tech_name,
         sz.name AS zone_name, sz.color AS zone_color, b.name AS branch_name
@@ -6273,6 +6323,39 @@ router.get("/v2/list", requireAuth, requireRole("owner", "admin", "office", "sup
     return res.json({ data: mapped, total, next_cursor: nextCursor, has_more: hasMore });
   } catch (err) {
     console.error("GET /jobs/v2/list error:", err);
+    return res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+// GET /api/jobs/v2/service-types — real service-type options for the report's
+// Service filter.
+// [service-filter-real 2026-07-28] The dropdown was a hardcoded generic list
+// that didn't reflect the tenant's actual services (and offered options that
+// matched nothing while missing commercial ones like commercial_cleaning).
+// Source of truth = the DISTINCT service_type values that actually appear on
+// this company's jobs, so we never offer a dead option. Each value is labelled
+// from the tenant-managed commercial_service_types table (name) when its slug
+// matches — otherwise the frontend falls back to its residential label map /
+// fmtSvc. Returns [{ value, label }].
+router.get("/v2/service-types", requireAuth, requireRole("owner", "admin", "office", "super_admin"), async (req, res) => {
+  try {
+    const companyId = req.auth!.companyId;
+    const result = await db.execute(sql`
+      SELECT DISTINCT j.service_type AS value, cst.name AS label
+        FROM jobs j
+        LEFT JOIN commercial_service_types cst
+          ON cst.company_id = j.company_id AND cst.slug = j.service_type
+       WHERE j.company_id = ${companyId}
+         AND j.service_type IS NOT NULL AND j.service_type <> ''
+       ORDER BY value
+    `);
+    const list = ((result as any).rows ?? []).map((r: any) => ({
+      value: r.value as string,
+      label: (r.label as string | null) ?? null,
+    }));
+    return res.json(list);
+  } catch (err) {
+    console.error("GET /jobs/v2/service-types error:", err);
     return res.status(500).json({ error: "Internal Server Error" });
   }
 });
@@ -6472,10 +6555,11 @@ router.get("/v2/export", requireAuth, requireRole("owner", "admin", "office", "s
     const where = buildJobWhereClause(req.query, companyId);
     const result = await db.execute(sql`
       SELECT
-        j.id, NULLIF(TRIM(concat(c.first_name, ' ', c.last_name)), '') AS client_name,
+        j.id, ${JOBS_V2_CLIENT_NAME} AS client_name,
         c.address AS client_address, c.city AS client_city,
         concat(u.first_name, ' ', u.last_name) AS tech_name,
-        j.scheduled_date, j.scheduled_time, j.service_type, j.status,
+        j.scheduled_date, j.scheduled_time, j.service_type,
+        ${JOBS_V2_DERIVED_STATUS} AS status,
         ${JOBS_V2_REVENUE} AS amount, j.frequency, j.flagged,
         b.name AS branch_name, sz.name AS zone_name, c.referral_source,
         CASE WHEN j.charge_succeeded_at IS NOT NULL THEN 'paid'
